@@ -293,8 +293,13 @@ impl Registration {
                     .iter()
                     .map(|b| format!("{b:02x}"))
                     .collect();
-                serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
-                    "summary":projection.summary.json(),"readings":projection.readings})
+                let mut ready = serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
+                    "summary":projection.summary.json(),"readings":projection.readings,
+                    "needs":projection.needs});
+                if let Some(latest) = &projection.latest {
+                    ready["latest"] = serde_json::json!(latest);
+                }
+                ready
             }
             crate::summary::CachedDetails::Unavailable => {
                 serde_json::json!({"pageId":page,"state":"unavailable"})
@@ -1227,11 +1232,24 @@ impl crate::sync::Admission for OwnerAdmission {
                 if tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str()) {
                     return Err(SyncCode::StaleEpoch.into());
                 }
-                if let crate::sync::Access::Append(c) = access
-                    && (values::decimal(&c.membership_revision, false)? != head.revision
-                        || !matches!(c.namespace.as_str(), "content" | "own"))
-                {
-                    return Err(SyncCode::Denied.into());
+                if let crate::sync::Access::Append(c) = access {
+                    let cited = values::decimal(&c.membership_revision, false)?;
+                    if cited > head.revision
+                        || cited < values::decimal(cert.membership_revision, false)?
+                        || !matches!(c.namespace.as_str(), "content" | "own")
+                    {
+                        return Err(SyncCode::Denied.into());
+                    }
+                    // A session admitted before the head moved seals at the head it knew. Every
+                    // authority fact above is read at the head, so the append stands when the
+                    // statements it missed are all scoped to other pages. Any other change, while
+                    // the device is still authorised, is a stale view and no verdict on the device:
+                    // ask it to catch up, never `DENIED`, which the browser treats as lost access.
+                    if cited < head.revision
+                        && !tx.unrelated_since(&scope.page, cited, head.revision)?
+                    {
+                        return Err(SyncCode::ResyncRequired.into());
+                    }
                 }
                 Ok(binding.signing)
             })

@@ -57,6 +57,16 @@
 .question-line[data-state='answered'] .question-line-mark {
   color: var(--tmt-ui-color-working);
 }
+/* The mark and the spinner that stands in for it while an answer is sent share one cell, so the
+   swap moves nothing. */
+.question-line-mark {
+  display: inline-block;
+  min-inline-size: 1em;
+  text-align: center;
+}
+.question-line-mark .comment-echo-mark svg {
+  vertical-align: -1px;
+}
 .question-line-title {
   overflow-wrap: anywhere;
 }

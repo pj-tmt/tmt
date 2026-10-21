@@ -87,6 +87,12 @@ impl PagePolicy {
                 };
             }
             Payload::Archive(p) if p.page_id == page => self.archived = true,
+            Payload::Unarchive(p) if p.page_id == page => {
+                if !self.archived || self.deleted {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                self.archived = false;
+            }
             Payload::Delete(p) if p.page_id == page => self.deleted = true,
             _ => {}
         }

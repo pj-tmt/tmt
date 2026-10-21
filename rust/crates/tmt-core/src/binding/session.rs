@@ -346,6 +346,36 @@ impl BindingSessionState {
         Some(next)
     }
 
+    /// A launch admits its process before the provider names the conversation.
+    /// The first resumed or compacted start of that same running, launch-owned
+    /// process names it; neither is a switch away from a known conversation.
+    /// Called only with a fresh driver-verified process. An unnamed key without
+    /// an owner, such as a replacement process, waits for its own startup start.
+    pub fn name_launch(
+        &self,
+        key: ObservedSessionKey,
+        transition: SessionTransition,
+    ) -> Option<Self> {
+        let old = self.key.as_ref()?;
+        if !matches!(
+            transition,
+            SessionTransition::Resumed | SessionTransition::Compacted
+        ) || old.incarnation != key.incarnation
+            || old.provider_session.is_some()
+            || key.provider_session.is_none()
+            || self.launch_owner.is_none()
+            || self.state != RuntimeState::Running
+        {
+            return None;
+        }
+        Some(Self {
+            key: Some(key),
+            launch_owner: self.launch_owner.clone(),
+            state: RuntimeState::Running,
+            last_transition: Some(transition),
+        })
+    }
+
     /// Admission requires fresh driver evidence. Uncertain admission leaves a
     /// known-ended observation intact rather than enabling unverified delivery.
     pub fn admit(
@@ -655,6 +685,86 @@ mod tests {
         ObservedSessionKey {
             incarnation: ProcessIncarnation::new(42, start).unwrap(),
             provider_session: Some(ProviderSessionId::new(session).unwrap()),
+        }
+    }
+
+    #[test]
+    fn a_resumed_or_compacted_start_names_only_a_running_launch_owned_unnamed_key() {
+        let named = key("child-start", "session-a");
+        let unnamed = ObservedSessionKey {
+            provider_session: None,
+            ..named.clone()
+        };
+        let owner = ProcessIncarnation::new(41, "owner-start").unwrap();
+        let launched = BindingSessionState::default()
+            .admit_launched(
+                unnamed.clone(),
+                owner.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        for transition in [SessionTransition::Resumed, SessionTransition::Compacted] {
+            assert_eq!(
+                launched.name_launch(named.clone(), transition),
+                Some(BindingSessionState {
+                    last_transition: Some(transition),
+                    state: RuntimeState::Running,
+                    key: Some(named.clone()),
+                    launch_owner: Some(owner.clone()),
+                })
+            );
+        }
+        // A resumed launch start names the key exactly as admission does.
+        assert_eq!(
+            launched.name_launch(named.clone(), SessionTransition::Resumed),
+            launched.admit(
+                named.clone(),
+                SessionTransition::Resumed,
+                RuntimeLiveness::Alive
+            )
+        );
+        let refused = |state: &BindingSessionState, key: &ObservedSessionKey| {
+            for transition in [SessionTransition::Resumed, SessionTransition::Compacted] {
+                assert_eq!(
+                    state.name_launch(key.clone(), transition),
+                    None,
+                    "{state:?}"
+                );
+            }
+        };
+        // Another process incarnation.
+        refused(&launched, &key("other-start", "session-a"));
+        // The key must name a session, and only an unnamed key is named.
+        refused(&launched, &unnamed);
+        let started = launched.name_launch(named.clone(), SessionTransition::Compacted);
+        refused(started.as_ref().unwrap(), &key("child-start", "session-b"));
+        // No launch owner: a replacement process admitted by delivery.
+        let replacement = BindingSessionState::default()
+            .admit(
+                unnamed.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        assert_eq!(replacement.launch_owner, None);
+        refused(&replacement, &named);
+        // Not Running: after a provider end, and after the process ended.
+        for state in [RuntimeState::Unknown, RuntimeState::Ended] {
+            let mut stopped = launched.clone();
+            stopped.state = state;
+            refused(&stopped, &named);
+        }
+        refused(&BindingSessionState::default(), &named);
+        // Only a resumed or compacted start.
+        for transition in [
+            SessionTransition::Started,
+            SessionTransition::Cleared,
+            SessionTransition::Forked,
+            SessionTransition::Ended,
+        ] {
+            assert_eq!(launched.name_launch(named.clone(), transition), None);
         }
     }
 

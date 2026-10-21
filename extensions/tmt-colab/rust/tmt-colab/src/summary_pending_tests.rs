@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 fn string(value: &Value, key: &str) -> String {
     value[key].as_str().unwrap_or("").to_owned()
 }
-fn view(case: &Value) -> Conversations {
+pub(crate) fn view(case: &Value) -> Conversations {
     let threads = case["threads"].as_array().unwrap().iter().map(|row| {
         let writer = string(row, "writer");
         let id = string(row, "id");

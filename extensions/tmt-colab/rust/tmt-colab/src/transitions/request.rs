@@ -81,6 +81,9 @@ pub enum OwnerAction<'a> {
     Archive {
         page: &'a str,
     },
+    Unarchive {
+        page: &'a str,
+    },
     Delete {
         page: &'a str,
     },
@@ -269,6 +272,7 @@ impl Engine {
                     OwnerAction::History { page, mode } => (page, PageAction::History(mode)),
                     OwnerAction::Retention { page, days } => (page, PageAction::Retention(days)),
                     OwnerAction::Archive { page } => (page, PageAction::Archive),
+                    OwnerAction::Unarchive { page } => (page, PageAction::Unarchive),
                     OwnerAction::Delete { page } => (page, PageAction::Delete),
                     _ => unreachable!(),
                 };

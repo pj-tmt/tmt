@@ -62,9 +62,11 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   await expect(page.getByTestId('annotation-row')).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
   await run(page, 'syncRecords');
-  await expect(page.locator('[data-turn-role="user"] .conversation-body > pre').first()).toHaveText(
-    '<script>inert ask</script>',
-  );
+  await expect(
+    page.locator('[data-turn-role="user"] .conversation-body > .markdown-body', {
+      hasText: '<script>',
+    }),
+  ).toHaveText('<script>inert ask</script>');
   await expect(page.locator('.chat-panel script,.chat-panel img')).toHaveCount(0);
   await expect(page.getByText('The agent returned an empty reply.')).toBeVisible();
   await expect(page.getByTestId('ask-reply-attribution')).toContainText('Agent 2');
@@ -754,6 +756,24 @@ test('a live archive preserves Chat text for Copy and removes publication contro
   expect(await page.evaluate(() => (window as any).copiedArchiveDraft)).toBe(draft);
   await expect(page.getByRole('button', { name: 'Agents', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  expect((await run(page, 'proof')).actions).toEqual([]);
+});
+
+test('a verified restore keeps a Chat draft inert until the reader sends', async ({ page }) => {
+  await mount(page);
+  const input = await compose(page);
+  const draft = '@Agent 1 Explain exactly';
+  await expect(input).toHaveText(draft, { useInnerText: true });
+  await run(page, 'archive');
+  const chat = page.getByTestId('chat-panel');
+  await expect(chat.locator('.archive-unsent-draft pre')).toHaveText(draft);
+  await run(page, 'restore');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await expect(chat.getByRole('combobox', { name: 'Message', exact: true })).toHaveText(draft, {
+    useInnerText: true,
+  });
+  await expect(chat.locator('.archive-unsent-draft')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toEqual([]);
   expect((await run(page, 'proof')).actions).toEqual([]);
 });

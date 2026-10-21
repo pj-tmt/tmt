@@ -143,7 +143,6 @@ impl Resume {
 
 pub(super) fn shell_json(tab: super::shell::OpsTab) -> &'static str {
     match tab {
-        super::shell::OpsTab::Overview => "overview",
         super::shell::OpsTab::Agents => "agents",
         super::shell::OpsTab::Digest => "digest",
     }
@@ -151,8 +150,8 @@ pub(super) fn shell_json(tab: super::shell::OpsTab) -> &'static str {
 
 pub(super) fn shell_from(value: &Value) -> Option<super::shell::OpsTab> {
     Some(match value.as_str()? {
-        "overview" => super::shell::OpsTab::Overview,
-        "agents" => super::shell::OpsTab::Agents,
+        // A saved Overview tab opens the merged Agents tab.
+        "overview" | "agents" => super::shell::OpsTab::Agents,
         "digest" => super::shell::OpsTab::Digest,
         _ => return None,
     })
@@ -253,7 +252,7 @@ mod tests {
             layer: Default::default(),
             controls: None,
             visibility: Default::default(),
-            shell: super::super::shell::OpsTab::Overview,
+            shell: super::super::shell::OpsTab::Agents,
             squads_expanded: vec![],
             pool_expanded: false,
             tab: "product".into(),

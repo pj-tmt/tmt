@@ -12,6 +12,8 @@ export async function recoverSession(options: {
   storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
   reopen(): Promise<unknown>;
   reload(): void;
+  /** Preserve the SDK failure for public-entry guidance; never infer pairing loss from false. */
+  failed?(error: unknown): void;
 }): Promise<boolean> {
   try {
     const key = recoveryKey(options.mount);
@@ -32,8 +34,8 @@ export async function recoverSession(options: {
     return true;
   } catch (error) {
     if (error instanceof RecoveryRequiredError) throw error;
-    // No paired key, a refused/failed reopen, or unavailable session storage
-    // leaves plain guidance. It never authorizes retrying an Ask.
+    // A failed reopen or unavailable storage never authorizes retrying an Ask.
+    options.failed?.(error);
     return false;
   }
 }

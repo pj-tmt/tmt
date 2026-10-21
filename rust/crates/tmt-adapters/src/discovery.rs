@@ -1,14 +1,14 @@
 //! Finite read-only candidate acquisition and annotation through owning ports.
 
 use crate::{
-    host::{DiscoveryObservation, Host, HostError},
+    host::{Host, HostError},
     process::CommandRunner,
     storage::{Storage, StorageError},
 };
 use std::{path::Path, time::Instant};
 use tmt_core::{
     binding::{self, BindingEvidence},
-    discovery::DiscoveryCandidate,
+    discovery::{DiscoveryCandidate, DiscoveryObservation},
     endpoint::EndpointProbe,
 };
 
@@ -18,7 +18,8 @@ pub fn annotate(
     deadline: Instant,
 ) -> Result<(), StorageError> {
     // A fresh installation has no stored identities. Never open/create a database.
-    let (entries, truncated) = Storage::discovery_entries(database, &observation.socket, deadline)?;
+    let (entries, truncated) =
+        Storage::discovery_entries(database, observation.host, &observation.socket, deadline)?;
     observation.truncated |= truncated;
     for candidate in &mut observation.candidates {
         let owners: Vec<_> = entries
@@ -78,6 +79,7 @@ pub fn guarded_candidate<R: CommandRunner>(
         .ok_or_else(|| HostError::Unavailable("discovery is supported only on tmux".into()))?;
     annotate(&mut observation, database, deadline)
         .map_err(|e| HostError::ServerIds(Box::new(e)))?;
+    let driver = observation.host.as_str().into();
     observation
         .candidates
         .into_iter()
@@ -87,7 +89,7 @@ pub fn guarded_candidate<R: CommandRunner>(
                 && c.fence.as_ref().is_some_and(|f| f.digest() == expect)
         })
         .ok_or_else(|| HostError::Evidence {
-            driver: tmt_core::host::HostKind::Tmux.as_str().into(),
+            driver,
             reason: "discovery target changed or cannot be verified",
         })
 }
@@ -110,42 +112,56 @@ mod tests {
     use tmt_core::{
         discovery::DiscoveryTarget,
         endpoint::{BindingMarker, ProcessIncarnation},
+        host::HostKind,
     };
 
-    #[test]
-    fn discovery_digest_matches_normative_first_run_and_ownership_vectors() {
-        let contract: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../contracts/discovery-v1.json")).unwrap();
-        let fence = &contract["digestFence"];
-        let base = &fence["base"];
-        assert_eq!(base["host"], tmt_core::host::HostKind::Tmux.as_str());
-        for vector in fence["vectors"].as_array().unwrap() {
-            let marker = &vector["marker"];
+    /// One digest block: each vector overrides its block's `base`.
+    fn check(block: &serde_json::Value) -> usize {
+        let vectors = block["vectors"].as_array().unwrap();
+        for vector in vectors {
+            let mut value = block["base"].clone();
+            for (key, field) in vector.as_object().unwrap() {
+                value[key] = field.clone();
+            }
+            let marker = &value["marker"];
             let target = DiscoveryTarget {
-                socket: base["socket"].as_str().unwrap().into(),
+                host: HostKind::parse(value["host"].as_str().unwrap()).unwrap(),
+                socket: value["socket"].as_str().unwrap().into(),
                 server: ProcessIncarnation::new(
-                    base["serverPid"].as_u64().unwrap(),
-                    vector["serverStartIdentity"].as_str().unwrap(),
+                    value["serverPid"].as_u64().unwrap(),
+                    value["serverStartIdentity"].as_str().unwrap(),
                 )
                 .unwrap(),
-                server_id: vector["serverId"].as_str().map(str::to_owned),
-                server_start_time: base["serverStartTime"].as_str().unwrap().into(),
-                pane: base["pane"].as_str().unwrap().into(),
+                server_id: value["serverId"].as_str().map(str::to_owned),
+                server_start_time: value["serverStartTime"].as_str().unwrap().into(),
+                pane: value["pane"].as_str().unwrap().into(),
                 process: ProcessIncarnation::new(
-                    base["panePid"].as_u64().unwrap(),
-                    base["paneStartIdentity"].as_str().unwrap(),
+                    value["panePid"].as_u64().unwrap(),
+                    value["paneStartIdentity"].as_str().unwrap(),
                 )
                 .unwrap(),
-                runtime: base["runtime"].as_str().map(str::to_owned),
-                marker: (!marker.is_null()).then(|| BindingMarker {
-                    name: "cosmetic".into(),
-                    canonical_name: "cosmetic".into(),
-                    identity_id: marker["identityId"].as_str().unwrap().into(),
-                    binding_id: marker["bindingId"].as_str().unwrap().into(),
-                    server_id: marker["serverId"].as_str().unwrap().into(),
-                    pane_pid: marker["panePid"].as_u64().unwrap(),
+                runtime: value["runtime"].as_str().map(str::to_owned),
+                marker: (!marker.is_null()).then(|| {
+                    let name = marker["name"].as_str().unwrap_or("cosmetic");
+                    BindingMarker {
+                        name: name.into(),
+                        canonical_name: name.into(),
+                        identity_id: marker["identityId"].as_str().unwrap().into(),
+                        binding_id: marker["bindingId"].as_str().unwrap().into(),
+                        server_id: marker["serverId"].as_str().unwrap().into(),
+                        pane_pid: marker["panePid"].as_u64().unwrap(),
+                    }
                 }),
             };
+            if target.host != HostKind::Tmux {
+                // An external server's start time is core's own start token.
+                assert_eq!(
+                    target.server_start_time,
+                    target.server.start_identity(),
+                    "{}",
+                    vector["name"]
+                );
+            }
             assert_eq!(
                 target.digest(),
                 vector["expect"].as_str().unwrap(),
@@ -153,5 +169,18 @@ mod tests {
                 vector["name"]
             );
         }
+        vectors.len()
+    }
+
+    #[test]
+    fn discovery_digest_matches_normative_first_run_and_ownership_vectors() {
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../contracts/discovery-v1.json")).unwrap();
+        let fence = &contract["digestFence"];
+        assert_eq!(fence["base"]["host"], HostKind::Tmux.as_str());
+        assert_eq!(check(fence), 5);
+        let external = &fence["externalVectors"];
+        assert_ne!(external["base"]["host"], HostKind::Tmux.as_str());
+        assert_eq!(check(external), 5);
     }
 }

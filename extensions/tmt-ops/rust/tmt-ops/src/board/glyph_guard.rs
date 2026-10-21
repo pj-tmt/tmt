@@ -10,14 +10,16 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
         "─│┌┐└┘├┤┬┴┼",
         "single-line rules and square overlay borders",
     ),
-    ("━", "focused base-pane heavy top rule"),
+    (
+        "━┃┏┓┗┛",
+        "focused pane heavy frame and focused control rule",
+    ),
     (
         "▁▂▃▄▅▆▇█▒░■",
         "usage height fractions, provider segments and legend keys",
     ),
     ("↩", "Recent exchanges reply direction"),
     ("↔↕", "pane divider resize axes"),
-    ("▶", "NO_COLOR receiving-pane marker"),
     ("▪", "saved agent or squad pin in the fixed name-cell slot"),
     ("·", "separates adjacent labels without implying a state"),
     ("…", "shared text fitter's truncation indicator"),
@@ -165,13 +167,14 @@ fn real_pane_titles_register_heavy_no_color_and_ascii_focus_cues() {
             .unwrap();
         let buffer = terminal.backend().buffer();
         let title = (0..60).map(|x| buffer[(x, 0)].symbol()).collect::<String>();
-        assert!(title.starts_with("━━ "), "{title}");
-        if depth == Depth::None {
-            assert!(
-                title.contains(if ascii { "> Agents" } else { "▶ Agents" }),
-                "{title}"
-            );
-        }
+        assert!(
+            title.starts_with(if ascii { "+= " } else { "┏━ " }),
+            "{title}"
+        );
+        assert!(
+            title.contains(if ascii { "> Agents" } else { "▸ Agents" }),
+            "{title}"
+        );
         assert_eq!(glyph_error(&title), None, "{title}");
     }
 }
@@ -202,7 +205,9 @@ fn unavailable_table_cell_uses_the_registered_em_dash_without_broadening_decorat
 fn digest_matrix_estimate_caption_registers_only_the_approximation_operator() {
     use ratatui::{Terminal, backend::TestBackend};
     let mut app = crate::board::app::workspace::tests::board();
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    app.right_tab = crate::board::shell::RightTab::Measure;
     let mut terminal = Terminal::new(TestBackend::new(160, 51)).unwrap();
     terminal
         .draw(|frame| {

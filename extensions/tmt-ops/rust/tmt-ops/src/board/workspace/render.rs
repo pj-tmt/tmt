@@ -42,16 +42,15 @@ fn member_noun(count: Option<usize>) -> &'static str {
 }
 
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
-    let tabs = [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest];
+    let tabs = [OpsTab::Agents, OpsTab::Digest];
     let selected = tabs
         .iter()
         .position(|tab| *tab == app.shell.tab)
         .unwrap_or(0);
     use crate::action::OpsUiAction;
     let keys = [
-        (OpsUiAction::Overview, "1"),
-        (OpsUiAction::Agents, "2"),
-        (OpsUiAction::DigestDashboard, "3"),
+        (OpsUiAction::Agents, "1"),
+        (OpsUiAction::DigestDashboard, "2"),
     ]
     .map(|(action, preferred)| crate::board::keycap::key(app, action, preferred));
     let (line, hits) =
@@ -80,7 +79,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
             app.look().role(Role::Waiting),
         );
     }
-    if app.shell.tab == OpsTab::Overview {
+    if app.shell.tab == OpsTab::Agents {
         let complete = snapshot.roster.observation == OpsObservation::Complete
             && snapshot.roster.membership_complete
             && snapshot
@@ -134,7 +133,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     )
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
-    if app.shell.tab == OpsTab::Overview {
+    if matches!(app.shell.tab, OpsTab::Agents) {
         crate::board::overview::chart::host::render_panel(
             frame,
             app,
@@ -146,14 +145,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
     use crate::action::ResizeBoundary as Boundary;
-    let (columns, rows) = if app.shell.tab == OpsTab::Overview {
-        (Boundary::OverviewColumns, Boundary::OverviewList)
-    } else {
-        (Boundary::AgentsColumns, Boundary::AgentsRows)
-    };
-    app.pane_resize
-        .record_panes(placement.panes, columns, rows, frame.area());
-    if app.shell.tab == OpsTab::Overview {
+    let (columns, rows) = (Boundary::AgentsColumns, Boundary::AgentsRows);
+    app.pane_resize.record_panes(
+        placement,
+        columns,
+        rows,
+        app.agents_list_min_columns(),
+        frame.area(),
+    );
+    if matches!(app.shell.tab, OpsTab::Agents) {
         let usage = app.overview_usage_band(area);
         if usage.height > 1
             && app
@@ -168,24 +168,26 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             );
             app.pane_resize.record(
                 crate::board::pane_resize::Boundary {
-                    id: Boundary::OverviewUsage,
+                    id: Boundary::AgentsUsage,
                     hit: Rect::new(
                         area.x,
-                        usage.bottom() + 2,
+                        usage.bottom(),
                         placement.list.map_or(0, |list| list.width),
                         1,
                     ),
                     total: area.height,
                     before: usage.height,
                     min,
-                    max: area.height.saturating_sub(
-                        crate::board::overview::composition::minimum_height(app, area.width),
-                    ),
+                    max: area
+                        .height
+                        .saturating_sub(crate::board::overview::composition::minimum_height()),
                 },
                 frame.area(),
             );
         }
-    } else if let (Some(list), Some(detail)) = (placement.list, placement.conversation)
+    }
+    if app.shell.tab == OpsTab::Agents
+        && let (Some(list), Some(detail)) = (placement.list, placement.conversation)
         && list.y == detail.y
     {
         crate::board::divider::paint(
@@ -195,11 +197,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             app.look(),
         );
     }
-    if let Some(bands) = placement.agents {
-        agents_controls(frame, app, bands);
-    }
     if let Some(list) = placement.list {
-        if app.shell.tab == OpsTab::Overview {
+        if app.flat_agents() {
             crate::board::overview::composition::render(frame, app, list);
         } else {
             tree(frame, app, list);
@@ -207,7 +206,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
-        if app.shell.tab == OpsTab::Agents {
+        if app.shell.tab == OpsTab::Agents
+            && app.right_tab == crate::board::shell::RightTab::Measure
+        {
+            crate::board::overview::composition::measure::render(frame, app, detail);
+        } else if app.shell.tab == OpsTab::Agents {
             crate::board::agents_focus::render(frame, app, detail);
         } else if let Some(target) = app.workspace_retained_search_target() {
             if matches!(target, OpsTarget::Member { .. }) {
@@ -215,13 +218,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 squad_detail(frame, app, detail);
             }
-        } else if app.shell.tab == OpsTab::Overview && frame.area().width >= 140 {
-            crate::board::overview::composition::wide::render(frame, app, placement.list, detail);
         } else if app.workspace_selected_member().is_some() {
             crate::board::conversation::render(frame, app, detail);
         } else {
             squad_detail(frame, app, detail);
         }
+    }
+    if app.shell.tab == OpsTab::Agents {
+        crate::board::pane_chrome::mark_focused_rule(
+            frame.buffer_mut(),
+            app,
+            placement.list,
+            placement.conversation,
+        );
     }
 }
 fn tree(frame: &mut Frame, app: &App, area: Rect) {
@@ -238,7 +247,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         y: inside.y + rule_height,
         ..inside
     });
-    let note = if app.workspace.query.is_empty() {
+    let totals = if app.workspace.query.is_empty() {
         let squads = snapshot
             .roster
             .squads
@@ -277,16 +286,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             look.role(Role::Muted),
         )
     };
-    crate::board::section_rule::paint(
-        frame.buffer_mut(),
+    controls_rule(
+        frame,
+        app,
         Rect {
             height: rule_height,
             ..inside
         },
-        "Squads",
-        note,
-        app.focused() == Pane::Rows,
-        look,
     );
     columns::paint_agents_header(
         frame.buffer_mut(),
@@ -451,6 +457,44 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 }
                 OpsTarget::Pool => false,
             };
+            let model: String = match &row.target {
+                OpsTarget::Member { identity_id, .. } => {
+                    let agent = app.references.agents.get(identity_id);
+                    columns::model_text(
+                        agent.and_then(|agent| agent.runtime.as_deref()),
+                        agent.and_then(|agent| agent.model.as_deref()),
+                    )
+                }
+                // A squad's idle alert, else what it is doing now.
+                OpsTarget::Squad(room) => snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| &squad.room_id == room)
+                    .map(|squad| {
+                        squad
+                            .idle_alert
+                            .and_then(|alert| alert.label(model_width))
+                            .unwrap_or_else(|| {
+                                // The tree never discloses a waiting preview.
+                                let (now, pending) =
+                                    crate::board::overview::monitor::squad_now(snapshot, squad);
+                                if pending {
+                                    "waiting on you".to_owned()
+                                } else {
+                                    crate::board::workspace::render::safe(&now)
+                                }
+                            })
+                    })
+                    .unwrap_or_default(),
+                OpsTarget::Pool => String::new(),
+            };
+            // Decided once per row: focus in this agent's conversation.
+            let in_conversation = selected
+                && matches!(row.target, OpsTarget::Member { .. })
+                && app.focused() == Pane::Replies;
+            app.conversation_tinted
+                .set(app.conversation_tinted.get() || in_conversation);
             let painted = crate::board::tree_row::paint(
                 frame.buffer_mut(),
                 stripe,
@@ -463,25 +507,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     state,
                     state_primary_width,
                     tokens,
-                    model: match &row.target {
-                        OpsTarget::Member { identity_id, .. } => {
-                            let agent = app.references.agents.get(identity_id);
-                            columns::model_text(
-                                agent.and_then(|agent| agent.runtime.as_deref()),
-                                agent.and_then(|agent| agent.model.as_deref()),
-                            )
-                        }
-                        OpsTarget::Squad(room) => snapshot
-                            .roster
-                            .squads
-                            .iter()
-                            .find(|squad| &squad.room_id == room)
-                            .and_then(|squad| squad.idle_alert?.label(model_width))
-                            .unwrap_or_default(),
-                        OpsTarget::Pool => String::new(),
-                    },
+                    model: model.clone(),
                     timers: timers.map(|count| count.total),
                     selected,
+                    in_conversation,
                     query: &app.workspace.query,
                 },
                 look,
@@ -491,6 +520,15 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     app,
                     crate::board::app::RowTarget::Workspace(row.target.clone()),
                     area,
+                );
+            }
+            // A squad's "now" line can name a member.
+            if matches!(row.target, OpsTarget::Squad(_))
+                && let Some(area) = painted.model
+            {
+                let displayed = crate::board::view::fit(&model, usize::from(area.width));
+                crate::board::member_links::paint_plain_hits(
+                    frame, app, area, &model, &displayed, false,
                 );
             }
             app.workspace_state_cells
@@ -532,14 +570,47 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
     };
     app.scrolls
         .show_table(frame, Pane::Rows, body, rows.len(), look, paint_rows);
+    if body.height >= 2 {
+        paint_totals(
+            frame,
+            Rect::new(body.x, body.bottom() - 1, body.width, 1),
+            totals,
+        );
+    }
 }
 
-fn agents_controls(
-    frame: &mut Frame,
-    app: &App,
-    bands: crate::board::conversation::layout::AgentsBands,
-) {
-    let inside = bands.filters;
+/// The counts sit at the right of the rows line, below the list they describe.
+pub(in crate::board) fn paint_totals(frame: &mut Frame, line: Rect, totals: Line<'static>) {
+    // The range text on the left is at most 36 cells wide; yield before they meet.
+    if totals.width() == 0 || usize::from(line.width) < totals.width() + 40 {
+        return;
+    }
+    tmt_tui::components::strip::paint_right(
+        frame.buffer_mut(),
+        Rect::new(line.x, line.y, line.width.saturating_sub(1), 1),
+        totals,
+    );
+}
+
+/// The left pane's section rule carries the list controls: the filter chips
+/// and the search field.
+pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) {
+    if area.is_empty() {
+        return;
+    }
+    let look = app.look();
+    let focused = app.focused() == Pane::Rows;
+    let rule = Line::styled(
+        "─".repeat(usize::from(area.width)),
+        look.role(if focused { Role::Muted } else { Role::Dim }),
+    );
+    tmt_tui::components::strip::paint_left(frame.buffer_mut(), Rect { height: 1, ..area }, rule);
+    let inside = Rect::new(
+        area.x + 2.min(area.width),
+        area.y,
+        area.width.saturating_sub(2),
+        1,
+    );
     use super::AgentsFilter;
     let search_count = app
         .workspace_snapshot()
@@ -548,19 +619,34 @@ fn agents_controls(
             let (matched, total) = app
                 .workspace
                 .search_counts(&snapshot.roster, &snapshot.preferences);
-            format!("{matched} of {total}")
+            // A partial observation counts approximately, as the shell counts do.
+            let mark = if snapshot.roster.observation == super::OpsObservation::Complete {
+                ""
+            } else {
+                "~"
+            };
+            format!("{mark}{matched} of {mark}{total}")
         });
     for hit in crate::board::filter_bar::paint(
         frame.buffer_mut(),
         inside,
-        &[("all", "All"), ("pinned", "Pinned")],
-        usize::from(app.workspace.filter == AgentsFilter::Pinned),
+        &[
+            ("all", "Squads"),
+            ("agents", "Agents"),
+            ("pinned", "Pinned"),
+        ],
+        match app.workspace.filter {
+            AgentsFilter::All => 0,
+            AgentsFilter::Agents => 1,
+            AgentsFilter::Pinned => 2,
+        },
         app,
         crate::action::OpsUiAction::AgentsFilter,
         search_count.as_deref(),
     ) {
         let choice = match hit.id.as_str() {
             "all" => Choice::AgentsFilter(AgentsFilter::All),
+            "agents" => Choice::AgentsFilter(AgentsFilter::Agents),
             "pinned" => Choice::AgentsFilter(AgentsFilter::Pinned),
             "clear-search" => Choice::ClearSearch,
             _ => Choice::Action(crate::action::Action::parse("search").unwrap()),

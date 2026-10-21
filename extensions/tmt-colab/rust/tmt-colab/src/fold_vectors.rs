@@ -397,7 +397,7 @@ fn regenerate() {
     );
     let mut both = pair(&anchor, &content);
     both.push(fold_frame(COVERED, &own));
-    let vector = json!({
+    let mut vector = json!({
         "version": 1,
         "producer": "tmt-colab native src/fold_vectors.rs; public test seeds; owner seed 0x41 x32",
         "spaceId": space, "ownerKey": b64(&key.owner_public()), "pageId": PAGE, "epoch": "1",
@@ -437,6 +437,11 @@ fn regenerate() {
             case("a revoked covered device: a fold past the cut's tail head", "coveredBelowN", pair(&anchor, &content), "reject", "ok", None),
         ],
     });
+    // Cloud bootstrap requires the namespace pair; the frame cases also test single namespaces.
+    vector["cloudCases"] = json!(vector["cases"].as_array().unwrap().iter().enumerate().map(|(index, case)| {
+        let paired = case["frames"].as_array().unwrap().iter().filter(|f| !f["checkpoint"].is_null()).count() == 2;
+        json!({"case": index, "expect": if paired && case["expect"] == "admit" { "admit" } else { "reject" }})
+    }).collect::<Vec<_>>());
     let path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contracts/vectors/fold-v1.json");
     fs::write(&path, serde_json::to_string_pretty(&vector).unwrap() + "\n").unwrap();

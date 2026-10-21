@@ -735,8 +735,31 @@ fn a_capture_reads_the_recent_lines_of_the_pane_by_its_current_target() {
         "herdr pane read w2:p1 --source recent --lines 40 --format text"
     );
     assert_eq!(error_code(&serve(&runner, "capture", request)), "not_found");
+    runner.done();
+}
+
+#[test]
+fn a_zero_line_capture_reads_the_visible_screen_of_a_found_pane() {
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![pane("w2:p1", "term_a1", None)]))
+        .text("screen\n")
+        .json(list(vec![]));
     let zero = json!({"socket": SOCKET, "paneId": "term_a1", "lines": 0});
-    assert_eq!(error_code(&serve(&runner, "capture", zero)), "bad_request");
+    assert_eq!(
+        serve(&runner, "capture", zero.clone()),
+        json!({"text": "screen\n"})
+    );
+    let commands = runner.commands();
+    assert_eq!(commands[0], "herdr pane list");
+    assert_eq!(
+        commands[1],
+        "herdr pane read w2:p1 --source visible --format text"
+    );
+    // The pane is looked up first, so a missing one is not_found, not a
+    // refused count.
+    assert_eq!(error_code(&serve(&runner, "capture", zero)), "not_found");
+    assert_eq!(runner.commands().len(), 3);
     runner.done();
 }
 

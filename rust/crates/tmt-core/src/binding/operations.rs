@@ -291,9 +291,7 @@ pub fn bind_guarded<R: BindingRepository, O: GuardedBindingEndpoint>(
             }
         };
         let occupied = match fence.server_id.as_deref() {
-            Some(server) => {
-                records.entry_by_pane(crate::host::HostKind::Tmux, &fence.pane, server)?
-            }
+            Some(server) => records.entry_by_pane(fence.host, &fence.pane, server)?,
             None => None,
         };
         if let Some(occupied) = &occupied {

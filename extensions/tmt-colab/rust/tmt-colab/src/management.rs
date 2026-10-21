@@ -74,6 +74,7 @@ enum Action {
     Projects(Vec<(String, Vec<String>)>),
     Project(crate::projects::Change),
     Archive,
+    Unarchive,
     Delete,
     MemberAdd(payload::MemberAdd),
     MemberRemove(MemberScope),
@@ -210,7 +211,7 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
         return Err(tmt_colab_model::Invalid);
     }
     Ok(match operation {
-        "epoch.advance" | "page.archive" | "page.delete" => {
+        "epoch.advance" | "page.archive" | "page.unarchive" | "page.delete" => {
             let value: payload::Page = typed(bytes)?;
             if value.page_id != page {
                 return Err(tmt_colab_model::Invalid);
@@ -218,6 +219,7 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
             match operation {
                 "epoch.advance" => Action::Advance,
                 "page.archive" => Action::Archive,
+                "page.unarchive" => Action::Unarchive,
                 _ => Action::Delete,
             }
         }
@@ -467,10 +469,10 @@ pub fn status(code: Code) -> u16 {
 }
 
 /// Committed management bytes and lifecycle work for the sync and object owners.
-/// Replayed archives must not end fresh readers; repeated delete cleanup remains idempotent.
+/// Replayed archive/restore operations must not end fresh peers; delete cleanup is idempotent.
 pub struct Applied {
     pub body: Vec<u8>,
-    pub archived_page: Option<String>,
+    pub resync_page: Option<String>,
     pub deleted_page: Option<String>,
     /// Pages whose authority this change moved, for the cloud worker to look at again. Empty for
     /// a replay and for a deletion.
@@ -548,7 +550,7 @@ fn apply(
             "membershipHead":{"revision":head.revision.to_string(),"statementHash":values::encode_binary(&head.hash)}});
         return Ok(Applied {
             body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
-            archived_page: None,
+            resync_page: None,
             deleted_page: None,
             touched: Vec::new(),
         });
@@ -598,6 +600,9 @@ fn apply(
             page: &command.page,
         },
         Action::Archive => OwnerAction::Archive {
+            page: &command.page,
+        },
+        Action::Unarchive => OwnerAction::Unarchive {
             page: &command.page,
         },
         Action::Delete => OwnerAction::Delete {
@@ -687,8 +692,9 @@ fn apply(
     };
     Ok(Applied {
         body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
-        archived_page: (!applied.replayed && matches!(command.action, Action::Archive))
-            .then(|| command.page.clone()),
+        resync_page: (!applied.replayed
+            && matches!(command.action, Action::Archive | Action::Unarchive))
+        .then(|| command.page.clone()),
         deleted_page: matches!(command.action, Action::Delete).then_some(command.page),
         touched,
     })
@@ -791,18 +797,20 @@ mod tests {
     #[test]
     fn strict_payloads_reject_duplicate_unknown_computed_fields_and_wrong_page() {
         let page = format!(r#"{{"pageId":"{PAGE}"}}"#);
-        assert!(browser(&signed("page.archive", page.as_bytes(), DEVICE, 100), 100).is_ok());
-        for raw in [
-            format!(r#"{{"pageId":"{PAGE}","pageId":"{PAGE}"}}"#),
-            format!(r#"{{"pageId":"{PAGE}","cuts":[]}}"#),
-            format!(r#"{{"pageId":"{OTHER}"}}"#),
-            format!("{page}{{}}"),
-            format!("\u{feff}{page}"),
-        ] {
-            assert_eq!(
-                browser(&signed("page.archive", raw.as_bytes(), DEVICE, 100), 100).err(),
-                Some(Code::Invalid)
-            );
+        for operation in ["page.archive", "page.unarchive"] {
+            assert!(browser(&signed(operation, page.as_bytes(), DEVICE, 100), 100).is_ok());
+            for raw in [
+                format!(r#"{{"pageId":"{PAGE}","pageId":"{PAGE}"}}"#),
+                format!(r#"{{"pageId":"{PAGE}","cuts":[]}}"#),
+                format!(r#"{{"pageId":"{OTHER}"}}"#),
+                format!("{page}{{}}"),
+                format!("\u{feff}{page}"),
+            ] {
+                assert_eq!(
+                    browser(&signed(operation, raw.as_bytes(), DEVICE, 100), 100).err(),
+                    Some(Code::Invalid)
+                );
+            }
         }
         let body = signed("page.archive", page.as_bytes(), DEVICE, 100);
         let mut value: Value = serde_json::from_slice(&body).unwrap();

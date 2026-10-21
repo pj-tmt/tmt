@@ -250,6 +250,28 @@ describe('release gate parity inventory', () => {
     expect(JSON.stringify(value)).not.toContain('followUp');
   });
 
+  it('maps #4098 live cut budget and uncertain-dispatch policy to pre-merge tooling', () => {
+    expect(manifest().incidents['4098']).toEqual({
+      release: {
+        workflow: 'release.yml',
+        job: 'cut',
+        step: 'name:Draft immutable source cuts and dispatch their native gates',
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-cut-live.test.ts'],
+        },
+      ],
+    });
+    const missing = manifest();
+    delete missing.incidents['4098'];
+    expect(() => checkReleaseParity(missing, { read })).toThrow('release incidents');
+  });
+
   it('maps cancelled push cadence admission to pre-merge tooling controls', () => {
     expect(manifest().incidents['3293']).toEqual({
       release: { workflow: 'release.yml', job: 'cut', step: 'id:mode' },

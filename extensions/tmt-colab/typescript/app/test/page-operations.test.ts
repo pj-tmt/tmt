@@ -48,13 +48,16 @@ function port(options: { refuse?: string; unverified?: string } = {}) {
 }
 
 describe('one page', () => {
-  it('reads, prepares, sends and verifies the statement', async () => {
-    const { fake, sent, steps } = port();
-    const [a] = [page(1)];
-    expect(await runPageOperation(fake, a.id, 'page.archive')).toEqual({ state: 'verified' });
-    expect(steps).toEqual([`read ${a.id}`, `prepare ${a.id}`, `send ${a.id}`, `verify ${a.id}`]);
-    expect(sent).toEqual([{ operation: 'page.archive', pageId: a.id }]);
-  });
+  it.each(['page.archive', 'page.unarchive', 'page.delete'] as const)(
+    'reads, prepares, sends and verifies %s',
+    async (operation) => {
+      const { fake, sent, steps } = port();
+      const [a] = [page(1)];
+      expect(await runPageOperation(fake, a.id, operation)).toEqual({ state: 'verified' });
+      expect(steps).toEqual([`read ${a.id}`, `prepare ${a.id}`, `send ${a.id}`, `verify ${a.id}`]);
+      expect(sent).toEqual([{ operation, pageId: a.id }]);
+    },
+  );
   it('is awaiting, not done, when the owner acknowledged but its log cannot be read back', async () => {
     const { fake } = port({ unverified: page(1).id });
     expect(await runPageOperation(fake, page(1).id, 'page.delete')).toEqual({ state: 'awaiting' });
@@ -111,6 +114,9 @@ describe('what the status line says', () => {
       text: 'Archived “Plan”.',
       failed: false,
     });
+    expect(operationStatus(done([page(1, 'Plan')]), 'page.unarchive', 1).text).toBe(
+      'Restored “Plan”.',
+    );
     expect(operationStatus(done([page(1, 'Plan')]), 'page.delete', 1).text).toBe('Deleted “Plan”.');
     expect(operationStatus(done([page(1), page(2)]), 'page.archive', 2).text).toBe(
       'Archived 2 pages.',
@@ -125,14 +131,28 @@ describe('what the status line says', () => {
       'page.archive',
       1,
     );
-    expect(single.text).toContain('not verified yet');
+    expect(single.text).toBe(
+      '“Plan”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.',
+    );
     expect(single.text).not.toMatch(/^Archived/);
     const many = operationStatus(
       done([page(1), page(2)], { awaiting: [page(2)] }),
       'page.delete',
       2,
     );
-    expect(many.text).toContain('not verified yet');
+    expect(many.text).toBe(
+      'The owner accepted 1 of the changes, but it is not confirmed yet. Open Manage page to check it again.',
+    );
+    const several = operationStatus(
+      done([page(1), page(2), page(3)], { awaiting: [page(2), page(3)] }),
+      'page.delete',
+      3,
+    );
+    expect(several.text).toBe(
+      'The owner accepted 2 of the changes, but they are not confirmed yet. Open Manage page to check them again.',
+    );
+    for (const sentence of [single.text, many.text, several.text])
+      expect(sentence).not.toMatch(/signed log|acknowledged|verif/i);
   });
   it('reports how far a stopped batch got and which page stopped it', () => {
     const stopped = operationStatus(

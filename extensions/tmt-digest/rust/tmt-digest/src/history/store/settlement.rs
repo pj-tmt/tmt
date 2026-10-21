@@ -22,15 +22,15 @@ impl Store {
     /// Settled checklists in `(from, through]`, by member then settlement time. The
     /// stored input is the original content-free event, validated on the way out.
     pub fn settlements(
-        &self,
+        &mut self,
         from: u64,
         through: u64,
     ) -> Result<Vec<(String, ChecklistSettlement)>, Error> {
         if from > through || through > MAX {
             return Err(invalid("Invalid settlement window"));
         }
-        let mut statement = self
-            .0
+        self.read(|tx| {
+        let mut statement = tx
             .prepare("SELECT identity_id,inputs FROM events WHERE settled>?1 AND settled<=?2 ORDER BY identity_id,settled,sequence")
             .map_err(io)?;
         let rows = statement
@@ -47,12 +47,17 @@ impl Store {
             settlements.push((id, event));
         }
         Ok(settlements)
+        })
     }
 
     /// Every collected member's evidence span and any gap overlapping the window.
-    pub fn coverage(&self, from: u64, through: u64) -> Result<BTreeMap<String, Coverage>, Error> {
-        let mut statement = self
-            .0
+    pub fn coverage(
+        &mut self,
+        from: u64,
+        through: u64,
+    ) -> Result<BTreeMap<String, Coverage>, Error> {
+        self.read(|tx| {
+        let mut statement = tx
             .prepare("SELECT id,started,through,raw_from,(SELECT reason FROM gaps WHERE identity_id=members.id AND from_ms<=?2 AND through_ms>=?1 LIMIT 1) FROM members")
             .map_err(io)?;
         let rows = statement
@@ -69,5 +74,6 @@ impl Store {
             })
             .map_err(io)?;
         rows.map(|row| row.map_err(io)).collect()
+        })
     }
 }

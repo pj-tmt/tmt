@@ -107,7 +107,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test.afterEach(disposeActiveWorlds);
 
   for (const driver of ['claude', 'codex', undefined] as const) {
-    test(`verified driver crosses the served Remote boundary: ${driver ?? 'absent'}`, async () => {
+    test(`verified driver crosses the served Remote boundary without changing the reply look: ${driver ?? 'absent'}`, async () => {
       await withWorld(async (world) => {
         const door = await startDoor(world, await freePort());
         const recipient = await world.startAgent(
@@ -132,28 +132,20 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         const entry = askEntry(page, ask.operationId);
         await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(ask.delivered()));
         const turn = entry.locator('.conversation-turn[data-turn-role="agent"]');
-        if (driver) {
-          await expect(turn).toHaveAttribute('data-running-driver', driver);
-          await expect(turn.locator('.agent-chip-driver')).toHaveText(`· ${driver}`);
-          await expect(turn.locator('.agent-chip .lucide-bot')).toHaveCount(1);
-        } else {
-          await expect(turn).not.toHaveAttribute('data-running-driver');
-          await expect(turn.locator('.agent-chip-driver')).toHaveCount(0);
-        }
+        // The verified driver is observed but never shown: one reply look (#4111).
+        await expect(turn).not.toHaveAttribute('data-running-driver');
+        await expect(turn.locator('.agent-chip-driver')).toHaveCount(0);
+        await expect(turn.locator('.agent-chip .lucide-bot')).toHaveCount(1);
         await captureResponsive(page, `real-driver-${driver ?? 'absent'}`);
         await page.reload();
         await openChat(page);
         await expect(askEntry(page, ask.operationId).getByTestId('ask-reply')).toHaveText(
           replyBody(ask.delivered()),
         );
-        if (driver)
-          await expect(
-            askEntry(page, ask.operationId).locator('.conversation-turn[data-turn-role="agent"]'),
-          ).toHaveAttribute('data-running-driver', driver);
-        else
-          await expect(askEntry(page, ask.operationId).locator('.agent-chip-driver')).toHaveCount(
-            0,
-          );
+        await expect(
+          askEntry(page, ask.operationId).locator('.conversation-turn[data-turn-role="agent"]'),
+        ).not.toHaveAttribute('data-running-driver');
+        await expect(askEntry(page, ask.operationId).locator('.agent-chip-driver')).toHaveCount(0);
         expect(recipient.received()).toHaveLength(1);
         expect(dispatches(world)).toHaveLength(1);
       });

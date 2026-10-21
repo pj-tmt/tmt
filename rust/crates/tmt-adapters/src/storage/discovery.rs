@@ -14,11 +14,13 @@ use std::{
 use tmt_core::{
     binding::{BindingEntry, BindingRecords},
     discovery::MAX_CANDIDATES,
+    host::HostKind,
 };
 
 impl Storage {
     pub fn discovery_entries(
         path: &Path,
+        host: HostKind,
         socket: &str,
         deadline: Instant,
     ) -> Result<(Vec<BindingEntry>, bool), StorageError> {
@@ -42,11 +44,7 @@ impl Storage {
             let mut statement = transaction.prepare("SELECT b.identity_id FROM bindings b JOIN identities i ON b.identity_id=i.id WHERE b.transport=? AND b.socket_path=? AND i.retired_at_ms IS NULL ORDER BY b.pane_id LIMIT ?").map_err(|e|classify(e,"Prepare bounded discovery bindings"))?;
             let ids = statement
                 .query_map(
-                    params![
-                        tmt_core::host::HostKind::Tmux.as_str(),
-                        socket,
-                        (MAX_CANDIDATES + 1) as i64
-                    ],
+                    params![host.as_str(), socket, (MAX_CANDIDATES + 1) as i64],
                     |r| r.get::<_, String>(0),
                 )
                 .and_then(|r| r.collect::<Result<Vec<_>, _>>())

@@ -33,7 +33,7 @@ export function mount() {
         </AgentChip>
       </p>
       <p data-row="chip-working">
-        <AgentChip name="Atlas" driver="claude" variant="chip" activity="working" />
+        <AgentChip name="Atlas" variant="chip" activity="working" />
       </p>
       <p data-row="chip-not-found">
         <AgentChip name="ghost" variant="chip" state="not-found" />

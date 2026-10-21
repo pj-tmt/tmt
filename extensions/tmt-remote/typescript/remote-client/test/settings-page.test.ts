@@ -61,7 +61,7 @@ for (const code of [
       await import('../src/settings-page.js');
       if (code === 'REMOTE_SESSION_LIMIT') {
         const copy =
-          'This device already has 8 open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).';
+          "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.";
         assert.equal(nodes.get('access')!.textContent, copy);
         assert.equal(nodes.get('access-announcement')!.textContent, copy);
         assert.equal(nodes.get('controls-reason')!.textContent, copy);
@@ -71,7 +71,7 @@ for (const code of [
       } else if (['REMOTE_CLOSED', 'REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED'].includes(code)) {
         assert.equal(
           nodes.get('access')!.textContent,
-          'Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.',
+          "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged.",
         );
         assert.equal(nodes.get('access-announcement')!.textContent, 'Access unconfirmed');
       } else {
@@ -169,7 +169,7 @@ test('settings refresh uses bounded admission and renders its verified capacity 
     await import('../src/settings-page.js');
     assert.deepEqual(options, [undefined, { retry: 'bounded' }]);
     const copy =
-      'This device already has 8 open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).';
+      "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.";
     for (const id of ['access', 'access-announcement', 'controls-reason'])
       assert.equal(nodes.get(id)!.textContent, copy);
     assert.equal(nodes.get('refresh')!.disabled, false);

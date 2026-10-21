@@ -44,10 +44,16 @@ pub enum Role {
     KeycapSelected,
     /// Inline code and code blocks in rendered Markdown.
     Code,
+    /// Background shared by attachment chips and their previews.
+    Attachment,
+    /// Attachment labels and preview frames.
+    AttachmentInk,
+    /// The row of the agent whose conversation has focus, as a background.
+    Conversation,
 }
 
 impl Role {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 18] = [
         Self::Text,
         Self::Muted,
         Self::Dim,
@@ -63,6 +69,9 @@ impl Role {
         Self::Keycap,
         Self::KeycapSelected,
         Self::Code,
+        Self::Attachment,
+        Self::AttachmentInk,
+        Self::Conversation,
     ];
 
     /// The token's name in configuration and the design tokens.
@@ -83,6 +92,9 @@ impl Role {
             Self::Keycap => "keycap",
             Self::KeycapSelected => "keycap-selected",
             Self::Code => "code",
+            Self::Attachment => "attachment",
+            Self::AttachmentInk => "attachment-ink",
+            Self::Conversation => "conversation",
         }
     }
 
@@ -302,7 +314,9 @@ impl Base {
             Role::Blocked => Paint::Ansi(AnsiColor::Red),
             Role::Link => Paint::Ansi(AnsiColor::Cyan),
             Role::Code => Paint::Ansi(AnsiColor::White),
-            Role::Selection => Paint::Reverse,
+            Role::AttachmentInk => Paint::Ansi(AnsiColor::BrightWhite),
+            Role::Attachment => Paint::Ansi(AnsiColor::Blue),
+            Role::Selection | Role::Conversation => Paint::Reverse,
             Role::Track => Paint::Dimmed,
             Role::Keycap => Paint::Ansi(AnsiColor::Black),
             Role::KeycapSelected => Paint::Ansi(AnsiColor::BrightBlack),
@@ -326,6 +340,9 @@ impl Base {
             Role::Keycap => ((0x55, 0x55, 0x55), (0x55, 0x55, 0x55)),
             Role::KeycapSelected => ((0x70, 0x70, 0x70), (0x70, 0x70, 0x70)),
             Role::Code => ((0xA9, 0xB1, 0xD6), (0x3B, 0x42, 0x61)),
+            Role::Attachment => ((0x2C, 0x36, 0x50), (0xDC, 0xE7, 0xFC)),
+            Role::AttachmentInk => ((0xC0, 0xD4, 0xFF), (0x1D, 0x3E, 0x73)),
+            Role::Conversation => ((0x2B, 0x35, 0x50), (0xDC, 0xE4, 0xF7)),
         };
         let (r, g, b) = if light { bright } else { dark };
         Paint::Rgb(r, g, b)
@@ -335,10 +352,17 @@ impl Base {
         match role {
             Role::Text | Role::Working | Role::Link | Role::Code => Paint::Plain,
             Role::Muted | Role::Dim | Role::Track => Paint::Dimmed,
-            Role::Accent | Role::Waiting | Role::Review | Role::Blocked | Role::Unread => {
-                Paint::Bold
-            }
-            Role::Selection | Role::Keycap | Role::KeycapSelected => Paint::Reverse,
+            Role::Accent
+            | Role::Waiting
+            | Role::Review
+            | Role::Blocked
+            | Role::Unread
+            | Role::AttachmentInk => Paint::Bold,
+            Role::Selection
+            | Role::Keycap
+            | Role::KeycapSelected
+            | Role::Attachment
+            | Role::Conversation => Paint::Reverse,
         }
     }
 
@@ -456,9 +480,15 @@ impl Theme {
         let paint = self.paint(role, depth);
         let style = Style::new().effects(paint.effects(depth));
         match (role, paint.color(depth)) {
-            (Role::Selection | Role::Track | Role::Keycap | Role::KeycapSelected, Some(color)) => {
-                style.bg_color(Some(color))
-            }
+            (
+                Role::Selection
+                | Role::Track
+                | Role::Keycap
+                | Role::KeycapSelected
+                | Role::Attachment
+                | Role::Conversation,
+                Some(color),
+            ) => style.bg_color(Some(color)),
             (_, color) => style.fg_color(color),
         }
     }

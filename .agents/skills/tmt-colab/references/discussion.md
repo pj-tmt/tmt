@@ -110,6 +110,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   `attachment-drop.tsx` owns one panel-scoped registration and inert file-drop
   routing; `attachment-tray.tsx` and
   `message-attachments.tsx` own composer controls and visible message tiles respectively.
+  Sent-image grids in threads, Chat and answers share `attachment-tray.css`: top-aligned
+  equal thumbnails, single-line ellipsized name/size labels, and the full filename in its title.
   `attachment-raster.ts` rechecks bounded raster bytes before data-URL conversion;
   `attachment-preview.tsx` owns the modal viewer and return focus. Message thumbnails
   retain display URLs only for their live binding/scope/reference; hidden overflow images

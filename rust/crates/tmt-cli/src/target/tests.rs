@@ -130,3 +130,24 @@ fn raw_pane_refresh_uses_fresh_process_evidence_but_never_invents_a_missing_pane
     assert_eq!(error.code, "PANE_NOT_FOUND");
     assert_eq!(error.status, 3);
 }
+
+#[test]
+fn unavailable_driver_errors_use_the_existing_code_and_suggestion_fields() {
+    let mut server = recipient().server;
+    server.host =
+        tmt_core::host::HostKind::External(tmt_core::host::HostName::new("fake").unwrap());
+    let error = recipient_failure(
+        &server,
+        tmt_adapters::host::HostError::Unavailable("fake".into()),
+    );
+    assert_eq!(error.code, "RECONCILIATION_FAILED");
+    assert_eq!(error.status, 1);
+    assert_eq!(
+        error.document(),
+        serde_json::json!({"error": {
+            "code": "RECONCILIATION_FAILED",
+            "message": "Host driver 'fake' is unavailable or not approved. No pane input occurred.",
+            "suggestion": "Run tmt driver install <driver-path> to review and approve the driver, then retry this command."
+        }})
+    );
+}

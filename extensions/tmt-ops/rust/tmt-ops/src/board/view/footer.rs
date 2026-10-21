@@ -112,15 +112,6 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
                 | Verb::Copy
                 | Verb::Run
         );
-    if app.shell.tab == crate::board::shell::OpsTab::Overview
-        && app.overview_view == crate::board::overview::monitor::View::Squads
-        && matches!(
-            action.verb,
-            Verb::Ui(crate::action::OpsUiAction::Sort | crate::action::OpsUiAction::ReverseSort)
-        )
-    {
-        return false;
-    }
     if !acts_on_row {
         return true;
     }
@@ -180,22 +171,10 @@ fn names_hint(app: &App, mut hints: Vec<Hint>, width: usize) -> Vec<Hint> {
     }
     hints
 }
-fn overview_pairs(app: &App, width: usize) -> Option<Vec<Hint>> {
-    let hints = workspace_legend(app, crate::board::shell::OpsTab::Overview)?;
-    Some(names_hint(
-        app,
-        fit_hints(
-            hints.first.into_iter().chain(hints.second).collect(),
-            hints.tail,
-            width,
-        ),
-        width,
-    ))
-}
-/// Text projection for tests that do not paint key roles.
+/// Text projection of the second legend line for tests that do not paint key roles.
 #[cfg(test)]
-pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String> {
-    overview_pairs(app, width).map(|pairs| hint_text(&pairs))
+pub(in crate::board) fn agents_hints(app: &App, width: usize) -> Option<String> {
+    agents_pairs(app, width).map(|[_, second]| hint_text(&second))
 }
 fn agents_pairs(app: &App, width: usize) -> Option<[Vec<Hint>; 2]> {
     let hints = workspace_legend(app, crate::board::shell::OpsTab::Agents)?;
@@ -347,28 +326,10 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             }
         }
     }
-    // An applied filter must remain editable before optional member hints fit.
-    if tab == crate::board::shell::OpsTab::Overview
-        && !app.search.is_empty()
-        && let Some(key) = find(Verb::Ui(Ui::Search), "/")
-    {
-        first.push((key_label(&key).into(), "edit filter".into()));
-        seen.push(Verb::Ui(Ui::Search));
-    }
     if let Some(action) = bindings.get("enter").filter(|action| {
         row_allows(app, action) && !matches!(action.verb, Verb::Ui(Ui::Quit | Ui::Help))
     }) {
-        let word = if tab == crate::board::shell::OpsTab::Overview
-            && matches!(
-                app.workspace.selected,
-                Some(crate::board::workspace::OpsTarget::Squad(_))
-            )
-            && action.verb == Verb::Talk
-        {
-            "message lead".to_owned()
-        } else {
-            hint_word(app, action)
-        };
+        let word = hint_word(app, action);
         first.push(("⏎".into(), word));
         seen.push(action.verb);
     }
@@ -381,10 +342,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         (Verb::Open, "o", "link"),
         (Verb::Ui(Ui::Pin), "p", "pin"),
     ] {
-        if (tab == crate::board::shell::OpsTab::Overview
-            && matches!(verb, Verb::ViewReply | Verb::Open))
-            || seen.contains(&verb)
-        {
+        if seen.contains(&verb) {
             continue;
         }
         let host_key = (verb == Verb::Jump)
@@ -420,11 +378,6 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     }
     let mut second = Vec::new();
     let mut tail = Vec::new();
-    let filter_verb = if tab == crate::board::shell::OpsTab::Agents {
-        Ui::AgentsFilter
-    } else {
-        Ui::OverviewView
-    };
     if tab == crate::board::shell::OpsTab::Agents
         && let Some(key) = find(Verb::NextPane, "tab")
     {
@@ -435,27 +388,17 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     } else {
         "edit filter"
     };
-    let choices = if tab == crate::board::shell::OpsTab::Overview {
-        vec![
-            (Verb::Ui(filter_verb), "f", "view"),
-            (Verb::Ui(Ui::Search), "/", search_word),
-            (Verb::Settings, ",", "settings"),
-            (Verb::Ui(Ui::Help), "?", "help"),
-            (Verb::Ui(Ui::Quit), "q", "quit"),
-        ]
-    } else {
-        vec![
-            (Verb::Ui(Ui::Search), "/", search_word),
-            (Verb::Ui(Ui::Timers), "c", "timers"),
-            (Verb::Ui(filter_verb), "f", "filter"),
-            (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
-            (Verb::Ui(Ui::UsageControls), "u", "chart"),
-            (Verb::Settings, ",", "settings"),
-            (Verb::Ui(Ui::Help), "?", "help"),
-            (Verb::Ui(Ui::Quit), "q", "quit"),
-        ]
-    };
-    let mut choices = choices;
+    let mut choices = vec![
+        (Verb::Ui(Ui::Search), "/", search_word),
+        (Verb::Ui(Ui::TalkMeasure), "t", "talk/measure"),
+        (Verb::Ui(Ui::Timers), "c", "timers"),
+        (Verb::Ui(Ui::AgentsFilter), "f", "filter"),
+        (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
+        (Verb::Ui(Ui::UsageControls), "u", "chart"),
+        (Verb::Settings, ",", "settings"),
+        (Verb::Ui(Ui::Help), "?", "help"),
+        (Verb::Ui(Ui::Quit), "q", "quit"),
+    ];
     choices.insert(0, (Verb::Ui(Ui::WorkspaceSnapshots), "w", "snapshots"));
     for (verb, preferred, word) in choices {
         if seen.contains(&verb) || (verb == Verb::Ui(Ui::SavingsUnit) && !app.savings_visible()) {
@@ -487,9 +430,6 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
 }
 
 fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
-    if let Some(hints) = overview_pairs(app, width) {
-        return hints;
-    }
     if app.usage_chart_available() && app.usage_chart.borrow().focused() {
         let scrollable = app.usage_chart.borrow().scrollable();
         return fit_hints(
@@ -528,8 +468,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                 && !matches!(
                     action.verb,
                     Verb::Ui(
-                        OpsUiAction::Overview
-                            | OpsUiAction::Agents
+                        OpsUiAction::Agents
                             | OpsUiAction::DigestDashboard
                             | OpsUiAction::First
                             | OpsUiAction::Last
@@ -721,23 +660,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     } else if app.searching {
         Line::styled("↑↓ move · ⏎ done · Esc clear", look.role(Role::Text))
     } else if let Some(notice) = app.migration_notice.as_ref() {
-        Line::from(Span::styled(
-            notice.as_str(),
-            look.role(if app.shell.tab == crate::board::shell::OpsTab::Overview {
-                Role::Muted
-            } else {
-                Role::Waiting
-            }),
-        ))
+        Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
     } else if let Some(error) = &app.error {
-        Line::from(Span::styled(
-            error.as_str(),
-            look.role(if app.shell.tab == crate::board::shell::OpsTab::Overview {
-                Role::Muted
-            } else {
-                Role::Blocked
-            }),
-        ))
+        Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else if app.modal_open() {
         Line::default()
     } else if app
@@ -765,10 +690,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         line.spans.insert(0, Span::raw(" "));
         line
     } else if let Some(hint) = app.member_link_hint() {
-        if matches!(
-            app.shell.tab,
-            crate::board::shell::OpsTab::Overview | crate::board::shell::OpsTab::Agents
-        ) {
+        if matches!(app.shell.tab, crate::board::shell::OpsTab::Agents) {
             crate::board::key_hints::legacy_line(hint, look, look.role(Role::Text), "  ")
         } else {
             hint_line(hint, look)
@@ -780,38 +702,27 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                     app,
                     usize::from(hint_area.width.saturating_sub(u16::from(matches!(
                         app.shell.tab,
-                        crate::board::shell::OpsTab::Overview | crate::board::shell::OpsTab::Agents
+                        crate::board::shell::OpsTab::Agents
                     )))),
                 )
             },
             |lines| hint_text(&lines[1]),
         );
-        if app.shell.tab == crate::board::shell::OpsTab::Overview {
-            let pairs = workspace_pairs(app, usize::from(hint_area.width.saturating_sub(1)));
-            let refs: Vec<_> = pairs
-                .iter()
-                .map(|(key, label)| (key.as_str(), label.as_str()))
-                .collect();
-            let mut line = crate::board::key_hints::line(&refs, look, look.role(Role::Text), "  ");
-            line.spans.insert(0, Span::raw(" "));
-            line
+        let mut line = if let Some(lines) = &legend {
+            paint_hints(&lines[1], look, Role::Text)
+        } else if app.shell.tab == crate::board::shell::OpsTab::Agents {
+            paint_hints(
+                &workspace_pairs(app, usize::from(hint_area.width.saturating_sub(1))),
+                look,
+                Role::Text,
+            )
         } else {
-            let mut line = if let Some(lines) = &legend {
-                paint_hints(&lines[1], look, Role::Text)
-            } else if app.shell.tab == crate::board::shell::OpsTab::Agents {
-                paint_hints(
-                    &workspace_pairs(app, usize::from(hint_area.width.saturating_sub(1))),
-                    look,
-                    Role::Text,
-                )
-            } else {
-                hint_line(&text, look)
-            };
-            if app.shell.tab == crate::board::shell::OpsTab::Agents {
-                line.spans.insert(0, Span::raw(" "));
-            }
-            line
+            hint_line(&text, look)
+        };
+        if app.shell.tab == crate::board::shell::OpsTab::Agents {
+            line.spans.insert(0, Span::raw(" "));
         }
+        line
     };
     if app.settings.is_some() {
         for span in &mut footer_line.spans {

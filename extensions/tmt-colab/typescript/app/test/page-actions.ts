@@ -1,6 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 
-/** Resolve page actions through their header menu; readers keep their direct Files control. */
+/** Resolve page actions through their header menu; readers keep their direct Files control. Search,
+ * Chat and Agents are the page header's own entries; every other action is in the More menu (#4116). */
 export async function pageAction(host: Page | Locator, name: string): Promise<Locator> {
   const directName = name === 'Files' ? /^Files(?: \(\d+\)| \d+)?$/ : name;
   const page = 'page' in host ? host.page() : host;
@@ -24,13 +25,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   }
   // A mounted opening header can precede the page header after reload.
   await header.waitFor();
-  const sourceMenu = header.getByRole('button', { name: 'Source and export', exact: true });
-  const menu =
-    name === 'Chat' || name === 'Comments'
-      ? /^Discussion(?: [(·]|$)/
-      : (name === 'Source' || name === 'Export page') && (await sourceMenu.isVisible())
-        ? 'Source and export'
-        : 'More';
+  const menu = name === 'Chat' || name === 'Comments' ? /^Discussion(?: [(·]|$)/ : 'More';
   // A shared modal menu aria-hides the background, including its own trigger.
   // The header is still physically visible; inspect its disclosure state without
   // forcing activation or treating the hidden background as an actionable target.
@@ -65,7 +60,9 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
         ? /^Comments(?: \d+)?(?: ·.*)?$/
         : name === 'Chat'
           ? /^Chat(?: · Unread)?$/
-          : directName,
-    exact: name !== 'Comments' && name !== 'Chat',
+          : name === 'Share…'
+            ? /^Share…/
+            : directName,
+    exact: name !== 'Comments' && name !== 'Chat' && name !== 'Share…',
   });
 }

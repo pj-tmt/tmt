@@ -30,9 +30,6 @@ pub enum Why {
     /// A bridge, link or commenter device, or one with no admitted owner chain: only its own
     /// device can combine its changes.
     NotOwnerDevice,
-    /// A device this machine publishes, on a page it publishes to the cloud: cloud readers cannot
-    /// yet verify a fold (#4049).
-    Published,
     /// The combined changes would be too large for one object.
     TooLarge,
     /// The changes did not merge, or the fold did not verify, so nothing of this stream was written.
@@ -182,25 +179,8 @@ pub fn fold_others(
         return Ok(folds);
     }
 
-    // Local devices of a page the cloud publisher publishes are left to a later release (#4049).
-    let writer = signer.clone();
-    let streams: Vec<String> = candidates.iter().map(|c| c.stream.clone()).collect();
-    let (local, published) = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
-        let mut local = Vec::new();
-        for stream in &streams {
-            local.push(tx.is_local_device(&writer, stream)?);
-        }
-        Ok((local, tx.publication_evidence(page)?))
-    })?;
     let mut eligible = Vec::new();
-    for (candidate, local) in candidates.into_iter().zip(local) {
-        if local && published {
-            folds.left.push(Left {
-                stream: candidate.stream,
-                why: Why::Published,
-            });
-            continue;
-        }
+    for candidate in candidates {
         // The fold must verify as the readers will check it: seal an empty one for this stream and
         // open it with the anchor in place, before any merge is spent on it.
         s.with_anchor(&candidate.stream, candidate.head, candidate.anchor.clone());

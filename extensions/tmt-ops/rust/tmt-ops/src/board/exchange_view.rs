@@ -84,76 +84,6 @@ pub(in crate::board) fn header(
     Line::from(spans)
 }
 
-/// Only the display label is shortened; effects retain the exact resolved value.
-fn link_label(value: &str) -> String {
-    let value = super::notes::single_line(value);
-    if let Some(path) = value.strip_prefix("https://github.com/") {
-        let parts: Vec<_> = path.split('/').collect();
-        if let [owner, repo, kind, number] = parts.as_slice()
-            && !owner.is_empty()
-            && !repo.is_empty()
-            && matches!(*kind, "issues" | "pull")
-            && !number.is_empty()
-            && number.bytes().all(|byte| byte.is_ascii_digit())
-        {
-            return format!("{owner}/{repo}#{number}");
-        }
-    }
-    value
-}
-pub(in crate::board) fn link(
-    value: &str,
-    key: &str,
-    wording: &str,
-    width: usize,
-    look: Look,
-) -> Line<'static> {
-    let action = if wording == "open $link" {
-        "open"
-    } else {
-        wording
-    };
-    let hint = format!(
-        "{} {}",
-        super::view::footer::key_label(key),
-        super::notes::single_line(action)
-    );
-    let prefix = link_label(value);
-    if key.is_empty() {
-        return Line::styled(
-            format!(" {}", super::view::fit(&prefix, width.saturating_sub(2))),
-            look.role(Role::Muted),
-        );
-    }
-    let available = width.saturating_sub(2);
-    if hint.width() + 3 > available {
-        return Line::styled(super::view::fit(&hint, width), look.role(Role::Muted));
-    }
-    let left = available - hint.width() - 3;
-    let mut spans = vec![
-        Span::raw(" "),
-        Span::styled(
-            super::view::fit(&prefix, left.min(prefix.width())),
-            look.role(Role::Muted),
-        ),
-        Span::styled(" · ", look.role(Role::Dim)),
-    ];
-    spans.extend(
-        super::key_hints::line(
-            &[(
-                super::view::footer::key_label(key),
-                &super::notes::single_line(action),
-            )],
-            look,
-            look.role(Role::Text),
-            " · ",
-        )
-        .spans,
-    );
-    spans.push(Span::raw(" "));
-    Line::from(spans)
-}
-
 pub(in crate::board) fn feedback(text: Line<'static>, look: Look) -> Line<'static> {
     let mut spans = vec![
         Span::raw(" "),
@@ -354,7 +284,7 @@ mod tests {
 mod fitting_tests {
     use super::*;
     #[test]
-    fn metadata_and_compact_links_fit_without_changing_effect_targets() {
+    fn metadata_fits_without_changing_effect_targets() {
         for width in [0, 1, 2, 8, 20, 59] {
             assert!(
                 header(
@@ -369,19 +299,6 @@ mod fitting_tests {
                     <= width
             );
         }
-        let url = "https://github.com/pj-tmt/tmt/pull/3176";
-        let shown = link(url, "o", "open $link", 59, Look::default()).to_string();
-        assert!(shown.starts_with(" pj-tmt/tmt#3176 · o open"));
-        assert_eq!(url, "https://github.com/pj-tmt/tmt/pull/3176");
-        assert_eq!(
-            link_label("https://github.com/pj-tmt/tmt/pull/3176/files"),
-            "https://github.com/pj-tmt/tmt/pull/3176/files"
-        );
-        assert!(
-            !link_label("https://github.com/unsafe\nowner/repo/pull/1")
-                .chars()
-                .any(char::is_control)
-        );
     }
 }
 

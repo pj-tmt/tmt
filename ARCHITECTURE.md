@@ -223,9 +223,9 @@ a working directory, active pane or sole identity.
 
 - `tmt-core::names` owns canonical names; hosts own pane-target syntax.
   `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
-  own untrusted descriptions granting no authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
-  `binding` owns evidence, retirement, binds and UUID/name-CAS rename. [Discovery v1](contracts/discovery-v1.md)
-  owns candidate bounds and native/UUID fences; guarded `add` uses that binder.
+  own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
+  `binding` owns evidence, retirement, binds and UUID/name-CAS rename.
+  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences; guarded `add` uses `binding`.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is
@@ -249,7 +249,7 @@ a working directory, active pane or sole identity.
   one value for comparing local processes.
 - Concrete implementations: `storage::{identities,identity_metadata,identity_status,bindings}`
   and `tmux::{metadata,evidence,binding,caller,transport}`; `binding_command`
-  performs caller/target preflight and composes them. Module rules:
+  checks caller/target; CLI `target` selects recorded servers. Module rules:
   [identity and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md)
   and [workspace recovery](.agents/skills/tmt-core-runtime/references/workspace.md).
 
@@ -392,7 +392,7 @@ Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-
 discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.
 
 Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
-An `auto` member is held through the same Core policy as an interval member: the tick renews the hold and offers idle and capped [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery), while Core and the provider's turn end deliver; Core's one cap option skips only the live-idle evidence.
+A `user`-marked identity is never held. An `auto` member is held through the same Core policy as an interval member: the tick renews the hold and offers idle and capped [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery), while Core and the provider's turn end deliver; Core's one cap option skips only the live-idle evidence.
 Prices are one [public file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file), embedded as the built-in table and refetched anonymously by status only.
 The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
@@ -420,7 +420,7 @@ own module/drawing boundaries and verification.
   `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice warns once on CLI stderr; the UI projects the same notice through App without out-of-band terminal writes.
   No Ops
   data enters `config.json` or Core's database.
-- **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches selectable squad and canonical all-agent projections, while tree projections are frame-scoped.
+- **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
   The existing quiet cache lane publishes per-name view hints (default keeps its
@@ -552,8 +552,8 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 Store owns managed/adopted SQLite transactions and typed newer refusals.
 Document/Guard own atomic byte updates/fail-fast ownership.
 Existing Store files use lstat to preserve locks.
-Only Remote, Colab and Ops consume it; `nix`/`rusqlite` pins, no TMT/crypto.
-Core, adapters and Colab's model cannot consume it. Guards check reviewed
+Remote, Colab, Ops, adapters' config and Digest history consume it; no TMT/crypto.
+Core and Colab's model cannot consume it. Guards check reviewed
 manifest/source edges across dependency kinds, aliases and targets.
 
 [Crate docs](rust/crates/tmt-extension-state/src/lib.rs) own admission and publication.
@@ -562,15 +562,15 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 ## Remote extension pilot
 
-`tmt remote`: `extensions/tmt-remote`. Fixed public Core JSON calls use absolute
+`tmt remote`: `extensions/tmt-remote`. Fixed public Core JSON uses absolute
 `TMT_EXECUTABLE` via `tmt-invoke`. Remote owns `<dataRoot>/remote/` via
 [state leaf](#shared-extension-state-layout). Core delegates replaced Remote restart;
 Remote owns listener/state/[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery).
-Home/Remote pages/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
+Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; UI grants none. Local: device keys/grants/signatures.
+Remote owns authority; UI grants none. Local: keys/grants/signatures/last-use/cleanup.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: local envelopes/grants/scope/allowlist/hold/uncertainty/audit.
 Proposed (#3290): `talk` → Remote interface → target host → driver.
@@ -633,7 +633,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. The serve's `object_channel::cloud_sync` worker publishes the active page's rows, signed authority and local originals once Remote activates, and applies other writers' verified originals through the serve's append path ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
+- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. `object_channel::cloud_sync` publishes rows, authority and originals once Remote activates; hosted folds verify log anchors before checkpoint pairs. Native bootstrap installs a verified checkpoint pair; other verified originals use serve append ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext, and the Worker is resource
   containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Source/shell actions, thread status and proposals publish through it (offline or the local `page-publish` route), browser Save uses the owner sync socket, signed by the root-local writer.

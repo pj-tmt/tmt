@@ -30,8 +30,10 @@ the same-origin `/settings` link. Hosted/detached adapters and missing Sessions 
 `remote-presence.ts` owns the finite snapshot and replacement/close fences. Replacement
 starts one read after any stale read settles; close prevents that successor. `mounted.ts`
 uses its already-admitted Session without reopening. `remote-header.tsx` owns only presentation
-and the three refresh triggers. Desktop uses the shared Tooltip; through 640px the existing
-More menu includes a Remote submenu with the same details and settings link. No shared header
+and the three refresh triggers. The space home header uses the shared Tooltip chip on desktop and,
+through 640px, a Remote submenu in its More menu with the same details and settings link. The page
+header keeps no Remote chip: its More menu holds that Remote entry, after Share…, and the header shows
+`△ Remote offline` (a mark and a word) only while the count cannot be confirmed. No shared header
 API, presence stream, periodic polling or new Remote operation is introduced.
 
 Native pairing/app-unavailable guidance stays static. `chrome.rs` compile-time embeds the same checked
@@ -44,10 +46,21 @@ Signed-in app-unavailable guidance shows a waiting-colored Update needed state a
 asks the person to update Colab to open the page, preserving space/sign-in details and the user command.
 
 `router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
-About overlay. `page-header-actions.tsx` owns the desktop icon entry points:
-Discussion (combined pending count) opens Chat or Comments; Agents and Files (file count)
-open their panels; Source and export opens Source or Export page; More opens Manage
-page, Theme: Light/Dark/System, or About this page. Icons are centralized inline SVG;
+About overlay. `page-header-actions.tsx` owns the page header's entry points, the same at every
+width (#4116): Search, Discussion (combined pending count; opens Chat or Comments), Agents and More.
+More lists, top to bottom: Share… (the page's sharing and connection words as secondary text; it
+opens the Manage dialog), Remote (the submenu above), Projects… (when the viewer writes
+projects; opens the picker below), Files (count; while the page holds a file or the viewer can add
+one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
+The page's own projects (`page-projects.tsx`) follow the title: the first three as small chips
+and a count of the rest (hidden under 640px), then the list row's picker (`PageProjectsMenu`: up to
+eight projects, New project… names one and puts this page in it). The chips, the trigger and
+Projects… open the same menu. The chips come from the list the space home last loaded, so arriving
+from the list reads nothing extra. A page opened by a link has no list yet: it reads `spaceHome(signal)`
+once on open (#4130), and leaving the page aborts that read through the signal, so no read outlives
+the page. The owner list is also read when the picker opens and after each write. A viewer who cannot
+write projects shows none of it.
+Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
 The floating Chat icon shares the selection control's corner and opens the same
 retained drawer in one press; it hides during selection mode or an annotation.
@@ -59,7 +72,11 @@ headers; keyboard navigation skips disabled entries, Escape returns focus, and s
 returns focus before opening a portal. Open header menus sit above the update row and
 selection controls. Local choice/action menus, native actions, Ask previews, reader
 information panels and management dialogs use the shared one-pixel edge roles
-without shadows; keyboard focus keeps its visible outline.
+without shadows; keyboard focus keeps its visible outline. Every panel that floats over
+page content has that one-pixel `--tmt-ui-surface-rule` edge on all four sides, once: the
+shared drawers and dialogs from the leaf, and the annotation window and thread popover
+(`.annotation-popover`) from `style.css`. It knowingly sits below the 3:1 boundary floor of #3959
+(about 1.5:1 on `#fafafa`): a deliberate exception for floating panels (Ben, 2026-10-20), not to be reopened.
 Explicit theme choices are radio menu items.
 Owner page and space-home headers use one shared-height row that starts as Remote's does: the TMT
 mark and the `Colab` wordmark, then `/`, the crumbs and title, then muted original author. The
@@ -67,14 +84,15 @@ display-only `local · <backendName>` identity (`local` when absent) is not a vi
 names the brand link (`Colab · local · <backendName>`) and is its tooltip; an unlinked brand is a
 named group with the same title. Below 480px every Colab header shows the mark only: the wordmark is
 visually hidden and stays in that name. Author hides below 900px; the title truncates without
-changing its DOM copy. The page connection chip (`Private · Live`) remains outside menus
-and keeps its existing connection owner, except below 480px: the header hides it (CSS; the element stays in the DOM) and its words
-become the first, non-interactive line of the More menu (the menu's description, so the
-access state stays reachable and described), which leaves the title the room. At 640px and narrower, Discussion and More
-stay visible; Agents, Files (count), Source and Export move into More with the same
-handlers and disabled states. A single media-query observation selects those menu
-items; CSS owns fitting. Header, body and update-notice offsets use shared heights,
-including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
+changing its DOM copy. The page header's status slot holds, in order, the needs-you entry
+(only while something waits) and the attention marks, each shown only while its state holds, as
+one mark plus a word: `△ Remote offline`, `◉ Shared` (a page readable by anyone but its owner must
+not hide in a menu) and `○ Archived`. Below 480px a mark keeps its glyph and its word is visually
+hidden, never removed from the accessible name. The connection words (`Private · Live`,
+`Reconnecting…`) are not shown: they stay in the document, visually hidden, and are Share…'s
+secondary text; trouble surfaces in the notice below the header. Nothing is hidden only because of
+width: the same entries stay at 640px and 320px, and CSS owns fitting. Header, body and
+update-notice offsets use shared heights, including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
 
 Header search results and page-list titles are real links with router-generated URLs.
 Plain click/Enter keep the existing same-tab navigation and focus behavior. Modified clicks
@@ -86,10 +104,9 @@ retain that hint for readings), while plain menu selection still jumps to its lo
 
 `needs-you-header.tsx` uses the existing page status slot for one `◆ Needs you N ▾` entry.
 Only the diamond takes the attention colour. Through 640px the visible label is `◆ N ▾`,
-with `Needs you: N` as its accessible name. At zero, neutral `✓ Nothing waits` is plain
-text without a caret or action; compact headers retain the check and accessible name.
-The slot keeps its width across that transition. When the list empties while the menu is open
-(keyboard focus inside it), the mark takes focus (`tabindex=-1`, not a Tab stop) instead of the
+with `Needs you: N` as its accessible name. At zero nothing shows: only a one-pixel, visually
+hidden element labelled `✓ Nothing waits` remains. When the list empties while the menu is open
+(keyboard focus inside it), that element takes focus (`tabindex=-1`, not a Tab stop) instead of the
 body, and keeps it across the header's remount while the page layers reparse; focus elsewhere,
 or a menu that was already closed, is left alone. The page owns that one flag. The shared DropdownMenu supplies grouped
 labels, dismissal and keyboard handling; its modal scroll lock retains Colab's fixed-header
@@ -209,6 +226,10 @@ keeping the full notice readable with input and sending disabled by the current 
 retains the previous frame height during replacement and preserves the current
 window offset through that replacement, clamped by the new document's bounds.
 Later height reports do not replay an older offset over newer scrolling.
+An opened page is idle (#4089): the frame measures its height from the body and the root's scroll
+height and holds it until the body reads differently, so a last block whose bottom margin collapses
+through the body's cannot make the height alternate. An idle or scrolled page sends the app no frame
+message, which `large-page-idle.spec.ts` counts.
 The [UI contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns draft survival and stale-quote behavior.
 
@@ -277,7 +298,10 @@ viewport-growth fallback and malformed/stale/over-limit claims. `e2e/theme.spec.
 covers OS defaults, explicit choices, live updates, render bindings and cleanup
 without reload, plus the media-only CSS limit. `e2e/column-frame.spec.ts` and
 `e2e/column-bands.spec.ts` cover the frame's column, gaps, `full` blocks and author overrides, and
-the bands on it, at 1440, 1024, 390 and 2000 px; `e2e/renderer.spec.ts` covers the layout bind key. Existing Ask,
+the bands on it, at 1440, 1024, 390 and 2000 px; `e2e/band-clearance.spec.ts` measures, on the needs-you sample
+page in `freeform` and `column` layouts at 1440, 1024 and 390 px, that no band covers page text or another band,
+also after a live width change (the frame and the bands catch up with each other in 100-200 ms, so the check waits
+for the clear state); `e2e/renderer.spec.ts` covers the layout bind key. Existing Ask,
 discussion, management and export scenarios verify the publication controls;
 run the [app/browser and real-binary acceptance gates](development.md).
 
@@ -347,10 +371,18 @@ return Cancel and completed decision actions to Follow up; while busy they keep
 focus on the card and never reclaim it after the reader moves elsewhere.
 
 Agent replies in Chat, threads and proposal Follow up share `ConversationTurn`.
-Its driver avatar, tag and rail follow the current verified page observation;
-missing metadata stays neutral and stable turn keys preserve focus. The data flow
-is owned by [Ask agent](ask-agent.md#verified-reply-treatment); the visual rule is
-in [GUI style](../../../../design/gui-style.md#conversation-turn).
+An agent reply has one look, running or finished: no driver edge, colour or word, and a
+running turn shows only the chip's working state (#4111). Stable turn keys preserve focus.
+Comment, Chat and reply bodies render through `MarkdownText` (#4112): `markdown.ts` parses a safe
+subset into a tree (never HTML), capped at 20 000 characters, depth 3 and 4 000 nodes, and a body
+over a cap stays plain paragraphs. Every scan over a body is linear (a search that found nothing from
+a position is not repeated; brackets are matched once), so a body of unmatched openers cannot stall a
+reader. Text leaves keep their mention chips. `classifyHref` admits only `/p/<page prefix>` links of
+this space as links; a plain click routes in the app through `shortLinkRoute` like a page link in a
+page (#4091), and a modified click stays the browser's. Outside `https:` URLs stay inert words with
+the URL until outside links are confirmed (#4083), and every other target stays literal text.
+The data flow is owned by [Ask agent](ask-agent.md#verified-reply-treatment); the visual
+rule is in [GUI style](../../../../design/gui-style.md#conversation-turn).
 
 While recovery is required, the active Drawer presents the connection owner's existing
 Reconnect action in a mark-and-word notice below its header. It owns no connection

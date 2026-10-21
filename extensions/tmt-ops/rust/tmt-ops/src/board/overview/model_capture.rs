@@ -10,7 +10,7 @@ fn capture_model_columns() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut frames = Vec::new();
-        for tab in [OpsTab::Overview, OpsTab::Agents] {
+        for tab in [OpsTab::Agents] {
             for width in [160, 100, 60] {
                 for (base, theme) in [
                     ("tmt", tmt_cli_style::Base::Tmt),
@@ -22,7 +22,7 @@ fn capture_model_columns() {
                     };
                     let mut app = populated_board(2, 4);
                     app.shell.tab = tab;
-                    app.overview_view = super::monitor::View::Agents;
+                    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
                     let view = app.view.as_mut().unwrap();
                     view.look = look;
                     let workspace = &mut view.home.as_mut().unwrap().workspace;
@@ -68,7 +68,7 @@ fn capture_model_columns() {
                         .chunks(usize::from(width))
                         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                         .collect();
-                    let surface = if tab == OpsTab::Overview {
+                    let surface = if tab == OpsTab::Agents {
                         "overview"
                     } else {
                         "agents"

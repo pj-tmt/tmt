@@ -16,7 +16,7 @@ fn list_capacity(app: &App, area: Rect) -> usize {
 }
 fn display(app: &App, data: &Series, selection: Selection) -> super::super::model::Series {
     let mut view = project::display(data, selection).expect("validated interval projection");
-    if app.shell.tab == OpsTab::Overview && quotas_visible(app) {
+    if app.shell.tab == OpsTab::Agents && quotas_visible(app) {
         view.drivers.extend(
             app.limits
                 .iter()
@@ -30,7 +30,7 @@ fn fits_chart(app: &App, data: &Series, selection: Selection, width: u16) -> boo
     crate::board::spark_row::plot_layout(
         width,
         &project::spark_rows(&display(app, data, selection)),
-        app.shell.tab == OpsTab::Overview && quotas_visible(app),
+        app.shell.tab == OpsTab::Agents && quotas_visible(app),
     )
     .0 > 0
 }
@@ -44,7 +44,7 @@ fn resolve(app: &App, state: &mut State, width: u16, now: u64) {
     let (plot, _) = crate::board::spark_row::plot_layout(
         width,
         &rows,
-        app.shell.tab == OpsTab::Overview && quotas_visible(app),
+        app.shell.tab == OpsTab::Agents && quotas_visible(app),
     );
     state.resolve_width(plot);
     refresh(app, state, now);
@@ -61,8 +61,7 @@ pub(super) fn quotas_visible(app: &App) -> bool {
 }
 fn title(app: &App, data: &Series, selection: Selection) -> String {
     let title = project::summary(data, selection.range_minutes);
-    if app.shell.tab == OpsTab::Overview
-        && app.view.as_ref().is_some_and(|view| view.history_pending)
+    if app.shell.tab == OpsTab::Agents && app.view.as_ref().is_some_and(|view| view.history_pending)
     {
         format!("{title} · Updating usage…")
     } else {
@@ -89,7 +88,7 @@ pub(in crate::board) fn overview_demand(app: &App, width: u16, height: u16, now:
 }
 
 pub(in crate::board) fn demand(app: &App, width: u16, target_row_budget: u16, now: u64) -> u16 {
-    if app.shell.tab == OpsTab::Overview {
+    if app.shell.tab == OpsTab::Agents {
         return overview_demand(app, width, target_row_budget, now);
     }
     if width == 0 || target_row_budget <= 1 || app.workspace_snapshot().is_none() {
@@ -137,7 +136,7 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
         .buckets
         .iter()
         .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0));
-    if (positive || app.shell.tab == OpsTab::Overview)
+    if (positive || app.shell.tab == OpsTab::Agents)
         && area.width >= 40
         && fits_chart(app, &data, state.selection, area.width)
         && area.height >= chart_rows(app, &data, state.selection)
@@ -233,7 +232,7 @@ fn paint_chart(
     let (_, quota_width) = crate::board::spark_row::plot_layout(
         area.width,
         &rows,
-        app.shell.tab == OpsTab::Overview && quotas_visible(app),
+        app.shell.tab == OpsTab::Agents && quotas_visible(app),
     );
     let scale =
         crate::board::spark_row::scale(rows.rows.iter().flat_map(|row| row.values.iter().copied()))

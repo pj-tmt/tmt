@@ -405,14 +405,20 @@ impl Missing<'_, '_> {
                     },
                 },
             ),
-            Op::Capture => self.not_found(
-                op,
-                CaptureRequest {
-                    socket,
-                    pane_id: pane,
-                    lines: 10,
-                },
-            ),
+            Op::Capture => {
+                // 0 (the visible screen) is a valid count, so a driver looks
+                // for the pane before it can refuse the request.
+                for lines in [10, 0] {
+                    self.not_found(
+                        op,
+                        CaptureRequest {
+                            socket: socket.clone(),
+                            pane_id: pane.clone(),
+                            lines,
+                        },
+                    );
+                }
+            }
             Op::Input => self.not_found(
                 op,
                 InputRequest {

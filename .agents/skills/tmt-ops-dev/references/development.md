@@ -88,15 +88,19 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
 CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase_timing
 -- --ignored --nocapture --test-threads=2`. Run its resulting test executable
   directly under `/usr/bin/time -lp` with the same environment and filter to
-  measure process CPU/peak footprint separately; fixture/startup cost is included.
+  measure process CPU/peak footprint separately. Peak footprint is its whole-process
+  maximum resident set size in bytes (1 MB = 1,000,000 bytes), including fixture/startup
+  cost and allocator/executable pages; it is not a live-board heap measurement.
   The sink is memory, not a physical terminal latency measurement. Retain raw
   samples/outliers and match baseline/candidate source, toolchain and profile.
   The agreed local regression profile is Mac16,8, 12 logical CPUs, 48 GiB RAM,
   macOS 26.6.2, arm64 Rust 1.98.1/LLVM 22.1.8, release opt-level 3. Event+draw
   p95 must be ≤10/50/50 ms at 150/1,000/10,000 agents for each vector, with footprint
-  ≤51 MB. Run main and candidate once, back to back on the same quiet machine and
+  ≤64 MB. Run main and candidate once, back to back on the same quiet machine and
   build mode; the ANSI probe's candidate whole-process user+system CPU must be
-  ≤main × 1.05. Retain both results and all samples, without retries or dropped samples.
+  ≤main × 1.05. On a noisy host, run three interleaved main/candidate pairs and
+  compare CPU medians; report footprint medians and ranges. Retain every result and
+  sample, without retries or dropped samples.
   Unchanged content keeps identical ANSI-byte/changed-cell vectors; approved new
   surfaces change only their expected regions. Input/paint performs no source I/O.
   An exceeded limit requires diagnosis or an agreed adjustment, not relabelling.

@@ -1,4 +1,5 @@
 import { ShellNotice } from './shell-notice.js';
+import { usePageLinks } from './page-link-bar.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, LoaderCircle, X } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
@@ -52,6 +53,14 @@ export function ReaderApp({
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLElement>(null);
+  const {
+    reset: resetPageLinks,
+    request: requestPageLink,
+    bar: pageLinkBar,
+  } = usePageLinks({
+    base: () => location.href,
+    inset: () => bar.current?.getBoundingClientRect().bottom ?? 0,
+  });
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const imageInput = useRef({ binding: attachments, descriptors });
   imageInput.current = { binding: attachments, descriptors };
@@ -68,9 +77,14 @@ export function ReaderApp({
     if (source === null) return;
     const controller = new AbortController();
     setRender('loading');
+    resetPageLinks();
     void mountRenderer(host.current!, source, {
       signal: controller.signal,
-      onState: setRender,
+      onState: (next) => {
+        if (next !== 'ready') resetPageLinks();
+        setRender(next);
+      },
+      onLink: requestPageLink,
       viewportInset: () =>
         (bar.current?.offsetHeight ?? 0) + (bar.current?.getBoundingClientRect().top ?? 0),
     })
@@ -86,11 +100,13 @@ export function ReaderApp({
       });
     return () => {
       controller.abort();
+      resetPageLinks();
       renderer.current = null;
     };
-  }, [source, shell]);
+  }, [source, shell, resetPageLinks, requestPageLink]);
   return (
     <>
+      {pageLinkBar}
       <ColabHeader
         headerRef={bar}
         caption={

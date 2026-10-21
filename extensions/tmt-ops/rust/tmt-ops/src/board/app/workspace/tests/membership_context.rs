@@ -39,6 +39,7 @@ fn flat(memberships: usize, tab: OpsTab) -> App {
         );
     }
     app.shell.tab = tab;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.workspace.pool_expanded = memberships == 0;
     app.overview_rows.borrow_mut().clear();
     app.workspace.selected = app
@@ -64,7 +65,7 @@ fn assert_remove(app: &App, room_id: &str, revision: u64) {
 
 #[test]
 fn flat_lists_remove_the_only_membership_and_keep_the_selected_uuid() {
-    for tab in [OpsTab::Overview, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = flat(1, tab);
         let selected = app.workspace.selected.clone();
         assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
@@ -80,7 +81,7 @@ fn flat_lists_remove_the_only_membership_and_keep_the_selected_uuid() {
 
 #[test]
 fn multiple_memberships_require_a_room_choice_before_any_review() {
-    for tab in [OpsTab::Overview, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = flat(2, tab);
         let selected = app.workspace.selected.clone();
         assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
@@ -104,23 +105,22 @@ fn multiple_memberships_require_a_room_choice_before_any_review() {
 
 #[test]
 fn common_pool_member_has_no_membership_instead_of_a_refresh_problem() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
-        let mut app = flat(0, tab);
-        app.shell.tab = tab;
-        app.workspace.pool_expanded = true;
-        app.workspace_reconcile();
-        paint(&app, 100, 24);
-        assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
-        let notice = app.notice.as_deref().expect("known membership absence");
-        assert!(notice.contains("worker is not in a squad"), "{notice}");
-        assert!(!notice.contains("refresh"), "{notice}");
-        assert!(app.workspace_form.is_none() && app.menu.is_none());
-    }
+    let tab = OpsTab::Agents;
+    let mut app = flat(0, tab);
+    app.shell.tab = tab;
+    app.workspace.pool_expanded = true;
+    app.workspace_reconcile();
+    paint(&app, 100, 24);
+    assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+    let notice = app.notice.as_deref().expect("known membership absence");
+    assert!(notice.contains("worker is not in a squad"), "{notice}");
+    assert!(!notice.contains("refresh"), "{notice}");
+    assert!(app.workspace_form.is_none() && app.menu.is_none());
 }
 
 #[test]
 fn a_flat_partial_roster_needs_refresh_even_with_one_observed_membership() {
-    for tab in [OpsTab::Overview, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         for observation in [OpsObservation::Partial, OpsObservation::Unavailable] {
             let mut app = flat(1, tab);
             let roster = &mut app
@@ -175,6 +175,7 @@ fn explicit_agents_membership_needs_only_its_complete_room() {
 #[test]
 fn agents_choose_the_exact_second_membership_without_flat_resolution() {
     let mut app = flat(2, OpsTab::Agents);
+    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     app.workspace.expanded.insert(SECOND_ROOM.into());
     app.workspace.selected = Some(OpsTarget::Member {
         room_id: Some(SECOND_ROOM.into()),
@@ -190,7 +191,7 @@ fn agents_choose_the_exact_second_membership_without_flat_resolution() {
 #[test]
 fn picker_cancel_and_destination_keys_never_apply_a_membership() {
     for exit in [KeyCode::Esc, KeyCode::Char('q'), KeyCode::Char('2')] {
-        let mut app = flat(2, OpsTab::Overview);
+        let mut app = flat(2, OpsTab::Agents);
         let selected = app.workspace.selected.clone();
         key(&mut app, KeyCode::Char('x'));
         paint(&app, 60, 18);
@@ -200,9 +201,9 @@ fn picker_cancel_and_destination_keys_never_apply_a_membership() {
         assert_eq!(
             app.shell.tab,
             if exit == KeyCode::Char('2') {
-                OpsTab::Agents
+                OpsTab::Digest
             } else {
-                OpsTab::Overview
+                OpsTab::Agents
             }
         );
     }
@@ -219,7 +220,7 @@ fn choosing_revalidates_membership_selection_and_complete_evidence() {
         "partial",
         "missing-details",
     ] {
-        let mut app = flat(2, OpsTab::Overview);
+        let mut app = flat(2, OpsTab::Agents);
         key(&mut app, KeyCode::Char('x'));
         let choice = app.menu.as_ref().unwrap().entries[1].choice.clone();
         app.menu = None;
@@ -252,7 +253,7 @@ fn choosing_revalidates_membership_selection_and_complete_evidence() {
 
 #[test]
 fn chosen_room_freezes_current_revision_and_only_its_member_timer_impact() {
-    let mut app = flat(2, OpsTab::Overview);
+    let mut app = flat(2, OpsTab::Agents);
     let mut jobs = crate::board::cronboard::test_views(2, "research", SECOND_ROOM);
     for job in &mut jobs {
         job.job.owner_id = Some(MEMBER.into());
@@ -308,7 +309,7 @@ fn chosen_room_freezes_current_revision_and_only_its_member_timer_impact() {
 #[test]
 fn all_squad_required_actions_share_flat_context_and_known_absence_reasons() {
     for kind in [Kind::Add, Kind::Lead, Kind::RenameSquad] {
-        for tab in [OpsTab::Overview, OpsTab::Digest, OpsTab::Agents] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             let mut app = flat(0, tab);
             assert_eq!(app.workspace_begin(kind), Effect::None);
             assert!(app.workspace_form.is_none() && app.menu.is_none());
@@ -318,7 +319,7 @@ fn all_squad_required_actions_share_flat_context_and_known_absence_reasons() {
                 "{notice}"
             );
         }
-        let mut one = flat(1, OpsTab::Overview);
+        let mut one = flat(1, OpsTab::Agents);
         assert_eq!(one.workspace_begin(kind), Effect::None);
         assert_eq!(
             one.workspace_form
@@ -385,7 +386,7 @@ fn incomplete_room_names_its_actual_observation_or_held_read_failure() {
         );
         assert!(app.workspace_form.is_none() && app.menu.is_none());
     }
-    let mut app = flat(1, OpsTab::Overview);
+    let mut app = flat(1, OpsTab::Agents);
     let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
     home.workspace.roster.membership_complete = false;
     home.failures.push(json!({"squad":"product", "error":{"code":"BUSY", "message":"room lock is busy\ntry later\u{001b}[31m"}}));
@@ -403,7 +404,7 @@ fn incomplete_room_names_its_actual_observation_or_held_read_failure() {
 
 #[test]
 fn picker_pointer_uses_only_current_painted_entry_geometry() {
-    let mut app = flat(2, OpsTab::Overview);
+    let mut app = flat(2, OpsTab::Agents);
     key(&mut app, KeyCode::Char('x'));
     let text = paint(&app, 80, 24);
     let (y, line) = text
@@ -439,7 +440,7 @@ fn picker_pointer_uses_only_current_painted_entry_geometry() {
 
 #[test]
 fn picker_keys_work_after_geometry_invalidation_without_a_repaint() {
-    let mut app = flat(2, OpsTab::Overview);
+    let mut app = flat(2, OpsTab::Agents);
     key(&mut app, KeyCode::Char('x'));
     paint(&app, 80, 24);
     app.invalidate_frame_geometry();
@@ -450,7 +451,7 @@ fn picker_keys_work_after_geometry_invalidation_without_a_repaint() {
 
 #[test]
 fn unknown_membership_absence_is_not_reported_as_a_known_empty_pool() {
-    for tab in [OpsTab::Overview, OpsTab::Digest, OpsTab::Agents] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = flat(0, tab);
         app.view
             .as_mut()
@@ -476,7 +477,7 @@ fn unknown_membership_absence_is_not_reported_as_a_known_empty_pool() {
 
 #[test]
 fn picker_order_is_independent_of_roster_acquisition_order() {
-    let mut app = flat(2, OpsTab::Overview);
+    let mut app = flat(2, OpsTab::Agents);
     app.view
         .as_mut()
         .unwrap()

@@ -111,12 +111,7 @@ fn workspace_header_paints_uncovered_known_history_as_partial_at_each_width_and_
                     .chunks(width as usize)
                     .map(|cells| cells.iter().map(|cell| cell.symbol()).collect())
                     .collect();
-                let summary_width = crate::board::conversation::layout::overview(
-                    ratatui::layout::Rect::new(0, 0, width, 24),
-                )
-                .list
-                .expect("Overview always retains its list")
-                .width;
+                let summary_width = width;
                 let summary: Vec<_> = terminal
                     .backend()
                     .buffer()
@@ -432,7 +427,8 @@ fn header_frames() -> Value {
     ] {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = crate::board::shell::OpsTab::Overview;
+        app.shell.tab = crate::board::shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.view.as_mut().unwrap().look = crate::look::Look {
             theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
             depth,

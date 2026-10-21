@@ -59,8 +59,6 @@ test('Files is a peer panel: empty for a writer, then rows with a count after Ad
   const rows = panel.getByTestId('file-row');
   await expect(rows).toHaveCount(2);
   await expect(chips).toHaveCount(0);
-  await expect(toggle).toHaveAccessibleName('Files (2)');
-  await expect(toggle.locator('.page-header-count')).toHaveText('2');
   expect(await actions(page)).toEqual([
     'attach:upload:notes.txt',
     'attach:upload:shot.png',
@@ -86,6 +84,10 @@ test('Files is a peer panel: empty for a writer, then rows with a count after Ad
     'bytes of notes.txt',
   );
   expect(await actions(page)).toContain('attach:open:notes.txt:document');
+  // The Files entry is in More (#4116); opening it closes the panel.
+  await expect(await pageAction(page.locator('#ask-page-fixture'), 'Files')).toHaveAccessibleName(
+    'Files (2)',
+  );
 });
 
 test('a file sealed under an earlier epoch says it is being secured and stays available', async ({

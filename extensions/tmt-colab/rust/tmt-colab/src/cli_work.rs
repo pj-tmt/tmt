@@ -18,6 +18,7 @@ use tmt_colab::{
     page::{self, Fault},
     store::Store,
     wip, work, work_index,
+    work_links::{Graph, Refusal},
 };
 
 macro_rules! example {
@@ -28,7 +29,7 @@ macro_rules! example {
         }]
     };
 }
-fn spec(
+pub(crate) fn spec(
     name: &'static str,
     summary: &'static str,
     details: &'static str,
@@ -42,7 +43,7 @@ fn spec(
         details,
     })
 }
-fn task_arg() -> Arg {
+pub(crate) fn task_arg() -> Arg {
     Arg::new("task")
         .index(2)
         .required(true)
@@ -164,6 +165,45 @@ pub fn task_command() -> Command {
     )
     .subcommand(
         spec(
+            "link",
+            "Make a task follow another page",
+            "The task's state then follows that page: todo while the page has no task, in-progress while it has, done when all of its tasks are (in-review instead when the task needs sign-off). A page has one parent, and a link that would make a loop is refused (COLAB_LINK_REFUSED). A task with an external ID cannot follow a page, and the state of a task that follows one cannot be set.",
+            example!("tmt colab task link 10000000-0000-4000-8000-000000000001 T-3 20000000-0000-4000-8000-000000000001 --json"),
+        )
+        .arg(crate::cli_grammar::page())
+        .arg(task_arg())
+        .arg(
+            Arg::new("child")
+                .index(3)
+                .required(true)
+                .value_name("CHILD")
+                .help("The page this task follows, named as any page is"),
+        )
+        .arg(revision_arg()),
+    )
+    .subcommand(
+        spec(
+            "unlink",
+            "Stop a task following its page",
+            "The task shows its own state again. The page is not changed.",
+            example!("tmt colab task unlink 10000000-0000-4000-8000-000000000001 T-3 --json"),
+        )
+        .arg(crate::cli_grammar::page())
+        .arg(task_arg())
+        .arg(revision_arg()),
+    )
+    .subcommand(
+        spec(
+            "convert",
+            "Turn a task into a page of its own and follow it",
+            "Creates a new page titled like the task, with the task's detail as its text, then makes the task follow it. If the link fails the page already exists: the command prints it and the tmt colab task link command that finishes the job. It never opens a browser.",
+            example!("tmt colab task convert 10000000-0000-4000-8000-000000000001 T-3 --json"),
+        )
+        .arg(crate::cli_grammar::page())
+        .arg(task_arg()),
+    )
+    .subcommand(
+        spec(
             "rm",
             "Remove a task",
             "The task's ID is never handed out again.",
@@ -173,6 +213,7 @@ pub fn task_command() -> Command {
         .arg(task_arg())
         .arg(revision_arg()),
     )
+    .subcommand(crate::cli_work_github::command())
 }
 
 pub fn summary_command() -> Command {
@@ -280,6 +321,11 @@ fn action(group: &str, name: &str, args: &ArgMatches) -> Result<(&'static str, V
             }
             ("task.state", body)
         }
+        (_, "link") => (
+            "task.link",
+            json!({"taskId":task(),"pageId":args.get_one::<String>("child").expect("required child")}),
+        ),
+        (_, "unlink") => ("task.unlink", json!({"taskId":task()})),
         (_, "assign") => {
             let mut body = json!({"taskId":task()});
             if let Some(who) = args.get_one::<String>("assignee") {
@@ -322,33 +368,60 @@ fn refusal(refusal: &wip::Refusal) -> Box<dyn std::error::Error + Send + Sync> {
     )
 }
 
-pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
-    let (name, args) = args.subcommand().expect("required work command");
+fn short(page: &str) -> &str {
+    page.get(..8).unwrap_or(page)
+}
+fn link_refusal(
+    why: &Refusal,
+    page: &str,
+    task: &str,
+    child: &str,
+) -> Box<dyn std::error::Error + Send + Sync> {
+    let message = match why {
+        Refusal::Itself => "A task cannot follow its own page.".to_owned(),
+        Refusal::Unavailable => format!(
+            "{} is not a page of this space, or cannot be read now.",
+            short(child)
+        ),
+        Refusal::HasParent { page, task } => format!(
+            "{} is already followed by {task} of {}. A page has one parent: stop that task following it first (tmt colab task unlink {} {task}).",
+            short(child),
+            short(page),
+            short(page)
+        ),
+        Refusal::Loop => format!(
+            "{} has {} below it, so {task} following it would make a loop.",
+            short(child),
+            short(page)
+        ),
+    };
+    fail("COLAB_LINK_REFUSED", &message)
+}
+
+/// A work action that was written: the receipt and the work it was based on.
+pub(crate) struct Written {
+    pub receipt: page::Receipt,
+    pub base: page::WorkPage,
+}
+
+/// One conditional work action on a page, through the structured publication owner: on the revision
+/// it just read, or on `expected`. This is the whole of a write command's effect; a caller that must
+/// reach out first (the GitHub driver) reads, reaches out, then calls this.
+pub(crate) fn write_work(
+    root: &Path,
+    page: &str,
+    action: &'static str,
+    body: &Value,
+    expected: Option<&str>,
+) -> Result<Written> {
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
-    let reading = group == "task" && name == "ls";
-    let lock = if reading {
-        None
-    } else {
-        crate::write_owner(&layout)?
-    };
+    let lock = crate::write_owner(&layout)?;
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
-    let page_id = resolve_page(
-        &store,
-        &key,
-        args.get_one::<String>("page").expect("required page"),
-    )?;
+    let page_id = resolve_page(&store, &key, page)?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let current = page::read_work(&store, &key, &page_id, &mut decoder);
-    if reading {
-        let closed = store.close();
-        let read = current?;
-        closed?;
-        return list(&page_id, &read, args.get_flag("json"));
-    }
-    let (action, body) = action(group, name, args)?;
-    let read = current?;
+    let read = page::read_work(&store, &key, &page_id, &mut decoder)?;
     if let Some(task) = body["taskId"].as_str()
         && read.work["tasks"].get(task).is_none()
     {
@@ -356,13 +429,22 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             "This page has no task {task}; tmt colab task ls shows its tasks."
         )));
     }
+    // A page named by anything but its ID is read the way every command reads one; a page that is
+    // not there is refused as a link would be.
+    let linked;
+    let body = if action == "task.link" {
+        let child = body["pageId"].as_str().unwrap_or_default();
+        let id = resolve_page(&store, &key, child)
+            .map_err(|_| link_refusal(&Refusal::Unavailable, &page_id, "", child))?;
+        linked = json!({"taskId":body["taskId"],"pageId":id});
+        &linked
+    } else {
+        body
+    };
     // Whatever the command read is the base unless the caller named one.
-    let expected = args
-        .get_one::<String>("expected-revision")
-        .unwrap_or(&read.revision)
-        .clone();
+    let expected = expected.unwrap_or(&read.revision).to_owned();
     if action.starts_with("task.") {
-        let after = work::apply(&read.work, action, &body, &Value::Null)
+        let after = work::apply(&read.work, action, body, &Value::Null)
             .map_err(|_| invalid("Invalid task value or action; nothing was changed."))?;
         // The space-wide scan is only needed when the change puts a task into an agent's hands.
         if wip::held(&page_id, &after)
@@ -376,6 +458,17 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             if let Some(over) = wip::admit(&page_id, &read.work, &after, &elsewhere, limits.wip()) {
                 return Err(refusal(&over));
             }
+        }
+    }
+    if action == "task.link" {
+        let (task, child) = (
+            body["taskId"].as_str().unwrap_or_default(),
+            body["pageId"].as_str().unwrap_or_default(),
+        );
+        let pages = crate::cli_management::all_page_ids(&store, &key)?;
+        let found = work_index::scan(&layout, &store, &key, &mut decoder, &pages)?;
+        if let Some(why) = Graph(&found).refusal(&page_id, task, child) {
+            return Err(link_refusal(&why, &page_id, task, child));
         }
     }
     let display_agent = crate::core::caller_snapshot().map(|caller| {
@@ -392,7 +485,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
         page::StructuredAction {
             kind: StructuredKind::Work,
             action,
-            body: &body,
+            body,
             display_agent,
             expected_revision: &expected,
         },
@@ -434,11 +527,42 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             receipt
         }
     };
+    Ok(Written {
+        receipt,
+        base: read,
+    })
+}
+
+pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
+    let (name, args) = args.subcommand().expect("required work command");
+    if group == "task" && name == "github" {
+        return crate::cli_work_github::run(root, args);
+    }
+    if group == "task" && name == "ls" {
+        return read_and_list(root, args);
+    }
+    if group == "task" && name == "convert" {
+        return convert(root, args);
+    }
+    let (action, body) = action(group, name, args)?;
+    let written = write_work(
+        root,
+        args.get_one::<String>("page").expect("required page"),
+        action,
+        &body,
+        args.get_one::<String>("expected-revision")
+            .map(String::as_str),
+    )?;
+    let receipt = written.receipt;
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     // A new task's ID is the one the page was about to hand out: this command holds the base.
-    let created = (action == "task.add" && receipt.changed)
-        .then(|| format!("T-{}", read.work["next"].as_u64().unwrap_or_default()));
+    let created = (action == "task.add" && receipt.changed).then(|| {
+        format!(
+            "T-{}",
+            written.base.work["next"].as_u64().unwrap_or_default()
+        )
+    });
     if json_output {
         let mut value = serde_json::to_value(&receipt)?;
         if let Some(id) = &created {
@@ -463,6 +587,162 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
                 "WORK UNCHANGED"
             },
             &rows,
+        )?;
+    }
+    Ok(())
+}
+
+/// A page's work read without a write lock: the page's ID and what it holds now.
+pub(crate) fn read_page_work(root: &Path, page: &str) -> Result<(String, page::WorkPage)> {
+    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
+    let key = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    store.require_current_schema()?;
+    let page_id = resolve_page(&store, &key, page)?;
+    let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    let current = page::read_work(&store, &key, &page_id, &mut decoder);
+    let closed = store.close();
+    let read = current?;
+    closed?;
+    Ok((page_id, read))
+}
+
+/// `read` with every task that follows a page showing that page's stage. The space's pages are read
+/// only when this page has such a task.
+fn follow_pages(root: &Path, page_id: &str, read: &mut page::WorkPage) -> Result<()> {
+    let linked = read.work["tasks"]
+        .as_object()
+        .is_some_and(|tasks| tasks.values().any(|task| task.get("child").is_some()));
+    if !linked {
+        return Ok(());
+    }
+    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
+    let key = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    store.require_current_schema()?;
+    let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    let found = crate::cli_management::all_page_ids(&store, &key)
+        .and_then(|pages| work_index::scan(&layout, &store, &key, &mut decoder, &pages));
+    let closed = store.close();
+    let found = found?;
+    closed?;
+    if let Some(derived) = Graph(&found).derived(page_id) {
+        read.derived = derived;
+    }
+    Ok(())
+}
+
+/// `task ls`: a read, which takes no write lock and creates nothing.
+fn read_and_list(root: &Path, args: &ArgMatches) -> Result<()> {
+    let (page_id, mut read) =
+        read_page_work(root, args.get_one::<String>("page").expect("required page"))?;
+    follow_pages(root, &page_id, &mut read)?;
+    list(&page_id, &read, args.get_flag("json"))
+}
+
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+/// The first text of a page made from a task: its title, then its detail in paragraphs.
+fn child_source(title: &str, detail: &str) -> String {
+    let mut html = format!("<h1>{}</h1>\n", escape_html(title));
+    for paragraph in detail
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
+        html.push_str(&format!(
+            "<p>{}</p>\n",
+            escape_html(paragraph).replace('\n', "<br>\n")
+        ));
+    }
+    html
+}
+
+/// `task convert`: a new page made from the task, then the link. The page is created first, so a link
+/// that fails leaves a page and says how to finish; it never searches for one to adopt.
+fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
+    let page = args.get_one::<String>("page").expect("required page");
+    let task_id = args.get_one::<String>("task").expect("required task");
+    let (page_id, read) = read_page_work(root, page)?;
+    let task = read.work["tasks"].get(task_id.as_str()).ok_or_else(|| {
+        invalid(&format!(
+            "This page has no task {task_id}; tmt colab task ls shows its tasks."
+        ))
+    })?;
+    // Refuse what the link would refuse before a page exists.
+    if task.get("child").is_some() {
+        return Err(invalid(&format!("{task_id} already follows a page.")));
+    }
+    if task.get("externalId").is_some() {
+        return Err(invalid(&format!(
+            "{task_id} has an external ID, so it cannot follow a page; clear the ID first (tmt colab task set)."
+        )));
+    }
+    let title = task["title"].as_str().unwrap_or_default();
+    let created = crate::cli_management::commit_creation(
+        root,
+        title,
+        child_source(title, task["detail"].as_str().unwrap_or_default()),
+        Some(&tmt_colab::decoder::PageLayout {
+            kind: tmt_colab::decoder::LayoutKind::Column,
+            reason: None,
+        }),
+        false,
+    )?;
+    let child = created.page_id;
+    let finish = format!(
+        "The page {child} was created from {task_id}; finish with: tmt colab task link {page_id} {task_id} {child}"
+    );
+    // Making a page moves the space, so the revision read before is stale. What matters is the task:
+    // the link is written on the revision read now, and only if the task is still the one copied.
+    let (_, now) = read_page_work(root, &page_id)?;
+    if now.work["tasks"].get(task_id.as_str()) != Some(task) {
+        return Err(invalid(&format!(
+            "{task_id} changed while its page was being made, so it was not linked. {finish}"
+        )));
+    }
+    let written = write_work(
+        root,
+        &page_id,
+        "task.link",
+        &json!({"taskId":task_id,"pageId":child}),
+        Some(&now.revision),
+    )
+    .map_err(|error| {
+        fail(
+            crate::error_code(error.as_ref()),
+            &format!("{error} {finish}"),
+        )
+    })?;
+    let receipt = written.receipt;
+    let json_output = args.get_flag("json");
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    let reach = crate::reach::Reach::gather();
+    let path = crate::reach::Reach::path(&read.space_id, &child);
+    if json_output {
+        let mut value = serde_json::to_value(&receipt)?;
+        value["taskId"] = json!(task_id);
+        value["childPage"] = json!(child);
+        value["title"] = json!(title);
+        reach.annotate(&mut value, &path);
+        writeln!(output, "{value}")?;
+    } else {
+        let terminal = output.terminal();
+        tmt_cli_style::detail::write(
+            &mut output,
+            terminal,
+            "TASK CONVERTED",
+            &[
+                ("page", page_id),
+                ("task", task_id.clone()),
+                ("child page", child),
+                ("link", reach.text(&path)),
+                ("revision", receipt.revision.clone()),
+            ],
         )?;
     }
     Ok(())
@@ -508,11 +788,17 @@ fn list(page_id: &str, read: &page::WorkPage, json_output: bool) -> Result<()> {
     for id in read.work["order"].as_array().into_iter().flatten() {
         let id = id.as_str().unwrap_or_default();
         let task = &read.work["tasks"][id];
+        let state = derived["states"][id]
+            .as_str()
+            .or(task["state"].as_str())
+            .unwrap_or_default();
+        let follows = task["child"]
+            .as_str()
+            .map_or(String::new(), |child| format!("  follows {}", short(child)));
         rows.push((
             "task",
             format!(
-                "{id}  {}  {}{}  {}",
-                task["state"].as_str().unwrap_or_default(),
+                "{id}  {state}{follows}  {}{}  {}",
                 task["assignee"]["name"].as_str().unwrap_or("-"),
                 if task["needsSignoff"] == true {
                     "  signoff"

@@ -722,7 +722,7 @@ fn revision_change_and_expiry_end_all_sessions_without_waiting_for_requests() {
 }
 
 #[test]
-fn damaged_or_unreadable_settings_use_the_default_cap() {
+fn damaged_or_unreadable_settings_use_the_unlimited_default() {
     for case in ["broken_json", "invalid_field", "oversized", "directory"] {
         let owner = OwnerDoor::new();
         tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(1)).unwrap();
@@ -742,7 +742,7 @@ fn damaged_or_unreadable_settings_use_the_default_cap() {
         }
         let settings = tmt_remote::settings::read_or_default(&owner._root.0);
         assert!(settings.malformed, "{case}");
-        assert_eq!(settings.sessions_per_device(), Some(8), "{case}");
+        assert_eq!(settings.sessions_per_device(), None, "{case}");
         let second = owner.open();
         let third = owner.open();
         for session in [&first, &second, &third] {
@@ -818,12 +818,10 @@ fn requests_check_expiry_between_maintenance_scans() {
 }
 
 #[test]
-fn default_limit_is_eight_and_eviction_reports_the_active_limit() {
+fn explicit_session_limits_preserve_eviction_and_report_the_active_limit() {
     for limit in [8, 2] {
         let owner = OwnerDoor::new();
-        if limit != 8 {
-            tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(limit)).unwrap();
-        }
+        tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(limit)).unwrap();
         let sessions = (0..limit + 1).map(|_| owner.open()).collect::<Vec<_>>();
         tmt_remote::settings::set_sessions_per_device(&owner._root.0, None).unwrap();
         let request = owner.wire(&sessions[0], "1", "capabilities", b"{}");

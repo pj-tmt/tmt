@@ -57,11 +57,11 @@ fn capture_conversation_markdown_packet() {
                     .draw(|frame| {
                         if grouped {
                             let target = app.conversation_target().unwrap();
-                            super::super::exchange::render_for(
+                            super::super::exchange::render(
                                 frame,
                                 &app,
                                 frame.area(),
-                                &super::super::exchange::Surface::Agents {
+                                &super::super::exchange::Surface {
                                     target,
                                     interactive: true,
                                 },

@@ -5,6 +5,8 @@ pub use edits::{EDIT_DECISIONS, EditState};
 pub mod owner;
 pub mod publication;
 mod schema;
+#[cfg(test)]
+mod tests;
 /// The schema version this build writes. Migration tests read it instead of naming the latest.
 pub const SCHEMA_VERSION: u32 = schema::CURRENT_VERSION;
 use crate::{Result, keyring::Layout, limits};
@@ -148,6 +150,11 @@ pub struct Anchor {
     pub namespace: Namespace,
     pub hash: [u8; 32],
     pub bytes: Vec<u8>,
+}
+/// One checkpoint (or owner fold, with the device that signed it) of a [`Store::bootstrap`].
+pub struct Bootstrapped<'a> {
+    pub envelope: Envelope<'a>,
+    pub signer: Option<&'a str>,
 }
 pub struct ReadObject {
     pub cursor: NamespaceCursor,
@@ -362,6 +369,145 @@ impl Store {
         tx.commit()?;
         Ok(Accepted::New)
     }
+    /// Install a verified checkpoint pair (or owner fold pair) for a stream this machine holds
+    /// nothing of, so its tail can follow from the sequence after it. A fold brings the update it
+    /// binds, which is stored as the receipt at that sequence and kept un-pruned like a local fold's
+    /// anchor; an ordinary checkpoint has no such update to bring and leaves no receipt.
+    ///
+    /// One transaction. The stream must hold no receipt and no checkpoint: the same objects again
+    /// are a `Replay`, anything else is a `Conflict` and nothing is written, so a held prefix is
+    /// never merged with a pruned one. Callers own signature, role and authority admission.
+    pub fn bootstrap(
+        &mut self,
+        anchor: Option<&Envelope<'_>>,
+        objects: &[Bootstrapped<'_>],
+    ) -> StoreResult<Accepted> {
+        let first = &objects.first().ok_or(Fault::Invalid)?.envelope;
+        let s = first.scope;
+        if objects.len() > 2 {
+            return Err(Fault::Invalid);
+        }
+        for (index, object) in objects.iter().enumerate() {
+            let e = &object.envelope;
+            validate(e)?;
+            if e.scope.page != s.page
+                || e.scope.epoch != s.epoch
+                || e.scope.stream != s.stream
+                || e.seq != first.seq
+                || e.previous != first.previous
+                || objects[..index]
+                    .iter()
+                    .any(|other| other.envelope.namespace == e.namespace)
+            {
+                return Err(Fault::Invalid);
+            }
+            if let Some(signer) = object.signer {
+                bounded_id(signer)?;
+            }
+        }
+        if let Some(anchor) = anchor {
+            validate(anchor)?;
+            if anchor.scope.page != s.page
+                || anchor.scope.epoch != s.epoch
+                || anchor.scope.stream != s.stream
+                || anchor.seq != first.seq
+                || anchor.hash != first.previous
+            {
+                return Err(Fault::Invalid);
+            }
+        }
+        let epoch = s.epoch.to_string();
+        let seq = sequence(first.seq);
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        current(&tx, s)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO streams(page,epoch,stream) VALUES (?,?,?)",
+            params![s.page, epoch, s.stream],
+        )?;
+        let mut held = true;
+        for object in objects {
+            let e = &object.envelope;
+            let row: Option<(Vec<u8>, Vec<u8>)> = tx
+                .query_row(
+                    "SELECT hash,digest FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq=?",
+                    params![s.page, epoch, s.stream, e.namespace.name(), seq],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            held &= row.is_some_and(|(hash, digest)| {
+                hash == e.hash && digest == Sha256::digest(e.bytes).to_vec()
+            });
+        }
+        if let Some(anchor) = anchor {
+            let row: Option<(Vec<u8>, Vec<u8>, String)> = tx
+                .query_row(
+                    "SELECT hash,digest,namespace FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
+                    params![s.page, epoch, s.stream, seq],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?;
+            held &= row.is_some_and(|(hash, digest, namespace)| {
+                hash == anchor.hash
+                    && digest == Sha256::digest(anchor.bytes).to_vec()
+                    && namespace == anchor.namespace.name()
+            });
+        }
+        if held {
+            return Ok(Accepted::Replay);
+        }
+        unfrozen(&tx, s)?;
+        if position(&tx, s)?.is_some() {
+            return Err(Fault::Conflict);
+        }
+        if let Some(anchor) = anchor {
+            tx.execute(
+                "INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?)",
+                params![
+                    s.page,
+                    epoch,
+                    s.stream,
+                    seq,
+                    anchor.namespace.name(),
+                    anchor.hash.as_slice(),
+                    Sha256::digest(anchor.bytes).to_vec(),
+                    anchor.bytes
+                ],
+            )?;
+        }
+        for object in objects {
+            let e = &object.envelope;
+            tx.execute(
+                "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,signer) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                params![
+                    s.page,
+                    epoch,
+                    s.stream,
+                    e.namespace.name(),
+                    seq,
+                    e.hash.as_slice(),
+                    Sha256::digest(e.bytes).to_vec(),
+                    e.previous.as_slice(),
+                    e.bytes,
+                    object.signer
+                ],
+            )?;
+        }
+        // The installed originals are page content that arrived: the page is not idle.
+        let now = touch_activity(&tx, s.page, self.clock.as_ref())?;
+        if objects
+            .iter()
+            .any(|object| object.envelope.namespace == Namespace::Content)
+        {
+            tx.execute("UPDATE pages SET last_update_at_ms=CASE WHEN last_update_at_ms IS NULL OR last_update_at_ms<?1 THEN ?1 ELSE last_update_at_ms END WHERE page=?2",
+                params![now as i64, s.page])?;
+        }
+        // Count the inserted payloads; a failure rolls back every row above.
+        capacity(&tx, s.page, 0, anchor.is_some())?;
+        tx.commit()?;
+        Ok(Accepted::New)
+    }
     /// L2b's verified authority-cut caller pins before committing the cut; no HTTP authority.
     pub fn pin_checkpoint(
         &mut self,
@@ -412,25 +558,29 @@ impl Store {
         read_epoch(&self.connection, scope, true)?;
         read_anchor(&self.connection, scope, seq)
     }
-    /// The latest receipt of a stream, which survives pruning of its payload. A stream that has
-    /// never been stored has none.
+    /// The position of a stream (see [`position`]); a stream that has never been stored has none.
     pub fn stream_head(&self, scope: StreamScope<'_>) -> StoreResult<Option<(u64, [u8; 32])>> {
         current(&self.connection, scope)?;
-        let row: Option<(String, Vec<u8>)> = self
+        position(&self.connection, scope)
+    }
+    /// When the page last saw an admitted content/own-stream update or owner restore, by this
+    /// machine's clock at admission. A page with no activity evidence, or no such page, is `None`
+    /// (unknown, never old): the later of the activity time and the older content-edit time, whichever exist.
+    pub fn last_activity_ms(&self, page: &str) -> StoreResult<Option<u64>> {
+        bounded_id(page)?;
+        let times: Option<(Option<i64>, Option<i64>)> = self
             .connection
             .query_row(
-                "SELECT seq,hash FROM receipts WHERE page=? AND epoch=? AND stream=? ORDER BY seq DESC LIMIT 1",
-                params![scope.page, scope.epoch.to_string(), scope.stream],
+                "SELECT last_activity_at_ms,last_update_at_ms FROM pages WHERE page=?",
+                params![page],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
-        row.map(|(seq, hash)| {
-            Ok((
-                seq.parse().map_err(|_| Fault::Invalid)?,
-                hash.try_into().map_err(|_| Fault::Invalid)?,
-            ))
-        })
-        .transpose()
+        let (activity, update) = times.unwrap_or_default();
+        activity
+            .max(update)
+            .map(|ms| u64::try_from(ms).map_err(|_| Fault::Invalid))
+            .transpose()
     }
     /// Bounded namespace inventory, including checkpoint-only namespaces. This
     /// read transaction prevents an epoch transition between admission and reads.
@@ -630,6 +780,50 @@ fn read_anchor(c: &Connection, scope: StreamScope<'_>, seq: u64) -> StoreResult<
         hash: hash.try_into().map_err(|_| Fault::Invalid)?,
         bytes,
     }))
+}
+/// The one definition of a stream's position: its latest sequence and the hash it has there
+/// (colab-v1, "Stream position"). A stream built by ordinary appends and checkpoints has a receipt
+/// at every sequence it holds, and a checkpoint needs the receipt at its own, so the latest
+/// receipt decides. Only a stream installed by [`Store::bootstrap`] can hold a checkpoint past
+/// its receipts; then that checkpoint's head is the position. Callers never read the receipts
+/// table for a position.
+fn position(c: &Connection, s: StreamScope<'_>) -> StoreResult<Option<(u64, [u8; 32])>> {
+    let seq: Option<String> = c
+        .query_row(
+            "SELECT seq FROM (SELECT seq FROM receipts WHERE page=?1 AND epoch=?2 AND stream=?3
+             UNION ALL SELECT seq FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3)
+             ORDER BY seq DESC LIMIT 1",
+            params![s.page, s.epoch.to_string(), s.stream],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(seq) = seq else {
+        return Ok(None);
+    };
+    let seq: u64 = seq.parse().map_err(|_| Fault::Invalid)?;
+    let hash = hash_at(c, s.page, &s.epoch.to_string(), s.stream, seq)?.ok_or(Fault::Invalid)?;
+    Ok(Some((seq, hash)))
+}
+/// The hash a stream has at `seq`: the update's receipt, or, where a bootstrapped stream holds no
+/// receipt, the head a checkpoint at `seq` binds. Receipt rows survive pruning of their payload.
+pub(crate) fn hash_at(
+    c: &Connection,
+    page: &str,
+    epoch: &str,
+    stream: &str,
+    seq: u64,
+) -> StoreResult<Option<[u8; 32]>> {
+    let hash: Option<Vec<u8>> = c
+        .query_row(
+            "SELECT hash FROM receipts WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq=?4
+             UNION ALL SELECT head FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq=?4
+             LIMIT 1",
+            params![page, epoch, stream, sequence(seq)],
+            |r| r.get(0),
+        )
+        .optional()?;
+    hash.map(|hash| hash.try_into().map_err(|_| Fault::Invalid))
+        .transpose()
 }
 fn sequence(n: u64) -> String {
     format!("{n:020}")
@@ -831,16 +1025,8 @@ fn append_in(
         return Ok(None);
     }
     unfrozen(tx, s)?;
-    let head: Option<(String,Vec<u8>)> = tx.query_row("SELECT seq,hash FROM receipts WHERE page=? AND epoch=? AND stream=? ORDER BY seq DESC LIMIT 1",
-            params![s.page,epoch,s.stream], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
-    let (expected, previous) = match head {
-        Some((seq, hash)) => (
-            seq.parse::<u64>()
-                .map_err(|_| Fault::Invalid)?
-                .checked_add(1)
-                .ok_or(Fault::Capacity)?,
-            hash,
-        ),
+    let (expected, previous) = match position(tx, s)? {
+        Some((seq, hash)) => (seq.checked_add(1).ok_or(Fault::Capacity)?, hash.to_vec()),
         None => (1, vec![0; 32]),
     };
     if envelope.seq != expected {
@@ -863,11 +1049,24 @@ fn append_in(
             envelope.bytes
         ],
     )?;
+    // Every new update counts, whichever namespace it is in: the store only sees sealed bytes,
+    // so it cannot tell a comment or reply from an Ask record in the `own` stream.
+    let now = touch_activity(tx, s.page, clock)?;
     if envelope.namespace == Namespace::Content {
-        let now = clock().map_err(|e| Fault::Clock(Box::new(e)))?;
-        tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
         tx.execute("UPDATE pages SET last_update_at_ms=CASE WHEN last_update_at_ms IS NULL OR last_update_at_ms<?1 THEN ?1 ELSE last_update_at_ms END WHERE page=?2",
             params![now as i64, s.page])?;
     }
     Ok(Some(Accepted::New))
+}
+
+/// Record admitted activity atomically, never on an exact replay; content-edit time is separate.
+fn touch_activity(tx: &Connection, page: &str, clock: &Clock) -> StoreResult<u64> {
+    let now = clock().map_err(|e| Fault::Clock(Box::new(e)))?;
+    tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
+    let changed = tx.execute("UPDATE pages SET last_activity_at_ms=CASE WHEN last_activity_at_ms IS NULL OR last_activity_at_ms<?1 THEN ?1 ELSE last_activity_at_ms END WHERE page=?2",
+        params![now as i64, page])?;
+    if changed != 1 {
+        return Err(Fault::Invalid);
+    }
+    Ok(now)
 }

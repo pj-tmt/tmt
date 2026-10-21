@@ -333,6 +333,22 @@ fn screens_get_the_same_style() {
     );
 }
 
+#[cfg(feature = "ratatui")]
+#[test]
+fn attachment_surfaces_keep_terminal_and_mono_affordances() {
+    use ratatui::style::{Color, Modifier};
+    let theme = Theme::default();
+    let ink = screen::style(&theme, Role::AttachmentInk, Depth::Ansi16);
+    let fill = screen::style(&theme, Role::Attachment, Depth::Ansi16);
+    assert_eq!(ink.fg, Some(Color::White));
+    assert_eq!(fill.bg, Some(Color::Blue));
+    let mono = Theme::new(Base::Mono);
+    let ink = screen::style(&mono, Role::AttachmentInk, Depth::TrueColor);
+    let fill = screen::style(&mono, Role::Attachment, Depth::TrueColor);
+    assert!(ink.add_modifier.contains(Modifier::BOLD));
+    assert!(fill.add_modifier.contains(Modifier::REVERSED));
+}
+
 /// Today's command-line tokens show as design tokens under a theme.
 #[test]
 fn command_line_tokens_have_their_design_token() {
@@ -392,7 +408,12 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
         for role in Role::ALL.into_iter().filter(|role| {
             !matches!(
                 role,
-                Role::Selection | Role::Track | Role::Keycap | Role::KeycapSelected
+                Role::Selection
+                    | Role::Track
+                    | Role::Keycap
+                    | Role::KeycapSelected
+                    | Role::Attachment
+                    | Role::Conversation
             )
         }) {
             let floor = if matches!(role, Role::Muted | Role::Dim) {
@@ -410,11 +431,27 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
                 );
             }
         }
+        for (ink, fill) in [
+            (Role::AttachmentInk, Role::Attachment),
+            (Role::Text, Role::Attachment),
+        ] {
+            let ratio = contrast(color(ink), color(fill));
+            assert!(
+                ratio >= 4.5,
+                "{mode} {ink:?} on {fill:?}: {ratio:.2}:1 < 4.5:1"
+            );
+        }
         let selection = tokens["color"]["selection"][mode].as_str().unwrap();
         let ratio = contrast(color(Role::Text), selection);
         assert!(
             ratio >= 4.5,
             "{mode} text on selection {selection}: {ratio:.2}:1 < 4.5:1"
+        );
+        let conversation = tokens["color"]["conversation"][mode].as_str().unwrap();
+        let ratio = contrast(color(Role::Text), conversation);
+        assert!(
+            ratio >= 4.5,
+            "{mode} text on conversation {conversation}: {ratio:.2}:1 < 4.5:1"
         );
         let track = tokens["color"]["track"][mode].as_str().unwrap();
         let ratio = contrast(color(Role::Text), track);

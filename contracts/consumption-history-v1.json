@@ -338,4 +338,23 @@
       ]
     }
   }
+  ,"pinned": {
+    "description": "The same observations read at 22.5 s with the cut a first batch reported (throughMs 15000): every window ends at 15000, the bucket that closed at 20000 is not counted, and the answer equals a read taken at the cut. The cut is a multiple of 5000, not later than the read time and at most 60 s older.",
+    "asOfMs": 22500,
+    "request": {
+      "version": 1,
+      "operation": "consumption.history",
+      "input": {
+        "identityIds": ["11111111-1111-4111-8111-111111111111"],
+        "windowsMs": [15000],
+        "maxBuckets": 120,
+        "throughMs": 15000
+      }
+    },
+    "response": {
+      "throughMs": 15000,
+      "retainedFromMs": 0,
+      "window": {"windowMs":15000,"fromMs":0,"toMs":15000,"bucketMs":5000,"buckets":[{"fromMs":0,"toMs":5000,"inputTokens":0,"outputTokens":0,"cachedInputTokens":0,"coveredMs":0,"complete":false,"gap":true,"discontinuous":false},{"fromMs":5000,"toMs":10000,"inputTokens":0,"outputTokens":0,"cachedInputTokens":0,"coveredMs":4000,"complete":false,"gap":true,"discontinuous":false},{"fromMs":10000,"toMs":15000,"inputTokens":10,"outputTokens":5,"cachedInputTokens":2,"coveredMs":5000,"complete":true,"gap":false,"discontinuous":false,"byDriver":[{"driver":"codex","inputTokens":10,"outputTokens":5,"cachedInputTokens":2}]}]}
+    }
+  }
 }

@@ -932,7 +932,8 @@ fn answers_use_the_existing_worker_once_and_keep_the_question_and_reply_in_one_g
     for failure in [false, true] {
         let mut app = board();
         observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         let target = app.workspace.selected.clone().unwrap();
         app.view
             .as_mut()
@@ -1435,7 +1436,7 @@ fn a_visible_wrapped_continuation_keeps_elapsed_text_without_a_hidden_spinner_wa
         );
         let completed = send(&mut app, &fake, "one outgoing message");
         finish(&mut app, completed);
-        let surface = crate::board::conversation::exchange::Surface::Agents {
+        let surface = crate::board::conversation::exchange::Surface {
             target: app.conversation_target().unwrap(),
             interactive: true,
         };
@@ -1444,7 +1445,7 @@ fn a_visible_wrapped_continuation_keeps_elapsed_text_without_a_hidden_spinner_wa
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal
                 .draw(|frame| {
-                    crate::board::conversation::exchange::render_for(
+                    crate::board::conversation::exchange::render(
                         frame,
                         &app,
                         frame.area(),

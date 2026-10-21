@@ -1,0 +1,38 @@
+.page-link-bar {
+  position: fixed;
+  inset: auto 12px auto auto;
+  margin: 0;
+  box-sizing: border-box;
+  width: min(640px, calc(100vw - 24px));
+  max-height: calc(100dvh - 80px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  background: var(--c-sheet);
+  color: var(--c-text);
+  font: 14px/1.5 var(--f-body);
+}
+.page-link-bar h2 {
+  margin: 8px 0 12px;
+  font-size: 18px;
+}
+.page-link-bar small,
+.page-link-hint {
+  color: var(--c-muted);
+}
+.page-link-url {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--f-mono);
+  color: var(--c-muted);
+  unicode-bidi: isolate;
+}
+.page-link-url span {
+  color: var(--c-text);
+}
+.page-link-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}

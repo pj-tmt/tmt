@@ -685,15 +685,21 @@ pub fn create_page(
 pub fn create_shell(root: &Path, args: &ArgMatches) -> Result<()> {
     create_page_kind(root, args, String::new(), None, &[], true)
 }
-fn create_page_kind(
+/// A page committed through ordinary creation, and what was observed of the machine while it was.
+pub(crate) struct Created {
+    pub page_id: String,
+    /// The creation result: space, page, title, path, operation and membership head.
+    pub result: Value,
+    pub observation: crate::door::CreationObservation,
+}
+/// Commit one new page, the effect of `page create`, without opening or printing anything.
+pub(crate) fn commit_creation(
     root: &Path,
-    args: &ArgMatches,
+    title: &str,
     source: String,
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
-    checks: &[page_check::Finding],
     shell: bool,
-) -> Result<()> {
-    let title = text(args, "title");
+) -> Result<Created> {
     if title.is_empty() {
         return Err(input("Page title cannot be empty."));
     }
@@ -775,6 +781,26 @@ fn create_page_kind(
             code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),source:Some(error),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
+    Ok(Created {
+        page_id,
+        result,
+        observation,
+    })
+}
+fn create_page_kind(
+    root: &Path,
+    args: &ArgMatches,
+    source: String,
+    page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    checks: &[page_check::Finding],
+    shell: bool,
+) -> Result<()> {
+    let title = text(args, "title");
+    let Created {
+        page_id,
+        result,
+        observation,
+    } = commit_creation(root, title, source, page_layout, shell)?;
     // The effect is already committed. A catalog-read failure must not turn it into a failed create;
     // the full UUID alias remains safe when uniqueness cannot be observed.
     let ids = (|| -> Result<Vec<String>> {
@@ -922,7 +948,8 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     let key = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
-    let mut catalog = inspection::catalog(&store, &key)?;
+    let space_expiry = tmt_colab::settings::read_or_default(root).page_expiry();
+    let mut catalog = inspection::catalog_for(&store, &key, space_expiry)?;
     let ids = catalog_ids(&catalog);
     if command == "open" {
         let id = args
@@ -986,6 +1013,15 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             .as_array_mut()
             .ok_or_else(|| input("Invalid local page catalog."))?;
         pages.retain(|p| args.get_flag("archived") || p["archived"] != true);
+        if args.get_flag("expiring") {
+            let now_ms = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())
+                .map_err(|_| input("Local clock is beyond the supported range."))?;
+            pages.retain(|p| {
+                p["archiveAtMs"]
+                    .as_u64()
+                    .is_some_and(|at| at <= now_ms.saturating_add(7 * DAY_MS))
+            });
+        }
         if let Some(project) = project {
             pages.retain(|p| {
                 p["projects"]
@@ -1011,9 +1047,16 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             && let Ok(found) =
                 tmt_colab::work_index::scan(&layout, &store, &key, &mut decoder, &listed)
         {
+            // A task that follows a page shows that page's stage; a page that is followed names the
+            // task, so the list says it is part of another page's work.
+            let graph = tmt_colab::work_links::Graph(&found);
             for page in catalog["pages"].as_array_mut().into_iter().flatten() {
-                if let Some(Some(work)) = page["pageId"].as_str().and_then(|id| found.get(id)) {
-                    page["work"] = work.derived.clone();
+                let id = page["pageId"].as_str().unwrap_or_default().to_owned();
+                if let Some(derived) = graph.derived(&id) {
+                    page["work"] = derived;
+                }
+                if let Some((parent, task)) = graph.parent(&id) {
+                    page["parent"] = json!({"page":parent,"task":task});
                 }
             }
         }
@@ -1096,6 +1139,8 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             return output(
                 &json!({"membershipHead":detail["membershipHead"],"page":{
                 "pageId":id,"retentionDays":page["retentionDays"],"lastUpdateAtMs":page["lastUpdateAtMs"],
+                "lastActivityAtMs":page["lastActivityAtMs"],"archiveAfterDays":page["archiveAfterDays"],
+                "archiveAtMs":page["archiveAtMs"],
                 "expiresAtMs":page["expiresAtMs"],"warnings":page["warnings"]}}),
                 json_output,
             );
@@ -1209,7 +1254,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
                 rebuilt = true;
                 let fresh = Store::read(&layout)?;
                 fresh.require_current_schema()?;
-                let catalog = inspection::catalog(&fresh, &key)?;
+                let catalog = inspection::catalog_for(&fresh, &key, space_expiry)?;
                 let target = resolve_catalog_page(&fresh, &key, &catalog, &id, false)?;
                 let page = catalog["pages"]
                     .as_array()
@@ -1274,6 +1319,16 @@ fn catalog_ids(catalog: &Value) -> Vec<String> {
         .collect()
 }
 /// The pages that are not archived: the pages a work-in-progress count covers.
+/// Every page of the space that is not deleted, archived ones included.
+pub(crate) fn all_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
+    let catalog = inspection::catalog(store, key)?;
+    Ok(catalog["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+        .collect())
+}
 pub(crate) fn active_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
     let catalog = inspection::catalog(store, key)?;
     Ok(catalog["pages"]
@@ -1325,6 +1380,32 @@ fn retention_interval(duration_ms: u64) -> String {
     } else {
         "less than an hour".into()
     }
+}
+/// When the page is archived for lack of activity, from the fields of the local catalog: `None`
+/// where the value carries none (a result that is not a page read) and for a page already archived.
+fn archive_text(page: &Value, now_ms: u64) -> Option<String> {
+    if page["archived"] == true || page.get("archiveAfterDays").is_none() {
+        return None;
+    }
+    let Some(days) = page["archiveAfterDays"].as_u64() else {
+        return Some("never".into());
+    };
+    let Some(at) = page["archiveAtMs"].as_u64() else {
+        return Some(format!(
+            "{days} {} after last activity (none recorded yet)",
+            if days == 1 { "day" } else { "days" }
+        ));
+    };
+    Some(if at <= now_ms {
+        "due now".into()
+    } else {
+        let mark = if at - now_ms <= 7 * DAY_MS {
+            "◷ "
+        } else {
+            ""
+        };
+        format!("{mark}in {}", retention_interval(at - now_ms))
+    })
 }
 fn last_edit_text(updated_ms: u64, now_ms: u64) -> String {
     let duration = updated_ms.abs_diff(now_ms);
@@ -1480,6 +1561,12 @@ fn human_fields(value: &Value, now_ms: u64) -> Result<Vec<(String, String)>> {
                     fields.push(("last edit".to_owned(), last_edit_text(updated, now_ms)));
                 }
                 fields.push(("expiry".to_owned(), expiry_text(v, now_ms, false)));
+                if let Some(active) = v["lastActivityAtMs"].as_u64() {
+                    fields.push(("last activity".to_owned(), last_edit_text(active, now_ms)));
+                }
+                if let Some(archive) = archive_text(v, now_ms) {
+                    fields.push(("auto-archive".to_owned(), archive));
+                }
                 if v["archived"] == true {
                     fields.push(("archived".to_owned(), "yes".to_owned()));
                 }
@@ -1598,6 +1685,22 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
                     out,
                     "    {}",
                     terminal.paint(Token::Dim, &escape(&work_line(&page["work"])))
+                )?;
+            }
+            if let (Some(parent), Some(task)) = (
+                page["parent"]["page"].as_str(),
+                page["parent"]["task"].as_str(),
+            ) {
+                writeln!(
+                    out,
+                    "    {}",
+                    terminal.paint(
+                        Token::Dim,
+                        &escape(&format!(
+                            "part of {task} of {}",
+                            parent.get(..8).unwrap_or(parent)
+                        ))
+                    )
                 )?;
             }
             writeln!(

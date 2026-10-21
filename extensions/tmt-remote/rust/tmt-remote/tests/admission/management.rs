@@ -61,7 +61,7 @@ fn paired_browser_is_read_only_until_local_designation_and_agent_hold_never_appl
         json!({}),
     );
     assert_eq!(view["capabilities"]["settingsWrite"], false);
-    assert_eq!(view["settings"]["sessionsPerDevice"], "8");
+    assert_eq!(view["settings"]["sessionsPerDevice"], Value::Null);
     let id = uuid_v4().unwrap();
     let denied = request(
         &owner,
@@ -602,4 +602,90 @@ fn settings_snapshot_cannot_disclose_after_revoke_or_close() {
         ));
         assert!(core.calls().is_empty());
     }
+}
+
+#[test]
+fn signed_remove_others_is_designated_atomic_and_has_only_original_result_recovery() {
+    let owner = OwnerDoor::browser();
+    let core = core_fixture::Core::new();
+    let app = app(&owner, &core);
+    let session = owner.open();
+    let denied = request(
+        &owner,
+        Arc::clone(&app),
+        &session,
+        1,
+        "remote.devices.remove-others.preview",
+        json!({}),
+    );
+    assert_eq!(denied["error"]["code"], "REMOTE_MANAGEMENT_READ_ONLY");
+    let denied = request(
+        &owner,
+        Arc::clone(&app),
+        &session,
+        2,
+        "remote.devices.remove-others",
+        json!({"operationId":uuid_v4().unwrap(),"fingerprint":"ab".repeat(32)}),
+    );
+    assert_eq!(denied["error"]["code"], "REMOTE_MANAGEMENT_READ_ONLY");
+    {
+        let mut store = owner.store.lock().unwrap();
+        let observer = rusqlite::Connection::open(owner._root.0.join("remote/remote.db")).unwrap();
+        assert_eq!(
+            observer
+                .query_row("SELECT count(*) FROM management_receipts", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        drop(observer);
+        for i in 10..70u8 {
+            let mut grant = owner.grant.clone();
+            grant.client_id = uuid_v4().unwrap();
+            grant.public_key = [i; 32];
+            store.insert_grant(&grant).unwrap();
+        }
+        store
+            .designate(
+                &owner.grant.client_id,
+                &owner.grant.origin,
+                now_ms().unwrap(),
+            )
+            .unwrap();
+    }
+    let preview = request(
+        &owner,
+        Arc::clone(&app),
+        &session,
+        3,
+        "remote.devices.remove-others.preview",
+        json!({}),
+    );
+    assert_eq!(preview["count"], 60);
+    let id = uuid_v4().unwrap();
+    let outcome = request(
+        &owner,
+        Arc::clone(&app),
+        &session,
+        4,
+        "remote.devices.remove-others",
+        json!({"operationId":id,"fingerprint":preview["fingerprint"]}),
+    );
+    assert_eq!(outcome["state"], "committed");
+    assert_eq!(outcome["result"]["removed"], 60);
+    assert_eq!(outcome["sessionEnded"], false);
+    assert_eq!(
+        owner.store.lock().unwrap().active_grants().unwrap().len(),
+        1
+    );
+    let original = request(
+        &owner,
+        app,
+        &session,
+        5,
+        "remote.management.operation",
+        json!({"operationId":id}),
+    );
+    assert_eq!(original, outcome);
+    assert!(core.calls().is_empty());
 }

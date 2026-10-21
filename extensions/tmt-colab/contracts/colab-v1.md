@@ -116,7 +116,17 @@ archive ends that page's open sync connections with
 `RESYNC_REQUIRED`; their existing replacement path re-admits the read-only page.
 Writes, Ask, upload and thread status actions are removed; native admission still
 refuses their stale captures. Retained unsent drafts remain selectable with Copy.
-Archived export stays refused, and there is no unarchive operation.
+Archived export stays refused. An owner can restore an archived, non-deleted page with
+`page.unarchive`. Restore preserves the page ID, source, history, epochs, keys, recipients and
+sharing policy; deletion remains terminal. It restarts the retention clock by atomically
+updating `pages.last_activity_at_ms` with the signed statement, page projection and operation receipt.
+`pages.last_update_at_ms` remains the content-edit time; restoration does not change it.
+An exact committed retry returns its original receipt without restarting that clock again.
+A restore also ends existing page connections with `RESYNC_REQUIRED`. Replacement sessions
+must verify the current owner log and permissions before writes become available; retained
+drafts never send automatically. Cloud publication resumes through the existing activation
+path, publishing the open state and confirming its refreshed expiry through the normal cloud
+write. A local restore does not fabricate a confirmed cloud expiry.
 
 ### Attaching files in Chat and annotation conversations (#1854)
 
@@ -461,24 +471,32 @@ typed JSON. The operation-specific fields below are exact; keys/digests are
 canonical base64url, IDs/numbers follow the value table. History access
 follows the page's `page.history` mode, never possession of a new key.
 
-| Operation       | Payload fields / semantic constraints                                                                                                                    |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `member.add`    | `memberId, role, signKey, encKey, pages`; role viewer/commenter/editor; see [history modes](#current-view-baseline-and-history-modes) for earlier epochs |
-| `member.remove` | `memberId, cuts`; remove current authority and advance affected page epochs                                                                              |
-| `member.role`   | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                   |
-| `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                              |
-| `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                     |
-| `device.revoke` | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability    |
-| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; an owner machine with the restricted bridge role, not editor                                                 |
-| `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                          |
-| `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for loopback public mode; earlier epochs only under `shared` history     |
-| `page.history`  | `pageId, mode`; `shared` (default when absent) or `current`; owner control only; applies to later joins                                                  |
-| `retention.set` | `pageId, days`; positive safe-integer day count or null for forever                                                                                      |
-| `page.archive`  | `pageId`; hide from active lists and freeze writes                                                                                                       |
-| `page.delete`   | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                        |
+| Operation        | Payload fields / semantic constraints                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member.add`     | `memberId, role, signKey, encKey, pages`; role viewer/commenter/editor; see [history modes](#current-view-baseline-and-history-modes) for earlier epochs |
+| `member.remove`  | `memberId, cuts`; remove current authority and advance affected page epochs                                                                              |
+| `member.role`    | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                   |
+| `link.add`       | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                              |
+| `link.remove`    | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                     |
+| `device.revoke`  | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability    |
+| `bridge.add`     | `machineId, machineSignKey, encKey, pages`; an owner machine with the restricted bridge role, not editor                                                 |
+| `epoch.advance`  | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                          |
+| `page.share`     | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for loopback public mode; earlier epochs only under `shared` history     |
+| `page.history`   | `pageId, mode`; `shared` (default when absent) or `current`; owner control only; applies to later joins                                                  |
+| `retention.set`  | `pageId, days`; positive safe-integer day count or null for forever                                                                                      |
+| `page.archive`   | `pageId`; hide from active lists and freeze writes                                                                                                       |
+| `page.unarchive` | `pageId`; restore an archived, non-deleted page and restart its retention clock                                                                          |
+| `page.delete`    | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                        |
 
 `page.projects` and `project.manage` are not in this table: they are management requests that change
 display-only owner-store state and append no statement (see [Projects](#projects-3747)).
+
+**Page scope.** `epoch.advance`, `page.share`, `page.history`, `retention.set`, `page.archive`, `page.unarchive` and
+`page.delete` are page-scoped: each names exactly one page in `pageId` and changes only that page's
+policy (creating a page appends its first `page.share`). Every other operation (`member.*`, `link.*`,
+`device.revoke`, `bridge.add`) is not page-scoped, even when its payload lists pages: it can change who or
+what a writer is. A rule that asks whether a statement can touch a page reads its page scope from the
+payload, and an operation that is not listed here as page-scoped is treated as touching every page.
 
 The root owner is implicit, not an assignable member role; v1 has no co-owner
 or signing delegation. Every log statement is produced and signed by the owner's
@@ -1677,6 +1695,32 @@ updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1 except the
 [owner fold](#owner-fold-3983); the epoch baseline above is a distinct owner-authorized reset.
 
+#### Stream position and native cloud bootstrap
+
+A stream's **position** is its latest sequence and the hash it has there. The Store defines it in
+one place, `position` in `store.rs`, and no other code reads the receipts table for it: it is the
+latest receipt or, when later, the head that the stream's latest checkpoint binds. A stream built by
+appends and checkpoints has a receipt at its checkpoint's sequence (the Store refuses a checkpoint
+without one), so for it the two are the same; only a bootstrap leaves a checkpoint without its
+receipt. An update must follow the position: the next sequence, citing its hash.
+
+When this machine holds nothing of a foreign stream (no receipt and no checkpoint), native cloud
+inbound starts it from the cloud's latest paired checkpoint, ordinary or an owner fold, if the
+provider no longer holds the stream's log from sequence 1 or holds no log of it at all. It lists
+the page's checkpoints once per pass, only for a stream that needs one, and takes the stream's latest
+sequence. Both namespaces must be there with one signed head; for a fold the anchor is read by
+exact ID from the log. A pair that is not whole yet, or no checkpoint at all, changes nothing and is
+looked for again only when the page's records change. Each object is admitted by the code that reads
+a stored checkpoint or fold (signature, role, epoch, a revoked device's signed cut, a fold's signer
+list and anchor), and the Store installs the pair in one transaction: both checkpoints and, for a
+fold, its anchor as the receipt at its sequence. The page's activity time is refreshed as for any
+admitted update. The same pair again is a replay. A stream that holds a receipt or a checkpoint is
+never joined to a pruned prefix, and a frozen stream takes nothing: both stay stopped with the
+visible line. The tail then follows from the next sequence under ordinary continuity, the serve
+announces each stored checkpoint as for a local compact, and nothing is queued for publication. A
+pair that is not admitted, a malformed record or a missing anchor stops that writer, and no other,
+with its line.
+
 Authority reductions commit the exact checkpoint envelope hash, checkpoint
 sequence and tail head/hash. A revoked device's newly signed replacement cannot
 be admitted solely because it cites the old head. Checkpoint signatures do not
@@ -1836,20 +1880,28 @@ anything is pruned.
   the caller's deadline; streams not reached are counted and the next run continues. A fold is
   published only after the source-equality guard above, once per run for all of its folds. A stream is
   left as it is, and named with its reason in the report, when it is a bridge, link or commenter
-  device or has no admitted owner chain (`not-owner-device`); when it is a device this machine
-  publishes, on a page the cloud publisher has started (`published`, below); when its merge would
-  exceed one object (`too-large`); or when its changes did not merge into exactly the same page
-  (`refused`). The writer treats a page as published when it has any cloud publication or cloud page
-  row, because the publisher's per-page state cannot be read reliably. The report gains `folded`
-  (each `{stream, through, mergedObjects}`), `left` (each `{stream, why}`) and `unfolded` (a count);
-  the keys are absent when empty.
-- **Cloud.** The cloud channel carries no anchor, so a cloud reader would refuse a stream whose
-  checkpoint is a fold. The cloud publisher therefore never starts from one: a page whose next
-  checkpoint to publish is a fold stops with a visible line that names the command and the way out
-  (update Colab when a release adds combined changes, then restart it), and edits continue locally.
-  This holds for a page that was never published, compacted, and then activated.
-  [#4049](https://github.com/pj-tmt/tmt/issues/4049) lifts the stop by carrying the anchor. User
-  text never carries the issue number.
+  device or has no admitted owner chain (`not-owner-device`); when its merge would exceed one
+  object (`too-large`); or when its changes did not merge into exactly the same page (`refused`).
+  The report gains `folded` (each `{stream, through, mergedObjects}`), `left` (each `{stream, why}`)
+  and `unfolded` (a count); the keys are absent when empty.
+- **Cloud.** The publisher creates the exact signed anchor as a `log` document at the covered
+  stream's original sequence, before the paired namespace folds in `checkpoints` chunks. The
+  document's `uid` names the authenticated publisher, not the signing device. Existing Rules
+  check identity, shape and continuity (the space owner can bootstrap the anchor without its
+  predecessor); readers independently verify authority and signatures. The signer and covered
+  device's chains precede the objects, even when the signer has no data stream to publish.
+  The chosen fold batch carries its signer proofs, so a concurrent newer fold cannot substitute them.
+  Publication advances only after the anchor and both complete namespace originals are confirmed;
+  an uncertain result is reconciled by exact ID, never by resealing or choosing different bytes.
+  The hosted reader validates complete chunks and their object IDs, admits the anchor-only frame,
+  then the fold pair under the covered stream, then its contiguous n+1 tail. It applies nothing
+  from the anchor. Missing or invalid anchors, chains or pairs refuse without applying their data.
+  Existing discovery supplies the anchor on first load; a newly discovered fold on a later wake
+  can use a bounded, budget-charged exact-ID log read. Neither Rules nor declaration changes.
+  Native cloud inbound starts a stream it holds nothing of from the fold pair and its anchor
+  ([native cloud bootstrap](#stream-position-and-native-cloud-bootstrap)); a stream it holds a prefix
+  of stays stopped with its visible line, directing the reader to keep editing on the machine that
+  created the page.
 
 Frozen vectors, replayed by native and browser admission, ship with the code and must cover: a fold
 admitted; an unlisted fold from a revoked signer refused; a listed fold from a revoked signer
@@ -2270,6 +2322,42 @@ The parent sets no deadline on the `colab.render.bound` acknowledgement, which f
 document's own `load`: a very large page binds late and shows its loading state meanwhile, and only
 navigation or the page being left ends the frame (#3982).
 
+**Page links (#4083).** The bootstrap installs ordinary link interception before author HTML
+executes. A trusted primary, keyboard, modified or middle activation of `a[href]` prevents the
+frame's default navigation. A literal same-page `#id` scrolls locally through the existing bounded
+anchor path without setting location. Other links post exactly
+`{type:"colab.render.link",renderId,href,newTab}` to the parent; `href` is at most 8 KiB UTF-8 and
+`newTab` is boolean. The parent requires the current ready frame's `event.source`, exact
+fields/types/bounds and render ID. Invalid, stale or disposed requests do nothing. A render ID and
+a bootstrap claim never authenticate a gesture or author content.
+
+The trusted URL classifier uses the app's base, never an authored `base` element. Only a same-origin
+`/p/SHORT` with a valid page prefix, or an exact same-space owner link, can select app navigation.
+Only the page ID/prefix and one bounded cosmetic element fragment survive; extra/duplicate query
+or capability fields, credentials, controls and invalid routes are refused. Short-link resolution
+retains its cosmetic anchor through normal page admission. This adds no cross-space read authority.
+Outside URLs allow HTTPS or HTTP on literal `localhost`, `127.0.0.1` or `[::1]`; other schemes are
+refused with a trusted notice, without echoing their payload.
+
+A same-space request navigates directly only when the parent observes
+`navigator.userActivation.isActive` at receipt. Activation proves recent interaction, not which
+link the person used. Without activation, even a forged current-render request requires the same
+trusted Open/Cancel confirmation. At most one in-place navigation is allowed per render lifetime.
+Modified/middle intent opens a new app tab without consuming that guard; plain intent uses the
+existing router owner. Opening a tab leaves the current page's links available.
+This is the only exception to renderer requests being unable to select a page or navigate.
+
+Every outside URL requires confirmation, regardless of activation. A trusted bar below the header
+shows its complete frozen URL as inert selectable text, with Open, Copy link and Cancel. One
+pending request is retained; later frame requests cannot replace its destination. Escape or an
+outside press cancels. Replacing/stopping/leaving the render clears the request. Only a trusted
+parent Open activation opens the admitted frozen URL, using
+`window.open(url,"_blank","noopener,noreferrer")` for a new tab. Open clears the request; there is no
+automatic retry. A null return does not prove popup blocking, so the bar always offers Copy link
+and says "If no tab opens, copy the link instead." Copy retains the bar. No destination is fetched
+merely because a request or confirmation exists. Scripted location changes, forms and any missed
+navigation retain the existing teardown and self-navigation limitation; sandbox/CSP are unchanged.
+
 The parent derives the effective theme from its explicit root `data-theme` choice,
 otherwise the current OS preference. Only user theme activation records a choice;
 without one, OS changes remain live. Before author code runs, the bootstrap projects
@@ -2287,6 +2375,17 @@ CSS keyed only on `prefers-color-scheme` continues to follow the OS. This cosmet
 projection does not rewrite source, inject palettes, force author backgrounds or
 change the existing white canvas for unstyled pages. Author code may tamper with it;
 it grants no capability or truth about the page.
+
+The cards the parent draws over the page take the scheme the page paints, not the app's (#4081).
+The renderer measures the document's own canvas colour (the root's background, else the body's)
+over the white frame canvas and sends the parent exactly
+`{type:"colab.render.scheme", renderId, scheme}` with `scheme` one of `light` or `dark` (relative
+luminance under 0.179). A page that paints no background is the white frame canvas, so it is
+`light` in either theme. It sends the first value at the document's `load`, and again only when
+the value changes, as the page repaints itself, the theme changes or the OS preference changes.
+The parent accepts only the current render ID and those two values and scopes the cards to the
+light or dark tokens; until the first value they keep the app theme. The value is cosmetic:
+author code may send it, and it grants no capability.
 
 A `column` or `full` layout makes Colab own the page frame. Before author code runs, the
 bootstrap sets `data-colab-layout` on the renderer root and adds the stylesheet generated
@@ -2360,7 +2459,7 @@ one hover outline, a completed text selection or a text-bearing click captured t
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
 show a temporary polite hint and create nothing. Source replacement reprojects mode;
 page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. Author requests cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
@@ -2541,7 +2640,8 @@ A task is a closed object whose optional fields are omitted, never `null`:
 | `assignee`     | `{kind:"agent",name,id?}` (the shell's display-metadata shape) or `{kind:"person",name}`; a name is 1 to 128 bytes                                                           |
 | `acceptance`   | 1 to 8 criteria, each `{kind:"test",name}` (a test name), `{kind:"check",command,result?}` (a command and, once run, its result) or `{kind:"person",who}` (a person or lead) |
 | `needsSignoff` | `true` when the task waits for the owner's sign-off; omitted otherwise                                                                                                       |
-| `externalId`   | At most 128 bytes: the external issue a driver syncs; no driver exists yet                                                                                                   |
+| `externalId`   | At most 128 bytes: the external issue a driver syncs; the GitHub driver's is `#N` (see [GitHub driver](#github-driver-4053))                                                 |
+| `child`        | A page ID (a generated UUID): the page this task follows (see [A task that follows a page](#a-task-that-follows-a-page-4118)); never together with `externalId`              |
 
 Text is inert and contains no control characters (except the line feeds of `detail`) or unpaired
 surrogates. A criterion records what makes the task acceptable; nothing in this version ticks it
@@ -2549,14 +2649,16 @@ or runs a command. `needsSignoff` is stored and counted, and only that: nothing 
 on it or gates a state change on it, so it is display data until the owner can answer it.
 
 Each action is trial-applied to a detached admitted document. Only a schema-valid whole result
-becomes an ordinary signed content publication. The seven closed bodies are:
+becomes an ordinary signed content publication. The nine closed bodies are:
 
 | Action          | Body                                                                     | Effect                                                                                                                   |
 | --------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | `task.add`      | `{task:{title,detail?,assignee?,acceptance?,needsSignoff?,externalId?}}` | Add a `todo` task as `T-<next>` and count `next` on; the caller never chooses the ID, and it is returned.                |
-| `task.set`      | `{taskId,title,detail?,acceptance?,needsSignoff?,externalId?}`           | Replace the editable fields as a whole (an omitted optional is cleared); never state, reason or assignee.                |
+| `task.set`      | `{taskId,title,detail?,acceptance?,needsSignoff?,externalId?}`           | Replace the editable fields as a whole (an omitted optional is cleared); never state, reason, assignee or child.         |
 | `task.state`    | `{taskId,state,reason?}`                                                 | Set the state; `reason` is required for `blocked` and refused for any other state, and a move out of `blocked` drops it. |
 | `task.assign`   | `{taskId,assignee?}`                                                     | Set the assignee; omitted clears it.                                                                                     |
+| `task.link`     | `{taskId,pageId}`                                                        | Set `child`; the same page again is a no-op, and another page while one is set is refused (unlink first).                |
+| `task.unlink`   | `{taskId}`                                                               | Remove `child`; absent already is a valid no-op.                                                                         |
 | `task.remove`   | `{taskId}`                                                               | Remove the task and its order entry; its number is never reused.                                                         |
 | `summary.set`   | `{line1,line2}`                                                          | Set both lines and system attribution.                                                                                   |
 | `summary.clear` | `{}`                                                                     | Remove the summary; absent already is a valid no-op.                                                                     |
@@ -2578,13 +2680,53 @@ folds the value and validates it and shows nothing new. Page export includes it 
 (see [Plaintext page export](#plaintext-page-export-1309)). Native and browser consume the shared
 `work-v1.json` vectors.
 
-`tmt colab task ls|add|set|state|assign|rm PAGE ...` and `tmt colab summary set|clear PAGE` run
+#### A task that follows a page (#4118)
+
+A task with a `child` follows that page, and a page is the child of at most one task. The task's
+own `state` is kept, ignored while it follows and shown again when it stops, and `task.state` is
+refused for it. The task shows the stage of its page as a state: `discussion` (no task) is `todo`,
+`in-progress` is `in-progress`, and `done` is `done`, or `in-review` when the task has
+`needsSignoff`. A blocked task inside the page does not propagate (the page stays `in-progress`).
+`child` and `externalId` exclude each other on one task, so a task's state has one owner. Both
+validators enforce the exclusion, the id form and the closed actions, so raw Yjs cannot bypass them.
+
+The value never holds the page's stage: derived values take a resolver from page ID to stage, and
+a task whose page the resolver cannot answer for (deleted, unreadable, not asked) shows its own state.
+The page's own stage, progress, workers and sign-off count are computed from the states the tasks
+show, so a page whose tasks all follow finished pages is `done`; they are returned with the states of
+the tasks that follow a page as `derived.states` (`{T-n: state}`, present only when some task does). A
+page's stage is resolved through the pages it follows, at most 8 pages deep; a page already being
+resolved, or one past the depth, answers nothing, so its task shows its own state and the resolution
+always ends. The native resolver is the work index (below); the browser takes a resolver from the
+owner's rows and never reads another page's document, and a reader without them shows a task that
+follows a page without a state.
+
+`task.link` is admitted by the write command, like the work-in-progress limit, because one page's
+document cannot see another's. It is refused as `COLAB_LINK_REFUSED` when the page is the task's own
+page, is not a page of the space (deleted, or one the owner cannot read), already has a parent (a task
+of this page or of any other, naming it), or has the task's page below it (a loop). Two writers can
+still race to link one page, or to close a loop; as with the limit this is a working agreement, not a
+lock. Readers then resolve it the same way: a page's parent is the task of the page with the lowest ID,
+then the lowest task number, and a loop is cut as above. An archived page keeps its link and its stage
+is followed. The work-in-progress limit does not count a task that follows a page as held: the work is
+held where it is, by that page's own tasks.
+
+`tmt colab task ls|add|set|state|assign|link|unlink|convert|rm PAGE ...` and `tmt colab summary set|clear PAGE` run
 the actions above, one command per action, and never open a browser. A write applies to the
 revision it just read, or to `--expected-revision`; `task add` returns the new `taskId`. `task ls
 --json` returns `{spaceId,pageId,title,work,derived,epoch,membershipHead,revision}`; a page with no
-work returns the empty value. A shell page is refused with `COLAB_INPUT_INVALID`. `tmt colab ls`
-shows `work` (`stage`, `done`, `total`, `working`, `signoff`) on each page that has work, and one
-line under its row.
+work returns the empty value, and `derived` carries `states` when a task follows a page. A shell page
+is refused with `COLAB_INPUT_INVALID`. `tmt colab ls` shows `work` (`stage`, `done`, `total`,
+`working`, `signoff`, the tasks following pages counted by the states they show) on each page that has
+work, and one line under its row; a page that is followed also carries `parent` `{page,task}` and says
+"part of T-n of PAGE". `task link PAGE TASK CHILD` and `task unlink PAGE TASK` run the two actions
+(CHILD is named as any page is). `task convert PAGE TASK` makes a new column-layout page titled like
+the task, with its detail as paragraphs of escaped text, then runs `task.link` for it; it prints
+`childPage`. Making a page moves the space, so the link is written on the revision read after it and
+only while the task is still the one copied; otherwise nothing is linked and the command says which
+page exists and the `task link` command that finishes it. It never searches for a page to adopt, so
+running it again makes another page. A task that follows a page or has an `externalId` is refused
+before any page is made.
 
 An agent _holds_ a task while it is assigned to that agent (`assignee.kind` `agent`, by name) and the
 task is `todo` or `in-progress`. The work-in-progress limit bounds the tasks an agent holds across
@@ -2599,9 +2741,52 @@ admitted, so lowering the limit, a write from another device or a person's tasks
 published state or block finishing, unassigning or removing a task. The count reads each page's work
 through a derived file keyed by the page's own progress (`work-index.json` beside the settings: the
 epoch and the content counts, not the membership head, so another page's creation or sharing
-refolds nothing), which holds nothing the pages do not and may be deleted; a revocation alone can
+refolds nothing; a page whose tasks follow pages also keeps each task's state, assignee, sign-off
+flag and `child`, which is what resolution and `task.link` read), which holds nothing the pages do not
+and may be deleted; a revocation alone can
 leave an entry stale until the page's next write. Two commands racing on different pages may
 both be admitted: the limit is a working agreement, not a lock.
+
+#### GitHub driver (#4053)
+
+`tmt colab task github push PAGE TASK` and `tmt colab task github sync [PAGE]` link tasks to
+GitHub issues. Both run the owner's `gh` on the owner's machine with the owner's sign-in, argv only
+(the program is `gh` on PATH, or the file named by `TMT_COLAB_GH`, which is how tests supply a
+scripted fake), and write to the page only through the ordinary `task.set` and `task.state` actions
+under the revision fence. A failure writes nothing. The repository is the space's one setting,
+`tmt colab settings github-repo OWNER/REPO|none`, stored in `settings.json` as
+`{"github":{"repo":"OWNER/REPO"}}`; with none set both commands are `COLAB_GITHUB_REPO_UNSET`.
+Nothing edited on GitHub is read back except the closing described below.
+
+`push` is a command for one task and never part of `sync`: it publishes the task's title, detail
+and acceptance to GitHub, possibly to a public repository, and prints the repository and the issue's
+URL. A task that already has an `externalId`, or follows a page, is refused. The issue body carries a hidden marker
+(`<!-- tmtcolab<32 hex digits> -->`, one alphanumeric token: the first 16 bytes of the SHA-256 of the page ID, a NUL and the task ID, so the digest identifies the task without revealing the page), the detail and the acceptance criteria
+each inside a code fence longer than any run of backticks in them, so no mention or link in a page's
+text acts, and every `#N` and `GH-N` reference in the title, detail and criteria is broken by a
+zero-width space, so a page cannot link or close another issue. The page's own ID is published
+in no form. Before creating, `push` searches the repository's issues for the marker and adopts the
+one that carries it (the lowest number) instead of creating another, so a push whose record failed
+(a stale revision, a crash) is safe to run again. It then records `#N` with `task.set`, the task's
+whole editable part with its `externalId`, on the revision it read.
+
+`sync` asks about every task with an `externalId` of the form `#N` (a decimal number from 1 to
+999999999; any other ID belongs to something else) that is not `done`, on one page or on every
+non-archived page of the space. It makes one `gh api graphql` call per at most 100 distinct issues
+(`issue(number:N){state closedByPullRequestsReferences{nodes{merged}}}` under one alias each) and
+asks about at most 200 issues in a run; the rest are reported `unchecked`, to be asked on a rerun. A task
+becomes `done` (`task.state`, read again once after a `COLAB_STALE_BASE`) only when its issue is
+`CLOSED` and a closing pull request has merged: GitHub's own `Fixes #N`. A task whose issue is
+open, closed without a merged pull request, or missing is left alone. The result is
+`{repo,calls,checked,rows}` with one row `{page,task,externalId,outcome}` per task, `outcome` being
+`done`, `open`, `closed`, `missing`, `unchecked` or `failed` (a `failed` row adds
+`error:{code,message}`). Any `failed` row makes the command fail with the rows in the same JSON
+document; a failed check never moves a task.
+
+Errors: `COLAB_GITHUB_REPO_UNSET` (no repository), `COLAB_GITHUB_UNAVAILABLE` (`gh` cannot be run, or
+is not signed in; one such answer ends the run) and `COLAB_GITHUB_REFUSED` (`gh` refused, did not
+answer within 60 seconds, or answered without what was asked; its message is carried, at most 400
+characters).
 
 ### Answer blocks
 
@@ -3377,6 +3562,20 @@ receipt ledger, so pruning never permits accepting a sequence again.
 An admission check or catchup that cannot read the store because SQLite stays busy or locked past
 its 2 s timeout answers `RESYNC_REQUIRED`, never `DENIED` (#2956): it says nothing about the
 device, and the client resyncs. A refusal the store answered keeps its code.
+An append that cites an earlier membership revision than the head is admitted when every membership
+statement after the cited revision, up to the head, is page-scoped (see Page scope under the
+statement table) and names a page other than the append's own: a page created or shared elsewhere
+changes nothing for this page or this writer, and every authority fact (revocation, chain, role, page
+policy, epoch) is read at the head in the same snapshot. Any other statement in that window, one that
+names this page or is not page-scoped, leaves the append stale, and it answers `RESYNC_REQUIRED`,
+never `DENIED` (#4088): the session's view is out of date, which says nothing about the device. A
+window of more than 256 statements also answers `RESYNC_REQUIRED`. A revision the head has not
+reached is `DENIED`, and so is one before the device certificate's own `membershipRevision`
+(#4103). The refusal stores nothing. The owner browser keeps no copy of this rule: it retries the exact
+bytes of an interrupted own append, sends nothing again when its catch-up shows those bytes already
+at the stream's head (the receipt was lost), and drops one only when the serve answers
+`RESYNC_REQUIRED` after the session has caught up past the revision the entry cites, because the
+signed header cannot change; it then seals the next write under the head it caught up to.
 
 `append.seq` is positive canonical decimal text. `streamId` equals the principal
 and signed author. `envelopeHash` is canonical base64url hash32. `envelope` is either
@@ -3712,8 +3911,9 @@ owner upgrades. `registration::OwnerAdmission` reads a durable authority snapsho
 on each check: active registration/device, certificate lifetime, pinned owner
 management member and editor issuer, retained head and current page epoch. The
 owner management member admits local pages regardless of its empty genesis page
-list. Append additionally requires the current membership revision and an allowed
-namespace, and returns the registered extension signing key for model signature
+list. Append additionally requires a membership revision that the window rule above admits (the
+head, or an earlier one when every statement after it is page-scoped to another page; any other
+earlier one answers `RESYNC_REQUIRED`) and an allowed namespace, and returns the registered extension signing key for model signature
 verification. Upgrade verifies the full remote binding and device chain; repeated
 Read checks do not redo signatures or reserve the SQLite writer. Catchup takes its
 head from `Store::owner_head` and the exact persisted reset descriptor through
@@ -3871,9 +4071,10 @@ for them. Public recovery admits through the SDK before loading protected app as
 in place, retaining the visible short URL. Mounted legacy entry canonicalizes only
 after verified discovery and carries its owner reading or anchor hint over. Internal mount and
 space pins remain separate from visible location; reload and history use short paths, with at
-most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>` or, on a full page
-route only, `#anchor=<shellAnchor>`. A plain `#<shellAnchor>` names the same element, and the location then
-keeps it as `#anchor=<shellAnchor>`. A fragment that names no display target is ignored: the page
+most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>` or
+`#anchor=<elementId>`; short-page resolution retains the anchor until the full page opens.
+A plain `#<elementId>` names the same element, and the location then
+keeps it as `#anchor=<elementId>`. A fragment that names no display target is ignored: the page
 opens at the top and the location drops the fragment. Only a fragment that carries `space`, `path`
 or `seed` refuses.
 Reader entry uses only existing public reader assets and never obtains owner authority.
@@ -4409,6 +4610,28 @@ writable unless signed archive/delete policy forbids it. Local retention accepts
 its existing positive day count or forever; this is separate from the finite
 cloud lifetime. Local data is never automatically deleted.
 
+The space's page expiry (#2600) is the days a page may sit without activity before it is
+archived: 180 by default. `tmt colab settings page-expiry DAYS|off|default` sets it to a whole
+number from 1 through 3650, to `off` (never archive for inactivity), or back to the default. It
+is a machine-local setting in `settings.json` (`{"pageExpiry": N|"off"}`, absent for the
+default; any other value makes the file read as damaged and the defaults apply) and settings
+output reports it as `pageExpiryDays`, null for `off`. A page's own signed `retention.set`
+overrides it (`forever` never archives), and one function decides which applies: a page with no
+`retention.set` takes the space's setting. Each owner machine applies its own setting, so where
+several machines serve one space the shortest wins. The setting signs nothing and changes no
+stored statement. Nothing applies it yet; the scheduled archive of #2600 will.
+
+The local management reads (`ls`, `show`, `retention`) report it per page; the catalog the
+browser is served does not carry it. `lastActivityAtMs` is the page's effective activity (the later of the last activity and
+the last content edit; null when neither was ever recorded), `archiveAfterDays` is the days that
+apply to the page (its own `retention.set`, else the space setting; null for never), and
+`archiveAtMs` is `lastActivityAtMs` plus those days, or null when the page is already archived,
+never expires, has no recorded activity (an unknown activity is never an old one) or the time
+would not fit a record. `ls --expiring` lists the pages whose `archiveAtMs` is within seven days
+of now or already past. Human `show` and `retention` add `last activity` and `auto-archive` lines
+(`never`, `in 12 days`, `◷ in 4 days` within seven days, `due now`, or `N days after last activity
+(none recorded yet)`). Reading never refreshes the evidence.
+
 Firestore Rules deny expired reads; owner cleanup of expired cloud data is admitted.
 The browser/CLI cleanup caller is part of the pending relay binding. Optional Blaze
 TTL is eventual physical cleanup, not timely revocation.
@@ -4446,16 +4669,21 @@ must match this space, use an admitted page context, and satisfy
 
 Request payloads contain user selections only, separate from owner statement DTOs:
 
-| Operation                                      | Exact request fields                                                         |
-| ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| `epoch.advance`, `page.archive`, `page.delete` | `pageId`                                                                     |
-| `page.share`, `page.history`                   | `pageId, mode`                                                               |
-| `retention.set`                                | `pageId, days` (positive safe integer or null)                               |
-| `member.add`                                   | `memberId, role, signKey, encKey, pages`                                     |
-| `member.remove`                                | `memberId, pages`                                                            |
-| `member.role`                                  | `memberId, role, pages`                                                      |
-| `link.add`                                     | `linkId, role, pages, seed`                                                  |
-| `link.remove`                                  | `linkId, pages, replacement` (required null, or a complete link-add request) |
+| Operation                                                        | Exact request fields                                                         |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `epoch.advance`, `page.archive`, `page.unarchive`, `page.delete` | `pageId`                                                                     |
+| `page.share`, `page.history`                                     | `pageId, mode`                                                               |
+| `retention.set`                                                  | `pageId, days` (positive safe integer or null)                               |
+| `member.add`                                                     | `memberId, role, signKey, encKey, pages`                                     |
+| `member.remove`                                                  | `memberId, pages`                                                            |
+| `member.role`                                                    | `memberId, role, pages`                                                      |
+| `link.add`                                                       | `linkId, role, pages, seed`                                                  |
+| `link.remove`                                                    | `linkId, pages, replacement` (required null, or a complete link-add request) |
+
+`page.unarchive` uses the same live owner management admission, expected owner-log head and
+operation-receipt binding as archive. A new request requires an archived, non-deleted target;
+an active or deleted target is refused. The owner signs exactly `{pageId}`: the browser cannot
+supply replacement keys, epochs, recipients, history, expiry or restored content.
 
 Page IDs match the framed initiating context. Page sets are sorted, unique and
 bounded to 256 generated IDs. The engine fences the affected assignment in its
@@ -4537,7 +4765,7 @@ Command names precede operands, following the shared CLI style audit (the lead's
 #1307 decision replaces the positional-first #1111 sketch):
 
 ```text
-ls [--archived]
+ls [--archived] [--expiring]
 show <page>
 share mode <page> <private|link|public>
 share link list <page>
@@ -4633,11 +4861,12 @@ conflicts and an unsaved request cannot revive the deleted page.
 
 Link listings return `{pageId, membershipHead, links}`.
 Retention reads return `{membershipHead, page:{pageId, retentionDays,
-lastUpdateAtMs, expiresAtMs, warnings}}`.
+lastUpdateAtMs, lastActivityAtMs, archiveAfterDays, archiveAtMs, expiresAtMs, warnings}}`.
 Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has null
 space/head and empty pages. Show returns `{spaceId, membershipHead, page, members,
 links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
-sharing, history, archived, retentionDays, lastUpdateAtMs, expiresAtMs, warnings`.
+sharing, history, archived, retentionDays, lastUpdateAtMs, lastActivityAtMs,
+archiveAfterDays, archiveAtMs, expiresAtMs, warnings`.
 IDs, epochs and revisions retain canonical full values; times are UTC
 milliseconds. Policy derives from verified owner statements; titles require the
 authenticated fold and isolated decoder. Archived titles are null with
@@ -4653,6 +4882,17 @@ never refresh it. Schema-4 migration preserves content and receipts and leaves
 legacy times null without backfill. No client envelope time, file time, read time
 or fabricated zero establishes it. The next admitted content edit starts evidence for a
 legacy page. The time is the page's last edit and is not what expiry is computed from.
+
+Schema 15 adds nullable, nonnegative safe-integer `pages.last_activity_at_ms`, the page's
+last activity: the server clock at the last new admitted update of either namespace or an
+explicit owner `page.unarchive` (as defined above), so a
+content edit, a comment and a reply all count. The store holds sealed bytes and cannot tell a
+comment from an Ask record in the same `own` stream, so Ask records count too. The rules are
+those of `last_update_at_ms`: sampled in the receipt transaction, never decreasing, and never
+refreshed by exact replay, a failed or rolled-back update, a read, a checkpoint or a
+other policy or epoch change. The migration leaves legacy times null without backfill. A page's
+effective activity is the later of `last_activity_at_ms` and `last_update_at_ms`; null is
+unknown, never old. No command reports the value yet.
 
 Retention defaults to 30 days; forever is null. The expiry shown is the cloud copy's and is
 never derived from local activity: `expiresAtMs` is the `expiresAt` of the page's owner row as
@@ -4845,7 +5085,7 @@ Subscribes, touches the active page, stores a record or sends a notification.
 
 The JSON result is exactly one of:
 
-- `{pageId, state:"ready", fingerprint, summary, readings}`. `fingerprint` is the
+- `{pageId, state:"ready", fingerprint, summary, readings, needs, latest?}`. `fingerprint` is the
   lowercase SHA-256 of the existing cache fingerprint's UTF-8 bytes, not a signature
   or admission token. `summary` has the discovery summary shape. `readings` is the
   complete ordered list of admitted, uniquely anchored reading descriptors from
@@ -4856,6 +5096,16 @@ The JSON result is exactly one of:
   page; labels or agent prose never count as a read. Pending reading IDs must
   agree with the shared pending-target projection, including cross-kind ID
   deduplication. These descriptor links only open unread readings; they never mark read.
+  `needs` names the pending items the count includes, ordered review, question, reading,
+  proposal and by page order within a kind, at most 20 (the count stays `summary.needsYou`):
+  `{kind:"review"|"question"|"reading"|"proposal", id, title, agent?, why?}`. `id` is the
+  pending-target ID (a question's is its group's); `title` is 1–200 code points and `agent` at
+  most 64; `why` appears on a reading only. A pending item the page no longer lists is left out.
+  `latest`, absent when the page has no live comment, is `{who?, atMs, text}`: the newest
+  non-deleted comment by its device clock, excluding the records the page controls write
+  (answers, confirmations, reads), with whitespace folded to single spaces and at most 160 code
+  points; `who` is the device label it was written under, display-only and never proof of
+  authorship, and is absent when that label is empty once made inert. `needs` and `latest` come from the same fold and fingerprint as the rest.
 - `{pageId, state:"pending"}` when no fresh cached fold is available and it has
   not failed at the current fingerprint. The existing bounded summary refresher
   may schedule it; the request itself never waits for a decoder or starts another
@@ -4873,9 +5123,9 @@ or deleted page is denied. Malformed requests use existing `INVALID`; owner-cont
 refusals retain `DENIED`/`EXPIRED`, and failed store admission retains the existing
 error mapping. There is no partial success or truncated descriptor list.
 
-Each UTF-8 JSON reply is at most 128 KiB, with at most 50 descriptors and no
-pagination. Replies contain only these allowlisted descriptors, never passage HTML,
-discussion bodies or certificate bytes. The browser validates exact keys, byte/count/text bounds, UUID
+Each UTF-8 JSON reply is at most 192 KiB, with at most 50 descriptors, 20 named passages and no
+pagination. Replies contain only these allowlisted descriptors and the one bounded `latest`
+excerpt, never passage HTML, other discussion bodies or certificate bytes. The browser validates exact keys, byte/count/text bounds, UUID
 uniqueness and states before rendering any descriptor as inert text. A malformed,
 failed or stale result remains unknown, never an empty complete list. Discovery
 keeps its unchanged 1 MiB and 1,000-page bounds.
@@ -5885,7 +6135,8 @@ the same dialog; local samples remain read-only. Home defaults to the All tab (a
 and offers an Archived tab; its rows offer archive and delete, each behind a confirmation that
 names the page, and a selection of rows takes them together (one signed statement per page, in
 order, stopping at the first refusal), and the dialog provides retention days/forever, archive and explicit
-delete confirmation. There is no unarchive action. Policy and complete recipient
+delete confirmation. An archived row offers `Restore…` with a named confirmation, using the
+same read/prepare/send/verify flow for `page.unarchive`. Policy and complete recipient
 assignments derive from the contiguous verified owner log, never discovery labels.
 
 Metadata catchup reuses bounded frame/chunk assembly and owner-log admission,

@@ -1,6 +1,7 @@
 use super::*;
 use ratatui::style::Style;
 use ratatui::{Terminal, backend::TestBackend};
+use tmt_cli_style::Depth;
 
 mod routing;
 
@@ -12,7 +13,7 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
     for depth in [Depth::TrueColor, Depth::None] {
         for (width, height) in [(80, 36), (100, 35), (100, 36), (100, 37), (160, 36)] {
             let mut app = app(depth);
-            app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+            app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
             assert_eq!(app.shell.tab, OpsTab::Digest);
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             let mut draw = |app: &mut App| {
@@ -33,17 +34,14 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
                 assert_eq!(crate::test_support::stacked_rules(&lines), None);
                 let focused: Vec<_> = lines
                     .into_iter()
-                    .filter(|line| line.contains(" · focused"))
+                    .filter(|line| line.contains(" ▸ "))
                     .collect();
                 assert_eq!(focused.len(), 1, "{focused:?}");
                 focused.into_iter().next().unwrap()
             };
             let title = draw(&mut app);
-            assert!(title.contains("Digest · focused"), "{title}");
+            assert!(title.contains("▸ Digest"), "{title}");
             assert!(!title.contains("Esc back"));
-            if depth == Depth::None {
-                assert!(title.contains("▶ Digest"), "{title}");
-            }
             let selected = app.workspace.selected.clone();
             assert_eq!(
                 app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
@@ -51,10 +49,7 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
             );
             assert_eq!(app.focused_pane(), Some(Pane::Replies));
             let title = draw(&mut app);
-            assert!(title.contains("Details · focused · Esc back"), "{title}");
-            if depth == Depth::None {
-                assert!(title.contains("▶ Details"), "{title}");
-            }
+            assert!(title.contains("▸ Details · Esc back"), "{title}");
             assert_eq!(
                 app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
                 Effect::None
@@ -62,7 +57,7 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
             assert_eq!(app.focused_pane(), Some(Pane::Rows));
             assert_eq!(app.shell.tab, OpsTab::Digest);
             assert_eq!(app.workspace.selected, selected);
-            assert!(draw(&mut app).contains("Digest · focused"));
+            assert!(draw(&mut app).contains("▸ Digest"));
         }
     }
 }
@@ -80,52 +75,96 @@ fn app(depth: Depth) -> App {
 }
 
 #[test]
-fn focused_rule_title_and_marker_share_existing_focus_with_one_header_row() {
+fn the_focused_pane_has_a_heavy_bright_frame_and_the_others_light_dim_lines() {
+    let area = Rect::new(2, 1, 50, 8);
     for depth in [Depth::TrueColor, Depth::None] {
         for ascii in [false, true] {
             let mut app = app(depth);
             app.cron_glyphs = GlyphSet::from_ascii(ascii);
+            let (heavy, light, vertical_heavy, vertical_light, corner) = if ascii {
+                ("=", "-", "#", "|", "+")
+            } else {
+                ("━", "─", "┃", "│", "")
+            };
+            let corners = |focused: bool| {
+                if ascii {
+                    ["+"; 4]
+                } else if focused {
+                    ["┏", "┓", "┗", "┛"]
+                } else {
+                    ["┌", "┐", "└", "┘"]
+                }
+            };
+            let _ = corner;
             let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
             let mut inside = Rect::default();
             terminal
                 .draw(|frame| {
-                    inside = paint(frame, &app, Rect::new(2, 1, 50, 8), Pane::Rows, "Agents");
+                    inside = paint(frame, &app, area, Pane::Rows, "Agents");
                 })
                 .unwrap();
             let buffer = terminal.backend().buffer();
-            assert_eq!(inside, Rect::new(3, 2, 48, 7));
-            assert_eq!(buffer[(2, 1)].symbol(), "━");
-            let title = (2..52).map(|x| buffer[(x, 1)].symbol()).collect::<String>();
-            assert!(title.contains("Agents · focused"), "{title}");
-            if depth == Depth::None {
-                assert!(title.contains(if ascii { "> Agents" } else { "▶ Agents" }));
+            assert_eq!(inside, Rect::new(4, 2, 46, 6));
+            let [tl, tr, bl, br] = corners(true);
+            assert_eq!(buffer[(2, 1)].symbol(), tl);
+            assert_eq!(buffer[(51, 1)].symbol(), tr);
+            assert_eq!(buffer[(2, 8)].symbol(), bl);
+            assert_eq!(buffer[(51, 8)].symbol(), br);
+            assert_eq!(buffer[(3, 1)].symbol(), heavy);
+            assert_eq!(buffer[(30, 8)].symbol(), heavy);
+            for y in 2..8 {
+                assert_eq!(buffer[(2, y)].symbol(), vertical_heavy);
+                assert_eq!(buffer[(51, y)].symbol(), vertical_heavy);
             }
+            let title = (2..52).map(|x| buffer[(x, 1)].symbol()).collect::<String>();
+            assert!(
+                title.contains(if ascii { "> Agents" } else { "▸ Agents" }),
+                "{title}"
+            );
             let x = (2..52).find(|x| buffer[(*x, 1)].symbol() == "A").unwrap();
             assert!(buffer[(x, 1)].modifier.contains(Modifier::BOLD));
             assert_eq!(
                 buffer[(x, 1)].fg,
-                app.look().role(Role::Accent).fg.unwrap_or_default()
+                app.look().role(Role::Text).fg.unwrap_or_default()
+            );
+            assert_eq!(
+                buffer[(2, 1)].fg,
+                app.look().role(Role::Text).fg.unwrap_or_default()
             );
             app.focus = 1;
             terminal
                 .draw(|frame| {
-                    paint(frame, &app, Rect::new(2, 1, 50, 8), Pane::Rows, "Agents");
+                    paint(frame, &app, area, Pane::Rows, "Agents");
                 })
                 .unwrap();
             let buffer = terminal.backend().buffer();
-            assert_eq!(buffer[(2, 1)].symbol(), "─");
+            let [tl, tr, bl, br] = corners(false);
+            assert_eq!(buffer[(2, 1)].symbol(), tl);
+            assert_eq!(buffer[(51, 1)].symbol(), tr);
+            assert_eq!(buffer[(2, 8)].symbol(), bl);
+            assert_eq!(buffer[(51, 8)].symbol(), br);
+            assert_eq!(buffer[(3, 1)].symbol(), light);
+            assert_eq!(buffer[(2, 4)].symbol(), vertical_light);
             let title = (2..52).map(|x| buffer[(x, 1)].symbol()).collect::<String>();
-            assert!(!title.contains("focused") && !title.contains('▶'));
+            assert!(!title.contains('▸') && !title.contains('>'), "{title}");
             let x = (2..52).find(|x| buffer[(*x, 1)].symbol() == "A").unwrap();
             assert!(!buffer[(x, 1)].modifier.contains(Modifier::BOLD));
+            assert_eq!(
+                buffer[(x, 1)].fg,
+                app.look().role(Role::Muted).fg.unwrap_or_default()
+            );
+            assert_eq!(
+                buffer[(2, 4)].fg,
+                app.look().role(Role::Dim).fg.unwrap_or_default()
+            );
             terminal
                 .draw(|frame| {
-                    paint(frame, &app, Rect::new(2, 1, 50, 8), Pane::Replies, "Squad");
+                    paint(frame, &app, area, Pane::Replies, "Squad");
                 })
                 .unwrap();
             let buffer = terminal.backend().buffer();
             let title = (2..52).map(|x| buffer[(x, 1)].symbol()).collect::<String>();
-            assert!(title.contains("Squad · focused · Esc back"));
+            assert!(title.contains("Squad · Esc back"), "{title}");
         }
     }
 }
@@ -150,31 +189,46 @@ fn tiny_frame_keeps_navigation_cells_and_unselected_state_styles() {
 }
 
 #[test]
-fn long_focused_titles_keep_the_back_hint_and_do_not_paint_a_bottom_frame() {
+fn long_focused_titles_keep_the_back_hint_and_short_panes_keep_only_the_top_rule() {
     let mut app = app(Depth::None);
     app.focus = 1;
     let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
     terminal
         .draw(|frame| {
-            frame.buffer_mut().set_string(3, 8, "kept", Style::new());
-            let body = paint(
+            let boxed = paint(
                 frame,
                 &app,
                 Rect::new(2, 1, 50, 8),
                 Pane::Replies,
                 &"long".repeat(80),
             );
-            assert_eq!(body, Rect::new(3, 2, 48, 7));
+            assert_eq!(boxed, Rect::new(4, 2, 46, 6));
+            // A pane too short to afford the sides keeps the cells below its rule.
+            frame
+                .buffer_mut()
+                .set_string(3, 12 - 1, "kept", Style::new());
+            let short = paint(
+                frame,
+                &app,
+                Rect::new(2, 9, 50, 3),
+                Pane::Replies,
+                &"long".repeat(80),
+            );
+            assert_eq!(short, Rect::new(3, 10, 48, 2));
         })
         .unwrap();
     let buffer = terminal.backend().buffer();
     let title = (2..52).map(|x| buffer[(x, 1)].symbol()).collect::<String>();
-    assert!(title.contains("focused · Esc back"), "{title}");
-    assert_eq!(buffer[(3, 8)].symbol(), "k");
+    assert!(title.contains("· Esc back"), "{title}");
+    assert_eq!(buffer[(2, 1)].symbol(), "┏");
+    let short = (2..52).map(|x| buffer[(x, 9)].symbol()).collect::<String>();
+    assert!(short.starts_with("━━ ▸ "), "{short}");
+    assert_eq!(buffer[(2, 11)].symbol(), " ");
+    assert_eq!(buffer[(3, 11)].symbol(), "k");
 }
 
 #[test]
-fn real_tree_retains_selected_uuid_and_cursor_but_dims_the_row_when_content_receives_focus() {
+fn real_tree_retains_selected_uuid_and_cursor_but_tints_the_row_when_content_receives_focus() {
     use crate::board::app::HitTarget;
     for width in [100, 160] {
         for depth in [Depth::TrueColor, Depth::None] {
@@ -204,8 +258,15 @@ fn real_tree_retains_selected_uuid_and_cursor_but_dims_the_row_when_content_rece
                 .unwrap();
             let cell = &terminal.backend().buffer()[(hit.x + 3, hit.y)];
             assert_eq!(cell.symbol(), "└");
-            assert_eq!(cell.bg, cursor.bg);
-            assert_eq!(cell.modifier, cursor.modifier);
+            // Content focus moves the row to the conversation tint (reverse video where there is
+            // no background colour); only the agent's name is bold.
+            match app.look().role(tmt_cli_style::Role::Conversation).bg {
+                Some(tint) => {
+                    assert_eq!(cell.bg, tint);
+                    assert_ne!(cell.bg, cursor.bg);
+                }
+                None => assert!(cell.modifier.contains(Modifier::REVERSED)),
+            }
             assert!(!cell.modifier.contains(Modifier::BOLD));
             assert_eq!(app.workspace.selected, selected);
         }

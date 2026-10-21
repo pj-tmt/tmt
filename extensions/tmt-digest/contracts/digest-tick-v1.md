@@ -31,7 +31,7 @@ setting for both IDs: a member override's own setter, or for a member that inher
 the [global default's](digest-v1.md#settings); the member itself when none is
 recorded. Existing Core owner/setter IDs are preserved, except that an ID naming
 the member itself is replaced once the settings record a setter, which the next
-tick writes. This policy attribution does not fill an unknown settings setter.
+tick writes. This policy attribution does not fill an unknown settings setter. Core separately lets a person, an identity marked with the reserved `user` metadata entry, through every hold whatever the owner.
 A revision conflict is an error, never permission to repeat the same write.
 
 Interval delivery becomes due when the oldest held item has waited its configured
@@ -138,6 +138,15 @@ besides the 30-day retention, so a flapping member cannot push out settlement
 evidence. Retention and the byte budget are otherwise the
 [history store](digest-v1.md#history)'s. A record that cannot be written is reported
 after the minute like a collection failure and never blocks or retries delivery.
+
+## Tick liveness
+
+An admitted run records its start time in `<dataRoot>/digest/tick.json`
+(`{"version":1,"lastAtMs":N}`, private permissions, replaced atomically) as soon as it
+holds the tick lock, so [status](digest-v1.md) can show whether ticks are running at all.
+A failed write leaves the previous record and never fails the tick. The record is
+Digest's own state: Ops, the scheduler and Core neither write nor read it, and it grants
+no delivery eligibility.
 
 Tick success produces no stdout. Invalid settings, unavailable Core, lock errors
 and incomplete Core responses return a human error and nonzero status. There is

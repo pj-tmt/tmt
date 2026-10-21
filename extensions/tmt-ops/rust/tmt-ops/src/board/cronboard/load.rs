@@ -96,7 +96,7 @@ mod tests {
         let root = service::root(&f.core).unwrap();
         let lease = Clock::new(&root)
             .unwrap()
-            .acquire(0, 7, Some("%7".into()))
+            .acquire(0, 7, Some("%7".into()), "0.1.0")
             .unwrap()
             .expect("lease");
         let read = |places: &mut Places| {

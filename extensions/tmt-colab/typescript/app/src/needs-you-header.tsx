@@ -72,13 +72,9 @@ export function NeedsYouHeader({
         onBlur={() => {
           menuFocus.current = false;
         }}
-        className="needs-you-header needs-you-header-empty"
+        className="needs-you-header-empty"
         aria-label={text.needsYouNothing}
-      >
-        <span aria-hidden="true">
-          ✓<span className="needs-you-wide"> {text.needsYouNothingWord}</span>
-        </span>
-      </span>
+      />
     );
   return (
     <span className="needs-you-header">

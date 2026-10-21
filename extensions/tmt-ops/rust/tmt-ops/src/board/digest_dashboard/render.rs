@@ -233,11 +233,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         placement,
         Boundary::DigestColumns,
         Boundary::DigestRows,
+        crate::board::conversation::layout::LIST_MIN_COLUMNS,
         frame.area(),
     );
     if let (Some(list), Some(detail)) = (placement.list, placement.conversation)
         && list.y == detail.y
+        && !(crate::board::pane_chrome::boxed(list) && crate::board::pane_chrome::boxed(detail))
     {
+        // Framed panes mark the seam with their own edges; the gap between them stays the drag handle.
         crate::board::divider::paint(
             frame.buffer_mut(),
             Rect::new(list.right(), list.y, 1, list.height),

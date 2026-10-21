@@ -5,6 +5,23 @@ use tmt_colab_model::{object, stream_cut};
 /// The most fold hashes one `device.revoke` lists (colab-v1, "Owner fold").
 pub const MAX_REVOKE_FOLDS: usize = 512;
 
+/// The most membership statements an append may have missed and still be admitted at the head
+/// (colab-v1, "Append at an earlier membership revision"); a writer further behind catches up.
+pub const MAX_UNRELATED_WINDOW: u64 = 256;
+/// The payload of a stored membership statement. Statements were authenticated at append.
+fn decoded_payload(envelope: &[u8]) -> Result<payload::Payload> {
+    let wire: serde_json::Value = serde_json::from_slice(envelope)?;
+    let bytes = values::binary(wire["statement"].as_str().ok_or(OwnerFault::Invalid)?, 1024)?;
+    let header = statement::decode(&bytes)?;
+    let bytes = values::binary(
+        wire["payload"].as_str().ok_or(OwnerFault::Invalid)?,
+        payload::MAX_BYTES,
+    )?;
+    if crypto::digest(&bytes) != *header.payload_digest {
+        return Err(OwnerFault::Invalid.into());
+    }
+    Ok(payload::decode(header.operation, &bytes)?)
+}
 pub struct StoredBaseline {
     pub descriptor: Vec<u8>,
     pub envelope: Vec<u8>,
@@ -79,20 +96,35 @@ impl OwnerTransaction<'_> {
             .tx
             .prepare("SELECT envelope FROM membership_log WHERE revision<=? ORDER BY revision")?;
         for row in query.query_map([sequence(revision)], |r| r.get::<_, Vec<u8>>(0))? {
-            let wire: serde_json::Value = serde_json::from_slice(&row?)?;
-            let bytes =
-                values::binary(wire["statement"].as_str().ok_or(OwnerFault::Invalid)?, 1024)?;
-            let header = statement::decode(&bytes)?;
-            let bytes = values::binary(
-                wire["payload"].as_str().ok_or(OwnerFault::Invalid)?,
-                payload::MAX_BYTES,
-            )?;
-            if crypto::digest(&bytes) != *header.payload_digest {
-                return Err(OwnerFault::Invalid.into());
-            }
-            policy.apply(&payload::decode(header.operation, &bytes)?, page)?;
+            policy.apply(&decoded_payload(&row?)?, page)?;
         }
         Ok(policy)
+    }
+    /// Whether every membership statement after `cited` up to `head` is scoped to a page other
+    /// than `page`, so that none of them can change this page or any writer's authority for it
+    /// (an append that cites `cited` is then as valid at `head`). A member, link, device or
+    /// bridge statement, a statement naming `page`, a missing statement, or a window longer than
+    /// `MAX_UNRELATED_WINDOW` is not unrelated.
+    pub(crate) fn unrelated_since(&self, page: &str, cited: u64, head: u64) -> Result<bool> {
+        if cited > head || head - cited > MAX_UNRELATED_WINDOW {
+            return Ok(false);
+        }
+        let mut query = self.tx.prepare(
+            "SELECT envelope FROM membership_log WHERE revision>? AND revision<=? ORDER BY revision",
+        )?;
+        let mut seen = 0;
+        for row in query.query_map([sequence(cited), sequence(head)], |r| {
+            r.get::<_, Vec<u8>>(0)
+        })? {
+            if decoded_payload(&row?)?
+                .page()
+                .is_none_or(|named| named == page)
+            {
+                return Ok(false);
+            }
+            seen += 1;
+        }
+        Ok(seen == head - cited)
     }
     pub(crate) fn delete_page_data(&mut self, page: &str) -> Result<()> {
         // Keep pages, signed policy and operation receipts as permanent tombstones.
@@ -388,6 +420,12 @@ impl OwnerTransaction<'_> {
                 ).optional()?;
                 let (tail_seq, tail_hash) = match tail {
                     Some((seq, hash)) => (seq.parse()?, array(hash)?),
+                    // A bootstrapped stream holds the checkpoint's head, not the update's receipt.
+                    None if cp_seq != 0 => (
+                        cp_seq,
+                        hash_at(self.tx, page, &epoch.to_string(), stream, cp_seq)?
+                            .ok_or(OwnerFault::Invalid)?,
+                    ),
                     None => (0, [0; 32]),
                 };
                 result.push(Cut {
@@ -418,8 +456,13 @@ impl OwnerTransaction<'_> {
         let cut = stream_cut::decode(&bytes)?;
         let tail = values::decimal(cut.tail_head_seq, true)?;
         if tail != 0 {
-            let found: bool=self.tx.query_row("SELECT EXISTS(SELECT 1 FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=? AND hash=?)",
-                params![wrapper.page_id,wrapper.epoch,cut.stream_id,sequence(tail),cut.tail_head_hash.as_slice()],|r|r.get(0))?;
+            let found = hash_at(
+                self.tx,
+                &wrapper.page_id,
+                &wrapper.epoch,
+                cut.stream_id,
+                tail,
+            )? == Some(*cut.tail_head_hash);
             if !found {
                 return Err(OwnerFault::Invalid.into());
             }
@@ -482,17 +525,6 @@ impl OwnerTransaction<'_> {
         }
         Ok(hashes)
     }
-    /// Whether this machine's cloud publisher has started to publish `page`: it tracks a stream of
-    /// it, or the cloud confirmed its owner row. A page with neither may still be published the
-    /// next time it is active, so this is evidence, never a promise.
-    pub(crate) fn publication_evidence(&self, page: &str) -> Result<bool> {
-        Ok(self.tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM cloud_publications WHERE page=?1)
-                 OR EXISTS(SELECT 1 FROM cloud_page_rows WHERE page=?1)",
-            params![page],
-            |r| r.get(0),
-        )?)
-    }
     pub(crate) fn cut_objects(&self, cut: &Cut) -> Result<Vec<StoredObject>> {
         let mut out = Vec::new();
         if cut.checkpoint_seq != 0 {
@@ -534,16 +566,14 @@ impl OwnerTransaction<'_> {
             let previous = if seq == 1 {
                 [0; 32]
             } else {
-                array(self.tx.query_row(
-                    "SELECT hash FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
-                    params![
-                        cut.page,
-                        cut.epoch.to_string(),
-                        cut.stream,
-                        sequence(seq - 1)
-                    ],
-                    |r| r.get(0),
-                )?)?
+                hash_at(
+                    self.tx,
+                    &cut.page,
+                    &cut.epoch.to_string(),
+                    &cut.stream,
+                    seq - 1,
+                )?
+                .ok_or(OwnerFault::Invalid)?
             };
             out.push(StoredObject {
                 seq,

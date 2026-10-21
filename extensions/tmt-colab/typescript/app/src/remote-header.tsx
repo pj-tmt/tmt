@@ -1,5 +1,6 @@
 import {
   createContext,
+  Fragment,
   useContext,
   useEffect,
   useRef,
@@ -17,6 +18,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
@@ -127,6 +129,18 @@ function Details({ snapshot }: { snapshot: Exclude<RemotePresenceSnapshot, { kin
     </div>
   );
 }
+/** The Remote door down or unreadable is the one Remote state the page header keeps: a mark and a word
+ * (the word is visually hidden on a phone, never dropped). Every other state lives in the More menu. */
+export function RemoteAttention() {
+  const { snapshot } = usePresence();
+  if (snapshot.kind !== 'unconfirmed') return null;
+  return (
+    <span className="page-attention" data-attention="remote">
+      <span aria-hidden="true">△</span>
+      <span className="page-attention-word">{text.remoteOffline}</span>
+    </span>
+  );
+}
 export function RemoteHeaderChip() {
   const { snapshot, refresh } = usePresence();
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
@@ -176,11 +190,14 @@ export function RemoteHeaderChip() {
 export function RemoteMoreMenu({
   items = [],
   description,
+  remoteAfter,
   onSelect = () => {},
 }: {
   items?: readonly BrowserMenuItem[];
   /** A non-interactive first line, above the Remote count. */
   description?: string;
+  /** The key of the item the Remote entry follows; without it the entry leads the menu. */
+  remoteAfter?: string;
   onSelect?(key: string): void;
 }) {
   const { snapshot, refresh } = usePresence();
@@ -191,6 +208,31 @@ export function RemoteMoreMenu({
   const pendingAction = useRef<string | undefined>(undefined);
   if (snapshot.kind === 'hidden' && !items.length) return null;
   const choices = items.filter((item) => item.checked !== undefined);
+  const remoteEntry = snapshot.kind !== 'hidden' && (
+    <DropdownMenuSub
+      onOpenChange={(open) => {
+        if (open) refresh();
+      }}
+    >
+      <DropdownMenuSubTrigger
+        aria-label={accessible(snapshot)}
+        className="remote-count"
+        data-muted={snapshot.kind === 'unconfirmed' || snapshot.count === 0}
+      >
+        {label(snapshot)}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="remote-submenu">
+        <DropdownMenuLabel>
+          <Details snapshot={snapshot} />
+        </DropdownMenuLabel>
+        {snapshot.kind === 'confirmed' && (
+          <DropdownMenuItem asChild>
+            <a href={snapshot.settingsUrl}>{text.remoteSettings}</a>
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
   return (
     <span className="remote-more-menu">
       <UiTheme theme={theme}>
@@ -254,61 +296,42 @@ export function RemoteMoreMenu({
                 {description}
               </DropdownMenuLabel>
             )}
-            {snapshot.kind !== 'hidden' && (
-              <DropdownMenuSub
-                onOpenChange={(open) => {
-                  if (open) refresh();
-                }}
-              >
-                <DropdownMenuSubTrigger
-                  aria-label={accessible(snapshot)}
-                  className="remote-count"
-                  data-muted={snapshot.kind === 'unconfirmed' || snapshot.count === 0}
-                >
-                  {label(snapshot)}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="remote-submenu">
-                  <DropdownMenuLabel>
-                    <Details snapshot={snapshot} />
-                  </DropdownMenuLabel>
-                  {snapshot.kind === 'confirmed' && (
-                    <DropdownMenuItem asChild>
-                      <a href={snapshot.settingsUrl}>{text.remoteSettings}</a>
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
+            {!remoteAfter && remoteEntry}
             {items.map((item) =>
               item.checked === undefined ? (
-                <DropdownMenuItem
-                  key={item.key}
-                  disabled={item.disabled}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    pendingAction.current = item.key;
-                    setOpen(false);
-                    report(false);
-                  }}
-                >
-                  {item.label}
-                </DropdownMenuItem>
+                <Fragment key={item.key}>
+                  {item.separated && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    disabled={item.disabled}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      pendingAction.current = item.key;
+                      setOpen(false);
+                      report(false);
+                    }}
+                  >
+                    {item.content ?? item.label}
+                  </DropdownMenuItem>
+                  {remoteAfter === item.key && remoteEntry}
+                </Fragment>
               ) : item === choices[0] ? (
-                <DropdownMenuRadioGroup
-                  key="theme"
-                  value={choices.find((choice) => choice.checked)?.key}
-                  onValueChange={onSelect}
-                >
-                  {choices.map((choice) => (
-                    <DropdownMenuRadioItem
-                      key={choice.key}
-                      value={choice.key}
-                      disabled={choice.disabled}
-                    >
-                      {choice.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
+                <Fragment key="theme">
+                  {item.separated && <DropdownMenuSeparator />}
+                  <DropdownMenuRadioGroup
+                    value={choices.find((choice) => choice.checked)?.key}
+                    onValueChange={onSelect}
+                  >
+                    {choices.map((choice) => (
+                      <DropdownMenuRadioItem
+                        key={choice.key}
+                        value={choice.key}
+                        disabled={choice.disabled}
+                      >
+                        {choice.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </Fragment>
               ) : null,
             )}
           </DropdownMenuContent>

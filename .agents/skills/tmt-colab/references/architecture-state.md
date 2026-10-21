@@ -16,6 +16,18 @@ restate them.
 
 ## Gotchas
 
+Page links stay with trusted chrome: `page-link-request.ts` admits the current renderer's closed
+request and classifies URLs against the trusted app base and space. `page-link-bar.tsx` owns the
+frozen pending confirmation and the one in-place navigation per render. `renderer.ts` checks
+frame/lifetime and reads the parent's browser activation at receipt; the bootstrap only intercepts
+links and reports intent. Neither its render ID nor its messages authenticate a user gesture.
+This is a bounded parent-owned exception: same-space navigation requires recent browser user
+activation or trusted confirmation, and outside URLs always require confirmation with the full
+frozen URL. No frame privilege or network policy is widened.
+The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
+owns direct internal activation versus confirmed external/fallback behavior. ReaderApp reuses the
+confirmation owner without receiving same-space app-navigation authority.
+
 Attachment descriptor/manifest/selector/publication syntax and asset verification
 live in model `attachment.rs` and client `attachment.ts`, reusing existing crypto;
 [attachment-v1](../../../../extensions/tmt-colab/contracts/attachment-v1.md) owns the bytes.
@@ -50,7 +62,8 @@ path, and a chain imported from the cloud stays foreign. `sync.rs` reports the p
 through `ActivePage`, and `socket.rs` also touches it after a management change (`Applied.touched`); the worker never retries a refusal Remote will not change by itself
 (`object_channel/cloud_sync/activation.rs`) and shows its one line once. The same worker is the reader of that page:
 `object_channel/cloud_sync/interests.rs` holds the three interests whose notices only wake it,
-`reader.rs` discovers the signed authority and one foreign stream's log tail, and
+`reader.rs` discovers the signed authority, one foreign stream's log tail and, for a stream this
+machine holds nothing of, the page's checkpoints, and
 `inbound.rs` (`Puller`) compares the cloud's membership log with the owner log, then follows
 each foreign stream from the Store's `stream_head`; the worker reads only when a read is due (a
 newly watched page, a notice, an unfinished read), and chains are read again at most once per
@@ -58,9 +71,10 @@ newly watched page, a notice, an unfinished read), and chains are read again at 
 `Snapshot::open_stream_object` (the fold that reads stored objects), keeps the writer's verified
 chain for later catch-up, and applies it through
 `Server::ingest`, the split of the browser append path, so one apply path serves both and nothing
-that arrived is queued for publication. A refused writer stops alone, per page and epoch; `stops.rs` keeps the
+that arrived is queued for publication; a checkpoint pair (and a fold's anchor) goes through
+`Server::ingest_bootstrap` and `Store::bootstrap` instead. A refused writer stops alone, per page and epoch; `stops.rs` keeps the
 page's stopped state in the worker's memory and the lines announce each transition.
-Checkpoint import, adopting a cloud-only log, forks, attachments and a second machine's own
+Adopting a cloud-only log, forks, attachments and a second machine's own
 enrollment are not implemented.
 Its `admission` module captures the actual peer, current native context, exact
 request and reference/target; `peer` serializes bounded original-ID calls without
@@ -258,8 +272,11 @@ session limit (`sessionLimit()`, `session-limit-error.ts`) still loads the app, 
 shows the limit card, never the unpaired guidance. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
-refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. On an open page's socket close, `Live` makes one read-only probe of the exact old
+refused reopen, or unavailable session storage, leaves neutral reopen guidance and never
+retries an Ask. Native HTML cannot infer pairing loss from absent owner context. The recovery
+script requests one typed SDK attempt with a timeout signal (no bounded retry); only its
+`unpaired`, `revoked` or `expired` result reveals the pairing command. Mismatch, capacity and
+transport/storage uncertainty preserve pairing and show their approved recovery copy. On an open page's socket close, `Live` makes one read-only probe of the exact old
 Connection/Registration/Remote owner. A current pending same-session attempt keeps
 that owner while diagnosis settles, even if readiness has already rejected.
 Verified session end starts one existing mounted-owner replacement; verified eviction
@@ -549,7 +566,9 @@ is added.
   through a second read-only `page::save::Source` (its own opener, `with_summary_source`), never
   the request path's store, keyring or decoder. A failed or timed-out page keeps no summary and
   waits behind pages not yet tried at its fingerprint. The same projection caches complete reading
-  descriptors (`summary_readings.rs`), never a second state owner. The cache retains at most
+  descriptors (`summary_readings.rs`) and the named pending passages with the latest comment
+  excerpt (`summary_passages.rs`: `needs` ranked review, question, reading, proposal and capped at
+  20, text made inert), never a second state owner. The cache retains at most
   `PAGES` entries, including failures; catalog reads prune deleted pages. The owner-only chapter-details
   route reads one current fingerprint without decoding on the request path; complete results are
   bounded by `SUMMARY_DETAILS_BYTES`, pending/failed entries remain unknown. Nothing is persisted.
@@ -636,14 +655,19 @@ The views are the `All` and `Archived` tabs (`BrowserTabs variant="flush"`; `arc
 search selects the second, and each label counts what the scope holds). A page waiting on the viewer
 shows `◆ Waiting for you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
 word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
-menu with `Manage page`, `Archive…` and `Delete…`) show on hover or focus where there is a pointer
+menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
 and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. Archive and
 delete confirm in `PageOperationDialog` and run `runPageOperation` (`page-operations.ts`): the four
-steps `ShareDialog` runs (`read`, `prepare`, `send`, `verify`) for one `page.archive` or
+steps `ShareDialog` runs (`read`, `prepare`, `send`, `verify`) for one `page.archive`, `page.unarchive` or
 `page.delete` statement, ending `verified`, `awaiting` (acknowledged but its log not read back, said
-so and never called done) or `failed` with the management error code. The list never calls archive
-reversible: the contract has no unarchive operation (#3833), so an archived row offers `Delete…`
-only.
+so and never called done) or `failed` with the management error code. An archived row offers `Restore…` and `Delete…`. Restore requires an archived, non-deleted
+page in the verified owner log. Its owner transaction preserves content, keys, epochs and access
+policy while committing the statement, projection, monotonic `pages.last_activity_at_ms` reset and receipt together.
+`pages.last_update_at_ms` remains the last content edit and is unchanged by restore.
+Exact receipt replay does not refresh activity. Archive and restore end existing page sessions
+with `RESYNC_REQUIRED`; replacement verifies current policy before writing and never submits
+retained drafts automatically. The existing touched-page cloud activation republishes the open
+state; confirmed cloud expiry remains the result of a confirmed publication, not a local guess.
 
 Each row has a leading checkbox (`BrowserListRow`'s `leading` slot) when the transport has
 `management`. The selection is a set of page IDs in `Home`; what counts is the selected pages the

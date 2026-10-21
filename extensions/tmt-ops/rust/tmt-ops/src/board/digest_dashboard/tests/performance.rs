@@ -96,7 +96,7 @@ fn digest_frame_timing() {
                     })
                     .collect(),
             );
-            key(&mut app, KeyCode::Char('3'));
+            key(&mut app, KeyCode::Char('2'));
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {
                 measure(&mut app, &mut terminal, |_, _| {});
@@ -126,12 +126,12 @@ fn digest_frame_timing() {
                 (0..100)
                     .map(|i| {
                         measure(&mut app, &mut terminal, |app, _| {
-                            key(app, KeyCode::Char(if i % 2 == 0 { '2' } else { '3' }))
+                            key(app, KeyCode::Char(if i % 2 == 0 { '1' } else { '2' }))
                         })
                     })
                     .collect(),
             );
-            key(&mut app, KeyCode::Char('3'));
+            key(&mut app, KeyCode::Char('2'));
             app.focus = 0;
             checked(
                 rows,
@@ -167,7 +167,7 @@ fn digest_frame_timing() {
             );
             // The shared editor remains responsive while the supplier is unavailable.
             app.labels = Default::default();
-            key(&mut app, KeyCode::Char('2'));
+            key(&mut app, KeyCode::Char('1'));
             key(&mut app, KeyCode::Enter);
             assert!(app.input.is_some());
             for kib in [1, 10, 100] {
@@ -232,7 +232,7 @@ fn digest_full_status_frame_timing() {
             app.select(index);
             let updates = [full_labels(&app, &id, 3), full_labels(&app, &id, 4)];
             app.labels = updates[0].clone();
-            key(&mut app, KeyCode::Char('3'));
+            key(&mut app, KeyCode::Char('2'));
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {
                 measure(&mut app, &mut terminal, |_, _| {});

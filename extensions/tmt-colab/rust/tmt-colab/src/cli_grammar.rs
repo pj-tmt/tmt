@@ -33,6 +33,14 @@ pub fn page() -> Arg {
         .help("Full page UUID or unique lowercase UUID prefix (at least 8 characters; see ls)")
         .value_parser(page_operand)
 }
+/// The page operand of a command that also has a meaning without one.
+pub fn page_optional(help: &'static str) -> Arg {
+    Arg::new("page")
+        .index(1)
+        .value_name("PAGE")
+        .help(help)
+        .value_parser(page_operand)
+}
 /// The same page operand as an option, for a command whose first operand is something else.
 pub fn page_option() -> Arg {
     Arg::new("page")
@@ -150,8 +158,9 @@ pub fn extend(root: Command) -> Command {
                 .value_parser(["shared", "current"]),
         ),
     );
-    root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. Expiry never deletes your local copy. Expiry is when the cloud copy ends; a page this machine never put in the cloud shows local only.")
+    root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. --expiring lists the pages that auto-archive within seven days or are already due. Expiry never deletes your local copy. Expiry is when the cloud copy ends; a page this machine never put in the cloud shows local only.")
         .alias("list").arg(Arg::new("archived").long("archived").action(ArgAction::SetTrue))
+        .arg(Arg::new("expiring").long("expiring").action(ArgAction::SetTrue).help("Show pages that auto-archive within 7 days or are already due."))
         .arg(Arg::new("project").long("project").value_name("NAME").help("Only the pages in this project")))
         .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Expiry never deletes your local copy.").arg(page()))
         .subcommand(share)

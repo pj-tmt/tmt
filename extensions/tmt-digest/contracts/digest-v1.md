@@ -39,9 +39,10 @@ Member keys and setter IDs are canonical identity UUIDs.
 attribution: the setter is absent when Core cannot identify it, and a write with no
 identifiable setter removes a previous one rather than keeping a stale owner. A member
 that inherits the default has the default's setter as its recorded setter; a member
-override has only its own. The recorded setter is the owner whose messages pass the
+override has only its own. The recorded setter is an owner whose messages pass the
 member's [hold](digest-tick-v1.md#settings-and-deadlines); with none recorded the
-member owns it and only an urgent send passes.
+member owns it and only an urgent send passes. A person, an identity marked with
+Core's reserved `user` metadata entry, always passes every hold and needs no setter.
 
 `setByIdentityId` is absent when Core cannot identify the setter. `setAtMs` is the
 current override write timestamp, a nonnegative JS-safe integer; it is neither
@@ -89,7 +90,7 @@ Each row contains:
 
 `oldestHeldAgeMs` and `deliveredDigests` are additive nullable row fields from the same Core stats observation. The counter is cumulative Core evidence, not a selected-window total.
 
-`ownerBypass` is an additive row field from settings alone: `true` when the member's recorded setter (its override's, or the global default's for an inheriting member) is someone else, whose messages then pass its hold; `false` when none is recorded, so the member owns its own hold and only an urgent send passes it; null for `off`, which holds nothing. It is a flag for a setting that needs attention, never delivery eligibility.
+`ownerBypass` is an additive row field from settings alone: `true` when the member's recorded setter (its override's, or the global default's for an inheriting member) is someone else, whose messages then pass its hold; `false` when none is recorded, so the member owns its own hold and, besides a person marked `user` in Core, only an urgent send passes it; null for `off`, which holds nothing. It is a flag for a setting that needs attention, never delivery eligibility.
 
 Timestamps and numeric counts are nonnegative JS-safe integers. Deadline arithmetic
 that cannot be represented safely is unknown. `nextSendAtMs` is an extension
@@ -324,6 +325,11 @@ assumption excludes cached input, cache writes, fast/regional/long-context
 modifiers, negotiated discounts, subscription allowances and historical price
 reconstruction. Updating rates requires a new verified file `version`.
 
+A successful status document also contains additive root `tick: {lastAtMs}`, the
+start time of the last tick that was admitted ([liveness record](digest-tick-v1.md#tick-liveness)),
+or null when none is recorded or the record is unsafe. It is liveness evidence only:
+status never infers a hold, a delivery or an owner from it.
+
 `percent` is null or `{basisPoints, estimatedInputTokensAvoided,
 observedInputTokens, fromMs, throughMs}`. It is available only for `24h` and `7d`;
 **lifetime percent is always null**. Its interval uses whole closed minutes inside
@@ -428,7 +434,15 @@ Private evidence lives at `<dataRoot>/digest/history/history.sqlite` (public
 `storage.root` discovery), schema version 3. Read-only status accepts schemas 1 and 2 (usage
 valuations are null before 2, decision records absent before 3) and never migrates
 them; the next writer atomically adds the missing tables and advances the version
-while preserving settlement cursors and lifetime totals. Directories are 0700, files 0600;
+while preserving settlement cursors and lifetime totals. Digest admits
+its private file/schema and DELETE/FULL policy, then transfers the writer
+connection to the shared [Store](../../../rust/crates/tmt-extension-state/src/lib.rs).
+Every mutation, including initialization, uses one BEGIN IMMEDIATE with at most
+five seconds of admission; callbacks run once. Rollback-journal COMMIT uses only
+the remainder of that same window. A timeout keeps the existing
+`DIGEST_HISTORY_IO` envelope and states whether the change was not started or may
+not be saved, with `tmt digest tick` as the retry. Read-only status and reports keep their own
+read-only connection and never adopt a writable Store. Directories are 0700, files 0600;
 nonprivate paths, symlinks and unsupported schema versions are refused. Events
 retain content-free IDs, settlement/claim/collection timestamps, original arrival
 inputs, outcome/opportunity, formula version, nullable estimate and nullable

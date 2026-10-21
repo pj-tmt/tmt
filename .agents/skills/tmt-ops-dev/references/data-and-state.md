@@ -47,6 +47,13 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
   or inactive does the name decide and its UUID get recorded. An edited `me` naming a
   different identity is reported with a warning, never followed. A failed write never
   fails the command; the board's refresh (`me::current`) neither writes nor prints.
+- `me::mark_user` gives the `me_id` identity Core's reserved `user = true` metadata
+  entry (contracts/extension-api.md) from `sq me`, `init --me` and, off-thread and
+  best effort, each board start (`me::mark_recorded_user`). It writes only when the
+  entry is absent and the identity exists with room under the metadata limit, never
+  removes it and never marks a pane caller or any other identity. Ops metadata is
+  otherwise `squad.*` only; this key is the one exception, and native scenarios that
+  compare metadata leave `user` out.
 - The board's sender is `me`, else the saved identity bound to the calling pane
   (`tmt whoami`). A pane that is not bound is no sender; a `whoami` failure (a host
   that cannot name the pane) is kept as `App.caller_failure` and the sender prompt says

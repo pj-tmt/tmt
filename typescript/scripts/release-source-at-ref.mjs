@@ -71,7 +71,9 @@ export function readReleaseSourceAtRef(sha, { warm = false, ...options } = {}) {
         map: parseComponentMap(readFileSync(join(root, '.github/components.json'), 'utf8'), {
           historical: true,
         }),
-        workspace: readCargoWorkspace(root),
+        workspace: options.execute
+          ? readCargoWorkspace(root, { runner: options.execute })
+          : readCargoWorkspace(root),
       };
     },
     options

@@ -1,10 +1,12 @@
 import { ShellPage } from './shell-page.js';
+import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
-import { RemotePresenceProvider } from './remote-header.js';
+import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
+import { PageProjects } from './page-projects.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
-import { entryOpenTarget, publicEntry } from './entry.js';
+import { entryMount, entryOpenTarget, publicEntry } from './entry.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -18,7 +20,6 @@ import {
   ownerPageHint,
   ownerReadingHref,
   pageSearch,
-  readingSearch,
   splitPageHint,
   type PageHint,
 } from './reading-link.js';
@@ -31,7 +32,7 @@ import {
   MousePointer2,
   Sun,
 } from 'lucide-react';
-import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
+import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
@@ -83,7 +84,7 @@ import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
-import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
+import type { AnchorPosition, PageScheme, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
@@ -793,7 +794,7 @@ const page = createRoute({
 const shortPage = createRoute({
   getParentRoute: () => root,
   path: '/short/$prefix',
-  validateSearch: readingSearch,
+  validateSearch: pageSearch,
   loader: async ({ context, params, location }) => {
     if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
     const home = await context.transport.spaceHome();
@@ -814,7 +815,7 @@ const shortPage = createRoute({
       throw redirect({
         to: '/pages/$pageId',
         params: { pageId: pages[0].id },
-        search: readingSearch(location.search),
+        search: pageSearch(location.search),
         replace: true,
       });
     return { pages, prefix: params.prefix };
@@ -994,6 +995,18 @@ function Page() {
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
+  const {
+    reset: resetPageLinks,
+    request: requestPageLink,
+    bar: pageLinkBar,
+  } = usePageLinks({
+    base: () => (publicEntry() ? entryMount().href : location.href),
+    space,
+    inset: () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
+    navigate: (route, anchor) => {
+      void router.navigate({ to: route, search: anchor ? { anchor } : {} });
+    },
+  });
   const needsYouMenuFocus = useRef(false);
   // The list the reader came from, when it was scoped to a project: history state, not the address.
   const fromScope = useRouterState({
@@ -1010,6 +1023,10 @@ function Page() {
   }, [panel]);
   useEffect(() => setChatActivation(undefined), [snapshot.binding]);
 
+  // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
+  const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
+  const openProjects = (from?: DOMRect) =>
+    setProjects((previous) => ({ request: previous.request + 1, from }));
   const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
@@ -1446,6 +1463,8 @@ function Page() {
     renderer.current?.images(imageInput.current);
   }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // Until the frame reports what its page paints, the cards keep the app theme.
+  const [pageScheme, setPageScheme] = useState<PageScheme>();
   const accessLabel = archived
     ? text.archiveReadOnly
     : recoveryRequired
@@ -1609,14 +1628,21 @@ function Page() {
       return () => controller.abort();
     }
     setState('loading');
+    resetPageLinks();
     // Source revisions replace only author content. Parent selection and composer
     // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
     setAnchorsChecked(false);
+    setPageScheme(undefined);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       layout: view.layout,
-      onState: setState,
+      onState: (next) => {
+        if (next !== 'ready') resetPageLinks();
+        setState(next);
+      },
+      onScheme: setPageScheme,
+      onLink: requestPageLink,
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
       onReadings: onReadingAnchors,
@@ -1666,10 +1692,12 @@ function Page() {
       // Retire messages before replacing the frame, retaining its layout and the
       // parent's frozen selection. Unmount removes the host itself.
       renderer.current?.release();
+      resetPageLinks();
       controller.abort();
       renderer.current = null;
     };
   }, [
+    snapshot.id,
     view.source,
     view.layout,
     view.pageType,
@@ -1677,6 +1705,8 @@ function Page() {
     inlineSlots.onSlots,
     onQuestionAnchors,
     onReadingAnchors,
+    resetPageLinks,
+    requestPageLink,
   ]);
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
   // A reply or a status change elsewhere leaves this list as it was, so the document is not told
@@ -1788,6 +1818,18 @@ function Page() {
       />
       <ColabHeader
         remoteMenu={false}
+        remoteChip={false}
+        headingSuffix={
+          <PageProjects
+            transport={transport}
+            space={space}
+            pageId={snapshot.id}
+            title={view.title || snapshot.title}
+            request={projects.request}
+            from={projects.from}
+            open={() => openProjects()}
+          />
+        }
         crumb={
           scope === undefined ? undefined : (
             <Link to="/" search={{ scope }} className="colab-scope-crumb" title={scope}>
@@ -1849,23 +1891,30 @@ function Page() {
                   }}
                 />
               )}
-            <span
-              className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
-              title={
-                archived
-                  ? text.archiveReadOnlyHint
-                  : recoveryRequired
-                    ? text.reconnecting
-                    : state === 'ready'
-                      ? text.loaded
-                      : state === 'loading'
-                        ? text.loading
-                        : text.blocked
-              }
-            >
+            {/* The connection state is not shown (a notice below the header carries trouble); its words
+                stay in the document for assistive technology and as the page's readiness signal. */}
+            <span className={`status page-connection ${state === 'ready' ? 'live' : ''}`}>
               {archived ? '○ ' : `${text[snapshot.sharing]} · `}
               <span className="status-label">{accessLabel}</span>
             </span>
+            <RemoteAttention />
+            {archived ? (
+              <span
+                className="page-attention"
+                data-attention="archived"
+                title={text.archiveReadOnlyHint}
+              >
+                <span aria-hidden="true">○</span>
+                <span className="page-attention-word">{text.archived}</span>
+              </span>
+            ) : (
+              snapshot.sharing !== 'private' && (
+                <span className="page-attention" data-attention="shared">
+                  <span aria-hidden="true">◉</span>
+                  <span className="page-attention-word">{text.shared}</span>
+                </span>
+              )
+            )}
           </div>
         }
         actions={
@@ -1880,7 +1929,10 @@ function Page() {
             canExport={!!snapshot.binding && !liveError && !archived}
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
-            onSelect={toggle}
+            canProjects={!!transport.management}
+            onSelect={(action) =>
+              action === 'projects' ? openProjects(moreButtonRect()) : toggle(action)
+            }
           />
         }
       />
@@ -1925,6 +1977,7 @@ function Page() {
         <p>{text.warning}</p>
       </BrowserDrawer>
       <div className="workspace">
+        {pageLinkBar}
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
@@ -1934,10 +1987,16 @@ function Page() {
           <div className="frame-host" ref={host} />
           {!discussionPending && (
             <>
-              {proposalLayer.inline}
+              {/* The proposal and question cards sit on the author's page, so they take the scheme it
+                  paints; the review and reading bands sit on the app's paper and keep the app's. */}
+              <div className="page-cards" data-theme={pageScheme}>
+                {proposalLayer.inline}
+              </div>
               {reviewLayer.inline}
               {readingLayer.inline}
-              {questionLayer.inline}
+              <div className="page-cards" data-theme={pageScheme}>
+                {questionLayer.inline}
+              </div>
             </>
           )}
           {(state === 'navigation' || state === 'failed') && (
@@ -2419,7 +2478,7 @@ export function createAppRouter(
                   : `/short/${prefix}`;
               // A thread names a place inside the page; a reading or shell anchor is a page hint.
               if (target && !('thread' in target) && path !== '/') hint = target;
-              if (hint && 'anchor' in hint && !path.startsWith('/pages/')) hint = undefined;
+              if (hint && 'anchor' in hint && path === '/') hint = undefined;
             } catch {
               path = '/blocked';
             }

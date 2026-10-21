@@ -1,9 +1,9 @@
-//! One switchable list over acquired squads and canonical agent memberships.
+//! The flat attention list of canonical agent memberships, one row per identity.
 use super::monitor;
 use crate::{
     board::{
-        app::{App, Choice, Hit, HitTarget},
-        empty_state, filter_bar, section_rule, state_cell, team_strip,
+        app::{App, Hit, HitTarget},
+        empty_state, state_cell,
         workspace::OpsTreeRow,
     },
     config::Pane,
@@ -17,7 +17,8 @@ use ratatui::{
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
-const LIST_HEADER_ROWS: usize = 4;
+/// The section rule and the column header precede the data rows.
+const LIST_HEADER_ROWS: usize = 2;
 
 fn agent_noun(count: usize) -> &'static str {
     if count == 1 { "agent" } else { "agents" }
@@ -27,10 +28,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let Some(snapshot) = app.workspace_snapshot() else {
         return;
     };
+    if !app
+        .overview_panels()
+        .shown(crate::config::OverviewPanel::Monitor)
+    {
+        return;
+    }
     let look = app.look();
     let scene = monitor::scene(app, snapshot);
     let rows = app.workspace_rows();
-    let agents = app.overview_view == monitor::View::Agents;
     let filtered = !app.workspace.query.is_empty()
         || !app.workspace.visibility.scope.is_empty()
         || (!app.workspace.visibility.reveal_hidden && !snapshot.preferences.hidden.is_empty());
@@ -43,48 +49,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             format!("~{n}")
         }
     };
-    let search_count = (!app.workspace.query.is_empty()).then(|| {
-        format!(
-            "{} of {}",
-            observed(if agents {
-                scene.matching_agents
-            } else {
-                scene.squads.len()
-            }),
-            observed(if agents {
-                scene.summary.total
-            } else {
-                scene.total_squads
-            }),
-        )
-    });
     let count = if !app.workspace.query.is_empty() && !app.searching {
         Line::default()
     } else if !app.workspace.query.is_empty() {
         Line::styled(
             format!(
                 "{} of {} {}",
-                observed(if agents {
-                    scene.matching_agents
-                } else {
-                    scene.squads.len()
-                }),
-                observed(if agents {
-                    scene.summary.total
-                } else {
-                    scene.total_squads
-                }),
-                if agents {
-                    agent_noun(scene.summary.total)
-                } else if scene.total_squads == 1 {
-                    "squad"
-                } else {
-                    "squads"
-                },
+                observed(scene.matching_agents),
+                observed(scene.summary.total),
+                agent_noun(scene.summary.total),
             ),
             look.role(Role::Muted),
         )
-    } else if agents {
+    } else {
         let mut spans = vec![Span::styled(
             format!("{} {}", observed(rows.len()), agent_noun(rows.len())),
             look.role(Role::Muted),
@@ -100,98 +77,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ]);
         }
         Line::from(spans)
-    } else {
-        Line::styled(
-            format!(
-                "{} {} · {} {}",
-                scene.squads.len(),
-                if scene.squads.len() == 1 {
-                    "squad"
-                } else {
-                    "squads"
-                },
-                observed(scene.summary.total),
-                agent_noun(scene.summary.total),
-            ),
-            look.role(Role::Muted),
-        )
     };
-    let band = super::composition::lower::Band::new(app, frame.area().width, area.width);
-    let monitor_shown = app
-        .overview_panels()
-        .shown(crate::config::OverviewPanel::Monitor);
-    // Reserve the lower band through placement. Only data rows belong to Rows scroll.
-    let mut band_height =
-        band.as_ref()
-            .map_or(0, |band| band.height as u16)
-            .min(if monitor_shown {
-                area.height.saturating_sub(LIST_HEADER_ROWS as u16 + 3)
-            } else {
-                area.height
-            });
-    let gap = u16::from(band_height > 0 && monitor_shown);
-    let mut list_height = if monitor_shown {
-        (LIST_HEADER_ROWS + rows.len().max(1))
-            .min(usize::from(area.height.saturating_sub(band_height + gap))) as u16
-    } else {
-        0
-    };
-    if monitor_shown && band_height > 0 {
-        use crate::action::ResizeBoundary as Boundary;
-        let total = area.height.saturating_sub(gap);
-        list_height = app.pane_resize.size(
-            Boundary::OverviewList,
-            total,
-            list_height,
-            LIST_HEADER_ROWS as u16 + 1,
-            band_height,
-        );
-        // Extra space belongs to the lower band only after an explicit resize.
-        if app.pane_resize.adjusted(Boundary::OverviewList) {
-            band_height = total.saturating_sub(list_height);
-        }
-        app.pane_resize.record(
-            crate::board::pane_resize::Boundary {
-                id: Boundary::OverviewList,
-                hit: Rect::new(area.x, area.y + list_height + gap, area.width, 1),
-                total,
-                before: list_height,
-                min: LIST_HEADER_ROWS as u16 + 1,
-                max: total.saturating_sub(band.as_ref().map_or(0, |band| band.height as u16)),
-            },
-            frame.area(),
-        );
-    }
-    let lower_available = area.height.saturating_sub(list_height + gap);
-    if band.as_ref().is_some_and(|band| band.rows_adjusted(app)) {
-        band_height = lower_available;
-    }
-    if let Some(band) = &band {
-        band.register(
-            app,
-            Rect::new(area.x, area.y + list_height + gap, area.width, band_height),
-            lower_available,
-            frame.area(),
-        );
-        for y in 0..band_height {
-            band.paint(
-                frame,
-                app,
-                Rect::new(area.x, area.y + list_height + gap + y, area.width, 1),
-                usize::from(y),
-                lower_available,
-            );
-        }
-    }
-    if !monitor_shown {
-        return;
-    }
-    let header_height = (LIST_HEADER_ROWS as u16).min(list_height.saturating_sub(1));
+    let header_height = (LIST_HEADER_ROWS as u16).min(area.height.saturating_sub(1));
     let data = Rect::new(
         area.x,
         area.y + header_height,
         area.width,
-        list_height.saturating_sub(header_height),
+        area.height.saturating_sub(header_height),
     );
     let total = rows.len().max(1);
     *app.row_starts.borrow_mut() = (0..rows.len()).collect();
@@ -202,76 +94,26 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     {
         app.scrolls.reveal_range(Pane::Rows, i..i + 1, data, total);
     }
-    // A full two-digit lower-bound label plus the existing overflow mark.
-    // Only unread squads need this room; header and every numeric row align.
-    let unread = app.unread_identities();
-    let team_width = if !unread.is_empty()
-        && scene.squads.iter().any(|squad| {
-            squad
-                .members
-                .iter()
-                .any(|(id, _, _)| unread.contains(id.as_str()))
-        }) {
-        14
-    } else {
-        10
-    };
     // `widest` is the widest agent STATE cell of the list.
     let paint = |frame: &mut Frame, slot: Rect, index: usize, widest: usize| match index {
-        0 => {
-            for hit in filter_bar::paint(
-                frame.buffer_mut(),
-                slot,
-                &[("agents", "Agents"), ("squads", "Squads")],
-                usize::from(!agents),
-                app,
-                crate::action::OpsUiAction::OverviewView,
-                search_count.as_deref(),
-            ) {
-                let choice = match hit.id.as_str() {
-                    "agents" => Choice::OverviewView(monitor::View::Agents),
-                    "squads" => Choice::OverviewView(monitor::View::Squads),
-                    "clear-search" => Choice::ClearSearch,
-                    _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
-                };
-                app.workspace_strip_hits
-                    .borrow_mut()
-                    .push((hit.area, choice));
-            }
-        }
-        1 => (),
-        2 => section_rule::paint(
-            frame.buffer_mut(),
-            slot,
-            if agents { "Agents" } else { "Squads" },
-            count.clone(),
-            app.focused() == Pane::Rows,
-            look,
-        ),
-        3 => strip::paint_left(
+        0 => crate::board::workspace::render::controls_rule(frame, app, slot),
+        1 => strip::paint_left(
             frame.buffer_mut(),
             slot,
             Line::styled(
-                if agents {
-                    format!(
-                        " {:<23} {:<11} {:<state$} {:>7}{}",
-                        "AGENT",
-                        "SQUAD",
-                        "STATE",
-                        "TOK 1h",
-                        if model_width(slot.width, state_width(slot.width, widest)).is_some() {
-                            "   MODEL"
-                        } else {
-                            ""
-                        },
-                        state = usize::from(state_width(slot.width, widest))
-                    )
-                } else {
-                    format!(
-                        " {:<12}{:<team_width$}{:>7}   NOW",
-                        "SQUAD", "TEAM", "TOK 1h"
-                    )
-                },
+                format!(
+                    " {:<23} {:<11} {:<state$} {:>7}{}",
+                    "AGENT",
+                    "SQUAD",
+                    "STATE",
+                    "TOK 1h",
+                    if model_width(slot.width, state_width(slot.width, widest)).is_some() {
+                        "   MODEL"
+                    } else {
+                        ""
+                    },
+                    state = usize::from(state_width(slot.width, widest))
+                ),
                 look.role(Role::Muted),
             ),
         ),
@@ -287,21 +129,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                             1,
                         ),
                         if !scene.summary.complete {
-                            if agents {
-                                "Agents unavailable."
-                            } else {
-                                "Squads unavailable."
-                            }
+                            "Agents unavailable."
                         } else if filtered {
-                            if agents {
-                                "No matching agents."
-                            } else {
-                                "No matching squads."
-                            }
-                        } else if agents {
-                            "No agents yet."
+                            "No matching agents."
                         } else {
-                            "No squads yet."
+                            "No agents yet."
                         },
                         None,
                         look,
@@ -309,82 +141,48 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 }
                 return;
             };
-            let mut line = if agents {
-                agent_line(
-                    app,
-                    snapshot,
-                    row,
-                    look,
-                    slot.width,
-                    state_width(slot.width, widest),
-                )
-            } else {
-                let Some(squad) = scene.squads.get(at - LIST_HEADER_ROWS) else {
-                    return;
-                };
-                // Its TEAM glyphs follow core activity and the stale rule.
-                app.admit_activity_clock(None);
-                squad_line(
-                    app,
-                    squad,
-                    team_width,
-                    look,
-                    crate::board::workspace::render::pin_mark(
-                        &row.target,
-                        &snapshot.preferences,
-                        look,
-                    ),
-                )
-            };
-            let task_text = line
-                .spans
-                .last()
-                .map_or_else(String::new, |span| span.content.to_string());
-            let task_start = line
-                .width()
-                .saturating_sub(line.spans.last().map_or(0, Span::width));
+            let mut line = agent_line(
+                app,
+                snapshot,
+                row,
+                look,
+                slot.width,
+                state_width(slot.width, widest),
+            );
             line = crate::board::search_field::highlight_line(line, &app.workspace.query);
             let remaining = usize::from(slot.width).saturating_sub(line.width());
             line.spans.push(Span::raw(" ".repeat(remaining)));
-            let selected =
-                Some(&row.target) == app.workspace.selected.as_ref() && app.focused() == Pane::Rows;
-            if selected {
-                line.style = look.selection();
+            let chosen = Some(&row.target) == app.workspace.selected.as_ref();
+            let selected = chosen && app.focused() == Pane::Rows;
+            // Focus in this agent's conversation: its row has its own tint and a bold name.
+            let in_conversation = chosen && app.focused() == Pane::Replies;
+            app.conversation_tinted
+                .set(app.conversation_tinted.get() || in_conversation);
+            if selected || in_conversation {
+                line.style = if in_conversation {
+                    look.conversation()
+                } else {
+                    look.selection()
+                };
                 let mut x = 0;
                 for span in &mut line.spans {
                     // An agent's STATE words keep their own colours, as in the tree.
-                    let keep = if agents {
-                        (AGENT_STATE_X
-                            ..AGENT_STATE_X + usize::from(state_width(slot.width, widest)))
-                            .contains(&x)
-                    } else {
-                        (13..13 + team_width).contains(&x)
-                            && matches!(span.content.as_ref(), "◆" | "✗")
-                    };
+                    let keep = (AGENT_STATE_X
+                        ..AGENT_STATE_X + usize::from(state_width(slot.width, widest)))
+                        .contains(&x);
                     span.style = look.row_span(true, span.style, keep);
                     x += unicode_width::UnicodeWidthStr::width(span.content.as_ref());
                 }
+                if in_conversation && let Some(name) = line.spans.get_mut(AGENT_NAME_SPAN) {
+                    name.style = name.style.add_modifier(ratatui::style::Modifier::BOLD);
+                }
             }
             strip::paint_left(frame.buffer_mut(), slot, line);
-            // The agents list carries no free text (its columns are names, state,
-            // tokens and model); only a squad's "now" line can name a member.
-            if !agents {
-                let task_start = task_start.min(usize::from(slot.width)) as u16;
-                let task_area = Rect::new(slot.x + task_start, slot.y, slot.width - task_start, 1);
-                crate::board::member_links::paint_plain_hits(
-                    frame, app, task_area, &task_text, &task_text, false,
-                );
-            }
             app.workspace_state_cells.borrow_mut().push(
                 Rect::new(
-                    slot.x
-                        .saturating_add(if agents { AGENT_STATE_X as u16 } else { 13 }),
+                    slot.x.saturating_add(AGENT_STATE_X as u16),
                     slot.y,
-                    if agents {
-                        state_width(slot.width, widest)
-                    } else {
-                        team_width as u16
-                    },
+                    state_width(slot.width, widest),
                     1,
                 )
                 .intersection(slot),
@@ -399,33 +197,26 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         _ => (),
     };
     // STATE grows only as much as the widest cell of the list needs. Every
-    // list row counts, so the header and TOK/NOW stay fixed while rows scroll.
-    let widest = if agents {
-        rows.iter()
-            .map(|row| {
-                state_spans(app, row, look, STATE_MAX)
-                    .iter()
-                    .map(Span::width)
-                    .sum::<usize>()
-            })
-            .max()
-            .unwrap_or(0)
-    } else {
-        0
-    };
+    // list row counts, so the header and TOK stay fixed while rows scroll.
+    let widest = rows
+        .iter()
+        .map(|row| {
+            state_spans(app, row, look, STATE_MAX)
+                .iter()
+                .map(Span::width)
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(0);
     for y in 0..header_height {
         paint(
             frame,
             Rect::new(area.x, area.y + y, area.width, 1),
-            if header_height < LIST_HEADER_ROWS as u16 && y > 0 {
-                usize::from(y) + 1
-            } else {
-                usize::from(y)
-            },
+            usize::from(y),
             widest,
         );
     }
-    app.scrolls.show_list(
+    let (_, viewport) = app.scrolls.show_list(
         frame,
         Pane::Rows,
         data,
@@ -442,83 +233,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
         },
     );
-}
-fn squad_line(
-    app: &App,
-    squad: &monitor::Squad,
-    team_width: usize,
-    look: Look,
-    pin: Span<'static>,
-) -> Line<'static> {
-    let name_width = 11usize.saturating_sub(pin.width());
-    let members: Vec<_> = squad
-        .members
-        .iter()
-        .map(|(id, state, over)| team_strip::Member {
-            id,
-            state: state.as_deref(),
-            unread: app.unread_count(id),
-            over: *over,
-        })
-        .collect();
-    let team = if members.is_empty()
-        && squad.observation != crate::board::workspace::OpsObservation::Complete
+    // The last line is free when the rows end above it or carry the overflow caption.
+    if data.height >= 2
+        && (rows.len() < usize::from(data.height) || viewport < usize::from(data.height))
     {
-        Line::styled("—", look.role(Role::Muted))
-    } else {
-        team_strip::line(
-            &members,
-            squad.lead.as_deref(),
-            team_width,
-            look,
-            app.cron_glyphs,
-        )
-    };
-    let padding = team_width.saturating_sub(team.width());
-    let mut spans = vec![
-        Span::raw(" "),
-        pin,
-        Span::styled(
-            crate::board::view::fit(
-                &crate::board::workspace::render::safe(&squad.name),
-                name_width,
-            ),
-            look.role(Role::Text),
-        ),
-        Span::raw(" "),
-    ];
-    spans.extend(team.spans);
-    spans.push(Span::raw(" ".repeat(padding)));
-    let tokens = squad.tokens.map_or_else(
-        || "—".into(),
-        |(n, partial)| {
-            format!(
-                "{}{}",
-                if partial { "~" } else { "" },
-                crate::source::tokens(n)
-            )
-        },
-    );
-    spans.push(Span::styled(
-        format!(
-            "{}   ",
-            tmt_cli_style::grid::fit(
-                &tokens,
-                7,
-                tmt_cli_style::grid::Align::Right,
-                tmt_cli_style::grid::Truncate::End
-            )
-        ),
-        look.role(Role::Muted),
-    ));
-    if squad.pending {
-        spans.extend([state_cell::mark(Some("waiting"), look), Span::raw(" ")]);
+        crate::board::workspace::render::paint_totals(
+            frame,
+            Rect::new(data.x, data.bottom() - 1, data.width, 1),
+            count,
+        );
     }
-    spans.push(Span::styled(
-        crate::board::workspace::render::safe(&squad.now),
-        look.role(Role::Muted),
-    ));
-    Line::from(spans)
 }
 /// Where an agent row's STATE words start.
 const AGENT_STATE_X: usize = 37;
@@ -575,6 +299,9 @@ fn state_spans(app: &App, row: &OpsTreeRow, look: Look, width: u16) -> Vec<Span<
         },
     )
 }
+
+/// The agent's name among the spans of `agent_line`: gutter, pin, lead mark, name.
+const AGENT_NAME_SPAN: usize = 3;
 
 fn agent_line(
     app: &App,

@@ -70,6 +70,7 @@ export interface Values {
   'page.history': { pageId: string; mode: HistoryMode };
   'retention.set': { pageId: string; days: number | null };
   'page.archive': { pageId: string };
+  'page.unarchive': { pageId: string };
   'page.delete': { pageId: string };
 }
 export type Payload = { [K in keyof Values]: { operation: K; value: Values[K] } }[keyof Values];
@@ -265,6 +266,7 @@ export function decode(operation: string, raw: Uint8Array): Payload {
       }
       break;
     case 'page.archive':
+    case 'page.unarchive':
     case 'page.delete':
       exactKeys(v, ['pageId']);
       id(v, 'pageId');

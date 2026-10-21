@@ -257,8 +257,8 @@ for (const surface of ['reply', 'chat']) {
   });
 }
 
-/** The anchored annotation dialog passes its own composer to the thread window. */
-async function openAnchoredThread(page: Page) {
+/** The anchored annotation dialog on a selection, before its first comment. */
+async function openAnnotation(page: Page) {
   const page_ = (method: string) =>
     page.evaluate(async (method) => {
       const path = '/test/ask-page-browser.tsx';
@@ -280,11 +280,110 @@ async function openAnchoredThread(page: Page) {
   await page.getByTestId('selection-ask').click();
   const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
   const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
+  return { dialog, input, page_ };
+}
+
+/** The anchored annotation dialog passes its own composer to the thread window. */
+async function openAnchoredThread(page: Page) {
+  const { dialog, input, page_ } = await openAnnotation(page);
   await input.pressSequentially('The first comment.');
   await input.press('Enter');
   await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
   return { dialog, input, page_ };
 }
+
+test('anchored dialog: the first comment shows at once as the thread, and its record takes its place', async ({
+  page,
+}) => {
+  const { dialog, input, page_ } = await openAnnotation(page);
+  await input.pressSequentially('A first comment.');
+  const popover = page.locator('.annotation-popover');
+  // Every change of the dialog's height from here on, with the step it came in.
+  await page.evaluate(() => {
+    const watch = window as unknown as { steps: { step: string; height: number }[]; step: string };
+    watch.steps = [];
+    watch.step = 'send';
+    const node = () => document.querySelector('.annotation-popover');
+    let last = Math.round(node()!.getBoundingClientRect().height);
+    const tick = () => {
+      const height = Math.round(node()?.getBoundingClientRect().height ?? last);
+      if (Math.abs(height - last) > 1)
+        watch.steps.push({ step: watch.step, height: height - last });
+      last = height;
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+  await page_('holdReply');
+  await input.press('Enter');
+  // The thread's layout stands in the frame the composer clears: the comment as an echo.
+  await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
+  await expect(echo(page)).toContainText('A first comment.');
+  await expect(input).toHaveText('', { useInnerText: true });
+  await expect(page.getByText('Sending…')).toHaveCount(0);
+  const held = { echo: (await echo(page).boundingBox())!, dialog: (await popover.boundingBox())! };
+  await page.evaluate(() => {
+    (window as unknown as { step: string }).step = 'record';
+  });
+  await page_('releaseReply');
+  const entry = dialog.getByTestId('comment-entry');
+  await expect(entry).toHaveCount(1);
+  await expect(echo(page)).toHaveCount(0);
+  await page.waitForTimeout(400);
+  // The record stands where the echo did, and the dialog moved once: at Send, none after.
+  const after = (await entry.boundingBox())!;
+  expect(Math.abs(after.y - held.echo.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.height - held.echo.height)).toBeLessThanOrEqual(1);
+  const grown = (await popover.boundingBox())!;
+  expect(Math.abs(grown.height - held.dialog.height)).toBeLessThanOrEqual(1);
+  const steps = await page.evaluate(
+    () => (window as unknown as { steps: { step: string; height: number }[] }).steps,
+  );
+  expect(
+    steps.map(({ step }) => step),
+    JSON.stringify(steps),
+  ).toEqual(['send']);
+  expect(steps[0].height).toBeGreaterThan(0);
+});
+
+test('anchored dialog: a first comment that fails holds its draft with Retry and Edit', async ({
+  page,
+}) => {
+  const { dialog, input, page_ } = await openAnnotation(page);
+  await input.pressSequentially('Keep this first comment.');
+  await page_('holdReply');
+  await page_('failNextReply');
+  await input.press('Enter');
+  await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
+  await page_('releaseReply');
+  await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+  await expect(echo(page)).toContainText('Keep this first comment.');
+  await expect(page.getByRole('alert')).toHaveCount(1);
+  await expect(input).toHaveText('', { useInnerText: true });
+  await expect(input).toHaveAttribute('aria-disabled', 'true');
+  expect(await page_('discussionProof')).toHaveLength(0);
+  // Edit returns the draft to the composer; sending it records the comment once.
+  await echo(page).getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(echo(page)).toHaveCount(0);
+  await expect(input).toHaveText('Keep this first comment.', { useInnerText: true });
+  await input.press('Enter');
+  await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
+  expect(await page_('discussionProof')).toHaveLength(1);
+});
+
+test('anchored dialog: Retry on a failed first comment records it once', async ({ page }) => {
+  const { dialog, input, page_ } = await openAnnotation(page);
+  await input.pressSequentially('Retry this first comment.');
+  await page_('failNextReply');
+  await input.press('Enter');
+  await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+  await echo(page).getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
+  await expect(echo(page)).toHaveCount(0);
+  const threads = (await page_('discussionProof')) as { comments: unknown[] }[];
+  expect(threads).toHaveLength(1);
+  expect(threads[0].comments).toHaveLength(1);
+});
 
 test('anchored dialog: a reply shows at once and its verified record takes its place', async ({
   page,

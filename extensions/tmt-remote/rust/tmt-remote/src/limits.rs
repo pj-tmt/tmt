@@ -78,7 +78,7 @@ pub const RESTART_IDLE_WAIT: Duration = Duration::from_millis(250);
 pub const STOP_WAIT: Duration = Duration::from_secs(40);
 
 /// Default per-device session cap; an explicit setting may change it or disable it.
-pub const DEFAULT_SESSIONS_PER_DEVICE: usize = 8;
+pub const DEFAULT_SESSIONS_PER_DEVICE: Option<usize> = None;
 
 /// Minimum interval between background session authority and cleanup scans.
 pub const SESSION_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(1);
@@ -93,6 +93,9 @@ pub const SESSION_IDLE: Duration = Duration::from_secs(12 * 60 * 60);
 
 /// Grants materialized per browser management page (plus one lookahead row).
 pub const MANAGEMENT_PAGE: usize = 50;
+
+/// Maximum atomic remove-others inventory, independent of page size.
+pub const DEVICE_REMOVAL_TARGETS: usize = 1000;
 
 /// Decoded payload bound for fixed Remote management requests.
 pub const MANAGEMENT_INPUT_BYTES: usize = 1024;

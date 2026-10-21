@@ -364,7 +364,17 @@ export function releaseCutHistory({ releases, product, cut, git, excludeTag = ''
   return { highestVersion, previous: inherited.previous, previousAllocated };
 }
 
-export async function planReleaseCuts({ metadata, map, workspace, git, date, versions = {} }) {
+export async function planReleaseCuts({
+  metadata,
+  map,
+  workspace,
+  git,
+  date,
+  versions = {},
+  product: selectedProduct,
+}) {
+  if (selectedProduct && !isProductReleased(map, selectedProduct))
+    throw new Error(`Cut selection names an unreleased component ${selectedProduct}.`);
   for (const [product, version] of Object.entries(versions)) {
     if (!componentOfProduct(map, product).package || !isProductReleased(map, product))
       throw new Error(`Explicit version names an unreleased component ${product}.`);
@@ -396,6 +406,7 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
     try {
       const product = productOfComponent(component.name);
       if (!isProductReleased(map, product)) continue;
+      if (selectedProduct && product !== selectedProduct) continue;
       row.product = product;
       const { tagPrefix } = releasePolicy(product);
       const history = releaseCutHistory({

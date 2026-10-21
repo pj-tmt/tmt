@@ -14,7 +14,7 @@ fn escape_returns_one_level_and_never_quits_the_board() {
             Effect::None
         );
         let screen = paint(&app, width, height).join("\n");
-        assert!(screen.contains("── worker "), "{screen}");
+        assert!(screen.contains("━━ worker "), "{screen}");
         assert!(screen.contains("Esc back"), "{screen}");
         assert!(
             !screen.contains("press j:"),
@@ -80,13 +80,13 @@ fn destination_bindings_leave_conversation_and_dismiss_read_only_owners() {
             _ => unreachable!(),
         }
         paint(&app, 160, 36);
-        assert_eq!(key(&mut app, KeyCode::Char('3')), Effect::None, "{owner}");
+        assert_eq!(key(&mut app, KeyCode::Char('2')), Effect::None, "{owner}");
         assert_eq!(app.shell.tab, OpsTab::Digest, "{owner}");
         assert!(!app.modal_open(), "{owner}");
         assert_eq!(app.focused_pane(), Some(Pane::Rows), "{owner}");
         assert_eq!(app.workspace.selected, target, "{owner}");
         assert_eq!(key(&mut app, KeyCode::Char('1')), Effect::None, "{owner}");
-        assert_eq!(app.shell.tab, OpsTab::Overview, "{owner}");
+        assert_eq!(app.shell.tab, OpsTab::Agents, "{owner}");
     }
 }
 
@@ -133,7 +133,7 @@ fn covered_editor_is_not_typing_owner_and_destination_keeps_its_uuid_draft() {
         app.workspace_input_owner(),
         crate::board::shell::OpsInputOwner::Popup
     );
-    assert_eq!(key(&mut app, KeyCode::Char('2')), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Char('1')), Effect::None);
     assert!(!app.help);
     assert!(app.input.is_none());
     assert_eq!(app.shell.tab, OpsTab::Agents);
@@ -160,7 +160,7 @@ fn configured_destination_and_reader_entry_share_the_effective_table() {
     assert_eq!(key(&mut app, KeyCode::F(2)), Effect::None);
     assert_eq!(app.shell.tab, OpsTab::Digest);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
-    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('1'));
     app.perform(&crate::action::Action::parse("inspect").unwrap());
     key(&mut app, KeyCode::Char('?'));
     assert_eq!(key(&mut app, KeyCode::F(2)), Effect::None);
@@ -259,7 +259,7 @@ fn pending_operations_hide_reopen_and_keep_their_single_outcome_without_resubmis
         assert!(app.reload_blocked());
         // Destination selection hides, but never submits or forgets, the owned operation.
         assert_eq!(observe(app.workspace_begin(kind)), Effect::None);
-        assert_eq!(observe(key(&mut app, KeyCode::Char('3'))), Effect::None);
+        assert_eq!(observe(key(&mut app, KeyCode::Char('2'))), Effect::None);
         assert_eq!(app.shell.tab, OpsTab::Digest);
         assert!(!app.workspace_form.as_ref().unwrap().shown);
         assert!(app.reload_blocked());
@@ -353,7 +353,7 @@ fn q_steps_back_in_overlays_and_release_events_do_not_switch_tabs() {
     assert!(!app.help);
     app.perform(&crate::action::Action::parse("inspect").unwrap());
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    let mut release = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
+    let mut release = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
     release.kind = ratatui::crossterm::event::KeyEventKind::Release;
     assert_eq!(app.key(release), Effect::None);
     assert_eq!(app.shell.tab, OpsTab::Agents);

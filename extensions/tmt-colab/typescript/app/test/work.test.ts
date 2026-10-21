@@ -30,7 +30,11 @@ it.each(vectors.cases)('$name', (fixture) => {
     if ('expected' in fixture) expect(result).toEqual(fixture.expected);
     const value = result ?? fixture.document;
     expect(canonical(value)).toBe(fixture.canonical);
-    if ('derived' in fixture) expect(derivedWork(value)).toEqual(fixture.derived);
+    if ('derived' in fixture) {
+      // A case may say the stage of each page its tasks follow.
+      const stages: Record<string, string> = 'stages' in fixture ? (fixture.stages as never) : {};
+      expect(derivedWork(value, (page) => stages[page])).toEqual(fixture.derived);
+    }
   }
   expect(JSON.stringify(fixture.document)).toBe(before);
 });

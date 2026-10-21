@@ -11,13 +11,22 @@ Headings, paragraphs and lists, grouped in one block:
 ```html
 <div>
   <h2>Heading</h2>
-  <p>A paragraph with <a href="https://example.com">a link</a>.</p>
+  <p>A paragraph with <a href="/p/10000000">another Colab page</a>.</p>
   <ul>
     <li>One</li>
     <li>Two</li>
   </ul>
 </div>
 ```
+
+## Links
+
+Plain `a[href]` links open through the trusted app, without navigating the page's isolated frame.
+Use `/p/PAGE_PREFIX` for another page in the same space, optionally followed by `#element-id`.
+Use `https://example.com/path` for an outside destination: the app shows its full URL and asks
+the reader to Open or Cancel before opening a new tab. Same-page `#element-id` links scroll
+inside the page. Do not script `location` changes or `window.open`; direct frame navigation still
+stops the preview. Other URL schemes are refused.
 
 ## Summary
 
@@ -51,11 +60,20 @@ The table fills its block; never set a width.
 <section>
   <table>
     <thead>
-      <tr><th>Check</th><th>State</th></tr>
+      <tr>
+        <th>Check</th>
+        <th>State</th>
+      </tr>
     </thead>
     <tbody>
-      <tr><td>Build</td><td>✓ Done</td></tr>
-      <tr><td>Review</td><td>◆ Waiting</td></tr>
+      <tr>
+        <td>Build</td>
+        <td>✓ Done</td>
+      </tr>
+      <tr>
+        <td>Review</td>
+        <td>◆ Waiting</td>
+      </tr>
     </tbody>
   </table>
 </section>
@@ -87,7 +105,11 @@ yours:
 
 ```html
 <style>
-  .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .compare {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
 </style>
 <section class="compare">
   <div>
@@ -109,8 +131,11 @@ limits: [questions](questions.md) (`tmt colab skill questions`).
 ```html
 <tmt-questions data-id="20000000-0000-4000-8000-000000000001">
   <p data-title>One decision</p>
-  <tmt-question data-id="10000000-0000-4000-8000-000000000001" data-kind="single"
-    data-agent="Your agent name">
+  <tmt-question
+    data-id="10000000-0000-4000-8000-000000000001"
+    data-kind="single"
+    data-agent="Your agent name"
+  >
     <p data-question>Which option fits?</p>
     <span data-choice>First</span><span data-choice>Second</span>
   </tmt-question>
@@ -137,6 +162,12 @@ not jump, and `max-width: 100%` so the image never overflows. Details:
 
 ```html
 <div>
-  <img src="colab-attachment:9c01aa3e" alt="Weekly trend" width="640" height="360" style="max-width: 100%; height: auto">
+  <img
+    src="colab-attachment:9c01aa3e"
+    alt="Weekly trend"
+    width="640"
+    height="360"
+    style="max-width: 100%; height: auto"
+  />
 </div>
 ```

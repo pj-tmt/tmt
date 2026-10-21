@@ -69,6 +69,7 @@ fn running_clock_age_matches_command_wording_and_steps_aside_whole() {
         pid: 7,
         since_ms: NOW,
         expires_ms: NOW + 5_000,
+        build: None,
     });
     for (elapsed, age) in [
         (-1, "just now"),
@@ -147,6 +148,7 @@ fn current_clock_and_job_text_neutralize_controls_and_remain_single_lines() {
         pid: 7,
         since_ms: NOW,
         expires_ms: NOW,
+        build: None,
     });
     let shown = clock(&status, NOW, false, ClockNote::default()).0;
     assert!(!shown.contains(['\u{1b}', '\n']));

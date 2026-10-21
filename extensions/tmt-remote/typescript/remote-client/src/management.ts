@@ -1,6 +1,7 @@
 import { parseFirestoreLayers, type FirestoreLayerView } from './firestore.js';
 import { parsePublishedLimits, type FirestoreBudgetView } from './budget.js';
 import type { Session } from './device.js';
+import { channelFor } from './session-channel.js';
 import {
   ClientError,
   RefusalError,
@@ -30,6 +31,7 @@ export interface DevicePage {
     thisBrowser: boolean;
     liveSessionCount: number;
     lastActivityAtMs: number | null;
+    lastUsedAtMs: number | null;
   })[];
   nextCursor: string | null;
 }
@@ -46,7 +48,7 @@ export type ManagementOutcome =
   | {
       operationId: string;
       state: 'committed';
-      result: { settings: RemoteSettings } | { device: ManagementDevice };
+      result: { settings: RemoteSettings } | { device: ManagementDevice } | { removed: number };
       sessionEnded: boolean;
     }
   | { operationId: string; state: 'refused'; reason: RemoteRefusalCode }
@@ -54,7 +56,14 @@ export type ManagementOutcome =
 export type SettingChange =
   | { operationId: string; setting: 'open'; value: boolean }
   | { operationId: string; setting: 'sessions-per-device'; value: string | null };
+export interface RemovalPreview {
+  count: number;
+  fingerprint: string;
+}
 export interface RemoteManagement {
+  readonly clientId: string;
+  previewRemoveOthers(): Promise<RemovalPreview>;
+  removeOthers(input: { operationId: string; fingerprint: string }): Promise<ManagementOutcome>;
   settings(): Promise<SettingsView>;
   settings(options: { firestore: true }): Promise<FirestoreSettingsView>;
   devices(input: { cursor: string | null; limit: number }): Promise<DevicePage>;
@@ -113,7 +122,7 @@ function device(value: unknown, activity = false): ManagementDevice {
     'revision',
     'revoked',
     'talkEnabled',
-    ...(activity ? ['thisBrowser', 'liveSessionCount', 'lastActivityAtMs'] : []),
+    ...(activity ? ['thisBrowser', 'liveSessionCount', 'lastActivityAtMs', 'lastUsedAtMs'] : []),
   ]);
   valid(typeof row.clientId === 'string' && UUID.test(row.clientId));
   valid(
@@ -134,7 +143,8 @@ function device(value: unknown, activity = false): ManagementDevice {
     valid(
       typeof row.thisBrowser === 'boolean' &&
         integer(row.liveSessionCount) &&
-        (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)),
+        (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) &&
+        (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)),
     );
   return row as unknown as ManagementDevice;
 }
@@ -154,6 +164,8 @@ const refusalCodes = new Set<string>([
   'REMOTE_DEVICE_NOT_FOUND',
   'REMOTE_SETTINGS_UNAVAILABLE',
   'REMOTE_MANAGEMENT_CAPACITY',
+  'REMOTE_DEVICE_LIST_CHANGED',
+  'REMOTE_DEVICE_REMOVAL_LIMIT',
 ]);
 function outcome(value: unknown, operationId: string): ManagementOutcome {
   const row = object(value);
@@ -164,6 +176,10 @@ function outcome(value: unknown, operationId: string): ManagementOutcome {
     const result = object(row.result);
     valid(Object.keys(result).length === 1);
     if (Object.hasOwn(result, 'settings')) settings(result.settings);
+    else if (Object.hasOwn(result, 'removed'))
+      valid(
+        integer(result.removed) && (result.removed as number) <= 1000 && row.sessionEnded === false,
+      );
     else device(result.device);
   } else {
     exact(row, ['operationId', 'state', 'reason']);
@@ -184,9 +200,16 @@ export function management(
   options: { timeoutMs?: number } = {},
 ): RemoteManagement {
   const call = verifiedSessionRequest(session, options);
+  const clientId = channelFor(session)!.paired.clientId;
   async function mutate(
     operation: string,
-    value: { operationId: string; clientId?: string; name?: string; enabled?: boolean },
+    value: {
+      operationId: string;
+      clientId?: string;
+      name?: string;
+      enabled?: boolean;
+      fingerprint?: string;
+    },
   ): Promise<ManagementOutcome> {
     const { operationId } = value;
     input(UUID.test(operationId));
@@ -199,6 +222,8 @@ export function management(
           const parsed = outcome(reply, operationId);
           if (parsed.state === 'committed') {
             if (operation === 'remote.settings.set') valid('settings' in parsed.result);
+            else if (operation === 'remote.devices.remove-others')
+              valid('removed' in parsed.result && parsed.sessionEnded === false);
             else {
               valid('device' in parsed.result && parsed.result.device.clientId === value.clientId);
               if (operation === 'remote.devices.rename')
@@ -221,6 +246,23 @@ export function management(
     }
   }
   return {
+    clientId,
+    previewRemoveOthers: () =>
+      call('remote.devices.remove-others.preview', crypto.randomUUID(), {}, (value) => {
+        const row = object(value);
+        exact(row, ['count', 'fingerprint']);
+        valid(
+          integer(row.count) &&
+            (row.count as number) <= 1000 &&
+            typeof row.fingerprint === 'string' &&
+            /^[0-9a-f]{64}$/.test(row.fingerprint),
+        );
+        return row as unknown as RemovalPreview;
+      }),
+    removeOthers: (change) => {
+      input(typeof change.fingerprint === 'string' && /^[0-9a-f]{64}$/.test(change.fingerprint));
+      return mutate('remote.devices.remove-others', { ...change });
+    },
     settings: ((options?: { firestore: true }) =>
       call('remote.settings.show', crypto.randomUUID(), options ?? {}, (value) => {
         const row = object(value);
@@ -263,7 +305,7 @@ export function management(
         const ids = new Set<string>();
         for (const entry of row.devices) {
           const item = device(entry, true);
-          valid(!ids.has(item.clientId));
+          valid(!item.revoked && !ids.has(item.clientId));
           ids.add(item.clientId);
         }
         valid(

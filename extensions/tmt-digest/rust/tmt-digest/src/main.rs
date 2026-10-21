@@ -234,7 +234,7 @@ fn save_default(value: &str) -> Result<String, core::Error> {
     let mut message = format!("Saved the global digest default: {}", shown(&mode));
     if setter.is_none() {
         message.push_str(
-            ". No caller identity was found, so no one is recorded as the setter and only --urgent passes the hold. Run it from the pane of the person who should reach members directly.",
+            ". No caller identity was found, so no one is recorded as the setter; only --urgent and a person marked with tmt identity meta set user true pass the hold. Run it from the pane of the person who should reach members directly.",
         );
     }
     Ok(message)

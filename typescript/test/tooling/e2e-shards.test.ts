@@ -16,6 +16,20 @@ const { runPackedCommand } = await import(
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 
 describe('Docker E2E shards', () => {
+  it('#4101 never invokes the unfiltered adapter library suite in Docker', () => {
+    const docker = readFileSync(path.join(repository, 'typescript/test/e2e/Dockerfile'), 'utf8');
+    expect(docker).not.toContain('then /opt/tmt-tests/adapter-tests; fi');
+    expect(docker).toContain('node /opt/tmt-tests/e2e-adapter-tests.mjs');
+    const lateCopy = docker.indexOf(
+      'COPY typescript/scripts/e2e-adapter-tests.mjs /opt/tmt-tests/e2e-adapter-tests.mjs'
+    );
+    expect(lateCopy).toBeGreaterThan(
+      docker.indexOf('cargo test --locked --no-run -p tmt-adapters')
+    );
+    expect(lateCopy).toBeGreaterThan(docker.indexOf('pnpm --filter tmt install --frozen-lockfile'));
+    expect(docker.slice(lateCopy)).not.toMatch(/^RUN /m);
+  });
+
   const files = listE2eFiles();
   const weights = loadShardWeights();
   const sorted = (list: readonly string[]) => [...list].sort();

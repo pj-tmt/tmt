@@ -189,11 +189,24 @@ describe('global identities across isolated tmux servers', { concurrent: false }
         ],
       });
 
-      const foreignTalk = await a.runJsonCli(['talk', 'Remote', 'must-not-cross-servers']);
-      expect(foreignTalk.code).toBe(3);
-      expect(foreignTalk.json).toMatchObject({
-        error: { code: 'NAME_NOT_FOUND', message: "Identity 'Remote' is not active." },
-      });
+      const remoteMessage = 'recorded-remote-server';
+      const foreignTalk = expectJsonResult(
+        await a.runJsonCli<{ status: string; response: string }>([
+          'talk',
+          'Remote',
+          remoteMessage,
+          '--timeout',
+          '10',
+        ])
+      );
+      expect(foreignTalk.status).toBe('completed');
+      expect(foreignTalk.response).toContain(`mock-agent response: ${remoteMessage}`);
+      await b.waitForEvent(
+        (event) =>
+          event.event === 'submitted' && event.pid === b.panePid && event.message === remoteMessage
+      );
+      const remoteRequests = b.events().filter((event) => event.event === 'request');
+      expect(remoteRequests).toHaveLength(1);
       const message = 'local-server-only';
       const talk = expectJsonResult(
         await a.runJsonCli<{ status: string; response: string }>([
@@ -210,7 +223,7 @@ describe('global identities across isolated tmux servers', { concurrent: false }
         (event) =>
           event.event === 'submitted' && event.pid === a.panePid && event.message === message
       );
-      expect(b.events().filter((event) => event.event === 'request')).toEqual([]);
+      expect(b.events().filter((event) => event.event === 'request')).toEqual(remoteRequests);
     });
   }, 30_000);
 
@@ -249,6 +262,19 @@ describe('global identities across isolated tmux servers', { concurrent: false }
           expect(Date.now() - started).toBeLessThan(5_000);
           expect(result.code).toBe(1);
           expect(result.json).toMatchObject({ error: { code: 'RECONCILIATION_FAILED' } });
+          for (const args of [
+            ['check', 'Remote'],
+            ['talk', 'Remote', 'must-not-send-while-unreachable', '--detach'],
+          ]) {
+            const unavailable = await a.runJsonCli(args);
+            expect(unavailable.code).toBe(1);
+            expect(unavailable.json).toMatchObject({
+              error: {
+                code: 'RECONCILIATION_FAILED',
+                suggestion: expect.stringContaining(b.socketPath),
+              },
+            });
+          }
           expect(durableState(a)).toEqual(before);
           expect(a.paneMetadata()).toBe('');
         } finally {

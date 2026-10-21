@@ -24,8 +24,24 @@ function where(excerpt: string, line: number): string {
 }
 
 const pairCommand = 'tmt remote pair';
+const frameLimit =
+  'A page’s scripts can open another address inside the page’s own frame, which can pass along what the page can read. Colab cannot fully prevent that.';
 
 export const text = {
+  pageLink: {
+    close: 'Close',
+    external: 'Open this link in a new tab?',
+    internal: 'Open another Colab page?',
+    externalLabel: 'Outside Colab',
+    internalLabel: 'This page asked to switch pages.',
+    refused: 'Pages can open https links and other Colab pages only.',
+    open: 'Open',
+    cancel: 'Cancel',
+    copy: 'Copy link',
+    copied: 'Copied',
+    copyHint: 'If no tab opens, copy the link instead.',
+    copyFailed: 'Could not copy. Select the link and copy it.',
+  },
   quickSwitcher: {
     title: 'Search pages',
     placeholder: 'Search pages, projects or authors…',
@@ -78,9 +94,9 @@ export const text = {
   proposalApproved: 'Approved',
   proposalDeclined: 'Declined',
   proposalApprove: 'Approve',
+  proposalSaving: 'Saving decision…',
   proposalDecline: 'Decline',
   proposalFollowUp: 'Follow up',
-  proposalSaving: 'Saving decision…',
   proposalNotifyFailed:
     'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
   proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
@@ -127,7 +143,6 @@ export const text = {
   needsYouWord: 'Needs you',
   needsYouLabel: (count: number) => `Needs you: ${count}`,
   needsYouNothing: '✓ Nothing waits',
-  needsYouNothingWord: 'Nothing waits',
   needsYouGroup: (kind: 'proposal' | 'reading' | 'answer' | 'review', count: number) =>
     `${kind === 'proposal' ? 'Please decide' : kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
 
@@ -256,6 +271,9 @@ export const text = {
       'Your message was not sent. The page changed while attaching; send again to upload the files.',
   },
   files: 'Files',
+  /** The More menu's entry for the page's sharing, with its state as secondary text. */
+  shareItem: 'Share…',
+  projectsItem: 'Projects…',
   filesEmpty: 'No files yet.',
   filesListLabel: 'Page files',
   filesAdd: 'Add to page',
@@ -346,7 +364,9 @@ export const text = {
     count === 0
       ? 'Remote: no live sessions'
       : `Remote: ${count} live ${count === 1 ? 'session' : 'sessions'}`,
-  remoteUnconfirmed: 'Remote · ?',
+  remoteUnconfirmed: 'Remote · offline',
+  /** The attention mark's word while the Remote door is down or unreadable. */
+  remoteOffline: 'Remote offline',
   remoteUnconfirmedLabel: 'Remote: session count unconfirmed',
   remoteThisBrowser: 'This browser',
   remoteAddon: 'Browser add-on',
@@ -679,14 +699,18 @@ export const text = {
     confirmArchiveMany: (count: number) => `Archive ${count} pages?`,
     confirmDeleteMany: (count: number) => `Delete ${count} pages?`,
     confirmArchiveManyBody:
-      'Archived pages stay readable, but nobody can edit them. Archiving cannot be undone yet.',
+      'Archived pages stay readable, but nobody can edit them. You can restore them from Archived.',
+    confirmRestoreMany: (count: number) => `Restore ${count} pages?`,
+    confirmRestoreManyBody:
+      'These pages return to your active list and can be edited again. Their expiry starts over from today.',
     confirmDeleteManyBody:
       'The pages, their comments and their attachments are deleted. This cannot be undone.',
     moreTitles: (count: number) => `and ${count} more`,
     archivedMany: (count: number) => `Archived ${count} pages.`,
+    restoredMany: (count: number) => `Restored ${count} pages.`,
     deletedMany: (count: number) => `Deleted ${count} pages.`,
     awaitingMany: (count: number) =>
-      `The owner acknowledged ${count} of the changes; their signed logs are not verified yet.`,
+      `The owner accepted ${count} of the changes, but ${count === 1 ? 'it is' : 'they are'} not confirmed yet. Open Manage page to check ${count === 1 ? 'it' : 'them'} again.`,
     partial: (done: number, total: number, title: string, reason: string) =>
       `Updated ${done} of ${total} pages. “${title}” was not changed: ${reason}`,
     addedToProject: (name: string, count: number) =>
@@ -699,20 +723,28 @@ export const text = {
       } skipped.`,
     nothingToChange: 'Nothing to change.',
     archiveItem: 'Archive…',
+    restoreItem: 'Restore…',
     deleteItem: 'Delete…',
     confirmArchiveTitle: (title: string) => `Archive “${title}”?`,
     confirmArchive:
-      'An archived page stays readable, but nobody can edit it. Archiving cannot be undone yet.',
+      'An archived page stays readable, but nobody can edit it. You can restore it from Archived.',
+    restorePage: (title: string) => `Restore “${title}”`,
+    confirmRestoreTitle: (title: string) => `Restore “${title}”?`,
+    confirmRestore:
+      'This page returns to your active list and can be edited again. Its expiry starts over from today.',
     confirmDeleteTitle: (title: string) => `Delete “${title}”?`,
     confirmDelete: 'The page, its comments and its attachments are deleted. This cannot be undone.',
     archiveButton: 'Archive page',
     archiveButtonMany: 'Archive pages',
+    restoreButton: 'Restore page',
+    restoreButtonMany: 'Restore pages',
     deleteButtonMany: 'Delete pages',
     deleteButton: 'Delete page',
     archived: (title: string) => `Archived “${title}”.`,
+    restored: (title: string) => `Restored “${title}”.`,
     deleted: (title: string) => `Deleted “${title}”.`,
     awaiting: (title: string) =>
-      `“${title}”: the owner acknowledged the change; its signed log is not verified yet. Open Manage page to verify it.`,
+      `“${title}”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.`,
     operationFailures: {
       INVALID: 'The owner refused the change.',
       DENIED: 'This device is not allowed to manage pages. Reopen your paired session.',
@@ -827,8 +859,8 @@ export const text = {
   navigation: 'The page navigated. Reopen it to continue.',
   failed: 'The renderer could not start. Reopen the page to try again.',
   limit: 'This preview accepts pages up to 2 MiB of HTML.',
-  warning:
-    'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
+  frameLimit,
+  warning: `Page scripts run inside an isolated frame. ${frameLimit}`,
   adapter: 'This preview uses local sample pages. It is not connected to a remote space.',
   readerOnly: 'Read-only',
   readerCanEdit: 'Can edit',

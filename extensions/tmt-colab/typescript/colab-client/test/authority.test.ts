@@ -231,6 +231,7 @@ describe('browser authority ports', () => {
       'page.history': { pageId: v.page, mode: 'shared' },
       'retention.set': { pageId: v.page, days: null },
       'page.archive': { pageId: v.page },
+      'page.unarchive': { pageId: v.page },
       'page.delete': { pageId: v.page },
     };
     for (const [op, value] of Object.entries(samples)) {

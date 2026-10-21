@@ -4,7 +4,7 @@ mod bootstrap;
 pub(crate) mod epoch;
 pub use epoch::{Cut, StoredBaseline};
 
-use super::{Store, sequence};
+use super::{Store, hash_at, sequence};
 use crate::Result;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -501,6 +501,12 @@ impl OwnerTransaction<'_> {
             .tx
             .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| r.get(0))
             .optional()?)
+    }
+    /// Restore is activity, committed atomically with its signed statement and receipt.
+    pub(crate) fn touch_activity(&mut self, page: &str) -> Result<()> {
+        values::generated_id(page)?;
+        super::touch_activity(self.tx, page, self.clock)?;
+        Ok(())
     }
     pub(crate) fn append_update(
         &mut self,

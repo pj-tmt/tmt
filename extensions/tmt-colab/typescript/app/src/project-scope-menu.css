@@ -19,7 +19,7 @@
   white-space: nowrap;
 }
 .scope-count {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
 }
 .scope-needs {
   color: var(--tmt-ui-color-waiting);

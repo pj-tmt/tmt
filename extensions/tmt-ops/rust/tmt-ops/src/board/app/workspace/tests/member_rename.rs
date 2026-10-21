@@ -25,12 +25,11 @@ fn rename(app: &mut App, name: &str) -> Rename {
 fn only_visible_agents_list_member_has_default_rename_and_hidden_target_cannot_begin() {
     let mut app = board();
     assert_eq!(app.bindings()["r"].text, "rename-member");
-    for tab in [OpsTab::Overview, OpsTab::Digest] {
-        app.shell.tab = tab;
-        assert!(!app.bindings().contains_key("r"));
-        app.workspace_begin(Kind::RenameMember);
-        assert!(app.workspace_form.is_none());
-    }
+    let tab = OpsTab::Digest;
+    app.shell.tab = tab;
+    assert!(!app.bindings().contains_key("r"));
+    app.workspace_begin(Kind::RenameMember);
+    assert!(app.workspace_form.is_none());
     app.shell.tab = OpsTab::Agents;
     app.focus = 1;
     assert!(!app.bindings().values().any(|a| a.text == "rename-member"));

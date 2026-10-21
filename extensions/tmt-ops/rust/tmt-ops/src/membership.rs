@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Mirrors core's public metadata entry limit; Squad reaches core only through commands.
-const METADATA_ENTRY_LIMIT: usize = 64;
+pub(crate) const METADATA_ENTRY_LIMIT: usize = 64;
 
 /// A command result plus whether every requested change was applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +108,7 @@ pub fn init(
         Err(error) => return Err(error),
     };
     if let Some(chosen) = chosen {
+        let _ = crate::me::mark_user(core, &chosen.id);
         crate::me::record(
             config,
             &crate::me::Me {

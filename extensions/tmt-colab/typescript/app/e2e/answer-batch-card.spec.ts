@@ -83,14 +83,19 @@ test('a lone question folds to its answered line, without Send, while its public
   await run(page, 'pausePrepare');
   await send.click();
   await recorded(page, 1);
-  await expect(
-    card(page).getByRole('button', { name: 'Change answer', exact: true }),
-  ).toBeVisible();
+  // The card folds at Send, the answer standing on its line while the Ask is held.
+  const line = group.locator('.question-line');
+  await expect(line).toContainText('Answered: Keep it');
+  await expect(line).toHaveAttribute('aria-expanded', 'false');
   await expect(send).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
   await run(page, 'resumePrepare');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   await expect(send).toHaveCount(0);
+  await line.click();
+  await expect(
+    card(page).getByRole('button', { name: 'Change answer', exact: true }),
+  ).toBeVisible();
 });
 
 test('three comments make one Ask per distinct recipient; only the canonical question renders replies, including after reload', async ({
@@ -561,7 +566,9 @@ for (const [width, theme] of [
       await capture('long-recipient');
       await run(page, 'pausePrepare');
       await group.getByRole('button', { name: /^Send 3 answers/ }).click();
-      await expect(group.getByRole('button', { name: /^Send 3 answers/ })).toBeDisabled();
+      // Every sent answer stands on its folded line, which takes no click until the record lands.
+      await expect(group.locator('.question-line[aria-disabled="true"]')).toHaveCount(3);
+      await expect(group.locator('.question-line[aria-expanded="true"]')).toHaveCount(0);
       await capture('sending');
       await run(page, 'resumePrepare');
       await recorded(page, 3);

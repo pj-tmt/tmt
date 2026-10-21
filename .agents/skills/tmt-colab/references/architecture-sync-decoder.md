@@ -26,7 +26,10 @@ and `limits.rs`; do not restate them.
   admission reads folds through `fold.rs` (`open_fold_object`, anchors from `fold_anchors`); catch-up
   sends the anchor frame, then the fold; the browser admits both in `Objects` through
   `Admission.readFold`. A fold is not accepted as an `append` from another device yet. The cloud
-  publisher stops a page whose next checkpoint is a fold (`FOLDED_STOP`, #4049).
+  publisher sends its retained anchor in `log` before the fold pair in `checkpoints`; the hosted
+  reader admits the anchor frame before either fold. Native cloud inbound installs a pair (and a
+  fold's anchor) for a stream it holds nothing of with `Store::bootstrap`, one transaction; the
+  stream position is `store::position`, the one definition `stream_head` and `append_in` share.
   `contracts/vectors/fold-v1.json` is replayed by `src/fold_vectors.rs`, `tests/fold_vectors.rs` and
   `test/fold-own.test.ts`.
 - Overflow, an unknown or pruned cursor and any abnormal close end in `RESYNC_REQUIRED`:
@@ -137,9 +140,14 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   rule and never a property of the value, so no published state is invalid for it;
   `work_index.rs` reads every page's work for it and for the list through one derived file keyed
   by the page's own progress (`work-index.json`, rebuildable, never signed or synced), and
-  `settings.rs` stores the limits. `cli_work.rs` runs the `task` and `summary` commands: it
-  checks the limit before it prepares a change, so the decoder and the browser never see it, and
-  `ls` adds each page's derived work. Export publishes `meta.work` as `work.json` beside the
+  `settings.rs` stores the limits. A task may follow a page (`child`): `work_links.rs` is pure over
+  that index and resolves a page's derived values through the pages its tasks follow (a page's
+  stage is its tasks' states, bounded in depth and cycle-safe) and decides whether `task.link` is
+  admitted (one parent, no loop, a page that exists), since one page's value cannot see another's.
+  `cli_work.rs` runs the `task` and `summary` commands: it checks the limit and the link before it
+  prepares a change, so the decoder and the browser never see them, `task convert` makes the page
+  through `cli_management::commit_creation` and then links it, and `ls` adds each page's derived
+  work and its parent. Export publishes `meta.work` as `work.json` beside the
   HTML. The browser fold validates the value and projects it through the Worker and the parent's
   prepared-content check; the browser shows nothing new yet. The
   [Work contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#work-4050) owns the

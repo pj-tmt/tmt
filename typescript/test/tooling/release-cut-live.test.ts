@@ -14,11 +14,12 @@ import { basename, join } from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   createCutClient,
+  cutExitCode,
   runReleaseCuts,
   type CutClient,
   type DraftRelease,
 } from '../../scripts/release-cut-live.mjs';
-import type { CutMetadata } from '../../scripts/release-cut.mjs';
+import { planReleaseCuts, type CutMetadata } from '../../scripts/release-cut.mjs';
 import { DECLARATION_SUPPORT } from '../../scripts/release-declaration.mjs';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import { checkMigration, releaseCommits } from '../../scripts/publication-gates.mjs';
@@ -359,7 +360,7 @@ describe('release cut private Cargo home', () => {
   });
 });
 
-function fixture(activateExtensions = false, allProducts = false) {
+function fixture(activateExtensions = false, allProducts = false, releasableDriver = false) {
   const workspace = fixtureWorkspaces.get(activateExtensions);
   if (!workspace) throw new Error('Release lifecycle fixture workspace was not read.');
   vi.mocked(readCargoWorkspace).mockReturnValue(workspace);
@@ -446,6 +447,10 @@ function fixture(activateExtensions = false, allProducts = false) {
       ...(allProducts ? ['digest', 'driver-herdr'] : []),
     ]);
   }
+  if (releasableDriver) {
+    mkdirSync(join(root, 'driver'), { recursive: true });
+    writeFileSync(join(root, 'driver/feature.txt'), 'feature');
+  }
   writeFileSync(join(root, 'cli.txt'), 'feature');
   writeFileSync(join(root, 'extensions/ops/feature.txt'), 'feature');
   const cut = commit('feat: shared feature');
@@ -518,6 +523,387 @@ it('reads the exact release-source ref through real Cargo metadata', async () =>
   expect(readCargoWorkspace).toHaveBeenCalledExactlyOnceWith(expect.any(String));
   // A real metadata read can encounter cold/contended I/O; lifecycle cases keep their 10 s budget.
 }, 30_000);
+
+// Fake REST preserves the real planner/Git/source fixtures; no release credentials or writes.
+function cutTransport(
+  f: ReturnType<typeof fixture>,
+  onRequest?: (path: string, args: string[], options: { timeoutMs: number }) => void
+) {
+  return vi.fn((_command: string, args: string[], options: { timeoutMs: number }) => {
+    const path = args[1].replace('repos/pj-tmt/tmt/', '');
+    onRequest?.(path, args, options);
+    const field = (name: string) =>
+      args.find((arg) => arg.startsWith(`${name}=`))!.slice(name.length + 1);
+    if (path === 'git/ref/heads/main') return JSON.stringify({ object: { sha: f.cut } });
+    if (path.startsWith('releases?')) return `HTTP/2.0 200 OK\n\n${JSON.stringify(f.releases)}`;
+    if (path.startsWith('git/matching-refs/tags/')) return '[]';
+    if (path === 'releases')
+      return JSON.stringify(
+        f.client.draft({
+          tag: field('tag_name'),
+          cut: field('target_commitish'),
+          body: field('body'),
+          product: field('tag_name').startsWith('v') ? 'cli' : field('tag_name').split('-')[1],
+        })
+      );
+    if (/^releases\/[0-9]+$/.test(path))
+      return JSON.stringify(f.client.release(Number(path.split('/')[1])));
+    if (path === 'actions/workflows/native-release.yml/dispatches') {
+      f.client.dispatch(field('inputs[product]'), field('inputs[tag]'));
+      return '';
+    }
+    throw new Error(`Unexpected cut request: ${path}`);
+  });
+}
+
+describe('#4098 bounded cut and dispatch uncertainty', () => {
+  it.each([
+    'zero',
+    'multiple',
+    'truncated',
+    'tag',
+    'event',
+    'branch',
+    'workflow',
+    'before',
+    'before-fractional',
+    'after-finished-before-read',
+    'after-read',
+    'draft-id',
+    'draft-tag',
+    'draft-target',
+    'draft-body',
+    'duplicate-id',
+  ])('accepts only complete, exact dispatch evidence: %s', (control) => {
+    const cut = 'a'.repeat(40);
+    const row = { product: 'cli', cut, status: 'proposed', tag: 'v5.0.0-alpha.99' };
+    const startedAt = Date.parse('2026-10-20T10:00:00Z') + 500;
+    const finishedAt = startedAt + 1000;
+    const readAt = startedAt + 3250;
+    const wholeSecond = (stamp: number) =>
+      new Date(Math.floor(stamp / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+    const draft = {
+      id: 17,
+      draft: true,
+      tag_name: row.tag,
+      target_commitish: cut,
+      body: 'exact body',
+    };
+    const run = {
+      id: 101,
+      event: 'workflow_dispatch',
+      display_title: `Native release: ${row.tag}`,
+      head_branch: 'main',
+      path: '.github/workflows/native-release.yml',
+      created_at: wholeSecond(startedAt),
+      html_url: 'https://github.com/pj-tmt/tmt/actions/runs/101',
+    };
+    if (control === 'tag') run.display_title += '-wrong';
+    if (control === 'event') run.event = 'push';
+    if (control === 'branch') run.head_branch = 'other';
+    if (control === 'workflow') run.path = '.github/workflows/other.yml';
+    if (control === 'before') run.created_at = wholeSecond(startedAt - 1000);
+    if (control === 'after-finished-before-read') run.created_at = wholeSecond(finishedAt + 1000);
+    if (control === 'after-read') run.created_at = wholeSecond(readAt + 1000);
+    if (control === 'draft-id') draft.id += 1;
+    if (control === 'draft-tag') draft.tag_name += '-wrong';
+    if (control === 'draft-target') draft.target_commitish = 'b'.repeat(40);
+    if (control === 'draft-body') draft.body += '-wrong';
+    const runs =
+      control === 'zero'
+        ? []
+        : control === 'multiple'
+          ? [run, { ...run, id: 102, html_url: 'https://github.com/pj-tmt/tmt/actions/runs/102' }]
+          : control === 'duplicate-id'
+            ? [run, run]
+            : [run];
+    const execute = vi.fn((_command: string, args: string[]) =>
+      JSON.stringify(
+        args[1].includes('/releases/')
+          ? draft
+          : { total_count: control === 'truncated' ? 101 : runs.length, workflow_runs: runs }
+      )
+    );
+    const now = vi.spyOn(Date, 'now').mockReturnValue(readAt);
+    try {
+      const client = createCutClient(
+        { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
+        execute
+      );
+      const reconcile = () =>
+        client.reconcileDispatch!({ id: 17, row, body: 'exact body', startedAt });
+      if (control === 'before-fractional' || control === 'after-finished-before-read') {
+        expect(reconcile()).toEqual({
+          runId: 101,
+          runUrl: 'https://github.com/pj-tmt/tmt/actions/runs/101',
+        });
+        const route = execute.mock.calls[1][1][1];
+        expect(new URL(`https://api.github.com/${route}`).searchParams.get('created')).toBe(
+          '>=2026-10-20T10:00:00.000Z'
+        );
+      } else expect(reconcile).toThrow();
+      expect(
+        execute.mock.calls.every(([, args]) => args[args.indexOf('--method') + 1] === 'GET')
+      ).toBe(true);
+      expect(execute.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(
+        cutExitCode({
+          actions: [{ product: 'cli', status: 'dispatch-uncertain', reconciled: false }],
+        })
+      ).toBe(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('reserves only three reconciliation reads and never exceeds 180 total calls', () => {
+    const cut = 'a'.repeat(40);
+    const row = { product: 'cli', cut, status: 'proposed', tag: 'v5.0.0-alpha.99' };
+    const stamp = Date.parse('2026-10-20T10:00:00Z');
+    const input = { id: 17, row, body: 'exact', startedAt: stamp };
+    const execute = vi.fn((_command: string, args: string[]) => {
+      if (args[1].includes('/git/ref/')) return JSON.stringify({ object: { sha: cut } });
+      if (args[1].includes('/releases/'))
+        return JSON.stringify({
+          id: 17,
+          draft: true,
+          tag_name: row.tag,
+          target_commitish: cut,
+          body: 'exact',
+        });
+      return JSON.stringify({
+        total_count: 1,
+        workflow_runs: [
+          {
+            id: 101,
+            event: 'workflow_dispatch',
+            head_branch: 'main',
+            path: '.github/workflows/native-release.yml',
+            display_title: `Native release: ${row.tag}`,
+            created_at: new Date(stamp).toISOString().replace('.000Z', 'Z'),
+            html_url: 'https://github.com/pj-tmt/tmt/actions/runs/101',
+          },
+        ],
+      });
+    });
+    const client = createCutClient(
+      { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
+      execute
+    );
+    for (let i = 0; i < 177; i++) client.main();
+    expect(() => client.main()).toThrow('normal; 177/180');
+    expect(client.reconcileDispatch!(input)).toMatchObject({ runId: 101 });
+    expect(() => client.reconcileDispatch!(input)).toThrow('reconciliation; 180/180');
+    expect(execute).toHaveBeenCalledTimes(180);
+  });
+
+  it('keeps the final 30 seconds read-only and closes the shared deadline', () => {
+    const base = Date.now();
+    let clock = base;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    const execute = vi.fn(() => JSON.stringify({ object: { sha: 'a'.repeat(40) } }));
+    try {
+      const client = createCutClient(
+        { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
+        execute
+      );
+      clock = base + 330000;
+      expect(() => client.main()).toThrow('normal');
+      clock = base + 360000;
+      expect(() =>
+        client.reconcileDispatch!({
+          id: 1,
+          row: { product: 'cli', status: 'proposed', cut: 'a'.repeat(40), tag: 'v5.0.0-alpha.99' },
+          body: 'exact',
+          startedAt: base,
+        })
+      ).toThrow('reconciliation');
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('preserves full extension declarations and emits every row outcome with command timings', async () => {
+    const f = fixture(true);
+    const actual = await vi.importActual<typeof import('../../scripts/cargo-workspace.mjs')>(
+      '../../scripts/cargo-workspace.mjs'
+    );
+    vi.mocked(readCargoWorkspace).mockImplementation(actual.readCargoWorkspace);
+    const { map, workspace } = readReleaseSourceAtRef(f.cut, { root: f.root });
+    const full = await planReleaseCuts({
+      metadata: f.state,
+      map,
+      workspace,
+      git: f.git,
+      date: '2026-10-03',
+    });
+    for (const row of full.components)
+      expect(
+        await planReleaseCuts({
+          metadata: f.state,
+          map,
+          workspace,
+          git: f.git,
+          date: '2026-10-03',
+          product: row.product,
+        })
+      ).toEqual({ ...full, components: [row] });
+    expect(full.components.find((row) => row.product === 'remote')?.declaration).toBeTruthy();
+    const events: Record<string, unknown>[] = [];
+    vi.mocked(f.client.dispatch).mockImplementationOnce(() => {
+      throw new Error('known HTTP rejection');
+    });
+    const result = await runReleaseCuts({
+      ...f,
+      live: true,
+      observe: (entry) => events.push(entry),
+    });
+    expect(cutExitCode(result)).toBe(1);
+    const outcomes = events.filter((entry) => entry.kind === 'row');
+    expect(outcomes).toHaveLength(result.actions.length);
+    expect(outcomes[0]).toMatchObject({
+      status: 'failed',
+      stage: 'dispatch',
+      reason: 'known HTTP rejection',
+    });
+    expect(
+      events.some((entry) => entry.kind === 'git' && typeof entry.elapsedMs === 'number')
+    ).toBe(true);
+    expect(
+      events.some(
+        (entry) =>
+          entry.kind === 'source-command' &&
+          entry.program === 'cargo' &&
+          entry.operation === 'metadata'
+      )
+    ).toBe(true);
+    expect(events.some((entry) => entry.kind === 'phase' && entry.stage === 'initial-plan')).toBe(
+      true
+    );
+    expect(JSON.stringify(events)).not.toContain('GH_TOKEN');
+  });
+
+  it('finishes six proposed rows at 67 + 6x28 seconds inside one deadline/request cap', async () => {
+    const f = fixture(true, true, true);
+    const actual = await vi.importActual<typeof import('../../scripts/cargo-workspace.mjs')>(
+      '../../scripts/cargo-workspace.mjs'
+    );
+    vi.mocked(readCargoWorkspace).mockReturnValue(actual.readCargoWorkspace(f.root));
+    let clock = Date.parse('2026-10-20T10:00:00Z');
+    const started = clock;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    try {
+      const execute = cutTransport(f, (path, _args, options) => {
+        if (path === 'git/ref/heads/main' || path.startsWith('releases?')) return;
+        const cost = 5600; // Five independently sub-10-second REST calls per row.
+        clock += Math.min(cost, options.timeoutMs);
+        if (options.timeoutMs < cost) throw new Error('spawnSync gh ETIMEDOUT');
+      });
+      const client = createCutClient(
+        { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
+        execute
+      );
+      const git = (args: string[]) => {
+        if (args[0] === 'fetch') clock += 67000;
+        return f.git(args);
+      };
+      const result = await runReleaseCuts({ ...f, client, git, live: true });
+      expect(
+        result.actions.filter((row) => row.status === 'failed').map((row) => row.reason)
+      ).toEqual([]);
+      expect(result.actions.map((row) => row.status)).toEqual(Array(6).fill('created'));
+      expect(clock - started).toBe(235000);
+      expect(execute).toHaveBeenCalledTimes(1 + 3 + 6 * 5);
+      expect(execute.mock.calls.length).toBeLessThanOrEqual(180);
+      expect(f.client.draft).toHaveBeenCalledTimes(6);
+      expect(f.client.dispatch).toHaveBeenCalledTimes(6);
+      expect(
+        f.git.mock.calls.filter(([args]) => args[0] === 'tag' && args[1] === '--list')
+      ).toHaveLength(12);
+      expect(cutExitCode(result)).toBe(0);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it.each([403, 429])(
+    'keeps a known HTTP %i rejection failed without read-back or retry',
+    async (status) => {
+      const f = fixture();
+      const reconcile = vi.fn();
+      f.client.reconcileDispatch = reconcile;
+      vi.mocked(f.client.dispatch).mockImplementationOnce(() => {
+        throw new Error(`gh: rejected (HTTP ${status})`);
+      });
+      const result = await runReleaseCuts({ ...f, live: true });
+      expect(result.actions[0]).toMatchObject({
+        status: 'failed',
+        reason: `gh: rejected (HTTP ${status})`,
+      });
+      expect(result.actions[1].status).toBe('created');
+      expect(cutExitCode(result)).toBe(1);
+      expect(reconcile).not.toHaveBeenCalled();
+      expect(f.client.dispatch).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it.each([
+    'spawnSync gh ETIMEDOUT',
+    'gh: Internal Server Error (HTTP 500)',
+    'gh: Bad Gateway (HTTP 502)',
+    'gh: Service Unavailable (HTTP 503)',
+    'gh: Gateway Timeout (HTTP 504)',
+  ])('reads back a successful dispatch after %s without another POST', async (dispatchError) => {
+    const f = fixture();
+    let clock = Date.parse('2026-10-20T10:00:00Z');
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    const runs: Record<string, unknown>[] = [];
+    const transport = cutTransport(f);
+    const execute = vi.fn((command: string, args: string[], options: { timeoutMs: number }) => {
+      const path = args[1].replace('repos/pj-tmt/tmt/', '');
+      if (path.startsWith('actions/workflows/native-release.yml/runs?'))
+        return JSON.stringify({ total_count: runs.length, workflow_runs: runs });
+      const result = transport(command, args, options);
+      if (path === 'actions/workflows/native-release.yml/dispatches' && runs.length === 0) {
+        const tag = args
+          .find((arg) => arg.startsWith('inputs[tag]='))!
+          .slice('inputs[tag]='.length);
+        runs.push({
+          id: 101,
+          event: 'workflow_dispatch',
+          display_title: `Native release: ${tag}`,
+          head_branch: 'main',
+          path: '.github/workflows/native-release.yml',
+          created_at: new Date(Math.floor(clock / 1000) * 1000).toISOString().replace('.000Z', 'Z'),
+          html_url: 'https://github.com/pj-tmt/tmt/actions/runs/101',
+        });
+        clock += 1000;
+        throw new Error(dispatchError);
+      }
+      return result;
+    });
+    try {
+      const client = createCutClient(
+        { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
+        execute
+      );
+      const result = await runReleaseCuts({ ...f, client, live: true });
+      expect(result.actions[0]).toMatchObject({
+        status: 'dispatch-uncertain',
+        reconciled: true,
+        runId: 101,
+      });
+      expect(result.actions[1].status).toBe('created');
+      expect(cutExitCode(result)).toBe(0);
+      expect(f.client.draft).toHaveBeenCalledTimes(2);
+      expect(f.client.dispatch).toHaveBeenCalledTimes(2);
+      expect(f.client.release).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
+});
 
 describe('live release cut lifecycle', () => {
   it.each([695, 3000])(
@@ -690,10 +1076,10 @@ describe('live release cut lifecycle', () => {
     );
     expect(execute).toHaveBeenCalledTimes(37);
     expect(execute.mock.calls.length).toBeLessThan(180);
-    expect(f.git.mock.calls.filter(([args]) => args[0] === 'for-each-ref')).toHaveLength(6);
+    expect(f.git.mock.calls.filter(([args]) => args[0] === 'for-each-ref')).toHaveLength(5);
     expect(
       f.git.mock.calls.filter(([args]) => args[0] === 'tag' && args[1] === '--contains')
-    ).toHaveLength(12);
+    ).toHaveLength(10);
   });
 
   it('automatically allocates both approved first alphas using prefixed component identities', async () => {
@@ -990,7 +1376,9 @@ describe('live release cut lifecycle', () => {
     vi.mocked(f.client.dispatch).mockImplementationOnce(() => {
       throw new Error('uncertain dispatch');
     });
-    await runReleaseCuts({ ...f, live: true });
+    const first = await runReleaseCuts({ ...f, live: true });
+    expect(first.actions[0]).toMatchObject({ status: 'dispatch-uncertain', reconciled: false });
+    expect(cutExitCode(first)).toBe(1);
     vi.mocked(f.client.draft).mockClear();
     const second = await runReleaseCuts({ ...f, live: true });
     expect(second.actions.map((a) => a.status)).toEqual(['already-cut', 'already-cut']);

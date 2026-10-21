@@ -1192,7 +1192,7 @@ fn latest_detached_cookie_keeps_reload_context_while_an_older_session_is_attache
     );
     assert_eq!(
         tmt_remote::settings::read_or_default(&h.root).sessions_per_device(),
-        Some(8)
+        None
     );
     let colab = Colab::serve(&h);
     let device = Device::browser(&h, 7);
@@ -1212,7 +1212,7 @@ fn latest_detached_cookie_keeps_reload_context_while_an_older_session_is_attache
     cap_echo(&mut transport);
     let context = mounted(&h, &colab, Some(&latest_cookie));
     eprintln!(
-        "R6 unchanged-cap reproduction: default=8, attached_live={}, latest_detached_ended={}, reload_context={context:?}",
+        "Detached cookie continuity: default=off, attached_live={}, latest_detached_ended={}, reload_context={context:?}",
         !attached.ended(),
         detached.ended()
     );
@@ -1605,16 +1605,9 @@ fn session_cap_all_attached_refuses_new_open_without_ending_existing_sessions() 
 }
 
 #[test]
-fn session_cap_default_accounting_and_sixteen_tunnel_boundary() {
+fn session_cap_explicit_accounting_and_sixteen_tunnel_boundary() {
     for count in [1, 4, 8, 16] {
         let (h, _) = cap_door(if count == 16 { 16 } else { 8 });
-        if count != 16 {
-            fs::remove_file(h.root.join("remote/settings.json")).unwrap();
-            assert_eq!(
-                tmt_remote::settings::read_or_default(&h.root).sessions_per_device(),
-                Some(8)
-            );
-        }
         let _colab = Colab::serve(&h);
         let device = Device::browser(&h, 7);
         let client = paired(&h, &device);
@@ -2283,4 +2276,39 @@ fn composed_shell_uses_the_existing_owner_cookie_and_refuses_expiry_and_revocati
         assert_eq!(get(Some(&cookie)).status, 404, "{action}");
         assert!(h.core_calls().is_empty(), "display composition called Core");
     }
+}
+
+#[test]
+fn default_keeps_more_than_eight_attached_tabs_on_one_permanent_pairing() {
+    let h = Harness::with_clock(
+        FAST,
+        tmt_remote::limits::SESSION_IDLE,
+        Arc::new(Instant::now),
+    );
+    let _colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let mut transports = Vec::new();
+    let mut sessions = Vec::new();
+    for _ in 0..10 {
+        let (_, cookie, session) = cap_session(&h, &client, &device.key);
+        transports.push(tunnel_for(&h, &cookie, None));
+        sessions.push(session);
+    }
+    for (session, transport) in sessions.iter().zip(&mut transports) {
+        assert!(!session.ended());
+        assert!(session.has_transport());
+        cap_echo(transport);
+    }
+    assert_eq!(
+        h.store
+            .lock()
+            .unwrap()
+            .grants()
+            .unwrap()
+            .iter()
+            .filter(|g| !g.disabled)
+            .count(),
+        1
+    );
 }

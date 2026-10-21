@@ -3,6 +3,7 @@
 use crate::{
     binding::BindingEntry,
     endpoint::{BindingMarker, ProcessIncarnation},
+    host::HostKind,
 };
 
 pub const MAX_CANDIDATES: usize = 256;
@@ -13,9 +14,13 @@ pub const MAX_DISPLAY_BYTES: usize = 1024;
 /// Native target and ownership fence, independent of display names and scan time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveryTarget {
+    /// The first fenced field: a pane of one host never matches another's.
+    pub host: HostKind,
     pub socket: String,
     pub server: ProcessIncarnation,
     pub server_id: Option<String>,
+    /// The host's `ServerEvidence.server_start_time`: tmux's own start time, or
+    /// core's start token for an external host's server process.
     pub server_start_time: String,
     pub pane: String,
     pub process: ProcessIncarnation,
@@ -29,7 +34,7 @@ impl DiscoveryTarget {
     pub fn endpoint_snapshot(&self) -> Option<crate::endpoint::EndpointSnapshot> {
         Some(crate::endpoint::EndpointSnapshot {
             server: crate::endpoint::ServerEvidence {
-                host: crate::host::HostKind::Tmux,
+                host: self.host,
                 server_id: self.server_id.clone()?,
                 socket_path: self.socket.clone(),
                 server_pid: self.server.pid(),
@@ -57,7 +62,7 @@ impl DiscoveryTarget {
             bytes.extend_from_slice(value.as_bytes());
         };
         for value in [
-            crate::host::HostKind::Tmux.as_str(),
+            self.host.as_str(),
             &self.socket,
             &self.server.pid().to_string(),
             self.server.start_identity(),
@@ -110,11 +115,44 @@ impl DiscoveryCandidate {
     }
 }
 
+/// What a host answered for its source, beside its rows. Operational failures
+/// are errors of the adapter that observed them, not a source state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscoverySource {
+    Ok,
+    /// The host's definite answer that no server runs.
+    Offline,
+    /// The host cannot list panes; the reason is a stable token.
+    Unsupported(&'static str),
+}
+
+impl DiscoverySource {
+    /// The JSON `status` and `reason` of the source.
+    pub fn status(self) -> (&'static str, Option<&'static str>) {
+        match self {
+            Self::Ok => ("ok", None),
+            Self::Offline => ("offline", None),
+            Self::Unsupported(reason) => ("unsupported", Some(reason)),
+        }
+    }
+}
+
+/// One host's bounded scan of one server.
+#[derive(Debug, Clone)]
+pub struct DiscoveryObservation {
+    pub host: HostKind,
+    pub source: DiscoverySource,
+    pub socket: String,
+    pub candidates: Vec<DiscoveryCandidate>,
+    pub truncated: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     fn target() -> DiscoveryTarget {
         DiscoveryTarget {
+            host: HostKind::Tmux,
             socket: "/tmp/a".into(),
             server: ProcessIncarnation::new(1, "server-start").unwrap(),
             server_id: None,
@@ -168,5 +206,75 @@ mod tests {
         assert_eq!(initialized.digest(), unmarked.digest());
         initialized.server = ProcessIncarnation::new(1, "server-replaced").unwrap();
         assert_ne!(initialized.digest(), unmarked.digest());
+    }
+
+    fn external() -> DiscoveryTarget {
+        DiscoveryTarget {
+            host: HostKind::parse("herdr").unwrap(),
+            socket: "/tmp/herdr.sock".into(),
+            server: ProcessIncarnation::new(1, "server-start").unwrap(),
+            server_id: None,
+            server_start_time: "server-start".into(),
+            pane: "term_7".into(),
+            process: ProcessIncarnation::new(2, "pane-start").unwrap(),
+            marker: None,
+            runtime: Some("codex".into()),
+        }
+    }
+
+    #[test]
+    fn discovery_digest_and_snapshot_take_the_fenced_host() {
+        let tmux = target();
+        let mut other = tmux.clone();
+        other.host = HostKind::parse("herdr").unwrap();
+        assert_ne!(other.digest(), tmux.digest());
+        let mut known = other.clone();
+        known.server_id = Some("server-a".into());
+        let snapshot = known.endpoint_snapshot().unwrap();
+        assert_eq!(snapshot.server.host, other.host);
+        assert_eq!(snapshot.server.server_start_time, "1");
+        assert_eq!(snapshot.panes[0].id, "%1");
+    }
+
+    #[test]
+    fn external_discovery_digest_refuses_reopened_panes_and_restarts_not_renames() {
+        let mut owned = external();
+        owned.marker = Some(BindingMarker {
+            name: "first".into(),
+            canonical_name: "first".into(),
+            identity_id: "id-a".into(),
+            binding_id: "binding-a".into(),
+            server_id: "server-a".into(),
+            pane_pid: 2,
+        });
+        let digest = owned.digest();
+        // The same `term_N` and a reused shell PID are a new pane.
+        let mut reopened = owned.clone();
+        reopened.process = ProcessIncarnation::new(2, "pane-reopened").unwrap();
+        assert_ne!(reopened.digest(), digest);
+        let mut restarted = owned.clone();
+        restarted.server = ProcessIncarnation::new(1, "server-restart").unwrap();
+        restarted.server_start_time = "server-restart".into();
+        assert_ne!(restarted.digest(), digest);
+        let mut released = owned.clone();
+        released.marker.as_mut().unwrap().binding_id = "binding-b".into();
+        assert_ne!(released.digest(), digest);
+        let mut renamed = owned.clone();
+        renamed.marker.as_mut().unwrap().name = "second".into();
+        renamed.marker.as_mut().unwrap().canonical_name = "second".into();
+        assert_eq!(renamed.digest(), digest);
+        let mut initialized = external();
+        initialized.server_id = Some("server-a".into());
+        assert_eq!(initialized.digest(), external().digest());
+    }
+
+    #[test]
+    fn a_source_reports_the_hosts_answer() {
+        assert_eq!(DiscoverySource::Ok.status(), ("ok", None));
+        assert_eq!(DiscoverySource::Offline.status(), ("offline", None));
+        assert_eq!(
+            DiscoverySource::Unsupported("driver_lacks_inventory").status(),
+            ("unsupported", Some("driver_lacks_inventory"))
+        );
     }
 }

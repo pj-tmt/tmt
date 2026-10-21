@@ -659,5 +659,79 @@
         "listed": null
       }
     }
+  ],
+  "cloudCases": [
+    {
+      "case": 0,
+      "expect": "admit"
+    },
+    {
+      "case": 1,
+      "expect": "reject"
+    },
+    {
+      "case": 2,
+      "expect": "reject"
+    },
+    {
+      "case": 3,
+      "expect": "reject"
+    },
+    {
+      "case": 4,
+      "expect": "reject"
+    },
+    {
+      "case": 5,
+      "expect": "reject"
+    },
+    {
+      "case": 6,
+      "expect": "reject"
+    },
+    {
+      "case": 7,
+      "expect": "reject"
+    },
+    {
+      "case": 8,
+      "expect": "reject"
+    },
+    {
+      "case": 9,
+      "expect": "admit"
+    },
+    {
+      "case": 10,
+      "expect": "reject"
+    },
+    {
+      "case": 11,
+      "expect": "reject"
+    },
+    {
+      "case": 12,
+      "expect": "reject"
+    },
+    {
+      "case": 13,
+      "expect": "reject"
+    },
+    {
+      "case": 14,
+      "expect": "reject"
+    },
+    {
+      "case": 15,
+      "expect": "reject"
+    },
+    {
+      "case": 16,
+      "expect": "reject"
+    },
+    {
+      "case": 17,
+      "expect": "reject"
+    }
   ]
 }

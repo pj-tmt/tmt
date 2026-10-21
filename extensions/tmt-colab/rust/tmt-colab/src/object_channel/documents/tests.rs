@@ -525,3 +525,47 @@ fn signed_authority_splits_and_reassembles_exactly_and_refuses_anything_partial(
         originals::authority_documents(&routing(), originals::Authority::Chain, "", b"").is_err()
     );
 }
+
+#[test]
+fn frozen_cloud_fold_delivery_preserves_log_anchors_and_chunked_fold_originals() {
+    let v: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../contracts/vectors/fold-v1.json"
+    ))
+    .unwrap();
+    let route = originals::Routing {
+        space: v["spaceId"].as_str().unwrap(),
+        page: v["pageId"].as_str().unwrap(),
+        epoch: 1,
+        uid: "owner",
+        expires_at: Field::timestamp(1_790_000_000_000).unwrap(),
+    };
+    for case in v["cloudCases"].as_array().unwrap() {
+        let frames = v["cases"][case["case"].as_u64().unwrap() as usize]["frames"]
+            .as_array()
+            .unwrap();
+        for frame in frames {
+            let (entry, anchor) = if let Some(anchor) = frame.get("anchor") {
+                (anchor, true)
+            } else {
+                (&frame["checkpoint"], false)
+            };
+            let bytes =
+                tmt_colab_model::values::binary(entry["envelope"].as_str().unwrap(), 354304)
+                    .unwrap();
+            if anchor {
+                let document = originals::log_document(&route, &bytes).unwrap();
+                assert_eq!(originals::log(&document).unwrap().bytes, bytes);
+            } else {
+                let base = originals::checkpoint_base(&route, &bytes).unwrap();
+                let chunks = originals::checkpoint_documents(base, &bytes).unwrap();
+                let original = originals::checkpoint(&chunks).unwrap();
+                assert_eq!(original.bytes, bytes);
+                assert_eq!(original.header.context.kind, "fold");
+                assert_eq!(
+                    original.header.covered_device.as_deref(),
+                    frame["streamId"].as_str()
+                );
+            }
+        }
+    }
+}

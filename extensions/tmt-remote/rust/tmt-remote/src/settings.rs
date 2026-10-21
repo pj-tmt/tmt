@@ -1,7 +1,7 @@
 //! Remote's user settings: one small JSON file in the Remote state directory, no config system.
 //! `{"open": true|false}` controls whether `pair` opens the browser; an absent
 //! file or key means the default (on). Optional sessionsPerDevice limits sessions at open;
-//! absent means the default cap (8), while explicit null means unlimited. Unknown keys are ignored so a newer file never breaks an
+//! absent or explicit null means unlimited. Unknown keys are ignored so a newer file never breaks an
 //! older executable.
 use crate::{error::RemoteError, state::Layout};
 type Result<T> = std::result::Result<T, RemoteError>;
@@ -56,7 +56,7 @@ impl RemoteSettings {
         if self.sessions_configured {
             self.sessions_per_device
         } else {
-            Some(crate::limits::DEFAULT_SESSIONS_PER_DEVICE)
+            crate::limits::DEFAULT_SESSIONS_PER_DEVICE
         }
     }
     pub fn sessions_source(&self) -> &'static str {
@@ -235,6 +235,19 @@ pub(crate) fn set_observed(
 #[cfg(test)]
 mod tests {
     use super::RemoteSettings;
+    #[test]
+    fn absent_or_unreadable_session_setting_is_unlimited() {
+        let root = std::env::temp_dir().join(format!("t4018-{}", crate::store::uuid_v4().unwrap()));
+        assert_eq!(super::read_or_default(&root).sessions_per_device(), None);
+        super::set_open(&root, true).unwrap();
+        assert_eq!(super::read_or_default(&root).sessions_per_device(), None);
+        std::fs::write(root.join("remote/settings.json"), "{").unwrap();
+        let loaded = super::read_or_default(&root);
+        assert!(loaded.malformed);
+        assert_eq!(loaded.sessions_per_device(), None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn a_missing_key_is_the_default_and_unknown_keys_are_ignored() {
         let parsed = RemoteSettings::parse(br#"{"future":1}"#);

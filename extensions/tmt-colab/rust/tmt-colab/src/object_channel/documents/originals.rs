@@ -10,14 +10,14 @@ pub struct Original {
     pub header: object::Header,
     pub hash: [u8; 32],
 }
-fn original(bytes: Vec<u8>, fields: &Fields, kind: &str) -> Result<Original, Invalid> {
+fn original(bytes: Vec<u8>, fields: &Fields, kinds: &[&str]) -> Result<Original, Invalid> {
     let envelope = object::Envelope::from_json(&bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let context = &header.context;
     if context.space != text(fields, "space")?
         || context.page != text(fields, "page")?
         || context.epoch != integer(fields, "epoch")?.to_string()
-        || context.kind != kind
+        || !kinds.contains(&context.kind.as_str())
     {
         return Err(Invalid);
     }
@@ -35,7 +35,7 @@ pub fn log(document: &sync::Document) -> Result<Original, Invalid> {
     let result = original(
         text(&fields, "envelope")?.as_bytes().to_vec(),
         &fields,
-        "update",
+        &["update"],
     )?;
     if result.header.context.author_device != text(&fields, "stream")?
         || result.header.context.stream_seq != integer(&fields, "seq")?.to_string()
@@ -47,7 +47,7 @@ pub fn log(document: &sync::Document) -> Result<Original, Invalid> {
 }
 /// Split one already sealed checkpoint. No new seal, identity or payload store.
 pub fn checkpoint_documents(fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Document>, Invalid> {
-    let parsed = original(bytes.to_vec(), &fields, "checkpoint")?;
+    let parsed = original(bytes.to_vec(), &fields, &["checkpoint", object::FOLD])?;
     if parsed.header.object_id != text(&fields, "object")? || bytes.is_empty() {
         return Err(Invalid);
     }
@@ -76,7 +76,7 @@ fn chunk_documents(mut fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Documen
 /// reordered chunks cannot become a checkpoint or advance a verified position.
 pub fn checkpoint(documents: &[sync::Document]) -> Result<Original, Invalid> {
     let (first, bytes) = chunks(documents)?;
-    let result = original(bytes, &first, "checkpoint")?;
+    let result = original(bytes, &first, &["checkpoint", object::FOLD])?;
     if result.header.object_id != text(&first, "object")? {
         return Err(Invalid);
     }
@@ -137,7 +137,7 @@ pub fn baseline_documents(
 /// hashing to the object ID it was published under. Verifying it is the reader's job.
 pub fn baseline(documents: &[sync::Document]) -> Result<Original, Invalid> {
     let (first, bytes) = chunks(documents)?;
-    let result = original(bytes, &first, "html")?;
+    let result = original(bytes, &first, &["html"])?;
     if Sha256Hex::from_bytes(result.hash).to_string() != text(&first, "object")?
         || integer(&first, "epoch")? < 2
     {

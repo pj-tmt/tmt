@@ -178,6 +178,7 @@ export function mount(kind: ShellCase = 'full') {
             fingerprint: 'a'.repeat(64),
             summary: { comments: 0, waiting: false, needsYou: 0 },
             readings,
+            needs: [],
           });
           if (id === PLAN) return ready([detail('Decide the scope', READING.unread)]);
           if (id === DRAFT) return ready([detail('Hosting notes', READING.read)]);

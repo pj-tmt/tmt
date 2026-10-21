@@ -163,7 +163,29 @@ pub enum Payload {
     PageHistory(PageHistory),
     RetentionSet(RetentionSet),
     Archive(Page),
+    Unarchive(Page),
     Delete(Page),
+}
+impl Payload {
+    /// The one page a statement is scoped to, or `None` for a statement that is not page-scoped
+    /// (member, link, device and bridge changes). These are exactly the payloads the page policy
+    /// reducer applies only to the page they name.
+    pub fn page(&self) -> Option<&str> {
+        match self {
+            Self::EpochAdvance(p) => Some(&p.page_id),
+            Self::PageShare(p) => Some(&p.page_id),
+            Self::PageHistory(p) => Some(&p.page_id),
+            Self::RetentionSet(p) => Some(&p.page_id),
+            Self::Archive(p) | Self::Unarchive(p) | Self::Delete(p) => Some(&p.page_id),
+            Self::MemberAdd(_)
+            | Self::MemberRemove(_)
+            | Self::MemberRole(_)
+            | Self::LinkAdd(_)
+            | Self::LinkRemove(_)
+            | Self::DeviceRevoke(_)
+            | Self::BridgeAdd(_) => None,
+        }
+    }
 }
 fn key(value: &str) -> Result<[u8; 32]> {
     values::binary(value, 32)?.try_into().map_err(|_| Invalid)
@@ -324,6 +346,11 @@ pub fn decode(operation: &str, bytes: &[u8]) -> Result<Payload> {
             let v: Page = parse(bytes)?;
             values::generated_id(&v.page_id)?;
             Payload::Archive(v)
+        }
+        "page.unarchive" => {
+            let v: Page = parse(bytes)?;
+            values::generated_id(&v.page_id)?;
+            Payload::Unarchive(v)
         }
         "page.delete" => {
             let v: Page = parse(bytes)?;

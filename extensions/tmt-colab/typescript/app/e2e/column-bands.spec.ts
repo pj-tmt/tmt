@@ -126,3 +126,49 @@ for (const layout of ['column', 'freeform'])
     if (process.env.COLAB_CAPTURE_DIR)
       await page.screenshot({ path: capturePath(`band-gap-${layout}.png`) });
   });
+
+/** The components.md Questions sample as written: a question group that is a direct child of the
+ * body, between two paragraphs, with no wrapper of its own (#4011). */
+const topLevelGroup = `<style>body{font:14px/1.5 sans-serif;margin:0;padding:16px}p{margin:0 0 16px}</style>
+<p id="lead">Before the decision.</p>
+<tmt-questions data-id="20000000-0000-4000-8000-000000000001"><p data-title>One decision</p>
+<tmt-question data-id="10000000-0000-4000-8000-000000000001" data-kind="single" data-agent="Agent 1"><p data-question>Which option fits?</p><span data-choice>First</span><span data-choice>Second</span></tmt-question></tmt-questions>
+<p id="after">After the decision.</p>`;
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'light'],
+] as const)
+  test(`a top-level question group sits on the column like every other block at ${width} ${theme}`, async ({
+    page,
+  }) => {
+    await mount(page, width, theme);
+    await run(page, 'authored', topLevelGroup);
+    const row = page.locator('.question-line').first();
+    await expect(row).toBeVisible();
+    await expect(page.locator('[data-inline-slot]').first()).not.toHaveAttribute('data-detached');
+    // The column is what the page's own paragraphs fill.
+    const column = await edges(frame(page).locator('#lead'));
+    const block = await edges(page.locator('.question-compact-block'));
+    expect(block.left).toBeCloseTo(column.left, 0);
+    expect(block.right).toBeCloseTo(column.right, 0);
+    if (process.env.COLAB_CAPTURE_DIR)
+      await page.screenshot({ path: capturePath(`band-group-top-level-${width}-${theme}.png`) });
+  });
+
+test('a top-level question group spans the page only with data-width="full" (1440)', async ({
+  page,
+}) => {
+  await mount(page, 1440, 'light');
+  await run(
+    page,
+    'authored',
+    topLevelGroup.replace('<tmt-questions ', '<tmt-questions data-width="full" '),
+  );
+  await expect(page.locator('.question-line').first()).toBeVisible();
+  await expect(page.locator('[data-inline-slot]').first()).not.toHaveAttribute('data-detached');
+  const block = await edges(page.locator('.question-compact-block'));
+  const frameBox = await page.locator('#ask-page-fixture iframe').boundingBox();
+  expect(block.left).toBeCloseTo(frameBox!.x, 0);
+  expect(block.right).toBeCloseTo(frameBox!.x + frameBox!.width, 0);
+});

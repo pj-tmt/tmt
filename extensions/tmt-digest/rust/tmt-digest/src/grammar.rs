@@ -38,7 +38,7 @@ const GLOBAL: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::Human,
-    details: "Saves the mode that every member without its own setting inherits, and records who set it. A member that inherits the default lets that person's messages through the hold, so run it as the person who should reach members directly. Without a caller identity nothing is recorded and no one bypasses the hold except with --urgent.",
+    details: "Saves the mode that every member without its own setting inherits, and records who set it. That person's messages pass the hold of every member that inherits it. A person marked with tmt identity meta set user true already passes every hold and does not need this. Without a caller identity nothing is recorded.",
 };
 
 const TICK: CommandSpec = CommandSpec {

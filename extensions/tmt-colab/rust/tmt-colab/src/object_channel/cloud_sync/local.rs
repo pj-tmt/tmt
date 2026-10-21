@@ -148,6 +148,8 @@ impl StoreLocal {
         };
         let routing = self.routing(page, self.entry_expiry()?);
         let (mut documents, mut digests) = (Vec::new(), Vec::new());
+        let mut anchored = false;
+        let mut signers = std::collections::BTreeSet::new();
         for namespace in [Namespace::Content, Namespace::Own] {
             let object = self
                 .store
@@ -156,15 +158,28 @@ impl StoreLocal {
                 .filter(|object| object.checkpoint && object.cursor.seq == seq)
                 // Compaction moved the cut between the position and this read: look again.
                 .ok_or(Fault::Retry)?;
-            // A fold carries no anchor to the cloud, so a cloud reader would refuse the stream:
-            // the page stops here, visibly, until the publisher and the readers carry it (#4049).
             let envelope = mapping(
                 object::Envelope::from_json(&object.bytes).map_err(|_| documents::Invalid),
             )?;
             let header =
                 mapping(object::Header::decode(envelope.header()).map_err(|_| documents::Invalid))?;
-            if header.covered_device.is_some() {
-                return Err(Fault::Stuck(FOLDED_STOP));
+            if let Some(covered) = &header.covered_device {
+                signers.insert(header.context.author_device.clone());
+                if covered != stream {
+                    return mapping(Err(documents::Invalid));
+                }
+                if !anchored {
+                    let anchor = self
+                        .store
+                        .anchor(scope, seq)
+                        .map_err(store_fault)?
+                        .ok_or(Fault::Retry)?;
+                    documents.insert(
+                        0,
+                        mapping(originals::log_document(&routing, &anchor.bytes))?,
+                    );
+                    anchored = true;
+                }
             }
             let base = mapping(originals::checkpoint_base(&routing, &object.bytes))?;
             documents.extend(mapping(originals::checkpoint_documents(
@@ -173,8 +188,24 @@ impl StoreLocal {
             ))?);
             digests.push(crypto::digest(&object.bytes));
         }
+        // Freeze the chosen folds' proof dependencies with this batch. A newer compaction
+        // between next() and preamble() must not substitute another signer's chain.
+        let mut dependencies = Vec::new();
+        for signer in signers {
+            let chain = self
+                .store
+                .owner_read(&self.space, &self.owner, |tx| tx.author_chain(&signer))
+                .map_err(|error| read_fault(error.as_ref()))?;
+            dependencies.extend(mapping(originals::authority_documents(
+                &routing,
+                Authority::Chain,
+                "",
+                &chain,
+            ))?);
+        }
+        dependencies.extend(documents);
         Ok(Data {
-            documents,
+            documents: dependencies,
             confirm: Confirm::Checkpoint {
                 stream: stream.to_owned(),
                 seq,
@@ -184,9 +215,6 @@ impl StoreLocal {
         })
     }
 }
-/// What a person is told when a page cannot be published because a device's changes on it were
-/// combined by an owner fold.
-const FOLDED_STOP: &str = "Some changes were combined by `tmt colab page compact`, and cloud sync cannot carry combined changes yet. Update Colab when a release adds this, then restart it to resume.";
 impl Local for StoreLocal {
     fn preamble(&mut self, page: &PageRef) -> Result<Vec<Row>, Fault> {
         let now = (self.now)();

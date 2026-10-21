@@ -71,6 +71,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "flate2",
             "zip", // PR Actions transport: fixed bounded in-memory members; no path extraction
             "tmt-core",
+            "tmt-extension-state", // config document publication only
             "rusqlite",
             "serde_json",
             "base64",
@@ -97,7 +98,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-invoke",
             "serde", // content-free settlement DTOs, not Core domain ownership
             "serde_json",
-            "rusqlite", // private Digest history; never the Core database
+            "rusqlite",            // private Digest history; never the Core database
+            "tmt-extension-state", // private history transactions only
             "toml_edit",
             "nix",
             // One anonymous, bounded GET of the public price file; no token, cookie or API.
@@ -144,6 +146,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "unicode-width",
             "signal-hook",
             "pulldown-cmark",
+            // Orders the Ops versions that contend for the board clock lease (#4107).
+            "semver",
             // Disposable observed-age cache: content fingerprints and
             // nonblocking Unix advisory locking, no TMT behavior.
             "sha2",
@@ -299,7 +303,11 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
                 && !(["tmt-remote", "tmt-colab"].contains(&name)
                     && (d["kind"].is_null() || d["kind"] == "normal")
                     && d["target"].is_null());
+            let state_consumer_only = dependency == "tmt-extension-state"
+                && ["tmt-adapters", "tmt-digest"].contains(&name)
+                && !((d["kind"].is_null() || d["kind"] == "normal") && d["target"].is_null());
             let unreviewed = !allowed.contains(&dependency)
+                || state_consumer_only
                 || carrier_only
                 || leaf_consumer_only
                 || !d["rename"].is_null()
@@ -784,8 +792,10 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 ));
             }
             if root == "tmt_extension_state"
-                && !["tmt-extension-state", "tmt-remote", "tmt-colab", "tmt-ops"]
+                && !(["tmt-extension-state", "tmt-remote", "tmt-colab", "tmt-ops"]
                     .contains(&source.package.as_str())
+                    || (source.package == "tmt-adapters" && source.file.starts_with("config/"))
+                    || (source.package == "tmt-digest" && source.file.starts_with("history/")))
             {
                 violations.push(format!(
                     "{location}: unreviewed extension state consumer {}",

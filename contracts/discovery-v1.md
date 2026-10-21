@@ -63,11 +63,23 @@ saved identities. Ordinary unguarded `add`/`name` retain their existing policy.
 length-framed host/socket, native server/pane incarnations, executable hint and
 pane-marker ownership UUIDs/PID (including the marker's server UUID). It excludes
 the server's TMT UUID, display names, titles, cosmetic/activity fields and scan
-time. Initializing server metadata while adopting one unmarked pane preserves
-the original expectations for other panes from that scan; native server
-replacement still requires rescan. A changed process, marker or admission input
-requires rescan. Missing/unknown native or ownership evidence cannot authorize
-adoption.
+time. The fence is host-neutral:
+- The host is its token: `tmux` or the driver's name.
+- The server is its socket, its native incarnation (PID and core's own start
+  token) and the host's server start time. For an external host, that start
+  time is core's start token too, never a driver's `startTime`.
+- The pane is its stable host pane ID. The host `target` is display only and can
+  move.
+- The process is the pane PID and core's own start token for it.
+- The ownership is the marker's identity, binding and server UUIDs and its PID.
+
+A pane that is closed and reopened with the same ID and a reused PID has a new
+start token, so the digest changes. A PID reused within one start-token tick is
+not detected, as for every binding. Initializing server metadata while adopting
+one unmarked pane preserves the original expectations for other panes from that
+scan; native server replacement still requires rescan. A changed process,
+marker or admission input requires rescan. Missing/unknown native or ownership
+evidence cannot authorize adoption.
 
 Guarded add reobserves before storage initialization and twice inside the
 binding transaction before identity creation/promotion, server-marker

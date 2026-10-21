@@ -64,6 +64,7 @@ mod stat_tiles;
 mod state_cell;
 mod status_update;
 mod tab_strip;
+mod talk_measure;
 mod team_strip;
 mod timer_rows;
 mod top_bar;
@@ -1068,6 +1069,7 @@ fn session(
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
                 capture_lost = true;
+                app.composer.paste_preview.get_mut().take();
                 if let Some(discovery) = &mut app.discovery {
                     discovery.changed();
                 }
@@ -1372,6 +1374,9 @@ pub fn run(
     let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
         Config::load(&core)
     })?;
+    // The recorded user is marked as a person in Core off the screen's path.
+    let marker = core.clone();
+    std::thread::spawn(move || crate::me::mark_recorded_user(&marker));
     let (preference, startup_notice) = config.startup_tab();
     let cold_tab = view_state::startup_destination(startup_tab, preference, resume.is_some());
     if cold_tab.is_some()
@@ -1589,7 +1594,9 @@ mod tests {
     fn theme_board() -> App {
         let mut app = app::workspace::tests::board();
         app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = shell::OpsTab::Overview;
+        app.shell.tab = shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+        app.workspace.filter = workspace::AgentsFilter::Agents;
         app.view.as_mut().unwrap().refresh = None;
         for bindings in app
             .view
@@ -1759,34 +1766,33 @@ mod tests {
             !old.acquired,
             "a result for the selection left behind is never admitted"
         );
-        for tab in [shell::OpsTab::Overview, shell::OpsTab::Agents] {
-            app.shell.tab = tab;
-            // Terminal::resize alone leaves TestBackend at160x36; draw would
-            // auto-resize back and never exercise a hidden conversation.
-            terminal.backend_mut().resize(60, 8);
-            terminal
-                .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
-                .unwrap();
-            terminal
-                .draw(|frame| {
-                    view::prepare(&mut app, frame.area());
-                    view::render(frame, &app);
-                })
-                .unwrap();
-            assert_eq!(
-                terminal.backend().buffer().area,
-                ratatui::layout::Rect::new(0, 0, 60, 8)
-            );
-            assert!(
-                !app.scrolls.visible(crate::config::Pane::Replies),
-                "{tab:?}"
-            );
-            assert_eq!(
-                app.selected_read(),
-                None,
-                "hidden source surfaces start no background read: {tab:?}"
-            );
-        }
+        let tab = shell::OpsTab::Agents;
+        app.shell.tab = tab;
+        // Terminal::resize alone leaves TestBackend at160x36; draw would
+        // auto-resize back and never exercise a hidden conversation.
+        terminal.backend_mut().resize(60, 8);
+        terminal
+            .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
+            .unwrap();
+        terminal
+            .draw(|frame| {
+                view::prepare(&mut app, frame.area());
+                view::render(frame, &app);
+            })
+            .unwrap();
+        assert_eq!(
+            terminal.backend().buffer().area,
+            ratatui::layout::Rect::new(0, 0, 60, 8)
+        );
+        assert!(
+            !app.scrolls.visible(crate::config::Pane::Replies),
+            "{tab:?}"
+        );
+        assert_eq!(
+            app.selected_read(),
+            None,
+            "hidden source surfaces start no background read: {tab:?}"
+        );
     }
 
     #[test]
@@ -2395,7 +2401,7 @@ mod tests {
     }
 
     #[test]
-    fn long_chart_demand_uses_existing_refresh_and_cancels_on_leaving_usage() {
+    fn long_chart_demand_uses_existing_refresh_and_does_not_reacquire_a_closed_range() {
         crate::status::with_now_ms(1_791_600_000_000, || {
             let mut app = theme_board();
             let mut terminal =
@@ -2442,18 +2448,19 @@ mod tests {
                     assert!(preempt && !preview);
                     requests.borrow_mut().push(chart);
                     match requests.borrow().len() {
+                        // Moving within the closed range, then to Digest, which shows
+                        // the same chart, changes nothing the refresh would reacquire.
                         1 => {
                             for code in [
                                 KeyCode::Down,
                                 KeyCode::Down,
                                 KeyCode::Up,
                                 KeyCode::Char('2'),
+                                KeyCode::Char('q'),
                             ] {
                                 events.send(key(code)).unwrap();
                             }
                         }
-                        2 => events.send(key(KeyCode::Char('3'))).unwrap(),
-                        3 => events.send(key(KeyCode::Char('q'))).unwrap(),
                         _ => panic!("unchanged closed range must not reacquire"),
                     }
                 },
@@ -2474,9 +2481,9 @@ mod tests {
                     .iter()
                     .map(|d| d.and_then(|d| d.chart))
                     .collect::<Vec<_>>(),
-                [Some(expected), None, Some(expected)]
+                [Some(expected)]
             );
-            assert!(draws.get() >= 6);
+            assert!(draws.get() >= 3);
         });
     }
 

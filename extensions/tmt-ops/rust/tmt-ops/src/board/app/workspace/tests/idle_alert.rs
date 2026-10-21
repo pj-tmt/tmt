@@ -10,7 +10,7 @@ const MINUTE: u64 = 60_000;
 /// marking it `over` and the squad's setting `after` (None = never read).
 fn idle_board(idle_for: u64, over: bool, setting: Option<IdleAlertSetting>) -> App {
     let mut app = board();
-    app.overview_view = crate::board::overview::monitor::View::Squads;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     let member = workspace.roster.members.get_mut(MEMBER).unwrap();
     member.state = Some("idle".into());
@@ -132,7 +132,7 @@ fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_whe
     assert_eq!(menu.entries[menu.selected].label, "Squad settings: product");
     key(&mut app, KeyCode::Up);
     let menu = app.menu.as_ref().unwrap();
-    assert_eq!(menu.entries[menu.selected].label, "Actions");
+    assert_eq!(menu.entries[menu.selected].label, "Panels");
     app.menu = None;
     app.workspace.selected = Some(OpsTarget::Pool);
     app.workspace_settings();

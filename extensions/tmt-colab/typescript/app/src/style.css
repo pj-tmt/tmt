@@ -132,8 +132,14 @@ footer {
 .needs-you-header .needs-you-header-trigger:is(:hover, :focus-visible) {
   text-decoration: underline;
 }
+/* Nothing waits and nothing shows (#4116); the element stays only to take the focus an emptied menu held. */
 .needs-you-header-empty {
-  color: var(--tmt-ui-color-secondary);
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .needs-you-header-mark {
   color: var(--tmt-ui-color-waiting);
@@ -163,7 +169,7 @@ body:has(.needs-you-header-menu) {
 /* Menu rows stay on one ellipsized line, including inline agent attribution. */
 .needs-you-header-row
   .agent-chip[data-variant='inline']
-  :is(.agent-chip-name, .agent-chip-machine, .agent-chip-driver) {
+  :is(.agent-chip-name, .agent-chip-machine) {
   overflow-wrap: normal;
   white-space: nowrap;
 }
@@ -176,19 +182,48 @@ body:has(.needs-you-header-menu) {
     display: none;
   }
 }
-.page-sharing {
+/* A state that holds and matters stays in the header as a mark and a word (#4116); a phone keeps the
+   mark and hides the word visually, never from assistive technology. */
+.page-attention {
+  display: inline-flex;
   flex-shrink: 0;
-  border-width: var(--tmt-ui-rule-width);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  align-items: center;
+  gap: 4px;
+  color: var(--tmt-ui-color-text);
+  font-size: 12px;
   white-space: nowrap;
 }
-/* A phone gives the title this room; the More menu leads with the same words (page-header-actions). */
+.page-attention[data-attention='remote'] > [aria-hidden] {
+  color: var(--tmt-ui-color-waiting);
+}
 @media (max-width: 479px) {
-  .page-sharing {
-    display: none;
+  .page-attention-word {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
+}
+/* The connection words (Private · Live) stay in the document, out of sight: the header shows only
+   a state that needs attention, and Share… in the More menu carries them. */
+.page-connection {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The More menu's Share… entry carries the page's state beneath its name. */
+.more-item {
+  display: flex;
+  flex-direction: column;
+}
+.more-item-detail {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
 }
 .page-header-actions {
   position: relative;
@@ -288,6 +323,18 @@ body:has(.needs-you-header-menu) {
   width: 100%;
   border: 0;
   background: #fff;
+}
+/* The cards drawn over a page (#4081): a wrapper that only scopes the page's painted scheme to them,
+   not to the review and reading bands, which sit on the app's paper. */
+.page-cards {
+  display: contents;
+}
+/* Native controls in those cards are drawn for the same scheme as their sheet. */
+.page-cards[data-theme='light'] {
+  color-scheme: light;
+}
+.page-cards[data-theme='dark'] {
+  color-scheme: dark;
 }
 /* The pending page (#3976): the header holds, one spinner sits centred in the area a loaded page gets.
    It is the LoaderCircle mark of the busy and echo marks, without words; it turns by the shared tmt-ui-spin rule. */
@@ -718,7 +765,10 @@ body:has(.needs-you-header-menu) {
   width: min(440px, calc(100vw - 24px));
   overflow: visible;
   padding: 0;
-  border: 0;
+  /* A panel that floats over page content has the one-pixel rule edge every shared drawer and
+     dialog already has. Ben chose --tmt-ui-surface-rule over the darker edge role knowingly
+     (about 1.5:1, below the 3:1 floor of #3959): a deliberate exception for floating panels. */
+  border: 1px solid var(--tmt-ui-surface-rule);
   background: var(--tmt-ui-surface-annotation-panel);
   box-shadow: none;
 }
@@ -1007,17 +1057,14 @@ body:has(.needs-you-header-menu) {
   background: transparent;
   text-align: start;
 }
-.conversation-turn[data-turn-role='agent'] {
-  border-left: 3px solid var(--c-text);
-  padding-left: calc(var(--conversation-inset) - 3px);
-}
 .conversation-main {
   min-width: 0;
 }
 .conversation-main .comment-byline {
   display: flex;
+  flex: 1;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   min-width: 0;
   margin: 0;
@@ -1027,6 +1074,13 @@ body:has(.needs-you-header-menu) {
 .conversation-main .conversation-author {
   min-width: 0;
   max-width: 100%;
+  color: var(--c-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.conversation-main .comment-byline time {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .conversation-body {
   margin-top: 0;
@@ -1221,25 +1275,11 @@ body:has(.needs-you-header-menu) {
   border: 0;
   background: transparent;
 }
-.comment-thread .conversation-turn[data-turn-role='agent'] {
-  padding: var(--conversation-gap);
-  background: var(--tmt-ui-surface-sheet);
-}
 .comment-thread .conversation-avatar {
   width: 18px;
   height: 18px;
   margin-right: 4px;
   background: transparent;
-  color: var(--tmt-ui-color-text);
-}
-.comment-thread .conversation-author .agent-chip-driver {
-  display: none;
-}
-.comment-thread .conversation-main .comment-byline {
-  font: var(--tmt-ui-caption-size) / var(--tmt-ui-host-field-line-height) var(--f-mono);
-  color: var(--tmt-ui-color-secondary);
-}
-.comment-thread .conversation-author {
   color: var(--tmt-ui-color-text);
 }
 .comment-thread .conversation-body {
@@ -1451,7 +1491,7 @@ body:has(.needs-you-header-menu) {
   color: var(--c-muted);
   font-size: 12px;
 }
-.proposal-card .conversation-turn:not([data-running-driver]) .conversation-avatar {
+.proposal-card .conversation-turn .conversation-avatar {
   color: var(--c-text);
 }
 .proposal-body {
@@ -1462,6 +1502,26 @@ body:has(.needs-you-header-menu) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* A text button has no border, so the row would shrink by its width once the decision buttons are
+   gone: the decided row stands at the height of the one it replaces. */
+.proposal-actions .tmt-ui-action[data-variant='text'] {
+  border: var(--tmt-ui-action-border-width) solid transparent;
+}
+/* A live line heard, not seen: it takes no room in the card. */
+.proposal-announce {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The busy mark of the decision not being saved keeps the button's width without showing. */
+.proposal-unpressed {
+  visibility: hidden;
 }
 
 .proposal-actions .proposal-resolve {
@@ -1532,15 +1592,6 @@ body:has(.needs-you-header-menu) {
   color: var(--c-muted);
 }
 
-.conversation-turn[data-running-driver='claude'] {
-  --conversation-driver-color: var(--tmt-ui-color-review);
-}
-.conversation-turn[data-running-driver='codex'] {
-  --conversation-driver-color: var(--tmt-ui-color-link);
-}
-.conversation-turn[data-running-driver] {
-  border-left-color: var(--conversation-driver-color);
-}
 .conversation-avatar {
   display: inline-flex;
   width: 24px;
@@ -1549,7 +1600,6 @@ body:has(.needs-you-header-menu) {
   justify-content: center;
   vertical-align: middle;
   margin-right: 6px;
-  background: var(--conversation-driver-color);
   color: var(--c-paper);
 }
 
@@ -1684,20 +1734,6 @@ body:has(.needs-you-header-menu) {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-/* A sent answer's images are the comment's tiles, held to one line a name so equal thumbnails sit
-   level at the top of their row. */
-.question-answer .attachment-images {
-  align-items: start;
-}
-.question-answer .message-image .attachment-label {
-  max-width: 100%;
-}
-.question-answer .message-image .attachment-name,
-.question-answer .message-image .attachment-size {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* The failure line, present only while there is a failure: the alert and its Retry on one row. */
 .question-status {
   display: flex;
@@ -1706,13 +1742,6 @@ body:has(.needs-you-header-menu) {
 }
 .question-status > p {
   margin: 0;
-}
-/* The slot the pending mark appears in: held open so the mark moves nothing. */
-.question-pending {
-  display: inline-block;
-  inline-size: 1.5em;
-  color: var(--tmt-ui-color-secondary);
-  text-align: center;
 }
 .question-history {
   margin-top: 16px;
@@ -1865,23 +1894,6 @@ body:has(.needs-you-header-menu) {
 }
 .chat-panel .conversation-turn {
   border-bottom: 0;
-}
-.chat-panel .comment-byline {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.chat-panel .conversation-author {
-  color: var(--c-text);
-  font-weight: 600;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.chat-panel .comment-byline time {
-  flex-shrink: 0;
-  white-space: nowrap;
 }
 .chat-panel .conversation-body {
   margin-top: 6px;

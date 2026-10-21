@@ -1,0 +1,80 @@
+/* The page's projects after its title: one button of small chips that opens the picker. With no
+   project, and on a phone, More → Projects… opens it; the picker's own trigger is only its anchor. */
+.page-header-projects {
+  position: relative;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.page-header-project-chip {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  max-width: 16ch;
+  min-height: 24px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid var(--tmt-ui-color-edge);
+  border-radius: 0;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-caption-line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.page-header-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.page-header-chips:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: 1px;
+}
+.page-header-projects-anchor {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+}
+/* Opened from More, the anchor is the More button's own box, so the picker opens under it. */
+.page-header-projects-anchor[data-from='more'] {
+  position: fixed;
+}
+.page-header-projects-anchor[data-from='more'] :is(.tmt-ui-menu, .tmt-ui-icon-action) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.page-header-projects-anchor[data-from='more'] .tmt-ui-icon-action-control {
+  width: 100%;
+  height: 100%;
+}
+/* Only the trigger is hidden: the menu opens from it and stays visible and clickable. */
+.page-header-projects-anchor .tmt-ui-icon-action-control {
+  visibility: hidden;
+  pointer-events: none;
+}
+@media (max-width: 639px) {
+  .page-header-chips {
+    display: none;
+  }
+}
+.page-header-projects-status {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

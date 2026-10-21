@@ -21,6 +21,7 @@ export function ColabHeader({
   status,
   remote,
   remoteMenu = true,
+  remoteChip = true,
   crumb,
   headingSuffix,
 }: {
@@ -33,6 +34,8 @@ export function ColabHeader({
   status?: ReactNode;
   remote?: { deviceName?: string };
   remoteMenu?: boolean;
+  /** The Remote count chip in the status slot; the page header keeps only an attention mark. */
+  remoteChip?: boolean;
   /** A crumb between the brand and the title, with its own separator. */
   crumb?: ReactNode;
   /** A crumb or control after the title, supplied with its own separator. */
@@ -92,9 +95,9 @@ export function ColabHeader({
         </>
       }
       status={
-        remoteAvailable || status !== undefined ? (
+        (remoteChip && remoteAvailable) || status !== undefined ? (
           <>
-            <RemoteHeaderChip />
+            {remoteChip && <RemoteHeaderChip />}
             {status}
           </>
         ) : undefined

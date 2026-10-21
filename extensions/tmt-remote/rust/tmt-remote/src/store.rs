@@ -181,7 +181,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 8] = [
+const MIGRATIONS: [(&str, &str); 9] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -269,6 +269,9 @@ const MIGRATIONS: [(&str, &str); 8] = [
         grant_revision INTEGER NOT NULL, adopted_ms INTEGER NOT NULL, deadline_ms INTEGER NOT NULL,
         outcome TEXT NOT NULL);
      CREATE INDEX management_receipts_client ON management_receipts(client_id);"),
+    ("device_last_use", "CREATE TABLE device_last_use(
+        client_id TEXT PRIMARY KEY REFERENCES grants(client_id),
+        used_at_ms INTEGER NOT NULL CHECK(used_at_ms>=0 AND used_at_ms<=9007199254740991));"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -417,6 +420,38 @@ impl Store {
             .and_then(|mut query| query.query_map([], grant_row)?.collect())
             .map_err(database)
     }
+    /// Public inventory excludes revocations; rows remain for event replay.
+    pub fn active_grants(&self) -> Result<Vec<Grant>, RemoteError> {
+        self.connection
+            .prepare(&format!(
+                "SELECT {GRANT_COLUMNS} FROM grants WHERE disabled=0 ORDER BY issued_at_ms,client_id"
+            ))
+            .and_then(|mut query| query.query_map([], grant_row)?.collect())
+            .map_err(database)
+    }
+    pub(crate) fn last_used(&self, client: &str) -> Result<Option<u64>, RemoteError> {
+        self.connection
+            .query_row(
+                "SELECT used_at_ms FROM device_last_use WHERE client_id=?1",
+                [client],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map(|value| value.map(|value| value as u64))
+            .map_err(database)
+    }
+    /// Local owner cleanup shares the browser's transaction-local revoker.
+    pub fn remove_others(&mut self, keep: &str) -> Result<Vec<String>, RemoteError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        let now = crate::pairing::now_ms()?;
+        let preview = removal_preview(&tx, keep, now)?;
+        let removed = remove_others_in(&tx, keep, &preview.fingerprint, now)?;
+        tx.commit().map_err(database)?;
+        Ok(removed)
+    }
     /// Disable a device's grant and advance its revision, so every session and
     /// context bound to the old revision fails its recheck. Revoking an already
     /// revoked grant changes nothing; an unknown device is `None`.
@@ -490,6 +525,80 @@ pub(crate) fn grant_in(
         )
         .optional()
         .map_err(database)
+}
+fn record_use(connection: &Connection, client: &str, now: u64) -> Result<(), RemoteError> {
+    let now = i64::try_from(now).map_err(database)?;
+    connection.execute("INSERT INTO device_last_use VALUES (?1,?2) ON CONFLICT(client_id) DO UPDATE SET used_at_ms=MAX(used_at_ms,excluded.used_at_ms)", params![client,now]).map_err(database)?;
+    Ok(())
+}
+#[derive(Clone, Debug, serde::Serialize)]
+pub(crate) struct RemovalPreview {
+    pub count: usize,
+    pub fingerprint: String,
+}
+fn removal_targets(
+    connection: &Connection,
+    keep: &str,
+    now: u64,
+) -> Result<Vec<(String, u64)>, RemoteError> {
+    if !crate::canonical::is_core_id(keep)
+        || !grant_in(connection, keep)?.is_some_and(|grant| grant.live_at(now))
+    {
+        return Err(RemoteError::new(
+            "REMOTE_DEVICE_NOT_FOUND",
+            "No live paired device has that ID.",
+        ));
+    }
+    let mut query = connection.prepare("SELECT client_id,revision FROM grants WHERE disabled=0 AND client_id!=?1 ORDER BY client_id LIMIT ?2").map_err(database)?;
+    let rows = query
+        .query_map(
+            params![keep, (crate::limits::DEVICE_REMOVAL_TARGETS + 1) as i64],
+            |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as u64)),
+        )
+        .map_err(database)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(database)?;
+    if rows.len() > crate::limits::DEVICE_REMOVAL_TARGETS {
+        return Err(RemoteError::new(
+            "REMOTE_DEVICE_REMOVAL_LIMIT",
+            "Too many devices for one removal. Remove devices individually with the local CLI.",
+        ));
+    }
+    Ok(rows)
+}
+pub(crate) fn removal_preview(
+    connection: &Connection,
+    keep: &str,
+    now: u64,
+) -> Result<RemovalPreview, RemoteError> {
+    let rows = removal_targets(connection, keep, now)?;
+    Ok(RemovalPreview {
+        count: rows.len(),
+        fingerprint: removal_fingerprint(keep, &rows)?,
+    })
+}
+fn removal_fingerprint(keep: &str, rows: &[(String, u64)]) -> Result<String, RemoteError> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(serde_json::to_vec(&(keep, rows)).map_err(database)?);
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+}
+pub(crate) fn remove_others_in(
+    connection: &Connection,
+    keep: &str,
+    expected: &str,
+    now: u64,
+) -> Result<Vec<String>, RemoteError> {
+    let rows = removal_targets(connection, keep, now)?;
+    if removal_fingerprint(keep, &rows)? != expected {
+        return Err(RemoteError::new(
+            "REMOTE_DEVICE_LIST_CHANGED",
+            "The device list changed. Review it, then confirm again.",
+        ));
+    }
+    for (id, _) in &rows {
+        revoke_in(connection, id)?;
+    }
+    Ok(rows.into_iter().map(|(id, _)| id).collect())
 }
 pub(crate) fn revoke_in(
     connection: &Connection,
@@ -604,6 +713,7 @@ impl Store {
             ],
         )
         .map_err(database)?;
+        record_use(&tx, &grant.client_id, now_ms)?;
         tx.commit().map_err(database)
     }
     /// Call only after exact signature/authority admission. One transaction
@@ -655,6 +765,7 @@ impl Store {
                 "Unexpected client sequence.",
             ));
         }
+        record_use(&tx, client_id, now_ms)?;
         tx.commit().map_err(database)
     }
     /// Reserve a fresh machine response sequence, including signed refusals.

@@ -4,11 +4,13 @@ use std::path::Path;
 use tmt_test_support::write_executable;
 
 /// The first line that is a full-width rule directly followed by another: a
-/// heading rule or a frame edge is mostly `─`, and neighbours share one.
+/// heading rule is mostly `─`, and neighbours share one. A pane's frame edge carries its corners and
+/// is not a heading rule, so it may sit against one.
 pub(crate) fn stacked_rules(lines: &[String]) -> Option<usize> {
     let rule = |line: &str| {
         let line = line.trim();
         !line.is_empty()
+            && !line.contains(['┌', '┐', '└', '┘', '┏', '┓', '┗', '┛'])
             && line.chars().filter(|c| *c == '─').count() * 5 >= line.chars().count() * 2
     };
     lines

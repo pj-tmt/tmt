@@ -386,7 +386,7 @@ test('native attach lists a file for every device, reads back byte-equal, and re
   });
 });
 
-/** The Files control of the page header says how many files the page lists. */
+/** The Files entry says how many files the page lists (in More for an owner page). */
 async function expectFilesCount(page: Page, count: number, timeout = 30_000) {
   await expect(await pageAction(page, 'Files')).toHaveAccessibleName(`${text.files} (${count})`, {
     timeout,

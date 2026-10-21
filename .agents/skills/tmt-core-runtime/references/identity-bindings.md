@@ -35,8 +35,10 @@ in `contracts/`.
 ## Candidate discovery
 
 The [discovery v1 contract](../../../../contracts/discovery-v1.md) owns the public
-shape and bounds. `tmt-core::discovery` owns native/UUID expectation values;
-`tmux::discovery` reads escaped topology without initializing a server marker,
+shape and bounds. `tmt-core::discovery` owns native/UUID expectation values and
+the observation shape; the fence starts with the pane's host, so one host's
+expectation never admits another host's pane, and guarded add and discovery
+storage look up bindings by that host. `tmux::discovery` reads escaped topology without initializing a server marker,
 with one batched native-start observation. `storage::discovery` reads only the
 existing schema/rows, without reconciliation, creation or migration. Unknown
 markers and conflicting rows supply no adoption authority. Explicit external inventory selections remain unsupported without executing
@@ -156,9 +158,12 @@ delivery. They install and launch nothing.
   client (never a bare "current client"); it sends no input. Its target may be a name,
   pane or canonical lowercase UUIDv4. Only Focus treats a UUID as an identity before
   name/pane parsing: a missing, retired or inactive UUID refuses without falling back
-  to a UUID-shaped name. UUID lookup uses the same current-server observation and
-  binding/incarnation verification as name lookup; delivery and diagnostics retain
-  their existing target rules.
+  to a UUID-shaped name. UUID and name lookup select the recorded recipient
+  host/server and reuse strict binding/incarnation verification. Tmux focus still
+  requires the invoker's client on that server; external drivers own their views.
+- Named delivery and diagnostics select the stored UUID and recorded server before
+  the existing current-presence reconciliation. Preparation refreshes that same
+  endpoint again; no ambient-host fallback, new approval or listing authority is added.
 
 ## Sessions and driver state
 
@@ -220,7 +225,11 @@ delivery. They install and launch nothing.
 - Observation writes compare the complete expected observation inside the binding transaction,
   so a late update for a superseded conversation cannot win. Admission needs fresh live
   evidence; inconclusive admission keeps the previous observation, known-ended included. Clear
-  and in-process resume are nonterminal; end/compact must match the exact current key.
+  and in-process resume are nonterminal; end/compact must match the exact current key. One
+  exception: `tmt run` admits its process before the provider names the conversation, so in that
+  same Running process with its launch owner the first resumed or compacted start (Claude; embedded
+  Codex: compacted) names the unnamed key. An ownerless unnamed key, such as a replacement
+  process, waits for its own startup start.
   Provider end retains that key and launch owner in Unknown until a fresh start;
   the same live incarnation can then turn over its session. Only conclusive
   process loss/owned-child exit yields runtime Ended. Delivery probes can report
@@ -242,7 +251,8 @@ delivery. They install and launch nothing.
   never a timer. Codex waiting is not reported. The public
   [activity contract](../../../../contracts/extension-api.md) owns these support limits.
   `binding::session::activity` owns the transitions; SessionStart resets activity, duplicates
-  never renew timestamps, timestamps are accepted observation times, and `ended` needs a
+  never renew timestamps (a Stop with `stop_hook_active` is `ContinuationEnded`, the one end
+  admitted after idle, once per later instant), timestamps are accepted observation times, and `ended` needs a
   conclusive process observation.
 - Competing executable claims resolve by descending priority, then harness ID. Explicit launches
   select supplied argv verbatim; driver-owned session settings and final foreground policy compose afterward. Bare

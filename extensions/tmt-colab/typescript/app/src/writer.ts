@@ -1,8 +1,17 @@
-import { encodeBinary, Envelope, exactKeys, generatedId, requireValue } from '@tmt/colab-client';
+import {
+  binary,
+  decimal,
+  encodeBinary,
+  Envelope,
+  equal,
+  exactKeys,
+  generatedId,
+  requireValue,
+} from '@tmt/colab-client';
 import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
-import { sealOwnUpdate } from './own-seal.js';
+import { sealOwnUpdate, sealedRevision } from './own-seal.js';
 import { record as durableRecord } from './storage.js';
 import {
   OwnAppendRefused,
@@ -231,7 +240,7 @@ export class Writer {
   }
   /** The saved writer state with any interrupted append finished first: exact stored bytes are
    * retried, never resealed. */
-  async #settled(c: Connection): Promise<SavedWriter> {
+  async #settled(c: Connection, current?: string): Promise<SavedWriter> {
     const state = (await this.record<SavedWriter>(this.key)) ?? { pending: null, completed: [] };
     exactKeys(state, ['pending', 'completed']);
     requireValue(
@@ -244,8 +253,44 @@ export class Writer {
     if (state.pending) {
       exactKeys(state.pending, ['id', 'entry']);
       generatedId(state.pending.id);
-      // Includes signature/scope/authority checks on restored data.
-      await this.#append(c, state, state.pending.entry);
+      const head = c.admission.head;
+      requireValue(head !== null);
+      const mine = c.objects.head(c.admission.registration.deviceId);
+      if (
+        mine.seq === decimal(state.pending.entry.seq) &&
+        equal(mine.hash, binary(state.pending.entry.envelopeHash, 32, 32))
+      ) {
+        // It landed and only its receipt was lost: the catch-up of this session shows exactly these
+        // bytes at the stream's head. Nothing is sent again, whatever the membership log says now,
+        // and a retry of the same write finds it done.
+        state.completed.push(state.pending.id);
+        state.completed = state.completed.slice(-64);
+        state.pending = null;
+        await this.record(this.key, state);
+        return state;
+      }
+      const sealed = sealedRevision(state.pending.entry);
+      try {
+        // Includes signature/scope/authority checks on restored data.
+        await this.#append(c, state, state.pending.entry);
+      } catch (error) {
+        // The serve admits an append sealed under an earlier revision when the statements it missed
+        // only concern other pages (colab-v1, "Append at an earlier membership revision"), so these
+        // bytes are always offered first. It answers `RESYNC_REQUIRED` for any other change; once
+        // this session has caught up past the revision they cite, no retry can change that answer,
+        // because the revision is part of the signed header. Whoever still waits on it is told it
+        // was refused, as for a taken sequence; the next write seals at the stream's head under the
+        // current revision, and a retry of the same write is that next write.
+        if (
+          !(error instanceof Error && error.message === 'RESYNC_REQUIRED' && sealed < head.revision)
+        )
+          throw error;
+        const dropped = state.pending.id;
+        state.pending = null;
+        await this.record(this.key, state);
+        if (dropped !== current) this.#result(dropped, false, null, true);
+        throw error;
+      }
       state.completed.push(state.pending.id);
       state.completed = state.completed.slice(-64);
       state.pending = null;
@@ -272,7 +317,7 @@ export class Writer {
     requireValue(!this.#closed && this.#leader);
     const c = await this.connection();
     await c.ready;
-    const state = await this.#settled(c);
+    const state = await this.#settled(c, id);
     if (state.completed.includes(id)) return null;
     const entry = await c.run(async () => {
       // Own records are immutable and this leader orders every append of the stream, so a write

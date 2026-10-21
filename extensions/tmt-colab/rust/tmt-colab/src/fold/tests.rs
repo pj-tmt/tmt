@@ -467,3 +467,58 @@ fn sealed_historical_receipts_use_the_owner_bound_before_later_revocation() {
         }
     }
 }
+
+#[test]
+fn independently_signed_restore_histories_preserve_terminal_deletion_and_write_cuts() {
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/unarchive-v1.json"
+    ))
+    .unwrap();
+    let root: [u8; 32] = std::array::from_fn(|i| {
+        u8::from_str_radix(&corpus["public"].as_str().unwrap()[2 * i..2 * i + 2], 16).unwrap()
+    });
+    let space = corpus["space"].as_str().unwrap();
+    let page = corpus["page"].as_str().unwrap();
+    for case in corpus["cases"].as_array().unwrap() {
+        let mut head = None;
+        let mut policy = PagePolicy::default();
+        let mut unaffected = PagePolicy::default();
+        let mut admitted = true;
+        for (index, wire) in case["log"].as_array().unwrap().iter().enumerate() {
+            let envelope =
+                statement::Envelope::from_json(&serde_json::to_vec(wire).unwrap()).unwrap();
+            let verified = envelope.verify_next(space, &root, head.as_ref()).unwrap();
+            head = Some(verified.head);
+            unaffected
+                .apply(&verified.payload, "00000000-0000-4000-8000-000000000099")
+                .unwrap();
+            if policy.apply(&verified.payload, page).is_err() {
+                admitted = false;
+                break;
+            }
+            if case["admitted"] == true {
+                assert_eq!(
+                    policy.writable(),
+                    case["writable"][index].as_bool().unwrap(),
+                    "{} at revision {}",
+                    case["name"],
+                    index + 1
+                );
+            }
+        }
+        assert_eq!(
+            admitted,
+            case["admitted"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+        if admitted {
+            assert_eq!(policy.archived, case["archived"].as_bool().unwrap());
+            assert_eq!(policy.deleted, case["deleted"].as_bool().unwrap());
+            assert!(
+                unaffected.writable(),
+                "another page's lifecycle is unaffected"
+            );
+        }
+    }
+}

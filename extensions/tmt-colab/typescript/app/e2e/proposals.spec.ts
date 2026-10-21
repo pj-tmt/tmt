@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
+import { text } from '../src/strings.js';
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -43,12 +44,14 @@ for (const width of [1440, 390])
       const inline = page.locator('[data-inline-proposal]').first();
       await expect(inline).not.toHaveAttribute('data-detached');
       const card = inline.locator('.proposal-card');
-      const sheet = theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
-      const ink = theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
-      const muted = theme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)';
+      // The fixture page paints white, so its cards are light whatever the app theme (#4081).
+      const scheme = 'light' as 'light' | 'dark';
+      const sheet = scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
+      const ink = scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
+      const muted = scheme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)';
       await expect(card).toHaveCSS('background-color', sheet);
       await expect(card).toHaveCSS('color', ink);
-      await expect(card).toHaveCSS('color-scheme', theme);
+      await expect(card).toHaveCSS('color-scheme', scheme);
       await expect(card.locator('.proposal-body')).toHaveCSS('color', ink);
       await expect(card.locator('.proposal-author')).toHaveCSS('color', muted);
       await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
@@ -57,7 +60,7 @@ for (const width of [1440, 390])
       );
       await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
         'color',
-        theme === 'dark' ? 'rgb(8, 8, 8)' : 'rgb(250, 250, 250)',
+        scheme === 'dark' ? 'rgb(8, 8, 8)' : 'rgb(250, 250, 250)',
       );
       await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
         'background-color',
@@ -95,7 +98,7 @@ for (const width of [1440, 390])
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeFocused();
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-color',
-        theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
+        scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
       );
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-width',
@@ -127,7 +130,7 @@ for (const width of [1440, 390])
       // The shared borderless composer paints through to its themed card.
       await expect(composer).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await expect(card).toHaveCSS('background-color', sheet);
-      await expect(composer).toHaveCSS('color-scheme', theme);
+      await expect(composer).toHaveCSS('color-scheme', scheme);
       await expect(composer).toHaveCSS('color', ink);
       await expect(composer).toContainText('@Agent 1');
       await capture(page, `follow-up-${width}-${theme}`);
@@ -415,6 +418,125 @@ test('folded proposal keeps agent resolution unseen until its history is opened'
   await expect(folded.locator('.proposal-body')).toBeVisible();
   expect(await run(page, 'seenProof')).toBe(1);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
+});
+
+for (const width of [1440, 390])
+  test(`a decision keeps its buttons in place while saving and the card moves once at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page);
+    const card = page.locator('[data-inline-proposal] .proposal-card');
+    const approve = card.getByRole('button', { name: 'Approve', exact: true });
+    const decline = card.getByRole('button', { name: 'Decline', exact: true });
+    const box = () =>
+      page.evaluate(() => {
+        const rect = (node: Element | null) => {
+          if (!node) return null;
+          const { x, y, width, height } = node.getBoundingClientRect();
+          return { x, y, width, height };
+        };
+        const named = (name: string) =>
+          [...document.querySelectorAll('.proposal-card button')].find(
+            (button) => button.textContent?.trim() === name,
+          ) ?? null;
+        return {
+          card: rect(document.querySelector('.proposal-card')),
+          actions: rect(document.querySelector('.proposal-actions')),
+          approve: rect(named('Approve')),
+          decline: rect(named('Decline')),
+        };
+      });
+    const idle = await box();
+    await page.evaluate(() => {
+      const watch = window as unknown as {
+        steps: { step: string; height: number }[];
+        step: string;
+      };
+      watch.steps = [];
+      watch.step = 'save';
+      let last = Math.round(
+        document.querySelector('.proposal-card')!.getBoundingClientRect().height,
+      );
+      const tick = () => {
+        const node = document.querySelector('.proposal-card');
+        const height = node ? Math.round(node.getBoundingClientRect().height) : last;
+        if (Math.abs(height - last) > 1)
+          watch.steps.push({ step: watch.step, height: height - last });
+        last = height;
+        requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    const step = (name: string) =>
+      page.evaluate((name) => {
+        (window as unknown as { step: string }).step = name;
+      }, name);
+    const live = card.locator('.proposal-announce');
+    await run(page, 'holdDecision');
+    await approve.click();
+    // Saving: both buttons stay where they were, inert but neither greyed nor relabelled; the busy
+    // mark on the pressed one, after the shared delay, is the only sign seen, and no line is added.
+    const mark = approve.locator('.tmt-ui-action-mark');
+    await expect(mark).toHaveAttribute('data-busy', 'true');
+    await expect(decline.locator('.tmt-ui-action-mark svg')).toBeHidden();
+    for (const button of [approve, decline]) {
+      await expect(button).toHaveAttribute('aria-disabled', 'true');
+      await expect(button).toHaveJSProperty('disabled', false);
+    }
+    await expect(approve).toHaveText('Approve');
+    await expect(decline).toHaveText('Decline');
+    // Heard, not seen: a polite line with the same delay, taking no room.
+    await expect(live).toHaveText('Saving decision…');
+    expect((await live.boundingBox())!.height).toBeLessThanOrEqual(1);
+    expect(await box()).toEqual(idle);
+    await decline.click({ force: true });
+    expect((await run(page, 'proof')).sends).toHaveLength(0);
+    await step('decided');
+    await run(page, 'holdReply');
+    await run(page, 'pausePrepare');
+    await run(page, 'releaseDecision');
+    await expect(card.locator('.proposal-state')).toContainText('Approved');
+    await expect(approve).toHaveCount(0);
+    await expect(live).toHaveText('');
+    // The decided row stands where the buttons were, at their height, until the reply turn lands.
+    const decided = await box();
+    expect(Math.abs(decided.actions!.height - idle.actions!.height)).toBeLessThanOrEqual(1);
+    expect(decided.actions!.y).toBeCloseTo(idle.actions!.y, 0);
+    await page.waitForTimeout(400);
+    await step('reply');
+    await run(page, 'releaseReply');
+    await expect(card.locator('.conversation-turn')).toHaveCount(1);
+    await page.waitForTimeout(400);
+    // The row is released in the frame the turn arrives: no blank gap stays under the actions.
+    const replied = await box();
+    expect(replied.actions!.height).toBeLessThanOrEqual(37);
+    await step('settled');
+    await run(page, 'resumePrepare');
+    await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+    await page.waitForTimeout(400);
+    const steps = await page.evaluate(
+      () => (window as unknown as { steps: { step: string; height: number }[] }).steps,
+    );
+    // The page moves once, when the reply's turn lands; the decision's own landing moves nothing.
+    expect(
+      steps.map(({ step }) => step),
+      JSON.stringify(steps),
+    ).toEqual(['reply']);
+    expect(steps[0].height).toBeGreaterThan(0);
+  });
+
+test('a refused decision clears the saving line and shows its note at once', async ({ page }) => {
+  await mount(page);
+  const card = page.locator('[data-inline-proposal] .proposal-card');
+  const live = card.locator('.proposal-announce');
+  await run(page, 'holdDecision');
+  await run(page, 'failDecision');
+  await card.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(live).toHaveText('Saving decision…');
+  await run(page, 'releaseDecision');
+  await expect(live).toHaveText('');
+  await expect(card.getByText(text.proposalDecisionUnconfirmed)).toBeVisible();
 });
 
 test('decision completion does not reclaim focus after the reader moves away', async ({ page }) => {

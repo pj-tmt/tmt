@@ -35,14 +35,14 @@ fn rule(frame: &mut Frame, app: &App, area: Rect, y: &mut u16, title: &str, note
         return;
     }
     if *y < area.bottom() {
-        section_rule::paint(
-            frame.buffer_mut(),
-            Rect::new(area.x, *y, area.width, 1),
-            title,
-            note,
-            false,
-            app.look(),
-        );
+        // The pane's top rule carries the Talk/Measure control.
+        let line = Rect::new(area.x, *y, area.width, 1);
+        let line = if *y == area.y {
+            crate::board::talk_measure::paint(frame.buffer_mut(), app, line)
+        } else {
+            line
+        };
+        section_rule::paint(frame.buffer_mut(), line, title, note, false, app.look());
         *y += 1;
     }
 }
@@ -207,12 +207,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         member_state(app, selected, usize::from(area.width.saturating_sub(8)))
     };
-    section_rule::paint(
+    let title_rule = crate::board::talk_measure::paint(
         frame.buffer_mut(),
+        app,
         Rect {
             height: area.height.min(1),
             ..area
         },
+    );
+    section_rule::paint(
+        frame.buffer_mut(),
+        title_rule,
         title,
         note,
         app.focused() == Pane::Replies,
@@ -283,7 +288,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.conversation.borrow_mut().active = None;
         return;
     };
-    let surface = conversation::exchange::Surface::Agents {
+    let surface = conversation::exchange::Surface {
         target,
         interactive: retained.is_none(),
     };
@@ -295,9 +300,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         0
     };
     let gap = u16::from(input > 0 && available > input);
-    let height = conversation::exchange::desired_height_for(app, area.width, &surface)
+    let height = conversation::exchange::desired_height(app, area.width, &surface)
         .min(available.saturating_sub(input + gap));
-    conversation::exchange::render_for(
+    conversation::exchange::render(
         frame,
         app,
         Rect::new(area.x, y, area.width, height),
@@ -313,7 +318,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-mod member;
+pub(in crate::board) mod member;
 mod squad;
 
 #[cfg(test)]

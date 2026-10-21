@@ -24,6 +24,7 @@ mod object_channel;
 pub use object_channel::{Client as SealedClient, Error as ChannelError};
 pub mod page;
 pub mod page_check;
+pub mod page_expiry;
 pub mod projects;
 pub mod publication;
 pub mod readers;
@@ -39,6 +40,7 @@ pub mod socket;
 pub mod store;
 pub mod summary;
 pub mod summary_lines;
+pub mod summary_passages;
 mod summary_pending;
 pub mod summary_readings;
 pub mod sync;
@@ -46,7 +48,9 @@ pub mod threads;
 pub mod transitions;
 pub mod wip;
 pub mod work;
+pub mod work_github;
 pub mod work_index;
+pub mod work_links;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

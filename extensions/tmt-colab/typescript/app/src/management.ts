@@ -15,7 +15,7 @@ import {
   text,
 } from '@tmt/colab-client';
 import type { statement } from '@tmt/colab-client';
-import { Admission } from './admission.js';
+import { Admission, pageLifecycle } from './admission.js';
 import { Frames } from './frames.js';
 import { discover, type Bootstrap, type PageInfo } from './bootstrap.js';
 import {
@@ -50,7 +50,7 @@ export type Selection =
   | { operation: 'page.history'; value: payload.Values['page.history'] }
   | { operation: 'epoch.advance'; value: { pageId: string } }
   | { operation: 'retention.set'; value: payload.Values['retention.set'] }
-  | { operation: 'page.archive' | 'page.delete'; value: { pageId: string } }
+  | { operation: 'page.archive' | 'page.unarchive' | 'page.delete'; value: { pageId: string } }
   | { operation: 'member.add'; value: payload.Values['member.add'] }
   | { operation: 'member.remove'; value: { memberId: string; pages: string[] } }
   | { operation: 'member.role'; value: { memberId: string; pages: string[]; role: payload.Role } }
@@ -130,9 +130,8 @@ export function project(
     ...page,
     sharing: 'private',
     history: 'shared',
-    archived: false,
     retentionDays: 30,
-    deleted: false,
+    ...pageLifecycle(log, page.pageId),
   };
   const members = new Map<string, Recipient>(),
     links = new Map<string, Recipient>();
@@ -178,12 +177,6 @@ export function project(
         break;
       case 'retention.set':
         if (p.value.pageId === page.pageId) policy.retentionDays = p.value.days;
-        break;
-      case 'page.delete':
-        if (p.value.pageId === page.pageId) policy.deleted = true;
-        break;
-      case 'page.archive':
-        if (p.value.pageId === page.pageId) policy.archived = true;
         break;
     }
   }
@@ -335,6 +328,7 @@ export function selectionBytes(view: ManagementView, selection: Selection): Uint
     'epoch.advance': ['pageId'],
     'retention.set': ['pageId', 'days'],
     'page.archive': ['pageId'],
+    'page.unarchive': ['pageId'],
     'page.delete': ['pageId'],
     'member.add': ['memberId', 'role', 'signKey', 'encKey', 'pages'],
     'member.remove': ['memberId', 'pages'],
@@ -359,6 +353,9 @@ export function selectionBytes(view: ManagementView, selection: Selection): Uint
       break;
     case 'page.archive':
       requireValue(!view.page.archived);
+      break;
+    case 'page.unarchive':
+      requireValue(view.page.archived);
       break;
     case 'member.add':
       payload.decode(selection.operation, text(JSON.stringify(value)));

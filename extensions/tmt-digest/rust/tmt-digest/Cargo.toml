@@ -23,6 +23,7 @@ include = [
 clap.workspace = true
 tmt-cli-style.workspace = true
 tmt-invoke.workspace = true
+tmt-extension-state.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 rusqlite.workspace = true

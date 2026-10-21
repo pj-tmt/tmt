@@ -386,7 +386,9 @@ var MANAGEMENT_PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_DEVICE_REVOKED",
 	"REMOTE_DEVICE_NOT_FOUND",
 	"REMOTE_SETTINGS_UNAVAILABLE",
-	"REMOTE_MANAGEMENT_CAPACITY"
+	"REMOTE_MANAGEMENT_CAPACITY",
+	"REMOTE_DEVICE_LIST_CHANGED",
+	"REMOTE_DEVICE_REMOVAL_LIMIT"
 ]);
 var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -519,7 +521,9 @@ function remoteError(value, address) {
 		"REMOTE_DEVICE_REVOKED",
 		"REMOTE_DEVICE_NOT_FOUND",
 		"REMOTE_SETTINGS_UNAVAILABLE",
-		"REMOTE_MANAGEMENT_CAPACITY"
+		"REMOTE_MANAGEMENT_CAPACITY",
+		"REMOTE_DEVICE_LIST_CHANGED",
+		"REMOTE_DEVICE_REMOVAL_LIMIT"
 	].includes(error.code));
 	return new RefusalError(error.code, retry, limit, settingsUrl, scope);
 }
@@ -3377,7 +3381,8 @@ function device(value, activity = false) {
 		...activity ? [
 			"thisBrowser",
 			"liveSessionCount",
-			"lastActivityAtMs"
+			"lastActivityAtMs",
+			"lastUsedAtMs"
 		] : []
 	]);
 	valid(typeof row.clientId === "string" && UUID$1.test(row.clientId));
@@ -3389,7 +3394,7 @@ function device(value, activity = false) {
 	].includes(row.kind) && integer(row.issuedAtMs));
 	valid(row.expiresAtMs === null || integer(row.expiresAtMs));
 	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
-	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)));
+	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
 	return row;
 }
 var refusalCodes = /* @__PURE__ */ new Set([
@@ -3407,7 +3412,9 @@ var refusalCodes = /* @__PURE__ */ new Set([
 	"REMOTE_DEVICE_REVOKED",
 	"REMOTE_DEVICE_NOT_FOUND",
 	"REMOTE_SETTINGS_UNAVAILABLE",
-	"REMOTE_MANAGEMENT_CAPACITY"
+	"REMOTE_MANAGEMENT_CAPACITY",
+	"REMOTE_DEVICE_LIST_CHANGED",
+	"REMOTE_DEVICE_REMOVAL_LIMIT"
 ]);
 function outcome(value, operationId) {
 	const row = object(value);
@@ -3423,6 +3430,7 @@ function outcome(value, operationId) {
 		const result = object(row.result);
 		valid(Object.keys(result).length === 1);
 		if (Object.hasOwn(result, "settings")) settings(result.settings);
+		else if (Object.hasOwn(result, "removed")) valid(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
 		else device(result.device);
 	} else {
 		exact(row, [
@@ -3441,6 +3449,7 @@ function outcome(value, operationId) {
 */
 function management(session, options = {}) {
 	const call = verifiedSessionRequest(session, options);
+	const clientId = channelFor(session).paired.clientId;
 	async function mutate(operation, value) {
 		const { operationId } = value;
 		input(UUID$1.test(operationId));
@@ -3449,6 +3458,7 @@ function management(session, options = {}) {
 				const parsed = outcome(reply, operationId);
 				if (parsed.state === "committed") {
 					if (operation === "remote.settings.set") valid("settings" in parsed.result);
+					else if (operation === "remote.devices.remove-others") valid("removed" in parsed.result && parsed.sessionEnded === false);
 					else {
 						valid("device" in parsed.result && parsed.result.device.clientId === value.clientId);
 						if (operation === "remote.devices.rename") valid(parsed.result.device.name === value.name);
@@ -3469,6 +3479,17 @@ function management(session, options = {}) {
 		}
 	}
 	return {
+		clientId,
+		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
+			const row = object(value);
+			exact(row, ["count", "fingerprint"]);
+			valid(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
+			return row;
+		}),
+		removeOthers: (change) => {
+			input(typeof change.fingerprint === "string" && /^[0-9a-f]{64}$/.test(change.fingerprint));
+			return mutate("remote.devices.remove-others", { ...change });
+		},
 		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
 			const row = object(value);
 			exact(row, [
@@ -3498,7 +3519,7 @@ function management(session, options = {}) {
 				const ids = /* @__PURE__ */ new Set();
 				for (const entry of row.devices) {
 					const item = device(entry, true);
-					valid(!ids.has(item.clientId));
+					valid(!item.revoked && !ids.has(item.clientId));
 					ids.add(item.clientId);
 				}
 				valid(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
@@ -3876,6 +3897,32 @@ async function save(record) {
 	const objects = await deviceObjects("readwrite");
 	await request(() => objects.put(record, RECORD));
 }
+/** A stored identity is retained unless the pinned machine proves it is dead. */
+async function existingPairing(signal) {
+	let record;
+	try {
+		record = await load();
+	} catch {
+		throw new ReopenSessionError("transient", "pairing-unavailable");
+	}
+	active(signal);
+	if (record === void 0) return void 0;
+	try {
+		await reopenSession(void 0, {
+			retry: "bounded",
+			signal
+		});
+		return record;
+	} catch (error) {
+		if (error instanceof ReopenSessionError && (error.reason === "revoked" || error.reason === "expired")) return void 0;
+		throw error;
+	}
+}
+function pairingRecovery(error) {
+	if (error instanceof ReopenSessionError && error.detail === "pairing-unavailable") return "Your saved pairing could not be read. Check browser storage and try again.";
+	if (error instanceof ReopenSessionError && error.reason === "capacity") return "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.";
+	return "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged.";
+}
 async function door(send = fetch) {
 	const response = await send("/sdk/mount", {
 		method: "POST",
@@ -4083,7 +4130,7 @@ async function landingPage() {
 				"×",
 				"Not accepted",
 				"Remote didn't accept this browser",
-				authorityEnded ? "This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine." : "This browser's session ended. Choose Check again, or open your app from its link to start a new one."
+				refusalCode === "REMOTE_SESSION_LIMIT" ? "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged." : authorityEnded ? "This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine." : "This page's connection ended. Try again. Your pairing is unchanged."
 			],
 			unconfirmed: [
 				"×",
@@ -4095,7 +4142,7 @@ async function landingPage() {
 				"×",
 				"Pairing unreadable",
 				"This browser's pairing can't be read",
-				"Browser storage may have been cleared or blocked. Nothing was sent."
+				"Your saved pairing could not be read. Check browser storage and try again."
 			]
 		}[state];
 		element("notice").dataset.tone = state === "connected" ? "working" : [
@@ -4123,7 +4170,7 @@ async function landingPage() {
 			"refused",
 			"unconfirmed",
 			"unreadable"
-		]) element(`steps-${name}`).hidden = name !== state;
+		]) element(`steps-${name}`).hidden = name !== state || name === "refused" && !authorityEnded || name === "unreadable";
 		element("status").hidden = state === "missing";
 		element("pairing-note").hidden = state !== "missing";
 		element("command-location").hidden = ["checking", "connected"].includes(state);
@@ -4311,6 +4358,22 @@ async function pairingPage(link) {
 	const form = element("pair");
 	const button = form.querySelector("button");
 	button.disabled = true;
+	form.hidden = true;
+	try {
+		if (await existingPairing(lifetime.signal)) {
+			active(lifetime.signal);
+			showState(status, "paired", "This browser is already paired.");
+			location.replace("/remote/");
+			return;
+		}
+	} catch (error) {
+		if (lifetime.signal.aborted) return;
+		if (!(error instanceof ReopenSessionError && error.reason === "mismatch")) {
+			showState(status, "blocked", pairingRecovery(error));
+			return;
+		}
+	}
+	form.hidden = false;
 	let parsed;
 	try {
 		parsed = await resolveLink(link, (url, init) => fetch(url, {
@@ -4330,10 +4393,10 @@ async function pairingPage(link) {
 		form.hidden = true;
 		if (ownsFocus) status.focus({ preventScroll: true });
 		const name = element("name").value.trim();
-		ceremony(parsed, name, status, lifetime.signal).catch(() => {
+		ceremony(parsed, name, status, lifetime.signal).catch((error) => {
 			if (lifetime.signal.aborted) return;
 			if (document.activeElement === element("comparison")) status.focus({ preventScroll: true });
-			showState(status, "blocked", "Pairing did not complete. Run tmt remote pair again for a new link.");
+			showState(status, "blocked", error instanceof ReopenSessionError ? pairingRecovery(error) : "Pairing did not complete. Run tmt remote pair again for a new link.");
 		});
 	}, { signal: lifetime.signal });
 	form.hidden = false;
@@ -4355,6 +4418,7 @@ async function automaticPairingPage(link, lifetime) {
 	globalThis.addEventListener?.("pagehide", departed, { once: true });
 	let code;
 	let openCommand = "tmt remote open";
+	let enrollmentAllowed = false;
 	try {
 		showState(status, "waiting", "Connecting this browser…");
 		const network = (url, init) => fetch(url, {
@@ -4365,10 +4429,10 @@ async function automaticPairingPage(link, lifetime) {
 		code = offered.code;
 		const { descriptor, target } = offered;
 		if (target === "/colab" || target.startsWith("/colab/") || target.startsWith("/p/") || target.startsWith("/read/")) openCommand = "tmt colab open";
-		const record = await load();
+		const record = await existingPairing(lifetime.signal);
+		enrollmentAllowed = record === void 0;
 		lifetime.signal.throwIfAborted();
 		if (record) {
-			await reopenSession(void 0, { signal: lifetime.signal });
 			const key = await DeviceKey.fromHandle(record.handle, record.publicKey);
 			await cancelAutomaticOffer({
 				descriptor,
@@ -4399,6 +4463,7 @@ async function automaticPairingPage(link, lifetime) {
 				publicKey: key.publicKey(),
 				paired: result
 			});
+			enrollmentAllowed = false;
 			await openSession(result, key, descriptor.windowId, network);
 		}
 		lifetime.signal.throwIfAborted();
@@ -4407,6 +4472,15 @@ async function automaticPairingPage(link, lifetime) {
 		if (!leaving && pairingAttempt === lifetime) {
 			showState(status, "blocked", "");
 			element("state-label").textContent = "Not connected";
+			if (error instanceof ReopenSessionError) {
+				if (error.reason === "mismatch") {
+					const command = document.createElement("code");
+					command.className = "tmt-ui-code";
+					command.textContent = "tmt remote pair";
+					status.replaceChildren(document.createTextNode("This browser is paired with a different machine. To use this one, run "), command, document.createTextNode(" on it."));
+				} else status.textContent = pairingRecovery(error);
+				return;
+			}
 			const command = document.createElement("code");
 			command.className = "tmt-ui-code";
 			command.textContent = openCommand;
@@ -4414,9 +4488,9 @@ async function automaticPairingPage(link, lifetime) {
 			const nodes = [
 				document.createTextNode(refused ? "This link no longer works. Open the page again from the machine with " : "Could not connect this browser. Open the page again from the machine with "),
 				command,
-				document.createTextNode(refused ? "." : ". If it still fails, run ")
+				document.createTextNode(refused || !enrollmentAllowed ? "." : ". If it still fails, run ")
 			];
-			if (!refused) {
+			if (!refused && enrollmentAllowed) {
 				const fallback = document.createElement("code");
 				fallback.className = "tmt-ui-code";
 				fallback.textContent = "tmt remote pair";
@@ -4450,15 +4524,23 @@ async function ceremony({ descriptor, code }, name, status, signal) {
 		signal
 	});
 	signal.throwIfAborted();
-	await save({
-		handle: key.handle(),
-		publicKey: key.publicKey(),
-		paired: result
-	});
-	await openSession(result, key, descriptor.windowId, (url, init) => fetch(url, {
-		...init,
-		signal
-	}));
+	try {
+		await save({
+			handle: key.handle(),
+			publicKey: key.publicKey(),
+			paired: result
+		});
+	} catch {
+		throw new ReopenSessionError("transient", "pairing-unavailable");
+	}
+	try {
+		await openSession(result, key, descriptor.windowId, (url, init) => fetch(url, {
+			...init,
+			signal
+		}));
+	} catch {
+		throw new ReopenSessionError("unconfirmed", "admission-unconfirmed");
+	}
 	signal.throwIfAborted();
 	showState(status, "paired", "This browser is paired. You can close this page.");
 	element("entry-link").hidden = false;

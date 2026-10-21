@@ -22,6 +22,8 @@ pub struct Holder {
     pub pid: u32,
     pub since_ms: i64,
     pub expires_ms: i64,
+    /// The Ops version that took the lease; a lease written before this field has none.
+    pub build: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,8 +46,25 @@ impl Holder {
         self.since_ms <= now_ms && now_ms < self.expires_ms
     }
 
+    /// A holder yields to a newer Ops: one that predates the version field (which may
+    /// predate the tick wiring, so it can hold the clock without ticking) or one built
+    /// earlier. Versions that are not semantic versions never preempt.
+    fn older_than(&self, build: &str) -> bool {
+        let Ok(ours) = semver::Version::parse(build) else {
+            return false;
+        };
+        match &self.build {
+            None => true,
+            Some(held) => semver::Version::parse(held).is_ok_and(|held| held < ours),
+        }
+    }
+
     fn document(&self) -> Value {
-        json!({"version":1,"pane":self.pane,"pid":self.pid,"sinceMs":self.since_ms,"expiresMs":self.expires_ms})
+        let mut document = json!({"version":1,"pane":self.pane,"pid":self.pid,"sinceMs":self.since_ms,"expiresMs":self.expires_ms});
+        if let Some(build) = &self.build {
+            document["opsVersion"] = json!(build);
+        }
+        document
     }
 
     fn parse(value: &Value) -> Result<Self, Error> {
@@ -62,11 +81,19 @@ impl Holder {
                 .ok_or_else(invalid)?,
             since_ms: value["sinceMs"].as_i64().ok_or_else(invalid)?,
             expires_ms: value["expiresMs"].as_i64().ok_or_else(invalid)?,
+            build: if value["opsVersion"].is_null() {
+                None
+            } else {
+                Some(value["opsVersion"].as_str().ok_or_else(invalid)?.into())
+            },
         };
         if value["version"] != 1
             || holder.expires_ms <= holder.since_ms
             || holder.pane.as_ref().is_some_and(|pane| {
                 pane.is_empty() || pane.len() > 128 || pane.chars().any(char::is_control)
+            })
+            || holder.build.as_ref().is_some_and(|build| {
+                build.is_empty() || build.len() > 64 || build.chars().any(char::is_control)
             })
         {
             return Err(invalid());
@@ -211,15 +238,45 @@ impl Clock {
     }
 
     /// Expired evidence (including a rollback before since) may be replaced.
-    /// No PID probe is necessary: every sender renews before dispatching.
+    /// No PID probe is necessary: every sender renews before dispatching. A live
+    /// lease is never disturbed: this is for a one-shot pass, which must not
+    /// displace a running clock.
     pub fn acquire(
         &self,
         now_ms: i64,
         pid: u32,
         pane: Option<String>,
+        build: &str,
+    ) -> Result<Option<Lease>, Error> {
+        self.acquire_as(now_ms, pid, pane, build, false)
+    }
+
+    /// [`Clock::acquire`] for a clock that keeps running: it also replaces a live
+    /// lease of an older Ops `build` (#4107), so a stale holder, which may never tick,
+    /// cannot keep a current one idle. The old owner finds the lease changed at its
+    /// next renewal and stops.
+    pub fn acquire_current(
+        &self,
+        now_ms: i64,
+        pid: u32,
+        pane: Option<String>,
+        build: &str,
+    ) -> Result<Option<Lease>, Error> {
+        self.acquire_as(now_ms, pid, pane, build, true)
+    }
+
+    fn acquire_as(
+        &self,
+        now_ms: i64,
+        pid: u32,
+        pane: Option<String>,
+        build: &str,
+        preempt_older: bool,
     ) -> Result<Option<Lease>, Error> {
         let _lock = self.lock(true)?;
-        if self.read()?.is_some_and(|holder| holder.live(now_ms)) {
+        if self.read()?.is_some_and(|holder| {
+            holder.live(now_ms) && !(preempt_older && holder.older_than(build))
+        }) {
             return Ok(None);
         }
         let holder = Holder {
@@ -227,6 +284,7 @@ impl Clock {
             pid,
             since_ms: now_ms,
             expires_ms: now_ms.checked_add(LEASE_MS).ok_or_else(invalid)?,
+            build: Some(build.into()),
         };
         Holder::parse(&holder.document())?;
         self.publish(&holder)?;

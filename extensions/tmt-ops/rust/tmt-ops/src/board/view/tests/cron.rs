@@ -193,6 +193,7 @@ fn running_in(pane: &str) -> ClockStatus {
         pid: 7,
         since_ms: TEST_NOW - 60_000,
         expires_ms: TEST_NOW + 5_000,
+        build: None,
     })
 }
 
