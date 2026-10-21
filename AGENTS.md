@@ -169,7 +169,8 @@ The tmux server an agent runs in hosts the whole team; losing it stops every age
   that the same test did not create, and never change host server options or hooks.
   On the host server, use `tmt` commands, and read or type into an explicit pane or
   window you are responsible for (`list-*`, `capture-pane`, `send-keys -t <target>`).
-  Never run a bare `tmux` in an agent shell: it inherits `TMUX` and reaches the host.
+  A bare `tmux` in an agent shell reaches the host through the inherited `TMUX`, so
+  never use one for a scratch server.
 - If a command reaches the host server by mistake, stop at once, tell your lead,
   and do not retry. Change the approach, and get it reviewed, before continuing.
 
