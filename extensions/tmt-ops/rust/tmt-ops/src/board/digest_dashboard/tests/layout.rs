@@ -130,6 +130,123 @@ fn table_has_read_only_all_and_stable_ranked_uuids_and_real_member_enters_agents
     assert_eq!(app.workspace.selected, Some(rows[1].target.clone()));
     assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
 }
+
+#[test]
+fn cursor_and_viewport_changes_reuse_ranked_facts_without_freezing_live_supplier_text() {
+    use std::rc::Rc;
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = fixture();
+    app.workspace.selected = Some(OpsTarget::DigestAll);
+    app.workspace_reconcile();
+    let before = app.workspace_rows();
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.workspace.selected, Some(before[1].target.clone()));
+    paint(&mut app, 160, 40);
+    assert!(Rc::ptr_eq(&before, &app.workspace_rows()));
+    paint(&mut app, 80, 32);
+    assert!(Rc::ptr_eq(&before, &app.workspace_rows()));
+    app.labels = supplied(serde_json::json!(9), false);
+    let shown = paint(&mut app, 160, 40);
+    assert!(
+        shown.contains("9 observed held"),
+        "supplier facts must stay live, including unknown member coverage: {shown}"
+    );
+    assert!(Rc::ptr_eq(&before, &app.workspace_rows()));
+    assert_eq!(app.workspace_rows()[0].target, OpsTarget::DigestAll);
+    assert!(app.workspace_message_target().is_some());
+}
+
+#[test]
+fn a_new_usage_receipt_at_the_same_clock_reorders_rows_and_query_scope_range_reconcile() {
+    use std::rc::Rc;
+    let mut app = fixture();
+    let before = app.workspace_rows();
+    let mut report = super::super::metrics::report(&app).unwrap().clone();
+    let id = report.seats[0].who.id.clone().unwrap();
+    report.seats[0].input = 1_000_000;
+    app.usage_report.apply(Delivery {
+        since: TokRange::Day,
+        result: Ok(report),
+    });
+    let after = app.workspace_rows();
+    assert!(!Rc::ptr_eq(&before, &after));
+    assert!(
+        matches!(&after[1].target, OpsTarget::Member { identity_id, .. } if identity_id == &id)
+    );
+    assert_eq!(after[1].usage, Some(1_000_100));
+    app.search = "agent-1".into();
+    app.workspace_reconcile();
+    let searched = app.workspace_rows();
+    assert_eq!(searched.len(), 2);
+    assert_eq!(searched[1].title, "agent-1");
+    app.workspace.visibility.scope = vec!["not-an-admitted-room".into()];
+    assert_eq!(app.workspace_rows().len(), 1, "only read-only all remains");
+    app.workspace.visibility.scope.clear();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .tok_range = TokRange::Hour;
+    let changed_range = app.workspace_rows();
+    assert_eq!(
+        changed_range[1].usage, None,
+        "a different range cannot reuse Day usage"
+    );
+    app.search.clear();
+    app.workspace_reconcile();
+    assert_eq!(app.workspace_rows().len(), before.len());
+}
+
+#[test]
+fn retained_canonical_rows_do_not_replace_an_explicit_membership_or_a_removed_target() {
+    use std::rc::Rc;
+    let mut app = fixture();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut alternate = snapshot.roster.squads[0].clone();
+    alternate.room_id = "zz-alternate-room".into();
+    alternate
+        .member_states
+        .entry(MEMBER.into())
+        .or_default()
+        .state = Some("blocked".into());
+    let target = OpsTarget::Member {
+        room_id: Some(alternate.room_id.clone()),
+        identity_id: MEMBER.into(),
+    };
+    snapshot.rows.insert(
+        target.clone(),
+        serde_json::json!({"id":MEMBER,"name":"worker","state":"blocked"}),
+    );
+    snapshot.roster.squads.push(alternate);
+    app.workspace_reconcile();
+    let canonical = app.workspace_rows();
+    app.workspace.selected = Some(target.clone());
+    let explicit = app.workspace_rows();
+    let row = explicit.iter().find(|row| row.target == target).unwrap();
+    assert_eq!(row.state.as_deref(), Some("blocked"));
+    assert_eq!(row.depth, 0);
+    assert!(app.workspace_message_target().is_some());
+    app.workspace.selected = Some(OpsTarget::DigestAll);
+    assert!(Rc::ptr_eq(&canonical, &app.workspace_rows()));
+    app.workspace.selected = Some(target.clone());
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot
+        .roster
+        .squads
+        .retain(|squad| squad.room_id != "zz-alternate-room");
+    snapshot.rows.remove(&target);
+    app.workspace_reconcile();
+    assert_eq!(app.workspace.selected, Some(target));
+    assert!(
+        app.workspace_message_target().is_none(),
+        "removal must not acquire a different occurrence"
+    );
+    assert!(!Rc::ptr_eq(&canonical, &app.workspace_rows()));
+}
 #[test]
 fn narrow_table_keeps_24_hours_and_tab_exposes_exchange_matrix_without_selection_change() {
     let _no_commands = crate::runner::forbid_commands();

@@ -14,8 +14,8 @@ use crate::{
 };
 use std::rc::Rc;
 
-/// Rows are shared only within an immutable paint or binding projection, never
-/// across an input or snapshot update. Nested scopes and unwinding restore it.
+/// One frame-local view of the destination-owned row projection. The slot never
+/// crosses input or snapshot updates; nested scopes and unwinding restore it.
 pub(in crate::board) struct FrameRows<'a> {
     slot: &'a RefCell<Option<Rc<[OpsTreeRow]>>>,
     previous: Option<Rc<[OpsTreeRow]>>,
@@ -253,24 +253,25 @@ impl App {
         {
             return crate::board::overview::monitor::rows(self, snapshot);
         }
+        if self.shell.tab == OpsTab::Digest
+            && let Some(snapshot) = self.workspace_snapshot()
+        {
+            return crate::board::digest_dashboard::rows(self, snapshot);
+        }
         self.workspace_snapshot()
             .map(|snapshot| {
-                if self.shell.tab == OpsTab::Digest {
-                    crate::board::digest_dashboard::rows(self, snapshot)
-                } else {
-                    let mut rows = self.workspace.rows(&snapshot.roster, &snapshot.preferences);
-                    let unread = self.unread_identities();
-                    if !unread.is_empty() {
-                        for siblings in rows.chunk_by_mut(|a, b| {
-                            matches!((&a.target, &b.target),
-                                (OpsTarget::Member { room_id: a, .. }, OpsTarget::Member { room_id: b, .. }) if a == b)
-                        }) {
-                            siblings.sort_by_key(|row| std::cmp::Reverse(matches!(&row.target,
-                                OpsTarget::Member { identity_id, .. } if unread.contains(identity_id.as_str()))));
-                        }
+                let mut rows = self.workspace.rows(&snapshot.roster, &snapshot.preferences);
+                let unread = self.unread_identities();
+                if !unread.is_empty() {
+                    for siblings in rows.chunk_by_mut(|a, b| {
+                        matches!((&a.target, &b.target),
+                            (OpsTarget::Member { room_id: a, .. }, OpsTarget::Member { room_id: b, .. }) if a == b)
+                    }) {
+                        siblings.sort_by_key(|row| std::cmp::Reverse(matches!(&row.target,
+                            OpsTarget::Member { identity_id, .. } if unread.contains(identity_id.as_str()))));
                     }
-                    rows
                 }
+                rows
             })
             .unwrap_or_default()
             .into()
@@ -663,6 +664,7 @@ impl App {
             .unwrap_or_default()
     }
     pub(in crate::board) fn workspace_reconcile(&mut self) {
+        self.digest_rows.get_mut().clear();
         if self
             .search_preview_tab
             .as_ref()

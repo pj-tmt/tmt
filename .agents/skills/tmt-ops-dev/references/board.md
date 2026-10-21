@@ -51,8 +51,10 @@ clock checks reuse those projections without roster traversal or source reads.
 Clipped countdown suffixes and hidden members do not wake the frame. Geometry
 invalidation clears this registry, and painting sets the next comparison base.
 `App::workspace_frame_rows` shares one immutable tree projection during paint;
-its scope restores nested paints and unwinding. Input and snapshot updates
-retain no row cache, so changed membership/filtering always resolves fresh.
+its scope restores nested paints and unwinding. That frame-local slot never
+crosses input or snapshot updates. Destination-owned retained facts follow their
+own invalidation rules below; changed membership/filtering resolves through the
+workspace reconciliation owner.
 
 Workspace tree/detail and conversation chrome use shared Strip/Scrolls.
 `pane_chrome` projects App focus into a frame on all four sides: the focused pane has heavy lines
@@ -142,7 +144,11 @@ state only, no squad data or durable preference policy.
 
 - `digest_dashboard` owns a fixed range summary, TOK-ranked UUID table with a
   read-only `DigestAll` aggregate, and selection details. The same row projection
-  owns paint and input order. Whole optional tracks yield before numeric values
+  owns paint and input order. Its session cache retains canonical admitted/ranked
+  facts across cursor, focus and viewport changes. Workspace snapshot/preferences
+  reconciliation clears it; query/scope/range changes and immutable usage receipts
+  replace it. Explicit alternate memberships retain their scoped projection;
+  supplier text, freshness and current-frame hits remain live. Whole optional tracks yield before numeric values
   truncate. Activity retains 24 one-hour cells; narrow details show that strip
   when it cannot fit in the table. `exchange_matrix` is a reusable content-free
   painter: top five ranked identities with the selection retained, sender rows,

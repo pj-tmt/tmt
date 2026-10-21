@@ -49,6 +49,58 @@ fn missing_hourly_series_keeps_valid_totals_but_never_manufactures_zero_activity
 }
 
 #[test]
+fn echoed_closed_window_bounds_are_not_rederived_from_a_local_resolution() {
+    for range in TokRange::ALL {
+        let (mut totals, series) = histories(range);
+        let total = &mut totals["identities"][0]["windows"][0];
+        let from = NOW - range.milliseconds() - 5_000;
+        let to = NOW - 5_000;
+        total["fromMs"] = json!(from);
+        total["toMs"] = json!(to);
+        total["buckets"][0]["fromMs"] = json!(from);
+        total["buckets"][0]["toMs"] = json!(to);
+        let (observed, _) = seat(&totals, Ok(&series), ID, range).unwrap();
+        assert_eq!((observed.from_ms, observed.to_ms), (from, to));
+        assert_eq!(observed.total(), 1_000);
+        let total = &mut totals["identities"][0]["windows"][0];
+        total["fromMs"] = json!(from - 1);
+        assert!(
+            seat(&totals, Ok(&series), ID, range).is_err(),
+            "interval length is still checked"
+        );
+    }
+}
+
+#[test]
+fn a_changed_or_future_activity_cut_keeps_totals_but_never_admits_its_series() {
+    for cut in [NOW - 5_000, NOW + 5_000] {
+        let scratch = super::super::tests::Scratch::new();
+        let (totals, mut series) = histories(TokRange::Hour);
+        series["throughMs"] = json!(cut);
+        std::fs::write(scratch.0.join("totals.json"), totals.to_string()).unwrap();
+        std::fs::write(scratch.0.join("series.json"), series.to_string()).unwrap();
+        let script = scratch.0.join("core");
+        write_ready_executable(
+            &script,
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in\nx) printf '%s' '{{\"sinceMs\":0,\"observedAtMs\":{NOW},\"rows\":[]}}';;\napi) payload=$(cat); case \"$payload\" in *'\"maxBuckets\":1'*) cat '{root}/totals.json';; *) cat '{root}/series.json';; esac;;\n*) exit 77;;\nesac\n",
+                root = scratch.0.display()
+            ),
+        );
+        let report = read(
+            &Core::at(script),
+            &Request::new(TokRange::Hour, vec![ID.into()]),
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert_eq!(report.seats.len(), 1);
+        assert_eq!(report.seats[0].total(), 1_000);
+        assert!(report.seats[0].series.is_empty());
+        assert_eq!(report.warnings[0].message, "Mismatched consumption cut.");
+    }
+}
+
+#[test]
 fn mismatched_identity_window_or_coverage_cannot_become_a_known_reading() {
     let (mut totals, series) = histories(TokRange::Hour);
     totals["identities"][0]["id"] = json!("another");
