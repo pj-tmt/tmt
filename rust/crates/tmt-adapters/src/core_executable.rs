@@ -1,7 +1,9 @@
 //! The `tmt` that companions must use to reach core.
 //!
-//! Core declares itself explicitly at startup; no file name is inspected, so a
-//! CLI installed under any name (`tmt`, `tmux-team`) hands its own path down.
+//! Core declares itself at startup, independently of inherited selection.
+//! A CLI installed under any name (`tmt`, `tmux-team`) chooses its own callback.
+//! A verified active managed release selects its stable launcher before any
+//! activation; unmanaged or uncertain installs retain the invoking path.
 //! A process outside Core declares
 //! nothing and passes along the `tmt` that launched it.
 
@@ -15,8 +17,18 @@ static DECLARED: OnceLock<PathBuf> = OnceLock::new();
 /// Called once by the core binary: this process is the `tmt` companions must use.
 pub fn declare_core() {
     if let Ok(path) = std::env::current_exe() {
-        let _ = DECLARED.set(path);
+        let _ = DECLARED.set(callback_executable(&path));
     }
+}
+
+/// Managed callbacks follow activation; uncertain or unmanaged callers keep their path.
+/// Only inspection of the active managed CLI authorizes choosing its launcher.
+/// The returned launcher is intentionally not canonicalized into a release path.
+pub fn callback_executable(executable: &Path) -> PathBuf {
+    crate::native_install::inspect(executable).map_or_else(
+        |_| executable.to_path_buf(),
+        |installation| installation.prefix().join("bin/tmt"),
+    )
 }
 
 /// The declared core, else the inherited absolute `TMT_EXECUTABLE`, else this executable.
@@ -41,6 +53,12 @@ fn select(declared: Option<&Path>, inherited: Option<OsString>, current: PathBuf
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unmanaged_callback_keeps_the_invoking_absolute_executable() {
+        let executable = Path::new("/unmanaged/renamed-core");
+        assert_eq!(callback_executable(executable), executable);
+    }
 
     #[test]
     fn declared_core_wins_under_any_name_and_over_the_inherited_selection() {

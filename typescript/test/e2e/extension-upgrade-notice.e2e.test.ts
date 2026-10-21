@@ -1,10 +1,13 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vite-plus/test';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
-import { dispatchIntent, RemoteOwner } from '../support/remote-owner.js';
+import { runCli, withSandbox } from '../support/cli-process.js';
+import { install as installCore } from '../support/native-installation.js';
+import { requestEnvelope, text, verifyResponse } from '../support/remote-device.js';
+import { dispatchIntent, RemoteOwner, RemoteSession } from '../support/remote-owner.js';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture } from './harness.js';
 import { requestAttempts } from './request-state-oracle.js';
@@ -13,113 +16,176 @@ const restart =
   'Remote was upgraded while its door is running. Finish active pairing and held approvals, then restart: tmt remote stop && tmt remote serve.';
 
 describe('post-upgrade Remote restart', () => {
-  it('restarts an idle background release at the same endpoint with byte-identical grants', async () => {
-    await withE2EFixture(
-      async (fixture) => {
-        const prefix = path.join(fixture.root, 'background extension prefix');
-        const install = async (artifact: ArtifactFixture) =>
-          expectJsonResult(
-            await fixture.runCli([
-              'extension',
-              'install',
-              'remote',
-              '--yes',
-              '--archive',
-              artifact.archive,
-              '--manifest',
-              artifact.manifest,
-              '--prefix',
-              prefix,
-              '--json',
-            ])
+  it('restarts at the same endpoint with intact grants and keeps calling Core after its old release is pruned', async () => {
+    await withSandbox(async (sandbox) => {
+      const version = await runCli(sandbox, ['--version']);
+      expect(version.status, version.stderr).toBe(0);
+      // Historical no-companion archive shape: the real Core payload is sufficient
+      // here, and Docker does not build the independently packaged Herdr driver.
+      const core = await createArtifact(
+        { ...sandbox, cli: { ...sandbox.cli, companions: null } },
+        version.stdout.trim()
+      );
+      const corePrefix = path.join(sandbox.root, 'Core prefix');
+      const installed = await installCore(sandbox, core, corePrefix);
+      const originalCore = realpathSync(installed.executable);
+      await withE2EFixture(
+        async (fixture) => {
+          const prefix = path.join(fixture.root, 'background extension prefix');
+          const install = async (artifact: ArtifactFixture) =>
+            expectJsonResult(
+              await fixture.runCli([
+                'extension',
+                'install',
+                'remote',
+                '--yes',
+                '--archive',
+                artifact.archive,
+                '--manifest',
+                artifact.manifest,
+                '--prefix',
+                prefix,
+                '--json',
+              ])
+            );
+          const first = await createArtifact(fixture, '0.1.0-alpha.1', new Uint8Array(), 'remote');
+          expect(await install(first)).not.toHaveProperty('restartHint');
+          symlinkSync(
+            path.join(prefix, 'bin/tmt-remote'),
+            path.join(fixture.wrapperDir, 'tmt-remote')
           );
-        const first = await createArtifact(fixture, '0.1.0-alpha.1', new Uint8Array(), 'remote');
-        expect(await install(first)).not.toHaveProperty('restartHint');
-        symlinkSync(
-          path.join(prefix, 'bin/tmt-remote'),
-          path.join(fixture.wrapperDir, 'tmt-remote')
-        );
-        const owner = new RemoteOwner(fixture);
-        let background = false;
-        try {
-          await owner.start();
-          await owner.pair();
-          await owner.stop();
-          const grantBytes = () => {
-            const db = new Database(path.join(fixture.globalDir, 'remote/remote.db'), {
-              readonly: true,
-              fileMustExist: true,
-            });
-            try {
-              return Buffer.from(
-                JSON.stringify(db.prepare('SELECT * FROM grants ORDER BY client_id').all())
-              );
-            } finally {
-              db.close();
-            }
-          };
-          const grants = grantBytes();
-          const oldRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
-          background = true; // Cleanup owns even an uncertain handoff.
-          const ready = expectJsonResult(
-            await fixture.runCli(['remote', 'serve', '--background', '--json'])
+          const identity = expectJsonResult(
+            await fixture.runJsonCli<{ id: string }>(['name', 'core-pruning-control', '--save'])
           );
-          const beforeStatus = expectJsonResult(
-            await fixture.runCli(['remote', 'status', '--json'])
-          );
-          const second = await createArtifact(
-            fixture,
-            '0.1.0-alpha.2',
-            new Uint8Array([1]),
-            'remote'
-          );
-          const upgraded = await install(second);
-          expect(upgraded).toMatchObject({
-            changed: true,
-            restartHint: 'Remote upgraded and restarted in the background.',
-          });
-          expect(expectJsonResult(await fixture.runCli(['remote', 'status', '--json']))).toEqual(
-            beforeStatus
-          );
-          const current = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
-          expect(current).not.toBe(oldRelease);
-          const oldBytes = readFileSync(path.join(oldRelease, 'tmt-remote'));
-          expect(
-            readFileSync(path.join(current, 'tmt-remote')).equals(
-              Buffer.concat([oldBytes, Buffer.from([1])])
-            )
-          ).toBe(true);
-          const origin = String(beforeStatus.origin);
-          const response = await fetch(`${origin}/sdk/mount`, {
-            method: 'POST',
-            headers: { Origin: origin, 'content-type': 'application/json' },
-            body: JSON.stringify({ path: '/' }),
-          });
-          expect(response.status).toBe(200);
-          const admission = (await response.json()) as Record<string, unknown>;
-          expect(admission.address).toBe(ready.address);
-          expect(admission.machineId).toBe(ready.machineId);
-          expect(admission.windowId).not.toBe(ready.windowId);
-          expect(admission.windowId).toMatch(
-            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-          );
-          expect(grantBytes().equals(grants)).toBe(true);
-          // Reuse the exact artifact: equal-version installs still verify integrity.
-          expect(await install(second)).not.toHaveProperty('restartHint');
-        } finally {
+          const owner = new RemoteOwner(fixture);
+          let background = false;
           try {
-            if (background)
-              expect(expectJsonResult(await fixture.runCli(['remote', 'stop', '--json']))).toEqual({
-                stopped: true,
+            await owner.start();
+            const { device, paired } = await owner.pair();
+            await owner.stop();
+            const grantBytes = () => {
+              const db = new Database(path.join(fixture.globalDir, 'remote/remote.db'), {
+                readonly: true,
+                fileMustExist: true,
               });
+              try {
+                return Buffer.from(
+                  JSON.stringify(db.prepare('SELECT * FROM grants ORDER BY client_id').all())
+                );
+              } finally {
+                db.close();
+              }
+            };
+            const grants = grantBytes();
+            const oldRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
+            background = true; // Cleanup owns even an uncertain handoff.
+            const ready = expectJsonResult(
+              await fixture.runCli(['remote', 'serve', '--background', '--json'])
+            );
+            const beforeStatus = expectJsonResult(
+              await fixture.runCli(['remote', 'status', '--json'])
+            );
+            const second = await createArtifact(
+              fixture,
+              '0.1.0-alpha.2',
+              new Uint8Array([1]),
+              'remote'
+            );
+            const upgraded = await install(second);
+            expect(upgraded).toMatchObject({
+              changed: true,
+              restartHint: 'Remote upgraded and restarted in the background.',
+            });
+            expect(expectJsonResult(await fixture.runCli(['remote', 'status', '--json']))).toEqual(
+              beforeStatus
+            );
+            const current = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
+            expect(current).not.toBe(oldRelease);
+            const oldBytes = readFileSync(path.join(oldRelease, 'tmt-remote'));
+            expect(
+              readFileSync(path.join(current, 'tmt-remote')).equals(
+                Buffer.concat([oldBytes, Buffer.from([1])])
+              )
+            ).toBe(true);
+            const origin = String(beforeStatus.origin);
+            const response = await fetch(`${origin}/sdk/mount`, {
+              method: 'POST',
+              headers: { Origin: origin, 'content-type': 'application/json' },
+              body: JSON.stringify({ path: '/' }),
+            });
+            expect(response.status).toBe(200);
+            const admission = (await response.json()) as Record<string, unknown>;
+            expect(admission.address).toBe(ready.address);
+            expect(admission.machineId).toBe(ready.machineId);
+            expect(admission.windowId).not.toBe(ready.windowId);
+            expect(admission.windowId).toMatch(
+              /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+            );
+            expect(grantBytes().equals(grants)).toBe(true);
+            // This is the real restarted door, not RemoteOwner's foreground process.
+            // Open against its newly admitted window and keep that same session alive.
+            const windowId = text(admission.windowId);
+            const opening = requestEnvelope(
+              device,
+              paired,
+              windowId,
+              'new',
+              '0',
+              'session.open',
+              { clientNonce: randomBytes(16).toString('hex') },
+              { kind: 'control' }
+            );
+            const opened = await owner.post('append', opening);
+            expect(opened.status).toBe(200);
+            const openedSession = verifyResponse(opened.body, opening, paired);
+            const session = new RemoteSession(
+              owner,
+              device,
+              paired,
+              text(openedSession.payload.sessionId),
+              windowId,
+              openedSession.envelope.sequence
+            );
+            const expectedIdentity = expect.objectContaining({
+              id: identity.id,
+              name: 'core-pruning-control',
+            });
+            expect((await session.append('agents.list', {})).identities).toContainEqual(
+              expectedIdentity
+            );
+            // Metadata activations of this verified archive allocate generations just
+            // like an upgrade. The third activation prunes the door's original Core.
+            await installCore(sandbox, core, corePrefix, ['--pin']);
+            await installCore(sandbox, core, corePrefix, ['--unpin']);
+            expect(existsSync(path.dirname(originalCore))).toBe(false);
+            expect(realpathSync(installed.executable)).not.toBe(originalCore);
+            expect((await session.append('agents.list', {})).identities).toContainEqual(
+              expectedIdentity
+            );
+            // Reuse the exact artifact: equal-version installs still verify integrity.
+            expect(await install(second)).not.toHaveProperty('restartHint');
           } finally {
-            await owner.dispose();
+            try {
+              if (background)
+                expect(
+                  expectJsonResult(await fixture.runCli(['remote', 'stop', '--json']))
+                ).toEqual({
+                  stopped: true,
+                });
+            } finally {
+              await owner.dispose();
+            }
           }
+        },
+        {
+          mode: 'input-log',
+          executableEnv: {
+            TMT_TEST_CLI: JSON.stringify({ executable: installed.executable, args: [] }),
+          },
         }
-      },
-      { mode: 'input-log' }
-    );
-  }, 45_000);
+      );
+    });
+  }, 90_000);
 
   it('replaces real release bytes, hints once and preserves the door, paired device and held approval', async () => {
     await withE2EFixture(
