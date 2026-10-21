@@ -35,8 +35,10 @@ in `contracts/`.
 ## Candidate discovery
 
 The [discovery v1 contract](../../../../contracts/discovery-v1.md) owns the public
-shape and bounds. `tmt-core::discovery` owns native/UUID expectation values;
-`tmux::discovery` reads escaped topology without initializing a server marker,
+shape and bounds. `tmt-core::discovery` owns native/UUID expectation values and
+the observation shape; the fence starts with the pane's host, so one host's
+expectation never admits another host's pane, and guarded add and discovery
+storage look up bindings by that host. `tmux::discovery` reads escaped topology without initializing a server marker,
 with one batched native-start observation. `storage::discovery` reads only the
 existing schema/rows, without reconciliation, creation or migration. Unknown
 markers and conflicting rows supply no adoption authority. Explicit external inventory selections remain unsupported without executing

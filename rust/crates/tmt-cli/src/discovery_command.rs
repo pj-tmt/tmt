@@ -10,11 +10,12 @@ use tmt_adapters::{
     config::ConfigPaths,
     host::{CallerEnvironment, Host},
 };
-use tmt_core::discovery::*;
+use tmt_core::{discovery::*, host::HostKind};
 
-pub(super) fn candidate_document(c: &DiscoveryCandidate) -> Value {
+/// `host` is the observed host, for a row without a fence.
+pub(super) fn candidate_document(c: &DiscoveryCandidate, host: HostKind) -> Value {
     let fence = c.fence.as_ref();
-    json!({"host":tmt_core::host::HostKind::Tmux.as_str(),"socket":fence.map(|f|&f.socket),"server":fence.map(|f|json!({"pid":f.server.pid(),"start":f.server.start_identity(),"identity":f.server_id})),"session":c.session,"window":c.window,"pane":c.pane,"target":c.target,"native":fence.map(|f|json!({"pid":f.process.pid(),"start":f.process.start_identity()})),"runtime":{"driver":fence.and_then(|f|f.runtime.as_ref()),"state":"unknown","reason":"executable_hint_is_advisory","recordedState":c.identity.as_ref().and_then(|e|e.binding.as_ref()).map(|b|b.session.state.as_str())},"identity":c.identity.as_ref().map(|e|json!({"id":e.identity.id,"name":e.identity.name,"binding":e.binding.as_ref().map(|b|&b.id)})),"state":c.state,"reason":c.reason,"duplicate":c.duplicate,"display":{"title":c.title,"command":c.command,"cwd":c.cwd,"truncated":c.text_truncated},"adoptable":c.adoptable(),"expect":fence.filter(|_|c.adoptable()).map(DiscoveryTarget::digest)})
+    json!({"host":fence.map_or(host, |f| f.host).as_str(),"socket":fence.map(|f|&f.socket),"server":fence.map(|f|json!({"pid":f.server.pid(),"start":f.server.start_identity(),"identity":f.server_id})),"session":c.session,"window":c.window,"pane":c.pane,"target":c.target,"native":fence.map(|f|json!({"pid":f.process.pid(),"start":f.process.start_identity()})),"runtime":{"driver":fence.and_then(|f|f.runtime.as_ref()),"state":"unknown","reason":"executable_hint_is_advisory","recordedState":c.identity.as_ref().and_then(|e|e.binding.as_ref()).map(|b|b.session.state.as_str())},"identity":c.identity.as_ref().map(|e|json!({"id":e.identity.id,"name":e.identity.name,"binding":e.binding.as_ref().map(|b|&b.id)})),"state":c.state,"reason":c.reason,"duplicate":c.duplicate,"display":{"title":c.title,"command":c.command,"cwd":c.cwd,"truncated":c.text_truncated},"adoptable":c.adoptable(),"expect":fence.filter(|_|c.adoptable()).map(DiscoveryTarget::digest)})
 }
 
 pub fn execute(
@@ -38,8 +39,11 @@ pub fn execute(
             };
         match host.discover(socket, None, deadline) {
             Ok(Some(mut observation)) => {
+                let (status, reason) = observation.source.status();
+                source["host"] = observation.host.as_str().into();
                 source["socket"] = observation.socket.clone().into();
-                source["status"] = "ok".into();
+                source["status"] = status.into();
+                source["reason"] = reason.into();
                 match ConfigPaths::discover() {
                     Ok(paths) => {
                         if let Err(error) = tmt_adapters::discovery::annotate(
@@ -65,7 +69,7 @@ pub fn execute(
                 let mut rows = Vec::new();
                 let mut bytes = 1024;
                 for c in &observation.candidates {
-                    let row = candidate_document(c);
+                    let row = candidate_document(c, observation.host);
                     let size = row.to_string().len() + 1;
                     if bytes + size > MAX_RESULT_BYTES {
                         observation.truncated = true;
@@ -94,6 +98,7 @@ pub fn execute(
                 if error.cleanup_failed() {
                     return Failure::new("CLEANUP_ERROR", error.to_string(), 1).publish(mode);
                 }
+                source["host"] = host.kind().as_str().into();
                 source["status"] = tmt_adapters::discovery::source_status(&error, socket).into();
                 source["reason"] = error.to_string().into();
                 // An unavailable bounded acquisition never claims a complete scan.
@@ -126,4 +131,50 @@ pub fn execute(
         }
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tmt_core::endpoint::ProcessIncarnation;
+
+    fn candidate(fence: Option<DiscoveryTarget>) -> DiscoveryCandidate {
+        DiscoveryCandidate {
+            pane: "term_7".into(),
+            session: None,
+            window: None,
+            target: None,
+            title: String::new(),
+            command: String::new(),
+            cwd: String::new(),
+            fence,
+            identity: None,
+            state: "unknown",
+            reason: None,
+            duplicate: false,
+            text_truncated: false,
+        }
+    }
+
+    #[test]
+    fn a_row_names_its_fenced_host_or_else_the_observed_host() {
+        let herdr = HostKind::parse("herdr").unwrap();
+        let fence = DiscoveryTarget {
+            host: herdr,
+            socket: "/tmp/herdr.sock".into(),
+            server: ProcessIncarnation::new(1, "server-start").unwrap(),
+            server_id: None,
+            server_start_time: "server-start".into(),
+            pane: "term_7".into(),
+            process: ProcessIncarnation::new(2, "pane-start").unwrap(),
+            marker: None,
+            runtime: None,
+        };
+        let row = candidate_document(&candidate(Some(fence.clone())), HostKind::Tmux);
+        assert_eq!(row["host"], "herdr");
+        assert_eq!(row["expect"], fence.digest());
+        let row = candidate_document(&candidate(None), herdr);
+        assert_eq!(row["host"], "herdr");
+        assert_eq!(row["expect"], Value::Null);
+    }
 }

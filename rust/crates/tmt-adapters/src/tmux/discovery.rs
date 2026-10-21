@@ -6,13 +6,8 @@ use std::{collections::BTreeMap, time::Instant};
 use tmt_core::{
     discovery::*,
     endpoint::{valid_process_id, valid_server_id},
+    host::HostKind,
 };
-
-pub struct DiscoveryObservation {
-    pub socket: String,
-    pub candidates: Vec<DiscoveryCandidate>,
-    pub truncated: bool,
-}
 
 // Escape framing characters on the server, without shell evaluation or recursive
 // format expansion. Every display value is decoded back to its literal bytes.
@@ -122,6 +117,8 @@ impl<R: CommandRunner> Tmux<R> {
             // source failure. Unscoped empty topology remains unknown.
             if pane.is_some() {
                 return Ok(DiscoveryObservation {
+                    host: HostKind::Tmux,
+                    source: DiscoverySource::Ok,
                     socket: socket.unwrap_or_default().into(),
                     candidates: Vec::new(),
                     truncated: false,
@@ -166,6 +163,7 @@ impl<R: CommandRunner> Tmux<R> {
                     .get(&server_pid)
                     .zip(starts.get(&pane_pid))
                     .map(|(server, process)| DiscoveryTarget {
+                        host: HostKind::Tmux,
                         socket: socket_path.clone(),
                         server: server.clone(),
                         server_id: valid_server_id(&row[2]).then(|| row[2].clone()),
@@ -206,6 +204,8 @@ impl<R: CommandRunner> Tmux<R> {
             });
         }
         Ok(DiscoveryObservation {
+            host: HostKind::Tmux,
+            source: DiscoverySource::Ok,
             socket: socket_path,
             candidates,
             truncated,
