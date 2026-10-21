@@ -188,14 +188,6 @@ input {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
-.screen-reader-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 
 /* Origin-local public references and static switcher; foreign entries are never probed. */
 .remote-registry {
@@ -279,16 +271,6 @@ input {
   display: grid;
   gap: 32px;
 }
-.home-heading {
-  margin: 0 0 8px;
-  color: var(--tmt-ui-color-secondary);
-  font: 600 12px/1.2 var(--tmt-ui-font-body);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.home .tmt-ui-list-leading[data-tone='waiting'] {
-  color: var(--tmt-ui-color-waiting);
-}
 .home-note {
   color: var(--tmt-ui-color-secondary);
   font-size: 13px;
@@ -303,48 +285,11 @@ input {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-header-action-size);
 }
-.usage-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-.usage-table th,
-.usage-table td {
-  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  text-align: right;
-}
-.usage-table th:first-child {
-  text-align: left;
-}
-.usage-table thead th {
-  color: var(--tmt-ui-color-secondary);
-  font-weight: 600;
-}
-.usage-table td {
-  font-family: var(--tmt-ui-font-mono);
-}
-.ops-section {
-  display: grid;
-  gap: var(--tmt-ui-space-s);
-}
-.ops-section > .tmt-ui-list + .home-heading {
-  margin-top: var(--tmt-ui-space-l);
-}
 .ops-section .tmt-ui-list-updated {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-}
-.ops-mark[data-tone='working'] {
-  color: var(--tmt-ui-color-working);
-}
-.ops-mark[data-tone='waiting'] {
-  color: var(--tmt-ui-color-waiting);
-}
-.ops-mark[data-tone='blocked'] {
-  color: var(--tmt-ui-color-blocked);
 }
 
 /* The brand, a divider, then the page title, as in Colab's header. */

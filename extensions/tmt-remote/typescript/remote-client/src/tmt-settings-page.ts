@@ -4,6 +4,7 @@
  * read-only; rows are the shared list rows and every state is a mark and a word.
  */
 import { notAvailable } from './not-available.js';
+import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
 import type { ShellAnswer } from '../../../../../design/browser-ui/src/shell.js';
 import {
   THEMES,
@@ -140,7 +141,7 @@ function row(item: SettingsRow): HTMLLIElement {
   const name = document.createElement('div');
   name.className = 'tmt-ui-list-title';
   const label = document.createElement('span');
-  label.className = 'tmt-settings-label';
+  label.className = 'tmt-ui-list-label';
   if (item.href) {
     const link = document.createElement('a');
     link.href = item.href;
@@ -150,7 +151,7 @@ function row(item: SettingsRow): HTMLLIElement {
   name.append(label);
   if (item.detail) {
     const detail = document.createElement('span');
-    detail.className = 'tmt-settings-detail';
+    detail.className = 'tmt-ui-list-description';
     detail.textContent = item.detail;
     name.append(detail);
   }
@@ -166,7 +167,7 @@ function row(item: SettingsRow): HTMLLIElement {
 
 function heading(text: string): HTMLHeadingElement {
   const node = document.createElement('h2');
-  node.className = 'home-heading';
+  node.className = browserUiClasses.sectionHeading;
   node.textContent = text;
   return node;
 }

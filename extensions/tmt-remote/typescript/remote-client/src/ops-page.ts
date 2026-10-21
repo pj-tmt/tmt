@@ -1,6 +1,7 @@
 /** The Ops web view, read-only: Agents by squad, Squads, Timers and Ops settings, one section at a
  * time from the module menu. Rows are the shared list rows; every state is a mark and a word. */
 import type { RemoteShell } from './remote-shell.js';
+import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
 import { notAvailable } from './not-available.js';
 import { AGENT_STATES, opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 
@@ -17,7 +18,7 @@ function row(mark: string, tone: string, title: string, detail: string, meta = '
   item.className = 'tmt-ui-list-row';
   item.dataset.leading = '';
   const sign = document.createElement('div');
-  sign.className = 'tmt-ui-list-leading ops-mark';
+  sign.className = 'tmt-ui-list-leading';
   sign.dataset.tone = tone;
   sign.setAttribute('aria-hidden', 'true');
   sign.textContent = mark;
@@ -47,7 +48,7 @@ function list(rows: HTMLLIElement[]): HTMLUListElement {
 
 function heading(text: string): HTMLHeadingElement {
   const node = document.createElement('h2');
-  node.className = 'home-heading';
+  node.className = browserUiClasses.sectionHeading;
   node.textContent = text;
   return node;
 }

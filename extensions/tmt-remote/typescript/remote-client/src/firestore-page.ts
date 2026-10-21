@@ -1,5 +1,6 @@
 /** Read-only settings presentation; all evidence was validated on the signed SDK lane. */
 import { budget } from 'remote-browser-sdk';
+import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
 import { firestoreTitles, firestoreItems, firestoreReasons } from './firestore.js';
 import type { FirestoreSettingsView } from './management.js';
 const states = {
@@ -22,7 +23,7 @@ function mark(state: keyof typeof states): HTMLElement {
   const [icon, text, tone] = states[state];
   const label = node('span');
   label.dataset.tone = tone;
-  label.className = 'firestore-state';
+  label.className = browserUiClasses.listState;
   const symbol = node('span', icon);
   symbol.setAttribute('aria-hidden', 'true');
   label.append(symbol, document.createTextNode(` ${text}`));
@@ -142,6 +143,7 @@ export function renderFirestore(
   const published = view.firestoreBudget;
   details.append(node('h3', `Published limits as of ${published.readOn}`));
   const table = node('table');
+  table.className = browserUiClasses.table;
   const head = node('tr');
   for (const text of ['Limit', 'Published allowance']) {
     const cell = node('th', text);

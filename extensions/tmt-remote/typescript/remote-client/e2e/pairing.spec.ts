@@ -3598,11 +3598,11 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     await writeFile(recordPath, bytes, { mode: 0o600 });
     await page.goto(`${origin}/remote/settings`);
     await expect(indexItem).toContainText('Firestore indexes:');
-    await expect(indexItem.locator('.firestore-state')).toContainText(mark);
-    await expect(indexItem.locator('.firestore-state [aria-hidden="true"]')).toHaveText(
+    await expect(indexItem.locator('.tmt-ui-list-state')).toContainText(mark);
+    await expect(indexItem.locator('.tmt-ui-list-state [aria-hidden="true"]')).toHaveText(
       state === 'done' ? '✓' : state === 'building' ? '◌' : '○',
     );
-    await expect(indexItem.locator('.firestore-state')).toHaveAttribute(
+    await expect(indexItem.locator('.tmt-ui-list-state')).toHaveAttribute(
       'data-tone',
       state === 'done' ? 'working' : 'waiting',
     );

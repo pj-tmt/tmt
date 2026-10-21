@@ -1,0 +1,31 @@
+.tmt-ui-section {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+/* A section that stands in a stack of settings groups, separated by a rule. */
+.tmt-ui-section[data-divided] {
+  display: block;
+  padding: calc(var(--tmt-ui-space-xl) - 2px) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-section-heading {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font: 600 12px/1.2 var(--tmt-ui-font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.tmt-ui-section-heading[data-variant='title'] {
+  margin: 0 0 var(--tmt-ui-space-m);
+  color: inherit;
+  font: 600 16px/1.5 var(--tmt-ui-font-body);
+  letter-spacing: normal;
+  text-transform: none;
+}
+/* A heading that follows content in the same section opens a new group. */
+.tmt-ui-section > :not(.tmt-ui-section-heading) + .tmt-ui-section-heading {
+  margin-top: var(--tmt-ui-space-l);
+}

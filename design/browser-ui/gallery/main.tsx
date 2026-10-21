@@ -24,6 +24,7 @@ import {
   ToggleSection,
   CheckboxSection,
 } from './components.js';
+import { PageSectionsSection, TablesSection, VisuallyHiddenSection } from './layout.js';
 import { NotificationsSection, OverlaysSection, ShellSection, frameFor } from './frames.js';
 import { UiLayerSection } from './ui-layer.js';
 import { SpinnerCandidates } from './spinner-candidates.js';
@@ -61,6 +62,9 @@ function Gallery() {
         <MenusSection />
         <TabsSection />
         <ListSection />
+        <PageSectionsSection />
+        <TablesSection />
+        <VisuallyHiddenSection />
         <CommandSection />
         <NoticeSection />
         <OverlaysSection />
