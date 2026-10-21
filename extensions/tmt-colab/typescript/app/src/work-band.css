@@ -150,58 +150,57 @@
 }
 .work-controls {
   display: grid;
-  gap: 8px;
-  padding-top: 8px;
+  gap: 16px;
+  padding-top: 16px;
   border-top: 1px solid var(--tmt-ui-surface-rule);
 }
-.work-controls p,
-.work-controls form,
-.work-add {
-  margin: 0;
+.work-control-stack {
+  display: grid;
+  gap: 16px;
 }
-.work-control-row {
+/* A field group: a choice and a field with its actions, the controls sharing one height. */
+.work-controls,
+.work-add {
+  --work-control-height: 2.5rem;
+}
+.work-control-group {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
-  gap: 8px 12px;
+  align-items: flex-end;
+  gap: var(--tmt-ui-toggle-gap);
+  margin: 0;
 }
-.work-controls label,
-.work-add label {
-  display: grid;
-  gap: 2px;
-  color: var(--c-muted);
-  font-size: 12px;
+.work-control-group .tmt-ui-field-control,
+.work-control-group .tmt-ui-menu-trigger,
+.work-control-group .tmt-ui-action,
+.work-add .tmt-ui-field-control,
+.work-add .tmt-ui-action {
+  min-height: var(--work-control-height);
 }
-.work-controls input,
-.work-controls select,
-.work-controls textarea,
-.work-add input {
-  font: inherit;
-  color: var(--c-text);
-  background: var(--c-sheet);
-  border: 1px solid var(--tmt-ui-color-edge);
-  border-radius: 0;
-  padding: 5px 8px;
+.work-control-group .tmt-ui-field,
+.work-add .tmt-ui-field {
+  flex: 1 1 18em;
+  min-width: 0;
+  max-width: 36em;
+}
+.work-field-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--tmt-ui-toggle-gap);
+}
+.work-field-row > .tmt-ui-field-control {
+  flex: 1 1 auto;
   min-width: 0;
 }
-.work-control-edit {
-  display: grid;
-  gap: 8px;
-}
-.work-control-edit input,
-.work-control-edit textarea {
+.work-control-edit .tmt-ui-field-control,
+.work-control-stack .tmt-ui-field-control {
   width: 100%;
 }
 .work-control-note {
-  color: var(--c-muted);
-}
-.work-control-error {
-  margin: 0;
-  color: var(--c-blocked);
-  overflow-wrap: anywhere;
+  color: var(--tmt-ui-color-secondary);
 }
 .work-add {
-  padding: 12px 0 4px;
+  padding: 16px 0 4px;
   border-top: 1px solid var(--tmt-ui-surface-rule);
 }
 @media (max-width: 640px) {

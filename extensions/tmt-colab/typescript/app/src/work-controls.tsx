@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { BrowserAction, BrowserField, BrowserMenu } from '@tmt/browser-ui/react';
+import { useCallback, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { saveMessage, type WorkAction } from './save.js';
 import { text } from './strings.js';
 import type { PageBinding } from './transport.js';
@@ -54,6 +55,62 @@ function kept(task: Task): Body {
   };
 }
 
+function TextField({
+  label: name,
+  value,
+  onChange,
+  maxLength,
+  disabled,
+  error,
+  multiline,
+  trailing,
+}: {
+  label: string;
+  value: string;
+  onChange(value: string): void;
+  maxLength: number;
+  disabled?: boolean;
+  error?: string;
+  multiline?: boolean;
+  /** Actions on the field's own row, so the control and its action share one height and the
+   * refusal sits under both. */
+  trailing?: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <BrowserField
+      controlId={`${id}-control`}
+      label={name}
+      error={error === undefined ? undefined : <span role="alert">{error}</span>}
+      errorId={`${id}-error`}
+      invalid={error !== undefined}
+      renderControl={(field) =>
+        multiline ? (
+          <textarea
+            {...field}
+            rows={4}
+            value={value}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        ) : (
+          <span className="work-field-row">
+            <input
+              {...field}
+              value={value}
+              maxLength={maxLength}
+              disabled={disabled}
+              autoComplete="off"
+              onChange={(event) => onChange(event.target.value)}
+            />
+            {trailing}
+          </span>
+        )
+      }
+    />
+  );
+}
+
 export function TaskControls({
   id,
   task,
@@ -103,181 +160,218 @@ export function TaskControls({
   return (
     <div className="work-controls">
       {waitsForSignoff(task, state) && (
-        <p className="work-control-row">
-          <button type="button" disabled={busy} onClick={() => setState('done')}>
-            {label.signOff}
-          </button>
-          <button type="button" disabled={busy} onClick={() => setState('in-progress')}>
-            {label.sendBack}
-          </button>
-        </p>
+        <div className="work-control-group">
+          <BrowserAction
+            type="button"
+            variant="primary"
+            label={label.signOff}
+            disabled={busy}
+            onActivate={() => void setState('done')}
+          />
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={label.sendBack}
+            disabled={busy}
+            onActivate={() => void setState('in-progress')}
+          />
+        </div>
       )}
-      <p className="work-control-row">
-        <label>
-          {label.state}
-          <select
-            value={reason === undefined ? state : 'blocked'}
-            disabled={busy || follows}
-            onChange={(event) => {
-              const next = event.target.value as TaskState;
-              if (next === 'blocked') setReason(task.reason ?? '');
-              else void setState(next);
-            }}
-          >
-            {TASK_STATES.map((value) => (
-              <option key={value} value={value}>
-                {text.workBand.taskState[value]}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="work-control-group">
+        <BrowserMenu
+          label={label.state}
+          valueLabel={text.workBand.taskState[reason === undefined ? state : 'blocked']}
+          disabled={busy || follows}
+          items={TASK_STATES.map((value) => ({
+            key: value,
+            label: text.workBand.taskState[value],
+            role: 'menuitemradio' as const,
+            checked: value === (reason === undefined ? state : 'blocked'),
+          }))}
+          onSelect={(next) => {
+            if (next === 'blocked') setReason(task.reason ?? '');
+            else void setState(next);
+          }}
+        />
         {follows && <span className="work-control-note">{label.followsPage}</span>}
-      </p>
+      </div>
       {reason !== undefined && (
         <form
-          className="work-control-row"
+          className="work-control-group"
           onSubmit={(event) => {
             event.preventDefault();
             if (reason.trim()) void setState('blocked', reason.trim());
           }}
         >
-          <label>
-            {label.reason}
-            <input
-              value={reason}
-              maxLength={256}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={busy || !reason.trim()}>
-            {label.block}
-          </button>
-          <button type="button" disabled={busy} onClick={() => setReason(undefined)}>
-            {label.cancel}
-          </button>
+          <TextField
+            label={label.reason}
+            value={reason}
+            maxLength={256}
+            onChange={setReason}
+            trailing={
+              <>
+                <BrowserAction
+                  type="submit"
+                  variant="primary"
+                  label={label.block}
+                  disabled={busy || !reason.trim()}
+                  onActivate={() => undefined}
+                />
+                <BrowserAction
+                  type="button"
+                  variant="text"
+                  label={label.cancel}
+                  disabled={busy}
+                  onActivate={() => setReason(undefined)}
+                />
+              </>
+            }
+          />
         </form>
       )}
-      <form className="work-control-row" onSubmit={assign}>
-        <label>
-          {label.assignTo}
-          <select
-            value={kind}
-            disabled={busy}
-            onChange={(event) => setKind(event.target.value as 'agent' | 'person')}
-          >
-            <option value="agent">{label.agent}</option>
-            <option value="person">{label.person}</option>
-          </select>
-        </label>
-        <input
-          aria-label={label.assigneeName}
+      <form className="work-control-group" onSubmit={assign}>
+        <BrowserMenu
+          label={label.assignTo}
+          valueLabel={kind === 'agent' ? label.agent : label.person}
+          disabled={busy}
+          items={(['agent', 'person'] as const).map((value) => ({
+            key: value,
+            label: value === 'agent' ? label.agent : label.person,
+            role: 'menuitemradio' as const,
+            checked: value === kind,
+          }))}
+          onSelect={(key) => setKind(key === 'person' ? 'person' : 'agent')}
+        />
+        <TextField
+          label={label.assigneeName}
           value={name}
           maxLength={128}
           disabled={busy}
-          onChange={(event) => setName(event.target.value)}
+          onChange={setName}
+          trailing={
+            <>
+              <BrowserAction
+                type="submit"
+                variant="primary"
+                label={label.assign}
+                disabled={busy || !name.trim()}
+                onActivate={() => undefined}
+              />
+              {task.assignee && (
+                <BrowserAction
+                  type="button"
+                  variant="text"
+                  label={label.unassign}
+                  disabled={busy}
+                  onActivate={() => void run('task.assign', { taskId: id })}
+                />
+              )}
+            </>
+          }
         />
-        <button type="submit" disabled={busy || !name.trim()}>
-          {label.assign}
-        </button>
-        {task.assignee && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void run('task.assign', { taskId: id })}
-          >
-            {label.unassign}
-          </button>
-        )}
       </form>
       {editing ? (
-        <form className="work-control-edit" onSubmit={save}>
-          <label>
-            {label.title}
-            <input
-              value={title}
-              maxLength={120}
-              onChange={(event) => setTitle(event.target.value)}
+        <form className="work-control-stack" onSubmit={save}>
+          <TextField label={label.title} value={title} maxLength={120} onChange={setTitle} />
+          <TextField
+            label={label.detail}
+            value={detail}
+            maxLength={4096}
+            multiline
+            onChange={setDetail}
+          />
+          <div className="work-control-group">
+            <BrowserAction
+              type="submit"
+              variant="primary"
+              label={label.save}
+              disabled={busy || !title.trim()}
+              onActivate={() => undefined}
             />
-          </label>
-          <label>
-            {label.detail}
-            <textarea rows={4} value={detail} onChange={(event) => setDetail(event.target.value)} />
-          </label>
-          <p className="work-control-row">
-            <button type="submit" disabled={busy || !title.trim()}>
-              {label.save}
-            </button>
-            <button type="button" disabled={busy} onClick={() => setEditing(false)}>
-              {label.cancel}
-            </button>
-          </p>
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={label.cancel}
+              disabled={busy}
+              onActivate={() => setEditing(false)}
+            />
+          </div>
         </form>
       ) : (
-        <p className="work-control-row">
-          <button
+        <div className="work-control-group">
+          <BrowserAction
             type="button"
+            variant="primary"
+            label={label.edit}
             disabled={busy}
-            onClick={() => {
+            onActivate={() => {
               setTitle(task.title);
               setDetail(task.detail ?? '');
               setEditing(true);
             }}
-          >
-            {label.edit}
-          </button>
+          />
           {removing ? (
             <>
-              <button
+              <BrowserAction
                 type="button"
+                variant="destructive"
+                label={label.confirmRemove(id)}
                 disabled={busy}
-                onClick={() => void run('task.remove', { taskId: id })}
-              >
-                {label.confirmRemove(id)}
-              </button>
-              <button type="button" disabled={busy} onClick={() => setRemoving(false)}>
-                {label.cancel}
-              </button>
+                onActivate={() => void run('task.remove', { taskId: id })}
+              />
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={label.cancel}
+                disabled={busy}
+                onActivate={() => setRemoving(false)}
+              />
             </>
           ) : (
-            <button type="button" disabled={busy} onClick={() => setRemoving(true)}>
-              {label.remove}
-            </button>
+            <BrowserAction
+              type="button"
+              variant="destructive"
+              label={label.remove}
+              disabled={busy}
+              onActivate={() => setRemoving(true)}
+            />
           )}
-        </p>
+        </div>
       )}
     </div>
   );
 }
 
-/** A new task, by title (the serve names it), and the last refusal of any control above. */
+/** A new task, by title (the serve names it). The last refusal of any control is told here, in
+ * this field's error slot, so it is in one place at every width. */
 export function AddTask({ work }: { work: WorkRun }): ReactNode {
   const [title, setTitle] = useState('');
   return (
     <form
-      className="work-control-row work-add"
+      className="work-control-group work-add"
       onSubmit={async (event) => {
         event.preventDefault();
         if (title.trim() && (await work.run('task.add', { task: { title: title.trim() } })))
           setTitle('');
       }}
     >
-      <label>
-        {label.newTask}
-        <input
-          value={title}
-          maxLength={120}
-          disabled={work.busy}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-      </label>
-      <button type="submit" disabled={work.busy || !title.trim()}>
-        {label.add}
-      </button>
-      {work.error && (
-        <span className="work-control-error" role="alert">
-          {work.error}
-        </span>
-      )}
+      <TextField
+        label={label.newTask}
+        value={title}
+        maxLength={120}
+        disabled={work.busy}
+        error={work.error}
+        onChange={setTitle}
+        trailing={
+          <BrowserAction
+            type="submit"
+            variant="primary"
+            label={label.add}
+            disabled={work.busy || !title.trim()}
+            onActivate={() => undefined}
+          />
+        }
+      />
     </form>
   );
 }

@@ -193,6 +193,11 @@ for (const [width, height] of [
   }
 }
 
+/** Choose an item of a browser-ui menu by its trigger's name and the item's. */
+async function choose(page: Page, menu: RegExp, item: string) {
+  await page.getByRole('button', { name: menu }).click();
+  await page.getByRole('menuitemradio', { name: item }).click();
+}
 async function openTask(page: Page, id: string) {
   await mountRoute(page, true, true);
   const band = page.getByRole('region', { name: 'Work on this page' });
@@ -216,7 +221,7 @@ test('a state change is sent as one action and shows once the page brings it bac
   page,
 }) => {
   const band = await openTask(page, 'T-2');
-  await band.getByLabel('State').selectOption('in-progress');
+  await choose(page, /^State/, 'In progress');
   await expect(band.locator('.work-row', { hasText: 'T-2' }).locator('.work-state')).toHaveText(
     'In progress',
   );
@@ -227,10 +232,10 @@ test('a state change is sent as one action and shows once the page brings it bac
 
 test('blocking asks for a reason and sends it with the state', async ({ page }) => {
   const band = await openTask(page, 'T-2');
-  await band.getByLabel('State').selectOption('blocked');
-  await expect(band.getByRole('button', { name: 'Block' })).toBeDisabled();
+  await choose(page, /^State/, 'Blocked');
+  await expect(band.getByRole('button', { name: 'Block', exact: true })).toBeDisabled();
   await band.getByLabel('Reason').fill('Waiting for the legal copy');
-  await band.getByRole('button', { name: 'Block' }).click();
+  await band.getByRole('button', { name: 'Block', exact: true }).click();
   await expect(band.locator('.work-detail-state')).toContainText(
     'Blocked · Waiting for the legal copy',
   );
