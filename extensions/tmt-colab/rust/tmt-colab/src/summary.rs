@@ -1,21 +1,23 @@
 //! The owner list's display-only page summary: how many comments a page holds, how many
 //! items await the owner, and who created it. The values come from the owner fold, which is
 //! too slow for a list read, so a serve-process cache holds them: a read replies with what is
-//! fresh and schedules a small background refresh of what is not (contract: Page summary).
+//! fresh and schedules a background drain of every page that is not, newest first (contract:
+//! Page summary).
 //! Nothing here is signed, stored or part of the owner log; a restart refills the cache lazily.
 use crate::{
     Result, decoder, discussion, export::conversations::Conversations, page, page::save::Source,
 };
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
 
-/// Stale pages one read schedules for refresh; the worker takes them one at a time.
+/// Stale pages the drain takes before it reads the catalog again, so a page that changed meanwhile
+/// is served next; the worker folds them one at a time.
 pub const REFRESH_PAGES: usize = 8;
 /// The browser's answer to a question is an ordinary comment that starts this way; it is not a
 /// comment about the page, so the count leaves it out.
@@ -204,19 +206,16 @@ impl SummaryCache {
             },
         );
     }
-    /// At most `limit` pages without a fresh summary, as (page, fingerprint): pages that have not
-    /// failed at their current fingerprint first, then the failed ones, each in page order. Pages
-    /// that no longer exist are dropped from the cache.
-    pub fn stale(
-        &self,
-        fingerprints: &BTreeMap<String, String>,
-        limit: usize,
-    ) -> Vec<(String, String)> {
+    /// At most `limit` of `pages` (page, fingerprint) without a fresh summary, in the order given:
+    /// those that have not failed at their current fingerprint first, then the failed ones. Pages
+    /// that are not in `pages` any more are dropped from the cache.
+    pub fn stale(&self, pages: &[(String, String)], limit: usize) -> Vec<(String, String)> {
         let mut entries = self.lock();
-        entries.retain(|page, _| fingerprints.contains_key(page));
+        let known: HashSet<&str> = pages.iter().map(|(page, _)| page.as_str()).collect();
+        entries.retain(|page, _| known.contains(page.as_str()));
         let mut fresh_failures = Vec::new();
         let mut stale = Vec::new();
-        for (page, fingerprint) in fingerprints {
+        for (page, fingerprint) in pages {
             match entries
                 .get(page)
                 .filter(|entry| entry.fingerprint == *fingerprint)
@@ -303,6 +302,92 @@ pub fn refresh(
                 require_fingerprint(&source, page, fingerprint)?;
                 Ok(projection)
             });
+        });
+    // A thread that could not start drops its closure, and with it the worker claim.
+    drop(spawned);
+}
+
+/// The catalog's pages with their fingerprints, the most recently updated first (then by page ID),
+/// so the pages a person is working on fill the list before old ones do. A page without a
+/// fingerprint is left out.
+pub fn recent_first(
+    catalog: &Value,
+    fingerprints: &BTreeMap<String, String>,
+) -> Vec<(String, String)> {
+    let mut rows: Vec<(u64, &str)> = catalog["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|page| {
+            Some((
+                page["lastUpdateAtMs"].as_u64().unwrap_or(0),
+                page["pageId"].as_str()?,
+            ))
+        })
+        .collect();
+    rows.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(b.1)));
+    rows.into_iter()
+        .filter_map(|(_, id)| Some((id.to_owned(), fingerprints.get(id)?.clone())))
+        .collect()
+}
+
+/// Folds every stale page, `REFRESH_PAGES` at a time, until none is left that this drain has not
+/// tried. `order` reads the catalog again before each pass (newest first), so a page that changed
+/// during the drain is served next; a failure leaves a page without a fresh entry, and the drain
+/// never tries one page twice, so it always ends.
+fn drain_with(
+    cache: &SummaryCache,
+    mut order: impl FnMut() -> Result<Vec<(String, String)>>,
+    mut summarize: impl FnMut(&str, &str) -> Result<SummaryProjection>,
+) {
+    let mut tried: HashSet<(String, String)> = HashSet::new();
+    loop {
+        let Ok(pages) = order() else { return };
+        let batch: Vec<_> = cache
+            .stale(&pages, usize::MAX)
+            .into_iter()
+            .filter(|page| !tried.contains(page))
+            .take(REFRESH_PAGES)
+            .collect();
+        if batch.is_empty() {
+            return;
+        }
+        tried.extend(batch.iter().cloned());
+        run(cache, &batch, &mut summarize);
+    }
+}
+
+/// Schedules a drain of every stale page on one background worker with its own read-only source,
+/// unless a worker is already running. Never blocks the caller.
+pub fn drain(cache: &Arc<SummaryCache>, open: &page::save::SourceOpener) {
+    let Some(worker) = cache.claim() else { return };
+    let (cache, open) = (Arc::clone(cache), Arc::clone(open));
+    let spawned = std::thread::Builder::new()
+        .name("colab-summary".into())
+        .spawn(move || {
+            let _worker = worker;
+            let Ok(mut source) = open() else { return };
+            let space = source.keyring.space_id.clone();
+            let owner = source.keyring.owner_public();
+            let order = |source: &Source| -> Result<Vec<(String, String)>> {
+                let (catalog, fingerprints) = source.store.owner_read(&space, &owner, |tx| {
+                    Ok((tx.page_list()?, tx.page_fingerprints()?))
+                })?;
+                Ok(recent_first(&catalog, &fingerprints))
+            };
+            // The fold needs the source mutably and the order reads it, so each pass takes turns.
+            let source = std::cell::RefCell::new(&mut source);
+            drain_with(
+                &cache,
+                || order(&source.borrow()),
+                |page, fingerprint| {
+                    let mut source = source.borrow_mut();
+                    require_fingerprint(&source, page, fingerprint)?;
+                    let projection = summarize_details(&mut source, page)?;
+                    require_fingerprint(&source, page, fingerprint)?;
+                    Ok(projection)
+                },
+            );
         });
     // A thread that could not start drops its closure, and with it the worker claim.
     drop(spawned);
@@ -447,7 +532,7 @@ mod tests {
         assert_eq!(json["needsYou"], 0);
     }
 
-    fn fingerprints(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    fn fingerprints(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs
             .iter()
             .map(|(page, fp)| ((*page).to_owned(), (*fp).to_owned()))
@@ -512,7 +597,7 @@ mod tests {
     fn a_refresh_takes_at_most_the_limit_and_forgets_deleted_pages() {
         let cache = SummaryCache::default();
         cache.put("gone", "1", Some(summary(1).into()));
-        let map: BTreeMap<_, _> = (b'a'..=b'k')
+        let map: Vec<_> = (b'a'..=b'k')
             .map(|c| ((c as char).to_string(), "1".to_owned()))
             .collect();
         let stale = cache.stale(&map, REFRESH_PAGES);
@@ -573,6 +658,155 @@ mod tests {
             cache.stale(&fingerprints(&[("a", "1"), ("b", "1")]), 8),
             vec![("a".to_owned(), "1".to_owned())]
         );
+    }
+
+    fn fp(pages: &[&str]) -> Vec<(String, String)> {
+        pages
+            .iter()
+            .map(|page| ((*page).to_owned(), "1".to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn the_catalog_is_served_newest_first_and_skips_a_page_without_a_fingerprint() {
+        let catalog = json!({"pages":[
+            {"pageId":"a","lastUpdateAtMs":10},
+            {"pageId":"b","lastUpdateAtMs":30},
+            {"pageId":"c","lastUpdateAtMs":30},
+            {"pageId":"d"},
+            {"pageId":"e","lastUpdateAtMs":50}
+        ]});
+        let fingerprints: BTreeMap<String, String> = ["a", "b", "c", "d"]
+            .iter()
+            .map(|page| ((*page).to_owned(), format!("fp-{page}")))
+            .collect();
+        let order: Vec<_> = recent_first(&catalog, &fingerprints)
+            .into_iter()
+            .map(|(page, fingerprint)| format!("{page}:{fingerprint}"))
+            .collect();
+        // Newest first, ties by page ID, a page with no update time last; `e` has no fingerprint.
+        assert_eq!(order, ["b:fp-b", "c:fp-c", "a:fp-a", "d:fp-d"]);
+        assert!(recent_first(&json!({}), &BTreeMap::new()).is_empty());
+    }
+
+    #[test]
+    fn a_drain_folds_every_stale_page_newest_first_in_passes_of_the_refresh_size() {
+        let cache = SummaryCache::default();
+        let names: Vec<String> = (0..20).map(|n| format!("p{n:02}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let order = fp(&refs);
+        let mut calls = Vec::new();
+        let mut reads = 0;
+        drain_with(
+            &cache,
+            || {
+                reads += 1;
+                Ok(order.clone())
+            },
+            |page, _| {
+                calls.push(page.to_owned());
+                Ok(summary(1).into())
+            },
+        );
+        assert_eq!(calls, names, "in the order given, none twice");
+        // 20 pages in passes of 8 are three folds' worth of reads, plus the one that finds none.
+        assert_eq!(reads, 4);
+        assert!(cache.stale(&order, usize::MAX).is_empty());
+    }
+
+    #[test]
+    fn a_page_that_changes_during_a_drain_is_served_before_the_older_pages_left() {
+        let cache = SummaryCache::default();
+        let names: Vec<String> = (0..12).map(|n| format!("p{n:02}")).collect();
+        let mut passes = 0;
+        let mut calls = Vec::new();
+        drain_with(
+            &cache,
+            || {
+                passes += 1;
+                let mut order: Vec<(String, String)> =
+                    names.iter().map(|n| (n.clone(), "1".to_owned())).collect();
+                // After the first pass the last (oldest) page is edited: a new fingerprint, and now
+                // the newest, so the next pass starts with it.
+                if passes > 1 {
+                    order.retain(|(page, _)| page != "p11");
+                    order.insert(0, ("p11".to_owned(), "2".to_owned()));
+                }
+                Ok(order)
+            },
+            |page, fingerprint| {
+                calls.push(format!("{page}:{fingerprint}"));
+                Ok(summary(1).into())
+            },
+        );
+        // The oldest page changed after the first pass, so it is folded at its new fingerprint first
+        // in the second, ahead of the pages left, and never at the old one.
+        let mut expected: Vec<String> = (0..REFRESH_PAGES).map(|n| format!("p{n:02}:1")).collect();
+        expected.extend(["p11:2", "p08:1", "p09:1", "p10:1"].map(str::to_owned));
+        assert_eq!(calls, expected);
+        assert!(cache.get("p11", "2").is_some());
+    }
+
+    #[test]
+    fn a_drain_tries_a_failing_page_once_and_ends() {
+        let cache = SummaryCache::default();
+        let order = fp(&["a", "b", "c"]);
+        let mut calls = Vec::new();
+        drain_with(
+            &cache,
+            || Ok(order.clone()),
+            |page, _| {
+                calls.push(page.to_owned());
+                if page == "b" {
+                    Err(crate::page::Fault::Unavailable.into())
+                } else {
+                    Ok(summary(1).into())
+                }
+            },
+        );
+        assert_eq!(calls, ["a", "b", "c"]);
+        // The failed page is still stale, ordered last, for a later read to retry.
+        assert_eq!(
+            cache.stale(&order, 8),
+            vec![("b".to_owned(), "1".to_owned())]
+        );
+    }
+
+    #[test]
+    fn a_drain_ends_when_the_cache_refuses_a_page_and_when_the_catalog_cannot_be_read() {
+        let cache = SummaryCache::default();
+        let existing: Vec<String> = (0..crate::limits::PAGES).map(|n| n.to_string()).collect();
+        for page in &existing {
+            cache.put(page, "1", Some(summary(1).into()));
+        }
+        let mut order: Vec<(String, String)> = existing
+            .iter()
+            .map(|page| (page.clone(), "1".to_owned()))
+            .collect();
+        order.push(("new".to_owned(), "1".to_owned()));
+        let mut calls = 0;
+        drain_with(
+            &cache,
+            || Ok(order.clone()),
+            |_, _| {
+                calls += 1;
+                Ok(summary(1).into())
+            },
+        );
+        // The full cache drops the page, so it stays stale; the drain still tried it only once.
+        assert_eq!(calls, 1);
+        assert_eq!(cache.get("new", "1"), None);
+
+        let mut folded = 0;
+        drain_with(
+            &SummaryCache::default(),
+            || Err(crate::page::Fault::Unavailable.into()),
+            |_, _| {
+                folded += 1;
+                Ok(summary(1).into())
+            },
+        );
+        assert_eq!(folded, 0);
     }
 
     #[test]

@@ -288,10 +288,12 @@ impl Registration {
             }
         }
         if let Some(open) = &self.summary_source {
-            let stale = self
-                .summaries
-                .stale(&fingerprints, crate::summary::REFRESH_PAGES);
-            crate::summary::refresh(&self.summaries, open, stale);
+            // Every page without a fresh summary is folded in the background, newest first, so the
+            // next read has more of them; this read never waits for it.
+            let order = crate::summary::recent_first(&catalog, &fingerprints);
+            if !self.summaries.stale(&order, 1).is_empty() {
+                crate::summary::drain(&self.summaries, open);
+            }
         }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
     }

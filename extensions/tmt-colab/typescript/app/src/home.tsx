@@ -1,4 +1,5 @@
 import { HomeTitleLink } from './home-titles.js';
+import { useSummaryFill } from './home-fill.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import {
   BrowserAction,
@@ -254,6 +255,10 @@ export function Home() {
   const router = useRouter();
   const { pages: homePages, hints: titleHints } = useHomeSpace(space);
   const port = transport.management;
+  // The owner folds summaries in the background: while an active page has none the list reads again.
+  useSummaryFill(port ? homePages.filter((p) => !p.archived && !p.summary).length : 0, () =>
+    router.invalidate(),
+  );
   const archived = !!port && search.archived === true;
   const sort: PageSort = search.sort ?? 'updated';
   const filter = {

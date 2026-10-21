@@ -562,10 +562,11 @@ is added.
   them in an in-memory `SummaryCache` keyed by each page's fingerprint (epoch, membership head,
   receipt and checkpoint counts, read in the same store transaction as `page_list()`). A list
   read replies at once with the fresh entries, omits `summary` elsewhere and schedules one
-  single-flight background worker over at most `REFRESH_PAGES` stale pages; the worker folds
+  single-flight background worker (`summary::drain`) over every stale page, most recently updated
+  first (`recent_first`), reading that order again every `REFRESH_PAGES` pages; the worker folds
   through a second read-only `page::save::Source` (its own opener, `with_summary_source`), never
-  the request path's store, keyring or decoder. A failed or timed-out page keeps no summary and
-  waits behind pages not yet tried at its fingerprint. The cached `work` is the page's own
+  the request path's store, keyring or decoder. A failed or timed-out page keeps no summary, is
+  tried once per drain, and waits behind pages not yet tried at its fingerprint. The cached `work` is the page's own
   (`work_index::page_work`, the same derivation the CLI index uses); the list read resolves each
   fresh page's row and parent across the fresh entries with `work_links::Graph`, so a followed
   page's stage is never cached. The same projection caches complete reading
@@ -620,7 +621,8 @@ which fills a missing title by the bounded hint read; the ⌘K search is the hea
 groups, reviews) from the admitted owner fold and `page_check::summary`'s static-source quote
 associations (200 ms projection bound), without executing authored code or trusting device labels.
 The shared needs-you vectors pin native/browser parity. A missing summary is unknown, never a false
-zero. Returning through the existing Home loader or reloading reads again; no new polling loop.
+zero. Returning through the existing Home loader or reloading reads again; while a non-archived
+page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`).
 
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
