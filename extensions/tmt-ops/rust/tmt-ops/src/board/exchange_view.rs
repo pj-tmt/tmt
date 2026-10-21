@@ -146,7 +146,7 @@ pub(in crate::board) fn waiting(look: Look) -> Line<'static> {
         Span::raw(" "),
         Span::styled("│", look.role(Role::Dim)),
         Span::raw(" "),
-        Span::styled("waiting for your reply", look.role(Role::Dim)),
+        Span::styled("Needs you", look.role(Role::Dim)),
     ])
 }
 

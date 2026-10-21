@@ -179,7 +179,7 @@ pub(super) fn render_visibility(frame: &mut Frame, app: &App, area: Rect) {
                 (
                     counts.waiting,
                     if ascii { "!" } else { "◆" },
-                    "waiting",
+                    "need you",
                     Role::Waiting,
                 ),
                 (
@@ -470,7 +470,7 @@ pub(super) fn summary_line(app: &App) -> Line<'_> {
         .map_or(0, |attention| attention.waiting);
     if waiting > 0 {
         spans.push(Span::styled(
-            format!(" · {waiting} waiting on you"),
+            format!(" · {waiting} need you"),
             look.role(Role::Text),
         ));
     }

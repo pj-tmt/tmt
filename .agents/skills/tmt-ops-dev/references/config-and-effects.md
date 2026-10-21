@@ -145,7 +145,7 @@ is independent of these chart controls and is reloaded through Config on restart
 `workspace.overview_reverse` reverses its initial direction; optional
 `workspace.agent_pins` retains up to 1,024 canonical identity UUIDs. Pinned agents
 precede the regular flat Agents order and appear in the Agents Pinned tree.
-`workspace.digest_window` selects 24h (default), 7d or lifetime (shown as all time)
+`workspace.digest_window` selects 24h (default, shown and also accepted as 1d), 7d or lifetime (shown as all time)
 for every Digest estimate surface, through the same format-preserving Config CAS;
 `workspace.savings_unit` (`tokens` default, `percent`, `cost`) is the sibling key on the
 same write. `SavingsUnit::shown` reads percent as tokens for lifetime, and `next` skips

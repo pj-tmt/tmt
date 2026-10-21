@@ -5679,7 +5679,7 @@ describe('large board responsiveness', () => {
               const header = screen().split('\n')[0];
               if (width >= 100) expect(header).toContain('OPS / UI');
               if (named || width >= 100) expect(header).toContain('online');
-              if (named) expect(header).toContain('waiting');
+              if (named) expect(header).toContain('need you');
               if (named) expect(header).toContain('blocked');
             },
             { timeout: 10_000, interval: 25 }

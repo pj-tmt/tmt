@@ -5,7 +5,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -37,7 +37,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -69,7 +69,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -101,7 +101,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -133,7 +133,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -165,7 +165,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -197,7 +197,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -229,7 +229,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -261,7 +261,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -293,7 +293,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -325,7 +325,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -357,7 +357,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -389,7 +389,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -421,7 +421,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -453,7 +453,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -485,7 +485,7 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -517,7 +517,7 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
@@ -549,7 +549,7 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
       "",
       "   1  Agents    2  Digest",
       "",
