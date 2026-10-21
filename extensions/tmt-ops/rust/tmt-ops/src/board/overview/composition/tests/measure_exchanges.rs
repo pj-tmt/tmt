@@ -123,3 +123,13 @@ fn the_busiest_agents_come_first_and_the_section_fits_whole_or_not_at_all() {
         }
     }
 }
+
+#[test]
+fn a_lone_agent_still_leaves_one_blank_row_before_timers() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = measured(0, &[]);
+    let screen = paint(&mut app, 160, 48);
+    let rows = section(&screen, 160).expect("the section paints");
+    let timers = rows.iter().position(|row| row.contains("Timers")).unwrap();
+    assert!(rows[timers - 1].trim().is_empty(), "{rows:#?}");
+}

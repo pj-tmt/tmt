@@ -311,12 +311,8 @@ fn exchanges(
             sum: true,
         },
     );
-    let rows = hits
-        .iter()
-        .map(|hit| hit.area.bottom())
-        .max()
-        .map_or(body.y + 1, |bottom| bottom.max(body.y + 2))
-        - area.y;
+    // The rule, the header and one row per agent shown, as far as the body holds them.
+    let rows = 1 + (body.height).min(1 + ranked.len().min(EXCHANGE_LIMIT) as u16);
     let mut strips = app.workspace_strip_hits.borrow_mut();
     strips.extend(hits.into_iter().map(|hit| {
         (
