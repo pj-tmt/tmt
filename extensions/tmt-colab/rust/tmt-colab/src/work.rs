@@ -307,45 +307,75 @@ pub fn derived(work: &Value) -> Result<Derived> {
 /// unreadable) leaves its task showing its own state.
 pub fn derived_with(work: &Value, stage_of: &dyn Fn(&str) -> Option<String>) -> Result<Derived> {
     validate(work)?;
+    Ok(derive(&lines(work)?, stage_of))
+}
+/// One task as the derived values read it: everything a page's stage, progress, workers and sign-offs
+/// are computed from, so a page's derived values can be recomputed without its whole value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Line {
+    pub id: String,
+    pub state: String,
+    pub signoff: bool,
+    pub assignee: Option<Value>,
+    pub child: Option<String>,
+}
+pub fn lines(work: &Value) -> Result<Vec<Line>> {
     let tasks = object(&work["tasks"])?;
+    work["order"]
+        .as_array()
+        .ok_or(Invalid)?
+        .iter()
+        .map(|key| {
+            let task = &tasks[text(key)?];
+            Ok(Line {
+                id: text(key)?.to_owned(),
+                state: text(&task["state"])?.to_owned(),
+                signoff: task.get("needsSignoff").is_some(),
+                assignee: task.get("assignee").cloned(),
+                child: task["child"].as_str().map(str::to_owned),
+            })
+        })
+        .collect()
+}
+pub fn derive(lines: &[Line], stage_of: &dyn Fn(&str) -> Option<String>) -> Derived {
     let mut done = 0;
     let mut signoff = 0;
     let mut working: Vec<Value> = Vec::new();
     let mut states = BTreeMap::new();
-    for key in work["order"].as_array().ok_or(Invalid)? {
-        let task = &tasks[text(key)?];
-        let followed = task["child"]
-            .as_str()
-            .and_then(|page| stage_of(page))
-            .and_then(|stage| linked_state(&stage, task.get("needsSignoff").is_some()));
+    for line in lines {
+        let followed = line
+            .child
+            .as_deref()
+            .and_then(stage_of)
+            .and_then(|stage| linked_state(&stage, line.signoff));
         if let Some(state) = followed {
-            states.insert(text(key)?.to_owned(), state);
+            states.insert(line.id.clone(), state);
         }
-        match followed.or(task["state"].as_str()) {
-            Some("done") => done += 1,
-            Some("in-progress") => {
-                if let Some(assignee) = task.get("assignee").filter(|a| !working.contains(a)) {
+        match followed.unwrap_or(line.state.as_str()) {
+            "done" => done += 1,
+            "in-progress" => {
+                if let Some(assignee) = line.assignee.as_ref().filter(|a| !working.contains(a)) {
                     working.push(assignee.clone());
                 }
             }
-            Some("in-review") if task.get("needsSignoff").is_some() => signoff += 1,
+            "in-review" if line.signoff => signoff += 1,
             _ => {}
         }
     }
-    let total = tasks.len();
+    let total = lines.len();
     let stage = match (total, done) {
         (0, _) => "discussion",
         (total, done) if total == done => "done",
         _ => "in-progress",
     };
-    Ok(Derived {
+    Derived {
         stage,
         done,
         total,
         working,
         signoff,
         states,
-    })
+    }
 }
 impl Derived {
     pub fn to_value(&self) -> Value {

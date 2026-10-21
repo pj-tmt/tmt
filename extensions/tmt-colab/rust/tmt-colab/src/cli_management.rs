@@ -685,15 +685,21 @@ pub fn create_page(
 pub fn create_shell(root: &Path, args: &ArgMatches) -> Result<()> {
     create_page_kind(root, args, String::new(), None, &[], true)
 }
-fn create_page_kind(
+/// A page committed through ordinary creation, and what was observed of the machine while it was.
+pub(crate) struct Created {
+    pub page_id: String,
+    /// The creation result: space, page, title, path, operation and membership head.
+    pub result: Value,
+    pub observation: crate::door::CreationObservation,
+}
+/// Commit one new page, the effect of `page create`, without opening or printing anything.
+pub(crate) fn commit_creation(
     root: &Path,
-    args: &ArgMatches,
+    title: &str,
     source: String,
     page_layout: Option<&tmt_colab::decoder::PageLayout>,
-    checks: &[page_check::Finding],
     shell: bool,
-) -> Result<()> {
-    let title = text(args, "title");
+) -> Result<Created> {
     if title.is_empty() {
         return Err(input("Page title cannot be empty."));
     }
@@ -775,6 +781,26 @@ fn create_page_kind(
             code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),source:Some(error),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
+    Ok(Created {
+        page_id,
+        result,
+        observation,
+    })
+}
+fn create_page_kind(
+    root: &Path,
+    args: &ArgMatches,
+    source: String,
+    page_layout: Option<&tmt_colab::decoder::PageLayout>,
+    checks: &[page_check::Finding],
+    shell: bool,
+) -> Result<()> {
+    let title = text(args, "title");
+    let Created {
+        page_id,
+        result,
+        observation,
+    } = commit_creation(root, title, source, page_layout, shell)?;
     // The effect is already committed. A catalog-read failure must not turn it into a failed create;
     // the full UUID alias remains safe when uniqueness cannot be observed.
     let ids = (|| -> Result<Vec<String>> {
@@ -1021,9 +1047,16 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             && let Ok(found) =
                 tmt_colab::work_index::scan(&layout, &store, &key, &mut decoder, &listed)
         {
+            // A task that follows a page shows that page's stage; a page that is followed names the
+            // task, so the list says it is part of another page's work.
+            let graph = tmt_colab::work_links::Graph(&found);
             for page in catalog["pages"].as_array_mut().into_iter().flatten() {
-                if let Some(Some(work)) = page["pageId"].as_str().and_then(|id| found.get(id)) {
-                    page["work"] = work.derived.clone();
+                let id = page["pageId"].as_str().unwrap_or_default().to_owned();
+                if let Some(derived) = graph.derived(&id) {
+                    page["work"] = derived;
+                }
+                if let Some((parent, task)) = graph.parent(&id) {
+                    page["parent"] = json!({"page":parent,"task":task});
                 }
             }
         }
@@ -1286,6 +1319,16 @@ fn catalog_ids(catalog: &Value) -> Vec<String> {
         .collect()
 }
 /// The pages that are not archived: the pages a work-in-progress count covers.
+/// Every page of the space that is not deleted, archived ones included.
+pub(crate) fn all_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
+    let catalog = inspection::catalog(store, key)?;
+    Ok(catalog["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+        .collect())
+}
 pub(crate) fn active_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
     let catalog = inspection::catalog(store, key)?;
     Ok(catalog["pages"]
@@ -1642,6 +1685,22 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
                     out,
                     "    {}",
                     terminal.paint(Token::Dim, &escape(&work_line(&page["work"])))
+                )?;
+            }
+            if let (Some(parent), Some(task)) = (
+                page["parent"]["page"].as_str(),
+                page["parent"]["task"].as_str(),
+            ) {
+                writeln!(
+                    out,
+                    "    {}",
+                    terminal.paint(
+                        Token::Dim,
+                        &escape(&format!(
+                            "part of {task} of {}",
+                            parent.get(..8).unwrap_or(parent)
+                        ))
+                    )
                 )?;
             }
             writeln!(

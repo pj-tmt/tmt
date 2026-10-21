@@ -2641,6 +2641,7 @@ A task is a closed object whose optional fields are omitted, never `null`:
 | `acceptance`   | 1 to 8 criteria, each `{kind:"test",name}` (a test name), `{kind:"check",command,result?}` (a command and, once run, its result) or `{kind:"person",who}` (a person or lead) |
 | `needsSignoff` | `true` when the task waits for the owner's sign-off; omitted otherwise                                                                                                       |
 | `externalId`   | At most 128 bytes: the external issue a driver syncs; the GitHub driver's is `#N` (see [GitHub driver](#github-driver-4053))                                                 |
+| `child`        | A page ID (a generated UUID): the page this task follows (see [A task that follows a page](#a-task-that-follows-a-page-4118)); never together with `externalId`              |
 
 Text is inert and contains no control characters (except the line feeds of `detail`) or unpaired
 surrogates. A criterion records what makes the task acceptable; nothing in this version ticks it
@@ -2648,14 +2649,16 @@ or runs a command. `needsSignoff` is stored and counted, and only that: nothing 
 on it or gates a state change on it, so it is display data until the owner can answer it.
 
 Each action is trial-applied to a detached admitted document. Only a schema-valid whole result
-becomes an ordinary signed content publication. The seven closed bodies are:
+becomes an ordinary signed content publication. The nine closed bodies are:
 
 | Action          | Body                                                                     | Effect                                                                                                                   |
 | --------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | `task.add`      | `{task:{title,detail?,assignee?,acceptance?,needsSignoff?,externalId?}}` | Add a `todo` task as `T-<next>` and count `next` on; the caller never chooses the ID, and it is returned.                |
-| `task.set`      | `{taskId,title,detail?,acceptance?,needsSignoff?,externalId?}`           | Replace the editable fields as a whole (an omitted optional is cleared); never state, reason or assignee.                |
+| `task.set`      | `{taskId,title,detail?,acceptance?,needsSignoff?,externalId?}`           | Replace the editable fields as a whole (an omitted optional is cleared); never state, reason, assignee or child.         |
 | `task.state`    | `{taskId,state,reason?}`                                                 | Set the state; `reason` is required for `blocked` and refused for any other state, and a move out of `blocked` drops it. |
 | `task.assign`   | `{taskId,assignee?}`                                                     | Set the assignee; omitted clears it.                                                                                     |
+| `task.link`     | `{taskId,pageId}`                                                        | Set `child`; the same page again is a no-op, and another page while one is set is refused (unlink first).                |
+| `task.unlink`   | `{taskId}`                                                               | Remove `child`; absent already is a valid no-op.                                                                         |
 | `task.remove`   | `{taskId}`                                                               | Remove the task and its order entry; its number is never reused.                                                         |
 | `summary.set`   | `{line1,line2}`                                                          | Set both lines and system attribution.                                                                                   |
 | `summary.clear` | `{}`                                                                     | Remove the summary; absent already is a valid no-op.                                                                     |
@@ -2677,13 +2680,53 @@ folds the value and validates it and shows nothing new. Page export includes it 
 (see [Plaintext page export](#plaintext-page-export-1309)). Native and browser consume the shared
 `work-v1.json` vectors.
 
-`tmt colab task ls|add|set|state|assign|rm PAGE ...` and `tmt colab summary set|clear PAGE` run
+#### A task that follows a page (#4118)
+
+A task with a `child` follows that page, and a page is the child of at most one task. The task's
+own `state` is kept, ignored while it follows and shown again when it stops, and `task.state` is
+refused for it. The task shows the stage of its page as a state: `discussion` (no task) is `todo`,
+`in-progress` is `in-progress`, and `done` is `done`, or `in-review` when the task has
+`needsSignoff`. A blocked task inside the page does not propagate (the page stays `in-progress`).
+`child` and `externalId` exclude each other on one task, so a task's state has one owner. Both
+validators enforce the exclusion, the id form and the closed actions, so raw Yjs cannot bypass them.
+
+The value never holds the page's stage: derived values take a resolver from page ID to stage, and
+a task whose page the resolver cannot answer for (deleted, unreadable, not asked) shows its own state.
+The page's own stage, progress, workers and sign-off count are computed from the states the tasks
+show, so a page whose tasks all follow finished pages is `done`; they are returned with the states of
+the tasks that follow a page as `derived.states` (`{T-n: state}`, present only when some task does). A
+page's stage is resolved through the pages it follows, at most 8 pages deep; a page already being
+resolved, or one past the depth, answers nothing, so its task shows its own state and the resolution
+always ends. The native resolver is the work index (below); the browser takes a resolver from the
+owner's rows and never reads another page's document, and a reader without them shows a task that
+follows a page without a state.
+
+`task.link` is admitted by the write command, like the work-in-progress limit, because one page's
+document cannot see another's. It is refused as `COLAB_LINK_REFUSED` when the page is the task's own
+page, is not a page of the space (deleted, or one the owner cannot read), already has a parent (a task
+of this page or of any other, naming it), or has the task's page below it (a loop). Two writers can
+still race to link one page, or to close a loop; as with the limit this is a working agreement, not a
+lock. Readers then resolve it the same way: a page's parent is the task of the page with the lowest ID,
+then the lowest task number, and a loop is cut as above. An archived page keeps its link and its stage
+is followed. The work-in-progress limit does not count a task that follows a page as held: the work is
+held where it is, by that page's own tasks.
+
+`tmt colab task ls|add|set|state|assign|link|unlink|convert|rm PAGE ...` and `tmt colab summary set|clear PAGE` run
 the actions above, one command per action, and never open a browser. A write applies to the
 revision it just read, or to `--expected-revision`; `task add` returns the new `taskId`. `task ls
 --json` returns `{spaceId,pageId,title,work,derived,epoch,membershipHead,revision}`; a page with no
-work returns the empty value. A shell page is refused with `COLAB_INPUT_INVALID`. `tmt colab ls`
-shows `work` (`stage`, `done`, `total`, `working`, `signoff`) on each page that has work, and one
-line under its row.
+work returns the empty value, and `derived` carries `states` when a task follows a page. A shell page
+is refused with `COLAB_INPUT_INVALID`. `tmt colab ls` shows `work` (`stage`, `done`, `total`,
+`working`, `signoff`, the tasks following pages counted by the states they show) on each page that has
+work, and one line under its row; a page that is followed also carries `parent` `{page,task}` and says
+"part of T-n of PAGE". `task link PAGE TASK CHILD` and `task unlink PAGE TASK` run the two actions
+(CHILD is named as any page is). `task convert PAGE TASK` makes a new column-layout page titled like
+the task, with its detail as paragraphs of escaped text, then runs `task.link` for it; it prints
+`childPage`. Making a page moves the space, so the link is written on the revision read after it and
+only while the task is still the one copied; otherwise nothing is linked and the command says which
+page exists and the `task link` command that finishes it. It never searches for a page to adopt, so
+running it again makes another page. A task that follows a page or has an `externalId` is refused
+before any page is made.
 
 An agent _holds_ a task while it is assigned to that agent (`assignee.kind` `agent`, by name) and the
 task is `todo` or `in-progress`. The work-in-progress limit bounds the tasks an agent holds across
@@ -2698,7 +2741,9 @@ admitted, so lowering the limit, a write from another device or a person's tasks
 published state or block finishing, unassigning or removing a task. The count reads each page's work
 through a derived file keyed by the page's own progress (`work-index.json` beside the settings: the
 epoch and the content counts, not the membership head, so another page's creation or sharing
-refolds nothing), which holds nothing the pages do not and may be deleted; a revocation alone can
+refolds nothing; a page whose tasks follow pages also keeps each task's state, assignee, sign-off
+flag and `child`, which is what resolution and `task.link` read), which holds nothing the pages do not
+and may be deleted; a revocation alone can
 leave an entry stale until the page's next write. Two commands racing on different pages may
 both be admitted: the limit is a working agreement, not a lock.
 
@@ -2715,7 +2760,7 @@ Nothing edited on GitHub is read back except the closing described below.
 
 `push` is a command for one task and never part of `sync`: it publishes the task's title, detail
 and acceptance to GitHub, possibly to a public repository, and prints the repository and the issue's
-URL. A task that already has an `externalId` is refused. The issue body carries a hidden marker
+URL. A task that already has an `externalId`, or follows a page, is refused. The issue body carries a hidden marker
 (`<!-- tmtcolab<32 hex digits> -->`, one alphanumeric token: the first 16 bytes of the SHA-256 of the page ID, a NUL and the task ID, so the digest identifies the task without revealing the page), the detail and the acceptance criteria
 each inside a code fence longer than any run of backticks in them, so no mention or link in a page's
 text acts, and every `#N` and `GH-N` reference in the title, detail and criteria is broken by a
