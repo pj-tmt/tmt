@@ -1,6 +1,7 @@
 //! Opt-in real-tmux regression; every command selects a task-owned socket.
 use super::*;
 use crate::{process::CommandOutput, test_support::TestDirectory};
+use std::path::Path;
 use std::sync::{
     Arc, Barrier,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -36,7 +37,20 @@ struct PrivateServer {
 }
 
 impl PrivateServer {
+    /// A server socket named `name` inside the test's own directory, proven private first.
+    fn new(directory: TestDirectory, name: &str) -> Self {
+        let socket = directory.path.join(name);
+        crate::test_support::assert_private_socket(&socket, &directory.path);
+        Self {
+            socket: socket.to_str().unwrap().to_owned(),
+            directory: Some(directory),
+        }
+    }
+
     fn command(&self, args: &[&str]) -> Result<String, TmuxError> {
+        // Every command, kill-server included, re-proves the socket before tmux runs.
+        let root = &self.directory.as_ref().expect("fixture directory").path;
+        crate::test_support::assert_private_socket(Path::new(&self.socket), root);
         let mut selected = socket_args(Some(&self.socket));
         selected.extend(args.iter().map(|arg| (*arg).into()));
         Tmux::default().execute(selected, OperationOptions::default(), TmuxFailure::Command)
@@ -82,17 +96,7 @@ impl Drop for PrivateServer {
 #[ignore = "requires tmux; creates and stops only a private explicit-socket server"]
 fn server_id_concurrent_callers_adopt_one_id_on_a_fresh_server() {
     const CALLERS: usize = 8;
-    let directory = TestDirectory::new();
-    let socket = directory
-        .path
-        .join("race.sock")
-        .to_str()
-        .unwrap()
-        .to_owned();
-    let server = PrivateServer {
-        directory: Some(directory),
-        socket,
-    };
+    let server = PrivateServer::new(TestDirectory::new(), "race.sock");
     server
         .command(&[
             "-f",

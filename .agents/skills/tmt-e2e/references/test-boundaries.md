@@ -103,7 +103,13 @@ stdin without protocol bytes; no-input uses `/dev/null`. Inherited stdout/stderr
 preserve CLI output, and Rust sockets close on exec except the stdin clone.
 Reparenting/spawn use the original execution deadline; unknown adoption fails.
 `TMUX_TMPDIR` stays sandbox-local so cleared caller variables cannot reach the
-host default socket. Native process fixtures never start default-socket servers.
+host default socket. Native process fixtures never start default-socket servers: a native
+test that needs a real server starts it only through `test/support/private-tmux.ts`
+(`privateTmux`), a Rust test through `test_support::assert_private_socket`, and the E2E
+fixture proves its socket private at construction. Each refuses, before any tmux command, a
+socket outside the test root, a symlink, or one inside a host socket directory or the
+socket `$TMUX` names; `test/tooling/tmux-server-boundary.test.ts` lists the only files that
+may name `kill-server` or `kill-session`.
 
 Setup close and socket drain are separate required events. CLI completion starts
 both owned groups' cleanup even if descendants hold output pipes. Readiness
