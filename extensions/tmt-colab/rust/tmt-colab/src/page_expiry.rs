@@ -49,6 +49,19 @@ pub fn effective_days(page: PageRetention, space: SpaceExpiry) -> Option<u64> {
     }
 }
 
+/// Milliseconds in a day, the unit of a page's expiry.
+pub const DAY_MS: u64 = 86_400_000;
+/// The largest time a Colab record carries (a JavaScript safe integer).
+const MAX_TIME_MS: u64 = 9_007_199_254_740_991;
+
+/// When a page last active at `active` is due to be archived after `days` without activity. `None`
+/// when it never is (`days` is `None`), when its activity is unknown, or when the time would not
+/// fit a record: an unknown activity is never an old one.
+pub fn archive_at_ms(active: Option<u64>, days: Option<u64>) -> Option<u64> {
+    let due = active?.checked_add(days?.checked_mul(DAY_MS)?)?;
+    (due <= MAX_TIME_MS).then_some(due)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,5 +78,22 @@ mod tests {
         ] {
             assert_eq!(effective_days(page, space), days, "{page:?} {space:?}");
         }
+    }
+
+    #[test]
+    fn the_archive_time_is_the_activity_plus_the_days_and_otherwise_none() {
+        assert_eq!(
+            archive_at_ms(Some(1_000), Some(2)),
+            Some(1_000 + 2 * DAY_MS)
+        );
+        assert_eq!(archive_at_ms(Some(1_000), None), None, "never archived");
+        assert_eq!(archive_at_ms(None, Some(180)), None, "unknown is not old");
+        // A day count or a time too large for a record is never a due time.
+        assert_eq!(archive_at_ms(Some(1), Some(u64::MAX)), None);
+        assert_eq!(archive_at_ms(Some(MAX_TIME_MS), Some(1)), None);
+        assert_eq!(
+            archive_at_ms(Some(MAX_TIME_MS - DAY_MS), Some(1)),
+            Some(MAX_TIME_MS)
+        );
     }
 }
