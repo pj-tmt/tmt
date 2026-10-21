@@ -188,13 +188,13 @@ fn reached(path: &std::path::Path) {
 }
 
 #[test]
-fn a_changed_demand_discards_the_inflight_window_before_delivery() {
+fn a_changed_demand_cancels_the_inflight_window_and_delivers_the_new_range_promptly() {
     let scratch = Scratch::new();
     let script = scratch.0.join("barrier-core");
     write_ready_executable(
         &script,
         &format!(
-            "#!/bin/sh\nif [ \"$4\" = '1d' ]; then\n : > '{dir}/started'\n while [ ! -f '{dir}/release' ]; do sleep 0.01; done\nfi\nprintf '%s' '{{\"sinceMs\":1,\"observedAtMs\":2,\"rows\":[]}}'\n",
+            "#!/bin/sh\nif [ \"$4\" = '1d' ]; then\n : > '{dir}/started'\n exec sleep 30\nfi\nprintf '%s' '{{\"sinceMs\":1,\"observedAtMs\":2,\"rows\":[]}}'\n",
             dir = scratch.0.display()
         ),
     );
@@ -210,9 +210,15 @@ fn a_changed_demand_discards_the_inflight_window_before_delivery() {
     let wants = reader.wants();
     wants.set(Some(super::Request::new(Since::Day, [])));
     reached(&scratch.0.join("started"));
+    // Repeating the same demand must leave the blocked read running.
+    wants.set(Some(super::Request::new(Since::Day, [])));
+    assert!(received.recv_timeout(Duration::from_millis(100)).is_err());
+    let start = std::time::Instant::now();
     wants.set(Some(super::Request::new(Since::Week, [])));
-    std::fs::write(scratch.0.join("release"), "").unwrap();
-    let delivery = next(&received);
+    let delivery = received
+        .recv_timeout(Duration::from_secs(5))
+        .expect("new range does not wait behind the 10-second read deadline");
+    assert!(start.elapsed() < Duration::from_secs(5));
     assert_eq!(
         delivery.since,
         Since::Week,

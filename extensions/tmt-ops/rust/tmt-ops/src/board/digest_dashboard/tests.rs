@@ -1650,3 +1650,90 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
 }
 
 mod layout;
+
+#[test]
+fn legacy_panel_bytes_survive_details_toggle_and_picker_save() {
+    use crate::{
+        board::app::{Effect, Request},
+        config::Config,
+    };
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "digest-panel-save-{}-{}.toml",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    struct Remove(std::path::PathBuf);
+    impl Drop for Remove {
+        fn drop(&mut self) {
+            std::fs::remove_file(&self.0).unwrap();
+        }
+    }
+    let authored = "[workspace]\ndigest_panels = { order=['report','list','status','usage','subscriptions','chart'], hidden=['usage','chart'], details=false } # legacy\n";
+    std::fs::write(&path, authored).unwrap();
+    let _remove = Remove(path.clone());
+    let mut config = Config::read(path.clone()).unwrap();
+    let mut app = board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .configure(&config)
+        .unwrap();
+    press(&mut app, '2');
+    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) = press(&mut app, 'e')
+    else {
+        panic!("e must request a Config CAS");
+    };
+    config.save_workspace_preferences(&expected, &next).unwrap();
+    assert_eq!(
+        Config::read(path.clone())
+            .unwrap()
+            .workspace_preferences()
+            .unwrap(),
+        next,
+        "confirmed preferences must round-trip for the next CAS"
+    );
+    let toggled = std::fs::read_to_string(&path).unwrap();
+    assert!(toggled.contains("order=['report','list','status','usage','subscriptions','chart']"));
+    assert!(toggled.contains("hidden=['usage','chart']"));
+    assert!(toggled.contains("details=true } # legacy"));
+    app.finished_workspace_preferences(
+        Config::read(path.clone())
+            .unwrap()
+            .workspace_preferences()
+            .unwrap(),
+        "saved".into(),
+    );
+    app.open_panels();
+    // End selects Cancel, Up selects Save; confirm through the actual picker input.
+    app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+    else {
+        panic!("picker Save must request a Config CAS");
+    };
+    let mut config = Config::read(path.clone()).unwrap();
+    config.save_workspace_preferences(&expected, &next).unwrap();
+    assert!(std::fs::read_to_string(&path).unwrap().contains("digest_panels = { order=['report','list','status','usage','subscriptions','chart'], hidden=['usage','chart'], details=true } # legacy"));
+
+    // A fresh configuration must not acquire a retired order key from Save.
+    std::fs::write(&path, "[workspace]\n").unwrap();
+    let mut config = Config::read(path.clone()).unwrap();
+    let expected = config.workspace_preferences().unwrap();
+    let mut next = expected.clone();
+    next.digest_panels = Some(crate::config::PanelSetting::configured(Default::default()));
+    config.save_workspace_preferences(&expected, &next).unwrap();
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("order"));
+    assert!(
+        Config::read(path)
+            .unwrap()
+            .workspace_migration_notices()
+            .is_empty()
+    );
+}

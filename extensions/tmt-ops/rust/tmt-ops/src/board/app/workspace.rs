@@ -256,7 +256,7 @@ impl App {
         self.workspace_snapshot()
             .map(|snapshot| {
                 if self.shell.tab == OpsTab::Digest {
-                    crate::board::digest_dashboard::rows(self,snapshot)
+                    crate::board::digest_dashboard::rows(self, snapshot)
                 } else {
                     let mut rows = self.workspace.rows(&snapshot.roster, &snapshot.preferences);
                     let unread = self.unread_identities();
@@ -989,21 +989,19 @@ impl App {
                 }
                 if matches!(target, OpsTarget::Member { .. }) {
                     if action == Inspect {
+                        self.conversation_return.get_or_insert(self.shell.tab);
+                        self.shell.tab = OpsTab::Agents;
+                        self.right_tab = super::super::shell::RightTab::Talk;
+                        if let OpsTarget::Member {
+                            room_id: Some(room),
+                            ..
+                        } = &target
                         {
-                            self.conversation_return.get_or_insert(self.shell.tab);
-                            self.shell.tab = OpsTab::Agents;
-                            self.right_tab = super::super::shell::RightTab::Talk;
-                            if let OpsTarget::Member {
-                                room_id: Some(room),
-                                ..
-                            } = &target
-                            {
-                                self.workspace.expanded.insert(room.clone());
-                            } else {
-                                self.workspace.pool_expanded = true;
-                            }
-                            self.workspace_reconcile();
+                            self.workspace.expanded.insert(room.clone());
+                        } else {
+                            self.workspace.pool_expanded = true;
                         }
+                        self.workspace_reconcile();
                         self.focus = 1;
                         self.unread.displayed = None;
                     }

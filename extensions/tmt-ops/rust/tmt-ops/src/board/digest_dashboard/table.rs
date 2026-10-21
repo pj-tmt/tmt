@@ -148,7 +148,11 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let ids: Vec<_> = rows.iter().filter_map(metrics::id).collect();
     let report = metrics::report(app);
     let total = metrics::tokens(report, &ids);
-    *app.row_starts.borrow_mut() = (0..rows.len()).collect();
+    {
+        let mut starts = app.row_starts.borrow_mut();
+        starts.clear();
+        starts.extend(0..rows.len());
+    }
     if app.follow
         && let Some(index) = rows
             .iter()
