@@ -154,6 +154,7 @@ async function mountRoute(
     | 'linked-missing'
     | 'summary-only'
     | 'external'
+    | 'empty'
     | 'child'
     | 'child-orphan',
 ) {
@@ -188,6 +189,16 @@ test('a child page names its parent page and task in the band header, with or wi
   await expect(bare.locator('.work-parent a')).toHaveText('Release plan › T-3');
   await expect(bare.locator('.work-head')).toHaveCount(0);
   await expect(bare.getByRole('button')).toHaveCount(0);
+});
+
+test('work with no summary, no task and no parent draws no band, for a viewer and for the owner', async ({
+  page,
+}) => {
+  await mountRoute(page, true, false, 'empty');
+  await expect(page.locator('.work-band')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Work on this page' })).toHaveCount(0);
+  await mountRoute(page, true, true, 'empty');
+  await expect(page.locator('.work-band')).toHaveCount(0);
 });
 
 test('a parent the owner list does not name shows no breadcrumb', async ({ page }) => {

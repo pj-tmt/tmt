@@ -44,9 +44,10 @@ const PARENT = '30000000-0000-4000-8000-000000000003';
 /** `withWork` false is a page that never had work; `owner` true is the owner device, whose
  * binding sends work actions and shows the serve's commit only when it is published back.
  * `scenario`: `linked-done` has T-2 follow a page whose list summary says done; `linked-missing`
- * follows one the list does not name; `summary-only` is a summary with no task; `external` has
- * T-2 tracked by an external issue. `child` is this page's list row saying a task of `PARENT`
- * ("Release plan") follows it; `child-orphan` says so while the list does not name that parent. */
+ * follows one the list does not name; `summary-only` is a summary with no task; `empty` is a stored
+ * value with neither (every task removed); `external` has T-2 tracked by an external issue. `child` is
+ * this page's list row saying a task of `PARENT` ("Release plan") follows it; `child-orphan` says so
+ * while the list does not name that parent. */
 export function mountWorkPage(
   withWork = true,
   owner = false,
@@ -55,6 +56,7 @@ export function mountWorkPage(
     | 'linked-missing'
     | 'summary-only'
     | 'external'
+    | 'empty'
     | 'child'
     | 'child-orphan',
 ) {
@@ -69,7 +71,8 @@ export function mountWorkPage(
   root = createRoot(host);
   const base = { title: 'Release notes', source: '<h1>Full page</h1>' };
   let current = work(false, owner);
-  if (scenario === 'summary-only')
+  if (scenario === 'empty') current = { version: 1, next: 1, order: [], tasks: {} };
+  else if (scenario === 'summary-only')
     current = {
       version: 1,
       next: 1,
