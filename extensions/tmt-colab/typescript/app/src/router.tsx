@@ -17,7 +17,7 @@ import {
   BusyMark,
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { shortPageId, validPagePrefix } from './short-links.js';
+import { carriesThreadFragment, shortPageId, validPagePrefix } from './short-links.js';
 import {
   ownerPageHint,
   ownerReadingHref,
@@ -827,6 +827,7 @@ const page = createRoute({
   component: Page,
 });
 
+const THREAD_FRAGMENT = /^#?t=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const shortPage = createRoute({
   getParentRoute: () => root,
   path: '/short/$prefix',
@@ -856,6 +857,8 @@ const shortPage = createRoute({
         to: '/pages/$pageId',
         params: { pageId: pages[0].id },
         search: { ...pageSearch(location.search), ...openSearch(location.search) },
+        // Inside the app the address is real: a thread the short link names rides to the page.
+        ...(THREAD_FRAGMENT.test(location.hash) ? { hash: location.hash.replace(/^#/, '') } : {}),
         replace: true,
       });
     return { pages, prefix: params.prefix };
@@ -1476,8 +1479,12 @@ function Page() {
     binding.current?.markThreadStatusSeen?.(ref);
     setActiveThread(id);
     setPanel('comments');
-    if (location.pathname.startsWith('/p/'))
-      history.replaceState(history.state, '', `${location.pathname}#t=${ref.id}`);
+    if (carriesThreadFragment(location.pathname, inShell()))
+      history.replaceState(
+        history.state,
+        '',
+        `${location.pathname}${inShell() ? location.search : ''}#t=${ref.id}`,
+      );
     renderer.current?.scrollAnchor(id);
   }
   function continueAnnotation(ref: DiscussionRef) {
@@ -1535,7 +1542,7 @@ function Page() {
           : text.blocked;
   const deepThread = useRef<string | null>(null);
   useEffect(() => {
-    if (state !== 'ready' || !location.pathname.startsWith('/p/')) return;
+    if (state !== 'ready' || !carriesThreadFragment(location.pathname, inShell())) return;
     const target = new URLSearchParams(location.hash.slice(1)).get('t');
     if (!target || deepThread.current === `${snapshot.id}:${target}`) return;
     const thread = view.threads?.find((value) => value.threadId === target && !value.deleted);

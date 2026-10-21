@@ -20,6 +20,14 @@ export function shortLocationPrefix(pathname: string, shell: boolean): string | 
   );
   return match?.[1];
 }
+/** Whether a location may carry a thread in its fragment (`#t=`): the short location, which stays
+ * in the address bar on a page's own origin, and the page route inside the app, which the short
+ * location is rewritten to when it loads. */
+export function carriesThreadFragment(pathname: string, shell: boolean): boolean {
+  return shell
+    ? /^\/colab\/(?:pages|short)\/[0-9a-f-]+$/.test(pathname)
+    : shortLocationPrefix(pathname, false) !== undefined;
+}
 export function shortPageId(page: string, pages: readonly string[]): string {
   generatedId(page);
   if (!pages.includes(page)) return page;

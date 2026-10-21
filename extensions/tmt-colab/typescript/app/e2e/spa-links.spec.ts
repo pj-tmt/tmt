@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { binariesBuilt, startIsolatedDoor, type IsolatedDoor } from './isolated-door.js';
+import { spawnSync } from 'node:child_process';
+import {
+  binariesBuilt,
+  remoteBinary,
+  startIsolatedDoor,
+  type IsolatedDoor,
+} from './isolated-door.js';
 
 /**
  * Conditions for Colab as a route of the one TMT web app at `/colab/...` (#3937; feat-lead's and
@@ -149,6 +155,13 @@ test('a page link in a body opens in the one document, not as a new load', async
     'same',
   );
   expect(await page.evaluate(() => performance.getEntriesByType('navigation').length)).toBe(1);
+});
+
+test('a short link with a thread keeps the thread fragment on the page route', async ({ page }) => {
+  await open(page, `/colab/p/12345678#t=${reading}`);
+  await expect.poll(() => here(page)).toBe(`/colab/pages/${page1}`);
+  // The page route carries the fragment the deep-thread handler reads.
+  expect(await page.evaluate(() => location.hash)).toBe(`#t=${reading}`);
 });
 
 test('the printed home link and a bare mount land on the Colab home', async ({ page }) => {
@@ -344,6 +357,60 @@ test.describe('the door serving the TMT app', () => {
       ).not.toHaveAttribute('aria-disabled', 'true');
     });
 
+    test('a Recent card on Home opens its page in the same document', async ({ page }) => {
+      const id = await door!.createPage('Recent page', '<h1>Recent content</h1>');
+      await door!.pair(page);
+      await page.goto(`${door!.origin}/`);
+      const card = page.locator('#home-recent').getByRole('link', { name: 'Recent page' });
+      await expect(card).toBeVisible();
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      const items = await rail.getByRole('link').allTextContents();
+      await page.evaluate(() => ((window as unknown as { __same: boolean }).__same = true));
+      await card.click();
+      await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+      await expect(page.locator('.colab-route')).toBeVisible();
+      expect(await page.evaluate(() => (window as unknown as { __same?: boolean }).__same)).toBe(
+        true,
+      );
+      expect(await rail.getByRole('link').allTextContents()).toEqual(items);
+    });
+
+    test('moving between routes never runs out of this device’s sessions', async ({ page }) => {
+      const limit = spawnSync(remoteBinary, ['settings', 'sessions-per-device', '2'], {
+        env: door!.env,
+        cwd: door!.env.HOME,
+      });
+      expect(limit.status, String(limit.stderr)).toBe(0);
+      await door!.createPage('Session page', '<h1>Session content</h1>');
+      await door!.pair(page);
+      await page.goto(`${door!.origin}/remote/settings`);
+      // In-document moves, as the rail and in-page links make them.
+      const go = (path: string) =>
+        page.evaluate((path) => {
+          history.pushState(null, '', path);
+          dispatchEvent(new PopStateEvent('popstate'));
+        }, path);
+      const thisDevice = page.locator('.device-summary').filter({ hasText: 'This device' });
+      const live = async () =>
+        Number(/(\d+) live session/.exec((await thisDevice.textContent()) ?? '')?.[1]);
+      for (let round = 0; round < 5; round++) {
+        await expect(thisDevice, `round ${round}`).toBeVisible();
+        await expect(page.locator('#access')).not.toContainText('connection limit');
+        expect(await live(), `round ${round}`).toBeLessThanOrEqual(2);
+        await go('/ops');
+        await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+        await go('/remote/settings');
+        await expect(thisDevice).toBeVisible();
+        await expect(page.locator('#access')).not.toContainText('connection limit');
+        await go('/colab/');
+        await expect(page.locator('.colab-route')).toBeVisible();
+        await expect(page.getByText('Session page').first()).toBeVisible();
+        await go('/remote/settings');
+      }
+      await expect(thisDevice).toBeVisible();
+      expect(await live()).toBeLessThanOrEqual(2);
+    });
+
     test('a paired Colab closes its Remote session and page bindings on unmount', async ({
       page,
     }) => {
@@ -370,11 +437,15 @@ test.describe('the door serving the TMT app', () => {
         );
       // An open page holds its binding; leaving the route through the TMT rail must close it.
       await expect.poll(live).toBeGreaterThan(0);
+      const styles = page.locator('link[href$="/colab-module.css"]');
+      await expect(styles).toHaveCount(1);
       await page
         .getByRole('navigation', { name: 'TMT', exact: true })
         .getByRole('link', { name: 'Home' })
         .click();
       await expect.poll(live).toBe(0);
+      // Colab's stylesheet goes with its route.
+      await expect(styles).toHaveCount(0);
     });
   });
 });

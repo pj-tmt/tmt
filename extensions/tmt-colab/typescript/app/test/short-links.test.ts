@@ -1,5 +1,6 @@
 import { expect, it } from 'vite-plus/test';
 import {
+  carriesThreadFragment,
   shortLocation,
   shortLocationPrefix,
   shortPageId,
@@ -57,4 +58,14 @@ it('names the short location of a page by where it is opened', () => {
   expect(shortLocationPrefix('/colab/p/12345678', true)).toBe('12345678');
   expect(shortLocationPrefix('/p/12345678', true)).toBe('12345678');
   expect(shortLocationPrefix('/colab/pages/12345678', true)).toBeUndefined();
+});
+it('carries a thread fragment on the short location, or on the page route inside the app', () => {
+  const page = '/colab/pages/12345678-0000-4000-8000-000000000001';
+  expect(carriesThreadFragment('/p/12345678', false)).toBe(true);
+  expect(carriesThreadFragment('/colab/p/12345678', false)).toBe(false);
+  expect(carriesThreadFragment(page, false)).toBe(false);
+  expect(carriesThreadFragment(page, true)).toBe(true);
+  expect(carriesThreadFragment('/colab/short/12345678', true)).toBe(true);
+  expect(carriesThreadFragment('/colab/', true)).toBe(false);
+  expect(carriesThreadFragment('/p/12345678', true)).toBe(false);
 });
