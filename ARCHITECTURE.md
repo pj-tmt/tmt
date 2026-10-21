@@ -466,8 +466,7 @@ mechanics. Frozen inputs and independent SQL/schema oracles must not derive
 expected results from the implementation under test.
 
 State, provider roots, prefixes, sockets and processes remain fixture-owned.
-Adapters' default-off
-`test-isolation` feature admits private discovery paths in consumer test builds.
+Adapters' default-off `test-isolation` feature admits private discovery paths in consumer test builds.
 `typescript/scripts/private-world.mjs` runs suite commands in a private HOME/XDG/TMPDIR world
 (under `/tmp` when the temporary directory is too long for sockets) and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
 Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
