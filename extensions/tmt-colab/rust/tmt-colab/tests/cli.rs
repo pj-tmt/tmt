@@ -1996,6 +1996,68 @@ fn the_github_driver_pushes_a_task_once_and_syncs_done_from_merged_closures() {
     assert_eq!(tasks(), before);
 }
 
+/// The owner list's summary carries the page's own work from the real fold, with the task lines a
+/// follow needs, and nothing for a page that has none.
+#[test]
+fn the_summary_fold_carries_a_pages_own_work_and_its_follow_lines() {
+    let pilot = Pilot::new(None);
+    let call = |args: &[&str]| -> Value {
+        let out = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let source = pilot.root.join("source.html");
+    fs::write(&source, "<h1>Plan</h1>").unwrap();
+    let create = |title: &str| {
+        call(&[
+            "page",
+            "create",
+            "--title",
+            title,
+            "--layout",
+            "column",
+            "--file",
+            source.to_str().unwrap(),
+            "--no-open",
+            "--json",
+        ])["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let (top, leaf, bare) = (create("Top"), create("Leaf"), create("Bare"));
+    call(&["task", "add", &top, "--title", "Follows", "--json"]);
+    call(&["task", "add", &leaf, "--title", "Plain", "--json"]);
+    call(&["task", "link", &top, "T-1", &leaf, "--json"]);
+    let mut opened = tmt_colab::page::save::open_source(
+        &pilot.root.join("selected"),
+        support::decoder_config(BINARY.into()),
+    )
+    .unwrap();
+    let mut summarize = |page: &str| {
+        tmt_colab::summary::summarize(&mut opened, page)
+            .unwrap()
+            .work
+    };
+    let top_work = summarize(&top).expect("a page with a task has work");
+    // The page's own derived values come first; the followed page is resolved at read time.
+    assert_eq!(top_work.derived["stage"], "in-progress");
+    assert_eq!(top_work.derived["total"], 1);
+    assert_eq!(top_work.lines.len(), 1);
+    assert_eq!(top_work.lines[0].child.as_deref(), Some(leaf.as_str()));
+    // Without a follow the lines are not kept; a page with no task has no work.
+    let leaf_work = summarize(&leaf).expect("a page with a task has work");
+    assert_eq!(leaf_work.derived["total"], 1);
+    assert!(leaf_work.lines.is_empty());
+    assert!(summarize(&bare).is_none());
+}
+
 #[test]
 fn a_task_follows_a_page_with_one_parent_and_no_loop_and_a_task_becomes_a_page() {
     fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {

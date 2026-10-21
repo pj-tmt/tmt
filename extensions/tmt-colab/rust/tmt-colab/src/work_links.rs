@@ -5,11 +5,13 @@
 //! write owner's rules, never a rule of the stored value, so a race of two writers can leave pages
 //! the rules would refuse; readers then resolve them the same way every time and never loop.
 use crate::{work, work_index::Found};
-use serde_json::Value;
-use std::collections::BTreeSet;
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Pages followed through at most this many levels; a deeper page shows its tasks' own states.
 pub const DEPTH: usize = 8;
+/// Assignees a list row names; the rest are only counted.
+pub const ROW_WORKING: usize = 3;
 
 /// Why a task may not follow a page.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,17 +69,58 @@ impl Graph<'_> {
         Some(derived.to_value())
     }
 
-    /// The task that follows `child`: the lowest page ID, then the lowest task number, when several
-    /// do (two writers raced). `(page, task)`.
+    /// The task that follows each followed page: the lowest page ID, then the lowest task number,
+    /// when several do (two writers raced). `child -> (page, task)`.
+    pub fn parents(&self) -> BTreeMap<String, (String, String)> {
+        let mut found: BTreeMap<String, (String, String)> = BTreeMap::new();
+        // Pages ascend, so the first page to claim a child keeps it; a later task of that same
+        // page only replaces it with a lower number.
+        for (page, work) in self.0 {
+            for line in work.iter().flat_map(|work| &work.lines) {
+                let Some(child) = &line.child else { continue };
+                match found.get_mut(child) {
+                    None => {
+                        found.insert(child.clone(), (page.clone(), line.id.clone()));
+                    }
+                    Some(held)
+                        if held.0 == *page
+                            && work::task_number(&line.id) < work::task_number(&held.1) =>
+                    {
+                        held.1 = line.id.clone();
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        found
+    }
+
+    /// The task that follows `child`, if any (see `parents`). `(page, task)`.
     pub fn parent(&self, child: &str) -> Option<(String, String)> {
-        self.0.iter().find_map(|(page, work)| {
-            let line = work
-                .as_ref()?
-                .lines
+        self.parents().remove(child)
+    }
+
+    /// The list row's `work` for `page`: the derived values with every task that follows a page
+    /// showing that page's stage, naming at most `ROW_WORKING` assignees (kind and name only) and
+    /// counting the rest in `more`. `None` for a page without work or outside the index.
+    pub fn row(&self, page: &str) -> Option<Value> {
+        let derived = self.derived(page)?;
+        let working = derived["working"].as_array()?;
+        let mut row = json!({
+            "stage": derived["stage"],
+            "done": derived["done"],
+            "total": derived["total"],
+            "signoff": derived["signoff"],
+            "working": working
                 .iter()
-                .find(|line| line.child.as_deref() == Some(child))?;
-            Some((page.clone(), line.id.clone()))
-        })
+                .take(ROW_WORKING)
+                .map(|who| json!({"kind": who["kind"], "name": who["name"]}))
+                .collect::<Vec<_>>(),
+        });
+        if working.len() > ROW_WORKING {
+            row["more"] = json!(working.len() - ROW_WORKING);
+        }
+        Some(row)
     }
 
     /// The pages `page` follows, through its tasks, and the pages those follow, and so on.
@@ -254,6 +297,84 @@ mod tests {
             Some(("a".to_owned(), "T-4".to_owned()))
         );
         assert_eq!(Graph(&found).parent("a"), None);
+    }
+
+    #[test]
+    fn the_lowest_task_number_of_the_first_page_is_the_parent_whatever_the_task_order() {
+        // b lists T-5 before T-2, and both follow x: the lower number wins, not the first listed.
+        let found = found(vec![
+            (
+                "b",
+                page(vec![
+                    line("T-5", "todo", Some("x")),
+                    line("T-2", "todo", Some("x")),
+                    line("T-3", "todo", Some("y")),
+                ]),
+            ),
+            ("x", None),
+            ("y", None),
+        ]);
+        let graph = Graph(&found);
+        assert_eq!(graph.parent("x"), Some(("b".to_owned(), "T-2".to_owned())));
+        assert_eq!(
+            graph.parents(),
+            BTreeMap::from([
+                ("x".to_owned(), ("b".to_owned(), "T-2".to_owned())),
+                ("y".to_owned(), ("b".to_owned(), "T-3".to_owned())),
+            ])
+        );
+    }
+
+    fn working(name: &str) -> Line {
+        Line {
+            assignee: Some(
+                json!({"kind":"agent","name":name,"id":"20000000-0000-4000-8000-000000000001"}),
+            ),
+            ..line("T-1", "in-progress", None)
+        }
+    }
+
+    #[test]
+    fn a_row_names_three_assignees_without_their_ids_and_counts_the_rest() {
+        let tasks: Vec<Line> = ["a", "b", "c", "d", "e"]
+            .iter()
+            .enumerate()
+            .map(|(n, name)| Line {
+                id: format!("T-{}", n + 1),
+                ..working(name)
+            })
+            .collect();
+        let found = found(vec![
+            ("p", page(tasks)),
+            ("empty", None),
+            ("one", page(vec![working("solo")])),
+        ]);
+        let graph = Graph(&found);
+        assert_eq!(
+            graph.row("p").unwrap(),
+            json!({"stage":"in-progress","done":0,"total":5,"signoff":0,
+                   "working":[{"kind":"agent","name":"a"},{"kind":"agent","name":"b"},
+                              {"kind":"agent","name":"c"}],
+                   "more":2})
+        );
+        let one = graph.row("one").unwrap();
+        assert_eq!(one["working"], json!([{"kind":"agent","name":"solo"}]));
+        assert!(one.get("more").is_none());
+        // No work, and a page outside the index, have no row.
+        assert_eq!(graph.row("empty"), None);
+        assert_eq!(graph.row("gone"), None);
+    }
+
+    #[test]
+    fn a_row_shows_the_stage_of_a_followed_page_and_no_per_task_states() {
+        let found = found(vec![
+            ("a", page(vec![line("T-1", "todo", Some("b"))])),
+            ("b", page(vec![line("T-1", "done", None)])),
+        ]);
+        let row = Graph(&found).row("a").unwrap();
+        assert_eq!(row["stage"], "done");
+        assert_eq!(row["done"], 1);
+        assert!(row.get("states").is_none());
     }
 
     #[test]
