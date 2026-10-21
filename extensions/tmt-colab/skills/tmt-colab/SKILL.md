@@ -133,25 +133,10 @@ Verify stored bytes and rendering after writing.
 ## Ask and flag
 
 A page that asks the reader to decide uses `tmt-question`; a must-read passage uses `tmt-read`.
-Put each beside its passage, in a `div`, `li` or `td`, with a fresh UUID per `data-id`:
-
-```html
-<tmt-question data-id="10000000-0000-4000-8000-000000000001" data-kind="single" data-agent="Your agent name">
-  <p data-question>Which option?</p>
-  <span data-choice>First</span><span data-choice>Second</span>
-</tmt-question>
-```
-
-```html
-<tmt-read data-id="10000000-0000-4000-8000-000000000002" data-agent="Your agent name"
-  data-why="Read before choosing">
-  <h2 data-title>Requirements</h2>
-  <p>The passage.</p>
-</tmt-read>
-```
-
-A question inside `<tmt-questions>` must not carry `data-group` (`question-group-conflict`).
-Detail: [questions](references/questions.md) (`tmt colab skill questions`),
+Put each beside its passage, in a `div`, `li` or `td`, with a fresh UUID per `data-id`. Copy the
+examples from the comment after the starter's `</style>` ([page-style](references/page-style.md),
+`tmt colab skill page-style`). A question inside `<tmt-questions>` must not carry `data-group`
+(`question-group-conflict`). Detail: [questions](references/questions.md) (`tmt colab skill questions`),
 [components](references/components.md#questions), [reading](references/reading.md)
 (`tmt colab skill reading`), [reviews](references/reviews.md) (`tmt colab skill reviews`).
 Tasks: [work](references/work.md) (`tmt colab skill work`).

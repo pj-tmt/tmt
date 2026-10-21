@@ -154,6 +154,19 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
     color: var(--waiting);
   }
 </style>
+<!-- Examples to copy with fresh UUIDs (this comment is inert); see tmt colab skill, "Ask and flag"
+<tmt-questions data-id="20000000-0000-4000-8000-000000000001">
+  <p data-title>One decision</p>
+  <tmt-question data-id="10000000-0000-4000-8000-000000000001" data-kind="single" data-agent="Your agent name">
+    <p data-question>Which option?</p>
+    <span data-choice>First</span><span data-choice>Second</span>
+  </tmt-question>
+</tmt-questions>
+<tmt-read data-id="10000000-0000-4000-8000-000000000002" data-agent="Your agent name" data-why="Read before choosing">
+  <h2 data-title>Requirements</h2>
+  <p>The passage.</p>
+</tmt-read>
+-->
 ```
 
 <!-- END generated page style -->
