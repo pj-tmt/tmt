@@ -294,14 +294,13 @@ Shortcut caps precede tab and filter labels and show effective configured keys;
 unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Agents holds the whole workspace: a full-width Usage band (global usage and provider
 limits) above two columns. The left column lists squads, agents or pinned ones; the
-right column shows the selected target as Talk (the conversation) or Measure (TOK 1h,
+right column shows the selected target as Talk (the conversation) or Measure (TOK in the saved range,
 STATE, DIGEST and TIMERS cells, the soonest timers, the Digest table and who talks to
 whom). `f` cycles the left chips Squads / Agents / Pinned and `t` toggles Talk / Measure;
 both controls sit on their pane's top rule. The shell attention bar stays global.
 Digest keeps the same identity context and existing Core-owned policy controls. A
 squad's theme applies to Agents/Digest.
-Member conversation status, selected-squad usage, the Measure Digest table and
-Digest Usage show `Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
+Member conversation status, selected-squad usage and the Measure Digest table show `Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
 not billed tokens, cost or turns saved. In workspace settings (`,`), choose the shared
 Digest estimate window: 24h (default), 7d or all time. The saved preference is
 `workspace.digest_window` (`24h`, `7d`, `lifetime`). `—` means unavailable; known zero
@@ -368,25 +367,35 @@ hidden or missing selected scopes still refuse to widen.
 
 Workspace settings → Panels previews each dashboard's visibility and its separate
 Conversation/Details switch. Agents sections have fixed positions; its picker
-exposes Usage, quota inside Usage, the list, and the side column (Talk / Measure). The Digest destination keeps ordered
-panels with visible Move up/down controls and plain `u`/`d`. Save, Cancel or Reset
-to default through the same picker. Keep at least one
-interactive surface visible. Cancel discards the preview; stale Save retains it
-with an error. Closing a pending save does not cancel its already admitted write.
-A configured-off Agents side column (Conversation) opens temporarily on explicit message
-focus; Escape returns to rows and retains the draft. Tab and pointer do not open
-it. Hidden panels do not change acquisition or action admission, except the
-Digest Usage report below.
+exposes Usage, quota inside Usage, the list, and the side column (Talk / Measure). Digest uses fixed sections and keeps chart/list/details visibility. Save, Cancel
+or Reset through the same picker. Keep an interactive surface visible. Cancel
+discards preview; stale Save retains it with an error. Closing a pending save
+does not cancel the admitted write. A configured-off Agents side column opens
+on explicit message focus; Escape returns to rows and retains the draft.
+Retired Digest status/usage/report switches and ordering are reported without
+rewriting authored config.
 
-The Digest tab's Usage report panel shows `tmt digest usage report`: tokens per
-line and seat with their coverage, account limits with their pace, and the top
-senders and recipients. A seat recorded for only part of the window reads
-`partial · since <time>` (with the date unless that is today) when its evidence began
-inside the window, else `partial · <covered> of <window>`. Its 24h, 7d and 30d chips (or Workspace settings on that
-tab) choose the window. Ops reads it in the background about once a minute, and at
-once when the window changes, only while the panel is shown on the Digest tab;
-hiding the panel stops the reads. A source that is slow or failing leaves the panel
-saying so, and unavailable evidence is never shown as zero.
+Digest has a range summary, Agents by TOK, Exchanges and selection details.
+The shared `workspace.tok_range` is `1h` (default), `3h`, `6h`, `1d` or `7d`;
+Workspace settings selects it, and clicking the Digest Range control or an
+explicit `cycle-tok-range` binding cycles the same setting. Agents TOK headings
+and values follow it. Chart Each/Range controls remain their independent viewport.
+`all` sums the admitted visible identities and never sends a message or changes a
+member's mode. Real members keep UUID selection as usage sorting changes.
+Activity shows 24 hourly cells, scaled to each row's busiest hour; unknown is `?`,
+known zero is `·`. Whole optional columns yield on narrow terminals; details carry
+the hourly strip at 60 columns. Tab exposes Exchanges in the lower pane.
+Exchanges counts only talk and reply messages, with sender rows and recipient
+columns; `─` is self, `·` observed none and `—` unavailable.
+Enter opens the selected member's Agents conversation. D uses the existing
+Digest chooser; e toggles details, u opens usage controls and w stays Snapshots.
+Hints follow configured bindings. The `≈ $ in` column requires full input-model
+attribution and held quotes: input tokens at list price; not a bill. Avoided
+estimates remain supplier-owned and show unavailable when their window differs
+from the selected TOK range. Source windows and prices remain in details.
+Usage and traffic come from bounded background Core reads, even without Digest;
+held and avoided values then show unavailable, with `tmt extension install digest`.
+Missing, partial and failed/stale observations never become measured zeros.
 
 The Measure view shows up to three soonest timers, with a more
 control and the effective all-room shortcut, beside Digest key/value observations.

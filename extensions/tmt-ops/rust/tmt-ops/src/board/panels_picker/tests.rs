@@ -36,19 +36,18 @@ fn opening_and_preview_never_mutate_expected_and_cancel_is_disposable() {
     assert_eq!(picker.expected, expected);
 }
 #[test]
-fn plain_keys_and_visible_move_actions_change_the_same_selected_panel() {
-    let mut keyboard = Picker::open(OpsPreferences::default(), true);
-    keyboard.input(&key(KeyCode::Down));
-    keyboard.input(&key(KeyCode::Char('u')));
-    let mut control = Picker::open(OpsPreferences::default(), true);
-    control.input(&key(KeyCode::Down));
-    control.surface.borrow_mut().select("up");
-    control.input(&key(KeyCode::Enter));
-    assert_eq!(keyboard.draft, control.draft);
-    assert_eq!(
-        keyboard.draft.digest().unwrap().order()[0],
-        crate::config::DigestPanel::Usage
-    );
+fn digest_sections_keep_fixed_positions_and_expose_only_live_switches() {
+    let mut picker = Picker::open(OpsPreferences::default(), true);
+    let before = picker.draft.clone();
+    picker.input(&key(KeyCode::Char('u')));
+    assert_eq!(picker.draft, before);
+    let rows = picker.draft.rows();
+    for retired in ["status", "usage", "report", "up", "down"] {
+        assert!(!rows.iter().any(|row| row.0 == retired));
+    }
+    for live in ["chart", "list", "side"] {
+        assert!(rows.iter().any(|row| row.0 == live));
+    }
 }
 #[test]
 fn reset_removes_only_the_active_policy_and_save_of_default_is_explicit() {
@@ -126,8 +125,13 @@ fn overview_picker_only_exposes_live_fixed_sections_and_keeps_durable_policy() {
     assert!(draft.overview().unwrap().shown(OverviewPanel::Exchanges));
     let mut digest = Draft::Digest(Some(DigestPanels::default()));
     let before = digest.clone();
-    digest.edit(Edit::Down, "subscriptions").unwrap();
-    assert_ne!(digest, before);
+    assert!(
+        digest
+            .edit(Edit::Down, "subscriptions")
+            .unwrap_err()
+            .contains("fixed positions")
+    );
+    assert_eq!(digest, before);
 }
 
 #[test]
@@ -161,7 +165,7 @@ fn picker_has_one_title_and_one_noninteractive_divider_between_toggles_and_actio
                         .find(|row| row.id == "side")
                         .unwrap()
                         .visible;
-                    let first_action = if digest { "up" } else { "reset" };
+                    let first_action = "reset";
                     let action = list
                         .geometry
                         .iter()
@@ -208,7 +212,7 @@ fn picker_has_one_title_and_one_noninteractive_divider_between_toggles_and_actio
                 picker.input(&key(KeyCode::Down));
                 assert_eq!(
                     picker.surface.borrow().picker.list.selected(),
-                    Some(if digest { "up" } else { "reset" })
+                    Some("reset")
                 );
             }
         }

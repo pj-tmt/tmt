@@ -1,13 +1,10 @@
-use super::model;
-use crate::{
-    board::{
-        app::{App, Hit, HitTarget},
-        usage_report,
-        view::fit,
-        workspace::OpsTarget,
-    },
-    config::Pane,
+use super::{metrics, model, table};
+use crate::board::{
+    app::{App, Choice},
+    exchange_matrix,
+    usage_report::View,
 };
+use crate::config::{Pane, TokRange};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -15,374 +12,281 @@ use ratatui::{
 };
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
-use unicode_width::UnicodeWidthStr;
 
-/// Rows the member list keeps before the Usage report takes the rest.
-const LIST_FLOOR: u16 = 6;
-
-fn usage(app: &App, width: u16) -> (Vec<Line<'static>>, std::ops::Range<usize>) {
-    let look = app.look();
-    let mut lines = vec![Line::styled(
-        if app.workspace.visibility.scope.is_empty() {
-            "Usage · unique identities"
-        } else {
-            "Usage · global identities"
-        },
-        look.role(Role::Muted),
-    )];
-    if let Some(usage) = app.home_header_usage(std::time::Instant::now()) {
-        let text = usage
-            .windows
-            .iter()
-            .zip(usage.totals)
-            .filter(|(window, _)| window.milliseconds() <= 3_600_000)
-            .map(|(window, reading)| {
-                format!(
-                    "{} {}",
-                    window.label(),
-                    reading.map_or_else(
-                        || "unavailable".into(),
-                        |reading| format!(
-                            "{}{} tok",
-                            if reading.partial { "≥" } else { "" },
-                            crate::source::tokens(reading.tokens)
-                        )
-                    )
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" · ");
-        lines.push(Line::styled(text, look.role(Role::Text)));
-    } else {
-        lines.push(Line::styled("Usage unavailable", look.role(Role::Muted)));
-    }
-    let mut savings_lines = 0..0;
-    if let Some(snapshot) = app.workspace_snapshot() {
-        let savings = app.digest_savings(snapshot.roster.members.keys().map(String::as_str));
-        let caption = app.savings_caption(&savings, usize::from(width));
-        for (index, text) in [
-            Some(caption),
-            app.digest_savings_start(&savings, usize::from(width)),
-        ]
-        .into_iter()
-        .flatten()
-        .enumerate()
-        {
-            let start = lines.len();
-            lines.extend(
-                crate::board::notes::wrap(&text, usize::from(width))
-                    .into_iter()
-                    .map(|line| Line::styled(line, look.role(Role::Dim))),
-            );
-            if index == 0 {
-                savings_lines = start..lines.len();
-            }
-        }
-    }
-    (lines, savings_lines)
-}
-
-fn status(app: &App) -> Line<'static> {
-    if app.loading() {
-        Line::styled("Loading workspace…", app.look().role(Role::Muted))
-    } else {
-        Line::styled(super::summary(app), app.look().role(Role::Text))
-    }
-}
-
-pub(super) fn status_in_body(app: &App) -> bool {
-    // Workspace shell chrome holds navigation, not a dashboard's Status panel.
-    app.workspace_snapshot().is_some()
-}
-
+/// Summary and content share the same placement owner as focus and pointer input.
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
-    use crate::config::DigestPanel as Id;
-    let look = app.look();
-    let policy = app.digest_panels();
-    let (usage, savings_lines) = usage(app, area.width);
-    let quota = crate::board::home::limits_of(app, area.width, look);
-    let status_in_body = status_in_body(app);
-    let required_status =
-        status_in_body && (app.loading() || app.labels.digest().is_none_or(|(_, stale)| stale));
-    // Hiding ordinary status does not conceal an unavailable/stale/loading read.
-    let status_rows =
-        u16::from(status_in_body && (policy.shown(Id::Status) || required_status)).min(area.height);
-    let context_budget = area.height.saturating_sub(5);
-    let usage_rows = if policy.shown(Id::Usage) {
-        usage
-            .len()
-            .min(usize::from(context_budget.saturating_sub(status_rows))) as u16
-    } else {
-        0
-    };
-    let quota_rows = if policy.shown(Id::Subscriptions) && !quota.is_empty() {
-        quota.len().saturating_add(1).min(usize::from(
-            context_budget.saturating_sub(status_rows + usage_rows),
-        )) as u16
-    } else {
-        0
-    };
-    let remaining = area
-        .height
-        .saturating_sub(status_rows + usage_rows + quota_rows);
-    // The report takes what it needs, except the rows the member list keeps.
-    let report = if policy.shown(Id::Report) {
-        let state = &app.usage_report;
-        usage_report::rows(&state.view(), state.since, area.width, usage_report::zone())
-    } else {
-        Vec::new()
-    };
-    let report_rows = report
-        .len()
-        .min(usize::from(remaining.saturating_sub(LIST_FLOOR))) as u16;
-    let chart_and_target = remaining - report_rows;
-    let chart_now = crate::status::now_ms();
-    let chart_rows = if policy.shown(Id::Chart) {
-        crate::board::overview::chart::host::demand(app, area.width, chart_and_target, chart_now)
-    } else {
-        0
-    };
-    let target_rows = chart_and_target.saturating_sub(chart_rows);
-    let mut y = area.y;
-    let mut target = Rect::new(area.x, area.y, area.width, 0);
-    let mut painted_chart = false;
-    // A hidden Status warning is internal safety chrome, above ordered content.
-    if required_status && !policy.shown(Id::Status) && status_rows > 0 {
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(area.x, y, area.width, 1),
-            status(app),
-        );
-        y += 1;
-    }
-    for panel in policy.order() {
-        let height = match panel {
-            Id::Status if policy.shown(Id::Status) => status_rows,
-            Id::Status => 0,
-            Id::Usage => usage_rows,
-            Id::Subscriptions => quota_rows,
-            Id::Chart => chart_rows,
-            Id::List => target_rows,
-            Id::Report => report_rows,
-        };
-        if height == 0 {
-            continue;
-        }
-        let rect = Rect::new(area.x, y, area.width, height).intersection(area);
-        y += rect.height;
-        match panel {
-            Id::Status => strip::paint_left(frame.buffer_mut(), rect, status(app)),
-            Id::Usage => {
-                for (offset, line) in usage.iter().take(usize::from(rect.height)).enumerate() {
-                    if savings_lines.contains(&offset) {
-                        app.savings_hit(rect.x, rect.y + offset as u16, line.width(), rect.width);
-                    }
-                    strip::paint_left(
-                        frame.buffer_mut(),
-                        Rect::new(rect.x, rect.y + offset as u16, rect.width, 1),
-                        line.clone(),
-                    );
-                }
-            }
-            Id::Subscriptions => {
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect { height: 1, ..rect },
-                    Line::styled("Subscriptions · reported windows", look.role(Role::Muted)),
-                );
-                let rows = quota.len().min(usize::from(rect.height.saturating_sub(1)));
-                if rows > 0 && !app.modal_open() {
-                    app.frame_clocks
-                        .borrow_mut()
-                        .push(crate::board::view::ClockSurface::Limits {
-                            width: rect.width,
-                            rows,
-                        });
-                }
-                for (offset, line) in quota.iter().take(rows).enumerate() {
-                    let row = Rect::new(rect.x, rect.y + 1 + offset as u16, rect.width, 1);
-                    app.hits.borrow_mut().push(Hit {
-                        x: row.x,
-                        y: row.y,
-                        width: row.width,
-                        target: HitTarget::Quota,
-                    });
-                    strip::paint_left(frame.buffer_mut(), row, line.clone());
-                }
-            }
-            Id::Chart => {
-                crate::board::overview::chart::host::render_panel(frame, app, rect, chart_now);
-                painted_chart = true;
-            }
-            Id::List => target = rect,
-            Id::Report => usage_report::paint(frame.buffer_mut(), app, rect, &report),
-        }
-    }
-    if !painted_chart {
-        crate::board::overview::chart::host::render_panel(
-            frame,
+    summary(frame, app, area);
+    let now = crate::status::now_ms();
+    let chart_height = if app.usage_chart.borrow().focused()
+        && app.digest_panels().shown(crate::config::DigestPanel::Chart)
+    {
+        crate::board::overview::chart::host::demand(
             app,
-            Rect { height: 0, ..area },
-            chart_now,
-        );
-    }
-    app.conversation.borrow_mut().area = target;
+            area.width,
+            area.height.saturating_sub(1),
+            now,
+        )
+    } else {
+        0
+    };
+    crate::board::overview::chart::host::render_panel(
+        frame,
+        app,
+        Rect::new(area.x, area.y.saturating_add(1), area.width, chart_height),
+        now,
+    );
+    let body = Rect::new(
+        area.x,
+        area.y.saturating_add(1 + chart_height),
+        area.width,
+        area.height.saturating_sub(1 + chart_height),
+    );
+    app.conversation.borrow_mut().area = body;
+    let placement = app.digest_placement(body);
     use crate::action::ResizeBoundary as Boundary;
-    let placement = app.digest_placement(target);
     app.pane_resize.record_panes(
         placement,
         Boundary::DigestColumns,
         Boundary::DigestRows,
-        crate::board::conversation::layout::LIST_MIN_COLUMNS,
+        94,
         frame.area(),
     );
-    if let (Some(list), Some(detail)) = (placement.list, placement.conversation)
-        && list.y == detail.y
-        && !(crate::board::pane_chrome::boxed(list) && crate::board::pane_chrome::boxed(detail))
+    if let (Some(list), Some(side)) = (placement.list, placement.conversation)
+        && list.y == side.y
+        && list.x != side.x
+        && !(crate::board::pane_chrome::boxed(list) && crate::board::pane_chrome::boxed(side))
     {
         // Framed panes mark the seam with their own edges; the gap between them stays the drag handle.
         crate::board::divider::paint(
             frame.buffer_mut(),
             Rect::new(list.right(), list.y, 1, list.height),
             false,
-            look,
+            app.look(),
         );
     }
     if let Some(list) = placement.list {
-        members(frame, app, list);
+        table::paint(frame, app, list);
     }
     app.conversation.borrow_mut().pane = placement.conversation;
-    if let Some(detail) = placement.conversation {
-        details(frame, app, detail);
+    if let Some(side) = placement.conversation {
+        let wide = placement
+            .list
+            .is_some_and(|list| list.y == side.y && list.x != side.x);
+        let details = app.digest_panels().side_shown();
+        if wide {
+            let matrix_height = 9.min(side.height);
+            matrix(
+                frame,
+                app,
+                Rect {
+                    height: matrix_height,
+                    ..side
+                },
+                !details,
+            );
+            if details {
+                detail(
+                    frame,
+                    app,
+                    Rect::new(
+                        side.x,
+                        side.y + matrix_height,
+                        side.width,
+                        side.height - matrix_height,
+                    ),
+                );
+            }
+        } else if app.focused() == Pane::Replies || !details {
+            matrix(frame, app, side, true);
+        } else {
+            detail(frame, app, side);
+        }
     }
 }
-
-fn members(frame: &mut Frame, app: &App, area: Rect) {
-    let look = app.look();
-    let mut inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Rows, "Digest");
-    if inside.height == 0 {
+fn summary(frame: &mut Frame, app: &App, area: Rect) {
+    if area.is_empty() {
         return;
     }
-    let name_width = (usize::from(inside.width) / 3)
-        .clamp(8, 28)
-        .min(usize::from(inside.width));
+    let rows = app.workspace_rows();
+    let ids: Vec<_> = rows.iter().filter_map(metrics::id).collect();
+    let mut parts = vec![
+        format!("Range {} ▾", app.tok_range().argument()),
+        format!(
+            "TOK {}",
+            metrics::token_text(metrics::tokens(metrics::report(app), &ids))
+        ),
+        if app.labels.digest().is_none() {
+            "Digest unavailable".into()
+        } else {
+            super::summary(app)
+        },
+    ];
+    if app.loading() {
+        parts.insert(1, "Loading workspace…".into());
+    }
+    match app.usage_report.view_for(app.tok_range()) {
+        View::Loading => parts.insert(1, "Usage loading…".into()),
+        View::Failed(_) => parts.insert(1, "Usage unavailable".into()),
+        View::Report(_) if app.usage_report.refresh_error(app.tok_range()).is_some() => {
+            parts.insert(1, "Usage stale · refresh failed".into())
+        }
+        _ => {}
+    }
+    let savings = metrics::savings(app, &ids);
+    let savings_available = savings.as_ref().is_some_and(|summary| {
+        model::savings_value(
+            summary,
+            if app.tok_range() == TokRange::Day {
+                crate::config::DigestWindow::Day
+            } else {
+                crate::config::DigestWindow::Week
+            },
+            app.savings_unit(),
+        )
+        .0
+        .is_some()
+    });
+    if let Some(savings) = savings {
+        let window = if app.tok_range() == TokRange::Day {
+            crate::config::DigestWindow::Day
+        } else {
+            crate::config::DigestWindow::Week
+        };
+        parts.push(model::savings_caption(
+            &savings,
+            window,
+            app.savings_unit(),
+            usize::from(area.width),
+        ));
+    } else {
+        parts.push("Est. avoided unavailable for this range".into());
+    }
+    // Omit complete trailing metrics, never half an amount.
+    let mut text = String::new();
+    for part in parts {
+        let candidate = if text.is_empty() {
+            part.clone()
+        } else {
+            format!("{text} · {part}")
+        };
+        if unicode_width::UnicodeWidthStr::width(candidate.as_str()) > usize::from(area.width) {
+            break;
+        }
+        if savings_available && part.starts_with("Est.") {
+            let gap = if text.is_empty() { 0 } else { 3 };
+            let x = area.x + (unicode_width::UnicodeWidthStr::width(text.as_str()) + gap) as u16;
+            app.savings_hit(
+                x,
+                area.y,
+                unicode_width::UnicodeWidthStr::width(part.as_str()),
+                area.right().saturating_sub(x),
+            );
+        }
+        text = candidate;
+    }
     strip::paint_left(
         frame.buffer_mut(),
-        Rect {
-            height: 1,
-            ..inside
-        },
-        Line::styled(
-            format!("{}Digest", fit("Agent", name_width)),
-            look.role(Role::Muted),
-        ),
+        Rect { height: 1, ..area },
+        Line::styled(text, app.look().role(Role::Text)),
     );
-    inside.y += 1;
-    inside.height -= 1;
-    let rows = app.workspace_rows();
-    *app.row_starts.borrow_mut() = (0..rows.len()).collect();
-    if app.follow
-        && let Some(index) = rows
-            .iter()
-            .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
-    {
-        app.scrolls
-            .reveal_range(Pane::Rows, index..index + 1, inside, rows.len());
+    let chip = format!("Range {} ▾", app.tok_range().argument());
+    let width = unicode_width::UnicodeWidthStr::width(chip.as_str()) as u16;
+    if width <= area.width {
+        app.workspace_strip_hits.borrow_mut().push((
+            Rect::new(area.x, area.y, width, 1),
+            Choice::TokRange(app.tok_range().next()),
+        ));
     }
-    app.scrolls.show_paint(
-        frame,
-        Pane::Rows,
-        inside,
-        rows.len().max(1),
-        look,
-        |frame, viewport, offset| {
-            if rows.is_empty() {
-                let text = if app.workspace.query.is_empty() {
-                    "No agents observed"
-                } else {
-                    "No matching agents"
-                };
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect {
-                        height: u16::from(viewport.height > 0),
-                        ..viewport
-                    },
-                    Line::styled(text, look.role(Role::Muted)),
-                );
-            }
-            for (index, row) in rows
-                .iter()
-                .enumerate()
-                .skip(offset)
-                .take(usize::from(viewport.height))
-            {
-                let OpsTarget::Member { identity_id, .. } = &row.target else {
-                    continue;
-                };
-                let area = Rect::new(
-                    viewport.x,
-                    viewport.y + (index - offset) as u16,
-                    viewport.width,
-                    1,
-                );
-                let selected = Some(&row.target) == app.workspace.selected.as_ref();
-                let base = if selected {
-                    look.selection()
-                } else {
-                    look.role(Role::Text)
-                };
-                if selected {
-                    frame.buffer_mut().set_style(area, base);
-                }
-                let mut spans = vec![Span::styled(
-                    fit(&crate::board::notes::sanitize(&row.title), name_width),
-                    base,
-                )];
-                let mut x = area.x.saturating_add(name_width as u16).min(area.right());
-                let labels = model::labels(&app.labels, identity_id);
-                let label_style = |role| if selected { base } else { look.role(role) };
-                if labels.is_empty() {
-                    spans.push(Span::styled("unavailable", label_style(Role::Muted)));
-                }
-                for (position, (text, role, choice)) in labels.into_iter().enumerate() {
-                    let gap = if position == 0 { "" } else { " · " };
-                    let width = (gap.width() + text.width()).min(usize::from(u16::MAX)) as u16;
-                    if x.saturating_add(width) > area.right() {
-                        break;
-                    }
-                    spans.push(Span::styled(format!("{gap}{text}"), label_style(role)));
-                    if choice {
-                        app.chip_hits
-                            .borrow_mut()
-                            .push((Rect::new(x, area.y, width, 1), index));
-                    }
-                    x += width;
-                }
-                strip::paint_left(frame.buffer_mut(), area, Line::from(spans));
-                app.hits.borrow_mut().push(Hit {
-                    x: area.x,
-                    y: area.y,
-                    width: area.width,
-                    target: HitTarget::Row(index),
-                });
-            }
-        },
-    );
 }
-
-fn details(frame: &mut Frame, app: &App, area: Rect) {
-    let look = app.look();
-    let inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, "Details");
-    let row = app.selected_row();
-    let target = row.and_then(|_| app.row_target(app.selected));
-    let lines: Vec<_> = detail_lines(app, inside.width, crate::status::now_ms(), row)
-        .into_iter()
-        .map(|text| Line::styled(text, look.role(Role::Text)))
+fn matrix(frame: &mut Frame, app: &App, area: Rect, chrome: bool) {
+    let inside = if chrome {
+        crate::board::pane_chrome::paint(
+            frame,
+            app,
+            area,
+            Pane::Replies,
+            "Exchanges · talk + reply",
+        )
+    } else {
+        if !area.is_empty() {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect { height: 1, ..area },
+                Line::styled("── Exchanges · talk + reply", app.look().role(Role::Muted)),
+            );
+        }
+        Rect::new(
+            area.x.saturating_add(u16::from(area.width > 0)),
+            area.y.saturating_add(u16::from(area.height > 0)),
+            area.width.saturating_sub(2),
+            area.height.saturating_sub(1),
+        )
+    };
+    if inside.is_empty() {
+        return;
+    }
+    let rows = app.workspace_rows();
+    let mut ranked: Vec<_> = rows
+        .iter()
+        .filter_map(|row| {
+            Some(exchange_matrix::ExchangeParticipant {
+                id: metrics::id(row)?.into(),
+                name: row.title.clone(),
+            })
+        })
+        .take(5)
         .collect();
-    app.scrolls.show(frame, Pane::Replies, inside, lines, look);
+    let selected = app
+        .workspace
+        .selected
+        .as_ref()
+        .and_then(|target| match target {
+            crate::board::workspace::OpsTarget::Member { identity_id, .. } => {
+                Some(identity_id.as_str())
+            }
+            _ => None,
+        });
+    if let Some(id) = selected
+        && !ranked.iter().any(|row| row.id == id)
+        && let Some(row) = rows.iter().find(|row| metrics::id(row) == Some(id))
+    {
+        ranked.push(exchange_matrix::ExchangeParticipant {
+            id: id.into(),
+            name: row.title.clone(),
+        });
+    }
+    let report = metrics::report(app);
+    let _cells = exchange_matrix::paint(
+        frame.buffer_mut(),
+        inside,
+        &ranked,
+        selected,
+        report.and_then(|report| report.exchange.as_ref()),
+        app.look(),
+    );
+    if ranked.is_empty() {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect {
+                height: 1,
+                ..inside
+            },
+            Line::styled("No agents observed", app.look().role(Role::Muted)),
+        );
+    }
+}
+fn detail(frame: &mut Frame, app: &App, area: Rect) {
+    let inside = crate::board::pane_chrome::paint(frame, app, area, Pane::Replies, "Details");
+    let lines = detail_lines(
+        app,
+        inside.width,
+        crate::status::now_ms(),
+        app.selected_row(),
+    );
+    app.scrolls
+        .show(frame, Pane::Replies, inside, lines, app.look());
     if !inside.is_empty()
-        && let Some(target) = target
+        && let Some(target) = app.row_target(app.selected)
     {
         app.frame_clocks
             .borrow_mut()
@@ -393,37 +297,166 @@ fn details(frame: &mut Frame, app: &App, area: Rect) {
             });
     }
 }
-
 fn detail_lines(
     app: &App,
     width: u16,
     now_ms: u64,
     row: Option<&serde_json::Value>,
-) -> Vec<String> {
-    let mut text = Vec::new();
-    if let Some(row) = row {
-        text.push(crate::board::notes::sanitize(
-            row["name"].as_str().unwrap_or("Agent"),
+) -> Vec<Line<'static>> {
+    let rows = app.workspace_rows();
+    let selected = rows
+        .iter()
+        .find(|row| Some(&row.target) == app.workspace.selected.as_ref());
+    let ids = selected.map_or_else(Vec::new, |row| metrics::identities(row, &rows));
+    let report = metrics::report(app);
+    let mut text = vec![
+        selected.map_or("Select a visible agent or all".into(), |row| {
+            row.title.clone()
+        }),
+        format!(
+            "{} · TOK {}",
+            app.tok_range().argument(),
+            metrics::token_text(metrics::tokens(report, &ids))
+        ),
+    ];
+    if let Some(cost) = metrics::input_price(app, report, &ids) {
+        text.push(format!(
+            "Input list-price estimate: {}",
+            model::usd_text(cost)
         ));
-        if let Some(id) = row["id"].as_str() {
-            text.extend(model::details(
-                &app.labels,
-                id,
-                now_ms,
-                app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+    }
+    if let Some(id) = row.and_then(|row| row["id"].as_str()) {
+        text.extend(model::details(
+            &app.labels,
+            id,
+            now_ms,
+            app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
+        ));
+        text.push(
+            report
+                .and_then(|report| metrics::recipient(report, id))
+                .map_or("Talks to: unavailable".into(), |(id, count)| {
+                    format!("Talks to: {} · {count} messages", metrics::name(app, id))
+                }),
+        );
+        if let Some(seat) = report.and_then(|report| report.seat(id)) {
+            text.push(format!(
+                "Usage coverage: {}% of {}{}",
+                seat.covered_ms.saturating_mul(100) / seat.window_ms.max(1),
+                app.tok_range().argument(),
+                if seat.complete {
+                    " · complete"
+                } else {
+                    " · partial"
+                }
+            ));
+            let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
+            let timestamp = |ms| {
+                i64::try_from(ms)
+                    .ok()
+                    .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+                    .map_or("unknown".into(), |at| {
+                        at.to_zoned(zone.clone())
+                            .strftime("%m-%d %H:%M")
+                            .to_string()
+                    })
+            };
+            text.push(format!(
+                "Usage window: {}–{}",
+                timestamp(seat.from_ms),
+                timestamp(seat.to_ms)
+            ));
+            text.push(format!(
+                "Usage observed: {}",
+                model::observation_time(Some(seat.observed_at_ms), now_ms, &zone)
+            ));
+            if seat.series.iter().any(|point| !point.complete) {
+                text.push("Hourly activity is partial; fills show observed lower bounds".into());
+            }
+        } else if let Some(unavailable) = report.and_then(|report| {
+            report
+                .unavailable
+                .iter()
+                .find(|row| row.who.id.as_deref() == Some(id))
+        }) {
+            text.push(format!("Usage unavailable: {}", unavailable.reason));
+        }
+        if let Some(point) = report.and_then(|report| metrics::busiest(report, id)) {
+            let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
+            let clock = |ms| {
+                i64::try_from(ms)
+                    .ok()
+                    .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+                    .map_or("unknown".into(), |at| {
+                        at.to_zoned(zone.clone()).strftime("%H:%M").to_string()
+                    })
+            };
+            text.push(format!(
+                "Busiest hour: {}–{} · {}{} TOK",
+                clock(point.from_ms),
+                clock(point.to_ms),
+                if point.complete { "" } else { "≥" },
+                crate::source::tokens(u128::from(point.total()))
             ));
         }
-    } else {
-        text.push("Select a visible agent to inspect its Digest status".into());
     }
-    text.into_iter()
+    if app.labels.digest().is_none() {
+        text.push("Digest not available".into());
+        text.push("Install: tmt extension install digest".into());
+    }
+    match app.usage_report.view_for(app.tok_range()) {
+        View::Loading => text.push("Usage loading…".into()),
+        View::Failed(error) => text.push(format!("Usage unavailable: {error}")),
+        View::Report(report) => {
+            if row.and_then(|row| row["id"].as_str()).is_none() {
+                text.push(format!(
+                    "Latest usage observed: {}",
+                    model::observation_time(
+                        Some(report.observed_at_ms),
+                        now_ms,
+                        app.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC)
+                    )
+                ));
+                text.push("Totals combine matching source windows only".into());
+            }
+            text.extend(
+                report
+                    .warnings
+                    .iter()
+                    .map(|warning| format!("{}: {}", warning.section, warning.message)),
+            );
+        }
+    }
+    if let Some(error) = app.usage_report.refresh_error(app.tok_range()) {
+        text.push(format!("Stale usage retained · refresh failed: {error}"));
+    }
+    text.push("Input tokens at list price; not a bill.".into());
+    let narrow_activity = app.conversation.borrow().area.width.saturating_sub(2) < 70;
+    if narrow_activity {
+        text.push(if width >= 28 {
+            "24 cells, 1h each · observed counts · ? unknown · · zero".into()
+        } else {
+            "Widen to 28 columns for 24 hourly cells".into()
+        });
+    }
+    if let Some((status, _)) = app.labels.digest() {
+        text.extend(model::pricing_details(status));
+    }
+    let mut lines: Vec<_> = text
+        .into_iter()
         .flat_map(|text| {
             crate::board::notes::wrap(&crate::board::notes::sanitize(&text), usize::from(width))
         })
-        .collect()
+        .map(|text| Line::styled(text, app.look().role(Role::Text)))
+        .collect();
+    if narrow_activity && width >= 28 {
+        let mut spans = vec![Span::styled("24h ", app.look().role(Role::Muted))];
+        spans.extend(table::hourly(app, &metrics::activity(report, &ids), false));
+        lines.insert(1, Line::from(spans));
+    }
+    lines
 }
-
-/// The clock compares exactly the visible wrapped rows, through the painter's projection.
+/// Clock evidence uses the same visible wrapped projection as paint.
 pub(in crate::board) fn details_clock_mark(
     app: &App,
     target: &crate::board::app::RowTarget,
@@ -442,6 +475,7 @@ pub(in crate::board) fn details_clock_mark(
         .into_iter()
         .skip(offset)
         .take(viewport)
+        .map(|line| line.to_string())
         .collect::<Vec<_>>()
         .join("\n")
 }

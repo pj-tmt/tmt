@@ -44,6 +44,7 @@ impl App {
             return Count::default();
         };
         match target {
+            OpsTarget::DigestAll => Count::default(),
             OpsTarget::Member { identity_id, .. } => {
                 page.count(identity_id, self.read_marker(&page.actor, identity_id))
             }

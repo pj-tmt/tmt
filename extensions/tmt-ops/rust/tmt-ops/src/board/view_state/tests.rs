@@ -327,13 +327,7 @@ fn a_proven_gone_digest_target_uses_its_ordinary_visible_cold_default() {
     let mut session = Session::load(scratch.file(), false, false);
     assert!(session.tick(&mut app, Instant::now()).0);
     assert_eq!(app.shell.tab, OpsTab::Digest);
-    assert_eq!(
-        app.workspace.selected,
-        Some(OpsTarget::Member {
-            room_id: Some(ROOM.into()),
-            identity_id: other.into(),
-        })
-    );
+    assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     assert!(app.workspace_selection_visible());
 }
 

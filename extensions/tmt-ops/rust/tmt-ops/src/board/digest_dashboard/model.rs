@@ -7,7 +7,7 @@ pub(in crate::board) fn summary(
     let Some((status, stale)) = supplied.digest() else {
         return "Digest status unavailable".into();
     };
-    let mut held = 0u64;
+    let mut held = 0u128;
     let mut unknown = identities.map_or(0, |ids| {
         ids.iter()
             .filter(|id| !status.members.contains_key(**id))
@@ -20,7 +20,7 @@ pub(in crate::board) fn summary(
         }
         match member.held_count {
             Some(count) => {
-                held = held.saturating_add(count);
+                held += u128::from(count);
                 known += 1;
             }
             None => unknown += 1,
@@ -121,13 +121,30 @@ pub(in crate::board) fn details(
                 .map_or("unavailable".into(), |n| format!("{n} ms"))
         ));
     }
+    if let Some(savings) = &member.savings {
+        fields.push(format!(
+            "Supplier context avoided {}: {} · {}–{} ms{}",
+            savings.window.label(),
+            savings
+                .tokens
+                .map_or("—".into(), |tokens| crate::source::tokens(u128::from(
+                    tokens
+                ))),
+            savings.from_ms,
+            savings.through_ms,
+            if savings.complete { "" } else { " · partial" }
+        ));
+    }
     fields.extend(valuation_details(member));
-    fields.extend(pricing_details(status));
     fields
 }
 
 /// Read-only observation wording using the shared Ops age formatter and held local zone.
-fn observation_time(at_ms: Option<u64>, now_ms: u64, zone: &jiff::tz::TimeZone) -> String {
+pub(super) fn observation_time(
+    at_ms: Option<u64>,
+    now_ms: u64,
+    zone: &jiff::tz::TimeZone,
+) -> String {
     let Some(at_ms) = at_ms.filter(|at| *at > 0 && *at <= now_ms) else {
         return "unknown".into();
     };
@@ -176,7 +193,7 @@ fn valuation_details(member: &crate::labels::digest::Member) -> Vec<String> {
 
 /// The supplier's list-price table and where it came from, read-only. Source
 /// addresses are plain text; the board never opens them.
-fn pricing_details(status: &crate::labels::digest::Status) -> Vec<String> {
+pub(super) fn pricing_details(status: &crate::labels::digest::Status) -> Vec<String> {
     let Some(pricing) = &status.pricing else {
         return Vec::new();
     };

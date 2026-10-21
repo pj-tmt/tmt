@@ -319,6 +319,13 @@ pub(in crate::board) fn focus(app: &mut App) -> Effect {
     // a pre-frame or invalidated workspace never bypasses the visibility fence.
     let overview_table = app.shell.tab == OpsTab::Agents && app.scrolls.visible(Pane::Rows);
     if !app.usage_chart.borrow().visible {
+        if app.shell.tab == OpsTab::Digest
+            && app.scrolls.visible(Pane::Rows)
+            && !app.usage_panel_hidden()
+        {
+            app.usage_chart.borrow_mut().set_focus(Focus::Range);
+            return Effect::None;
+        }
         if overview_table {
             return open_dropdown(app, Focus::Range);
         }

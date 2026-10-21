@@ -63,25 +63,13 @@ fn dashboards_have_distinct_ids_and_side_panes() {
 }
 
 #[test]
-fn an_order_saved_before_a_panel_existed_gets_it_appended() {
-    let saved = |order: &str| -> Result<DigestPanels, String> {
-        let document: DocumentMut = format!("[workspace.digest_panels]\norder = [{order}]\n")
-            .parse()
-            .unwrap();
-        DigestPanels::parse(&document["workspace"]["digest_panels"])
-    };
-    let policy = saved("'list','status','usage','subscriptions','chart'").unwrap();
+fn retired_digest_sections_are_ignored_while_equivalent_switches_survive() {
+    let document: DocumentMut = "[workspace.digest_panels]\norder=['list','status','usage','subscriptions','chart','report']\nhidden=['report','chart']\ndetails=false\n".parse().unwrap();
+    let policy = DigestPanels::parse(&document["workspace"]["digest_panels"]).unwrap();
     assert_eq!(policy.order()[0], DigestPanel::List);
-    assert_eq!(policy.order().last(), Some(&DigestPanel::Report));
-    assert!(policy.shown(DigestPanel::Report));
-    // Every omitted known ID is completed by the same expansion rule.
-    let older = saved("'list','status','usage','subscriptions'").unwrap();
-    assert!(older.order().contains(&DigestPanel::Chart));
-    assert_eq!(older.order().last(), Some(&DigestPanel::Report));
-    // An order that already places it keeps its place; duplicates stay refused.
-    let placed = saved("'report','list','status','usage','subscriptions','chart'").unwrap();
-    assert_eq!(placed.order()[0], DigestPanel::Report);
-    assert!(saved("'report','report','list','status','usage','subscriptions','chart'").is_err());
+    assert!(!policy.shown(DigestPanel::Chart));
+    assert!(!policy.side_shown());
+    assert!(policy.shown(DigestPanel::List));
 }
 
 #[test]
@@ -219,15 +207,8 @@ fn older_panel_orders_keep_custom_order_visibility_and_round_trip_in_both_forms(
             "digest_panels",
             "details",
             "'list','usage','status','subscriptions'",
-            "status",
-            vec![
-                "list",
-                "usage",
-                "status",
-                "chart",
-                "subscriptions",
-                "report",
-            ],
+            "chart",
+            vec!["list", "chart", "subscriptions"],
         ),
     ] {
         for inline in [false, true] {
@@ -259,7 +240,7 @@ fn older_panel_orders_keep_custom_order_visibility_and_round_trip_in_both_forms(
                 let missing = if P::SIDE_KEY == "conversation" {
                     "usage"
                 } else {
-                    "chart"
+                    "subscriptions"
                 };
                 assert!(
                     parsed.shown(P::parse(missing).unwrap()),

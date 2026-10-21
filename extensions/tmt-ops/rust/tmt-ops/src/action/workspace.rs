@@ -8,6 +8,7 @@ pub enum OpsUiAction {
     QuotaDetails,
     SavingsUnit,
     UsageControls,
+    CycleTokRange,
     Inspect,
     MonitorDetails,
     Previous,
@@ -142,6 +143,13 @@ const SPECS: &[OpsUiSpec] = &[
         "usage-controls",
         "usage chart",
         "focus interval, range and usage buckets",
+        12
+    ),
+    spec!(
+        CycleTokRange,
+        "cycle-tok-range",
+        "TOK range",
+        "cycle the shared Agents and Digest TOK range",
         12
     ),
     spec!(

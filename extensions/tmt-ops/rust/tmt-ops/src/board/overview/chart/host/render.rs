@@ -148,7 +148,12 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
         }
         paint_chart(frame, app, &mut state, area, look, now);
     } else {
-        if !app.usage_controls {
+        // Digest opens this chart explicitly. Its empty summary must retain
+        // Range/Each focus between u and Enter, just like a populated chart.
+        if !app.usage_controls
+            && (app.shell.tab != OpsTab::Digest
+                || !matches!(state.focus, Some(Focus::Range | Focus::Each)))
+        {
             state.release_focus();
         }
         let title = title(app, &data, state.selection);

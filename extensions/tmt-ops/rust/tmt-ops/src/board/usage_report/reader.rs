@@ -1,8 +1,11 @@
-//! The reader thread: one report read in flight, started only while the panel
-//! is on screen. It never runs inside the refresh worker, so a slow supplier
+//! The reader thread: one observation read in flight while the saved TOK range
+//! is wanted by Agents or Digest. It never runs inside the refresh worker, so a slow supplier
 //! cannot hold up a reload, and the board never waits for it.
 
-use super::model::{Report, Since};
+use super::{
+    Request,
+    model::{Report, Since},
+};
 use crate::{core::Core, runner::Cancellation};
 use std::{
     sync::mpsc::{self, RecvTimeoutError},
@@ -12,7 +15,7 @@ use std::{
 /// How the reader paces itself.
 #[derive(Clone, Copy, Debug)]
 pub struct Timing {
-    /// Between reads while the panel stays on screen.
+    /// Between reads while observations remain wanted.
     pub every: Duration,
     /// One read's limit.
     pub deadline: Duration,
@@ -38,16 +41,16 @@ pub struct Delivery {
 }
 
 enum Signal {
-    Want(Option<Since>),
+    Want(Option<Request>),
     Stop,
 }
 
-/// Tells the reader which window the panel shows, or that it is not on screen.
+/// Tells the reader the current range and admitted identities, or stops demand.
 #[derive(Clone)]
 pub struct Wants(mpsc::Sender<Signal>);
 
 impl Wants {
-    pub fn set(&self, want: Option<Since>) {
+    pub fn set(&self, want: Option<Request>) {
         let _ = self.0.send(Signal::Want(want));
     }
 }
@@ -62,7 +65,7 @@ pub struct Reader {
 fn drain(
     wake: &mpsc::Receiver<Signal>,
     first: Option<Signal>,
-    want: &mut Option<Since>,
+    want: &mut Option<Request>,
 ) -> Option<bool> {
     let mut changed = false;
     for signal in first.into_iter().chain(wake.try_iter()) {
@@ -78,14 +81,8 @@ fn drain(
     Some(changed)
 }
 
-fn read(core: &Core, since: Since, deadline: Duration) -> Result<Report, String> {
-    let document = core
-        .json_within(
-            &["digest", "usage", "report", "--since", since.text()],
-            deadline,
-        )
-        .map_err(|error| error.message)?;
-    Report::parse(&document)
+fn read(core: &Core, request: &Request, deadline: Duration) -> Result<Report, String> {
+    super::acquire::read(core, request, deadline)
 }
 
 impl Reader {
@@ -100,10 +97,10 @@ impl Reader {
         let core = core.cancellable(cancellation.clone());
         let (signals, wake) = mpsc::channel::<Signal>();
         let thread = std::thread::spawn(move || {
-            let mut want: Option<Since> = None;
+            let mut want: Option<Request> = None;
             let mut wait = timing.every;
             loop {
-                let Some(since) = want else {
+                let Some(request) = want.clone() else {
                     // Not on screen: no reads until the panel is wanted again.
                     let Ok(signal) = wake.recv() else { return };
                     if drain(&wake, Some(signal), &mut want).is_none() {
@@ -112,7 +109,7 @@ impl Reader {
                     wait = timing.every;
                     continue;
                 };
-                let result = read(&core, since, timing.deadline);
+                let result = read(&core, &request, timing.deadline);
                 match drain(&wake, None, &mut want) {
                     None => return,
                     Some(true) => {
@@ -126,7 +123,10 @@ impl Reader {
                 } else {
                     timing.every
                 };
-                if !deliver(Delivery { since, result }) {
+                if !deliver(Delivery {
+                    since: request.since(),
+                    result,
+                }) {
                     return;
                 }
                 let end = Instant::now() + wait;

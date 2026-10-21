@@ -102,6 +102,8 @@ pub struct ShellCounts {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OpsTarget {
+    /// The read-only aggregate row in Digest; never a recipient or room.
+    DigestAll,
     Pool,
     Squad(String),
     Member {
@@ -331,7 +333,7 @@ impl OpsRoster {
 
     pub(in crate::board) fn contains(&self, target: &OpsTarget) -> bool {
         match target {
-            OpsTarget::Pool => true,
+            OpsTarget::Pool | OpsTarget::DigestAll => true,
             OpsTarget::Squad(id) => self.squads.iter().any(|squad| squad.room_id == *id),
             OpsTarget::Member {
                 room_id: Some(room),
@@ -448,7 +450,7 @@ impl OpsWorkspace {
                     self.expanded.insert(id.clone());
                 }
             }
-            OpsTarget::Member { .. } => return false,
+            OpsTarget::Member { .. } | OpsTarget::DigestAll => return false,
         }
         true
     }

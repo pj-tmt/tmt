@@ -10,6 +10,7 @@ pub trait Panel: sealed::Sealed + Copy + Debug + Ord + 'static {
     const ALL: &'static [Self];
     const TARGET: Self;
     const SIDE_KEY: &'static str;
+    const RETIRED: &'static [&'static str] = &[];
     fn key(self) -> &'static str;
 
     fn parse(key: &str) -> Option<Self> {
@@ -53,34 +54,21 @@ impl Panel for OverviewPanel {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DigestPanel {
-    Status,
-    Usage,
     Subscriptions,
     Chart,
     List,
-    Report,
 }
 impl sealed::Sealed for DigestPanel {}
 impl Panel for DigestPanel {
-    const ALL: &'static [Self] = &[
-        Self::Status,
-        Self::Usage,
-        Self::Subscriptions,
-        Self::Chart,
-        Self::List,
-        Self::Report,
-    ];
+    const ALL: &'static [Self] = &[Self::Subscriptions, Self::Chart, Self::List];
     const TARGET: Self = Self::List;
     const SIDE_KEY: &'static str = "details";
-
+    const RETIRED: &'static [&'static str] = &["status", "usage", "report"];
     fn key(self) -> &'static str {
         match self {
-            Self::Status => "status",
-            Self::Usage => "usage",
             Self::Subscriptions => "subscriptions",
             Self::Chart => "chart",
             Self::List => "list",
-            Self::Report => "report",
         }
     }
 }
@@ -406,23 +394,24 @@ fn ids<P: Panel>(item: &Item, field: &str) -> Result<Vec<P>, String> {
     let array = item
         .as_array()
         .ok_or_else(|| format!("{field} must be an array of panel IDs"))?;
-    if array.len() > P::ALL.len() {
+    if array.len() > P::ALL.len() + P::RETIRED.len() {
         return Err(format!("{field} has more entries than dashboard panels"));
     }
     let mut seen = BTreeSet::new();
-    array
-        .iter()
-        .map(|value| {
-            let key = value
-                .as_str()
-                .ok_or_else(|| format!("{field} must contain panel ID strings"))?;
-            let panel = P::parse(key).ok_or_else(|| format!("unknown {field} panel '{key}'"))?;
-            if !seen.insert(panel) {
-                return Err(format!("{field} repeats panel '{key}'"));
-            }
-            Ok(panel)
-        })
-        .collect()
+    let mut result = Vec::new();
+    for value in array {
+        let key = value
+            .as_str()
+            .ok_or_else(|| format!("{field} must contain panel ID strings"))?;
+        if !seen.insert(key) {
+            return Err(format!("{field} repeats panel '{key}'"));
+        }
+        if P::RETIRED.contains(&key) {
+            continue;
+        }
+        result.push(P::parse(key).ok_or_else(|| format!("unknown {field} panel '{key}'"))?);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

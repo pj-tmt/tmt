@@ -137,6 +137,16 @@ fn capture_digest_identity_rows() {
 #[test]
 fn matrix_reuses_values_in_fixed_units_without_writing_preferences() {
     let mut app = valued_board();
+    // This fixture seeds the live one-hour meter, not retained Core day history.
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .tok_range = crate::config::TokRange::Hour;
     app.shell.tab = OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     capture::populate_final(&mut app, "squads");

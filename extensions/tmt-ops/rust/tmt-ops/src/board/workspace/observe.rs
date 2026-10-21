@@ -20,6 +20,8 @@ type BindingSources = BTreeMap<String, String>;
 #[derive(Debug, Default)]
 pub(crate) struct OpsWorkspaceSnapshot {
     pub roster: OpsRoster,
+    /// Immutable request identities, prepared with the roster rather than on clock/input turns.
+    pub identity_ids: std::sync::Arc<[String]>,
     /// When the global core read behind `roster` returned. The board loader
     /// sets it; only hand-built test snapshots have none (no age limit).
     pub read_at: Option<std::time::Instant>,
@@ -301,6 +303,7 @@ impl OpsWorkspaceSnapshot {
             projected.members.dedup();
             result.roster.squads.push(projected);
         }
+        result.identity_ids = result.roster.members.keys().cloned().collect();
         result
     }
 }

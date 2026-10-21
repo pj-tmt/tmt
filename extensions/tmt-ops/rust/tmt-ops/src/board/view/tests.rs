@@ -1070,7 +1070,7 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                             .map(|column| buffer[(column, *y)].symbol())
                             .collect::<String>();
                         let label = match tab {
-                            OpsTab::Digest => "unavailable",
+                            OpsTab::Digest => "—",
                             OpsTab::Agents => "—",
                         };
                         assert!(line.contains(label), "{tab:?}/{width}/{depth:?}: {line}");

@@ -742,3 +742,53 @@ fn keycaps_are_neutral_readable_bold_and_brighter_in_the_selected_control() {
     assert_eq!(cap.bg, Some(Color::Rgb(240, 240, 240)));
     assert_eq!(cap.fg, Some(Color::Black));
 }
+
+#[cfg(feature = "ratatui")]
+#[test]
+fn neutral_ramp_has_six_steps_and_readable_numbers_in_both_themes() {
+    use ratatui::style::Color as C;
+    let luminance = |v: u8| {
+        let x = f64::from(v) / 255.0;
+        if x <= 0.04045 {
+            x / 12.92
+        } else {
+            ((x + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    for base in [Base::Tmt, Base::TmtLight] {
+        let theme = Theme::new(base);
+        let mut levels = std::collections::BTreeSet::new();
+        for step in 0..6 {
+            let style = screen::neutral_ramp(&theme, Depth::TrueColor, step);
+            let Some(C::Rgb(r, g, b)) = style.bg else {
+                panic!("RGB fill required")
+            };
+            assert_eq!((r, g), (g, b));
+            levels.insert(r);
+            let bg = luminance(r);
+            let fg: f64 = match style.fg {
+                Some(C::Black) => 0.0,
+                Some(C::White) => 1.0,
+                _ => panic!("contrast ink"),
+            };
+            let ratio = (fg.max(bg) + 0.05) / (fg.min(bg) + 0.05);
+            assert!(ratio >= 4.5, "{base:?} step{step}: {ratio}");
+            assert_eq!(screen::neutral_ramp(&theme, Depth::None, step).bg, None);
+            let ansi = screen::neutral_ramp(&theme, Depth::Ansi16, step);
+            assert!(matches!(
+                ansi.bg,
+                Some(C::Black | C::DarkGray | C::Gray | C::White)
+            ));
+            assert!(matches!(ansi.fg, Some(C::Black | C::White)));
+        }
+        assert_eq!(levels.len(), 6);
+        assert_eq!(
+            screen::neutral_ramp(&theme, Depth::TrueColor, 255),
+            screen::neutral_ramp(&theme, Depth::TrueColor, 5)
+        );
+    }
+    assert_eq!(
+        screen::neutral_ramp(&Theme::new(Base::Mono), Depth::TrueColor, 5).bg,
+        None
+    );
+}

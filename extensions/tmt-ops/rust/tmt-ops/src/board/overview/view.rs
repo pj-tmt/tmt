@@ -106,7 +106,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     "AGENT",
                     "SQUAD",
                     "STATE",
-                    "TOK 1h",
+                    app.tok_range().caption(),
                     if model_width(slot.width, state_width(slot.width, widest)).is_some() {
                         "   MODEL"
                     } else {
