@@ -110,7 +110,7 @@ case "$3" in
     e=$(printf '%s' "$input" | sed -n 's/.*"expected":"\([^"]*\)".*/\1/p')
     h=$(cat "$d/agentname" 2>/dev/null)
     case "$a" in
-      '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname"; elif [ -n "$e" ] && [ "$h" = "$e" ]; then rm -f "$d/agentname"; fi
+      '') if [ -n "$n" ]; then printf '%s' "$n" > "$d/agentname.next"; mv "$d/agentname.next" "$d/agentname"; elif [ -n "$e" ] && [ "$h" = "$e" ]; then rm -f "$d/agentname"; fi
           printf '{"ok":{}}' ;;
       ok) printf '{"ok":{}}' ;;
       *) printf '{"error":{"code":"%s","message":"host says %s"}}' "$a" "$a" ;;
