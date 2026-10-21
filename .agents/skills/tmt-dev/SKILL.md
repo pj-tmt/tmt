@@ -33,6 +33,8 @@ Read the repository guidance before planning work:
 4. Before a Docker suite, run `scripts/dev-disk-check.sh`, and use the
    per-worktree image tag and cleanup in DEVELOPMENT's
    [disk section](../../../DEVELOPMENT.md#keep-local-development-from-filling-the-disk).
+   Local dev builds disable incremental compilation to limit target growth; use
+   `CARGO_INCREMENTAL=1` for a long edit loop.
    Verify the changed layers using DEVELOPMENT and CONVENTIONS. Shared markup
    changes follow the [tmt-tui](../tmt-tui/SKILL.md) admission, geometry/paint and parity
    gates. Record the reviewed revision, findings, dispositions and exact verification evidence.
