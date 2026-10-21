@@ -4379,9 +4379,12 @@ impl App {
             .map_or(saved, |picker| picker.preview(saved.depth))
     }
 
-    pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
+    /// Every read the selection still needs, in the order the board wants the
+    /// answers. They are independent, so the worker runs them together.
+    pub(super) fn selected_reads(&self) -> Vec<super::refresh::SelectedRead> {
+        use super::refresh::SelectedRead;
         if self.loading() {
-            return None;
+            return Vec::new();
         }
         if self
             .input
@@ -4394,20 +4397,17 @@ impl App {
             return draft
                 .target
                 .clone()
-                .map(super::refresh::SelectedRead::Status);
+                .map(SelectedRead::Status)
+                .into_iter()
+                .collect();
         }
-        // Before bodies: a final found here is read like any other.
-        if let Some(key) = self.finals_read() {
-            return Some(super::refresh::SelectedRead::Finals(key));
-        }
-        if let Some(key) = self.sent_read() {
-            return Some(super::refresh::SelectedRead::Sent(key));
-        }
-        if let Some(key) = self.detail_read() {
-            return Some(super::refresh::SelectedRead::Message(key));
-        }
-        self.pane_output_read()
-            .map(super::refresh::SelectedRead::PaneOutput)
+        self.finals_read()
+            .map(SelectedRead::Finals)
+            .into_iter()
+            .chain(self.sent_read().map(SelectedRead::Sent))
+            .chain(self.detail_reads().into_iter().map(SelectedRead::Message))
+            .chain(self.pane_output_read().map(SelectedRead::PaneOutput))
+            .collect()
     }
 
     /// Exact admitted row data for the selected workspace target.

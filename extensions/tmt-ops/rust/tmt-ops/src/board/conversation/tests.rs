@@ -1504,7 +1504,7 @@ fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() 
         app.pane_output_read().is_none(),
         "Details is not a conversation read owner"
     );
-    assert!(app.selected_read().is_none());
+    assert!(app.selected_reads().is_empty());
 }
 
 #[test]

@@ -79,8 +79,8 @@ across room and global observations; `Detail.reply` is the newest of them. Those
 bounded and shared, so the painted conversation (`pane_output_enabled`, Replies pane visible)
 also reads its agent's own newest eight once per activation (`SelectedRead::Finals`,
 `requests.list` with `originatorId`, `recipientId`, `view:"results"`); a core that refuses
-that form leaves the windows as the only source. Once the finals are in, the same
-conversation reads the user's own sends to that agent once per activation
+that form leaves the windows as the only source. The same
+conversation reads the user's own sends to that agent once per activation, in the same selection
 (`SelectedRead::Sent`): one `requests.list` of the agent's recipient history filtered to this
 sender (newest 20 of core's newest-50 page), then `requests.show` for at most five full prompts the
 worker has not read yet, newest first; the worker caches texts (and gone prompts) by request ID, so
@@ -90,7 +90,9 @@ A prompt not read yet or no longer retained keeps its listed preview, marked tru
 `Detail.sent` and render as time-sorted "you" blocks among the finals; a live session entry
 with the same request ID replaces its restored copy, so sends survive an Ops restart and are not
 capped by the session's own list. Request bodies
-load off the UI thread on the selected-read lane, newest first, one selected read at a time.
+load off the UI thread on the selected-read lane, newest first. One selection (`App::selected_reads`) lists every read
+the conversation still needs (finals, sends, message bodies, pane output); the lane runs up to four at once and each answer
+is its own event. A finished read only leaves the wanted set; a newly wanted read starts the selection again.
 Until Core has answered for a conversation's exchanges (the agent's own finals read, or the shared
 originator page where there is none) it shows nothing for the first 400 ms, then `Loading
 exchanges…`; "Exchange history unavailable" appears only after a failed read, and never beside

@@ -522,7 +522,7 @@ fn session(
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool, Option<rate::history::Demand>),
-    selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
+    selected_read: impl Fn(u64, Vec<refresh::SelectedRead>),
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
     labels_window: impl Fn(crate::config::DigestWindow),
@@ -536,7 +536,7 @@ fn session(
     let _no_commands = crate::runner::forbid_commands();
     let mut revision = 0;
     // None defers selection work until a pending reload publishes its snapshot.
-    let mut requested = Some(None);
+    let mut requested = Some(Vec::new());
     let mut refreshed = Instant::now();
     let mut dirty = true;
     let mut marks = view::time_marks(app, crate::status::now_ms());
@@ -672,11 +672,17 @@ fn session(
             }
             dirty = false;
         }
-        let identity = app.selected_read();
-        if requested.is_some() && requested.as_ref() != Some(&identity) {
-            revision += 1;
-            selected_read(revision, identity.clone());
-            requested = Some(identity);
+        // A read that finished only leaves the wanted set: the rest are still on
+        // their way. A newly wanted read restarts the selection.
+        let wanted = app.selected_reads();
+        match &mut requested {
+            Some(issued) if wanted.iter().any(|read| !issued.contains(read)) => {
+                revision += 1;
+                selected_read(revision, wanted.clone());
+                *issued = wanted;
+            }
+            Some(issued) => issued.retain(|read| wanted.contains(read)),
+            None => {}
         }
         // Timers still wake for stop signals and interval reloads, but a
         // silent wake never rebuilds an unchanged view.
@@ -737,7 +743,7 @@ fn session(
             }) => {
                 if !cancellation.cancelled() {
                     revision += 1;
-                    requested = Some(None);
+                    requested = Some(Vec::new());
                     let previous_window = app.digest_window();
                     app.apply(*snapshot);
                     if app.digest_window() != previous_window {
@@ -767,7 +773,9 @@ fn session(
             }) => {
                 if !cancellation.cancelled()
                     && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::Status(target.clone()))
+                    && app
+                        .selected_reads()
+                        .contains(&refresh::SelectedRead::Status(target.clone()))
                     && let Some(draft) = &mut app.status_draft
                 {
                     draft.loaded(result);
@@ -783,7 +791,9 @@ fn session(
             }) => {
                 if !cancellation.cancelled()
                     && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::Message(key.clone()))
+                    && app
+                        .selected_reads()
+                        .contains(&refresh::SelectedRead::Message(key.clone()))
                 {
                     app.apply_message(&key, body);
                     dirty = true;
@@ -798,7 +808,9 @@ fn session(
             }) => {
                 if !cancellation.cancelled()
                     && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::Finals(key.clone()))
+                    && app
+                        .selected_reads()
+                        .contains(&refresh::SelectedRead::Finals(key.clone()))
                 {
                     app.apply_finals(key, result);
                     dirty = true;
@@ -813,7 +825,9 @@ fn session(
             }) => {
                 if !cancellation.cancelled()
                     && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::Sent(key.clone()))
+                    && app
+                        .selected_reads()
+                        .contains(&refresh::SelectedRead::Sent(key.clone()))
                 {
                     app.apply_sent(key, result);
                     dirty = true;
@@ -828,7 +842,9 @@ fn session(
             }) => {
                 if !cancellation.cancelled()
                     && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::PaneOutput(key.clone()))
+                    && app
+                        .selected_reads()
+                        .contains(&refresh::SelectedRead::PaneOutput(key.clone()))
                 {
                     app.apply_pane_output(key, observation);
                     dirty = true;
@@ -1550,7 +1566,7 @@ mod tests {
         stop: &AtomicUsize,
         input: &Receiver<BoardEvent>,
         request: impl Fn(Option<String>, bool, bool, Option<rate::history::Demand>),
-        selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
+        selected_read: impl Fn(u64, Vec<refresh::SelectedRead>),
         checklist: impl Fn(checklist::load::Task),
         io: impl Fn(lane::Job),
         draw: impl FnMut(&mut App) -> io::Result<()>,
@@ -1692,15 +1708,21 @@ mod tests {
             &input,
             |_, _, _, _| {},
             |revision, selected| {
-                if let Some(refresh::SelectedRead::Finals(key)) = selected {
-                    answer_finals(&events, key, revision);
-                    return;
+                for read in &selected {
+                    match read {
+                        refresh::SelectedRead::Finals(key) => {
+                            answer_finals(&events, key.clone(), revision);
+                        }
+                        refresh::SelectedRead::Sent(key) => {
+                            answer_sent(&events, key.clone(), revision);
+                        }
+                        _ => {}
+                    }
                 }
-                if let Some(refresh::SelectedRead::Sent(key)) = selected {
-                    answer_sent(&events, key, revision);
-                    return;
-                }
-                let Some(refresh::SelectedRead::Message(key)) = selected else {
+                let Some(refresh::SelectedRead::Message(key)) = selected
+                    .into_iter()
+                    .find(|read| matches!(read, refresh::SelectedRead::Message(_)))
+                else {
                     return;
                 };
                 reads.borrow_mut().push(key.clone());
@@ -1789,9 +1811,64 @@ mod tests {
             "{tab:?}"
         );
         assert_eq!(
-            app.selected_read(),
-            None,
+            app.selected_reads(),
+            [],
             "hidden source surfaces start no background read: {tab:?}"
+        );
+    }
+
+    /// A finished read leaves the wanted set; only a newly wanted read starts the
+    /// selection again, so one answer never repeats the reads still on their way.
+    #[test]
+    fn an_answered_read_does_not_restart_the_selection() {
+        let mut app = {
+            let mut app = app::workspace::tests::board();
+            app.select(app.selected);
+            app
+        };
+        let (events, input) = channel();
+        let issued = std::cell::RefCell::new(Vec::new());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| {},
+            |revision, selected| {
+                issued.borrow_mut().push(selected.clone());
+                for read in &selected {
+                    match read {
+                        refresh::SelectedRead::Finals(key) => {
+                            answer_finals(&events, key.clone(), revision);
+                        }
+                        refresh::SelectedRead::Sent(key) => {
+                            answer_sent(&events, key.clone(), revision);
+                        }
+                        _ => {}
+                    }
+                }
+                events.send(self::key(KeyCode::Char('q'))).unwrap();
+            },
+            |_| {},
+            no_io,
+            |app| {
+                app.set_body_width(160);
+                terminal.draw(|frame| view::render(frame, app)).unwrap();
+                Ok(())
+            },
+        )
+        .unwrap();
+        let issued = issued.into_inner();
+        assert_eq!(issued.len(), 1, "{issued:?}");
+        assert!(
+            issued[0]
+                .iter()
+                .any(|read| matches!(read, refresh::SelectedRead::Finals(_)))
+                && issued[0]
+                    .iter()
+                    .any(|read| matches!(read, refresh::SelectedRead::Sent(_))),
+            "the finals and the sends are asked together: {issued:?}"
         );
     }
 
@@ -1813,15 +1890,21 @@ mod tests {
             &input,
             |_, _, _, _| {},
             |revision, selected| {
-                if let Some(refresh::SelectedRead::Finals(key)) = selected {
-                    answer_finals(&events, key, revision);
-                    return;
+                for read in &selected {
+                    match read {
+                        refresh::SelectedRead::Finals(key) => {
+                            answer_finals(&events, key.clone(), revision);
+                        }
+                        refresh::SelectedRead::Sent(key) => {
+                            answer_sent(&events, key.clone(), revision);
+                        }
+                        _ => {}
+                    }
                 }
-                if let Some(refresh::SelectedRead::Sent(key)) = selected {
-                    answer_sent(&events, key, revision);
-                    return;
-                }
-                let Some(refresh::SelectedRead::PaneOutput(key)) = selected else {
+                let Some(refresh::SelectedRead::PaneOutput(key)) = selected
+                    .into_iter()
+                    .find(|read| matches!(read, refresh::SelectedRead::PaneOutput(_)))
+                else {
                     return;
                 };
                 let count = reads.get() + 1;
@@ -2509,7 +2592,7 @@ mod tests {
             })
             .unwrap();
         assert!(
-            app.selected_read().is_some(),
+            !app.selected_reads().is_empty(),
             "painted fixture has an unread source"
         );
         let stop = AtomicUsize::new(0);

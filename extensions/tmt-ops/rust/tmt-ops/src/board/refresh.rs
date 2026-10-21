@@ -23,7 +23,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     time::{Duration, Instant},
@@ -103,49 +103,13 @@ impl Worker {
             let read_generation = Arc::clone(&generation);
             std::thread::spawn(move || {
                 // A prepared prompt never changes: full texts survive agent switches.
-                let mut sent_texts = super::home_leads::SentTexts::default();
+                let sent_texts = Mutex::new(super::home_leads::SentTexts::default());
                 serve_selected(
                     &selected_pending,
                     &read_generation.number,
-                    |read, revision, generation| {
+                    |reads, revision, generation| {
                         let cancellation = read_generation.cancellation(generation);
-                        let reader = core.cancellable(cancellation.clone());
-                        let event = match read {
-                            SelectedRead::Status(target) => super::BoardEvent::Status {
-                                result: crate::membership::status_update::read(&reader, &target)
-                                    .map_err(|error| error.message),
-                                target,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                            SelectedRead::PaneOutput(key) => super::BoardEvent::PaneOutput {
-                                observation: super::recent_responses::read(&reader, &key.1),
-                                key,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                            SelectedRead::Finals(key) => super::BoardEvent::Finals {
-                                result: key.read(&reader).map_err(|error| error.to_string()),
-                                key,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                            SelectedRead::Sent(key) => super::BoardEvent::Sent {
-                                result: key
-                                    .read(&reader, &mut sent_texts)
-                                    .map_err(|error| error.to_string()),
-                                key,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                            SelectedRead::Message(key) => super::BoardEvent::Message {
-                                body: key.read(&reader).map_err(|error| error.to_string()),
-                                key,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                        };
-                        cancellation.cancelled() || events.send(event).is_ok()
+                        run_selected(&core, &cancellation, &reads, revision, &sent_texts, &events)
                     },
                 );
             })
@@ -336,10 +300,10 @@ impl Worker {
     pub fn checklist(&self, task: super::checklist::load::Task) {
         let _ = self.requests.send(Work::Checklist(task));
     }
-    pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
+    pub fn selected(&self, revision: u64, reads: Vec<SelectedRead>) {
         let generation = self.generation.number.load(Ordering::Acquire);
         let _ = self.selected.send(SelectedWork {
-            read,
+            reads,
             revision,
             generation,
         });
@@ -370,9 +334,9 @@ enum Work {
     Reload(Reload),
 }
 
-/// A selection change for the selected-read lane; `None` is no selection.
+/// A selection change for the selected-read lane; no reads is no selection.
 struct SelectedWork {
-    read: Option<SelectedRead>,
+    reads: Vec<SelectedRead>,
     revision: u64,
     generation: u64,
 }
@@ -692,20 +656,110 @@ fn fetcher() -> Sender<Fetch> {
 fn serve_selected(
     pending: &Receiver<SelectedWork>,
     generation: &AtomicU64,
-    mut run: impl FnMut(SelectedRead, u64, u64) -> bool,
+    mut run: impl FnMut(Vec<SelectedRead>, u64, u64) -> bool,
 ) {
     while let Ok(first) = pending.recv() {
         let Some(SelectedWork {
-            read: Some(read),
+            reads,
             revision,
             generation: expected,
         }) = std::iter::once(first).chain(pending.try_iter()).last()
         else {
             continue;
         };
-        if generation.load(Ordering::Acquire) == expected && !run(read, revision, expected) {
+        if !reads.is_empty()
+            && generation.load(Ordering::Acquire) == expected
+            && !run(reads, revision, expected)
+        {
             break;
         }
+    }
+}
+
+/// How many of one selection's reads run at once: the conversation's finals,
+/// sends, pane output and message bodies are independent Core calls.
+const SELECTED_PARALLEL: usize = 4;
+
+/// Runs one selection's reads in their listed order, `SELECTED_PARALLEL` at a
+/// time. Each answer is its own event. Returns whether the board still listens.
+fn run_selected(
+    core: &Core,
+    cancellation: &crate::runner::Cancellation,
+    reads: &[SelectedRead],
+    revision: u64,
+    sent_texts: &Mutex<super::home_leads::SentTexts>,
+    events: &Sender<super::BoardEvent>,
+) -> bool {
+    let next = AtomicUsize::new(0);
+    let listening = AtomicBool::new(true);
+    std::thread::scope(|scope| {
+        for _ in 0..SELECTED_PARALLEL.min(reads.len()) {
+            let reader = core.cancellable(cancellation.clone());
+            let (next, listening) = (&next, &listening);
+            scope.spawn(move || {
+                while listening.load(Ordering::Acquire) && !cancellation.cancelled() {
+                    let Some(read) = reads.get(next.fetch_add(1, Ordering::AcqRel)) else {
+                        break;
+                    };
+                    let event =
+                        selected_event(&reader, read.clone(), revision, cancellation, sent_texts);
+                    if events.send(event).is_err() {
+                        listening.store(false, Ordering::Release);
+                    }
+                }
+            });
+        }
+    });
+    listening.load(Ordering::Acquire)
+}
+
+fn selected_event(
+    reader: &Core,
+    read: SelectedRead,
+    revision: u64,
+    cancellation: &crate::runner::Cancellation,
+    sent_texts: &Mutex<super::home_leads::SentTexts>,
+) -> super::BoardEvent {
+    let cancellation = cancellation.clone();
+    match read {
+        SelectedRead::Status(target) => super::BoardEvent::Status {
+            result: crate::membership::status_update::read(reader, &target)
+                .map_err(|error| error.message),
+            target,
+            revision,
+            cancellation,
+        },
+        SelectedRead::PaneOutput(key) => super::BoardEvent::PaneOutput {
+            observation: super::recent_responses::read(reader, &key.1),
+            key,
+            revision,
+            cancellation,
+        },
+        SelectedRead::Finals(key) => super::BoardEvent::Finals {
+            result: key.read(reader).map_err(|error| error.to_string()),
+            key,
+            revision,
+            cancellation,
+        },
+        SelectedRead::Sent(key) => super::BoardEvent::Sent {
+            result: key
+                .read(
+                    reader,
+                    &mut sent_texts
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner),
+                )
+                .map_err(|error| error.to_string()),
+            key,
+            revision,
+            cancellation,
+        },
+        SelectedRead::Message(key) => super::BoardEvent::Message {
+            body: key.read(reader).map_err(|error| error.to_string()),
+            key,
+            revision,
+            cancellation,
+        },
     }
 }
 
@@ -1450,7 +1504,7 @@ printf '%s\n' '{{}}'
         };
         let (events, input) = mpsc::channel();
         let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(9, Some(SelectedRead::Message(key.clone())));
+        worker.selected(9, vec![SelectedRead::Message(key.clone())]);
         let super::super::BoardEvent::Message {
             key: delivered,
             revision,
@@ -1647,7 +1701,7 @@ printf '%s\n' '{{}}'
         );
         let (events, _) = mpsc::channel();
         let worker = Worker::spawn(Core::at(slow), false, events, None);
-        worker.selected(8, Some(selected_message("request")));
+        worker.selected(8, vec![selected_message("request")]);
         let deadline = Instant::now() + Duration::from_secs(30);
         while !ready.exists() {
             assert!(Instant::now() < deadline, "reader did not start");
@@ -1674,7 +1728,7 @@ printf '%s\n' '{{}}'
         let queue = |identity: Option<&str>, revision, expected| {
             sender
                 .send(SelectedWork {
-                    read: identity.map(selected_message),
+                    reads: identity.map(selected_message).into_iter().collect(),
                     revision,
                     generation: expected,
                 })
@@ -1688,11 +1742,11 @@ printf '%s\n' '{{}}'
         queue(Some("selected"), 6, 1);
         drop(sender);
         let mut ran = Vec::new();
-        serve_selected(&pending, &AtomicU64::new(1), |read, revision, expected| {
-            let SelectedRead::Message(key) = read else {
+        serve_selected(&pending, &AtomicU64::new(1), |reads, revision, expected| {
+            let [SelectedRead::Message(key)] = reads.as_slice() else {
                 panic!("other work")
             };
-            ran.push((key.request, revision, expected));
+            ran.push((key.request.clone(), revision, expected));
             true
         });
         assert_eq!(ran, [("selected".to_owned(), 6, 1)]);
@@ -1701,14 +1755,14 @@ printf '%s\n' '{{}}'
         for (identity, expected) in [(None, 1), (Some("stale"), 0)] {
             sender
                 .send(SelectedWork {
-                    read: identity.map(selected_message),
+                    reads: identity.map(selected_message).into_iter().collect(),
                     revision: 7,
                     generation: expected,
                 })
                 .unwrap();
             sender
                 .send(SelectedWork {
-                    read: None,
+                    reads: Vec::new(),
                     revision: 8,
                     generation: 1,
                 })
@@ -1716,7 +1770,7 @@ printf '%s\n' '{{}}'
         }
         sender
             .send(SelectedWork {
-                read: Some(selected_message("stale")),
+                reads: vec![selected_message("stale")],
                 revision: 9,
                 generation: 0,
             })
@@ -1751,7 +1805,7 @@ exec sleep 30
         worker.request(None, true, false, None);
         std::thread::sleep(Duration::from_millis(300));
         let started = Instant::now();
-        worker.selected(3, Some(selected_message("request")));
+        worker.selected(3, vec![selected_message("request")]);
         let body = loop {
             match input
                 .recv_timeout(Duration::from_secs(10))
@@ -1763,6 +1817,67 @@ exec sleep 30
         };
         assert_eq!(body.unwrap(), "quick");
         assert!(started.elapsed() < Duration::from_secs(5));
+        drop(worker);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn one_selection_reads_its_bodies_together_and_in_listed_order() {
+        let dir = std::env::temp_dir().join(format!("squad-selected-batch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("tmt");
+        // A body is answered only once three reads are running at the same time,
+        // so a serial lane could not answer before the wait gives up.
+        crate::test_support::write_ready_executable(
+            &fake,
+            &r###"#!/bin/sh
+if [ "$1" = api ]; then
+  request=$(cat)
+  case "$request" in
+    *'"requests.show"'*)
+      touch "DIR/started.$$"
+      waited=0
+      while [ "$(ls DIR | grep -c '^started\.')" -lt 3 ] && [ "$waited" -lt 60 ]; do
+        sleep 0.1
+        waited=$((waited + 1))
+      done
+      id=$(printf '%s' "$request" | sed 's/.*"requestId":"\([^"]*\)".*/\1/')
+      printf '%s\n' '{"requestId":"'"$id"'","kind":"request","sender":{"identityId":"user"},"recipientId":"lead","final":{"status":"retained","response":"together"}}'
+      exit 0 ;;
+  esac
+fi
+exit 2
+"###
+            .replace("DIR", dir.to_str().unwrap()),
+        );
+        let (events, input) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(fake), false, events, None);
+        let started = Instant::now();
+        worker.selected(
+            1,
+            vec![
+                selected_message("a"),
+                selected_message("b"),
+                selected_message("c"),
+            ],
+        );
+        let mut answered = Vec::new();
+        while answered.len() < 3 {
+            if let super::super::BoardEvent::Message { key, body, .. } = input
+                .recv_timeout(Duration::from_secs(10))
+                .expect("every body is answered")
+            {
+                assert_eq!(body.unwrap(), "together");
+                answered.push(key.request);
+            }
+        }
+        answered.sort();
+        assert_eq!(answered, ["a", "b", "c"]);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the three reads waited on one another: {:?}",
+            started.elapsed()
+        );
         drop(worker);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -3480,7 +3595,7 @@ printf '%s\n' '{{}}'
         );
         let (events, input) = mpsc::channel();
         let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(17, Some(SelectedRead::PaneOutput(key.clone())));
+        worker.selected(17, vec![SelectedRead::PaneOutput(key.clone())]);
         let super::super::BoardEvent::PaneOutput {
             key: delivered,
             revision,
@@ -3555,7 +3670,7 @@ printf '%s\n' '{{}}'
         };
         let (events, input) = mpsc::channel();
         let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(22, Some(SelectedRead::Sent(key.clone())));
+        worker.selected(22, vec![SelectedRead::Sent(key.clone())]);
         let super::super::BoardEvent::Sent {
             key: delivered,
             revision,
@@ -3729,7 +3844,7 @@ printf '%s\n' '{{}}'
         };
         let (events, input) = mpsc::channel();
         let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(21, Some(SelectedRead::Finals(key.clone())));
+        worker.selected(21, vec![SelectedRead::Finals(key.clone())]);
         let super::super::BoardEvent::Finals {
             key: delivered,
             revision,

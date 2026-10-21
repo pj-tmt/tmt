@@ -567,20 +567,14 @@ impl App {
                 .any(|(read, _)| read == key)
         })
     }
-    /// The conversation's agent, once its finals are in and its sends are not.
+    /// The conversation's agent, until its own sends have been read once.
     pub(super) fn sent_read(&self) -> Option<SentKey> {
         let key = sent_key(&self.conversation_finals()?);
-        let finals_in = self
+        (!self
             .row_details
-            .agent_finals
+            .agent_sent
             .iter()
-            .any(|(read, _)| sent_key(read) == key);
-        (finals_in
-            && !self
-                .row_details
-                .agent_sent
-                .iter()
-                .any(|(read, _)| read == &key))
+            .any(|(read, _)| read == &key))
         .then_some(key)
     }
     pub(super) fn apply_sent(&mut self, key: SentKey, result: Result<Vec<Value>, String>) {
@@ -633,14 +627,17 @@ impl App {
             None => ExchangesRead::Pending,
         }
     }
-    pub(super) fn detail_read(&self) -> Option<MessageKey> {
+    /// Every message body not yet read, the newest first so the one in view
+    /// arrives before history.
+    pub(super) fn detail_reads(&self) -> Vec<MessageKey> {
         if self.loading() {
-            return None;
+            return Vec::new();
         }
-        self.active_detail_targets()
+        let mut keys: Vec<MessageKey> = Vec::new();
+        for key in self
+            .active_detail_targets()
             .iter()
             .filter_map(|target| self.detail(target))
-            // The newest message first, so the one in view arrives before history.
             .flat_map(|detail| {
                 detail
                     .messages()
@@ -649,8 +646,14 @@ impl App {
                     .cloned()
                     .collect::<Vec<_>>()
             })
-            .find(|reply| !reply.acquired)
-            .and_then(|reply| reply.key)
+            .filter(|reply| !reply.acquired)
+            .filter_map(|reply| reply.key)
+        {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        keys
     }
     pub(super) fn apply_message(&mut self, key: &MessageKey, body: Result<String, String>) {
         if self.loading()

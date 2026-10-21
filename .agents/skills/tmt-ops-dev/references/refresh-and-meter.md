@@ -121,7 +121,7 @@
   and the full-reply reader schedule `requests.show` on the selected-read lane, a second
   worker thread with its own queue and the same generation fence, so a refresh's HOME
   exchanges, cron or history work never queues in front of the selected member's reads
-  (only the newest selection runs). The user/recipient/request/kind key and selection
+  (only the newest selection runs, and its independent reads run together, four at a time). The user/recipient/request/kind key and selection
   revision fence delivery; detail verifies both participants before displaying
   the retained body. `board::row_detail` rejects late bodies whose exact request
   or target is no longer active. A pending reader closes when its reply or
