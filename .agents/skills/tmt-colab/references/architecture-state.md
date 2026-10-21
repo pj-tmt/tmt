@@ -397,7 +397,10 @@ page ending) and on route resolution, at most once a minute, the tab reads its o
 uncached and shows the non-blocking `Colab has been updated.` row with a Reload action only when
 the same bundle name has a different hash. The row sits directly under the fixed header and
 `--colab-update-height` (set by `data-colab-update` on the root) extends the header metric, so
-the page moves down instead of being covered. An offline read, an unreadable page, or a page of
+the page moves down instead of being covered. Inside the TMT web app the document is the shell's:
+the running build is the paired mount's entry, read once when Colab mounts, and later checks read
+that same mount; the row joins the shell's sticky bar under the header. The local preview, being
+unpaired, has no running build and shows no row. An offline read, an unreadable page, or a page of
 another kind (pairing guidance, the reader) never counts. There is no polling and no
 automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
 rules (device-stored per page, so a reload restores them when storage works; see
