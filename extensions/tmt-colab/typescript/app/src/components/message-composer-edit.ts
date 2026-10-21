@@ -29,6 +29,8 @@ export type MessageComposerProps = {
   accessory?: ReactNode;
   placeholder?: string;
   disabled: boolean;
+  /** `disabled` only because a write is in flight; see RichInputControlProps. */
+  busy?: boolean;
   autoFocus?: boolean;
   activation?: ComposerActivation;
   /** One explicit, draft-local recipient choice; never sends or changes the saved preference. */
