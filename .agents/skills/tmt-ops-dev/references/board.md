@@ -148,7 +148,7 @@ state only, no squad data or durable preference policy.
   [workspace surface](board-home.md#shell-geometry-and-input) owns its layout.
 
 - `digest_dashboard::allowance` paints the Allowance block under the range summary from
-  `limits::allowance` (pure: rates per span from the sampled weekly history, NEED/h, the
+  `limits::allowance` (pure: rates per span from the sampled weekly history, NEED %/h, the
   outcome of each rate at the reset); `Standing::rates` is computed when sampled, projections
   at paint from the clock, so no timer or read runs. It takes rows off the table only when the
   table keeps its minimum height.

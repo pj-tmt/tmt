@@ -20,7 +20,7 @@ const BODY_MINIMUM: u16 = 10;
 const SOURCE: usize = 8;
 const PLAN: usize = 4;
 const LEFT: usize = 5;
-const NEED: usize = 6;
+const NEED: usize = 8;
 const CELL: usize = 10;
 const SINCE: usize = 11;
 const RESETS: usize = 8;
@@ -64,7 +64,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let title = if wide {
         "Allowance · weekly windows · left at reset if this rate holds"
     } else {
-        "Allowance · left at reset (worst of the lines)"
+        "Allowance · left at reset, worst window"
     };
     let mut lines = vec![section_rule::line(
         title,
@@ -114,7 +114,7 @@ fn header(look: crate::look::Look) -> Line<'static> {
         ("SOURCE", SOURCE, false),
         ("PLAN", PLAN, false),
         ("LEFT", LEFT, true),
-        ("NEED/h", NEED, true),
+        ("NEED %/h", NEED, true),
         (ProjectionLine::Hours3.caption(), CELL, false),
         (ProjectionLine::Hours6.caption(), CELL, false),
         (ProjectionLine::Hours24.caption(), CELL, false),
@@ -223,8 +223,8 @@ fn narrow_row(
     };
     cells.push((format!("{:.0}%", weekly.left), LEFT, true, Role::Text));
     cells.push((
-        format!("need {:.2}", weekly.need_per_hour),
-        "need 0.00".len(),
+        format!("need {:.2}%/h", weekly.need_per_hour),
+        "need 0.00%/h".len(),
         false,
         Role::Text,
     ));

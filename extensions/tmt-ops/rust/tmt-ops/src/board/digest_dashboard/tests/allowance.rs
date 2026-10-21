@@ -98,12 +98,11 @@ fn a_wide_row_shows_left_need_every_line_and_the_reset() {
         "{}",
         rows.join("\n")
     );
-    let header = rows.iter().find(|row| row.contains("NEED/h")).unwrap();
+    let header = rows.iter().find(|row| row.contains("NEED %/h")).unwrap();
     assert_eq!(
         words(header),
         [
-            "SOURCE", "PLAN", "LEFT", "NEED/h", "3", "h", "6", "h", "24", "h", "since", "reset",
-            "RESETS"
+            "SOURCE", "PLAN", "LEFT", "NEED", "%/h", "3h", "6h", "1d", "SINCE", "RESET", "RESETS"
         ]
     );
     assert_eq!(
@@ -112,7 +111,7 @@ fn a_wide_row_shows_left_need_every_line_and_the_reset() {
             "Claude", "week", "26%", "0.65", "✗", "Su", "04:40", "6%", "18%", "26%", "Su", "18:40"
         ]
     );
-    assert!(!rows.iter().any(|row| row.contains("5 h")), "no 5 h rows");
+    assert!(!rows.iter().any(|row| row.contains("5h")), "no 5h rows");
 }
 
 #[test]
@@ -175,20 +174,24 @@ fn a_narrow_row_is_one_line_with_the_worst_projection() {
     let rows = rows(&buffer(&mut app, 80, 40));
     assert!(
         rows.iter()
-            .any(|row| row.contains("Allowance · left at reset (worst of the lines)")),
+            .any(|row| row.contains("Allowance · left at reset, worst window")),
         "{}",
         rows.join("\n")
     );
     assert_eq!(
         words(row_of(&rows, "Claude")),
-        ["Claude", "week", "26%", "need", "0.65", "✗", "Su", "04:40"]
+        [
+            "Claude", "week", "26%", "need", "0.65%/h", "✗", "Su", "04:40"
+        ]
     );
     assert_eq!(
         words(row_of(&rows, "Openai")),
-        ["Openai", "week", "55%", "need", "0.55", "lasts", "·", "25%"]
+        [
+            "Openai", "week", "55%", "need", "0.55%/h", "lasts", "·", "25%"
+        ]
     );
     assert!(
-        !rows.iter().any(|row| row.contains("NEED/h")),
+        !rows.iter().any(|row| row.contains("NEED %/h")),
         "no column header"
     );
 }

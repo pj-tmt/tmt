@@ -128,7 +128,7 @@ squad workspace and the selected target as Talk (conversation) or Measure (summa
 cells, soonest timers, Digest table, who talks to whom);
 Digest keeps the same exact identity context and Core policy controls, and shows an Allowance
 block under its summary: each sampled provider's weekly window with the even burn that lasts to the
-reset and what the last 3 h, 6 h, 24 h and since-reset rates leave there, `✗ <weekday hh:mm>` where
+reset and what the last 3h, 6h, 1d and since-reset rates leave there, `✗ <weekday hh:mm>` where
 a rate empties the window first. A section
 label never creates membership or a send audience. Both use the selected
 squad's appearance.

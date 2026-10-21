@@ -377,9 +377,9 @@ Retired Digest status/usage/report switches and ordering are reported without
 rewriting authored config.
 
 Digest has a range summary, an Allowance block, Agents by TOK, Exchanges and selection details.
-Allowance shows one row per provider whose weekly window the board has sampled: LEFT, NEED/h (the
+Allowance shows one row per provider whose weekly window the board has sampled: LEFT, NEED %/h (the
 even burn, in percent per hour, that lasts exactly until the reset), what each of four rates leaves
-at the reset if it holds (the last 3 h, 6 h and 24 h, and the average since the window last reset)
+at the reset if it holds (the last 3h, 6h and 1d, and the average since the window last reset, SINCE RESET)
 and RESETS. A rate the history does not cover is `—`; a line that empties the window first shows
 `✗ <weekday hh:mm>` in the attention colour. At 80 columns a row is one line with the worst
 projection. It is hidden when no provider has been sampled or the table would be left too short.

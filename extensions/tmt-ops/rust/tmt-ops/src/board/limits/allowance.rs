@@ -26,10 +26,10 @@ impl Line {
 
     pub fn caption(self) -> &'static str {
         match self {
-            Self::Hours3 => "3 h",
-            Self::Hours6 => "6 h",
-            Self::Hours24 => "24 h",
-            Self::SinceReset => "since reset",
+            Self::Hours3 => "3h",
+            Self::Hours6 => "6h",
+            Self::Hours24 => "1d",
+            Self::SinceReset => "SINCE RESET",
         }
     }
 }
