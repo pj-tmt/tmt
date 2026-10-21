@@ -53,7 +53,6 @@ export function ReviewCard({
     setChange('');
   }, [outcome]);
   const working = outcome?.state === 'working';
-  const busy = disabled || working;
   const closed = state.kind === 'closed';
   // Work in flight fences every action without greying it; only the one pressed carries the mark,
   // in a slot every action reserves, so nothing moves when the mark shows.
@@ -143,7 +142,9 @@ export function ReviewCard({
             <input
               id={`${id}-note`}
               value={note}
-              disabled={busy}
+              disabled={disabled}
+              readOnly={working}
+              aria-disabled={working || undefined}
               maxLength={REVIEW_CONFIRM_NOTE_POINTS * 2}
               onChange={(event) => setNote(event.target.value)}
             />
@@ -155,7 +156,9 @@ export function ReviewCard({
             <textarea
               id={`${id}-change`}
               value={change}
-              disabled={busy}
+              disabled={disabled}
+              readOnly={working}
+              aria-disabled={working || undefined}
               rows={3}
               maxLength={REVIEW_CHANGE_NOTE_BYTES}
               onChange={(event) => setChange(event.target.value)}
