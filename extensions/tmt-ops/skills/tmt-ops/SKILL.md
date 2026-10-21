@@ -481,7 +481,13 @@ Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
 claimed the key. The compatible `p` action retains saved identity pins
 without changing waiting order. Keyboard sort is opt-in: bind `sort` or
-`reverse-sort` in the usual binding table.
+`reverse-sort` in the usual binding table. Column headers sort without a binding:
+the pointer turns a header word accent with `↕` (`~` in ASCII), a click sorts by it
+(TOK starts with the most tokens) and a second click reverses it. The flat Agents
+list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AGENT`
+(name) and STATE (attention). The sorted word shows `↑` or `↓` (`^`, `v` in ASCII);
+on TOK the mark takes the blank cell before the word. A click changes only the saved
+order, never the selection or a message.
 In Agents, `p` pins/unpins a squad. `n`
 creates a squad, `m` manages a squad or assigns a member, `x` removes only the
 selected membership, `D` opens Digest and `c` opens Timers. The compact footer omits Digest, Manage, Create, Remove and Details;
