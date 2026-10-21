@@ -1135,7 +1135,7 @@ renameSync(output+'.tmp',output);
         'Enter',
       ]);
       await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, '2']);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
       await fixture.waitForCapture(
