@@ -230,11 +230,13 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
               pages: await Promise.all(
                 boot.pages.map(async (page) => {
                   const policy = project(page, log, boot.owner).page;
-                  const cachedTitle = await titles.read(page.pageId);
+                  // The owner's own title is current; the browser's hint only covers a page the owner
+                  // has none for (not folded yet, or the reply had no room for it).
+                  const known = page.title ?? (await titles.read(page.pageId));
                   return {
                     id: page.pageId,
-                    title: cachedTitle || text.unknownPageTitle,
-                    titleMissing: cachedTitle === undefined,
+                    title: known || text.unknownPageTitle,
+                    titleMissing: known === undefined,
                     sharing: policy.sharing,
                     archived: policy.archived,
                     retentionDays: policy.retentionDays,

@@ -35,6 +35,8 @@ const COMMENTS_MAX = 4_294_967_295;
 /** The complete `/api/pages` reply: 1,000 pages with the longest labels, summaries, work rows and
  * parents (about 1.9 MB) fit. */
 export const DISCOVERY_BYTES = 2 * 1024 * 1024;
+/** The longest local page title the owner serves, in UTF-8 bytes (`PAGE_TITLE_BYTES` in `limits.rs`). */
+export const PAGE_TITLE_BYTES = 512;
 
 /** Project names are display-only text: unique, 1 to 32 code points, no control character. The owner enforces the full grammar; the browser refuses what it could not render safely. */
 function projectNames(names: readonly unknown[]): boolean {
@@ -92,6 +94,9 @@ export interface PageInfo extends ExpiryInfo {
   projects: readonly string[];
   /** Display-only and unsigned; absent until the owner has derived it for the page's current state. */
   summary?: PageActivity;
+  /** The owner's local plaintext title, current for the page's state; absent until the owner has folded it
+   * (or when the reply had no room for it): the browser then keeps its own hint. */
+  title?: string;
 }
 export interface PageId {
   pageId: string;
@@ -231,8 +236,17 @@ export async function discover(
       'warnings',
       'projects',
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
+      ...(page !== null && typeof page === 'object' && 'title' in page ? ['title'] : []),
     ]);
     if ('summary' in page) activity(page.summary);
+    // Untrusted display text: one line of plain text, as the owner's store keeps it.
+    if ('title' in page)
+      requireValue(
+        typeof page.title === 'string' &&
+          page.title.length >= 1 &&
+          new TextEncoder().encode(page.title).length <= PAGE_TITLE_BYTES &&
+          !/\p{Cc}/u.test(page.title),
+      );
     requireValue(
       page.retentionDays === null ||
         (Number.isSafeInteger(page.retentionDays) && Number(page.retentionDays) > 0),
