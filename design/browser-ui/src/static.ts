@@ -114,12 +114,15 @@ export interface BrowserChipOption {
   disabled?: boolean;
 }
 
-/** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
-export const busyFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+/**
+ * The busy mark's frames (Ben's pick a2): a 2x3 braille cell whose three lit dots go round its
+ * six-dot ring, clockwise from the top left, one step per frame.
+ */
+export const busyFrames = ['⠙', '⠸', '⠴', '⠦', '⠇', '⠋'] as const;
 
 /**
  * The reserved busy-mark slot of a static Action: a leading span holding the leaf busy mark (the
- * braille cycle `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
+ * braille snake `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
  * to `true` from `createBusyMarkGate`. Non-React pages use this instead of copying the markup.
  */
 export function createActionMark(doc: Document = document): HTMLElement {

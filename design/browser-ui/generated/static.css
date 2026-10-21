@@ -2095,8 +2095,8 @@ svg.tmt-ui-mark {
   min-width: 0;
 }
 
-/* The one busy mark (Ben's pick, candidate a): the Ops TUI braille cycle. `BusyMark` renders ten
-   frames in a 1em mono window of currentColor that steps once per --tmt-ui-spin-duration (0.9 s).
+/* The one busy mark (Ben's pick a2): a 2x3 braille snake. `BusyMark` renders six frames in a 1em
+   mono window of currentColor that steps through them once per --tmt-ui-spin-duration (0.9 s).
    A busy mark in an Action or IconAction shows it without a class. Under reduced motion it holds
    its first frame, still visible, and the words or aria text still name the state. */
 .tmt-ui-busy-mark {
@@ -2112,7 +2112,7 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-busy-frames {
   display: block;
-  animation: tmt-ui-busy var(--tmt-ui-spin-duration) steps(10) infinite;
+  animation: tmt-ui-busy var(--tmt-ui-spin-duration) steps(6) infinite;
 }
 .tmt-ui-busy-frames > span {
   display: block;
@@ -2123,7 +2123,7 @@ svg.tmt-ui-mark {
 }
 @keyframes tmt-ui-busy {
   to {
-    transform: translateY(-10em);
+    transform: translateY(-6em);
   }
 }
 @media (prefers-reduced-motion: reduce) {

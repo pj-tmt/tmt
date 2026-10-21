@@ -3,8 +3,8 @@ import { busyFrames, browserUiClasses as c } from './static';
 export { busyFrames };
 
 /**
- * The one leaf busy mark: the braille cycle the Ops TUI shows, a 1em mono square in the current
- * colour that steps through the ten frames once per --tmt-ui-spin-duration. It is decorative; the
+ * The one leaf busy mark: a 2x3 braille snake, a 1em mono square in the current colour that steps
+ * through its six frames once per --tmt-ui-spin-duration. It is decorative; the
  * action or row that shows it names the state. Under reduced motion it holds the first frame.
  * Each frame is drawn by CSS from `data-frame`, so the mark adds no text to its host.
  */

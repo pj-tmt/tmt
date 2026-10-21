@@ -1429,22 +1429,21 @@ var browserUiClasses = Object.freeze({
 	tabsStatus: "tmt-ui-tabs-status",
 	tabPanel: "tmt-ui-tab-panel"
 });
-/** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
+/**
+* The busy mark's frames (Ben's pick a2): a 2x3 braille cell whose three lit dots go round its
+* six-dot ring, clockwise from the top left, one step per frame.
+*/
 var busyFrames = [
-	"⠋",
 	"⠙",
-	"⠹",
 	"⠸",
-	"⠼",
 	"⠴",
 	"⠦",
-	"⠧",
 	"⠇",
-	"⠏"
+	"⠋"
 ];
 /**
 * The reserved busy-mark slot of a static Action: a leading span holding the leaf busy mark (the
-* braille cycle `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
+* braille snake `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
 * to `true` from `createBusyMarkGate`. Non-React pages use this instead of copying the markup.
 */
 function createActionMark(doc = document) {

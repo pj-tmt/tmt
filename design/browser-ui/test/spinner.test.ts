@@ -12,21 +12,27 @@ const rule = (source: string, selector: string) =>
     source,
   );
 
-it('ships the braille busy mark: ten frames, 0.9 s, stepped, infinite', () => {
+it('ships the braille snake busy mark: six frames, 0.9 s, stepped, infinite', () => {
   expect(browserUiClasses.busyMark).toBe('tmt-ui-busy-mark');
-  expect(busyFrames).toEqual(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']);
+  expect(busyFrames).toEqual(['⠙', '⠸', '⠴', '⠦', '⠇', '⠋']);
+  // Each frame lights three neighbouring dots of the 2x3 cell (braille dots 1-6, no 7 or 8).
+  for (const frame of busyFrames) {
+    const dots = frame.codePointAt(0)! - 0x2800;
+    expect(dots & 0xc0, frame).toBe(0);
+    expect(dots.toString(2).replace(/0/g, ''), frame).toHaveLength(3);
+  }
   const markup = renderToStaticMarkup(createElement(BusyMark));
   expect(markup).toContain('aria-hidden="true"');
-  expect(markup.match(/data-frame="[⠀-⣿]"/g)).toHaveLength(10);
+  expect(markup.match(/data-frame="[⠀-⣿]"/g)).toHaveLength(6);
   // The frames are drawn by CSS, so the host's text is unchanged.
   expect(markup.replace(/<[^>]+>/g, '')).toBe('');
   const frames = rule(css, '.tmt-ui-busy-frames')!;
   expect(frames[2]).toContain(
-    'animation: tmt-ui-busy var(--tmt-ui-spin-duration) steps(10) infinite;',
+    'animation: tmt-ui-busy var(--tmt-ui-spin-duration) steps(6) infinite;',
   );
   expect(css).toContain('--tmt-ui-spin-duration: 0.9s;');
   expect(
-    css.match(/@keyframes tmt-ui-busy\s*\{\s*to\s*\{\s*transform:\s*translateY\(-10em\);/),
+    css.match(/@keyframes tmt-ui-busy\s*\{\s*to\s*\{\s*transform:\s*translateY\(-6em\);/),
   ).not.toBe(null);
 });
 
