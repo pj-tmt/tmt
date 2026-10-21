@@ -258,6 +258,30 @@ for (const width of [1440, 390, 320])
     await expect(host).toHaveAttribute('data-edge-end', '');
   });
 
+// A link opens on its own stage: that tab is scrolled into the strip on load, not left outside it.
+for (const width of [390, 320])
+  for (const link of ['/?stage=discussion', '/?stage=done', '/?archived=true', '/?stage=all'])
+    test(`a link to ${link} opens with its tab inside the strip: ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mount(page, 'stages', link);
+      const selected = app(page).getByRole('tab', { selected: true });
+      await expect(selected).toHaveCount(1);
+      await expect
+        .poll(() =>
+          selected.evaluate((node) => {
+            const bounds = node.closest('[role="tablist"]')!.getBoundingClientRect();
+            const box = node.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
+          }),
+        )
+        .toBe(true);
+      // Archived and All sit past the first screen of tabs, so the strip really did scroll to them.
+      if (link === '/?archived=true' || link === '/?stage=all')
+        expect(await selected.evaluate((node) => node.parentElement!.scrollLeft)).toBeGreaterThan(
+          0,
+        );
+    });
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the stage tabs keep one scroll axis and capture their states: ${width}px ${theme}`, async ({
