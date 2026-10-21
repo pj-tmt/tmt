@@ -106,23 +106,24 @@ const liveLabels: ReadonlyArray<readonly [string, string]> = [
  * parent's status label only, never authored frame text, and rethrows the original failure.
  */
 export async function expectLive(page: Page, timeout?: number): Promise<void> {
-  const label = page.locator('.page-sharing .status-label');
+  const label = page.locator('.page-connection .status-label');
   try {
     await expect(label).toHaveText(text.live, { timeout });
   } catch (error) {
-    // #3083: a stopped preview is either the renderer's mount deadline or a frame navigation.
-    // Their notices are product copy, so naming which one shows leaks no page text.
+    // #3083: name only the renderer notice shown, not the cause of its failure.
+    // An ended connection can also stop the preview without either renderer notice.
+    // These notices are product copy, so naming which one shows leaks no page text.
     let stop = 'unavailable';
     try {
       const seen = await page.locator('body').evaluate(
         (_body, { failed, navigation }) => {
           const notice = document.body.innerText;
           return {
-            label: document.querySelector('.page-sharing .status-label')?.textContent ?? null,
+            label: document.querySelector('.page-connection .status-label')?.textContent ?? null,
             frame: document.querySelector('iframe') !== null,
             visible: document.visibilityState === 'visible',
             stop: notice.includes(failed)
-              ? 'mount-deadline'
+              ? 'failed'
               : notice.includes(navigation)
                 ? 'navigation'
                 : 'none',
