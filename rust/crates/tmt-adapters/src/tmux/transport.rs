@@ -2,7 +2,7 @@
 
 use super::valid_pane_id;
 use super::{CommandRunner, OPERATION_TIMEOUT, Tmux, TmuxError, TmuxFailure, socket_args};
-use crate::host::{DeliveryError, DeliveryStage};
+use crate::host::{DeliveryError, DeliveryStage, SCREEN_MAX_BYTES};
 use std::time::{Duration, Instant};
 use tmt_core::limits::is_valid_capture_lines;
 
@@ -61,6 +61,23 @@ impl<R: CommandRunner> Tmux<R> {
                 format!("-{lines}"),
             ],
             CAPTURE_MAX_OUTPUT,
+        )
+    }
+
+    /// The visible screen with SGR attributes, for a read-only view. Diagnostic
+    /// text like `capture_on`: an overflow or timeout fails whole, never partial.
+    pub fn screen_on(&self, socket: &str, pane: &str) -> Result<String, TmuxError> {
+        validate_target(socket, pane)?;
+        self.transport_run(
+            socket,
+            vec![
+                "capture-pane".into(),
+                "-t".into(),
+                pane.into(),
+                "-p".into(),
+                "-e".into(),
+            ],
+            SCREEN_MAX_BYTES,
         )
     }
 
