@@ -20,6 +20,12 @@ const MAX_TEXT_ROWS: u16 = 6;
 const PADDING_ROWS: u16 = 1;
 pub(in crate::board) const MAX_BOX_ROWS: u16 = MAX_TEXT_ROWS + 2 * PADDING_ROWS;
 
+/// Whether a frame this tall keeps the padding rows; shorter ones give them up first.
+pub(in crate::board) fn padded(frame_rows: u16) -> bool {
+    frame_rows >= MIN_PADDED_FRAME_ROWS
+}
+const MIN_PADDED_FRAME_ROWS: u16 = 28;
+
 /// Padding rows above plus below the text.
 fn padding(padded: bool) -> u16 {
     if padded { 2 * PADDING_ROWS } else { 0 }

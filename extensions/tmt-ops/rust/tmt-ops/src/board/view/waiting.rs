@@ -125,12 +125,14 @@ pub(super) fn prompt(
 pub(in crate::board) fn input_lines(
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,
+    padded: bool,
 ) -> usize {
     if app.composer_projection().is_some() {
         return usize::from(
             app.composer_rows(
                 area.width
                     .saturating_sub(crate::board::input_field::GUTTER * 2),
+                padded,
             ),
         );
     }
@@ -368,7 +370,7 @@ fn final_input(
     let key = start
         .as_ref()
         .map_or("click", |(key, _)| super::footer::key_label(key));
-    let padded = app.composer_padded();
+    let padded = field::padded(frame.area().height);
     let field_rows = field::rows(projection.text, band.width, padded);
     let exact_rows = u16::from(!projection.quotes.is_empty() && band.height > field_rows);
     let chat_rows =

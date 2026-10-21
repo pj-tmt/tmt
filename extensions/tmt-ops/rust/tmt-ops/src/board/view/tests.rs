@@ -139,7 +139,7 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
         "{lines:?}"
     );
     let editor = app.input_viewport.get().unwrap().0;
-    assert!(lines[usize::from(editor.bottom()) + 1].contains("Alt+⏎"));
+    assert!(lines[usize::from(editor.bottom())].contains("Alt+⏎"));
     assert!(
         lines[0].contains("Quote"),
         "the quote stays above the editor"

@@ -197,3 +197,14 @@ fn the_info_line_and_footer_name_the_same_new_line_key() {
         }
     }
 }
+
+#[test]
+fn the_padding_follows_the_height_of_the_frame_being_drawn_with_no_stale_frame() {
+    let _no_io = crate::runner::forbid_commands();
+    let mut app = crate::board::app::workspace::tests::board();
+    // Shrinking in place drops the padding in the very next frame, growing restores it.
+    for (height, rows) in [(36, 4), (24, 2), (36, 4), (27, 2), (28, 4)] {
+        draw(&mut app, 160, height);
+        assert_eq!(app.input_band.get().unwrap().height, rows, "{height}");
+    }
+}
