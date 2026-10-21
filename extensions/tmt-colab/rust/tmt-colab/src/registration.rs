@@ -172,7 +172,7 @@ pub struct Registration {
     /// How the background refresh opens its own read-only source; without it no summary is made.
     summary_source: Option<crate::page::save::SourceOpener>,
     /// The space's page expiry, read whenever a catalog is made or a page is judged idle.
-    page_expiry: std::sync::Arc<dyn Fn() -> crate::page_expiry::SpaceExpiry + Send + Sync>,
+    page_expiry: crate::page_expiry::Reader,
 }
 impl Registration {
     pub fn new(
@@ -196,7 +196,7 @@ impl Registration {
             save_source: None,
             summaries: Default::default(),
             summary_source: None,
-            page_expiry: std::sync::Arc::new(crate::page_expiry::SpaceExpiry::default),
+            page_expiry: std::sync::Arc::new(|| Some(crate::page_expiry::SpaceExpiry::default())),
         })
     }
     /// The page's current epoch, to name it when the cloud worker is asked to look at it again.
@@ -351,7 +351,10 @@ impl Registration {
     > {
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
-                Ok((tx.page_list((self.page_expiry)())?, tx.page_fingerprints()?))
+                Ok((
+                    tx.page_list((self.page_expiry)().unwrap_or_default())?,
+                    tx.page_fingerprints()?,
+                ))
             })
             .map_err(map_error)
     }
@@ -524,15 +527,12 @@ impl Registration {
         self
     }
     /// Judge pages by this space setting instead of the default expiry.
-    pub fn with_page_expiry(
-        mut self,
-        page_expiry: std::sync::Arc<dyn Fn() -> crate::page_expiry::SpaceExpiry + Send + Sync>,
-    ) -> Self {
+    pub fn with_page_expiry(mut self, page_expiry: crate::page_expiry::Reader) -> Self {
         self.page_expiry = page_expiry;
         self
     }
-    /// The space's page expiry now.
-    pub(crate) fn page_expiry(&self) -> crate::page_expiry::SpaceExpiry {
+    /// The space's page expiry now; `None` when its setting cannot be read.
+    pub(crate) fn page_expiry(&self) -> Option<crate::page_expiry::SpaceExpiry> {
         (self.page_expiry)()
     }
     /// Archive `page` if it is idle at `now` under the space's expiry. It is judged here, in the
@@ -544,7 +544,10 @@ impl Registration {
         now: u64,
     ) -> std::result::Result<Option<crate::expirer::Idle>, crate::transitions::Code> {
         use crate::transitions::Code;
-        let space = (self.page_expiry)();
+        // A setting that cannot be read archives nothing, whatever the pages look like.
+        let Some(space) = (self.page_expiry)() else {
+            return Ok(None);
+        };
         let (catalog, revision) = self
             .store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {

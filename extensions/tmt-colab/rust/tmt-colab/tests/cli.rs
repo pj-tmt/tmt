@@ -7378,6 +7378,28 @@ fn expire_dry_run_lists_what_the_next_pass_archives_and_changes_nothing() {
     let behind = pilot.call(&["expire", "--dry-run", "--json"]);
     assert_eq!(behind["clockBehind"], true);
     assert_eq!(behind["archive"], json!([]));
+    // A settings file that cannot be read archives nothing: `off` must not silently become 180.
+    set_active(&idle, now - 200 * day);
+    let settings = pilot.root.join("selected/colab/settings.json");
+    std::fs::write(&settings, "{").unwrap();
+    let damaged = pilot.call(&["expire", "--dry-run", "--json"]);
+    assert_eq!(damaged["settingsDamaged"], true);
+    assert_eq!(damaged["archive"], json!([]));
+    let text = String::from_utf8(
+        pilot
+            .command()
+            .args(["expire", "--dry-run"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert!(text.contains("NOTHING WOULD BE ARCHIVED"), "{text}");
+    assert!(text.contains("settings.json could not be read"), "{text}");
+    std::fs::write(&settings, "{}").unwrap();
+    let fixed = pilot.call(&["expire", "--dry-run", "--json"]);
+    assert_eq!(fixed["settingsDamaged"], false);
+    assert_eq!(fixed["archive"][0]["pageId"], idle);
     for page in [&idle, &fresh, &shell] {
         assert_eq!(
             pilot.call(&["show", page, "--json"])["page"]["archived"],

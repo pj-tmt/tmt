@@ -5,7 +5,8 @@ use std::{collections::BTreeSet, io::Write, path::Path};
 use tmt_colab::{Result, expirer, page, page_expiry::DAY_MS, settings};
 
 pub fn run(root: &Path, json_output: bool) -> Result<()> {
-    let space = settings::read_or_default(root).page_expiry();
+    let settings = settings::read_or_default(root);
+    let space = settings.page_expiry();
     let now = u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
@@ -16,6 +17,8 @@ pub fn run(root: &Path, json_output: bool) -> Result<()> {
         root,
         tmt_colab::decoder::Config::new(std::env::current_exe()?),
     ) {
+        // A setting that cannot be read archives nothing: the defaults must not stand in for it.
+        _ if settings.malformed => expirer::Plan::default(),
         Ok(mut source) => expirer::plan_for(&mut source, space, now, &mut BTreeSet::new())?,
         // No local space yet: nothing is idle.
         Err(_) => expirer::Plan::default(),
@@ -33,8 +36,8 @@ pub fn run(root: &Path, json_output: bool) -> Result<()> {
         writeln!(
             out,
             "{}",
-            json!({"dryRun":true,"pageExpiryDays":space.days(),"clockBehind":plan.clock_behind,
-                "archive":pages,"shells":plan.shells,"more":plan.more})
+            json!({"dryRun":true,"pageExpiryDays":space.days(),"settingsDamaged":settings.malformed,
+                "clockBehind":plan.clock_behind,"archive":pages,"shells":plan.shells,"more":plan.more})
         )?;
         return Ok(());
     }
@@ -50,13 +53,16 @@ pub fn run(root: &Path, json_output: bool) -> Result<()> {
             ),
         ));
     }
-    let heading = if plan.clock_behind {
+    let heading = if plan.clock_behind || settings.malformed {
         "NOTHING WOULD BE ARCHIVED"
     } else if rows.is_empty() {
         "NOTHING IS DUE"
     } else {
         "WOULD ARCHIVE"
     };
+    if settings.malformed {
+        rows.push(("settings", settings::UNREADABLE.to_owned()));
+    }
     if plan.clock_behind {
         rows.push((
             "clock",

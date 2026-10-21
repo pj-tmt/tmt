@@ -272,7 +272,10 @@ fn pass(
     report: &Arc<dyn Fn(&str) + Send + Sync>,
     shells: &mut BTreeSet<String>,
 ) -> Result<()> {
-    let expiry = locked(registration).page_expiry();
+    let Some(expiry) = locked(registration).page_expiry() else {
+        report("The scheduled archive is paused: settings.json could not be read.");
+        return Ok(());
+    };
     let now = registration::now_ms().map_err(|_| "The clock could not be read.")?;
     let mut view = source()?;
     let plan = plan_for(&mut view, expiry, now, shells)?;
@@ -462,6 +465,51 @@ mod tests {
         set(OTHER, now + 3 * i64::try_from(DAY).unwrap());
         assert!(archive_one(&fixture.server, OTHER).unwrap().is_none());
         assert_eq!(archived(OTHER), json!(false));
+    }
+
+    #[test]
+    fn a_setting_that_cannot_be_read_archives_nothing() {
+        use crate::{
+            keyring::{Keyring, Layout},
+            readers::test_support::{Fixture, PAGE, decoder_config},
+            store::Store,
+        };
+        let fixture = Fixture::new();
+        let db = rusqlite::Connection::open(fixture.root.join("colab/space.db")).unwrap();
+        db.execute(
+            "UPDATE pages SET last_activity_at_ms=1 WHERE page=?1",
+            [PAGE],
+        )
+        .unwrap();
+        let layout = Layout::existing(&fixture.root).unwrap().unwrap();
+        let build = |reader: crate::page_expiry::Reader| {
+            Registration::with_decoder_config(
+                Store::open(&layout).unwrap(),
+                Keyring::read(&layout).unwrap(),
+                decoder_config(std::env::current_exe().unwrap()),
+            )
+            .unwrap()
+            .with_page_expiry(reader)
+        };
+        let archived = || {
+            crate::inspection::catalog(&fixture.store, &fixture.key).unwrap()["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["pageId"] == PAGE)
+                .unwrap()["archived"]
+                .clone()
+        };
+        let now = registration::now_ms().unwrap();
+        // The page is long idle, but a damaged settings.json must not let the default stand in
+        // for an owner who may have said `off`.
+        let mut unreadable = build(Arc::new(|| None));
+        assert!(unreadable.page_expiry().is_none());
+        assert!(unreadable.archive_if_idle(PAGE, now).unwrap().is_none());
+        assert_eq!(archived(), json!(false));
+        let mut readable = build(Arc::new(|| Some(SpaceExpiry::Default)));
+        assert!(readable.archive_if_idle(PAGE, now).unwrap().is_some());
+        assert_eq!(archived(), json!(true));
     }
 
     #[test]

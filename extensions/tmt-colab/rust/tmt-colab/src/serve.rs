@@ -508,8 +508,13 @@ fn serve(
         let summary_root = root.to_path_buf();
         // The space's page expiry is read whenever it is used, so a changed setting applies at once.
         let expiry_root = root.to_path_buf();
-        let page_expiry: Arc<dyn Fn() -> tmt_colab::page_expiry::SpaceExpiry + Send + Sync> =
-            Arc::new(move || tmt_colab::settings::read_or_default(&expiry_root).page_expiry());
+        let page_expiry: tmt_colab::page_expiry::Reader =
+            Arc::new(move || tmt_colab::settings::read_page_expiry(&expiry_root));
+        // A cloud row's lifetime only needs a number: a damaged file shows the defaults.
+        let cloud_expiry: Arc<dyn Fn() -> tmt_colab::page_expiry::SpaceExpiry + Send + Sync> = {
+            let page_expiry = Arc::clone(&page_expiry);
+            Arc::new(move || page_expiry().unwrap_or_default())
+        };
         let registration = Arc::new(Mutex::new(
             Registration::new(store, keyring, std::env::current_exe()?)?
                 .with_page_expiry(Arc::clone(&page_expiry))
@@ -544,7 +549,7 @@ fn serve(
                     activate: Arc::new(supervisor::activate_sync),
                     report: Arc::new(warn),
                     declaration_digest: digest,
-                    page_expiry: Arc::clone(&page_expiry),
+                    page_expiry: Arc::clone(&cloud_expiry),
                 },
             )?;
         }

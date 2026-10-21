@@ -184,6 +184,14 @@ pub fn read(root: &Path) -> Result<ColabSettings> {
     }
 }
 
+/// The space's page expiry, or `None` when `settings.json` could not be read: the defaults then
+/// apply to what is only shown, but an action that depends on the setting (the scheduled archive)
+/// must not take them for the owner's choice.
+pub fn read_page_expiry(root: &Path) -> Option<SpaceExpiry> {
+    let settings = read_or_default(root);
+    (!settings.malformed).then(|| settings.page_expiry())
+}
+
 /// Change the settings under the setter's lock: `change` edits the file's own object, so a key this
 /// setter does not own is kept. Two concurrent setters serialize; a crash mid-write leaves a
 /// malformed file, which reads as the defaults with a warning rather than an error. A file that is

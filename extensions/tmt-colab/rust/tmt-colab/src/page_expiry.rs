@@ -30,6 +30,11 @@ impl SpaceExpiry {
     }
 }
 
+/// Reads the space's setting each time it is used, so a changed setting applies at once. `None`:
+/// the setting could not be read (a damaged `settings.json`), which is not the same as the default:
+/// whoever would act on the setting waits rather than guess, since `off` would silently become 180.
+pub type Reader = std::sync::Arc<dyn Fn() -> Option<SpaceExpiry> + Send + Sync>;
+
 /// What a page's signed policy says about its retention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PageRetention {
