@@ -337,13 +337,14 @@ anchors. `e` opens full observed member values. Authored sort changes the curren
 layer within unread/waiting/other groups. Retired summaries, Recent exchanges and
 the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows
-the selected window and total. Independent Range and Each dropdowns use Enter to
+the selected window and total. Independent Range and Time per bar dropdowns use Enter to
 open/pick, arrows to navigate and Esc to close; the current choice is checked.
-Range offers 1h, 6h, 24h, 7d and 30d. Each offers Auto, 5m, 15m, 30m, 1h, 2h,
-6h, 12h and 1d, hiding intervals longer than the range. Choices exceeding 720 bars
-stay visible but disabled, with the minimum interval explained in the menu footer.
-Auto picks the finest interval fitting the plot width and 720; fixed choices
-survive resize. Range changes keep a valid fixed interval or choose the closest
+Range offers 1h, 6h, 24h, 7d and 30d. Time per bar offers Automatic, 5m, 15m,
+30m, 1h, 2h, 6h, 12h and 1d, hiding intervals longer than the range. The button
+shows the time represented by one bar, such as `2h per bar (auto)`. Choices exceeding
+720 bars stay visible but disabled, with the minimum time per bar explained in the
+menu footer. Automatic picks the finest interval fitting the plot width and 720;
+fixed choices survive resize. Range changes keep a valid fixed interval or choose the closest
 admitted one. These authored choices are saved per view layer, separately from
 configured token-meter windows. Long ranges use retained Core observations;
 history before collection is unknown, and gaps are never filled with zero.

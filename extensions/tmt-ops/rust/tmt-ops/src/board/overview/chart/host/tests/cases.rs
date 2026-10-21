@@ -99,7 +99,7 @@ fn chart_visual_evidence() {
         let mut frames = Vec::new();
         for (theme, look) in crate::board::home::tests::oracle::looks() {
             for name in NAMES {
-                for width in [60, 100, 103, 148, 200] {
+                for width in [60, 80, 100, 103, 148, 160, 200] {
                     let mut app = board_case(name, look, width);
                     let buffer = paint(&mut app, width, 51);
                     let state = app.usage_chart.borrow();

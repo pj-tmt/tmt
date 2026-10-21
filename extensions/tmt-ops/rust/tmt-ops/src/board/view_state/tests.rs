@@ -866,3 +866,165 @@ fn chart_preferences_are_per_layer_authored_and_tolerant_of_old_or_invalid_hints
         }
     }
 }
+
+fn preferences_snapshot(path: &Path) -> crate::board::app::Snapshot {
+    let mut fixture = board();
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.tabs.push(crate::board::ALL.into());
+    snapshot.view = Ok(fixture.view.take().unwrap());
+    snapshot
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .configure(&crate::config::Config::read(path.to_path_buf()).unwrap())
+        .unwrap();
+    snapshot
+}
+
+#[test]
+fn saved_range_tok_restarts_from_confirmed_preferences_and_survives_refresh() {
+    use crate::{
+        board::app::{Effect, Request},
+        config::{Config, TokRange},
+    };
+    let _no_commands = crate::runner::forbid_commands();
+    for range in TokRange::ALL {
+        let scratch = Scratch::new();
+        fs::create_dir_all(&scratch.0).unwrap();
+        let path = scratch.0.join("ops.toml");
+        fs::write(&path, "# keep the viewer's preferences\n").unwrap();
+        let mut first = App::new(Some(crate::board::ALL.into()));
+        first.apply(preferences_snapshot(&path));
+        let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
+            first.select_tok_range(range)
+        else {
+            panic!("a range change must use the confirmed workspace writer");
+        };
+        assert_eq!(
+            first.tok_range(),
+            TokRange::Hour,
+            "dispatch is not a saved choice"
+        );
+        Config::read(path.clone())
+            .unwrap()
+            .save_workspace_preferences(&expected, &next)
+            .unwrap();
+        first.finished_workspace_preferences(next, "Saved".into());
+        assert_eq!(first.tok_range(), range);
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("# keep the viewer's preferences")
+        );
+
+        let mut restarted = App::new(Some(crate::board::ALL.into()));
+        restarted.apply(preferences_snapshot(&path));
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
+            restarted.shell.tab = tab;
+            assert_eq!(restarted.tok_range(), range, "{tab:?} after restart");
+            restarted.apply(preferences_snapshot(&path));
+            assert_eq!(restarted.tok_range(), range, "{tab:?} after refresh");
+        }
+    }
+}
+
+#[test]
+fn saved_range_refused_stale_write_does_not_change_the_viewer_or_saved_preference() {
+    use crate::{
+        board::app::{Effect, Request},
+        config::{Config, TokRange},
+    };
+    let _no_commands = crate::runner::forbid_commands();
+    let scratch = Scratch::new();
+    fs::create_dir_all(&scratch.0).unwrap();
+    let path = scratch.0.join("ops.toml");
+    fs::write(&path, "").unwrap();
+    let mut app = App::new(Some(crate::board::ALL.into()));
+    app.apply(preferences_snapshot(&path));
+    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
+        app.select_tok_range(TokRange::Week)
+    else {
+        panic!("expected a range save");
+    };
+    let mut other = expected.clone();
+    other.tok_range = TokRange::SixHours;
+    Config::read(path.clone())
+        .unwrap()
+        .save_workspace_preferences(&expected, &other)
+        .unwrap();
+    let bytes = fs::read(&path).unwrap();
+    let error = Config::read(path.clone())
+        .unwrap()
+        .save_workspace_preferences(&expected, &next)
+        .unwrap_err();
+    assert!(error.message.contains("changed"));
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(
+        app.tok_range(),
+        TokRange::Hour,
+        "a refusal is not a completion"
+    );
+    let mut restarted = App::new(Some(crate::board::ALL.into()));
+    restarted.apply(preferences_snapshot(&path));
+    assert_eq!(restarted.tok_range(), TokRange::SixHours);
+}
+
+#[test]
+fn saved_range_agents_chart_restarts_through_the_selected_layer_writer() {
+    use crate::board::overview::chart::model::Each;
+    let _no_commands = crate::runner::forbid_commands();
+    for each in [Each::Auto, Each::Fixed(60)] {
+        let scratch = Scratch::new();
+        let mut first = board();
+        first
+            .usage_chart
+            .borrow_mut()
+            .restore_chart_controls(10_080, each);
+        let now = Instant::now();
+        let mut original = Session::load(scratch.file(), false, false);
+        let (_, writer) = original.tick(&mut first, now);
+        writer.unwrap().publish(now, false);
+        assert_eq!(
+            ViewState::read(&scratch.file())
+                .unwrap()
+                .controls
+                .unwrap()
+                .chart,
+            (10_080, each)
+        );
+
+        let mut restarted = cold();
+        assert_eq!(
+            restarted.usage_chart.borrow().chart_controls(),
+            (60, Each::Auto)
+        );
+        let mut selected = Session::load(scratch.file(), false, false);
+        assert!(selected.tick(&mut restarted, now).0);
+        assert_eq!(restarted.shell.tab, OpsTab::Agents);
+        assert_eq!(
+            restarted.usage_chart.borrow().chart_controls(),
+            (10_080, each)
+        );
+        restarted.apply(crate::board::app::Snapshot {
+            view: Ok(board().view.take().unwrap()),
+            ..crate::board::app::tests::snapshot(crate::board::ALL, json!([]))
+        });
+        assert_eq!(
+            restarted.usage_chart.borrow().chart_controls(),
+            (10_080, each),
+            "refresh retains the restored chart choice"
+        );
+
+        let mut other = cold();
+        Session::load(scratch.0.join("other-view.json"), false, false).tick(&mut other, now);
+        assert_eq!(
+            other.usage_chart.borrow().chart_controls(),
+            (60, Each::Auto),
+            "another layer does not inherit this chart range"
+        );
+    }
+}
