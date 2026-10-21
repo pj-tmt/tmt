@@ -202,9 +202,9 @@ pub fn set(core: &Core, config: &mut Config, name: &str) -> Result<Me, SquadErro
     Ok(me)
 }
 
-/// Core's reserved identity-metadata entry for a person ([extension API]
-/// (../../../../../contracts/extension-api.md#identity-metadata)): Digest never
-/// holds the messages or replies of an identity that carries it as `true`.
+/// Core's reserved identity-metadata entry for a person (the extension API
+/// contract's identity metadata section owns it): Digest never holds the
+/// messages or replies of an identity that carries it as `true`.
 const USER_KEY: &str = "user";
 
 /// Marks the identity `id` as a person in Core, so the recorded user need not
