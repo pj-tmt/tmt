@@ -11,10 +11,11 @@ import {
 import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
-import { sealOwnUpdate, sealedRevision } from './own-seal.js';
+import { sealOwnUpdate, sealedKind, sealedRevision } from './own-seal.js';
 import { record as durableRecord } from './storage.js';
 import {
   OwnAppendRefused,
+  OwnCheckpointRefused,
   OwnRecordConflict,
   publicationSequence,
   type OwnPublicationReceipt,
@@ -274,6 +275,18 @@ export class Writer {
         // Includes signature/scope/authority checks on restored data.
         await this.#append(c, state, state.pending.entry);
       } catch (error) {
+        // A checkpoint saved before the serve's fold refused it (#4275) is replayed here by every
+        // later write. It was never stored and covers no update that is not already in the
+        // stream, so it is dropped and the write that found it goes on at the stream's head.
+        // Only a checkpoint is dropped, never an update.
+        if (
+          error instanceof OwnCheckpointRefused &&
+          sealedKind(state.pending.entry) === 'checkpoint'
+        ) {
+          state.pending = null;
+          await this.record(this.key, state);
+          return state;
+        }
         // The serve admits an append sealed under an earlier revision when the statements it missed
         // only concern other pages (colab-v1, "Append at an earlier membership revision"), so these
         // bytes are always offered first. It answers `RESYNC_REQUIRED` for any other change; once
@@ -408,7 +421,7 @@ export class Writer {
     try {
       await this.#append(c, state, entry);
     } catch (error) {
-      if (!(error instanceof Error && error.message === 'CONFLICT')) throw error;
+      if (!(error instanceof OwnCheckpointRefused)) throw error;
       // The serve already holds a different checkpoint of this stream at its head (an owner fold
       // of it, signed by the serve). Ours was never stored: it must not stay saved, or every
       // later write would replay it first and be refused the same way.

@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
 import { Admission } from '../src/admission.js';
 import { Connection } from '../src/connection.js';
-import { OwnAppendRefused } from '../src/own-publication.js';
+import { OwnAppendRefused, OwnCheckpointRefused } from '../src/own-publication.js';
 import type { ObjectEntry } from '../src/objects.js';
 import { sealedRevision } from '../src/own-seal.js';
 import { Writer, memoryRecords } from '../src/writer.js';
@@ -345,6 +345,70 @@ it('tells a link session its append was refused only when the serve answered CON
     expect(other.closed, label).toMatchObject({ message: code });
     if (waiting) expect(other.refusal, label).not.toBeInstanceOf(OwnAppendRefused);
   }
+});
+
+/** An own checkpoint this device sealed over its stream's head, as the writer produces it. */
+async function sealedCheckpoint(w: Awaited<ReturnType<typeof world>>) {
+  const envelope = await c.Envelope.seal(
+    {
+      space: v.spaceId,
+      page: v.pageId,
+      epoch: v.epoch,
+      kind: 'checkpoint',
+      namespace: 'own',
+      authorDevice: w.device.id,
+      membershipRevision: REVISION.toString(),
+      streamSeq: '5',
+      prevHash: new Uint8Array(32),
+    },
+    w.admission.root,
+    w.device.sign,
+    new Uint8Array([1, 2, 3]),
+  );
+  return {
+    seq: '5',
+    envelopeHash: c.encodeBinary(await envelope.hash()),
+    envelope: c.encodeBinary(envelope.toJson()),
+  };
+}
+
+it("refuses an owner device's own checkpoint alone when the serve answers CONFLICT, and stays connected (#4275)", async () => {
+  const w = await world('member');
+  vi.stubGlobal('WebSocket', Socket);
+  const failed = vi.fn();
+  const connection = new Connection(
+    w.admission as unknown as Admission,
+    new URL('https://example.test/colab/'),
+    'private',
+    vi.fn(),
+    failed,
+  );
+  Socket.current.onmessage?.({
+    data: JSON.stringify({
+      version: 1,
+      space: v.spaceId,
+      page: v.pageId,
+      epoch: v.epoch,
+      type: 'catchup',
+      streams: [],
+      more: false,
+    }),
+  });
+  await connection.ready;
+  const refusal = connection.append(await sealedCheckpoint(w)).then(
+    () => undefined,
+    (failure: Error) => failure,
+  );
+  await vi.waitFor(() =>
+    expect(Socket.current.send.mock.calls.some(([raw]) => JSON.parse(raw).type === 'append')).toBe(
+      true,
+    ),
+  );
+  Socket.current.onmessage?.({ data: error('CONFLICT') });
+  expect(await refusal).toBeInstanceOf(OwnCheckpointRefused);
+  expect(failed).not.toHaveBeenCalled();
+  expect(connection.active).toBe(true);
+  connection.close();
 });
 
 /** A writer over a fake connection whose appends answer as `appends` says, in order. */

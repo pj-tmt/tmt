@@ -1,5 +1,7 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { encodeBinary } from '@tmt/colab-client';
 import type { Connection } from '../src/connection.js';
+import { OwnCheckpointRefused } from '../src/own-publication.js';
 import { Writer, memoryRecords } from '../src/writer.js';
 
 // The serve's owner fold can already hold a checkpoint of this device's stream at its head. This
@@ -20,6 +22,8 @@ vi.mock('../src/own-seal.js', () => ({
     update: update.slice(),
   }),
   sealedRevision: () => 1,
+  // The fixture entries carry their kind where a sealed envelope would.
+  sealedKind: (entry: { envelope: string }) => entry.envelope,
 }));
 const device = '00000000-0000-4000-8000-000000000004';
 const stream = 'own-stream';
@@ -31,13 +35,14 @@ class Channel {
 }
 afterEach(() => vi.unstubAllGlobals());
 
-function leader() {
+function leader(options: { refuse?: () => Error } = {}) {
   vi.stubGlobal('BroadcastChannel', Channel);
   vi.stubGlobal('navigator', {
     locks: { request: (_key: string, _options: unknown, fn: () => unknown) => fn() },
   });
   const appended: { seq: string }[] = [];
   let conflict = true;
+  const refusal = options.refuse ?? (() => new OwnCheckpointRefused());
   const connection = {
     ready: Promise.resolve(),
     active: true,
@@ -66,7 +71,7 @@ function leader() {
     append: async (entry: { seq: string }) => {
       appended.push(entry);
       // The serve answers the checkpoint at the folded head with CONFLICT; later appends land.
-      if (conflict && appended.length === 1) throw new Error('CONFLICT');
+      if (conflict && appended.length === 1) throw refusal();
       conflict = false;
     },
   };
@@ -90,5 +95,43 @@ it('drops a checkpoint the serve refused with CONFLICT, reports it not combined,
     expect(appended[1]!.seq).toBe('13');
   } finally {
     writer.close();
+  }
+});
+
+const saved = (kind: 'checkpoint' | 'update') => ({
+  pending: {
+    id: '00000000-0000-4000-8000-0000000000a1',
+    entry: { seq: '12', envelopeHash: encodeBinary(new Uint8Array(32).fill(7)), envelope: kind },
+  },
+  completed: [] as string[],
+});
+
+it('drops a checkpoint saved before the fix when its replay is refused, and seals the write that found it', async () => {
+  const { writer, records, appended } = leader();
+  try {
+    await records(stream, saved('checkpoint'));
+    await writer.submit(new Uint8Array([9]));
+    // The replay was refused once and not offered again; the write landed at head + 1.
+    expect(appended.map((entry) => entry.seq)).toEqual(['12', '13']);
+    expect((await records<{ pending: unknown }>(stream))?.pending).toBeNull();
+  } finally {
+    writer.close();
+  }
+});
+
+it('never drops a saved update, whatever the refusal says', async () => {
+  for (const refuse of [() => new Error('CONFLICT'), () => new OwnCheckpointRefused()]) {
+    const { writer, records, appended } = leader({ refuse });
+    try {
+      await records(stream, saved('update'));
+      await expect(writer.submit(new Uint8Array([9]))).rejects.toThrow();
+      // Only the replay was offered; the saved update is still there for the next try.
+      expect(appended.map((entry) => entry.seq)).toEqual(['12']);
+      expect(
+        (await records<{ pending: { entry: { seq: string } } }>(stream))?.pending.entry.seq,
+      ).toBe('12');
+    } finally {
+      writer.close();
+    }
   }
 });
