@@ -710,7 +710,7 @@ export const text = {
     restoredMany: (count: number) => `Restored ${count} pages.`,
     deletedMany: (count: number) => `Deleted ${count} pages.`,
     awaitingMany: (count: number) =>
-      `The owner acknowledged ${count} of the changes; their signed logs are not verified yet.`,
+      `The owner accepted ${count} of the changes, but ${count === 1 ? 'it is' : 'they are'} not confirmed yet. Open Manage page to check ${count === 1 ? 'it' : 'them'} again.`,
     partial: (done: number, total: number, title: string, reason: string) =>
       `Updated ${done} of ${total} pages. “${title}” was not changed: ${reason}`,
     addedToProject: (name: string, count: number) =>
@@ -744,7 +744,7 @@ export const text = {
     restored: (title: string) => `Restored “${title}”.`,
     deleted: (title: string) => `Deleted “${title}”.`,
     awaiting: (title: string) =>
-      `“${title}”: the owner acknowledged the change; its signed log is not verified yet. Open Manage page to verify it.`,
+      `“${title}”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.`,
     operationFailures: {
       INVALID: 'The owner refused the change.',
       DENIED: 'This device is not allowed to manage pages. Reopen your paired session.',
