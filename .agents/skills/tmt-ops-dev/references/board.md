@@ -389,6 +389,14 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   Ctrl-P selects the Editor's current fold even between paints; the next paint
   publishes its anchor or closes the preview request when it cannot fit.
   Painting does not mutate the Editor or the pending-send revision fence.
+  `composer::files` turns a paste of only existing regular files (shell-unquoted paths
+  or `file://` URIs, at most 16, 16 KiB) into one such fold per file over the absolute
+  path; `App::paste` tries it before the long-paste rule. `stat` supplies the size on the
+  paste path; image dimensions (PNG, GIF, JPEG, WebP headers) and the popup's text head
+  come from `files::Probe`, a worker that reads at most 64 KiB and answers with
+  `BoardEvent::FileInfo`, which relabels the fold through `Editor::relabel_fold`. The
+  table of file facts is session-only and bounded. Tests use synthetic paths in the
+  oracle scenes so captures never depend on the machine.
   A combining mark joining a neighboring grapheme falls back to ordinary text,
   preserving every byte rather than splitting the grapheme at a chip edge.
   `mentions` supplies the shared completion component with acquired agent UUIDs
