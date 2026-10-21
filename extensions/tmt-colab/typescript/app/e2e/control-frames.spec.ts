@@ -68,8 +68,10 @@ for (const theme of ['light', 'dark'] as const)
       await field.press('Tab');
       await page.keyboard.press('Shift+Tab');
       await expect(field).toHaveCSS('border-top-color', focus);
-      await expect(field).toHaveCSS('outline-color', focus);
-      await expect(field).toHaveCSS('outline-width', '1px');
+      // Focus recolours the field's own edge; it draws no second outline (one frame).
+      await expect(field).toHaveCSS('border-top-width', '1px');
+      await expect(field).toHaveCSS('outline-style', 'none');
+      await expect(field).toHaveCSS('outline-width', '0px');
       expect(await field.boundingBox()).toEqual(before);
       await page.screenshot({
         path: capturePath(`3299-focus-${width}-${theme}.png`),
