@@ -194,17 +194,20 @@ pub fn issue_number(external_id: &str) -> Option<u64> {
 }
 
 /// The text a pushed issue carries, hidden in a comment, that finds it again if its number was never
-/// recorded. One alphanumeric token, so GitHub's search matches it exactly.
+/// recorded. One alphanumeric token, so GitHub's search matches it exactly, and a one-way digest of
+/// the page and task IDs (`tmtcolab` and 32 hex digits), so the page's ID never leaves this machine.
 pub fn marker(page_id: &str, task_id: &str) -> String {
-    let page: String = page_id
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .collect();
-    let task: String = task_id
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .collect();
-    format!("tmtcolab{page}{task}")
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::new()
+        .chain_update(page_id.as_bytes())
+        .chain_update([0])
+        .chain_update(task_id.as_bytes())
+        .finalize();
+    let mut token = String::from("tmtcolab");
+    for byte in &digest[..16] {
+        token.push_str(&format!("{byte:02x}"));
+    }
+    token
 }
 
 /// A page's text with every `#N` and `GH-N` reference broken by a zero-width space, so it can neither
@@ -422,15 +425,28 @@ mod tests {
             ]
         });
         let body = issue_body("10000000-0000-4000-8000-000000000001", "T-3", &task);
-        assert!(body.starts_with("<!-- tmtcolab10000000000040008000000000000001T3 -->\n"));
+        let token = marker("10000000-0000-4000-8000-000000000001", "T-3");
+        assert!(body.starts_with(&format!("<!-- {token} -->\n")));
+        assert_eq!(token.len(), "tmtcolab".len() + 32);
+        assert!(token.bytes().all(|b| b.is_ascii_alphanumeric()));
         // The detail's own run of three backticks cannot end the fence: this one is four.
         assert!(body.contains("````text\nUse ``` carefully @ada #\u{200b}3\n````"));
         assert!(body.contains("test: guide builds\ncheck: pnpm docs:check\nperson: lead"));
         assert_eq!(issue_title(&task), "Close #\u{200b}9");
-        assert!(
-            !body.contains("10000000-0000"),
-            "the page's ID is not published as such"
+        // The page's ID is published in no form: not as such, not with its dashes dropped.
+        for form in ["10000000-0000", "100000000000"] {
+            assert!(!body.contains(form), "{form}");
+        }
+        // The token is stable for one task and differs between tasks and between pages.
+        let (page, other) = (
+            "10000000-0000-4000-8000-000000000001",
+            "10000000-0000-4000-8000-000000000002",
         );
+        assert_eq!(marker(page, "T-3"), token);
+        assert_ne!(marker(page, "T-3"), marker(page, "T-4"));
+        assert_ne!(marker(page, "T-3"), marker(other, "T-3"));
+        // The separator keeps ("ab", "c") apart from ("a", "bc").
+        assert_ne!(marker("ab", "c"), marker("a", "bc"));
     }
 
     #[test]

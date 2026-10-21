@@ -2679,11 +2679,11 @@ Nothing edited on GitHub is read back except the closing described below.
 `push` is a command for one task and never part of `sync`: it publishes the task's title, detail
 and acceptance to GitHub, possibly to a public repository, and prints the repository and the issue's
 URL. A task that already has an `externalId` is refused. The issue body carries a hidden marker
-(`<!-- tmtcolab<page><task> -->`, one alphanumeric token), the detail and the acceptance criteria
+(`<!-- tmtcolab<32 hex digits> -->`, one alphanumeric token: the first 16 bytes of the SHA-256 of the page ID, a NUL and the task ID, so the digest identifies the task without revealing the page), the detail and the acceptance criteria
 each inside a code fence longer than any run of backticks in them, so no mention or link in a page's
 text acts, and every `#N` and `GH-N` reference in the title, detail and criteria is broken by a
-zero-width space, so a page cannot link or close another issue. The page's own ID is not
-published. Before creating, `push` searches the repository's issues for the marker and adopts the
+zero-width space, so a page cannot link or close another issue. The page's own ID is published
+in no form. Before creating, `push` searches the repository's issues for the marker and adopts the
 one that carries it (the lowest number) instead of creating another, so a push whose record failed
 (a stale revision, a crash) is safe to run again. It then records `#N` with `task.set`, the task's
 whole editable part with its `externalId`, on the revision it read.

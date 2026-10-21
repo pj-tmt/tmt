@@ -1826,7 +1826,9 @@ fn the_github_driver_pushes_a_task_once_and_syncs_done_from_merged_closures() {
         body.contains("Close #\u{200b}3 and gh-\u{200b}4 for @ada"),
         "{body}"
     );
-    assert!(!body.contains(&page), "the page's ID stays private");
+    for form in [page.clone(), page.replace('-', "")] {
+        assert!(!body.contains(&form), "the page's ID stays private: {form}");
+    }
     let linked = tasks();
     assert_eq!(linked["T-1"]["externalId"], "#501");
     assert_eq!(linked["T-1"]["needsSignoff"], true);
