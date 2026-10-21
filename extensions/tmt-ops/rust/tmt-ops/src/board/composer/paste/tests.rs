@@ -230,6 +230,198 @@ fn draftless_messages_use_the_same_content_line_threshold() {
 }
 
 #[test]
+fn rejected_preview_paste_closes_without_mutating_the_exact_editor() {
+    let mut app = crate::board::app::workspace::tests::board();
+    key(&mut app, KeyCode::Enter);
+    app.paste(&"漢".repeat(501));
+    draw(&mut app, 100, 36);
+    app.preview_paste_at_cursor();
+    assert!(app.paste_preview_shown());
+    let before = app.input.as_ref().unwrap().clone();
+    assert_eq!(
+        app.paste(&"x".repeat(crate::board::app::MESSAGE_LIMIT)),
+        Effect::None
+    );
+    assert!(!app.paste_preview_shown());
+    let after = app.input.as_ref().unwrap();
+    assert_eq!(after.text, before.text);
+    assert_eq!(after.draft_key, before.draft_key);
+    assert!(app.notice.as_deref().unwrap().contains("Paste exceeds"));
+    assert!(draw(&mut app, 100, 36), "the editor caret returns");
+}
+
+#[test]
+fn preview_paste_replaces_selection_and_survives_cancel_before_exact_send() {
+    use crate::board::app::{Compose, Request};
+    let mut app = crate::board::app::workspace::tests::board();
+    key(&mut app, KeyCode::Enter);
+    app.paste(&"x".repeat(501));
+    app.key(KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT));
+    assert_eq!(app.input.as_ref().unwrap().text.selection(), 0..501);
+    draw(&mut app, 100, 36);
+    app.preview_paste_at_cursor();
+    assert!(app.paste_preview_shown());
+    let incoming = "replacement\r\n漢字 e\u{301}";
+    app.paste(incoming);
+    assert!(!app.paste_preview_shown());
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), incoming);
+    assert!(app.input.as_ref().unwrap().text.folds().is_empty());
+    let draft_key = app.input.as_ref().unwrap().draft_key.clone();
+    key(&mut app, KeyCode::Esc);
+    assert!(app.input.is_none());
+    app.focus_composer();
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.draft_key, draft_key);
+    assert_eq!(input.text.as_str(), incoming);
+    let Compose::Talk { to } = &input.compose else {
+        panic!("chat")
+    };
+    let expected = format!("[{} · {to}] {incoming}", input.squad);
+    assert!(
+        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::Act(Request::Talk { text, .. }) if text == expected)
+    );
+}
+
+#[test]
+fn draftless_fold_label_and_keyboard_actions_keep_the_editor_owner() {
+    use crate::board::app::Compose;
+    for compose in [
+        Compose::Talk {
+            to: "worker".into(),
+        },
+        Compose::Reply {
+            request: "request".into(),
+            from: "worker".into(),
+        },
+        Compose::Annotate {
+            to: "lead".into(),
+            row: "worker".into(),
+        },
+    ] {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.ask("message form".into(), compose, "product".into());
+        let raw = "漢".repeat(501);
+        app.paste(&raw);
+        let input = app.input.as_ref().unwrap();
+        assert!(input.draft_key.is_none());
+        assert_eq!(input.text.folds()[0].label, "⧉ Pasted · 501 chars");
+        assert_eq!(input.text.as_str(), raw);
+        app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        assert!(app.input.as_ref().unwrap().text.folds()[0].expanded);
+        assert!(!app.paste_preview_shown());
+        app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        assert!(!app.input.as_ref().unwrap().text.folds()[0].expanded);
+        key(&mut app, KeyCode::Backspace);
+        assert!(app.input.as_ref().unwrap().text.is_empty());
+        assert!(app.input.as_ref().unwrap().text.folds().is_empty());
+    }
+}
+
+fn cron_message_form(raw: &str) -> (App, String) {
+    use crate::board::cronboard::{detail_id, test_cron, test_view};
+    let mut app = crate::board::app::workspace::tests::board();
+    let mut job = test_view("worker", raw, None);
+    job.job.squad = "product".into();
+    job.job.room_id = crate::board::app::workspace::tests::ROOM.into();
+    let id = detail_id(&job);
+    app.cron.replace(Ok(test_cron(
+        vec![job],
+        tmt_ops::cron::ClockStatus::NoClock,
+    )));
+    (app, id)
+}
+
+#[test]
+fn cron_prefill_and_edit_share_counts_labels_and_exact_message_admission() {
+    use crate::board::{
+        app::Request,
+        cronboard::{CronRequest, Op},
+    };
+    for lines in [10, 11] {
+        let raw = vec!["漢"; lines].join("\r\n") + "\r\n";
+        let (mut app, id) = cron_message_form(&raw);
+        assert_eq!(app.cron_key('E', Some(&id)), Effect::None);
+        let input = app.input.as_ref().unwrap();
+        assert!(input.draft_key.is_none());
+        assert_eq!(input.text.as_str(), raw);
+        assert_eq!(input.text.folds().len(), usize::from(lines > 10));
+        if lines > 10 {
+            assert_eq!(input.text.folds()[0].label, "⧉ Pasted · 11 lines");
+            app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+            assert!(app.input.as_ref().unwrap().text.folds()[0].expanded);
+            assert_eq!(app.input.as_ref().unwrap().text.as_str(), raw);
+        }
+        app.paste(" tail");
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert!(!app.message_field(), "the schedule is a separate form step");
+        let expected = raw + " tail";
+        let Effect::Act(Request::CronPreview(task)) =
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        else {
+            panic!("the form stages a review before writing");
+        };
+        assert!(matches!(task.request,
+            CronRequest::Existing { op: Op::Edit { message: Some(message), .. }, .. } if message == expected));
+        assert!(app.cron_review.is_some());
+    }
+}
+
+#[test]
+fn cron_create_paste_and_refused_reentry_preserve_form_owned_bytes() {
+    use crate::board::{app::Request, cronboard::CronRequest};
+    let raw = "漢字\r\n".repeat(11);
+    let (mut app, id) = cron_message_form("stored");
+    app.cron_key('n', Some(&id));
+    app.input.as_mut().unwrap().text = "worker".into();
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(app.message_field());
+    app.paste(&raw);
+    assert_eq!(
+        app.input.as_ref().unwrap().text.folds()[0].label,
+        "⧉ Pasted · 11 lines"
+    );
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    app.paste("every 30m");
+    let Effect::Act(Request::CronPreview(task)) =
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+    else {
+        panic!("the form stages a review before writing");
+    };
+    assert!(matches!(task.request, CronRequest::Add { message, .. } if message == raw));
+    assert!(app.cron_review.is_some());
+
+    let blank = "\r\n".repeat(11);
+    let (mut app, id) = cron_message_form("stored");
+    app.cron_key('n', Some(&id));
+    app.input.as_mut().unwrap().text = "worker".into();
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    app.paste(&blank);
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.text.as_str(), blank);
+    assert_eq!(input.text.folds()[0].label, "⧉ Pasted · 11 lines");
+    assert!(input.hint.as_ref().unwrap().error);
+    key(&mut app, KeyCode::Esc);
+    assert!(app.input.is_none() && app.cron_draft.is_none());
+}
+
+#[test]
 fn chips_between_typed_text_are_atomic_and_old_geometry_cannot_edit_a_new_draft() {
     let mut app = crate::board::app::workspace::tests::board();
     key(&mut app, KeyCode::Enter);
@@ -318,14 +510,15 @@ fn exclusive_thresholds_count_unicode_and_logical_breaks_without_normalizing_sou
             assert_eq!(label(&source).is_some(), lines > 10);
         }
     }
-    assert_eq!(counts("x\r\n"), (3, 2));
+    assert_eq!(counts("x\r\n"), (3, 1));
     assert!(label(&"x".repeat(1123)).unwrap().contains("1,123 chars"));
-    assert!(label(&"x\n".repeat(10)).unwrap().contains("11 lines"));
+    assert!(label(&"x\n".repeat(10)).is_none());
+    assert!(label(&"x\n".repeat(11)).unwrap().contains("11 lines"));
 }
 
 #[test]
 fn ascii_and_clipped_chips_keep_the_admitted_editor_width_and_remove_target() {
-    let label = label(&"x".repeat(501)).unwrap();
+    let label = format!("{} ×", label(&"x".repeat(501)).unwrap());
     assert_eq!(crate::board::glyph_guard::glyph_error(&label), None);
     for ascii in [false, true] {
         for width in 1..=label.width() {
@@ -394,9 +587,23 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "paste-retained",
     "paste-ascii",
     "paste-tiny",
+    "paste-terminal-ten",
+    "paste-terminal-eleven",
+    "paste-preview-insert",
+    "paste-preview-refused",
+    "paste-preview-insert-tiny",
+    "paste-form-folded",
+    "paste-form-expanded",
+    "paste-form-tiny",
+    "paste-cron-prefill",
+    "paste-cron-retry",
 ];
 
-/// One scene owner for decoded review and the eventual post-#4100 oracle.
+pub(in crate::board) fn capture_height(scene: &str) -> u16 {
+    if scene.ends_with("tiny") { 8 } else { 36 }
+}
+
+/// One scene owner for decoded review and the HOME oracle.
 pub(in crate::board) fn capture_case(
     scene: &str,
     look: crate::look::Look,
@@ -411,6 +618,54 @@ pub(in crate::board) fn capture_case(
     }
     if scene == "paste-ascii" {
         app.cron_glyphs = crate::board::overview::cron_counts::GlyphSet::Ascii;
+    }
+    if matches!(scene, "paste-terminal-ten" | "paste-terminal-eleven") {
+        key(&mut app, KeyCode::Enter);
+        let lines = if scene == "paste-terminal-ten" {
+            10
+        } else {
+            11
+        };
+        app.paste(&(vec!["content line"; lines].join("\r\n") + "\r\n"));
+        draw(&mut app, width, height);
+        return app;
+    }
+    if scene.starts_with("paste-form-") {
+        app.ask(
+            "Message form".into(),
+            crate::board::app::Compose::Talk {
+                to: "worker".into(),
+            },
+            "product".into(),
+        );
+        app.paste(&"form source 漢字\r\n".repeat(11));
+        if scene == "paste-form-expanded" {
+            app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        }
+        draw(&mut app, width, height);
+        return app;
+    }
+    if scene.starts_with("paste-cron-") {
+        use crate::board::cronboard::{detail_id, test_cron, test_view};
+        let mut job = test_view("worker", &"stored line\r\n".repeat(10), None);
+        job.job.squad = "product".into();
+        job.job.room_id = crate::board::app::workspace::tests::ROOM.into();
+        let id = detail_id(&job);
+        app.cron.replace(Ok(test_cron(
+            vec![job],
+            tmt_ops::cron::ClockStatus::NoClock,
+        )));
+        if scene == "paste-cron-retry" {
+            app.cron_key('n', Some(&id));
+            app.input.as_mut().unwrap().text = "worker".into();
+            key(&mut app, KeyCode::Enter);
+            app.paste(&"\r\n".repeat(11));
+            key(&mut app, KeyCode::Enter);
+        } else {
+            app.cron_key('E', Some(&id));
+        }
+        draw(&mut app, width, height);
+        return app;
     }
     key(&mut app, KeyCode::Enter);
     app.paste("before ");
@@ -435,11 +690,24 @@ pub(in crate::board) fn capture_case(
         app.key(KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT));
     }
     draw(&mut app, width, height);
-    if matches!(scene, "paste-preview" | "paste-scrolled") {
+    if matches!(
+        scene,
+        "paste-preview"
+            | "paste-scrolled"
+            | "paste-preview-insert"
+            | "paste-preview-refused"
+            | "paste-preview-insert-tiny"
+    ) {
         app.preview_paste_at_cursor();
         draw(&mut app, width, height);
         if scene == "paste-scrolled" {
             key(&mut app, KeyCode::PageDown);
+        } else if scene == "paste-preview-refused" {
+            app.paste(&"x".repeat(crate::board::app::MESSAGE_LIMIT));
+            draw(&mut app, width, height);
+        } else if scene.starts_with("paste-preview-insert") {
+            app.paste(" inserted 漢字\r\n");
+            draw(&mut app, width, height);
         }
     } else if scene == "paste-removed" {
         let hit = app.composer.paste_hits.borrow().last().cloned().unwrap();
@@ -457,7 +725,7 @@ fn capture_paste_packet() {
     let mut captures = Vec::new();
     for (name, look) in crate::board::home::tests::oracle::looks() {
         for scene in SCENES {
-            let height = if *scene == "paste-tiny" { 8 } else { 36 };
+            let height = capture_height(scene);
             for width in [160, 100, 80] {
                 let app = capture_case(scene, look, width, height);
                 let mut terminal =
@@ -473,11 +741,125 @@ fn capture_paste_packet() {
                     .chunks(usize::from(width))
                     .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                     .collect::<Vec<_>>();
-                captures.push(serde_json::json!({"scene":scene,"look":name,"width":width,"height":height,"cells":cells,"lines":lines,"inputBand":format!("{:?}",app.input_band.get()),"editor":format!("{:?}",app.input_viewport.get()),"paste":capture_metadata(&app)}));
+                captures.push(serde_json::json!({"scene":scene,"look":name,"width":width,"height":height,"cells":cells,"lines":lines,"inputBand":format!("{:?}",app.input_band.get()),"editor":format!("{:?}",app.input_viewport.get()),"paste":capture_metadata(&app),"draft":editor_metadata(&app)}));
             }
         }
     }
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
+}
+
+fn editor_metadata(app: &App) -> serde_json::Value {
+    let text = app.input.as_ref().map(|input| &input.text).or_else(|| {
+        app.composer_projection()
+            .and_then(|projection| projection.text)
+    });
+    text.map_or(serde_json::Value::Null, |text| {
+        let selection = text.selection();
+        serde_json::json!({
+            "source": text.as_str(), "cursor": text.cursor(),
+            "selection": [selection.start, selection.end],
+            "folds": text.folds().iter().map(|fold| serde_json::json!({
+                "id":fold.id,"source":[fold.source.start,fold.source.end],
+                "label":fold.label,"expanded":fold.expanded
+            })).collect::<Vec<_>>(),
+            "owner": app.input.as_ref().and_then(|input| input.draft_key.as_ref()),
+            "form": app.input.as_ref().map(|input| format!("{:?}", input.compose)),
+            "notice": app.notice,
+        })
+    })
+}
+
+/// The external capture driver owns its terminal; this fixture issues no tmux commands.
+#[test]
+#[ignore = "requires an explicitly isolated private-terminal capture"]
+fn paste_private_terminal_evidence() {
+    use std::io::{Read, Write};
+    assert!(std::env::var_os("TMUX").is_none());
+    assert!(std::env::var_os("TMUX_PANE").is_none());
+    let ready = std::env::var("TMT_PASTE_TERMINAL_READY").unwrap();
+    assert!(
+        ready.starts_with("paste-4151-")
+            && ready
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    );
+    let width: u16 = std::env::var("TMT_PASTE_TERMINAL_WIDTH")
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!([80, 100, 160].contains(&width));
+    let scene = std::env::var("TMT_PASTE_TERMINAL_SCENE").unwrap();
+    assert!(SCENES.contains(&scene.as_str()) || scene == "help");
+    let height = capture_height(&scene);
+    let look = match std::env::var("TMT_PASTE_TERMINAL_LOOK").unwrap().as_str() {
+        "tmt" => crate::look::Look::default(),
+        "tmt-light" => crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::TmtLight),
+            depth: Depth::TrueColor,
+        },
+        "ansi16" => crate::look::Look {
+            depth: Depth::Ansi16,
+            ..crate::look::Look::default()
+        },
+        "NO_COLOR" => crate::look::Look {
+            depth: Depth::None,
+            ..crate::look::Look::default()
+        },
+        other => panic!("unsupported fixture look: {other}"),
+    };
+    let metadata =
+        std::path::PathBuf::from(std::env::var_os("TMT_PASTE_TERMINAL_METADATA").unwrap());
+    assert!(
+        metadata.starts_with("/private/tmp")
+            && metadata.components().any(|part| part
+                .as_os_str()
+                .to_string_lossy()
+                .starts_with("ux-3-4151-terminal-"))
+    );
+    let _no_commands = crate::runner::forbid_commands();
+    crate::board::terminal::restore_before_panic_reports();
+    let mut screen =
+        crate::board::terminal::Guard::enter(crate::board::terminal::Crossterm::default()).unwrap();
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout())).unwrap();
+    assert_eq!(
+        terminal.size().unwrap(),
+        ratatui::layout::Size::new(width, height)
+    );
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut app = capture_case(
+            if scene == "help" {
+                "paste-single"
+            } else {
+                &scene
+            },
+            look,
+            width,
+            height,
+        );
+        if scene == "help" {
+            key(&mut app, KeyCode::Esc);
+            key(&mut app, KeyCode::Char('?'));
+        }
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        std::fs::write(
+            metadata,
+            serde_json::to_vec_pretty(&editor_metadata(&app)).unwrap(),
+        )
+        .unwrap();
+    });
+    // The private-server window-renamed hook observes all preceding frame bytes.
+    write!(std::io::stdout(), "\x1bk{ready}\x1b\\").unwrap();
+    std::io::stdout().flush().unwrap();
+    let mut quit = [0];
+    std::io::stdin().read_exact(&mut quit).unwrap();
+    assert_eq!(quit, [b'q']);
+    screen.restore().unwrap();
 }
 
 #[test]
