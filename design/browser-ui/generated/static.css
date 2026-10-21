@@ -1391,6 +1391,45 @@ svg.tmt-ui-mark {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.tmt-ui-list-leading[data-tone='working'],
+.tmt-ui-list-state[data-tone='working'] {
+  color: var(--tmt-ui-color-working);
+}
+.tmt-ui-list-leading[data-tone='waiting'],
+.tmt-ui-list-state[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-list-leading[data-tone='blocked'],
+.tmt-ui-list-state[data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+}
+.tmt-ui-list-leading[data-tone='review'],
+.tmt-ui-list-state[data-tone='review'] {
+  color: var(--tmt-ui-color-review);
+}
+/* A title that carries a description under its label wraps instead of truncating. */
+.tmt-ui-list-title:has(> .tmt-ui-list-description) {
+  overflow: visible;
+  white-space: normal;
+}
+.tmt-ui-list-label {
+  display: block;
+}
+.tmt-ui-list-description {
+  display: block;
+  margin-top: var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+  line-height: 1.4;
+}
+/* A row with only a state keeps it at the right edge when the row is wide. */
+@media not all and (max-width: 479px) {
+  .tmt-ui-list-meta:not(:has(.tmt-ui-list-updated)) {
+    grid-template-columns: auto;
+    justify-content: end;
+    text-align: right;
+  }
+}
 .tmt-ui-list-actions {
   display: flex;
   justify-content: flex-end;
@@ -2690,4 +2729,84 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-chart-slot-4 {
   background: color-mix(in srgb, var(--tmt-ui-color-series-1) 100%, var(--tmt-ui-surface-sheet));
+}
+
+.tmt-ui-section {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+/* A section that stands in a stack of settings groups, separated by a rule. */
+.tmt-ui-section[data-divided] {
+  display: block;
+  padding: calc(var(--tmt-ui-space-xl) - 2px) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-section-heading {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font: 600 12px/1.2 var(--tmt-ui-font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.tmt-ui-section-heading[data-variant='title'] {
+  margin: 0 0 var(--tmt-ui-space-m);
+  color: inherit;
+  font: 600 16px/1.5 var(--tmt-ui-font-body);
+  letter-spacing: normal;
+  text-transform: none;
+}
+/* A heading that follows content in the same section opens a new group. */
+.tmt-ui-section > :not(.tmt-ui-section-heading) + .tmt-ui-section-heading {
+  margin-top: var(--tmt-ui-space-l);
+}
+
+.tmt-ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-table th,
+.tmt-ui-table td {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m) var(--tmt-ui-space-s) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font-weight: normal;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.tmt-ui-table thead th {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 600;
+}
+/* Numbers: the columns after the first are right-aligned, tabular and monospaced. */
+.tmt-ui-table[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
+.tmt-ui-table[data-numeric] th,
+.tmt-ui-table[data-numeric] td {
+  padding-right: var(--tmt-ui-space-m);
+  padding-left: var(--tmt-ui-space-m);
+  text-align: right;
+}
+.tmt-ui-table[data-numeric] th:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+.tmt-ui-table[data-numeric] td {
+  font-family: var(--tmt-ui-font-mono);
+}
+
+/* Text for assistive technology only: out of sight, still in the document and the accessibility tree. */
+.tmt-ui-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -15,6 +15,7 @@ import {
   ToggleSection,
   CheckboxSection,
 } from './components.js';
+import { PageSectionsSection, TablesSection, VisuallyHiddenSection } from './layout.js';
 import { NotificationsSection, OverlaysSection, ShellSection } from './frames.js';
 import { ChartsSection } from './charts.js';
 import { UiLayerSection } from './ui-layer.js';
@@ -37,6 +38,9 @@ export function GallerySections() {
       <MenusSection />
       <TabsSection />
       <ListSection />
+      <PageSectionsSection />
+      <TablesSection />
+      <VisuallyHiddenSection />
       <CommandSection />
       <NoticeSection />
       <OverlaysSection />

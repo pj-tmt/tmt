@@ -70,6 +70,8 @@ export const browserUiClasses = Object.freeze({
   listLeading: 'tmt-ui-list-leading',
   listTitle: 'tmt-ui-list-title',
   listMeta: 'tmt-ui-list-meta',
+  listLabel: 'tmt-ui-list-label',
+  listDescription: 'tmt-ui-list-description',
   listUpdated: 'tmt-ui-list-updated',
   listState: 'tmt-ui-list-state',
   listActions: 'tmt-ui-list-actions',
@@ -81,6 +83,10 @@ export const browserUiClasses = Object.freeze({
   tabLabel: 'tmt-ui-tab-label',
   tabsStatus: 'tmt-ui-tabs-status',
   tabPanel: 'tmt-ui-tab-panel',
+  section: 'tmt-ui-section',
+  sectionHeading: 'tmt-ui-section-heading',
+  table: 'tmt-ui-table',
+  visuallyHidden: 'tmt-ui-visually-hidden',
 } as const);
 
 export type BrowserNoticeTone = 'waiting' | 'blocked' | 'working' | 'review' | 'muted';
