@@ -5945,6 +5945,114 @@ fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_th
     assert_eq!(pending["summary"]["needsYou"], 1);
 }
 
+/// A registration that folds the fixture's page on its own summary worker, and the owner context a
+/// list read needs.
+fn title_registration(f: &Fixture) -> (tmt_colab::registration::Registration, String) {
+    let root = f.root.clone();
+    let context = json!({"deviceId":DEVICE,"kind":"browser","origin":"http://127.0.0.1:1","name":"Laptop",
+        "publicKey":values::encode_binary(SigningKey::from_bytes(&[9; 32]).verifying_key().as_bytes()),
+        "owner":true,"grantRevision":1})
+    .to_string();
+    let registration = tmt_colab::registration::Registration::with_decoder_config(
+        Store::open(&f.layout).unwrap(),
+        Keyring::read(&f.layout).unwrap(),
+        support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+    )
+    .unwrap()
+    .with_summary_source(std::sync::Arc::new(move || {
+        tmt_colab::page::save::open_source(
+            &root,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+    }));
+    (registration, context)
+}
+
+/// The stored title row as (title, progress key it was folded at).
+fn stored_title(f: &Fixture) -> Option<(String, String)> {
+    use rusqlite::OptionalExtension;
+    f.sql()
+        .query_row(
+            "SELECT title, progress FROM page_titles WHERE page=?",
+            [PAGE],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .unwrap()
+}
+
+/// Polls `row` until it yields a title row other than `previous`, within a bounded time.
+fn title_row_after(
+    f: &Fixture,
+    previous: Option<&(String, String)>,
+    mut kick: impl FnMut(),
+) -> (String, String) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        kick();
+        let row = stored_title(f);
+        if let Some(found) = row.as_ref().filter(|found| Some(*found) != previous) {
+            return found.clone();
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no title row: {row:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn the_summary_worker_records_the_verified_title_it_folds_and_a_changed_page_replaces_it() {
+    let mut f = Fixture::new();
+    let (registration, context) = title_registration(&f);
+    // A list read schedules the drain; the row appears (or changes) once the worker has folded.
+    let list = || {
+        registration.pages(Some(&context)).unwrap();
+    };
+    // The catalog entry the browser reads: its optional `title` is the projection's, only while fresh.
+    let listed = || -> Option<String> {
+        let list: Value =
+            serde_json::from_slice(&registration.pages(Some(&context)).unwrap()).unwrap();
+        let page = list["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|page| page["pageId"] == PAGE)
+            .unwrap()
+            .clone();
+        page["title"].as_str().map(str::to_owned)
+    };
+    assert_eq!(stored_title(&f), None);
+    assert_eq!(listed(), None);
+    let first = title_row_after(&f, None, list);
+    assert_eq!(first.0, "Exact title 🐈");
+    assert_eq!(listed().as_deref(), Some("Exact title 🐈"));
+    // A changed page keeps its old row until the worker folds the new state, and the replaced row
+    // carries the new progress key; the catalog never serves the stale one.
+    f.write("new 🐈\r\n");
+    assert_eq!(stored_title(&f).as_ref(), Some(&first));
+    assert_eq!(listed(), None, "a changed page serves no stale title");
+    let second = title_row_after(&f, Some(&first), list);
+    assert_eq!(second.0, "Exact title 🐈");
+    assert_ne!(second.1, first.1);
+    assert_eq!(listed().as_deref(), Some("Exact title 🐈"));
+}
+
+#[test]
+fn starting_the_summaries_fills_a_store_without_titles_and_no_list_read() {
+    let f = Fixture::new();
+    let (registration, _context) = title_registration(&f);
+    assert_eq!(stored_title(&f), None);
+    // The serve's start: the one drain every page without a title waits for after an upgrade.
+    registration.start_summaries();
+    assert_eq!(
+        title_row_after(&f, None, || ()).0,
+        "Exact title 🐈",
+        "the start drain records the title"
+    );
+}
+
 #[test]
 fn proposal_decision_is_final_and_resolution_remains_independent() {
     use tmt_colab::{

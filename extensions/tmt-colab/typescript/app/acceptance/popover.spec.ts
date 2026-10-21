@@ -127,7 +127,12 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     });
     await input.fill(`@${agent.name} Hold this send.`);
     await input.press('Enter');
-    await expect(input).toHaveAttribute('contenteditable', 'false');
+    // The echo clears the draft immediately; the send fence still prevents a second send.
+    await expect(popover.getByTestId('comment-echo')).toContainText('Hold this send.');
+    await expect(input).toHaveAttribute('contenteditable', 'true');
+    await expect(
+      popover.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeDisabled();
     await close.click();
     await close.focus();
     await page.keyboard.press('Escape');

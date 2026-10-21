@@ -4958,6 +4958,31 @@ other policy or epoch change. The migration leaves legacy times null without bac
 effective activity is the later of `last_activity_at_ms` and `last_update_at_ms`; null is
 unknown, never old. No command reports the value yet.
 
+Schema 16 adds `page_titles(page, progress, title)`, the owner's local plaintext title projection of an
+active page: one row per page, `title` 1–512 UTF-8 bytes of one line of plain text (control and bidirectional formatting characters become spaces and whitespace collapses; a title that is then empty or too long is not stored and removes the old row). It is derived only from the owner's
+own verified fold (a decoder-folded title of a page whose authority is writable), never from
+browser input, and the summary workers are its only writers. A worker captures the page's
+fingerprint before folding and installs the row in an immediate transaction only if the
+page's full fingerprint, membership head included, is unchanged; a changed, archived or
+deleted page installs nothing. The row stores the page's head-less progress key, and a
+read serves only a row whose key equals the page's current one, so another page's creation
+or sharing does not discard every title. Archiving a page, manually or by the inactivity
+lifecycle once applied, drops its row in the same transaction as the archive flag; deleting
+a page drops it with the page's other data and the tombstone stays. A later unarchive waits for the next
+verified fold. The serve starts one fold of every page without a fresh summary when it starts, and each
+list read schedules the same, so a store that gained the projection by an upgrade fills without
+anyone opening the list; there is no backfill state. The cloud row's `expiresAtMs` never removes it. The projection is rebuildable,
+so losing it loses no source or authority, and it never enters an owner statement, sync or cloud
+payload, share-link bootstrap or export.
+
+Each page in the owner-served `GET /api/pages` list may carry that row as `title`, a string of 1–512
+UTF-8 bytes without a control character: only while the row is current for the page, so a page
+changed since its last fold has none until the next fold, and never for an archived page. Titles
+are added most recently updated page first (equal times by page ID), each only if the whole reply
+stays within its 2 MiB bound; one that no longer fits is left out, never the catalog. Like the
+summary it appears only in this owner list, not in a reader link's or a member's views, and not in
+the CLI's `ls`/`show`; a client treats it as untrusted text.
+
 Retention defaults to 30 days; forever is null. The expiry shown is the cloud copy's and is
 never derived from local activity: `expiresAtMs` is the `expiresAt` of the page's owner row as
 the cloud last confirmed it for the page's current epoch. The serve's cloud-sync worker records
@@ -6083,20 +6108,23 @@ change. Still available.`; the line is derived from the page and has no state of
 
 ### Browser page title hints (#1564)
 
-The paired owner browser uses accepted Live folds as its only title source. Home
+The paired owner browser takes a page's title from the owner's local title projection when
+`GET /api/pages` carries one (Schema 16), and otherwise from accepted Live folds. Home
 rows and the share/manage dialog show the last known title; the current page also
 updates the parent tab title. UUIDs remain routing identities and appear under
 Details. Without a usable title, chrome shows “Untitled page”. Opening the page replaces a stale or missing hint with its verified folded
-title. Home opens a page's content only to fill a missing title hint, bounded and
-cancellable; it never replaces a cached hint without opening the page. A title
-changed elsewhere can therefore remain stale in this browser until that page is opened.
+title. A projected title is current for the page and is shown instead of a browser hint
+without opening the page or writing the hint. Home opens a page's content only to fill a missing
+title hint for a page the owner has no title for, bounded and
+cancellable; it never replaces a cached hint without opening the page. For such a page a title
+changed elsewhere can remain stale in this browser until that page is opened.
 
 Home admits only visible uncached rows: one read at a time, at most 24 attempted
 pages and 16 MiB of admitted incoming sync frames per Home generation, including failed
 reads. It uses the existing verified read catch-up and isolated fold, never an editor,
 Ask or a write. Each connection closes and joins before its successor; leaving Home or
 replacing the mounted session cancels its reads. A failure or exhausted budget keeps
-the existing fallback; no plaintext title endpoint or native title store is introduced.
+the existing fallback; Home adds no plaintext title endpoint of its own.
 
 The paired mounted app may show a display-only Remote session snapshot in the shared
 header status slot. The existing signed SDK device list is read sequentially at mount,
@@ -6121,8 +6149,8 @@ IndexedDB store. Title records contain only a fresh 12-byte nonce and ciphertext
 AAD is the JSON array `["tmt-colab-title-cache-v1", space, device, page]`. Record
 lookup is likewise scoped to space/device/page. The title shares the existing
 fold projection bound. Cached title plaintext and this local key never enter discovery,
-routes, logs, the renderer, or the decoder Worker. No native schema, title endpoint,
-Remote certification or network protocol is added.
+routes, logs, the renderer, or the decoder Worker. The cache adds no native schema, title
+endpoint, Remote certification or network protocol.
 
 Cache absence, corruption, scope mismatch or storage failure falls back to the
 unopened label without denying page reading or management. Only an accepted foreground fold or an admitted missing-title Home fold may update

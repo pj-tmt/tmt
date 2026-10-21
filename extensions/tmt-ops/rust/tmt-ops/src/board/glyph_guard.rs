@@ -116,7 +116,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "── squads · 0 ──",
         "▪ worker",
         "↑ move ↓ · next… –",
-        "Est. ctx avoided 24h: —",
+        "Est. ctx avoided 1d: —",
         "◆ 0 ✗ 1 ◐ 2 ● 3 ◌ 4",
         "2 other",
         "▁▂▃▄▅▆▇█▒░ ■ Claude · ↩ reply",
@@ -221,9 +221,9 @@ fn digest_matrix_estimate_caption_registers_only_the_approximation_operator() {
         .content
         .chunks(160)
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
-        .find(|row| row.contains("CTX 24h") && row.contains("≈ $"))
+        .find(|row| row.contains("CTX 1d") && row.contains("≈ $"))
         .expect("actual matrix estimate caption");
-    assert!(row.contains("CTX 24h") && row.contains("≈ $"), "{row}");
+    assert!(row.contains("CTX 1d") && row.contains("≈ $"), "{row}");
     assert_eq!(glyph_error(&row), None);
     assert!(
         registered_marks().contains(&'≈'),

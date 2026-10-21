@@ -51,6 +51,7 @@ independent of storage access.
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state                                                                                                              |
 | `workspace.capture`      | Empty object                                                                                        | Bounded `attempted`, `published`, `skipped` counts for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))     |
 | `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–10, default 10)                                  | `identityId`, `items`: locally retained provider-final pane output (see below)                                                                                    |
+| `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                         |
 | `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                      |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`                         | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                               | Room resource                                                                                                                                                     |
@@ -154,6 +155,44 @@ that recent responses cannot be read; they do not show an empty-success result.
 An older Core's unknown-operation `API_INPUT_INVALID` is also unavailable,
 without a scrape or private-storage fallback. Additive response fields remain
 compatible. [Shared vectors](recent-responses-v1.json) pin bounds, ordering, expiry and error shapes.
+
+## Pane screen
+
+`pane.screen` reads one exact identity's current visible pane screen, for a
+read-only live view. Input is `{identityId}`: a required canonical identity UUID.
+Names, other fields and envelope originator attribution are not accepted and are
+`API_INPUT_INVALID`. The resource is `{identityId, host, format, text}`:
+
+- `host` is the pane's host token: `tmux`, or an external host's name.
+- `format` is `ansi` for tmux, whose `text` keeps the screen's SGR attributes as
+  escape sequences, and `plain` for an external host, whose driver answers plain
+  text. Only the visible screen is read, with no scrollback, so the text has at
+  most the pane's height in lines.
+- `text` is at most 1,048,576 UTF-8 bytes. A larger screen fails whole; the
+  operation never returns a clipped screen.
+
+Core checks the identity's recorded binding against fresh host evidence before
+the read, without requiring a live agent runtime: a pane whose agent has ended can
+still be read. A read never refreshes session state, wakes the identity or sends
+input to the pane. Each host read is bounded (tmux one second, an external driver
+its capture deadline), and there is no daemon, stream or change notification:
+`changes.cursor` does not move when a screen changes. A caller polls only while its
+view is visible and keeps its last frame across a failed read.
+
+Errors use the existing envelope with exit 1. `NAME_NOT_FOUND` is an unknown or
+retired UUID. `PANE_NOT_FOUND` is an identity with no recorded pane, or whose
+recorded pane is gone. `API_UNAVAILABLE` is host evidence that is unknown or does not
+match the binding, a host or driver that cannot be read within its bound, or a
+screen over the byte cap.
+
+The screen is pane output, never correlated to a request, never a reply or a
+completion or readiness signal, and never satisfies `talk` or releases its waiter.
+It is not stored, logged or copied into notices, Digest or exchange bodies. A
+consumer treats it as untrusted data and draws only its SGR attributes. Callers read `capabilities` first. If `pane.screen` is absent,
+or an older Core answers the unknown operation with `API_INPUT_INVALID`, the view
+is unavailable, with no `tmt check` or private-storage fallback.
+[Shared vectors](pane-screen-v1.json) pin the request, both resource formats, the
+errors and the byte cap.
 
 ## Conditional identity rename
 
@@ -628,7 +667,8 @@ not permission to inject input. Diagnostic `tmt check --json` capture is not a
 readiness test. Plain `check` may hand one retained Digest checklist to an idle
 pane, so a tool that reads pane text only for display data, such as a provider
 statusline, uses `tmt check --capture-only --json`, which captures with no
-side effect and is still not a readiness test. Extensions invoke the supplied
+side effect and is still not a readiness test; a live view of one identity's
+screen uses [`pane.screen`](#pane-screen). Extensions invoke the supplied
 `TMT_EXECUTABLE` through documented API operations and ordinary JSON commands; they
 do not import core host adapters, inspect private driver records or scrape pane
 buffers to decide readiness.

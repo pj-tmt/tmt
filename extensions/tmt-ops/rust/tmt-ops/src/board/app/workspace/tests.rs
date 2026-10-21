@@ -2910,7 +2910,7 @@ fn overview_never_claims_zero_from_incomplete_rosters_and_reports_the_global_obs
         let complete = paint(&app, 160, 36).join("\n");
         assert!(complete.contains("● 150 online"), "{complete}");
         assert!(complete.contains("✗ 1 blocked"), "{complete}");
-        assert!(complete.contains("◆ 0 waiting"), "{complete}");
+        assert!(complete.contains("◆ 0 need you"), "{complete}");
         assert!(
             crate::board::overview::monitor::scene(&app, app.workspace_snapshot().unwrap()).waiting
                 == 0,
@@ -3886,12 +3886,12 @@ fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attent
             .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
             .collect::<String>()
     };
-    assert!(paint(&app).contains("Hidden: 1 · ◆ 1 waiting · ✗ 1 blocked · show"));
+    assert!(paint(&app).contains("Hidden: 1 · ◆ 1 need you · ✗ 1 blocked · show"));
     app.workspace.visibility.reveal_hidden = true;
     let line = paint(&app);
     assert!(line.contains("Hidden: 1 · shown"));
     assert!(!line.contains("blocked"));
-    assert!(!line.contains("waiting"));
+    assert!(!line.contains("need you"));
     app.workspace.visibility.reveal_hidden = false;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = false;
@@ -3900,7 +3900,7 @@ fn hidden_line_reports_both_attention_kinds_but_omits_absent_and_revealed_attent
     let line = paint(&app);
     assert!(line.contains("Hidden: 1 · show"));
     assert!(!line.contains("blocked"));
-    assert!(!line.contains("waiting"));
+    assert!(!line.contains("need you"));
 }
 
 #[test]
@@ -3934,13 +3934,13 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                 };
                 let shown = line(&popup);
                 assert!(shown.contains(if width == 60 {
-                    "OPS / UI · p…"
+                    "OPS / UI · …"
                 } else {
                     "OPS / UI · popup"
                 }));
                 assert!(
                     shown.contains("online")
-                        && shown.contains("waiting")
+                        && shown.contains("need you")
                         && shown.contains("blocked")
                 );
                 assert!(!line(&ordinary).contains("· popup"));
@@ -3951,7 +3951,9 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                 named.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap();
                 let long = line(&draw(&named));
                 assert!(
-                    long.contains("online") && long.contains("waiting") && long.contains("blocked")
+                    long.contains("online")
+                        && long.contains("need you")
+                        && long.contains("blocked")
                 );
                 if width >= 160 {
                     assert!(long.contains(&"x".repeat(32)));
@@ -3969,7 +3971,7 @@ fn named_header_keeps_unknown_attention_before_the_long_layer_caption() {
     let app = capture_case("named-layer-long-partial", crate::look::Look::default());
     for width in [60, 100] {
         let line = paint(&app, width, 36)[0].clone();
-        assert!(line.contains("online") && line.contains("waiting") && line.contains("blocked"));
+        assert!(line.contains("online") && line.contains("need you") && line.contains("blocked"));
         assert!(line.contains("totals unknown"));
         if width == 100 {
             assert!(line.contains("OPS / UI · ") && line.contains('…'));
@@ -5290,14 +5292,14 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
     use tmt_cli_style::Role;
     for (waiting, words) in [
         (false, "● working · blocked"),
-        (true, "◆ waiting · blocked"),
+        (true, "◆ Needs you · blocked"),
     ] {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
         // The 16-cell tree cell drops the whole suffix rather than cutting `blocked`.
         let kept = if waiting {
-            "◆ waiting"
+            "◆ Needs you"
         } else {
             "● working"
         };
@@ -5620,6 +5622,8 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         ("idle", Phase::Idle, false, "◌"),
         ("waiting", Phase::Working, true, "◆"),
     ] {
+        // The activity word on screen is the one vocabulary's; the task text stays Core's.
+        let shown = if word == "waiting" { "Needs you" } else { word };
         let mut app = disagreeing_board(waiting, crate::look::Look::default());
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot
@@ -5643,7 +5647,7 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         // Control: without unread replies the repeat is left out.
         let tree = painted_member_row(&app, 160, 36);
         assert!(
-            tree.contains(&format!("{glyph} {word}")),
+            tree.contains(&format!("{glyph} {shown}")),
             "{word} tree: {tree}"
         );
         assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
@@ -5706,7 +5710,7 @@ fn collapsed_squad_lead_focus_and_status_share_stale_activity_without_global_wai
     let screen = paint(&app, 160, 44).join("\n");
     assert!(screen.contains("stale"), "{screen}");
     assert!(
-        !screen.contains("◆ waiting"),
+        !screen.contains("◆ need you"),
         "global waiting cannot become room attention: {screen}"
     );
     let header = painted_conversation_header(&app);
@@ -5714,7 +5718,7 @@ fn collapsed_squad_lead_focus_and_status_share_stale_activity_without_global_wai
         header.contains("stale") && header.contains("product"),
         "{header}"
     );
-    assert!(!header.contains("waiting"), "{header}");
+    assert!(!header.contains("need you"), "{header}");
 }
 
 #[test]

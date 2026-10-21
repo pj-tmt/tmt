@@ -166,6 +166,31 @@ describe('public local extension API', () => {
     });
   });
 
+  it('names a missing identity or pane for pane.screen and changes nothing', async () => {
+    await withSandbox(async (sandbox) => {
+      const unbound = await identity(sandbox, 'No Pane');
+      const retired = await identity(sandbox, 'Gone');
+      expect((await runCli(sandbox, ['rm', 'Gone', '--force', '--json'])).status).toBe(0);
+      const capabilities = await api(sandbox, 'capabilities', {});
+      expect(capabilities.body.operations).toContain('pane.screen');
+      const before = everyTable(sandbox);
+      const code = async (input: unknown) => {
+        const result = await api(sandbox, 'pane.screen', input);
+        expect(result.status).toBe(1);
+        return result.body.error.code;
+      };
+      expect(await code({ identityId: unbound })).toBe('PANE_NOT_FOUND');
+      expect(await code({ identityId: retired })).toBe('NAME_NOT_FOUND');
+      expect(await code({ identityId: randomUUID() })).toBe('NAME_NOT_FOUND');
+      for (const input of [{}, { identityId: 'No Pane' }, { identityId: unbound, lines: 5 }]) {
+        expect(await code(input)).toBe('API_INPUT_INVALID');
+      }
+      const named = await api(sandbox, 'pane.screen', { identityId: unbound }, 'No Pane');
+      expect(named.body.error.code).toBe('API_INPUT_INVALID');
+      expect(everyTable(sandbox)).toEqual(before);
+    });
+  });
+
   it('renames a previewed UUID atomically and shares the CLI rename owner', async () => {
     await withSandbox(async (sandbox) => {
       const id = await identity(sandbox, 'Alice');

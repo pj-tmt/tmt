@@ -456,14 +456,14 @@ mod tests {
                 app.key(key(KeyCode::Down));
             }
             assert_eq!(app.look().theme.base, Base::Mono);
-            let mut terminal = Terminal::new(TestBackend::new(108, 36)).unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(110, 36)).unwrap();
             terminal
                 .draw(|frame| super::super::view::render(frame, &app))
                 .unwrap();
             let buffer = terminal.backend().buffer();
             let expected = app.look().role(Role::Waiting).fg.unwrap_or_default();
             let find = |row: u16, text: &str| {
-                let line: String = (0..108).map(|x| buffer[(x, row)].symbol()).collect();
+                let line: String = (0..110).map(|x| buffer[(x, row)].symbol()).collect();
                 line[..line
                     .find(text)
                     .unwrap_or_else(|| panic!("no {text:?} in row {row}: {line:?}"))]
@@ -490,14 +490,14 @@ mod tests {
             // The count line under the list carries the waiting note.
             let summary_y = (0..buffer.area.height)
                 .find(|y| {
-                    (0..108)
+                    (0..110)
                         .map(|x| buffer[(x, *y)].symbol())
                         .collect::<String>()
-                        .contains("waiting first")
+                        .contains("need you first")
                 })
                 .expect("actual Agents count line");
             assert_eq!(buffer[(find(summary_y, "◆"), summary_y)].fg, expected);
-            let tabs: String = (0..108).map(|x| buffer[(x, tabs_y)].symbol()).collect();
+            let tabs: String = (0..110).map(|x| buffer[(x, tabs_y)].symbol()).collect();
             assert!(!tabs.contains('◆'));
             if override_text.is_empty() {
                 assert_eq!(expected, ratatui::style::Color::Reset);

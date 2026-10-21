@@ -20,6 +20,11 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 test.afterEach(disposeActiveWorlds);
 test("the owner browser combines its own stream's changes into one checkpoint and loses none", async () => {
   test.setTimeout(300_000);
+  test.info().annotations.push({
+    type: 'known-product-failure',
+    description:
+      'https://github.com/pj-tmt/tmt/issues/4275: own checkpoint append conflicts after compaction',
+  });
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('own-compact-agent', { gated: true });

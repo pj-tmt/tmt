@@ -113,7 +113,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         let caption = match field {
             Field::Agent => "AGENT",
             Field::State => "STATE",
-            Field::Activity => "ACTIVITY · last 24h →",
+            Field::Activity => "ACTIVITY · last 1d →",
             Field::Tokens => "TOK",
             Field::Share => "SHARE",
             Field::Cost => "≈ $ in",

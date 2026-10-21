@@ -13,7 +13,7 @@ pub(super) fn interval(minutes: u32) -> String {
 
 pub(super) fn range(minutes: u32) -> String {
     if minutes == 1_440 {
-        "24h".into()
+        "1d".into()
     } else {
         interval(minutes)
     }
@@ -37,7 +37,13 @@ pub(super) fn axis(minutes: u32) -> [String; 3] {
         };
         format!("−{whole}{half}{suffix}")
     };
-    [label(unit), label(2 * unit), "now".into()]
+    // A day reads 1d, as the range caption does; its middle tick stays in hours.
+    let start = if minutes == 1_440 {
+        "−1d".to_owned()
+    } else {
+        label(unit)
+    };
+    [start, label(2 * unit), "now".into()]
 }
 
 /// Percent of the complete observed denominator, without overflowing a large
@@ -77,7 +83,7 @@ mod tests {
         for (minutes, caption, left, middle) in [
             (60, "1h", "−60m", "−30m"),
             (360, "6h", "−6h", "−3h"),
-            (1_440, "24h", "−24h", "−12h"),
+            (1_440, "1d", "−1d", "−12h"),
             (10_080, "7d", "−7d", "−3.5d"),
             (43_200, "30d", "−30d", "−15d"),
         ] {

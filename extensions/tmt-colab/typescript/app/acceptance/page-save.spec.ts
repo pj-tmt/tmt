@@ -57,12 +57,16 @@ test('wide CLI and browser batches keep the original live socket and exact sourc
     ).toBeVisible();
     const box = await openSource(page);
     await expect(box).toHaveValue(original);
-    expect(sockets).toHaveLength(1);
-    expect(sockets[0].received).toBeGreaterThan(0);
+    // Membership catch-up also uses /sync and closes after admission. Observe the live page
+    // connection after source readiness, rather than counting that bounded bootstrap read.
+    await expect.poll(() => sockets.filter((socket) => !socket.closed).length).toBe(1);
+    const live = sockets.find((socket) => !socket.closed)!;
+    const opened = sockets.length;
+    expect(live.received).toBeGreaterThan(0);
     const sameSocket = () => {
-      expect(sockets).toHaveLength(1);
-      expect(sockets[0].closed).toBe(false);
-      expect(sockets[0].errors).toEqual([]);
+      expect(sockets).toHaveLength(opened);
+      expect(live.closed).toBe(false);
+      expect(live.errors).toEqual([]);
     };
     const read = () =>
       JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {

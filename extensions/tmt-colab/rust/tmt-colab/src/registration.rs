@@ -160,6 +160,14 @@ pub(crate) enum Revocation {
     MembershipChanged,
 }
 
+/// What one browser catalog read holds, read in one store transaction.
+struct CatalogRead {
+    catalog: serde_json::Value,
+    fingerprints: std::collections::BTreeMap<String, String>,
+    /// The local titles still valid for their page (`page_titles`).
+    titles: std::collections::BTreeMap<String, String>,
+}
+
 pub struct Registration {
     store: Store,
     keyring: Keyring,
@@ -255,7 +263,11 @@ impl Registration {
     /// its parent are resolved here across the fresh pages, never cached: they change when another
     /// page does.
     pub fn pages(&self, context: Option<&str>) -> std::result::Result<Vec<u8>, Code> {
-        let (mut catalog, fingerprints) = self.page_catalog_fingerprinted(context)?;
+        let CatalogRead {
+            mut catalog,
+            fingerprints,
+            titles,
+        } = self.page_catalog_fingerprinted(context)?;
         let fresh: std::collections::BTreeMap<String, crate::summary::Summary> = catalog["pages"]
             .as_array()
             .into_iter()
@@ -295,6 +307,7 @@ impl Registration {
                 crate::summary::drain(&self.summaries, open);
             }
         }
+        crate::page_titles::attach_to_catalog(&mut catalog, &titles);
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
     }
     /// Complete cached chapter metadata. The owner read checks authority and the current
@@ -350,18 +363,22 @@ impl Registration {
         }
         Ok(bytes)
     }
+    /// The browser's catalog read: the page list, each page's fingerprint and the local titles still
+    /// valid for their page, all in one store transaction.
     fn page_catalog_fingerprinted(
         &self,
         context: Option<&str>,
-    ) -> std::result::Result<
-        (
-            serde_json::Value,
-            std::collections::BTreeMap<String, String>,
-        ),
-        Code,
-    > {
+    ) -> std::result::Result<CatalogRead, Code> {
         Context::parse(context)?;
-        self.owner_catalog_fingerprinted()
+        self.store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                Ok(CatalogRead {
+                    catalog: tx.page_list()?,
+                    fingerprints: tx.page_fingerprints()?,
+                    titles: tx.page_titles()?,
+                })
+            })
+            .map_err(map_error)
     }
     fn owner_catalog_fingerprinted(
         &self,
@@ -591,6 +608,15 @@ impl Registration {
     pub fn with_summary_source(mut self, open: crate::page::save::SourceOpener) -> Self {
         self.summary_source = Some(open);
         self
+    }
+    /// Folds every page that has no fresh summary or title yet, once, on the background worker: the
+    /// first list read does the same, so the serve starts it, and a store that gained its title
+    /// projection by an upgrade fills without anyone opening the list. Never blocks; without a
+    /// summary source (a test, an offline tool) it does nothing.
+    pub fn start_summaries(&self) {
+        if let Some(open) = &self.summary_source {
+            crate::summary::drain(&self.summaries, open);
+        }
     }
     pub fn with_save_source(mut self, open: crate::page::save::SourceOpener) -> Self {
         self.save_source = Some(open);

@@ -476,7 +476,7 @@ fn detail_lines(
         .map(|text| Line::styled(text, app.look().role(Role::Text)))
         .collect();
     if narrow_activity && width >= 28 {
-        let mut spans = vec![Span::styled("24h ", app.look().role(Role::Muted))];
+        let mut spans = vec![Span::styled("1d ", app.look().role(Role::Muted))];
         spans.extend(table::hourly(app, &metrics::activity(report, &ids), false));
         lines.insert(1, Line::from(spans));
     }
