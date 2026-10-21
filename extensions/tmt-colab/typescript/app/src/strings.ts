@@ -542,7 +542,7 @@ export const text = {
     followsPage: 'Follows its own page →',
     detailLabel: (id: string) => `Task ${id}`,
     close: 'Close',
-    needsSignoff: 'needs sign-off',
+    signoffMark: 'sign-off',
     acceptance: 'Acceptance',
     criterionTest: (name: string) => `Test: ${name}`,
     criterionChecked: (command: string, result: string) => `${command} → ${result}`,

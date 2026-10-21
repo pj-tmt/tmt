@@ -1,6 +1,6 @@
 import { text } from './strings.js';
 import type { TaskState, Work } from './work.js';
-import { Assignees } from './work-people.js';
+import { Assignees, SignoffMark, waitsForSignoff } from './work-people.js';
 
 export function WorkList({
   work,
@@ -21,15 +21,21 @@ export function WorkList({
         const state = states?.[id] ?? task.state;
         return (
           <li key={id} className="work-row" data-state={state} data-selected={id === selected}>
-            <button type="button" aria-expanded={id === selected} onClick={() => onSelect(id)}>
+            <button
+              type="button"
+              className="work-row-button"
+              aria-expanded={id === selected}
+              onClick={() => onSelect(id)}
+            >
               <span className="work-id">{id}</span>
-              <span className="work-title">{task.title}</span>
+              <span className="work-title">
+                {task.title}
+                {waitsForSignoff(task, state) && <SignoffMark />}
+              </span>
               <span className="work-state">{text.workBand.taskState[state]}</span>
-              {task.assignee && (
-                <span className="work-assignee">
-                  <Assignees people={[task.assignee]} />
-                </span>
-              )}
+              <span className="work-assignee">
+                {task.assignee && <Assignees people={[task.assignee]} />}
+              </span>
             </button>
           </li>
         );

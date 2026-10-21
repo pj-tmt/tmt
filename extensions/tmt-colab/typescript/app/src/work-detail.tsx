@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { text } from './strings.js';
 import type { Criterion, Task, TaskState } from './work.js';
-import { Assignees } from './work-people.js';
+import { Assignees, SignoffMark, waitsForSignoff } from './work-people.js';
 
 /** Where later changes put their controls; nothing here writes, so each slot is empty today. */
 export interface TaskDetailSlots {
@@ -46,7 +46,12 @@ export function TaskDetail({
       <p className="work-detail-state" data-state={state}>
         {text.workBand.taskState[state]}
         {state === 'blocked' && task.reason ? ` · ${task.reason}` : ''}
-        {task.needsSignoff && state === 'in-review' ? ` · ${text.workBand.needsSignoff}` : ''}
+        {waitsForSignoff(task, state) && (
+          <>
+            {' · '}
+            <SignoffMark />
+          </>
+        )}
       </p>
       {task.child !== undefined && (
         <p className="work-follows">

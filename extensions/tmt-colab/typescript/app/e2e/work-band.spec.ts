@@ -75,6 +75,42 @@ test('a task opens its detail in the list and closes again, with the action slot
   await expect(detail).toHaveCount(0);
 });
 
+test('state and assignee sit in fixed columns; the selected task is marked without link colour', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const host = await mountBand(page, 'full');
+  await host.getByRole('button', { name: 'Show 7 tasks' }).click();
+  const columns = await host.locator('.work-row').evaluateAll((rows) =>
+    rows.map((row) => {
+      const x = (selector: string) => row.querySelector(selector)!.getBoundingClientRect();
+      return { state: x('.work-state').left, assignee: x('.work-assignee').left };
+    }),
+  );
+  expect(new Set(columns.map((row) => row.state)).size).toBe(1);
+  expect(new Set(columns.map((row) => row.assignee)).size).toBe(1);
+  // The sign-off mark sits on the task that waits for it, and only there.
+  await expect(host.locator('.work-row .work-signoff-mark')).toHaveCount(1);
+  await expect(host.locator('.work-row[data-state=in-review] .work-signoff-mark')).toHaveText(
+    '◆ sign-off',
+  );
+  const row = host.locator('.work-row', { hasText: 'Review the file format' });
+  const button = row.getByRole('button');
+  const plain = await button.evaluate((node) => ({
+    background: getComputedStyle(node).backgroundColor,
+  }));
+  await button.click();
+  const selected = await button.evaluate((node) => {
+    const style = getComputedStyle(node);
+    const text = getComputedStyle(node.querySelector('.work-title')!);
+    return { background: style.backgroundColor, weight: style.fontWeight, color: text.color };
+  });
+  expect(selected.background).not.toBe(plain.background);
+  expect(selected.weight).toBe('500');
+  const body = await host.evaluate((node) => getComputedStyle(node).color);
+  expect(selected.color).toBe(body);
+});
+
 test('blocked, sign-off, follow-up page and tracker id each show where they belong', async ({
   page,
 }) => {
@@ -83,7 +119,7 @@ test('blocked, sign-off, follow-up page and tracker id each show where they belo
   await host.locator('.work-row[data-state=blocked] button').click();
   await expect(host.locator('.work-detail-state')).toHaveText('Blocked · Waiting on licence');
   await host.locator('.work-row[data-state=in-review] button').click();
-  await expect(host.locator('.work-detail-state')).toHaveText('In review · needs sign-off');
+  await expect(host.locator('.work-detail-state')).toHaveText('In review · ◆ sign-off');
   await host
     .locator('.work-row', { hasText: 'Follow-up page for sizes' })
     .locator('button')

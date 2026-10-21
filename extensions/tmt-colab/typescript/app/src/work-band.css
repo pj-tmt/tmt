@@ -83,15 +83,25 @@
 }
 .work-row button {
   display: grid;
-  grid-template-columns: 4em minmax(0, 1fr) auto auto;
+  grid-template-columns: 4em minmax(0, 1fr) 6.5em 11em;
   gap: 4px 12px;
   align-items: baseline;
   width: 100%;
   padding: 8px 0;
   text-align: left;
 }
-.work-row[data-selected='true'] .work-title {
-  font-weight: 600;
+.work-row-button:hover {
+  background: var(--tmt-ui-surface-selection);
+}
+.work-row[data-selected='true'] button {
+  background: var(--tmt-ui-surface-selection);
+  color: var(--c-text);
+  font-weight: 500;
+}
+.work-signoff-mark {
+  margin-left: 8px;
+  color: var(--c-waiting);
+  white-space: nowrap;
 }
 .work-row[data-state='blocked'] .work-state {
   color: var(--c-blocked);
@@ -145,5 +155,8 @@
   .work-row .work-state,
   .work-row .work-assignee {
     grid-column: 2;
+  }
+  .work-row .work-assignee:empty {
+    display: none;
   }
 }
