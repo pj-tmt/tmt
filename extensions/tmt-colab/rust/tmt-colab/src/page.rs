@@ -6,6 +6,7 @@ pub mod lines;
 pub mod owner_fold;
 pub mod patch;
 pub mod save;
+pub mod work;
 use crate::{
     Result,
     decoder::{Decoder, MemoryLimit},
@@ -670,6 +671,9 @@ pub struct StructuredAction<'a> {
     pub body: &'a serde_json::Value,
     pub expected_revision: &'a str,
     pub display_agent: Option<serde_json::Value>,
+    /// The caller's own operation ID, so the outcome can be read back by it (a browser's work
+    /// action); `None` for a command that has its receipt.
+    pub operation_id: Option<&'a str>,
 }
 pub fn prepare_structured_publication(
     store: &Store,
@@ -724,7 +728,7 @@ pub fn prepare_structured_publication(
             // The page's own source: an action never changes it (a shell's is empty).
             source: prepared.projection["html"].as_str().unwrap_or_default(),
             memory_limit: prepared.memory_limit,
-            operation_id: None,
+            operation_id: action.operation_id,
         },
         now,
     )?;

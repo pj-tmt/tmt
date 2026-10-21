@@ -1,5 +1,8 @@
 //! Private, advisory workspace publication. No scheduler or authority store.
 
+mod capture;
+pub use capture::{WorkspaceCaptureReport, capture_hook, capture_recorded};
+pub mod generations;
 pub mod plan;
 pub mod restore;
 pub mod saved;
@@ -96,6 +99,16 @@ fn publish(
     due: impl FnOnce(Option<u64>) -> bool,
     capture: impl FnOnce() -> io::Result<WorkspaceSnapshot>,
 ) -> io::Result<bool> {
+    publish_gated(paths, socket, |_| Ok(true), due, capture)
+}
+
+fn publish_gated(
+    paths: &ConfigPaths,
+    socket: &str,
+    admit: impl FnOnce(&Path) -> io::Result<bool>,
+    due: impl FnOnce(Option<u64>) -> bool,
+    capture: impl FnOnce() -> io::Result<WorkspaceSnapshot>,
+) -> io::Result<bool> {
     fs::create_dir_all(&paths.global_dir)?;
     private_directory(&paths.global_dir.join("workspace"))?;
     let directory = paths.workspace_directory(socket);
@@ -105,9 +118,17 @@ fn publish(
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
         Err(error) => return Err(error),
     };
+    if !admit(&directory)? {
+        return Ok(false);
+    }
     let destination = directory.join("latest.json");
-    let previous_ms = match crate::bounded_file::read_no_follow(&destination, MAX_BYTES) {
-        Ok(bytes) => Some(decode(&bytes)?.captured_at_ms),
+    // A malformed legacy projection is not permission to replace user bytes,
+    // even when a separately committed catalogue still permits recovery.
+    let legacy = match crate::bounded_file::read_no_follow(&destination, MAX_BYTES) {
+        Ok(bytes) => {
+            decode(&bytes)?;
+            Some(bytes)
+        }
         Err(crate::bounded_file::FileReadError::Io(error))
             if error.kind() == io::ErrorKind::NotFound =>
         {
@@ -115,6 +136,18 @@ fn publish(
         }
         Err(error) => return Err(io::Error::other(error)),
     };
+    let catalogue = generations::read(&directory)?;
+    let previous = match &catalogue {
+        Some(catalogue) => Some(generations::acquire(
+            &directory,
+            catalogue.latest().expect("nonempty catalogue"),
+        )?),
+        None => legacy,
+    };
+    let previous_snapshot = previous.as_ref().map(|bytes| decode(bytes)).transpose()?;
+    let previous_ms = previous_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.captured_at_ms);
     if !due(previous_ms) {
         return Ok(false);
     }
@@ -123,7 +156,19 @@ fn publish(
         return Err(io::Error::other("Workspace socket changed."));
     }
     let bytes = encode(&snapshot)?;
-    crate::private_file::replace(&destination, &bytes)?;
+    if previous_snapshot.is_some_and(|mut previous| {
+        previous.captured_at_ms = snapshot.captured_at_ms;
+        previous == snapshot
+    }) {
+        return Ok(false);
+    }
+    generations::publish(
+        &directory,
+        previous.as_deref(),
+        &snapshot,
+        &bytes,
+        catalogue,
+    )?;
     Ok(true)
 }
 

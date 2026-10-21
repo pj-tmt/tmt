@@ -1162,7 +1162,7 @@ describe('component map', () => {
         'extension-upgrade-proof.test.ts',
         'uninstall.test.ts',
       ],
-      e2eFiles: ['ops.e2e.test.ts', 'ops-reminder.e2e.test.ts'],
+      e2eFiles: ['ops.e2e.test.ts', 'ops-reminder.e2e.test.ts', 'claude-channel.e2e.test.ts'],
     });
     expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
     expect(scopedChecks('none', map)).toEqual({ nativeTests: [], e2eFiles: [] });
@@ -1937,7 +1937,7 @@ describe('CI diff and command integration', () => {
         native_sync_emulator: 'false',
         scoped_native_tests:
           'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts uninstall.test.ts',
-        e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts',
+        e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts claude-channel.e2e.test.ts',
         e2e_shard_2: '',
       });
       expect(scopedLog.text()).toContain('native scope ops.');
@@ -2485,7 +2485,9 @@ esac
         native_scope: 'ops',
         e2e_shard_2: '',
       });
-      expect(opsRun.outputs.e2e_shard_1).toBe('ops.e2e.test.ts ops-reminder.e2e.test.ts');
+      expect(opsRun.outputs.e2e_shard_1).toBe(
+        'ops.e2e.test.ts ops-reminder.e2e.test.ts claude-channel.e2e.test.ts'
+      );
       expect(opsRun.outputs).toEqual(select([base, ops]).outputs);
       const shared = commit('unknown-input', 'shared');
       const full = select(['seed']).outputs;

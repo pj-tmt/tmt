@@ -33,6 +33,8 @@ export type RichInputControlProps = {
   className?: string;
   placeholder?: string;
   disabled: boolean;
+  /** `disabled` only because a write is in flight: not editable and marked busy, never greyed. */
+  busy?: boolean;
   describedBy?: string;
   /** Presentation only, inside the input below text; grants no editor or send authority. */
   accessory?: ReactNode;
@@ -150,7 +152,8 @@ export function RichInputControl(props: RichInputControlProps) {
             aria-placeholder={undefined}
             className={`${field.className} rich-input-field ${props.className ?? ''}`}
             aria-multiline="true"
-            aria-disabled={props.disabled}
+            aria-disabled={props.disabled && !props.busy}
+            aria-busy={props.busy || undefined}
             ref={props.trigger?.ref as Ref<HTMLDivElement>}
             data-placeholder={props.placeholder}
             onKeyDownCapture={(event) => {
@@ -173,7 +176,7 @@ export function RichInputControl(props: RichInputControlProps) {
           <div
             className="rich-input-surface"
             data-accessory={Boolean(props.accessory) || undefined}
-            data-disabled={props.disabled || undefined}
+            data-disabled={(props.disabled && !props.busy) || undefined}
           >
             {editable}
             {props.accessory && <div className="rich-input-accessory">{props.accessory}</div>}

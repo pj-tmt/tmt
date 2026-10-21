@@ -19,6 +19,93 @@ fn fixture() -> (TestDirectory, ConfigPaths, String) {
 }
 
 #[test]
+fn generations_select_the_protected_layout_and_require_pinned_smaller_consent() {
+    let root = TestDirectory::new();
+    let paths = paths(&root.path);
+    let mut rich = sample();
+    rich.panes[0].identity = Some(tmt_core::workspace::WorkspaceIdentity {
+        id: "f8c8b6c0-3adc-452c-9a69-000000000001".into(),
+        name: "worker".into(),
+        lifetime: "saved".into(),
+        binding: "binding".into(),
+        harness: Some("claude".into()),
+        session: Some("session".into()),
+        mode: Some("default".into()),
+        channel: None,
+    });
+    for index in 2..=4 {
+        let mut pane = rich.panes[0].clone();
+        pane.id = format!("%{index}");
+        pane.index = index - 1;
+        pane.identity.as_mut().unwrap().id = format!("f8c8b6c0-3adc-452c-9a69-{index:012}");
+        rich.panes.push(pane);
+    }
+    let socket = rich.server.socket.clone();
+    publish_event(&paths, &socket, || Ok(rich.clone())).unwrap();
+    let mut small = rich.clone();
+    small.panes.truncate(1);
+    small.captured_at_ms = 2;
+    small.server.process = tmt_core::endpoint::ProcessIncarnation::new(11, "restart").unwrap();
+    publish_event(&paths, &socket, || Ok(small.clone())).unwrap();
+    let chosen = acquire_selected(&paths, &socket, None, None).unwrap();
+    assert_eq!(chosen.snapshot, rich);
+    assert!(chosen.protected);
+    assert!(!chosen.requires_confirmation);
+    let entries = list_snapshots(&paths, &socket).unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!((entries[0].panes, entries[0].agents), (1, 1));
+    assert!(!entries[0].protected);
+    assert_eq!((entries[1].panes, entries[1].agents), (4, 4));
+    assert!(entries[1].protected);
+    let selector: SnapshotSelector = entries[0]
+        .generation
+        .as_ref()
+        .unwrap()
+        .id
+        .as_str()
+        .parse()
+        .unwrap();
+    assert!(selector.as_str().parse::<SnapshotName>().is_err());
+    let explicit = acquire_selected(&paths, &socket, Some(&selector), None).unwrap();
+    assert_eq!(explicit.snapshot, small);
+    assert!(explicit.requires_confirmation);
+    assert!(matches!(
+        acquire_selected(&paths, &socket, Some(&selector), Some(&chosen.digest)),
+        Err(Error::Changed)
+    ));
+    let pinned =
+        acquire_selected(&paths, &socket, Some(&selector), Some(&explicit.digest)).unwrap();
+    assert!(!pinned.requires_confirmation);
+    assert_eq!(pinned.bytes, explicit.bytes);
+    let id = pinned.generation.as_ref().unwrap().id.clone();
+    assert!(
+        !accept_generation(&paths, &socket, &id, None).unwrap(),
+        "stale baseline cannot win"
+    );
+    assert_eq!(
+        acquire_selected(&paths, &socket, None, None)
+            .unwrap()
+            .snapshot,
+        rich
+    );
+    assert!(
+        accept_generation(
+            &paths,
+            &socket,
+            &id,
+            pinned.baseline.as_ref().map(|generation| &generation.id)
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        acquire_selected(&paths, &socket, None, None)
+            .unwrap()
+            .snapshot,
+        small
+    );
+}
+
+#[test]
 fn named_copy_is_exact_private_and_independent_of_automatic_latest() {
     let (_root, paths, socket) = fixture();
     let name = "work".parse().unwrap();
@@ -34,14 +121,21 @@ fn named_copy_is_exact_private_and_independent_of_automatic_latest() {
     assert_eq!(fs::metadata(&saved).unwrap().mode() & 0o777, 0o600);
     let mut newer = decode(&bytes).unwrap();
     newer.captured_at_ms += 1;
+    newer.windows[0].name = "changed layout".into();
     publish_event(&paths, &socket, || Ok(newer)).unwrap();
     assert_eq!(fs::read(&saved).unwrap(), bytes);
     assert_ne!(fs::read(&latest).unwrap(), bytes);
     assert!(matches!(save(&paths, &socket, &name), Err(Error::Exists)));
     let rows = list_snapshots(&paths, &socket).unwrap();
-    assert_eq!(rows.len(), 2);
+    assert_eq!(rows.len(), 3);
     assert!(rows[0].name.is_none());
-    assert_eq!(rows[1].digest, entry.digest);
+    assert_eq!(
+        rows.iter()
+            .find(|row| row.name.as_ref() == Some(&name))
+            .unwrap()
+            .digest,
+        entry.digest
+    );
     let other_socket = format!("{socket}-other");
     assert!(list_snapshots(&paths, &other_socket).unwrap().is_empty());
     assert!(matches!(
@@ -63,6 +157,7 @@ fn matching_guard_accepts_and_changed_bytes_refuse_without_reopening_acquired_in
     let frozen = acquire(&paths, &socket, None, Some(&original.digest)).unwrap();
     let mut next = original.snapshot.clone();
     next.captured_at_ms += 1;
+    next.windows[0].name = "changed layout".into();
     publish_event(&paths, &socket, || Ok(next)).unwrap();
     assert!(matches!(
         acquire(&paths, &socket, None, Some(&original.digest)),

@@ -498,6 +498,9 @@ export function AnnotationInput({
         {sendFailureNotice}
       </section>
     );
+  // A send in flight fences the composer without greying it; any other reason keeps the disabled look.
+  const inFlight = busy && !echoing,
+    inert = !!unsent || (blocked && !recoveryRequired) || !!recorded || !discussion;
   const sendActionProps: BrowserActionProps = {
     type: 'button',
     label:
@@ -582,13 +585,8 @@ export function AnnotationInput({
         describedBy={statusId}
         resetKey={resetKey}
         autoFocus
-        disabled={
-          (busy && !echoing) ||
-          !!unsent ||
-          (blocked && !recoveryRequired) ||
-          !!recorded ||
-          !discussion
-        }
+        disabled={inFlight || inert}
+        busy={inFlight && !inert}
         onSubmit={(event, current) => {
           if (event.isTrusted && !event.isComposing && event.keyCode !== 229) void send(current);
         }}

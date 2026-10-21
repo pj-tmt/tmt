@@ -7,9 +7,15 @@ use super::{
 };
 use crate::{
     host::{CallerEnvironment, WorkspaceCapture},
-    process::{CommandRunner, ancestry, runtime::observe_starts},
+    process::{
+        CommandRunner, ancestry,
+        runtime::{ProcessObservation, observe_starts},
+    },
 };
-use std::{collections::BTreeMap, time::Instant};
+use std::{
+    collections::{BTreeMap, HashMap},
+    time::Instant,
+};
 use tmt_core::{endpoint::ServerEvidence, host::HostKind, workspace::*};
 
 pub(super) const COMMAND_OPTION: &str = "@tmt.workspace-command";
@@ -128,19 +134,27 @@ impl<R: CommandRunner> Tmux<R> {
         pids.extend(commands.values().map(|(command, _, _)| command.owner.pid()));
         let starts = observe_starts(&self.runner, &pids, deadline).map_err(|_| invalid())?;
         capture.snapshot.server.process = starts.get(&pids[0]).cloned().ok_or_else(invalid)?;
+        // One capture owns this native evidence cache. Missing native evidence
+        // never starts a per-pane ps process; optional recovery simply omits it.
+        let mut processes = HashMap::new();
         if let Some(caller) = caller {
-            let chain = ancestry::chain(&self.runner, caller.process_id, deadline)
-                .map_err(|_| invalid())?;
             let pane = caller
                 .pane
                 .as_ref()
                 .and_then(|value| value.to_str())
                 .ok_or_else(invalid)?;
-            if !capture
+            let (_, pane_pid, _) = capture
                 .evidence
                 .iter()
-                .any(|(id, pid, _)| id == pane && chain.contains(pid))
-            {
+                .find(|(id, _, _)| id == pane)
+                .ok_or_else(invalid)?;
+            if !native_contains(
+                &self.runner,
+                caller.process_id,
+                *pane_pid,
+                deadline,
+                &mut processes,
+            ) {
                 return Err(invalid());
             }
         }
@@ -148,8 +162,13 @@ impl<R: CommandRunner> Tmux<R> {
             if let Some((command, pane_pid, tty)) = commands.get(&pane.id)
                 && starts.get(&command.owner.pid()) == Some(&command.owner)
                 && crate::process::terminal::foreground(tty, command.owner.pid())
-                && ancestry::chain(&self.runner, command.owner.pid(), deadline)
-                    .is_ok_and(|chain| chain.contains(pane_pid))
+                && native_contains(
+                    &self.runner,
+                    command.owner.pid(),
+                    *pane_pid,
+                    deadline,
+                    &mut processes,
+                )
             {
                 pane.command = Some(command.clone());
             }
@@ -214,6 +233,56 @@ impl<R: CommandRunner> Tmux<R> {
         )
         .map(|_| ())
     }
+}
+
+/// A shared, bounded native process tree; no command fallback per pane. Compare
+/// start order as well as parent ids so a reused ancestor is never accepted.
+fn native_contains<R: CommandRunner>(
+    runner: &R,
+    first: u64,
+    ancestor: u64,
+    deadline: Instant,
+    cache: &mut HashMap<u64, Option<ancestry::ProcessLink>>,
+) -> bool {
+    native_path(runner, first, ancestor, deadline, cache).is_some()
+}
+fn native_path<R: CommandRunner>(
+    runner: &R,
+    first: u64,
+    ancestor: u64,
+    deadline: Instant,
+    cache: &mut HashMap<u64, Option<ancestry::ProcessLink>>,
+) -> Option<()> {
+    let mut chain = Vec::new();
+    let mut pid = first;
+    let mut child_start = None;
+    for _ in 0..64 {
+        if pid == 0 || chain.contains(&pid) || Instant::now() >= deadline {
+            return None;
+        }
+        let link = cache
+            .entry(pid)
+            .or_insert_with(|| runner.process_link(pid, deadline))
+            .as_ref()?;
+        let (ProcessObservation::Live(process) | ProcessObservation::Stopped(process)) =
+            &link.observation
+        else {
+            return None;
+        };
+        if process.pid() != pid || child_start.is_some_and(|start| link.start.later_than(start)) {
+            return None;
+        }
+        chain.push(pid);
+        if pid == ancestor {
+            return (Instant::now() < deadline).then_some(());
+        }
+        if link.parent == 0 {
+            return None;
+        }
+        child_start = Some(link.start);
+        pid = link.parent;
+    }
+    None
 }
 
 type Commands = BTreeMap<String, (ExternalCommand, u64, String)>;
@@ -423,4 +492,79 @@ fn parse(output: &str, socket: &str) -> Result<(WorkspaceCapture, Commands), Tmu
         },
         commands,
     ))
+}
+
+#[cfg(test)]
+mod capture_process_tests {
+    use super::*;
+    use crate::process::{CommandError, CommandOutput, CommandRequest};
+    use std::cell::RefCell;
+    struct NativeTree {
+        calls: RefCell<Vec<u64>>,
+        links: HashMap<u64, ancestry::ProcessLink>,
+    }
+    impl CommandRunner for NativeTree {
+        fn execute(&self, _: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            panic!("capture ancestry must never spawn a per-pane process");
+        }
+        fn process_link(&self, pid: u64, _: Instant) -> Option<ancestry::ProcessLink> {
+            self.calls.borrow_mut().push(pid);
+            self.links.get(&pid).cloned()
+        }
+    }
+    fn link(pid: u64, parent: u64, start: u64) -> ancestry::ProcessLink {
+        ancestry::ProcessLink {
+            observation: ProcessObservation::Live(
+                tmt_core::endpoint::ProcessIncarnation::new(pid, &format!("start-{start}"))
+                    .unwrap(),
+            ),
+            parent,
+            start: ancestry::StartOrder::precise(start, 0),
+        }
+    }
+    #[test]
+    fn capture_native_ancestry_is_shared_and_never_falls_back_per_pane() {
+        let tree = NativeTree {
+            calls: RefCell::new(Vec::new()),
+            links: HashMap::from([
+                (30, link(30, 20, 3)),
+                (31, link(31, 20, 3)),
+                (20, link(20, 1, 2)),
+                (1, link(1, 0, 1)),
+            ]),
+        };
+        let mut cache = HashMap::new();
+        let deadline = Instant::now() + std::time::Duration::from_secs(1);
+        assert!(native_contains(&tree, 30, 20, deadline, &mut cache));
+        assert!(native_contains(&tree, 31, 20, deadline, &mut cache));
+        assert_eq!(*tree.calls.borrow(), vec![30, 20, 31]);
+        assert!(!native_contains(&tree, 99, 20, deadline, &mut cache));
+        assert!(!native_contains(&tree, 99, 20, deadline, &mut cache));
+        assert_eq!(
+            tree.calls.borrow().iter().filter(|&&pid| pid == 99).count(),
+            1
+        );
+        let reused = NativeTree {
+            calls: RefCell::new(Vec::new()),
+            links: HashMap::from([(30, link(30, 20, 3)), (20, link(20, 1, 4))]),
+        };
+        assert!(!native_contains(
+            &reused,
+            30,
+            20,
+            deadline,
+            &mut HashMap::new()
+        ));
+        let cycle = NativeTree {
+            calls: RefCell::new(Vec::new()),
+            links: HashMap::from([(20, link(20, 20, 1))]),
+        };
+        assert!(!native_contains(
+            &cycle,
+            20,
+            1,
+            deadline,
+            &mut HashMap::new()
+        ));
+    }
 }

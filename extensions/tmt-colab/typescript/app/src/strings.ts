@@ -465,7 +465,6 @@ export const text = {
   agentStatusDirectory: 'Agent directory',
   agentStatusAdmitted: 'Admitted',
   agentStatusRead: 'Read succeeded',
-  agentStatusChecking: 'Checking…',
   agentStatusUnavailable: 'Read unavailable',
   agentStatusRefused: 'Read refused',
   agentStatusChannelUnavailable: 'Session channel unavailable',

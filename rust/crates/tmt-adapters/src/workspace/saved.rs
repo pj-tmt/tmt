@@ -1,6 +1,6 @@
 //! Named immutable recovery documents share the automatic publisher's lock.
 
-use super::decode;
+use super::{decode, generations};
 use crate::{bounded_file, config::ConfigPaths, file_lock};
 use std::{
     fmt, fs, io,
@@ -10,7 +10,10 @@ use std::{
 };
 use tmt_core::{
     content_digest::sha256,
-    workspace::{MAX_BYTES, MAX_SAVED_SNAPSHOTS, SnapshotName, WorkspaceSnapshot},
+    workspace::{
+        MAX_BYTES, MAX_SAVED_SNAPSHOTS, SnapshotName, SnapshotSelector, WorkspaceSnapshot,
+        generations::WorkspaceGeneration,
+    },
 };
 
 #[derive(Debug)]
@@ -64,6 +67,10 @@ impl From<io::Error> for Error {
 pub struct Document {
     pub snapshot: WorkspaceSnapshot,
     pub digest: String,
+    pub generation: Option<WorkspaceGeneration>,
+    pub protected: bool,
+    pub requires_confirmation: bool,
+    pub baseline: Option<WorkspaceGeneration>,
     bytes: Vec<u8>,
 }
 
@@ -106,6 +113,10 @@ pub fn acquire(
             error => Error::Unavailable(io::Error::other(error)),
         },
     )?;
+    document(bytes, socket, expect)
+}
+
+fn document(bytes: Vec<u8>, socket: &str, expect: Option<&str>) -> Result<Document, Error> {
     let snapshot = decode(&bytes)?;
     if snapshot.server.socket != socket {
         return Err(Error::Unavailable(io::Error::new(
@@ -120,8 +131,76 @@ pub fn acquire(
     Ok(Document {
         snapshot,
         digest,
+        generation: None,
+        protected: false,
+        requires_confirmation: false,
+        baseline: None,
         bytes,
     })
+}
+
+/// One immutable acquisition is retained through preview/restore; the index
+/// chooses recovery input, never authorizes a binding or a provider launch.
+pub fn acquire_selected(
+    paths: &ConfigPaths,
+    socket: &str,
+    selector: Option<&SnapshotSelector>,
+    expect: Option<&str>,
+) -> Result<Document, Error> {
+    if let Some(SnapshotSelector::Named(name)) = selector {
+        let mut document = acquire(paths, socket, Some(name), expect)?;
+        if let Some(catalogue) = generations::read(&directory(paths, socket)?)?
+            && let Some(protected) = catalogue.protected()
+        {
+            document.baseline = Some(protected.clone());
+            document.requires_confirmation = counts(&document.snapshot).0 < protected.panes
+                || counts(&document.snapshot).1 < protected.agents;
+        }
+        if expect.is_some() {
+            document.requires_confirmation = false;
+        }
+        return Ok(document);
+    }
+    let directory = directory(paths, socket)?;
+    let Some(catalogue) = generations::read(&directory)? else {
+        return if selector.is_some() {
+            Err(Error::NotFound)
+        } else {
+            acquire(paths, socket, None, expect)
+        };
+    };
+    let selected = match selector {
+        Some(SnapshotSelector::Generation(id)) => catalogue.get(id).ok_or(Error::NotFound)?,
+        None => catalogue
+            .preferred()
+            .or_else(|| catalogue.latest())
+            .ok_or(Error::NotFound)?,
+        Some(SnapshotSelector::Named(_)) => unreachable!("handled above"),
+    };
+    let mut document = document(generations::acquire(&directory, selected)?, socket, expect)?;
+    document.protected = catalogue.protected.as_ref() == Some(&selected.id);
+    document.requires_confirmation = catalogue
+        .protected()
+        .is_some_and(|previous| selected.smaller_than(previous))
+        && !(selector.is_some() && expect.is_some());
+    document.generation = Some(selected.clone());
+    document.baseline = catalogue.protected().cloned();
+    Ok(document)
+}
+
+pub fn accept_generation(
+    paths: &ConfigPaths,
+    socket: &str,
+    selected: &tmt_core::workspace::generations::GenerationId,
+    expected_protected: Option<&tmt_core::workspace::generations::GenerationId>,
+) -> Result<bool, Error> {
+    let directory = directory(paths, socket)?;
+    let _lock = lock(&directory)?;
+    generations::accept(&directory, selected, expected_protected).map_err(Error::from)
+}
+
+fn counts(snapshot: &WorkspaceSnapshot) -> (usize, usize) {
+    (snapshot.panes.len(), snapshot.agent_count())
 }
 
 /// Enumerate only owned filenames; bound even a directory filled with foreign files.
@@ -161,6 +240,10 @@ pub struct SnapshotEntry {
     pub name: Option<SnapshotName>,
     pub digest: String,
     pub captured_at_ms: u64,
+    pub generation: Option<WorkspaceGeneration>,
+    pub protected: bool,
+    pub panes: usize,
+    pub agents: usize,
 }
 
 pub fn list_snapshots(paths: &ConfigPaths, socket: &str) -> Result<Vec<SnapshotEntry>, Error> {
@@ -172,6 +255,21 @@ pub fn list_snapshots(paths: &ConfigPaths, socket: &str) -> Result<Vec<SnapshotE
     let mut selected = vec![None];
     selected.extend(names(&directory)?.into_iter().map(Some));
     let mut entries = Vec::new();
+    if let Some(catalogue) = generations::read(&directory)? {
+        for generation in catalogue.entries.iter().rev() {
+            let document = document(generations::acquire(&directory, generation)?, socket, None)?;
+            entries.push(SnapshotEntry {
+                name: None,
+                digest: document.digest,
+                captured_at_ms: generation.captured_at_ms,
+                generation: Some(generation.clone()),
+                protected: catalogue.protected.as_ref() == Some(&generation.id),
+                panes: generation.panes,
+                agents: generation.agents,
+            });
+        }
+        selected.remove(0);
+    }
     for name in selected {
         let document = match acquire(paths, socket, name.as_ref(), None) {
             Ok(document) => document,
@@ -179,10 +277,15 @@ pub fn list_snapshots(paths: &ConfigPaths, socket: &str) -> Result<Vec<SnapshotE
             Err(Error::NotFound) => continue,
             Err(error) => return Err(error),
         };
+        let (panes, agents) = counts(&document.snapshot);
         entries.push(SnapshotEntry {
             name,
             digest: document.digest,
             captured_at_ms: document.snapshot.captured_at_ms,
+            generation: None,
+            protected: false,
+            panes,
+            agents,
         });
     }
     Ok(entries)
@@ -216,16 +319,21 @@ pub fn save(
     }
     let document = acquire(paths, socket, None, None)?;
     publish_new(&destination, &document.bytes)?;
+    let (panes, agents) = counts(&document.snapshot);
     Ok(SnapshotEntry {
         name: Some(name.clone()),
         digest: document.digest,
         captured_at_ms: document.snapshot.captured_at_ms,
+        generation: None,
+        protected: false,
+        panes,
+        agents,
     })
 }
 
 /// Link a complete synced stage atomically, refusing even an unexpected destination.
 /// The stable lock serializes normal writers; hard_link is the no-clobber boundary.
-fn publish_new(destination: &Path, bytes: &[u8]) -> Result<(), Error> {
+pub(super) fn publish_new(destination: &Path, bytes: &[u8]) -> Result<(), Error> {
     let directory = destination
         .parent()
         .expect("workspace destination has a parent");

@@ -2759,6 +2759,27 @@ and may be deleted; a revocation alone can
 leave an entry stale until the page's next write. Two commands racing on different pages may
 both be admitted: the limit is a working agreement, not a lock.
 
+#### Browser work actions (#4051)
+
+The owner browser changes work through the sync socket's `work` frame (`operationId, action, body`),
+owner device only, never a link or a public reader. `action` is one of the nine closed actions above
+and `body` its closed body; neither carries attribution, and the write is the root-local writer's,
+with no display agent. The serve prepares it from a snapshot of its own outside the sync lock, like a
+browser Save, and runs the write command's admission first: the task the body names exists, the
+action applies, no agent ends up over its work-in-progress limit (`COLAB_WIP_LIMIT`, naming the agent
+and every task it would hold) and a link refers to a page of the space and closes no loop
+(`COLAB_LINK_REFUSED`). Both callers run the same function, so the limit cannot drift between the
+command and the browser. An action the contract does not name is a protocol violation. The action
+applies to the revision the serve reads when it prepares, so the action's own preconditions fence it
+(a task that is gone is `COLAB_INPUT_INVALID`), and the commit's fences turn a page that moved
+meanwhile into `COLAB_STALE_BASE`; nothing is written on a refusal.
+
+The one `workresult` has a `saveresult`'s fields: `state` `committed` with the `revision` (and `taskId`
+for a `task.add`), `unchanged` for an action that changes nothing, or `rejected` with `code` and
+`message`. The operation ID is recorded with the commit, so `savestatus` on it answers a lost reply,
+and an ID that already has a recorded outcome never answers `unchanged` for another action. Like any
+frame, a reply is acknowledged by the browser's `ack`.
+
 #### GitHub driver (#4053)
 
 `tmt colab task github push PAGE TASK` and `tmt colab task github sync [PAGE]` link tasks to
@@ -3522,6 +3543,8 @@ operations are:
 | `save`          | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively |
 | `savestatus`    | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                  |
 | `saveresult`    | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`; the one reply to a `save` or `savestatus`          |
+| `work`          | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively        |
+| `workresult`    | as `saveresult`, plus `taskId` for a committed `task.add`; the one reply to a `work`                                                            |
 | `usage`         | no fields; owner device only; how full the page is                                                                                              |
 | `usageresult`   | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                       |
 | `compact`       | no fields; owner device only; combine the root-local device's own stream                                                                        |
@@ -3553,6 +3576,7 @@ wrong types, noncanonical values and unsupported operations reject.
 | `chunk`      | `objectId, envelopeHash, index, count, bytes`                           | Complete the connection's pending referenced append or save; no standalone upload or partial append.                                                                                                                                                                                                                                         |
 | `save`       | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                                                                                                                                                                                                                                        |
 | `savestatus` | `operationId`                                                           | Owner device only. Answers from the root-local operation record; see Browser Save below.                                                                                                                                                                                                                                                     |
+| `work`       | `operationId, action, body`                                             | Owner device only. Runs the write command's admission, then commits as the root-local writer; see Browser work actions in Work.                                                                                                                                                                                                              |
 | `usage`      | none                                                                    | Owner device only. One `usageresult` from the serve's own snapshot; no state changes.                                                                                                                                                                                                                                                        |
 | `compact`    | none                                                                    | Owner device only. One `compactresult` after the same combine `tmt colab page compact` runs, under the sync lock.                                                                                                                                                                                                                            |
 | `ack`        | `cursors`                                                               | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority.                                                                                                                                                                                                                   |

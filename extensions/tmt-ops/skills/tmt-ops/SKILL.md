@@ -378,8 +378,10 @@ rewriting authored config.
 
 Digest has a range summary, Agents by TOK, Exchanges and selection details.
 The shared `workspace.tok_range` is `1h` (default), `3h`, `6h`, `1d` or `7d`;
-Workspace settings selects it, and clicking the Digest Range control or an
-explicit `cycle-tok-range` binding cycles the same setting. Agents TOK headings
+Workspace settings selects it, and clicking the window word of an Agents `TOK 1h`
+heading, clicking the Digest Range control or an explicit `cycle-tok-range`
+binding (unbound by default) cycles the same setting 1h, 3h, 6h, 1d, 7d, 1h. The
+window word is its own hit area, apart from the TOK word. Agents TOK headings
 and values follow it. Chart Each/Range controls remain their independent viewport.
 `all` sums the admitted visible identities and never sends a message or changes a
 member's mode. Real members keep UUID selection as usage sorting changes.

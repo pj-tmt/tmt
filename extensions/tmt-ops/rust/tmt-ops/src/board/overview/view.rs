@@ -2,7 +2,7 @@
 use super::monitor;
 use crate::{
     board::{
-        app::{App, Hit, HitTarget},
+        app::{App, Choice, Hit, HitTarget},
         empty_state, state_cell,
         workspace::OpsTreeRow,
     },
@@ -97,26 +97,43 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     // `widest` is the widest agent STATE cell of the list.
     let paint = |frame: &mut Frame, slot: Rect, index: usize, widest: usize| match index {
         0 => crate::board::workspace::render::controls_rule(frame, app, slot),
-        1 => strip::paint_left(
-            frame.buffer_mut(),
-            slot,
-            Line::styled(
-                format!(
-                    " {:<23} {:<11} {:<state$} {:>7}{}",
-                    "AGENT",
-                    "SQUAD",
-                    "STATE",
-                    app.tok_range().caption(),
-                    if model_width(slot.width, state_width(slot.width, widest)).is_some() {
-                        "   MODEL"
-                    } else {
-                        ""
-                    },
-                    state = usize::from(state_width(slot.width, widest))
+        1 => {
+            let state = state_width(slot.width, widest);
+            let tok = Rect::new(
+                slot.x.saturating_add(AGENT_STATE_X as u16 + state + 1),
+                slot.y,
+                7,
+                1,
+            )
+            .intersection(slot);
+            if let Some(chip) =
+                crate::board::workspace::columns::tok_window_chip(tok, app.tok_range())
+            {
+                app.workspace_strip_hits
+                    .borrow_mut()
+                    .push((chip, Choice::TokRange(app.tok_range().next())));
+            }
+            strip::paint_left(
+                frame.buffer_mut(),
+                slot,
+                Line::styled(
+                    format!(
+                        " {:<23} {:<11} {:<state$} {:>7}{}",
+                        "AGENT",
+                        "SQUAD",
+                        "STATE",
+                        app.tok_range().caption(),
+                        if model_width(slot.width, state_width(slot.width, widest)).is_some() {
+                            "   MODEL"
+                        } else {
+                            ""
+                        },
+                        state = usize::from(state_width(slot.width, widest))
+                    ),
+                    look.role(Role::Muted),
                 ),
-                look.role(Role::Muted),
-            ),
-        ),
+            )
+        }
         at if at >= LIST_HEADER_ROWS => {
             let Some(row) = rows.get(at - LIST_HEADER_ROWS) else {
                 if at == LIST_HEADER_ROWS {

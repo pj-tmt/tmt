@@ -566,6 +566,7 @@ fn a_page_carries_work_through_actions_source_writes_and_a_new_epoch() {
                 body: &body,
                 expected_revision: revision,
                 display_agent: Some(json!({"name":"feat-2"})),
+                operation_id: None,
             },
             &mut f.decoder(),
             &|| Ok(NOW),
