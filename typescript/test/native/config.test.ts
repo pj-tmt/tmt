@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import {
@@ -8,6 +9,15 @@ import {
   runCli,
   withSandbox,
 } from '../support/cli-process.js';
+
+/** The account name Core falls back to for `user.name`, read the way Core reads it. */
+function loginName(): string | null {
+  try {
+    return os.userInfo().username || null;
+  } catch {
+    return null;
+  }
+}
 
 describe('native configuration process boundary', () => {
   it('keeps concurrent config writes and opaque project data without sibling locks', async () => {
@@ -190,7 +200,7 @@ describe('native configuration process boundary', () => {
           (shown.sources as { user: { name: string } }).user.name,
         ];
       };
-      expect(await name()).toEqual([null, 'default']);
+      expect(await name()).toEqual([loginName(), 'default']);
       expect(
         (await runCli(sandbox, ['config', 'set', 'user.name', 'Ben', '--global', '--json'])).status
       ).toBe(0);
@@ -562,7 +572,7 @@ describe('native configuration process boundary', () => {
         },
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'on' },
-        user: { name: null },
+        user: { name: loginName() },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         experimental: { channel: false },
         notes: { compactionReminder: true },
@@ -707,7 +717,7 @@ describe('native configuration process boundary', () => {
         },
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'on' },
-        user: { name: null },
+        user: { name: loginName() },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         experimental: { channel: false },
         notes: { compactionReminder: true },

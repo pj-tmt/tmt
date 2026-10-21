@@ -7,7 +7,7 @@ use serde_json::json;
 use std::io::{self, Write};
 use tmt_adapters::config::{ConfigFiles, ConfigPaths, Scope, ThemeProblem};
 use tmt_core::settings::{
-    EDITABLE_KEYS, LocalClear, ResolvedSettings, Setting, SettingKey, Settings, UserName,
+    EDITABLE_KEYS, LocalClear, ResolvedSettings, Setting, SettingKey, Settings,
 };
 
 fn invalid_setting(message: String) -> Failure {
@@ -215,7 +215,7 @@ fn show_json(
             "workspace": { "snapshotEnabled": settings.workspace_snapshot_enabled, "snapshotIntervalMs": settings.workspace_snapshot_interval_ms },
             "notifications": { "replyBatchWindowMs": settings.reply_batch_window_ms, "typingQuietMs": settings.typing_quiet_ms },
             "ui": { "paneBadge": settings.pane_badge.as_str() },
-            "user": { "name": settings.user_name.as_ref().map(UserName::as_str) },
+            "user": { "name": effective_user_name(settings) },
             "theme": theme,
         },
         "sources": {
@@ -236,13 +236,12 @@ fn show_json(
 }
 
 /// The configured name, else the OS login name the person's identity would take.
-fn effective_user_name(settings: &Settings) -> String {
+fn effective_user_name(settings: &Settings) -> Option<String> {
     settings
         .user_name
         .as_ref()
         .map(|name| name.as_str().to_string())
         .or_else(tmt_adapters::user::login_name)
-        .unwrap_or_else(|| "unset".to_string())
 }
 
 fn show_text(
@@ -327,7 +326,7 @@ fn show_text(
         (
             SettingKey::UserName,
             "user.name",
-            effective_user_name(settings),
+            effective_user_name(settings).unwrap_or_else(|| "unset".to_string()),
         ),
     ];
     use tmt_cli_style::{
