@@ -353,7 +353,7 @@ pub fn execute(
         } else {
             identities(&paths, &snapshot)?
         };
-        let executable = std::env::current_exe()
+        let executable = tmt_adapters::core_executable::selected()
             .map_err(|error| Failure::new("WORKSPACE_RESTORE_UNAVAILABLE", error.to_string(), 1))?;
         let prepared = if layout_only {
             Vec::new()

@@ -27,7 +27,7 @@ pub fn execute(request: ExtensionHooksRequest, mode: OutputMode) -> io::Result<u
         let paths = ConfigPaths::discover()?;
         match request {
             ExtensionHooksRequest::Enable(name) => {
-                let tmt = std::env::current_exe().map_err(|error| {
+                let tmt = tmt_adapters::core_executable::selected().map_err(|error| {
                     Failure::new("EXTENSION_HOOKS_UNAVAILABLE", error.to_string(), 1)
                 })?;
                 let search = std::env::var_os("PATH").unwrap_or_default();

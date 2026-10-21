@@ -101,7 +101,7 @@ fn extension_candidates(words: &[OsString], output: &mut impl Write) -> io::Resu
         .ok()
         .flatten()
         .and_then(|path| {
-            std::env::current_exe()
+            tmt_adapters::core_executable::selected()
                 .ok()
                 .and_then(|tmt| adapter::complete(&path, &words[1..], &tmt))
         });
