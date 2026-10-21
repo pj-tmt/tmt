@@ -9,10 +9,13 @@ use std::{
     io::{self, Read, Write},
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 const FILE: &str = "fetched-v1.json";
 const MAX_BYTES: u64 = 64 * 1024;
+/// A temporary file this old belongs to no live writer.
+const STALE_AFTER: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
@@ -78,6 +81,35 @@ pub fn read(root: &Path) -> Option<State> {
     (stored.version == 1 && state.valid()).then_some(state)
 }
 
+/// Removes the temporary files a writer left behind when the process ended before
+/// its fetch did (`status` does not wait for a slow one). Only plain files named
+/// exactly like a writer's (`.fetched-v1.json.<pid>`) and older than a minute are
+/// taken, so a concurrent writer's file never is. Best effort.
+fn remove_stale(directory: &Path) {
+    let prefix = format!(".{FILE}.");
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let is_temporary = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(&prefix))
+            .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()));
+        let is_stale = entry.metadata().is_ok_and(|metadata| {
+            metadata.is_file()
+                && metadata
+                    .modified()
+                    .ok()
+                    .and_then(|modified| modified.elapsed().ok())
+                    .is_some_and(|age| age >= STALE_AFTER)
+        });
+        if is_temporary && is_stale {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// Replaces the cache atomically: a private temporary file, then a rename.
 pub fn write(root: &Path, state: &State) -> io::Result<()> {
     let directory = directory(root);
@@ -89,6 +121,7 @@ pub fn write(root: &Path, state: &State) -> io::Result<()> {
             ));
         }
     }
+    remove_stale(&directory);
     let bytes = serde_json::to_vec(&Stored {
         version: 1,
         attempted_at_ms: state.attempted_at_ms,
