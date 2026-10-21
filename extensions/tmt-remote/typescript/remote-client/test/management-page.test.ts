@@ -462,13 +462,13 @@ for (const [reason, expected] of [
     assert.equal(f.page.notice, expected);
   });
 }
-for (const [kind, enabled, expected] of [
-  ['rename', false, 'Saving…'],
-  ['talk', true, 'Enabling sending…'],
-  ['talk', false, 'Disabling sending…'],
-  ['revoke', false, 'Removing devices…'],
+for (const [kind, enabled] of [
+  ['rename', false],
+  ['talk', true],
+  ['talk', false],
+  ['revoke', false],
 ] as const) {
-  test(`pending ${kind}/${enabled} copy comes from the frozen original`, async () => {
+  test(`pending ${kind}/${enabled} says nothing and its outcome comes from the frozen original`, async () => {
     const f = fixture();
     await f.page.refresh();
     let release!: () => void;
@@ -488,7 +488,10 @@ for (const [kind, enabled, expected] of [
           : { kind, input: { operationId: 'original', clientId: 'device' } };
     const submission = f.page.submit(intent);
     assert.equal(f.page.busy, true);
-    assert.equal(f.page.notice, expected);
+    // The pressed action's delayed mark is the only busy signal: no in-between words.
+    assert.equal(f.page.notice, '');
+    assert.equal(f.page.writable, false);
+    assert.equal(f.page.writableWhenIdle, true);
     release();
     await submission;
     assert.equal(

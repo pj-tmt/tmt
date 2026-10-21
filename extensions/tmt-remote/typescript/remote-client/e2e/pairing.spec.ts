@@ -3925,10 +3925,59 @@ for (const [width, theme] of [
     await page.route('**/append', lostAck);
     await name.fill('Recovered device');
     await row.evaluate((form) => scrollTo(0, form.getBoundingClientRect().top + scrollY - 70));
+    const renameButton = row.locator('button[type=submit]');
+    const buttonLook = () =>
+      renameButton.evaluate((button) => {
+        const style = getComputedStyle(button);
+        const box = button.getBoundingClientRect();
+        return {
+          color: style.color,
+          background: style.backgroundColor,
+          width: box.width,
+          height: box.height,
+        };
+      });
+    await page.mouse.move(0, 0);
+    const idleLook = await buttonLook();
     await name.press('Enter');
     await published.reached;
     try {
-      await expect(slot).toHaveText('Saving…');
+      // The pressed action's delayed mark is the only busy signal: no words, no grey, no shift.
+      await expect(slot).toHaveText('');
+      // A click on the fenced recover action mid-write starts nothing: no request, no new words.
+      const during: string[] = [];
+      const record = (request: { url(): string }) => during.push(request.url());
+      page.on('request', record);
+      await page.evaluate(async () => {
+        (document.querySelector('[data-recover]') as HTMLElement).click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      });
+      page.off('request', record);
+      expect(during).toEqual([]);
+      await expect(slot).toHaveText('');
+      await expect(renameButton).toHaveAttribute('aria-busy', 'true');
+      await expect(renameButton).toHaveAttribute('aria-disabled', 'true');
+      expect(await renameButton.evaluate((button) => (button as HTMLButtonElement).disabled)).toBe(
+        false,
+      );
+      await expect(renameButton.locator('.tmt-ui-action-mark')).toHaveAttribute(
+        'data-busy',
+        'true',
+      );
+      const busyLook = await buttonLook();
+      expect(busyLook.color).toBe(idleLook.color);
+      expect(busyLook.background).toBe(idleLook.background);
+      expect(Math.abs(busyLook.width - idleLook.width)).toBeLessThanOrEqual(1);
+      expect(Math.abs(busyLook.height - idleLook.height)).toBeLessThanOrEqual(1);
+      if (process.env.TMT_REMOTE_CAPTURE_DIR) {
+        await mkdir(process.env.TMT_REMOTE_CAPTURE_DIR, { recursive: true });
+        await row.screenshot({
+          path: join(
+            process.env.TMT_REMOTE_CAPTURE_DIR,
+            `feedback-busy-rename-${width}-${theme}.png`,
+          ),
+        });
+      }
       await page.locator('#remote-switcher .remote-chip').click();
       await expect(page.getByRole('menuitemradio', { name: /^Open foreign/ })).toBeDisabled();
       await expect(page.locator('#remote-menu-reason')).toHaveText(

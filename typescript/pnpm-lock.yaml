@@ -191,6 +191,9 @@ importers:
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
+      '@tmt/browser-ui':
+        specifier: workspace:*
+        version: link:../../../../design/browser-ui
       '@types/node':
         specifier: ^25.0.3
         version: 25.0.3

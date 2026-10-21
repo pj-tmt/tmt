@@ -3,6 +3,8 @@ import { remoteRegistryPage } from './remote-registry-page.js';
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
 import { renderFirestore } from './firestore-page.js';
 import { ManagementPage, type PageIntent } from './management-page.js';
+import { createActionMark } from '@tmt/browser-ui/static';
+import { createBusyMarkGate } from '@tmt/browser-ui/busy-mark';
 
 function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -14,6 +16,7 @@ const mode = element<HTMLButtonElement>('limit-mode');
 const custom = element<HTMLInputElement>('limit-custom');
 const devices = element<HTMLDivElement>('devices');
 const refresh = element<HTMLButtonElement>('refresh');
+const removeOthers = element<HTMLButtonElement>('remove-others');
 const more = element<HTMLButtonElement>('more');
 const first = element<HTMLButtonElement>('first');
 const rows = new Map<string, HTMLElement>();
@@ -105,20 +108,48 @@ function limitChanged(): boolean {
     admitted.sessionsPerDeviceSource !== 'settings.json' || value !== admitted.sessionsPerDevice
   );
 }
+/** Busy is not disabled: only an unavailable control is disabled. A busy one keeps its look and
+ * focus and is fenced by aria-disabled; every activation handler already refuses while busy. */
+function fence(button: HTMLButtonElement, unavailable: boolean): void {
+  button.disabled = unavailable;
+  if (page.busy && !unavailable) button.setAttribute('aria-disabled', 'true');
+  else button.removeAttribute('aria-disabled');
+}
+/** The action that carries the busy mark: the one the current write started from. */
+let markOwner: HTMLElement | undefined;
+function markSlot(button: HTMLElement): HTMLElement {
+  let slot = button.querySelector<HTMLElement>(':scope > .tmt-ui-action-mark');
+  if (!slot) {
+    slot = createActionMark();
+    button.prepend(slot);
+  }
+  return slot;
+}
+/** The shared delay and hold: nothing shows for the first 400 ms, then the mark stays 400 ms. */
+const busyMark = createBusyMarkGate((shown) => {
+  if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
+});
+function syncBusyMark(): void {
+  for (const button of document.querySelectorAll<HTMLElement>('button.tmt-ui-action'))
+    if (!button.closest('#remotes, #remote-switcher')) markSlot(button);
+  busyMark.set(page.busy);
+}
 function saveState(form: string, hint: string, changed: boolean, valid: boolean): void {
   const button =
     element<HTMLFormElement>(form).querySelector<HTMLButtonElement>('button[type=submit]')!;
-  button.disabled = !page.writable || !changed || !valid;
+  fence(button, !page.writableWhenIdle || !changed || !valid);
   element(hint).hidden = !page.writable || changed;
   const described = button.getAttribute('aria-describedby');
   if (!element(hint).hidden)
     button.setAttribute('aria-describedby', [described, hint].filter(Boolean).join(' '));
 }
-function recoverOriginal(): void {
+function recoverOriginal(event: Event): void {
+  // A fenced (busy) action is refused here; a click must not start a second read mid-write.
+  if (page.busy) return;
   void run(async () => {
     await page.recover();
     if (page.access === 'live') await refreshView();
-  });
+  }, event.currentTarget as HTMLElement);
 }
 /** Mount an empty live region before a device can originate a change. Never move it. */
 function deviceFeedback(clientId: string): HTMLElement {
@@ -193,7 +224,7 @@ function renderOutcome(): void {
         : '';
     original.hidden = !original.textContent;
     recover.hidden = !selected || !page.canRecover;
-    recover.disabled = page.busy;
+    fence(recover, false);
     recover.setAttribute('aria-busy', String(page.busy));
   }
 }
@@ -252,18 +283,15 @@ function render(): void {
         : 'blocked';
   const reason =
     capacity ??
-    (page.busy
-      ? 'A request is in progress. Wait for its outcome.'
-      : !editable
-        ? page.access === 'live'
-          ? ''
-          : 'Current browser access could not be confirmed.'
-        : page.outcome?.state === 'unknown'
-          ? 'Another change is still unconfirmed. Check its original result first.'
-          : page.outcome?.state === 'refused' &&
-              page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
-            ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
-            : '');
+    (!editable
+      ? page.access === 'live'
+        ? ''
+        : 'Current browser access could not be confirmed.'
+      : page.outcome?.state === 'unknown'
+        ? 'Another change is still unconfirmed. Check its original result first.'
+        : page.outcome?.state === 'refused' && page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
+          ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
+          : '');
   element('controls-reason').textContent = reason;
   element('controls-reason').hidden = !reason;
   for (const button of document.querySelectorAll<HTMLButtonElement>('button')) {
@@ -306,7 +334,7 @@ function render(): void {
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     'form button:not(.settings-choice):not([role="option"])',
   ))
-    button.disabled = !page.writable;
+    fence(button, !page.writableWhenIdle);
   if (page.settings) {
     choices ??= [
       settingsChoice(opening, element('opening-options')),
@@ -321,13 +349,12 @@ function render(): void {
     limitChanged(),
     mode.value !== 'custom' || custom.checkValidity(),
   );
-  const removeOthers = element<HTMLButtonElement>('remove-others');
   removeOthers.hidden =
     page.removalPreview?.count === 0 ||
     (page.onFirstPage &&
       page.devices?.nextCursor === null &&
       page.devices.devices.every((device) => device.clientId === page.clientId));
-  removeOthers.disabled = !page.writable || page.removalPreview?.count === 0;
+  fence(removeOthers, !page.writableWhenIdle || page.removalPreview?.count === 0);
   const preview = page.removalPreview;
   const panel = element('remove-others-confirmation');
   panel.hidden = !preview || preview.count === 0 || !page.writable;
@@ -337,11 +364,11 @@ function render(): void {
       `This ends Remote access for ${preview.count} other ${preview.count === 1 ? 'device' : 'devices'}. This browser stays connected. Press Remove the others again to confirm.`;
     removeOthers.setAttribute('aria-describedby', 'remove-others-consequence');
   }
-  refresh.disabled = page.busy;
+  fence(refresh, false);
   more.hidden = !page.devices?.nextCursor;
-  more.disabled = page.busy;
+  fence(more, false);
   first.hidden = page.onFirstPage;
-  first.disabled = page.busy;
+  fence(first, false);
   if (page.devices) {
     const current = new Set(page.devices.devices.map((device) => device.clientId));
     for (const [id, row] of rows)
@@ -391,22 +418,28 @@ function render(): void {
           const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
           if (!target || target.revoked) return;
           if (!confirmDevice(revoke, target, 'revoke')) return;
-          void change({
-            kind: 'revoke',
-            input: { operationId: crypto.randomUUID(), clientId: device.clientId },
-          });
+          void change(
+            {
+              kind: 'revoke',
+              input: { operationId: crypto.randomUUID(), clientId: device.clientId },
+            },
+            revoke,
+          );
         });
         form.addEventListener('submit', (event) => {
           event.preventDefault();
           if (!page.writable) return;
-          void change({
-            kind: 'rename',
-            input: {
-              operationId: crypto.randomUUID(),
-              clientId: device.clientId,
-              name: name.value,
+          void change(
+            {
+              kind: 'rename',
+              input: {
+                operationId: crypto.randomUUID(),
+                clientId: device.clientId,
+                name: name.value,
+              },
             },
-          });
+            save,
+          );
         });
         const field = document.createElement('div');
         field.className = 'tmt-ui-field';
@@ -423,14 +456,17 @@ function render(): void {
           const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
           if (!target || target.revoked) return;
           if (!target.talkEnabled && !confirmDevice(talk, target, 'talk')) return;
-          void change({
-            kind: 'talk',
-            input: {
-              operationId: crypto.randomUUID(),
-              clientId: target.clientId,
-              enabled: !target.talkEnabled,
+          void change(
+            {
+              kind: 'talk',
+              input: {
+                operationId: crypto.randomUUID(),
+                clientId: target.clientId,
+                enabled: !target.talkEnabled,
+              },
             },
-          });
+            talk,
+          );
         });
         form.append(field, save, talk, revoke);
         const panel = document.createElement('div');
@@ -511,7 +547,7 @@ function render(): void {
             : reason;
       disabledReason.hidden = !disabledReason.textContent;
       for (const button of row.querySelectorAll<HTMLButtonElement>('form button')) {
-        button.disabled = !page.writable || device.revoked;
+        fence(button, !page.writableWhenIdle || device.revoked);
         if (disabledReason.textContent) button.setAttribute('aria-describedby', disabledReason.id);
         else if (confirmation?.button === button)
           button.setAttribute('aria-describedby', `confirm-${device.clientId}-consequence`);
@@ -521,9 +557,12 @@ function render(): void {
     }
   }
   renderOutcome();
+  syncBusyMark();
 }
-async function run(action: () => Promise<void>): Promise<void> {
+async function run(action: () => Promise<void>, owner: HTMLElement = refresh): Promise<void> {
   cancelConfirmation();
+  // A mark already showing stays on its action until it hides.
+  if (!busyMark.shown()) markOwner = owner;
   const pending = action();
   render();
   try {
@@ -544,10 +583,13 @@ async function refreshView(cursor?: string | null): Promise<void> {
         renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore),
       );
 }
-async function change(intent: PageIntent): Promise<void> {
-  await run(() => page.submit(intent));
+async function change(intent: PageIntent, owner: HTMLElement): Promise<void> {
+  await run(() => page.submit(intent), owner);
   if (page.outcome?.state === 'committed' && !page.outcome.sessionEnded)
-    await run(() => refreshView());
+    await run(() => refreshView(), owner);
+}
+function submitButton(form: HTMLFormElement): HTMLButtonElement {
+  return form.querySelector<HTMLButtonElement>('button[type=submit]')!;
 }
 element<HTMLFormElement>('opening-form').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -556,10 +598,13 @@ element<HTMLFormElement>('opening-form').addEventListener('submit', (event) => {
     render();
     return;
   }
-  void change({
-    kind: 'setting',
-    input: { operationId: crypto.randomUUID(), setting: 'open', value: opening.value === 'on' },
-  });
+  void change(
+    {
+      kind: 'setting',
+      input: { operationId: crypto.randomUUID(), setting: 'open', value: opening.value === 'on' },
+    },
+    submitButton(element<HTMLFormElement>('opening-form')),
+  );
 });
 element<HTMLFormElement>('limit-form').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -571,10 +616,13 @@ element<HTMLFormElement>('limit-form').addEventListener('submit', (event) => {
   }
   if (mode.value === 'custom' && !custom.checkValidity()) return;
   const value = mode.value === 'off' ? null : custom.value;
-  void change({
-    kind: 'setting',
-    input: { operationId: crypto.randomUUID(), setting: 'sessions-per-device', value },
-  });
+  void change(
+    {
+      kind: 'setting',
+      input: { operationId: crypto.randomUUID(), setting: 'sessions-per-device', value },
+    },
+    submitButton(element<HTMLFormElement>('limit-form')),
+  );
 });
 for (const field of [opening, mode, custom]) {
   field.addEventListener('input', render);
@@ -607,7 +655,7 @@ refresh.addEventListener('click', () => {
 });
 // Navigation never discards an unsent name. Keep only this bounded page's forms,
 // rather than accumulating drafts or cursor history across the whole inventory.
-function navigate(cursor: string | null): void {
+function navigate(cursor: string | null, owner: HTMLElement): void {
   if (page.busy) return;
   for (const device of page.devices?.devices ?? []) {
     const name = rows.get(device.clientId)?.querySelector<HTMLInputElement>('input');
@@ -618,7 +666,7 @@ function navigate(cursor: string | null): void {
       return;
     }
   }
-  void run(() => refreshView(cursor));
+  void run(() => refreshView(cursor), owner);
 }
 element('copy-designation').addEventListener('click', () => {
   if (page.access !== 'live') return;
@@ -646,13 +694,16 @@ element('remove-others').addEventListener('click', (event) => {
   if (page.removalPreview && page.removalPreview.count > 0) {
     const fingerprint = page.removalPreview.fingerprint;
     page.removalPreview = undefined;
-    void change({
-      kind: 'remove-others',
-      input: { operationId: crypto.randomUUID(), fingerprint },
-    });
+    void change(
+      {
+        kind: 'remove-others',
+        input: { operationId: crypto.randomUUID(), fingerprint },
+      },
+      removeOthers,
+    );
   } else {
     cancelConfirmation();
-    void run(() => page.previewRemoval());
+    void run(() => page.previewRemoval(), removeOthers);
   }
 });
 element('cancel-remove-others').addEventListener('click', () => {
@@ -668,8 +719,8 @@ element('remove-others').addEventListener('keydown', (event) => {
     render();
   }
 });
-more.addEventListener('click', () => navigate(page.devices?.nextCursor ?? null));
-first.addEventListener('click', () => navigate(null));
+more.addEventListener('click', () => navigate(page.devices?.nextCursor ?? null, more));
+first.addEventListener('click', () => navigate(null, first));
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-recover]'))
   button.addEventListener('click', recoverOriginal);
 

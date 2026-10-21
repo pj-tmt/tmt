@@ -49,6 +49,7 @@ for (const code of [
     }
     const nodes = new Map<string, ReturnType<typeof node>>();
     vi.stubGlobal('document', {
+      addEventListener() {},
       getElementById: (id: string) => {
         if (!nodes.has(id)) nodes.set(id, node());
         return nodes.get(id);
@@ -156,6 +157,7 @@ test('settings refresh uses bounded admission and renders its verified capacity 
   const feedback = node();
   feedback.dataset.feedback = 'shared';
   vi.stubGlobal('document', {
+    addEventListener() {},
     getElementById: (id: string) => {
       if (!nodes.has(id)) nodes.set(id, node());
       return nodes.get(id);

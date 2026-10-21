@@ -6,6 +6,7 @@
   "exports": {
     "./static.css": "./generated/static.css",
     "./static": "./src/static.ts",
+    "./busy-mark": "./src/busy-mark-gate.ts",
     "./react": "./src/react.ts",
     "./ui": "./src/ui/index.ts",
     "./ui.css": "./generated/ui.css"
