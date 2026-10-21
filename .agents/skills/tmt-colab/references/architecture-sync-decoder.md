@@ -239,6 +239,13 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   and prepares `prepare_structured_publication` with the browser's operation ID) and `finish_save` commits
   it with `Access::Publish` and answers `workresult`; `savestatus` settles a lost reply. The connection
   sends at most eight frames before the browser acknowledges some, so a client acks each frame it reads.
+  `task.convert` is the one work action that makes a page, so it is the owner device's narrow authority
+  over page creation: `page::convert::prepare` runs the refusals of `work_convert::convertible` on a
+  snapshot, makes the page named by `work_convert::child_page_id` (space and operation) through
+  `Server::create_child` (the one step under the sync lock: it re-checks `Access::Publish`, then
+  `Admission::create_child` runs the root-local `page.create` with a fixed title and `child_source`),
+  and prepares `task.link` with `prepare_expecting`, which refuses a task that changed meanwhile.
+  `finish_save` and `savestatus` attach `childPage` to every outcome, so nothing made is lost.
   A `save` may carry the editor's change as `hunks` (`save-hunks.ts` `hunksOf`, no evaluator in the
   browser): `page::save::prepare_merging` runs `prepare` first and, only when the page moved
   (`COLAB_STALE_BASE`), places the hunks with `page/patch.rs` on the page as it now is and prepares that

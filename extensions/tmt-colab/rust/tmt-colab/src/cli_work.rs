@@ -582,53 +582,30 @@ fn read_and_list(root: &Path, args: &ArgMatches) -> Result<()> {
     list(&page_id, &read, args.get_flag("json"))
 }
 
-fn escape_html(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-/// The first text of a page made from a task: its title, then its detail in paragraphs.
-fn child_source(title: &str, detail: &str) -> String {
-    let mut html = format!("<h1>{}</h1>\n", escape_html(title));
-    for paragraph in detail
-        .split("\n\n")
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-    {
-        html.push_str(&format!(
-            "<p>{}</p>\n",
-            escape_html(paragraph).replace('\n', "<br>\n")
-        ));
-    }
-    html
-}
-
 /// `task convert`: a new page made from the task, then the link. The page is created first, so a link
 /// that fails leaves a page and says how to finish; it never searches for one to adopt.
 fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
     let page = args.get_one::<String>("page").expect("required page");
     let task_id = args.get_one::<String>("task").expect("required task");
     let (page_id, read) = read_page_work(root, page)?;
-    let task = read.work["tasks"].get(task_id.as_str()).ok_or_else(|| {
-        invalid(&format!(
-            "This page has no task {task_id}; tmt colab task ls shows its tasks."
-        ))
-    })?;
     // Refuse what the link would refuse before a page exists.
-    if task.get("child").is_some() {
-        return Err(invalid(&format!("{task_id} already follows a page.")));
-    }
-    if task.get("externalId").is_some() {
-        return Err(invalid(&format!(
-            "{task_id} has an external ID, so it cannot follow a page; clear the ID first (tmt colab task set)."
-        )));
-    }
+    let task = tmt_colab::work_convert::convertible(&read.work, task_id).map_err(|blocked| {
+        use tmt_colab::work_convert::Blocked;
+        invalid(&match blocked {
+            Blocked::Missing => {
+                format!("This page has no task {task_id}; tmt colab task ls shows its tasks.")
+            }
+            Blocked::Follows => format!("{task_id} already follows a page."),
+            Blocked::External => format!(
+                "{task_id} has an external ID, so it cannot follow a page; clear the ID first (tmt colab task set)."
+            ),
+        })
+    })?;
     let title = task["title"].as_str().unwrap_or_default();
     let created = crate::cli_management::commit_creation(
         root,
         title,
-        child_source(title, task["detail"].as_str().unwrap_or_default()),
+        tmt_colab::work_convert::child_source(title, task["detail"].as_str().unwrap_or_default()),
         Some(&tmt_colab::decoder::PageLayout {
             kind: tmt_colab::decoder::LayoutKind::Column,
             reason: None,

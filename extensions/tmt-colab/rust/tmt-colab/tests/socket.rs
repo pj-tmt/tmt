@@ -4996,6 +4996,8 @@ fn receive_acked(server: &Running, peer: &mut WebSocket<UnixStream>, kind: &str)
 const WORK_ONE: &str = "60000000-0000-4000-8000-000000000001";
 const WORK_TWO: &str = "60000000-0000-4000-8000-000000000002";
 const WORK_THREE: &str = "60000000-0000-4000-8000-000000000003";
+const WORK_FOUR: &str = "60000000-0000-4000-8000-000000000004";
+const WORK_FIVE: &str = "60000000-0000-4000-8000-000000000005";
 fn native_work(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Value {
     let store = Store::read(layout).unwrap();
     let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
@@ -5144,45 +5146,243 @@ fn a_browser_work_action_meets_the_same_admission_as_the_write_command() {
     assert_eq!(receive_acked(&server, &mut peer, "error")["type"], "error");
 }
 
+fn native_page(
+    layout: &tmt_colab::keyring::Layout,
+    key: &Keyring,
+    page: &str,
+) -> tmt_colab::page::Page {
+    let store = Store::read(layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let view = tmt_colab::page::read(&store, key, page, &mut decoder).unwrap();
+    store.close().unwrap();
+    view
+}
+fn page_ids(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Vec<String> {
+    let store = Store::read(layout).unwrap();
+    let ids = tmt_colab::work_admission::all_page_ids(&store, key).unwrap();
+    store.close().unwrap();
+    ids
+}
+
 #[test]
-fn no_reader_and_no_link_can_send_a_work_action() {
-    let work = |server: &Running, session: &_| {
-        server.reader_frame(
-            session,
-            "work",
-            json!({"operationId":WORK_ONE,"action":"task.add","body":{"task":{"title":"x"}}}),
-        )
+fn a_browser_convert_makes_the_derived_page_links_it_and_answers_status_with_the_page() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
+        send(&mut peer, frame);
+    }
+    receive_acked(&server, &mut peer, "saveresult");
+    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
+        send(
+            peer,
+            server.frame(
+                "work",
+                json!({"operationId":operation,"action":action,"body":body}),
+            ),
+        );
+        receive_acked(&server, peer, "workresult")
     };
-    // A public reader has no write access.
-    let server = Running::start(Tunnels::PRODUCT);
-    server.publish();
-    let session = server.reader_session();
-    let mut reader = server.reader_peer(&session);
-    send(&mut reader, work(&server, &session));
-    let (error, before) = receive_until(&mut reader, "error");
-    assert_eq!(error["type"], "error");
-    assert!(before.iter().all(|frame| frame["type"] != "workresult"));
-    // Nor does any link: a work action is the owner device's alone, and nothing is written.
-    for role in ["viewer", "commenter", "editor"] {
+    work(
+        &mut peer,
+        WORK_ONE,
+        "task.add",
+        json!({"task":{"title":"Draft <the> export","detail":"First.\n\nSecond & last."}}),
+    );
+    let before = page_ids(&layout, &key);
+    let converted = work(&mut peer, WORK_TWO, "task.convert", json!({"taskId":"T-1"}));
+    assert_eq!(converted["state"], "committed", "{converted}");
+    // The page is the one this operation names, and no other page was made.
+    let child = tmt_colab::work_convert::child_page_id(&key.space_id, WORK_TWO);
+    assert_eq!(converted["childPage"], child, "{converted}");
+    let after = page_ids(&layout, &key);
+    assert_eq!(after.len(), before.len() + 1);
+    assert!(after.contains(&child));
+    // Its title and first text are the task's own, escaped, and nothing else.
+    let made = native_page(&layout, &key, &child);
+    assert_eq!(made.title, "Draft <the> export");
+    assert_eq!(
+        made.source,
+        "<h1>Draft &lt;the&gt; export</h1>\n<p>First.</p>\n<p>Second &amp; last.</p>\n"
+    );
+    assert_eq!(native_work(&layout, &key)["tasks"]["T-1"]["child"], child);
+    // A lost reply is answered by the operation: the link landed and the page is named.
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId":WORK_TWO})),
+    );
+    let status = receive_acked(&server, &mut peer, "saveresult");
+    assert_eq!(status["state"], "committed", "{status}");
+    assert_eq!(status["childPage"], child, "{status}");
+    // A task that now follows a page is refused before anything is made.
+    let again = work(
+        &mut peer,
+        WORK_THREE,
+        "task.convert",
+        json!({"taskId":"T-1"}),
+    );
+    assert_eq!(again["state"], "rejected", "{again}");
+    assert_eq!(again["code"], "COLAB_INPUT_INVALID", "{again}");
+    assert!(again.get("childPage").is_none(), "{again}");
+    assert_eq!(page_ids(&layout, &key), after);
+}
+
+#[test]
+fn a_browser_convert_refuses_what_the_link_would_refuse_before_it_makes_a_page() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
+        send(&mut peer, frame);
+    }
+    receive_acked(&server, &mut peer, "saveresult");
+    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
+        send(
+            peer,
+            server.frame(
+                "work",
+                json!({"operationId":operation,"action":action,"body":body}),
+            ),
+        );
+        receive_acked(&server, peer, "workresult")
+    };
+    work(
+        &mut peer,
+        WORK_ONE,
+        "task.add",
+        json!({"task":{"title":"Tracked","externalId":"#7"}}),
+    );
+    let before = page_ids(&layout, &key);
+    for (operation, body) in [
+        (WORK_TWO, json!({"taskId":"T-1"})),
+        (WORK_THREE, json!({"taskId":"T-9"})),
+        // Nothing but the task is accepted: no title, source or layout rides along.
+        (WORK_FOUR, json!({"taskId":"T-1","title":"Mine"})),
+        (WORK_FIVE, json!({})),
+    ] {
+        let refused = work(&mut peer, operation, "task.convert", body);
+        assert_eq!(refused["state"], "rejected", "{refused}");
+        assert_eq!(refused["code"], "COLAB_INPUT_INVALID", "{refused}");
+        assert!(refused.get("childPage").is_none(), "{refused}");
+    }
+    assert_eq!(page_ids(&layout, &key), before);
+}
+
+#[test]
+fn a_convert_whose_page_exists_finds_it_and_a_link_that_cannot_land_still_names_the_page() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
+        send(&mut peer, frame);
+    }
+    receive_acked(&server, &mut peer, "saveresult");
+    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
+        send(
+            peer,
+            server.frame(
+                "work",
+                json!({"operationId":operation,"action":action,"body":body}),
+            ),
+        );
+        receive_acked(&server, peer, "workresult")
+    };
+    for title in ["One", "Two"] {
+        work(
+            &mut peer,
+            if title == "One" { WORK_ONE } else { WORK_TWO },
+            "task.add",
+            json!({"task":{"title":title}}),
+        );
+    }
+    let first = work(
+        &mut peer,
+        WORK_THREE,
+        "task.convert",
+        json!({"taskId":"T-1"}),
+    );
+    assert_eq!(first["state"], "committed", "{first}");
+    let child = first["childPage"].as_str().unwrap().to_owned();
+    let pages = page_ids(&layout, &key);
+    // Another task under the same operation finds the page already made instead of making a
+    // second one, and a page follows at most one task, so the link is refused; the reply still
+    // names the page and nothing else changes.
+    let replay = work(
+        &mut peer,
+        WORK_THREE,
+        "task.convert",
+        json!({"taskId":"T-2"}),
+    );
+    assert_eq!(replay["state"], "rejected", "{replay}");
+    assert_eq!(replay["childPage"], child, "{replay}");
+    assert_eq!(page_ids(&layout, &key), pages);
+    assert!(
+        native_work(&layout, &key)["tasks"]["T-2"]
+            .get("child")
+            .is_none()
+    );
+}
+
+#[test]
+fn no_reader_and_no_link_can_send_a_work_action_or_make_a_page_by_converting() {
+    // `task.convert` is the one action that makes a page, so it is tried beside an ordinary one.
+    for (action, body) in [
+        ("task.add", json!({"task":{"title":"x"}})),
+        ("task.convert", json!({"taskId":"T-1"})),
+    ] {
+        let work = |server: &Running, session: &_| {
+            server.reader_frame(
+                session,
+                "work",
+                json!({"operationId":WORK_ONE,"action":action,"body":body}),
+            )
+        };
+        // A public reader has no write access.
         let server = Running::start(Tunnels::PRODUCT);
-        let session = server.link_session(role);
-        let mut link = server.reader_peer(&session);
-        send(&mut link, work(&server, &session));
-        let (error, before) = receive_until(&mut link, "error");
-        assert_eq!(error["type"], "error", "{role}");
+        server.publish();
+        let session = server.reader_session();
+        let mut reader = server.reader_peer(&session);
+        send(&mut reader, work(&server, &session));
+        let (error, before) = receive_until(&mut reader, "error");
+        assert_eq!(error["type"], "error", "{action}");
         assert!(
             before.iter().all(|frame| frame["type"] != "workresult"),
-            "{role}"
+            "{action}"
         );
-        let layout = Layout::existing(&server.root).unwrap().unwrap();
-        let key = Keyring::read(&layout).unwrap();
-        let tasks = native_work(&layout, &key);
-        assert!(
-            tasks["order"]
-                .as_array()
-                .is_none_or(|order| order.is_empty()),
-            "{role}: the refused action wrote a task: {tasks}"
-        );
+        // Nor does any link: a work action is the owner device's alone, and nothing is written.
+        for role in ["viewer", "commenter", "editor"] {
+            let server = Running::start(Tunnels::PRODUCT);
+            let session = server.link_session(role);
+            let layout = Layout::existing(&server.root).unwrap().unwrap();
+            let key = Keyring::read(&layout).unwrap();
+            let pages = page_ids(&layout, &key);
+            let mut link = server.reader_peer(&session);
+            send(&mut link, work(&server, &session));
+            let (error, before) = receive_until(&mut link, "error");
+            assert_eq!(error["type"], "error", "{role} {action}");
+            assert!(
+                before.iter().all(|frame| frame["type"] != "workresult"),
+                "{role} {action}"
+            );
+            let tasks = native_work(&layout, &key);
+            assert!(
+                tasks["order"]
+                    .as_array()
+                    .is_none_or(|order| order.is_empty()),
+                "{role} {action}: the refused action wrote a task: {tasks}"
+            );
+            assert_eq!(
+                page_ids(&layout, &key),
+                pages,
+                "{role} {action}: a page was made"
+            );
+        }
     }
 }
 

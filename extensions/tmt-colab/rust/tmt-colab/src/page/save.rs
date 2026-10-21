@@ -201,6 +201,10 @@ pub struct SaveResult {
     /// Committed work action only: the task a `task.add` made.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    /// A browser's `task.convert` only: the page its operation made, whether or not the link to
+    /// it landed (a rejected or absent result names it so nothing made is lost).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_page: Option<String>,
 }
 impl SaveResult {
     fn state(operation_id: &str, state: &'static str) -> Self {
@@ -214,7 +218,12 @@ impl SaveResult {
             source_sha256: None,
             conflicts: None,
             task_id: None,
+            child_page: None,
         }
+    }
+    /// The page a convert operation made, when it made one.
+    pub fn with_child(self, child_page: Option<String>) -> Self {
+        Self { child_page, ..self }
     }
     pub fn committed(operation_id: &str, revision: String) -> Self {
         Self {
