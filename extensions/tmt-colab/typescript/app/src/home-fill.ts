@@ -16,6 +16,25 @@ export function fillStep(missing: number, tries: number, visible: boolean): Fill
 }
 
 /**
+ * Reads the list again without moving the reader: the router scrolls the window to the top when any
+ * load renders, and a re-read is not a navigation. Only that reset is undone, and to where the
+ * reader last was, so one who scrolls while the read is in flight keeps their own position.
+ */
+export async function rereadInPlace(reload: () => Promise<unknown>) {
+  let where = window.scrollY;
+  const follow = () => {
+    if (window.scrollY > 0) where = window.scrollY;
+  };
+  window.addEventListener('scroll', follow, { passive: true });
+  try {
+    await reload();
+  } finally {
+    window.removeEventListener('scroll', follow);
+  }
+  if (where > 0 && window.scrollY === 0) window.scrollTo({ top: where });
+}
+
+/**
  * Reads the list again every `REREAD_MS` while `missing` pages have no summary, only while the tab is
  * visible and at most `REREADS` times, and stops the moment the pages are all in or the list unmounts.
  * Returns whether that is still going on, so an empty tab can say it is reading rather than empty.

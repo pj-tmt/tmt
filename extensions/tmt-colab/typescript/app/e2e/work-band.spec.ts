@@ -145,14 +145,19 @@ test('a summary alone shows two lines; no summary and no tasks shows nothing', a
   await expect(host.locator('.work-band')).toHaveCount(0);
 });
 
-async function mountRoute(page: Page, withWork: boolean, owner = false) {
+async function mountRoute(
+  page: Page,
+  withWork: boolean,
+  owner = false,
+  scenario?: 'linked-done' | 'linked-missing' | 'summary-only',
+) {
   await page.goto('/');
   await page.evaluate(
-    async ([withWork, owner]) => {
+    async ([withWork, owner, scenario]) => {
       const path = '/test/work-page-browser.tsx';
-      (await import(path)).mountWorkPage(withWork, owner);
+      (await import(path)).mountWorkPage(withWork, owner, scenario);
     },
-    [withWork, owner],
+    [withWork, owner, scenario] as const,
   );
   await expect(page.locator('.page-header-actions:visible')).toBeVisible();
 }
@@ -345,6 +350,74 @@ for (const [width, height] of [
       ).toBe(true);
       await band.scrollIntoViewIfNeeded();
       await page.screenshot({ path: capturePath(`work-controls-${width}-${scheme}.png`) });
+    });
+  }
+}
+
+test("a task that follows a page shows that page's stage from the owner list", async ({ page }) => {
+  await mountRoute(page, true, false, 'linked-done');
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  // T-1 is in progress by itself; T-2 follows a page the list says is done.
+  await expect(band.locator('.work-progress')).toHaveText('1 of 2 done');
+  await band.getByRole('button', { name: 'Show 2 tasks' }).click();
+  await expect(band.locator('.work-row', { hasText: 'T-2' }).locator('.work-state')).toHaveText(
+    'Done',
+  );
+});
+
+test('a task that follows a page the list does not name keeps its own state', async ({ page }) => {
+  await mountRoute(page, true, false, 'linked-missing');
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  await expect(band.locator('.work-progress')).toHaveText('0 of 2 done');
+  await band.getByRole('button', { name: 'Show 2 tasks' }).click();
+  await expect(band.locator('.work-row', { hasText: 'T-2' }).locator('.work-state')).toHaveText(
+    'To do',
+  );
+});
+
+test('the owner adds the first task from a band that has a summary and no task', async ({
+  page,
+}) => {
+  await mountRoute(page, true, true, 'summary-only');
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  await expect(band.locator('.work-line2')).toHaveText('Nothing planned yet');
+  await expect(band.locator('.work-toggle')).toHaveCount(0);
+  await band.getByLabel('New task').fill('Draft the notes');
+  await band.getByRole('button', { name: 'Add task' }).click();
+  await expect(band.locator('.work-progress')).toHaveText('0 of 1 done');
+  expect((await calls(page))[0]).toEqual({
+    action: 'task.add',
+    body: { task: { title: 'Draft the notes' } },
+  });
+});
+
+test('another device sees a summary with no task and no way to add one', async ({ page }) => {
+  await mountRoute(page, true, false, 'summary-only');
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  await expect(band.locator('.work-line2')).toHaveText('Nothing planned yet');
+  await expect(band.getByLabel('New task')).toHaveCount(0);
+});
+
+for (const [width, height] of [
+  [1440, 900],
+  [390, 844],
+] as const) {
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`the owner's empty band and a followed page at ${width} in ${scheme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await page.emulateMedia({ colorScheme: scheme });
+      await mountRoute(page, true, true, 'summary-only');
+      const band = page.getByRole('region', { name: 'Work on this page' });
+      await expect(band.getByLabel('New task')).toBeVisible();
+      await page.screenshot({ path: capturePath(`work-first-task-${width}-${scheme}.png`) });
+      await mountRoute(page, true, false, 'linked-done');
+      await page
+        .getByRole('region', { name: 'Work on this page' })
+        .getByRole('button', { name: 'Show 2 tasks' })
+        .click();
+      await page.screenshot({ path: capturePath(`work-followed-${width}-${scheme}.png`) });
     });
   }
 }

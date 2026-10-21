@@ -35,10 +35,17 @@ declare global {
   }
 }
 let root: Root | undefined;
+const FOLLOWED = '20000000-0000-4000-8000-000000000002';
 
 /** `withWork` false is a page that never had work; `owner` true is the owner device, whose
- * binding sends work actions and shows the serve's commit only when it is published back. */
-export function mountWorkPage(withWork = true, owner = false) {
+ * binding sends work actions and shows the serve's commit only when it is published back.
+ * `scenario`: `linked-done` has T-2 follow a page whose list summary says done; `linked-missing`
+ * follows one the list does not name; `summary-only` is a summary with no task. */
+export function mountWorkPage(
+  withWork = true,
+  owner = false,
+  scenario?: 'linked-done' | 'linked-missing' | 'summary-only',
+) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('work-page-fixture');
@@ -50,6 +57,19 @@ export function mountWorkPage(withWork = true, owner = false) {
   root = createRoot(host);
   const base = { title: 'Release notes', source: '<h1>Full page</h1>' };
   let current = work(false, owner);
+  if (scenario === 'summary-only')
+    current = {
+      version: 1,
+      next: 1,
+      order: [],
+      tasks: {},
+      summary: { line1: 'Release notes', line2: 'Nothing planned yet', attribution },
+    };
+  else if (scenario?.startsWith('linked'))
+    current = {
+      ...current,
+      tasks: { ...current.tasks, 'T-2': { ...current.tasks['T-2'], child: FOLLOWED } },
+    };
   let publishNow: ((value: PageView) => void) | undefined;
   const binding: PageBinding = {
     subscribe(publish) {
@@ -90,8 +110,37 @@ export function mountWorkPage(withWork = true, owner = false) {
   const transport = localTransport('Review space', [
     { id: 'notes', ...base, sharing: 'private', binding },
   ]);
+  const listed = transport.spaceHome.bind(transport);
   root.render(
-    <RouterProvider router={createAppRouter({ ...transport, backendName: 'Studio Mac' })} />,
+    <RouterProvider
+      router={createAppRouter({
+        ...transport,
+        // The owner list names the followed page, with the stage its summary says.
+        async spaceHome() {
+          const home = await listed();
+          return scenario === 'linked-done'
+            ? {
+                ...home,
+                pages: [
+                  ...home.pages,
+                  {
+                    id: FOLLOWED,
+                    title: 'Legal copy',
+                    sharing: 'private' as const,
+                    summary: {
+                      comments: 0,
+                      waiting: false,
+                      needsYou: 0,
+                      work: { stage: 'done' as const, done: 1, total: 1, signoff: 0, working: [] },
+                    },
+                  },
+                ],
+              }
+            : home;
+        },
+        backendName: 'Studio Mac',
+      })}
+    />,
   );
   location.hash = '/pages/notes';
 }

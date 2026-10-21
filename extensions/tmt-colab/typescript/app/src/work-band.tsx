@@ -95,6 +95,7 @@ export function WorkBand({
           </button>
         )}
       </div>
+      {derived.total === 0 && listActions && <div className="work-body">{listActions}</div>}
       {open && (
         <div className="work-body" id={listId}>
           <WorkList

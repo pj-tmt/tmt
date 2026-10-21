@@ -623,7 +623,8 @@ groups, reviews) from the admitted owner fold and `page_check::summary`'s static
 associations (200 ms projection bound), without executing authored code or trusting device labels.
 The shared needs-you vectors pin native/browser parity. A missing summary is unknown, never a false
 zero. Returning through the existing Home loader or reloading reads again; while a non-archived
-page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`).
+page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`;
+`rereadInPlace` puts the window back, since the router scrolls to the top when a load renders).
 
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
@@ -877,7 +878,10 @@ answered by `workresult`; a lost reply is settled by one `savestatus`, never res
 applied locally: one action is in flight at a time, and the list changes when the page's own stream
 brings the commit back. A refusal (`COLAB_WIP_LIMIT`, `COLAB_STALE_BASE`, …) is told in the serve's
 words and changes nothing. A shell page never draws it. The browser
-has no stage resolver for linked pages yet, so a task that follows a page shows its own state.
+takes a followed page's stage from the owner list's summaries (`useLinkedStage`, `work-stages.ts`: the list
+the viewer last loaded, then one fresh read, and only when some task follows a page); a page the list
+does not name, or whose summary has not arrived, leaves its task showing its own stored state, as the
+page list does. A band with a summary and no task offers the owner the add-task field directly.
 `work-people.tsx` is the one place an assignee is drawn (`AgentChip` for an agent).
 
 ## Short owner-page links

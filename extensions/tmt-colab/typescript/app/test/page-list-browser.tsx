@@ -27,6 +27,8 @@ declare global {
     __operationMode?: 'refuse' | 'refuse-second' | 'unverified';
     /** What `window.open` was asked for, since the fixture replaces it. */
     __opened: { url: string; target: string; features: string }[];
+    /** How many times the router has read the list. */
+    __listReads: number;
   }
 }
 let root: Root | undefined;
@@ -90,6 +92,7 @@ export async function mountPageList(
   window.__pageOperations = [];
   window.__operationMode = undefined;
   window.__opened = [];
+  window.__listReads = 0;
   window.open = (url, target, features) => {
     window.__opened.push({ url: String(url), target: target ?? '', features: features ?? '' });
     return null;
@@ -275,11 +278,14 @@ export async function mountPageList(
   const router = createAppRouter({
     ...transport,
     ...(size === 'unmanaged' ? {} : { management }),
-    spaceHome: async () => ({
-      title: 'Studio pages',
-      projects: [...state.projects].sort(),
-      pages: state.pages,
-    }),
+    spaceHome: async () => {
+      window.__listReads += 1;
+      return {
+        title: 'Studio pages',
+        projects: [...state.projects].sort(),
+        pages: state.pages,
+      };
+    },
   });
   root.render(<RouterProvider router={router} />);
 }

@@ -29,8 +29,11 @@ Readers use the committed catalogue even if a crash left the legacy projection
 behind. A valid legacy latest is adopted on the first changed publication;
 named save continues to copy that legacy projection byte-for-byte. Recovery
 content equality excludes capture time, so no-change publication preserves
-recovery bytes and timestamps. The pure Core catalogue owns retention, shrink
-classification and the protected baseline; IO callers do not duplicate it.
+recovery bytes and timestamps. The pure Core catalogue retains recent distinct
+generations plus the protected pre-shrink baseline, without hourly buckets.
+It owns the bound and shrink classification; IO callers do not duplicate them.
+Existing v1 history remains readable within the contract's admission bound and
+is trimmed on the next changed publication, preserving no-write reads and unchanged captures.
 
 ## Recovery commands
 

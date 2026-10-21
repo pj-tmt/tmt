@@ -81,19 +81,23 @@ refresh setting and binding/launch event triggers retain their own policy.
 
 ## Retention and shrink protection
 
-Retain the union of the last 10 distinct publications, the newest publication
-in each of the last 24 UTC hour buckets, and one protected baseline: at most 35
-unique automatic generations. Publication order remains authoritative if the
+Retain the union of the last 5 distinct publications and one protected baseline:
+at most 6 unique automatic generations. There are no hourly buckets.
+Publication order remains authoritative if the
 wall clock moves backwards. Pruning happens only after the new index commits,
 and removes only owned, unreferenced, valid documents whose exact content digest
 matches their automatic filename. A later update can remove complete crash
 orphans under the same lock. Manual saves are independent of this bound.
 
+V1 read admission accepts existing catalogues of up to 35 entries. Reads and
+unchanged captures do not rewrite them. The next changed publication commits the
+current retention selection before pruning, leaving at most 6 verified generations.
+
 Compare each capture with the protected baseline (or the preceding capture
 before a baseline exists). Losing at least half of either nonzero pane count or
 unique annotated identity count marks a shrink. The smaller capture is retained,
 while the baseline remains pinned across server restarts, repeated small
-captures and hourly expiry. The protected baseline is the latest generation that
+captures and recent-generation pruning. The protected baseline is the latest generation that
 is not a shrink; ordinary declines advance it. A completed explicit generation
 restore may accept a smaller baseline, only if
 the baseline has not changed since acquisition; it never overwrites a newer
