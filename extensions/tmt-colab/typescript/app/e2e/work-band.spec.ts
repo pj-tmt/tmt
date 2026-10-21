@@ -3,7 +3,7 @@ import { capturePath } from './captures.js';
 
 declare global {
   interface Window {
-    __workPage?: { finish(): void };
+    __workPage?: import('../test/work-page-browser.js').WorkPageHook;
   }
 }
 
@@ -145,12 +145,15 @@ test('a summary alone shows two lines; no summary and no tasks shows nothing', a
   await expect(host.locator('.work-band')).toHaveCount(0);
 });
 
-async function mountRoute(page: Page, withWork: boolean) {
+async function mountRoute(page: Page, withWork: boolean, owner = false) {
   await page.goto('/');
-  await page.evaluate(async (withWork) => {
-    const path = '/test/work-page-browser.tsx';
-    (await import(path)).mountWorkPage(withWork);
-  }, withWork);
+  await page.evaluate(
+    async ([withWork, owner]) => {
+      const path = '/test/work-page-browser.tsx';
+      (await import(path)).mountWorkPage(withWork, owner);
+    },
+    [withWork, owner],
+  );
   await expect(page.locator('.page-header-actions:visible')).toBeVisible();
 }
 
@@ -186,6 +189,157 @@ for (const [width, height] of [
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       ).toBe(true);
       await page.screenshot({ path: capturePath(`work-band-${width}-${scheme}.png`) });
+    });
+  }
+}
+
+async function openTask(page: Page, id: string) {
+  await mountRoute(page, true, true);
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  await band.getByRole('button', { name: /Show \d+ tasks/ }).click();
+  await band.locator('.work-row', { hasText: id }).locator('button').click();
+  return band;
+}
+const calls = (page: Page) => page.evaluate(() => window.__workPage!.calls);
+
+test('a device that cannot change work sees no controls', async ({ page }) => {
+  await mountRoute(page, true, false);
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  await band.getByRole('button', { name: 'Show 2 tasks' }).click();
+  await band.locator('.work-row button').first().click();
+  await expect(band.locator('.work-detail')).toBeVisible();
+  await expect(band.locator('.work-controls')).toHaveCount(0);
+  await expect(band.locator('.work-add')).toHaveCount(0);
+});
+
+test('a state change is sent as one action and shows once the page brings it back', async ({
+  page,
+}) => {
+  const band = await openTask(page, 'T-2');
+  await band.getByLabel('State').selectOption('in-progress');
+  await expect(band.locator('.work-row', { hasText: 'T-2' }).locator('.work-state')).toHaveText(
+    'In progress',
+  );
+  expect(await calls(page)).toEqual([
+    { action: 'task.state', body: { taskId: 'T-2', state: 'in-progress' } },
+  ]);
+});
+
+test('blocking asks for a reason and sends it with the state', async ({ page }) => {
+  const band = await openTask(page, 'T-2');
+  await band.getByLabel('State').selectOption('blocked');
+  await expect(band.getByRole('button', { name: 'Block' })).toBeDisabled();
+  await band.getByLabel('Reason').fill('Waiting for the legal copy');
+  await band.getByRole('button', { name: 'Block' }).click();
+  await expect(band.locator('.work-detail-state')).toContainText(
+    'Blocked · Waiting for the legal copy',
+  );
+  expect(await calls(page)).toEqual([
+    {
+      action: 'task.state',
+      body: { taskId: 'T-2', state: 'blocked', reason: 'Waiting for the legal copy' },
+    },
+  ]);
+});
+
+test('sign-off closes a flagged task; sending it back reopens it', async ({ page }) => {
+  const band = await openTask(page, 'T-3');
+  await expect(band.locator('.work-signoff')).toHaveText('1 waiting for sign-off');
+  await band.getByRole('button', { name: 'Sign off' }).click();
+  await expect(band.locator('.work-signoff')).toHaveCount(0);
+  await expect(band.locator('.work-row', { hasText: 'T-3' }).locator('.work-state')).toHaveText(
+    'Done',
+  );
+  expect(await calls(page)).toEqual([
+    { action: 'task.state', body: { taskId: 'T-3', state: 'done' } },
+  ]);
+});
+
+test('assigning names the assignee, and unassigning clears it', async ({ page }) => {
+  const band = await openTask(page, 'T-2');
+  await band.getByLabel('Name').fill('Atlas');
+  await band.getByRole('button', { name: 'Assign', exact: true }).click();
+  await expect(band.locator('.work-detail-assignee .agent-chip-name')).toHaveText('Atlas');
+  await band.getByRole('button', { name: 'Unassign' }).click();
+  await expect(band.locator('.work-detail-assignee')).toHaveCount(0);
+  expect(await calls(page)).toEqual([
+    { action: 'task.assign', body: { taskId: 'T-2', assignee: { kind: 'agent', name: 'Atlas' } } },
+    { action: 'task.assign', body: { taskId: 'T-2' } },
+  ]);
+});
+
+test("a refusal is told in the serve's words and changes nothing", async ({ page }) => {
+  const band = await openTask(page, 'T-2');
+  await page.evaluate(() => {
+    window.__workPage!.refuse = {
+      code: 'COLAB_WIP_LIMIT',
+      message: 'Atlas would hold T-1, T-2 (limit 1)',
+    };
+  });
+  await band.getByLabel('Name').fill('Atlas');
+  await band.getByRole('button', { name: 'Assign', exact: true }).click();
+  await expect(band.getByRole('alert')).toHaveText('Atlas would hold T-1, T-2 (limit 1)');
+  await expect(band.locator('.work-detail-assignee')).toHaveCount(0);
+  // The next action starts clean.
+  await band.getByRole('button', { name: 'Assign', exact: true }).click();
+  await expect(band.getByRole('alert')).toHaveCount(0);
+  await expect(band.locator('.work-detail-assignee .agent-chip-name')).toHaveText('Atlas');
+});
+
+test('editing sends the whole editable set, keeping what the form does not show', async ({
+  page,
+}) => {
+  const band = await openTask(page, 'T-3');
+  await band.getByRole('button', { name: 'Edit', exact: true }).click();
+  await band.getByLabel('Title').fill('Copy, final');
+  await band.getByLabel('Detail').fill('Two paragraphs.');
+  await band.getByRole('button', { name: 'Save' }).click();
+  await expect(band.locator('.work-detail h3')).toContainText('Copy, final');
+  await expect(band.locator('.work-detail-text')).toHaveText('Two paragraphs.');
+  expect(await calls(page)).toEqual([
+    {
+      action: 'task.set',
+      body: { taskId: 'T-3', title: 'Copy, final', detail: 'Two paragraphs.', needsSignoff: true },
+    },
+  ]);
+});
+
+test('removing needs a second click, and adding names no ID', async ({ page }) => {
+  const band = await openTask(page, 'T-2');
+  await band.getByRole('button', { name: 'Remove task' }).click();
+  expect(await calls(page)).toEqual([]);
+  await band.getByRole('button', { name: 'Remove T-2' }).click();
+  await expect(band.locator('.work-row')).toHaveCount(2);
+  await band.getByLabel('New task').fill('Publish');
+  await band.getByRole('button', { name: 'Add task' }).click();
+  await expect(band.locator('.work-row', { hasText: 'Publish' })).toContainText('T-4');
+  expect((await calls(page)).map((entry) => entry.action)).toEqual(['task.remove', 'task.add']);
+  expect((await calls(page))[1].body).toEqual({ task: { title: 'Publish' } });
+});
+
+for (const [width, height] of [
+  [1440, 900],
+  [390, 844],
+] as const) {
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`the owner's controls at ${width} in ${scheme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.emulateMedia({ colorScheme: scheme });
+      const band = await openTask(page, 'T-3');
+      await page.evaluate(() => {
+        window.__workPage!.refuse = {
+          code: 'COLAB_WIP_LIMIT',
+          message: 'Atlas would hold T-1, T-2 (limit 1)',
+        };
+      });
+      await band.getByLabel('Name').fill('Atlas');
+      await band.getByRole('button', { name: 'Assign', exact: true }).click();
+      await expect(band.getByRole('alert')).toBeVisible();
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+      await band.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: capturePath(`work-controls-${width}-${scheme}.png`) });
     });
   }
 }

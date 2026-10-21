@@ -3,10 +3,10 @@ import { text } from './strings.js';
 import type { Criterion, Task, TaskState } from './work.js';
 import { Assignees, SignoffMark, waitsForSignoff } from './work-people.js';
 
-/** Where later changes put their controls; nothing here writes, so each slot is empty today. */
+/** Where the controls go; the band itself writes nothing. */
 export interface TaskDetailSlots {
   /** Controls beside the task's own: edit, state, assign, sign-off, convert (#4118). */
-  actions?(task: Task, id: string): ReactNode;
+  actions?(task: Task, id: string, state: TaskState): ReactNode;
 }
 
 function criterion(value: Criterion): string {
@@ -74,7 +74,7 @@ export function TaskDetail({
       {task.externalId !== undefined && (
         <p className="work-external">{text.workBand.external(task.externalId)}</p>
       )}
-      {actions && <div className="work-actions">{actions(task, id)}</div>}
+      {actions && <div className="work-actions">{actions(task, id, state)}</div>}
     </section>
   );
 }

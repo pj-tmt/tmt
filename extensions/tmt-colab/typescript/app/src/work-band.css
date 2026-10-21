@@ -148,6 +148,62 @@
 .work-external {
   color: var(--c-muted);
 }
+.work-controls {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+}
+.work-controls p,
+.work-controls form,
+.work-add {
+  margin: 0;
+}
+.work-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
+}
+.work-controls label,
+.work-add label {
+  display: grid;
+  gap: 2px;
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.work-controls input,
+.work-controls select,
+.work-controls textarea,
+.work-add input {
+  font: inherit;
+  color: var(--c-text);
+  background: var(--c-sheet);
+  border: 1px solid var(--tmt-ui-color-edge);
+  border-radius: 0;
+  padding: 5px 8px;
+  min-width: 0;
+}
+.work-control-edit {
+  display: grid;
+  gap: 8px;
+}
+.work-control-edit input,
+.work-control-edit textarea {
+  width: 100%;
+}
+.work-control-note {
+  color: var(--c-muted);
+}
+.work-control-error {
+  margin: 0;
+  color: var(--c-blocked);
+  overflow-wrap: anywhere;
+}
+.work-add {
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+}
 @media (max-width: 640px) {
   .work-row button {
     grid-template-columns: 3.5em minmax(0, 1fr);
