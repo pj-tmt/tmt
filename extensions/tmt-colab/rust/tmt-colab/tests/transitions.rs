@@ -3370,9 +3370,26 @@ fn retention_and_archive_are_signed_replayable_policies_without_rotation() {
         Code::Invalid
     );
     assert_eq!(f.counts(), counts);
+    // The page's local title row (#4218) goes in the transaction that archives it.
+    let titles = |f: &Fixture| -> i64 {
+        f.db()
+            .query_row("SELECT COUNT(*) FROM page_titles", [], |r| r.get(0))
+            .unwrap()
+    };
+    let seed_title = |f: &Fixture| {
+        f.db()
+            .execute(
+                "INSERT OR REPLACE INTO page_titles(page,progress,title) VALUES (?,?,?)",
+                params![PAGE, "1:0:0:0", "A title"],
+            )
+            .unwrap();
+    };
+    seed_title(&f);
+    assert_eq!(titles(&f), 1);
     let rev = revision(&f);
     let archived = policy(&mut f, 143, rev, OwnerAction::Archive { page: PAGE }).unwrap();
     assert_eq!(wire_operations(&archived.outcome), ["page.archive"]);
+    assert_eq!(titles(&f), 0);
     let counts = f.counts();
     let now = revision(&f);
     assert_eq!(
@@ -3400,7 +3417,9 @@ fn retention_and_archive_are_signed_replayable_policies_without_rotation() {
     )
     .unwrap();
     let now = revision(&f);
+    seed_title(&f);
     policy(&mut f, 147, now, OwnerAction::Delete { page: PAGE }).unwrap();
+    assert_eq!(titles(&f), 0);
 }
 
 #[test]

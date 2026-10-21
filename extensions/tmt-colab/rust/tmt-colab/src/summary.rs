@@ -115,7 +115,14 @@ pub fn summarize(source: &mut Source, page: &str) -> Result<Summary> {
 
 /// One page through the owner fold: the same snapshot and materialize path `threads` reads.
 pub fn summarize_details(source: &mut Source, page: &str) -> Result<SummaryProjection> {
+    fold_details(source, page).map(|(projection, _)| projection)
+}
+
+/// [`summarize_details`] and the page's verified title, which the same fold already holds: `Some`
+/// only for an active page, since an archived or deleted one keeps no local title.
+fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, Option<String>)> {
     let snapshot = page::snapshot(&source.store, &source.keyring, page, false)?;
+    let active = snapshot.authority.policy.writable();
     let folded = snapshot.materialize(&source.keyring, page, &mut source.decoder)?;
     let conversations = discussion::project(&source.keyring, page, &snapshot, &folded);
     let (report, anchors) = crate::page_check::summary(&folded.source, &conversations.threads)
@@ -135,12 +142,31 @@ pub fn summarize_details(source: &mut Source, page: &str) -> Result<SummaryProje
         u32::try_from(pending.len())?,
     );
     summary.work = crate::work_index::page_work(page, &folded.meta).map(Box::new);
-    Ok(SummaryProjection {
-        summary,
-        readings,
-        needs: crate::summary_passages::needs(&report, &conversations, &pending),
-        latest: crate::summary_passages::latest(&conversations),
-    })
+    let title = active.then(|| folded.title.clone());
+    Ok((
+        SummaryProjection {
+            summary,
+            readings,
+            needs: crate::summary_passages::needs(&report, &conversations, &pending),
+            latest: crate::summary_passages::latest(&conversations),
+        },
+        title,
+    ))
+}
+
+/// One page at its fingerprint for a worker: the fold, checked against the page not having moved
+/// before or after it, and the page's verified title recorded from the same fold (best effort).
+fn summarize_current(
+    source: &mut Source,
+    titles: &mut crate::page_titles::TitleWriter,
+    page: &str,
+    fingerprint: &str,
+) -> Result<SummaryProjection> {
+    require_fingerprint(source, page, fingerprint)?;
+    let (projection, title) = fold_details(source, page)?;
+    require_fingerprint(source, page, fingerprint)?;
+    titles.record(&source.keyring, page, fingerprint, title.as_deref());
+    Ok(projection)
 }
 
 #[derive(Default)]
@@ -296,11 +322,9 @@ pub fn refresh(
                 }
                 return;
             };
+            let mut titles = crate::page_titles::TitleWriter::new(&source.layout);
             run(&cache, &pages, |page, fingerprint| {
-                require_fingerprint(&source, page, fingerprint)?;
-                let projection = summarize_details(&mut source, page)?;
-                require_fingerprint(&source, page, fingerprint)?;
-                Ok(projection)
+                summarize_current(&mut source, &mut titles, page, fingerprint)
             });
         });
     // A thread that could not start drops its closure, and with it the worker claim.
@@ -377,17 +401,14 @@ pub fn drain(cache: &Arc<SummaryCache>, open: &page::save::SourceOpener) {
                 })?;
                 Ok(recent_first(&catalog, &fingerprints))
             };
+            let mut titles = crate::page_titles::TitleWriter::new(&source.layout);
             // The fold needs the source mutably and the order reads it, so each pass takes turns.
             let source = std::cell::RefCell::new(&mut source);
             drain_with(
                 &cache,
                 || order(&source.borrow()),
                 |page, fingerprint| {
-                    let mut source = source.borrow_mut();
-                    require_fingerprint(&source, page, fingerprint)?;
-                    let projection = summarize_details(&mut source, page)?;
-                    require_fingerprint(&source, page, fingerprint)?;
-                    Ok(projection)
+                    summarize_current(&mut source.borrow_mut(), &mut titles, page, fingerprint)
                 },
             );
         });

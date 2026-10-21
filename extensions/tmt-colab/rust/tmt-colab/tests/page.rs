@@ -5946,6 +5946,67 @@ fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_th
 }
 
 #[test]
+fn the_summary_worker_records_the_verified_title_it_folds_and_a_changed_page_replaces_it() {
+    use tmt_colab::registration::Registration;
+    let mut f = Fixture::new();
+    let root = f.root.clone();
+    let context = json!({"deviceId":DEVICE,"kind":"browser","origin":"http://127.0.0.1:1","name":"Laptop",
+        "publicKey":values::encode_binary(SigningKey::from_bytes(&[9; 32]).verifying_key().as_bytes()),
+        "owner":true,"grantRevision":1})
+    .to_string();
+    let registration = Registration::with_decoder_config(
+        Store::open(&f.layout).unwrap(),
+        Keyring::read(&f.layout).unwrap(),
+        support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+    )
+    .unwrap()
+    .with_summary_source(std::sync::Arc::new(move || {
+        tmt_colab::page::save::open_source(
+            &root,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+    }));
+    // The stored row as (title, progress key it was folded at).
+    let stored = |f: &Fixture| -> Option<(String, String)> {
+        use rusqlite::OptionalExtension;
+        f.sql()
+            .query_row(
+                "SELECT title, progress FROM page_titles WHERE page=?",
+                [PAGE],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .unwrap()
+    };
+    // A list read schedules the drain; the row appears (or changes) once the worker has folded.
+    let settled = |f: &Fixture, previous: Option<&(String, String)>| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            registration.pages(Some(&context)).unwrap();
+            let row = stored(f);
+            if let Some(found) = row.as_ref().filter(|found| Some(*found) != previous) {
+                return found.clone();
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no title row: {row:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    };
+    assert_eq!(stored(&f), None);
+    let first = settled(&f, None);
+    assert_eq!(first.0, "Exact title 🐈");
+    // A changed page keeps its old row until the worker folds the new state, and the replaced row
+    // carries the new progress key; a list read never serves the stale one (store unit tests).
+    f.write("new 🐈\r\n");
+    assert_eq!(stored(&f).as_ref(), Some(&first));
+    let second = settled(&f, Some(&first));
+    assert_eq!(second.0, "Exact title 🐈");
+    assert_ne!(second.1, first.1);
+}
+
+#[test]
 fn proposal_decision_is_final_and_resolution_remains_independent() {
     use tmt_colab::{
         discussion,

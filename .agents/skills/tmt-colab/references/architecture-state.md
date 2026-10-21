@@ -581,7 +581,16 @@ is added.
   20, text made inert), never a second state owner. The cache retains at most
   `PAGES` entries, including failures; catalog reads prune deleted pages. The owner-only chapter-details
   route reads one current fingerprint without decoding on the request path; complete results are
-  bounded by `SUMMARY_DETAILS_BYTES`, pending/failed entries remain unknown. Nothing is persisted.
+  bounded by `SUMMARY_DETAILS_BYTES`, pending/failed entries remain unknown. The summary values are
+  not persisted; the title is, by the next entry.
+- Page titles (`page_titles.rs`, `page_titles` in schema 16) are the owner's local plaintext title
+  projection of an active page. The same two summary workers write it as a by-product of the fold
+  they already do (`summary::summarize_current`), through `TitleWriter`'s own lazily opened store:
+  the page's full fingerprint is captured before the fold and compared again inside the immediate
+  `project_transaction`, so a concurrent edit, membership change, archive or delete installs
+  nothing. A row keeps the head-less `page_progress` key, and `page_titles()` serves only a row whose key is current.
+  A write error is ignored by design (the row is rebuildable); `page.archive` drops the row in its
+  own transaction and `delete_page_data` drops it with the page. Nothing serves it yet.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.

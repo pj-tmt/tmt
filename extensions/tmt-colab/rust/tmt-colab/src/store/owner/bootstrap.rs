@@ -202,6 +202,61 @@ impl OwnerTransaction<'_> {
     pub(crate) fn page_progress(&self) -> Result<std::collections::BTreeMap<String, String>> {
         self.selected_page_fingerprints(None, false)
     }
+    /// The owner's local plaintext title of a page, display-only projection state (#4218). It is
+    /// stored only while `expected` is still the page's fingerprint: the one the verified fold that
+    /// produced `title` started from, so a page that changed meanwhile (an edit, a membership change,
+    /// an archive or a delete) keeps its old row, or none, until its next fold. A title that is empty
+    /// or over [`crate::limits::PAGE_TITLE_BYTES`] is not stored and removes the older row. Returns
+    /// whether a row was written.
+    pub fn record_page_title(&mut self, page: &str, expected: &str, title: &str) -> Result<bool> {
+        values::generated_id(page).map_err(|_| OwnerFault::Invalid)?;
+        if self.page_fingerprint(page)?.as_deref() != Some(expected) {
+            return Ok(false);
+        }
+        if title.is_empty() || title.len() > crate::limits::PAGE_TITLE_BYTES {
+            self.drop_page_title(page)?;
+            return Ok(false);
+        }
+        let progress = self
+            .selected_page_fingerprints(Some(page), false)?
+            .remove(page)
+            .ok_or(OwnerFault::Invalid)?;
+        self.tx.execute(
+            "INSERT INTO page_titles(page,progress,title) VALUES (?1,?2,?3)
+             ON CONFLICT(page) DO UPDATE SET progress=excluded.progress,title=excluded.title",
+            params![page, progress, title],
+        )?;
+        Ok(true)
+    }
+    /// An archive, like a delete, takes the page's title row away; unarchiving leaves it absent
+    /// until the next verified fold writes it again.
+    pub(crate) fn drop_page_title(&self, page: &str) -> Result<()> {
+        self.tx
+            .execute("DELETE FROM page_titles WHERE page=?", [page])?;
+        Ok(())
+    }
+    /// The title rows still valid for their page: a row whose progress key is no longer the page's
+    /// is stale and left out. Holding no row is never an error; the caller shows its own fallback.
+    pub fn page_titles(&self) -> Result<std::collections::BTreeMap<String, String>> {
+        let progress = self.page_progress()?;
+        let mut query = self
+            .tx
+            .prepare("SELECT page,progress,title FROM page_titles ORDER BY page LIMIT 1001")?;
+        let mut titles = std::collections::BTreeMap::new();
+        for row in query.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })? {
+            let (page, stored, title) = row?;
+            if progress.get(&page) == Some(&stored) {
+                titles.insert(page, title);
+            }
+        }
+        Ok(titles)
+    }
     fn selected_page_fingerprints(
         &self,
         page: Option<&str>,

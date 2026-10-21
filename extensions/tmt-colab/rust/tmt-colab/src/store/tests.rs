@@ -478,3 +478,129 @@ fn a_bootstrap_that_is_malformed_stale_or_over_budget_writes_nothing() {
     assert_eq!((f.rows("checkpoints"), f.rows("receipts")), before);
     assert_eq!(f.head(STREAM), None);
 }
+
+mod page_titles {
+    use super::*;
+    use crate::keyring::Keyring;
+    use crate::store::owner::OwnerTransaction;
+
+    const TITLED: &str = "10000000-0000-4000-8000-000000000001";
+
+    struct Titled {
+        fixture: Fixture,
+        key: Keyring,
+    }
+    impl Titled {
+        fn new() -> Self {
+            let fixture = Fixture::new();
+            let key = Keyring::open(&Layout::open(&fixture.root).unwrap()).unwrap();
+            fixture.store.create_page(TITLED).unwrap();
+            Self { fixture, key }
+        }
+        /// An admitted update: the page's content counts move, so its fingerprint does too.
+        fn edit(&mut self, seq: u64) {
+            self.fixture
+                .store
+                .append(&Envelope {
+                    scope: StreamScope {
+                        page: TITLED,
+                        epoch: 1,
+                        stream: STREAM,
+                    },
+                    namespace: Namespace::Content,
+                    seq,
+                    hash: [seq as u8; 32],
+                    previous: if seq == 1 {
+                        [0; 32]
+                    } else {
+                        [(seq - 1) as u8; 32]
+                    },
+                    bytes: b"update",
+                })
+                .unwrap();
+        }
+        fn fingerprint(&mut self) -> String {
+            self.tx(|tx| Ok(tx.page_fingerprint(TITLED)?.unwrap()))
+        }
+        fn record(&mut self, expected: &str, title: &str) -> bool {
+            self.tx(|tx| tx.record_page_title(TITLED, expected, title))
+        }
+        fn titles(&mut self) -> Vec<(String, String)> {
+            self.tx(|tx| Ok(tx.page_titles()?.into_iter().collect()))
+        }
+        fn tx<T>(&mut self, apply: impl FnOnce(&mut OwnerTransaction<'_>) -> Result<T>) -> T {
+            self.fixture
+                .store
+                .project_transaction(&self.key.space_id, &self.key.owner_public(), apply)
+                .unwrap()
+        }
+        fn rows(&self) -> i64 {
+            self.fixture.rows("page_titles")
+        }
+    }
+
+    #[test]
+    fn a_title_is_stored_at_the_fingerprint_its_fold_started_from() {
+        let mut t = Titled::new();
+        t.edit(1);
+        let fingerprint = t.fingerprint();
+        assert!(t.record(&fingerprint, "First title"));
+        assert_eq!(t.titles(), [(TITLED.into(), "First title".into())]);
+        // A second fold of the same page replaces the row.
+        assert!(t.record(&fingerprint, "Renamed"));
+        assert_eq!(t.titles(), [(TITLED.into(), "Renamed".into())]);
+        assert_eq!(t.rows(), 1);
+    }
+
+    #[test]
+    fn a_page_that_changed_during_its_fold_installs_nothing_and_its_old_row_goes_stale() {
+        let mut t = Titled::new();
+        t.edit(1);
+        let first = t.fingerprint();
+        assert!(t.record(&first, "Old"));
+        t.edit(2);
+        // The fold that started at the old fingerprint cannot install its result.
+        assert!(!t.record(&first, "Racing"));
+        assert_eq!(t.rows(), 1);
+        // The old row is no longer the page's: it is not read, and the next fold replaces it.
+        assert_eq!(t.titles(), []);
+        let second = t.fingerprint();
+        assert!(t.record(&second, "New"));
+        assert_eq!(t.titles(), [(TITLED.into(), "New".into())]);
+    }
+
+    #[test]
+    fn an_empty_or_over_long_title_is_not_stored_and_removes_the_older_row() {
+        let mut t = Titled::new();
+        t.edit(1);
+        let fingerprint = t.fingerprint();
+        let longest = "é".repeat(crate::limits::PAGE_TITLE_BYTES / 2);
+        assert!(t.record(&fingerprint, &longest));
+        assert!(!t.record(&fingerprint, &format!("{longest}x")));
+        assert_eq!(t.rows(), 0);
+        assert!(t.record(&fingerprint, "Back"));
+        assert!(!t.record(&fingerprint, ""));
+        assert_eq!(t.rows(), 0);
+    }
+
+    #[test]
+    fn an_archive_and_a_delete_take_the_row_and_the_title_of_a_page_the_store_lacks_is_refused() {
+        let mut t = Titled::new();
+        t.edit(1);
+        let fingerprint = t.fingerprint();
+        assert!(t.record(&fingerprint, "Kept"));
+        t.tx(|tx| tx.drop_page_title(TITLED));
+        assert_eq!(t.rows(), 0);
+        assert!(t.record(&fingerprint, "Again"));
+        t.tx(|tx| tx.delete_page_data(TITLED));
+        assert_eq!(t.rows(), 0);
+        // A page ID that is not a generated one never reaches a statement.
+        let refused =
+            t.fixture
+                .store
+                .project_transaction(&t.key.space_id, &t.key.owner_public(), |tx| {
+                    tx.record_page_title("not-an-id", "x", "Title")
+                });
+        assert!(refused.is_err());
+    }
+}

@@ -4958,6 +4958,21 @@ other policy or epoch change. The migration leaves legacy times null without bac
 effective activity is the later of `last_activity_at_ms` and `last_update_at_ms`; null is
 unknown, never old. No command reports the value yet.
 
+Schema 16 adds `page_titles(page, progress, title)`, the owner's local plaintext title projection of an
+active page: one row per page, `title` 1–512 UTF-8 bytes. It is derived only from the owner's
+own verified fold (a decoder-folded title of a page whose authority is writable), never from
+browser input, and the summary workers are its only writers. A worker captures the page's
+fingerprint before folding and installs the row in an immediate transaction only if the
+page's full fingerprint, membership head included, is unchanged; a changed, archived or
+deleted page installs nothing. The row stores the page's head-less progress key, and a
+read serves only a row whose key equals the page's current one, so another page's creation
+or sharing does not discard every title. Archiving a page, manually or by the inactivity
+lifecycle once applied, drops its row in the same transaction as the archive flag; deleting
+a page drops it with the page's other data and the tombstone stays. A later unarchive waits for the next
+verified fold. The cloud row's `expiresAtMs` never removes it. The projection is rebuildable,
+so losing it loses no source or authority, and it never enters an owner statement, sync or cloud
+payload, share-link bootstrap or export. Nothing serves it yet.
+
 Retention defaults to 30 days; forever is null. The expiry shown is the cloud copy's and is
 never derived from local activity: `expiresAtMs` is the `expiresAt` of the page's owner row as
 the cloud last confirmed it for the page's current epoch. The serve's cloud-sync worker records
@@ -6096,7 +6111,7 @@ pages and 16 MiB of admitted incoming sync frames per Home generation, including
 reads. It uses the existing verified read catch-up and isolated fold, never an editor,
 Ask or a write. Each connection closes and joins before its successor; leaving Home or
 replacing the mounted session cancels its reads. A failure or exhausted budget keeps
-the existing fallback; no plaintext title endpoint or native title store is introduced.
+the existing fallback; Home adds no plaintext title endpoint of its own.
 
 The paired mounted app may show a display-only Remote session snapshot in the shared
 header status slot. The existing signed SDK device list is read sequentially at mount,
