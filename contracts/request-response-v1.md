@@ -10,10 +10,11 @@ route with at most one live-delivery attempt when an endpoint is recorded.
 Unbound identities and explicit `talk --inbox` queue without that attempt.
 Neither implies a daemon, remote transport or authentication.
 
-A cooperating agent submits its complete final body successfully, then may show
-a short truthful summary of work, verification and unresolved items. Submission
-means delivered, not successful work; summary failure cannot undo an accepted
-reply. [Architecture](../ARCHITECTURE.md) owns implementation boundaries and
+A cooperating agent submits its complete final body successfully. That reply is
+the answer: the agent neither repeats it in its pane nor says it replied elsewhere,
+and reports a failed submission. Submission means delivered, not successful work;
+nothing said after an accepted reply can undo it. [Architecture](../ARCHITECTURE.md)
+owns implementation boundaries and
 [the Working handbook chapter](../site/src/chapters/working.mdx) provides usage examples.
 
 ## Durable final submission
@@ -161,7 +162,7 @@ Use file/stdin for larger or NUL-containing bodies.
 
 Requests group one reply command in `<tmt-reply from="…">` tags, including the
 receipt once. The XML-escaped originator name is presentation, not authentication.
-Brief submission/summary/error guidance stays outside. This is request
+Brief submission/no-repeat/error guidance stays outside. This is request
 grouping, not a hidden UI promise or terminal-output boundary. HTML comments
 would conflict with ASCII `!` protection, which remains unchanged. Detailed
 input and retry rules remain in installed skills/help instead of every request.
@@ -175,10 +176,10 @@ with `RESPONSE_NOT_AVAILABLE` (exit 3), not a claim that a request is unknown,
 cancelled or completed. Input deadline uses exit 4; conflicting final uses exit 5.
 
 Result retrieval and final acceptance work after pane closure and waiter exit. They reuse the
-service and its retention, not another reply store. Agent guidance requires a
-truthful short user summary only after successful submission. Submission means
-the result was delivered, not that the requested task succeeded. Summary failure
-does not undo or justify repeating an accepted final.
+service and its retention, not another reply store. Agent guidance treats the
+reply as the whole answer, not repeated in the pane. Submission means
+the result was delivered, not that the requested task succeeded. Nothing said
+after an accepted final undoes or justifies repeating it.
 
 ### Display normalization
 
@@ -517,8 +518,8 @@ request/submitted/summary or failure events, and retains a full-body oracle.
 Virtualized output exposes only its tail; acceptance requires exact complete
 talk/result equality, not a missing-interior characterization. Same-pane input
 serialization, exactly-once processing and remote authentication are
-still outside scope. User-installed skills teach full submission first, then
-a truthful work/tests/blockers summary; failed submission is never success.
+still outside scope. User-installed skills teach full submission first and no
+repeat of the reply in the pane; failed submission is never success.
 
 ## TMT Exchange and attention
 

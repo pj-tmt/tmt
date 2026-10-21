@@ -13,6 +13,7 @@ export interface MockEvent {
     | 'summary'
     | 'failure'
     | 'fake-marker'
+    | 'guidance'
     | 'child-start'
     | 'child-close'
     | 'silent'

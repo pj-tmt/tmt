@@ -522,3 +522,37 @@ fi
     );
   }, 35_000);
 });
+
+describe('#4207 a request gets one answer', { concurrent: false }, () => {
+  it('asks the recipient to reply once and not to repeat the answer in its pane', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        const result = await fixture.runJsonCli<TalkResult>([
+          'talk',
+          fixture.pane,
+          'one question',
+          '--no-preamble',
+          '--timeout',
+          '8',
+        ]);
+        expect(result.code, result.stderr || result.stdout).toBe(0);
+        expect(result.json).toMatchObject({
+          status: 'completed',
+          response: 'mock-agent response: one question',
+        });
+        const requestId = result.json?.requestId ?? '';
+        await waitForSubmitted(fixture, requestId);
+        const guidance = await fixture.waitForEvent(
+          (event) => event.event === 'guidance' && event.requestId === requestId,
+          5_000
+        );
+        expect(guidance.line).toBe(
+          'Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors.'
+        );
+        expect(guidance.line).not.toContain('summary');
+        expect(submittedFor(fixture.events(), requestId)).toHaveLength(1);
+      },
+      { mode: 'respond' }
+    );
+  }, 35_000);
+});

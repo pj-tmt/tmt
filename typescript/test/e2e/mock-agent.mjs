@@ -299,6 +299,7 @@ const input = readline.createInterface({ input: process.stdin, terminal: false }
 let messageLines = [];
 let frame;
 let guidancePending = false;
+let guidanceFor = '';
 
 appendEvent({ event: 'ready', mode, pid: process.pid });
 
@@ -325,6 +326,8 @@ input.on('line', (line) => {
       return;
     }
     guidancePending = false;
+    // The line after the frame says how to answer; record it so a scenario can read it.
+    appendEvent({ event: 'guidance', requestId: guidanceFor, line, mode, pid: process.pid });
     return;
   }
 
@@ -346,6 +349,7 @@ input.on('line', (line) => {
       }
       const requestId = command.requestId;
       const receipt = command.receipt;
+      guidanceFor = requestId;
       appendEvent({
         event: 'request',
         message,
