@@ -127,11 +127,16 @@ for (const width of [1440, 390])
             .map((node) => node.className),
         };
       });
+      // Only the shell's own chrome stays fixed: the bar with the rail and module menu (a phone's
+      // menu button instead of the rail); the index adds nothing and scrolls with the window.
       expect(scroll).toEqual({
         window: true,
         horizontal: false,
         nested: [],
-        fixed: ['tmt-ui-header'],
+        fixed:
+          width < 480
+            ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar']
+            : ['tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-module-menu'],
       });
     });
   }
