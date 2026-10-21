@@ -483,6 +483,7 @@ mod crash_tests {
                 })
                 .count();
             assert_eq!(automatic, catalogue.entries.len());
+            assert!(automatic <= 6);
         }
         assert_eq!(fs::read(&foreign).unwrap(), b"foreign malformed content");
         assert_eq!(fs::read_link(&link).unwrap(), target);
