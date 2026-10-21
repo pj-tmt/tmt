@@ -64,7 +64,7 @@ export function ColabShell({
       const read = address === undefined ? undefined : await loadShellAnswer(address);
       if (read) setAnswer(read);
     });
-  }, []);
+  }, [hostSlot]);
 
   const scope =
     location.pathname === '/' ? (location.search as { scope?: string }).scope : undefined;
