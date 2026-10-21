@@ -385,7 +385,8 @@ status `pricing` object plus `schema`:
   version never changes its prices. A fetched or cached file whose `version` is
   already known (the built-in table's, or the cache's) is used only if it equals
   that table after parsing; a file with an older `version` than the built-in
-  table's is dropped, so a table never rolls back. A price change always takes a
+  table's or the cache's is dropped, so a table never rolls back and `main` going back
+  changes nothing. A price change always takes a
   new `version`.
 - **Fetch.** `tmt digest status` makes one anonymous HTTPS GET of
   `https://raw.githubusercontent.com/pj-tmt/tmt/main/extensions/tmt-digest/pricing/pricing-v1.json`:
@@ -404,6 +405,8 @@ status `pricing` object plus `schema`:
   directory and file (owner-only, no symlinks, at most 64 KiB), replaced atomically.
   It holds the last valid fetched file, `fetchedAtMs` and the last `attemptedAtMs`.
   It is untrusted on read: the file is validated again, and any doubt means no cache.
+  A write first removes leftover `.fetched-v1.json.<pid>` temporary files older than one
+  minute, which a process that ended before its fetch can leave behind.
 - **Output.** `pricing.origin` is `fetched`, `cached` or `built-in`, and
   `fetchedAtMs` (the fetch that produced the file) is present unless `built-in`.
   Every quote of a document uses that document's table and says its version.

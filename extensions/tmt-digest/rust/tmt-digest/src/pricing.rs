@@ -73,11 +73,7 @@ impl Table {
     /// May this table be used next to `known`? Never an older version, and a
     /// version already known is the same table: a price change takes a new version.
     fn follows(&self, known: &Self) -> bool {
-        self.version >= known.version && self.consistent_with(known)
-    }
-
-    fn consistent_with(&self, known: &Self) -> bool {
-        self.version != known.version || self == known
+        self.version > known.version || self == known
     }
 
     pub fn quote(&self, model: &str, observed_at: u64, tokens: u64) -> Option<Value> {
@@ -262,7 +258,7 @@ fn attempt(
     let fetched = fetch::get(target)
         .and_then(|bytes| Table::parse(&bytes))
         .filter(|table| {
-            table.follows(built_in()) && known.is_none_or(|known| table.consistent_with(known))
+            table.follows(built_in()) && known.is_none_or(|known| table.follows(known))
         });
     let next = match &fetched {
         Some(table) => cache::State {

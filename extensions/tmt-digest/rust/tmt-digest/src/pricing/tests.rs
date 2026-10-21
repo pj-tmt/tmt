@@ -329,8 +329,6 @@ fn a_version_is_one_table_and_never_older_than_what_is_known() {
         !table(&older).follows(&known),
         "an older version never rolls back"
     );
-    assert!(!table(&repriced).consistent_with(&known));
-    assert!(table(&older).consistent_with(&known));
 }
 
 #[test]
@@ -494,6 +492,82 @@ fn a_fetched_file_cannot_change_the_prices_of_a_known_version() {
     let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
     assert_eq!(resolved.document()["origin"], "fetched");
     assert_eq!(resolved.table(), built_in());
+}
+
+#[test]
+fn a_fetched_file_older_than_the_cached_one_is_dropped() {
+    // Newer than the built-in table, older than the cache: valid, but it would roll back.
+    let mut between = newer();
+    between["version"] = json!("2026-10-20");
+    between["asOf"] = json!("2026-10-20");
+    between["models"][0]["usdMicrosPerMillionInputTokens"] = json!(4_500_000);
+    let server = Server::answering(Answer::Body(bytes(&between)));
+
+    let temp = Temp::new();
+    let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
+    assert_eq!(
+        resolved.document()["origin"],
+        "fetched",
+        "alone it is usable"
+    );
+    assert_eq!(resolved.document()["version"], "2026-10-20");
+
+    let temp = Temp::new();
+    cache::write(&temp.0, &state(&newer(), NOW - 60_000)).unwrap();
+    let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
+    let document = resolved.document();
+    assert_eq!(document["origin"], "cached");
+    assert_eq!(document["version"], "2026-11-01");
+    assert_eq!(price(&resolved, "claude-opus-5-5"), 5_000_000);
+    let kept = cache::read(&temp.0).unwrap();
+    assert_eq!(kept.attempted_at_ms, NOW, "the attempt counts");
+    assert_eq!(kept.fetched_at_ms, Some(NOW - 60_000));
+    assert_eq!(kept.file, Some(table(&newer())), "the cache keeps its file");
+}
+
+#[test]
+fn the_next_cache_write_removes_only_stale_temporary_files() {
+    let temp = Temp::new();
+    let directory = temp.0.join("digest/pricing");
+    cache::write(&temp.0, &state(&newer(), NOW - 60_000)).unwrap();
+    let aged = |path: &Path, seconds: u64| {
+        fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(seconds))
+            .unwrap();
+    };
+    let make = |name: &str, seconds: u64| {
+        let path = directory.join(name);
+        fs::write(&path, b"leftover").unwrap();
+        aged(&path, seconds);
+        path
+    };
+    let stale = make(".fetched-v1.json.4242", 120);
+    let fresh = make(".fetched-v1.json.4343", 5);
+    let other_name = make(".fetched-v1.json.old", 120);
+    let unrelated = make("notes.txt", 120);
+    let not_a_file = directory.join(".fetched-v1.json.4444");
+    fs::create_dir(&not_a_file).unwrap();
+    let target = temp.0.join("elsewhere");
+    fs::write(&target, b"mine").unwrap();
+    aged(&target, 120);
+    let link = directory.join(".fetched-v1.json.4545");
+    symlink(&target, &link).unwrap();
+
+    // An attempt that fails still writes the cache, and that write sweeps.
+    let server = Server::answering(Answer::Status(500));
+    Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
+
+    assert!(!stale.exists(), "a leftover older than a minute is removed");
+    assert!(fresh.exists(), "a concurrent writer's file is never taken");
+    assert!(other_name.exists(), "only a writer's pid-named files");
+    assert!(unrelated.exists(), "only temporary files");
+    assert!(not_a_file.is_dir(), "only plain files");
+    assert!(link.symlink_metadata().is_ok(), "a link is left alone");
+    assert_eq!(fs::read(&target).unwrap(), b"mine");
+    assert!(cache::read(&temp.0).is_some(), "the cache itself is intact");
 }
 
 #[test]
