@@ -4969,7 +4969,9 @@ read serves only a row whose key equals the page's current one, so another page'
 or sharing does not discard every title. Archiving a page, manually or by the inactivity
 lifecycle once applied, drops its row in the same transaction as the archive flag; deleting
 a page drops it with the page's other data and the tombstone stays. A later unarchive waits for the next
-verified fold. The cloud row's `expiresAtMs` never removes it. The projection is rebuildable,
+verified fold. The serve starts one fold of every page without a fresh summary when it starts, and each
+list read schedules the same, so a store that gained the projection by an upgrade fills without
+anyone opening the list; there is no backfill state. The cloud row's `expiresAtMs` never removes it. The projection is rebuildable,
 so losing it loses no source or authority, and it never enters an owner statement, sync or cloud
 payload, share-link bootstrap or export. Nothing serves it yet.
 

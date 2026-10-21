@@ -590,7 +590,10 @@ is added.
   `project_transaction`, so a concurrent edit, membership change, archive or delete installs
   nothing. A row keeps the head-less `page_progress` key, and `page_titles()` serves only a row whose key is current.
   A write error is ignored by design (the row is rebuildable); `page.archive` drops the row in its
-  own transaction and `delete_page_data` drops it with the page. Nothing serves it yet.
+  own transaction and `delete_page_data` drops it with the page. The serve calls
+  `Registration::start_summaries` once at start (the same single-flight `summary::drain` a list read
+  schedules), so a store upgraded to schema 16 fills without the list being opened; no backfill state.
+  Nothing serves it yet.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.
