@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "digest",
   "channel": "alpha",
-  "version": "0.1.0-alpha.28",
-  "tag": "tmt-digest-v0.1.0-alpha.28",
+  "version": "0.1.0-alpha.29",
+  "tag": "tmt-digest-v0.1.0-alpha.29",
   "record": {
-    "url": "https://github.com/pj-tmt/tmt/releases/download/tmt-digest-v0.1.0-alpha.28/tmt-release-record.json",
+    "url": "https://github.com/pj-tmt/tmt/releases/download/tmt-digest-v0.1.0-alpha.29/tmt-release-record.json",
     "size": 1597,
-    "sha256": "4f44408727f26e27a3b6ac2558b38aab00a11f7794efd0b06918b54325d94ed2"
+    "sha256": "f7aff8da12eb4e61926db9d80b29f9fbf239c97f1a005e900066b9d7d0786c75"
   }
 }
