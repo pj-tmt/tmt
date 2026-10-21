@@ -213,6 +213,9 @@ pub struct Config {
     pub activate: Arc<Activate>,
     pub report: Arc<dyn Fn(&str) + Send + Sync>,
     pub declaration_digest: String,
+    /// The space's page expiry, read whenever a page row is written: it is the cloud lifetime of a
+    /// page whose own policy says nothing.
+    pub page_expiry: Arc<dyn Fn() -> crate::page_expiry::SpaceExpiry + Send + Sync>,
 }
 
 /// The serve's one cloud-sync worker.
@@ -235,6 +238,7 @@ impl CloudSync {
             activate,
             report,
             declaration_digest,
+            page_expiry,
         } = config;
         let (local_space, inbound_space, inbound_layout) =
             (space.clone(), space.clone(), layout.clone());
@@ -248,14 +252,17 @@ impl CloudSync {
             local: Arc::new(move |bound| {
                 let store = Store::open(&layout).ok()?;
                 let writer = Keyring::read(&layout).ok()?.local_writer().ok()?.0;
-                Some(Box::new(StoreLocal::new(
-                    store,
-                    owner,
-                    writer,
-                    local_space.clone(),
-                    bound,
-                    Arc::new(now_ms),
-                )))
+                Some(Box::new(
+                    StoreLocal::new(
+                        store,
+                        owner,
+                        writer,
+                        local_space.clone(),
+                        bound,
+                        Arc::new(now_ms),
+                    )
+                    .with_page_expiry(Arc::clone(&page_expiry)),
+                ))
             }),
             inbound: Some(Arc::new(move |_| {
                 let store =

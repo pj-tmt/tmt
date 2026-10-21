@@ -380,10 +380,10 @@ fn a_retention_override_moves_the_page_rows_expiry_and_it_is_the_rows_own_refres
     };
     let expiry =
         |days: u64| serde_json::to_value(Field::timestamp(NOW + days * DAY_MS).unwrap()).unwrap();
-    // The policy's own default is 30 days.
+    // A page whose policy says nothing takes the space's expiry: 180 days by default.
     let (document, refresh) = page_row(fixture.local.preamble(&page).ok().unwrap());
-    assert_eq!(document.fields["expiresAt"], expiry(30));
-    assert_eq!(refresh, row_refresh(30));
+    assert_eq!(document.fields["expiresAt"], expiry(180));
+    assert_eq!(refresh, row_refresh(180));
     // An owner override changes both the expiry and, with the policy, what is rewritten.
     fixture.retention(90, "40000000-0000-4000-8000-000000000002");
     let (document, _) = page_row(fixture.local.preamble(&page).ok().unwrap());
@@ -391,6 +391,97 @@ fn a_retention_override_moves_the_page_rows_expiry_and_it_is_the_rows_own_refres
     fixture.retention(1000, "40000000-0000-4000-8000-000000000003");
     let (document, _) = page_row(fixture.local.preamble(&page).ok().unwrap());
     assert_eq!(document.fields["expiresAt"], expiry(365));
+}
+
+#[test]
+fn a_page_row_that_lapses_never_outlives_the_entries_the_activity_that_refreshed_it_wrote() {
+    // Entries keep their own deadline from their write; the page row is written again within
+    // `row_refresh` of activity. So a row of `days` ends before the newest entries unless
+    // `days` plus that refresh reaches the entries' lifetime: 360 days, and the maximum is 365.
+    let entries = std::time::Duration::from_secs(ENTRY_DAYS * 24 * 3600);
+    let day = std::time::Duration::from_secs(24 * 3600);
+    let outlived = |days: u64| day * days as u32 + row_refresh(days) >= entries;
+    for days in 1..=358 {
+        assert!(!outlived(days), "{days} days");
+    }
+    // The default, every setting short of a year, and an owner override all end first.
+    assert!(!outlived(cloud_days(effective_days(
+        PageRetention::Inherit,
+        SpaceExpiry::Default
+    ))));
+    assert!(!outlived(cloud_days(effective_days(
+        PageRetention::Days(90),
+        SpaceExpiry::Off
+    ))));
+    // From 359 days up, and for a page never archived, the row can end with or after the newest
+    // entries, by at most the difference to the maximum (5 days) plus a refresh; entry renewal,
+    // which is separate, closes that.
+    for days in [359, 360, 365] {
+        assert!(outlived(days), "{days} days");
+    }
+    assert_eq!(
+        cloud_days(effective_days(PageRetention::Forever, SpaceExpiry::Default)),
+        365
+    );
+    assert_eq!(
+        cloud_days(effective_days(PageRetention::Inherit, SpaceExpiry::Off)),
+        365
+    );
+}
+
+#[test]
+fn the_cloud_lifetime_and_the_archive_read_the_same_effective_days() {
+    use crate::{inspection, page_expiry::SpaceExpiry};
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    fixture.append(DEVICE);
+    let row_days = |fixture: &mut Fixture| {
+        fixture
+            .local
+            .preamble(&page)
+            .ok()
+            .unwrap()
+            .into_iter()
+            .find_map(|row| match row {
+                Row::Put { days, .. } => Some(days),
+                Row::Create(_) => None,
+            })
+            .unwrap()
+    };
+    let archive_days = |fixture: &Fixture, space: SpaceExpiry| {
+        let store = Store::open(&fixture.layout).unwrap();
+        let catalog = inspection::catalog_for(&store, &fixture.key, space).unwrap();
+        catalog["pages"][0]["archiveAfterDays"].as_u64()
+    };
+    for (own, statement) in [(None, 0), (Some(90), 1), (Some(1000), 2)] {
+        if let Some(days) = own {
+            fixture.retention(
+                days,
+                &format!("40000000-0000-4000-8000-00000000010{statement}"),
+            );
+        }
+        for space in [
+            SpaceExpiry::Default,
+            SpaceExpiry::Days(45),
+            SpaceExpiry::Days(1000),
+            SpaceExpiry::Off,
+        ] {
+            fixture.local.page_expiry = Arc::new(move || space);
+            let archive = archive_days(&fixture, space);
+            // One number decides both: the cloud row lives that many days, within the declared
+            // maximum, and a page never archived is given the maximum.
+            assert_eq!(
+                row_days(&mut fixture),
+                cloud_days(archive),
+                "own {own:?}, space {space:?}"
+            );
+            let expected = match (own, space) {
+                (Some(days), _) => Some(days),
+                (None, space) => space.days(),
+            };
+            assert_eq!(archive, expected, "own {own:?}, space {space:?}");
+        }
+    }
 }
 
 #[test]
@@ -422,7 +513,7 @@ fn the_page_rows_expiry_is_recorded_only_once_the_cloud_confirms_it() {
             Row::Create(_) => None,
         })
         .unwrap();
-    assert_eq!(expires, NOW + 30 * DAY_MS);
+    assert_eq!(expires, NOW + 180 * DAY_MS);
     // Reading the rows to write records nothing: the cloud has not confirmed them.
     assert!(recorded(&fixture).is_empty());
     fixture.local.page_row_confirmed(&page, expires).unwrap();

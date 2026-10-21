@@ -875,7 +875,7 @@ fn an_expired_cloud_copy_is_written_again_when_the_page_is_reopened_from_local()
         .as_str()
         .unwrap()
         .to_owned();
-    assert!(thirty < beyond, "{thirty} is the 30-day default");
+    assert!(thirty < beyond, "{thirty} is the 180-day default");
     until("the page row takes the maximum cloud lifetime", || {
         page_expiry(&emulator, &page) > beyond
     });

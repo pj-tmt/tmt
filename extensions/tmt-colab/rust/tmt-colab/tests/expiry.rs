@@ -139,7 +139,7 @@ fn verified_projection_reports_the_cloud_expiry_the_last_confirmed_page_row_made
     // Nothing was ever confirmed in the cloud: the page is local only, with nothing to warn of.
     let p = f.projection();
     assert_eq!(p["lastUpdateAtMs"], NOW);
-    assert_eq!(p["retentionDays"], 30);
+    assert_eq!(p["retentionDays"], 180);
     assert!(p["expiresAtMs"].is_null());
     assert_eq!(p["warnings"], json!([]));
     f.store.confirm_page_row(PAGE, 1, NOW + 30 * DAY).unwrap();

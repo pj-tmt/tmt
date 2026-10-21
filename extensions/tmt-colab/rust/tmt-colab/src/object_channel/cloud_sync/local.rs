@@ -10,6 +10,7 @@ use crate::{
         self, Field, Resource,
         originals::{self, Authority, Routing},
     },
+    page_expiry::{PageRetention, SpaceExpiry, effective_days},
     store::{self, Namespace, NamespaceCursor, Store, StreamScope, publication::CloudBinding},
 };
 use std::sync::Arc;
@@ -20,8 +21,8 @@ const DAY_MS: u64 = 24 * 3_600_000;
 const ENTRY_DAYS: u64 = 360;
 /// The longest a page's cloud copy lives without activity: what the declaration and the Rules
 /// admit (365 days from the request). A page with no local expiry (forever) is given this much,
-/// since the cloud lifetime has no forever option; the policy's own 30-day default is its
-/// retention, not a fallback here.
+/// since the cloud lifetime has no forever option; the space's default expiry is its retention,
+/// not a fallback here.
 const CLOUD_MAX_DAYS: u64 = 365;
 /// The cloud lifetime of a page with no activity, in days: its finite retention within one
 /// through [`CLOUD_MAX_DAYS`], and the maximum for a page kept forever locally.
@@ -57,6 +58,8 @@ pub(crate) struct StoreLocal {
     space: String,
     bound: Bound,
     now: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// The space's page expiry, read when a page row is written so a changed setting applies.
+    page_expiry: Arc<dyn Fn() -> SpaceExpiry + Send + Sync>,
 }
 fn stuck_read() -> Fault {
     Fault::Stuck("Local page state could not be read for cloud sync.")
@@ -102,7 +105,16 @@ impl StoreLocal {
             space,
             bound,
             now,
+            page_expiry: Arc::new(SpaceExpiry::default),
         }
+    }
+    /// Judge each page's lifetime by this space setting instead of the default.
+    pub(crate) fn with_page_expiry(
+        mut self,
+        page_expiry: Arc<dyn Fn() -> SpaceExpiry + Send + Sync>,
+    ) -> Self {
+        self.page_expiry = page_expiry;
+        self
     }
     fn routing<'a>(&'a self, page: &'a PageRef, expires: Field) -> Routing<'a> {
         Routing {
@@ -220,7 +232,7 @@ impl Local for StoreLocal {
         let now = (self.now)();
         let local = self.local_streams(page)?;
         struct Snapshot {
-            retention_days: Option<u64>,
+            retention: PageRetention,
             archived: bool,
             statements: Vec<Vec<u8>>,
             chains: Vec<Vec<u8>>,
@@ -266,7 +278,7 @@ impl Local for StoreLocal {
                     });
                 }
                 Ok(Some(Snapshot {
-                    retention_days: policy.retention_days,
+                    retention: policy.retention,
                     archived: policy.archived,
                     statements: tx.membership_originals(&head)?,
                     chains,
@@ -293,7 +305,7 @@ impl Local for StoreLocal {
             Resource::Spaces,
             vec![("space", text(&self.space)), ("owner", text(uid))],
         )?));
-        let days = cloud_days(snapshot.retention_days);
+        let days = cloud_days(effective_days(snapshot.retention, (self.page_expiry)()));
         let expires_ms = now + days * DAY_MS;
         rows.push(Row::Put {
             days,

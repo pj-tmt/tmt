@@ -171,6 +171,8 @@ pub struct Registration {
     summaries: std::sync::Arc<crate::summary::SummaryCache>,
     /// How the background refresh opens its own read-only source; without it no summary is made.
     summary_source: Option<crate::page::save::SourceOpener>,
+    /// The space's page expiry, read whenever a catalog is made or a page is judged idle.
+    page_expiry: std::sync::Arc<dyn Fn() -> crate::page_expiry::SpaceExpiry + Send + Sync>,
 }
 impl Registration {
     pub fn new(
@@ -194,6 +196,7 @@ impl Registration {
             save_source: None,
             summaries: Default::default(),
             summary_source: None,
+            page_expiry: std::sync::Arc::new(crate::page_expiry::SpaceExpiry::default),
         })
     }
     /// The page's current epoch, to name it when the cloud worker is asked to look at it again.
@@ -348,7 +351,7 @@ impl Registration {
     > {
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
-                Ok((tx.page_list()?, tx.page_fingerprints()?))
+                Ok((tx.page_list((self.page_expiry)())?, tx.page_fingerprints()?))
             })
             .map_err(map_error)
     }
@@ -519,6 +522,58 @@ impl Registration {
     pub fn with_summary_source(mut self, open: crate::page::save::SourceOpener) -> Self {
         self.summary_source = Some(open);
         self
+    }
+    /// Judge pages by this space setting instead of the default expiry.
+    pub fn with_page_expiry(
+        mut self,
+        page_expiry: std::sync::Arc<dyn Fn() -> crate::page_expiry::SpaceExpiry + Send + Sync>,
+    ) -> Self {
+        self.page_expiry = page_expiry;
+        self
+    }
+    /// The space's page expiry now.
+    pub(crate) fn page_expiry(&self) -> crate::page_expiry::SpaceExpiry {
+        (self.page_expiry)()
+    }
+    /// Archive `page` if it is idle at `now` under the space's expiry. It is judged here, in the
+    /// transaction that signs, so an update that landed since the caller looked wins. `None`: it is
+    /// not idle (any more). The caller holds sync before this mutex, as for every owner change.
+    pub(crate) fn archive_if_idle(
+        &mut self,
+        page: &str,
+        now: u64,
+    ) -> std::result::Result<Option<crate::expirer::Idle>, crate::transitions::Code> {
+        use crate::transitions::Code;
+        let space = (self.page_expiry)();
+        let (catalog, revision) = self
+            .store
+            .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                Ok((tx.page_list_for_cli(space)?, tx.head().map(|h| h.revision)))
+            })
+            .map_err(|_| Code::Unavailable)?;
+        let judged = crate::expirer::judge(&catalog, now);
+        let Some(idle) = judged.idle.into_iter().find(|idle| idle.page == page) else {
+            return Ok(None);
+        };
+        if judged.clock_behind {
+            return Ok(None);
+        }
+        let operation_id = crate::page::fresh_id().map_err(|_| Code::Unavailable)?;
+        self.engine
+            .apply(
+                &mut self.store,
+                &self.keyring,
+                crate::transitions::OwnerRequest {
+                    operation_id: &operation_id,
+                    expected_revision: revision.ok_or(Code::Unavailable)?,
+                    action: crate::transitions::OwnerAction::Archive { page },
+                    transport_digest: None,
+                    scope: None,
+                },
+                now,
+            )
+            .map_err(|error| error.code)?;
+        Ok(Some(idle))
     }
     pub fn with_save_source(mut self, open: crate::page::save::SourceOpener) -> Self {
         self.save_source = Some(open);

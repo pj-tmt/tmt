@@ -412,6 +412,17 @@ function acknowledgment(f: Awaited<ReturnType<typeof fixture>>, p: Pending) {
     membershipHead: { revision: String(head.revision), statementHash: c.encodeBinary(head.hash) },
   };
 }
+it('shows the space expiry for a page with no signed retention and the signed value once there is one', async () => {
+  const f = await fixture();
+  // The catalog's value is the owner machine's page expiry, which no signed statement carries.
+  for (const days of [180, 45, null]) {
+    expect(project({ ...page, retentionDays: days }, f.log, f.boot.owner).page.retentionDays).toBe(
+      days,
+    );
+  }
+  await f.append('retention.set', { pageId: v.page, days: 14 });
+  expect(project({ ...page, retentionDays: 180 }, f.log, f.boot.owner).page.retentionDays).toBe(14);
+});
 it('projects signed retention and rejects invalid days, extra fields and wrong page before signing', async () => {
   const f = await fixture();
   expect(f.view.page.retentionDays).toBe(30);

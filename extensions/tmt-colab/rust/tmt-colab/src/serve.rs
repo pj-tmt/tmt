@@ -506,8 +506,13 @@ fn serve(
         let (pages, all_pages) = open_pages(&store, &keyring);
         let save_root = root.to_path_buf();
         let summary_root = root.to_path_buf();
+        // The space's page expiry is read whenever it is used, so a changed setting applies at once.
+        let expiry_root = root.to_path_buf();
+        let page_expiry: Arc<dyn Fn() -> tmt_colab::page_expiry::SpaceExpiry + Send + Sync> =
+            Arc::new(move || tmt_colab::settings::read_or_default(&expiry_root).page_expiry());
         let registration = Arc::new(Mutex::new(
             Registration::new(store, keyring, std::env::current_exe()?)?
+                .with_page_expiry(Arc::clone(&page_expiry))
                 .with_save_source(Arc::new(move || {
                     tmt_colab::page::save::open_source(
                         &save_root,
@@ -539,9 +544,12 @@ fn serve(
                     activate: Arc::new(supervisor::activate_sync),
                     report: Arc::new(warn),
                     declaration_digest: digest,
+                    page_expiry: Arc::clone(&page_expiry),
                 },
             )?;
         }
+        // Idle pages are archived while serving (#2600); each one is reported.
+        socket = socket.with_scheduled_archive(Arc::new(warn));
         // The socket is bound first, so a door started now mounts it as soon as it is ready.
         let access = supervisor::Access::open(stop);
         if let supervisor::Access::Unavailable {

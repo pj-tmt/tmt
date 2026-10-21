@@ -4507,9 +4507,9 @@ only, no cloud accounts, billing or deployments.
 
 **Channel boundary: split.** Page expiry policy and warnings stay; backend enforcement uses remote-provisioned resources that colab declares.
 
-Cloud lifetime defaults to 30 days from the last activity refresh. Owner overrides
-are 1 through 365 days, with a maximum of 365 days from refresh; cloud lifetime
-has no forever option. The default and override selection are client policy;
+Cloud lifetime defaults to the space's page expiry, 180 days unless changed, from the last
+activity refresh. Owner overrides are 1 through 365 days, with a maximum of 365 days from
+refresh; cloud lifetime has no forever option, and a page that is never archived is given 365. The default and override selection are client policy;
 Firestore Rules enforce the finite 365-day admission ceiling, not the default.
 The Rules admit owner-only expiry refresh of logs and checkpoint chunks, each at most 365 days from the request, without
 changing ciphertext, routing fields or writer identity. An owner may delete
@@ -4518,8 +4518,9 @@ of live pages and other tenants' data. Physical TTL remains eventual and is not
 required for logical expiry.
 
 The serve's cloud-sync worker applies the lifetime. A page's row carries `expiresAt` of
-its retention days from the write: the policy's 30 days by default, an owner override of
-1 through 365, and 365 for a page kept forever locally, since the cloud lifetime has no
+its effective retention days from the write: the space's page expiry by default (180 days
+unless changed), an owner override of 1 through 365, and 365 for a page kept forever locally or
+in a space whose expiry is off, since the cloud lifetime has no
 forever option. The row is written again at once when its epoch, state or lifetime
 changes (a log create is checked against the row's epoch and `open` state), and on
 activity after at most one day, or half of a one-day lifetime. An activity refresh
@@ -4527,7 +4528,12 @@ updates only the page row. A row that lapsed while the owner was away is written
 by the next pass after the page is reopened from local, and its entries, which keep their
 own deadlines, read again. Each confirmed write of the page row is recorded as the page's
 cloud expiry, which the owner's page list shows (see [Local management CLI](#local-management-cli-1307)).
-Renewal of entries near their own expiry awaits its own slice.
+Renewal of entries near their own expiry awaits its own slice. Until it lands the relation is
+this: entries end 360 days after their write and the page row is written again within a day of
+activity, so a row of 358 days or fewer, which includes the 180-day default, always ends before
+the newest entries, and expiry still denies every content read. A row of 359 to 365 days, a
+space whose expiry is off and a page kept forever can end with or after its newest entries by at
+most five days plus a refresh, and read as absent once an entry has lapsed.
 Logs and checkpoint chunks have independent deadlines and need renewal only near their
 own expiry horizon, avoiding a rewrite of every entry on each page edit. Entries may
 outlive their page, but page expiry still denies every content read. The binding must
@@ -4548,7 +4554,20 @@ output reports it as `pageExpiryDays`, null for `off`. A page's own signed `rete
 overrides it (`forever` never archives), and one function decides which applies: a page with no
 `retention.set` takes the space's setting. Each owner machine applies its own setting, so where
 several machines serve one space the shortest wins. The setting signs nothing and changes no
-stored statement. Nothing applies it yet; the scheduled archive of #2600 will.
+stored statement.
+
+While `serve` runs it archives pages that sit idle. A worker looks 30 seconds after the serve
+starts and then every hour, and signs the ordinary `page.archive` (never a delete, and no new
+statement) for a page whose `archiveAtMs` has passed, at most 20 pages a pass, most overdue
+first. Before it signs, the page is judged again inside the signing transaction under the sync
+lock, so an edit, comment or reply admitted since the scan wins and the page is left for a later
+pass. A page that is already archived or deleted, a page with no recorded activity, and a shell
+page are never archived for inactivity; if the clock is behind any recorded page activity the
+whole pass archives nothing. Every archive is reported with the page ID, the days that applied
+and the activity it was judged on. Each owner machine serving the space runs its own pass with
+its own setting. The pass is restart-safe: an archived page is not idle. `tmt colab expire
+--dry-run` prints what the next pass would archive, changes nothing, and is the only form of the
+command.
 
 The local management reads (`ls`, `show`, `retention`) report it per page; the catalog the
 browser is served does not carry it. `lastActivityAtMs` is the page's effective activity (the later of the last activity and
@@ -4568,8 +4587,7 @@ Spark compaction and expiry share the daily per-page delete budget; exhaustion
 backs off and keeps data longer, never loses live data. DO alarms delete page
 storage and R2 objects; R2 lifecycle cleans orphan staging only. Archive hides
 and freezes; delete ceases access and removes ciphertext. Neither promises
-secure erasure or recalls offline copies. The local owner engine signs retention
-changes without scheduling expiry. Archive allows reads/catchup but denies writes;
+secure erasure or recalls offline copies. Archive allows reads/catchup but denies writes;
 delete denies reads, writes, catchup and queued delivery and removes the page's
 ciphertext, checkpoints, baselines, wraps and epoch secrets in the owner
 transaction. Signed policy, operation receipts and the reserved page ID remain;
@@ -4823,7 +4841,9 @@ other policy or epoch change. The migration leaves legacy times null without bac
 effective activity is the later of `last_activity_at_ms` and `last_update_at_ms`; null is
 unknown, never old. No command reports the value yet.
 
-Retention defaults to 30 days; forever is null. The expiry shown is the cloud copy's and is
+A page whose policy never signed `retention.set` takes the space's page expiry (180 days
+unless changed, null when off); a signed override, a day count or forever (null), wins, and
+`retentionDays` in every catalog is that effective value. The expiry shown is the cloud copy's and is
 never derived from local activity: `expiresAtMs` is the `expiresAt` of the page's owner row as
 the cloud last confirmed it for the page's current epoch. The serve's cloud-sync worker records
 it when its write of the row is confirmed (Store schema 11: one row per page holding the epoch
@@ -6071,7 +6091,8 @@ assignments derive from the contiguous verified owner log, never discovery label
 Metadata catchup reuses bounded frame/chunk assembly and owner-log admission,
 then closes before content decoding. Baseline ciphertext can be consumed as part
 of wire framing but is never decrypted or materialized for management. A failed
-preview does not remove home management access. Retention defaults to 30 days.
+preview does not remove home management access. Retention defaults to the space's page expiry
+(180 days unless changed), which the dialog's days field offers when a page is kept forever.
 Chrome presents the native durable last-update/expiry display hints as relative
 retention time, with the absolute local date on hover. The hint stays inside the
 page card under its status badge. The seven-day warning and the not-in-the-cloud state

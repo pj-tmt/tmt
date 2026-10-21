@@ -130,7 +130,6 @@ export function project(
     ...page,
     sharing: 'private',
     history: 'shared',
-    retentionDays: 30,
     ...pageLifecycle(log, page.pageId),
   };
   const members = new Map<string, Recipient>(),

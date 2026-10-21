@@ -450,6 +450,13 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
         usage: view.usage,
     })
 }
+/// Whether the page is a shell page: structured links and no HTML. Archiving for inactivity
+/// leaves shells alone (#2600).
+pub fn is_shell(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<bool> {
+    let s = snapshot(store, key, page, false)?;
+    let view = s.materialize(key, page, decoder)?;
+    Ok(view.meta["pageType"].as_str() == Some("shell"))
+}
 /// Structured read, without inventing an HTML source. The shell value includes owner-supplied
 /// summary attribution; target access is resolved separately by each reader.
 #[derive(Serialize)]

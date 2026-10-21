@@ -10,6 +10,7 @@ use crate::{
     attachments::slots::StagingSlots,
     cloud_sync::{self, ActivePage, CloudSync, PageRef},
     control::{self, Control, StopReply},
+    expirer::Expirer,
     keyring::{Layout, StateFault},
     limits, management,
     object_channel::ChannelOwner,
@@ -112,7 +113,11 @@ pub struct MountSocket {
     objects: Arc<ChannelOwner>,
     slots: Option<Arc<StagingSlots>>,
     cloud: Option<Cloud>,
+    /// Where the scheduled archive says what it did; without it the serve archives nothing.
+    scheduled_archive: Option<Report>,
 }
+/// Where a background worker says what it did.
+type Report = Arc<dyn Fn(&str) + Send + Sync>;
 /// Everything the cloud-sync worker is started with, held until the serve loop begins.
 struct Cloud {
     activity: ActivePage,
@@ -179,6 +184,7 @@ impl MountSocket {
             objects: Arc::new(ChannelOwner::new(Arc::new(|| None))),
             slots: None,
             cloud: None,
+            scheduled_archive: None,
         })
     }
     /// Record how the Remote door is held (one of `control::DOORS`) for a stop request to report.
@@ -239,6 +245,12 @@ impl MountSocket {
         });
         Ok(self)
     }
+    /// Archive the pages that sit idle while serving (#2600), reporting each one through `report`.
+    /// It needs the registration and the sync server first.
+    pub fn with_scheduled_archive(mut self, report: Report) -> Self {
+        self.scheduled_archive = Some(report);
+        self
+    }
     pub fn run(self, stop: &AtomicBool) -> Result<()> {
         self.run_until_replacement(stop, &AtomicBool::new(false))
             .map(|_| ())
@@ -268,6 +280,24 @@ impl MountSocket {
             _ => None,
         };
         let activity = self.cloud.as_ref().map(|cloud| cloud.activity.clone());
+        let expirer = match (&self.registration, &self.sync, &self.scheduled_archive) {
+            (Some(registration), Some(sync), Some(report)) => {
+                let source = registration.lock().ok().and_then(|r| r.save_source());
+                source
+                    .map(|source| {
+                        Expirer::start(
+                            Arc::clone(registration),
+                            sync.clone(),
+                            source,
+                            activity.clone(),
+                            self.browser.space_id.clone(),
+                            Arc::clone(report),
+                        )
+                    })
+                    .transpose()?
+            }
+            _ => None,
+        };
         let cloud = match (self.cloud.take(), &self.sync) {
             (Some(cloud), Some(sync)) => Some(CloudSync::serve(
                 Arc::clone(&self.objects),
@@ -299,7 +329,8 @@ impl MountSocket {
                 let saves_idle = self.sync.as_ref().is_none_or(Server::is_idle);
                 if replacement.load(Ordering::Acquire) {
                     let since = requested.get_or_insert_with(Instant::now);
-                    let maintenance_idle = rekeyer.as_ref().is_none_or(Rekeyer::is_idle);
+                    let maintenance_idle = rekeyer.as_ref().is_none_or(Rekeyer::is_idle)
+                        && expirer.as_ref().is_none_or(Expirer::is_idle);
                     if !draining
                         && ((busy == 0 && saves_idle && maintenance_idle)
                             || since.elapsed() >= Duration::from_secs(60))
@@ -310,6 +341,9 @@ impl MountSocket {
                         if let Some(rekeyer) = &rekeyer {
                             rekeyer.request_stop();
                         }
+                        if let Some(expirer) = &expirer {
+                            expirer.request_stop();
+                        }
                         draining = true;
                     }
                     if draining {
@@ -318,6 +352,7 @@ impl MountSocket {
                         if busy == 0
                             && saves_idle
                             && rekeyer.as_ref().is_none_or(Rekeyer::is_finished)
+                            && expirer.as_ref().is_none_or(Expirer::is_finished)
                         {
                             return Ok(true);
                         }
@@ -395,6 +430,9 @@ impl MountSocket {
         self.objects.close();
         if let Some(rekeyer) = rekeyer {
             rekeyer.stop();
+        }
+        if let Some(expirer) = expirer {
+            expirer.stop();
         }
         if let Some(cloud) = cloud {
             cloud.stop();

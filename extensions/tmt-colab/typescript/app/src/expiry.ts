@@ -1,3 +1,6 @@
+/** Days without activity before a page is archived when its space says nothing else: the owner's
+ * default in `page_expiry.rs`, shown only as the starting value of the days field. */
+export const DEFAULT_PAGE_EXPIRY_DAYS = 180;
 /** Server-observed metadata is a display hint, never an access decision. */
 export interface ExpiryInfo {
   retentionDays: number | null;

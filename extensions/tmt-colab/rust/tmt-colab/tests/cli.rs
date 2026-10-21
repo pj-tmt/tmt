@@ -5098,7 +5098,7 @@ fn full_management_cli_serving_and_stopped_commits_policy_and_replays_after_rest
                 pilot.call(&["share", "history", PAGE, "current", "--json"]);
             }
             let policy = pilot.call(&["retention", PAGE, "--json"]);
-            assert_eq!(policy["page"]["retentionDays"], 30);
+            assert_eq!(policy["page"]["retentionDays"], 180);
             let revision = policy["membershipHead"]["revision"].as_str().unwrap();
             let stale_revision = (revision.parse::<u64>().unwrap() - 1).to_string();
             let stale = frozen_management(
@@ -5328,7 +5328,7 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
         assert!(human.status.success());
         let shown = String::from_utf8(human.stdout).unwrap();
         assert!(shown.contains(PAGE));
-        assert!(shown.contains("retention") && shown.contains("30 days"));
+        assert!(shown.contains("retention") && shown.contains("180 days"));
         assert!(shown.contains("membership") && shown.contains("revision"));
         assert!(!shown.contains("retentionDays") && !shown.contains('{'));
         assert!(!shown.contains("audience") && !shown.contains("epoch"));
@@ -7268,6 +7268,122 @@ fn the_page_expiry_setting_is_days_off_or_default_and_keeps_other_settings() {
         assert_eq!(error["error"]["code"], "COLAB_INPUT_INVALID", "{bad}");
     }
     assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"open":false}"#);
+}
+#[test]
+fn expire_dry_run_lists_what_the_next_pass_archives_and_changes_nothing() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let pilot = Pilot::new(None);
+    pilot.devices(r#"{"devices":[]}"#);
+    let idle = pilot.call(&[
+        "page", "create", "--title", "Idle", "--layout", "column", "--json",
+    ])["pageId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let fresh = pilot.call(&[
+        "page", "create", "--title", "Fresh", "--layout", "column", "--json",
+    ])["pageId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let shell = pilot.call(&["shell", "create", "--title", "Links", "--json"])["pageId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let now = u64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
+    )
+    .unwrap();
+    let set_active = |page: &str, ms: u64| {
+        rusqlite::Connection::open(pilot.root.join("selected/colab/space.db"))
+            .unwrap()
+            .execute(
+                "UPDATE pages SET last_update_at_ms=NULL, last_activity_at_ms=?1 WHERE page=?2",
+                rusqlite::params![i64::try_from(ms).unwrap(), page],
+            )
+            .unwrap();
+    };
+    // Without --dry-run there is nothing to do: archiving is the serve's.
+    assert!(
+        !pilot
+            .command()
+            .arg("expire")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let day = 86_400_000u64;
+    set_active(&idle, now - 200 * day);
+    set_active(&fresh, now - 10 * day);
+    set_active(&shell, now - 400 * day);
+    let plan = pilot.call(&["expire", "--dry-run", "--json"]);
+    assert_eq!(plan["dryRun"], true);
+    assert_eq!(plan["pageExpiryDays"], 180);
+    assert_eq!(plan["clockBehind"], false);
+    assert_eq!(plan["shells"], 1, "the shell page is left alone");
+    assert_eq!(plan["more"], false);
+    assert_eq!(
+        plan["archive"],
+        json!([{"pageId":idle,"lastActivityAtMs":now - 200 * day,"archiveAfterDays":180,
+            "dueAtMs":now - 20 * day}])
+    );
+    let text = String::from_utf8(
+        pilot
+            .command()
+            .args(["expire", "--dry-run"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert!(
+        text.contains("WOULD ARCHIVE") && text.contains(&idle),
+        "{text}"
+    );
+    assert!(text.contains("200 days idle, limit 180 days"), "{text}");
+    assert!(!text.contains(&fresh), "{text}");
+    // The space setting and a page's own retention change what is due; nothing was archived.
+    pilot.call(&["settings", "page-expiry", "5", "--json"]);
+    let ids: Vec<String> = pilot.call(&["expire", "--dry-run", "--json"])["archive"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["pageId"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(ids, [idle.clone(), fresh.clone()], "most overdue first");
+    pilot.call(&["retention", &fresh, "forever", "--json"]);
+    pilot.call(&["settings", "page-expiry", "off", "--json"]);
+    let off = pilot.call(&["expire", "--dry-run", "--json"]);
+    assert_eq!(off["archive"], json!([]));
+    assert_eq!(off["pageExpiryDays"], json!(null));
+    assert!(
+        String::from_utf8(
+            pilot
+                .command()
+                .args(["expire", "--dry-run"])
+                .output()
+                .unwrap()
+                .stdout
+        )
+        .unwrap()
+        .contains("NOTHING IS DUE")
+    );
+    // A clock behind the recorded activity archives nothing.
+    pilot.call(&["settings", "page-expiry", "default", "--json"]);
+    set_active(&idle, now + 30 * day);
+    let behind = pilot.call(&["expire", "--dry-run", "--json"]);
+    assert_eq!(behind["clockBehind"], true);
+    assert_eq!(behind["archive"], json!([]));
+    for page in [&idle, &fresh, &shell] {
+        assert_eq!(
+            pilot.call(&["show", page, "--json"])["page"]["archived"],
+            false
+        );
+    }
 }
 #[test]
 fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_retention() {

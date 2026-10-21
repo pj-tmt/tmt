@@ -234,15 +234,15 @@ impl OwnerTransaction<'_> {
         Ok(out)
     }
     /// The catalog the browser is served: exactly the page fields the owner socket declares.
-    pub(crate) fn page_list(&self) -> Result<serde_json::Value> {
-        self.page_list_with(None)
+    pub(crate) fn page_list(&self, space: SpaceExpiry) -> Result<serde_json::Value> {
+        self.page_list_with(space, false)
     }
     /// The catalog of the local management CLI: the page fields plus when each page was last active
     /// and when the space's expiry setting says it is archived (#2600).
     pub(crate) fn page_list_for_cli(&self, space: SpaceExpiry) -> Result<serde_json::Value> {
-        self.page_list_with(Some(space))
+        self.page_list_with(space, true)
     }
-    fn page_list_with(&self, space: Option<SpaceExpiry>) -> Result<serde_json::Value> {
+    fn page_list_with(&self, space: SpaceExpiry, cli: bool) -> Result<serde_json::Value> {
         let mut query = self.tx.prepare(
             "SELECT page,epoch,last_update_at_ms,last_activity_at_ms FROM pages ORDER BY page LIMIT 1001",
         )?;
@@ -272,7 +272,7 @@ impl OwnerTransaction<'_> {
             if pages.len() == 1000 {
                 return Err(OwnerFault::Capacity.into());
             }
-            pages.insert(id.clone(),serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false,"retentionDays":30,"lastUpdateAtMs":updated}));
+            pages.insert(id.clone(),serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false,"retentionDays":null,"lastUpdateAtMs":updated}));
         }
         let known_ids: Vec<String> = pages.keys().cloned().collect();
         let mut retention: std::collections::BTreeMap<String, PageRetention> = Default::default();
@@ -328,11 +328,7 @@ impl OwnerTransaction<'_> {
                     }
                 }
                 payload::Payload::RetentionSet(p) => {
-                    if let Some(page) = pages.get_mut(&p.page_id) {
-                        page["retentionDays"] = match p.days {
-                            payload::Days::Forever => serde_json::Value::Null,
-                            payload::Days::Count(n) => serde_json::json!(n),
-                        };
+                    if pages.contains_key(&p.page_id) {
                         retention.insert(
                             p.page_id.clone(),
                             match p.days {
@@ -359,6 +355,11 @@ impl OwnerTransaction<'_> {
         }
         if head.as_ref() != self.head() {
             return Err(OwnerFault::Invalid.into());
+        }
+        // A page's retention is its own signed statement, else the space's page expiry.
+        for (id, page) in pages.iter_mut() {
+            let own = retention.get(id).copied().unwrap_or(PageRetention::Inherit);
+            page["retentionDays"] = serde_json::json!(effective_days(own, space));
         }
         let now = (self.clock)()?;
         values::time(now)?;
@@ -407,11 +408,10 @@ impl OwnerTransaction<'_> {
         for (id, page) in pages.iter_mut() {
             page["projects"] = serde_json::json!(projects.remove(id).unwrap_or_default());
         }
-        if let Some(space) = space {
+        if cli {
             for (id, page) in pages.iter_mut() {
                 let active = activity.get(id).copied().flatten();
-                let page_retention = retention.get(id).copied().unwrap_or(PageRetention::Inherit);
-                let days = effective_days(page_retention, space);
+                let days = page["retentionDays"].as_u64();
                 page["lastActivityAtMs"] = serde_json::json!(active);
                 page["archiveAfterDays"] = serde_json::json!(days);
                 // An archived page is past this; a page whose activity is unknown has no due time.

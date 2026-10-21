@@ -1827,7 +1827,7 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
     let page = |projects: Value| {
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130","pageIds":[{"pageId":PAGE,"deleted":false}],
         "projects":projects,
-        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"projects":projects}]})
+        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":180,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"projects":projects}]})
     };
     // The reply names the space's projects and every entry the projects it is in (display-only,
     // from the owner store, sorted), empty by default.
@@ -5697,6 +5697,7 @@ fn the_serve_runs_cloud_sync_once_listening_asks_remote_once_and_joins_it_at_sto
             }),
             report: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
             declaration_digest: "b".repeat(64),
+            page_expiry: Arc::new(tmt_colab::page_expiry::SpaceExpiry::default),
         },
     );
     let deadline = Instant::now() + Duration::from_secs(10);

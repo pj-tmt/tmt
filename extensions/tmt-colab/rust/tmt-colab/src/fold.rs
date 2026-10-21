@@ -42,7 +42,8 @@ pub(crate) struct PagePolicy {
     pub history_current: bool,
     pub archived: bool,
     pub deleted: bool,
-    pub retention_days: Option<u64>,
+    /// What the page's signed policy says about retention; the space decides until it says.
+    pub retention: crate::page_expiry::PageRetention,
 }
 impl Default for PagePolicy {
     fn default() -> Self {
@@ -53,7 +54,7 @@ impl Default for PagePolicy {
             history_current: false,
             archived: false,
             deleted: false,
-            retention_days: Some(30),
+            retention: crate::page_expiry::PageRetention::Inherit,
         }
     }
 }
@@ -81,9 +82,9 @@ impl PagePolicy {
                 self.history_current = matches!(p.mode, payload::HistoryMode::Current);
             }
             Payload::RetentionSet(p) if p.page_id == page => {
-                self.retention_days = match p.days {
-                    payload::Days::Forever => None,
-                    payload::Days::Count(n) => Some(n),
+                self.retention = match p.days {
+                    payload::Days::Forever => crate::page_expiry::PageRetention::Forever,
+                    payload::Days::Count(n) => crate::page_expiry::PageRetention::Days(n),
                 };
             }
             Payload::Archive(p) if p.page_id == page => self.archived = true,

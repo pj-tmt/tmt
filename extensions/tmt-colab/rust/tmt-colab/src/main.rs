@@ -1,5 +1,6 @@
 mod cli_attachments;
 mod cli_compact;
+mod cli_expire;
 mod cli_grammar;
 mod cli_layout;
 mod cli_management;
@@ -491,6 +492,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "shell" {
         return cli_shell::run(&root, args);
+    }
+    if command == "expire" {
+        return cli_expire::run(&root, args.get_flag("json"));
     }
     if command == "task" || command == "summary" {
         return cli_work::run(&root, command, args);

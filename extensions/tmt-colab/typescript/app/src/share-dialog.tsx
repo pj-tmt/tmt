@@ -1,6 +1,6 @@
 import { readerUrl } from './reader-link.js';
 import { BearerArtifact } from './bearer-artifact.js';
-import { localTime } from './expiry.js';
+import { DEFAULT_PAGE_EXPIRY_DAYS, localTime } from './expiry.js';
 import { text } from './strings.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -358,7 +358,7 @@ export function ShareDialog({
                       max={Number.MAX_SAFE_INTEGER}
                       step="1"
                       required
-                      defaultValue={view.page.retentionDays ?? 30}
+                      defaultValue={view.page.retentionDays ?? DEFAULT_PAGE_EXPIRY_DAYS}
                     />
                   </label>
                 )}
