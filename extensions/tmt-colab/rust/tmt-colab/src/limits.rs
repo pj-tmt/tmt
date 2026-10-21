@@ -151,7 +151,7 @@ pub const PAGE_PROPOSALS: usize = 200;
 /// Projects (contract: Projects): display-only names in the owner store. `PROJECT_POINTS` bounds one
 /// name, `PAGE_PROJECTS` the names on one page, `SPACE_PROJECTS` the names in the space and
 /// `SPACE_PROJECT_PAGES` every page-in-project assignment, so the `/api/pages` reply stays under its
-/// 1 MiB cap with 1,000 pages.
+/// 2 MiB cap with 1,000 pages.
 pub const PROJECT_POINTS: usize = 32;
 pub const PAGE_PROJECTS: usize = 8;
 pub const SPACE_PROJECTS: usize = 256;
@@ -196,7 +196,7 @@ pub const READING_PAGE: usize = 50;
 pub const NEEDS_PASSAGES: usize = 20;
 pub const LATEST_POINTS: usize = 160;
 /// Complete owner-only chapter detail reply (readings, named passages and the latest excerpt, all
-/// at their longest); numeric discovery keeps its separate 1 MiB cap. `reading-details.ts` holds
+/// at their longest); numeric discovery keeps its separate 2 MiB cap. `reading-details.ts` holds
 /// the same number.
 pub const SUMMARY_DETAILS_BYTES: usize = 192 * 1024;
 /// Maximum time spent projecting quote anchors for one owner summary.

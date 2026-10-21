@@ -191,25 +191,40 @@ pub fn scan(
 /// `Some(None)`: the page has no work (or is a shell). `None`: it could not be read.
 fn fold(store: &Store, key: &Keyring, id: &str, decoder: &mut Decoder) -> Option<Option<PageWork>> {
     match page::read_work(store, key, id, decoder) {
-        Ok(read) if read.work == crate::work::empty() => Some(None),
-        Ok(read) => {
-            let lines = crate::work::lines(&read.work).ok()?;
-            Some(Some(PageWork {
-                held: crate::wip::held(id, &read.work),
-                derived: read.derived,
-                lines: if lines.iter().any(|line| line.child.is_some()) {
-                    lines
-                } else {
-                    Vec::new()
-                },
-            }))
-        }
+        Ok(read) => Some(from_work(id, &read.work, read.derived)),
         // A shell holds no work.
         Err(error) if error.downcast_ref::<page::Fault>() == Some(&page::Fault::Invalid) => {
             Some(None)
         }
         Err(_) => None,
     }
+}
+
+/// The work a page's `meta` holds, as the list and the limit need it, from a fold that already
+/// happened: `None` for a page with no work, a shell or a value that does not validate.
+pub fn page_work(id: &str, meta: &Value) -> Option<PageWork> {
+    if meta["pageType"].as_str() == Some("shell") {
+        return None;
+    }
+    let work = meta.get("work")?;
+    let derived = crate::work::derived(work).ok()?.to_value();
+    from_work(id, work, derived)
+}
+
+fn from_work(id: &str, work: &Value, derived: Value) -> Option<PageWork> {
+    if *work == crate::work::empty() {
+        return None;
+    }
+    let lines = crate::work::lines(work).ok()?;
+    Some(PageWork {
+        held: crate::wip::held(id, work),
+        derived,
+        lines: if lines.iter().any(|line| line.child.is_some()) {
+            lines
+        } else {
+            Vec::new()
+        },
+    })
 }
 
 /// `scan` of the given pages and, when one of their tasks follows a page, of every page of the

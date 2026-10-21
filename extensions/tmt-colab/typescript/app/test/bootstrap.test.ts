@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { deriveSpaceId, encodeBinary } from '@tmt/colab-client';
-import { AUTHOR_BYTES, DISCOVERY_BYTES, discover } from '../src/bootstrap.js';
+import { AUTHOR_BYTES, DISCOVERY_BYTES, ROW_WORKING, discover } from '../src/bootstrap.js';
 import { record } from '../src/storage.js';
 const storage = vi.hoisted(() => ({ pin: undefined as unknown }));
 vi.mock('../src/storage.js', () => ({
@@ -106,6 +106,127 @@ it('keeps 1000 worst-sized summaries inside the bounded response', async () => {
     needsYou: 350,
     author,
   });
+});
+it('keeps 1000 worst-sized work rows and parents inside the bounded response', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  // The previous test's rows, each also carrying the longest work row and a parent. The three
+  // assignee labels are 128 quotes, the longest allowed and two bytes each on the wire.
+  const author = '"'.repeat(AUTHOR_BYTES);
+  const rockets = '\u{1F680}'.repeat(29);
+  const who = { kind: 'person', name: '"'.repeat(128) };
+  const work = {
+    stage: 'in-progress',
+    done: 100,
+    total: 256,
+    signoff: 100,
+    working: [who, who, who],
+    more: 100,
+  };
+  const pages = Array.from({ length: 1000 }, (_, index) => ({
+    ...metadata,
+    pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    projects: [`${String(index).padStart(3, '0')}${rockets}`],
+    summary: {
+      comments: 4_294_967_295,
+      waiting: true,
+      needsYou: 350,
+      author,
+      work,
+      parent: { page: '10000000-0000-4000-8000-000000000001', task: 'T-9999999' },
+    },
+  }));
+  const body = await response(pages);
+  const bytes = new TextEncoder().encode(body).length;
+  expect(bytes).toBeLessThan(DISCOVERY_BYTES);
+  // The measured worst case, so a field added later is budgeted against what is left.
+  expect(bytes).toBeGreaterThan(1.8 * 1024 * 1024);
+  const boot = await discover(mount);
+  expect(boot.pages[999].summary?.work).toEqual(work);
+  expect(boot.pages[999].summary?.parent?.task).toBe('T-9999999');
+});
+it('accepts a work row and the task that follows the page, each on its own', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const base = { comments: 0, waiting: false, needsYou: 0 };
+  const agent = { kind: 'agent', name: 'feat-1' };
+  const rows = [
+    { stage: 'discussion', done: 0, total: 0, signoff: 0, working: [] },
+    { stage: 'in-progress', done: 1, total: 3, signoff: 1, working: [agent] },
+    { stage: 'done', done: 3, total: 3, signoff: 0, working: [] },
+    {
+      stage: 'in-progress',
+      done: 0,
+      total: 9,
+      signoff: 0,
+      working: [agent, agent, agent].slice(0, ROW_WORKING),
+      more: 2,
+    },
+  ];
+  await response([
+    ...rows.map((work, n) => ({ ...metadata, pageId: id(n + 1), summary: { ...base, work } })),
+    { ...metadata, pageId: id(9), summary: { ...base, parent: { page: id(1), task: 'T-1' } } },
+  ]);
+  const { pages } = await discover(mount);
+  expect(pages.slice(0, 4).map((page) => page.summary?.work)).toEqual(rows);
+  expect(pages[4].summary).toEqual({ ...base, parent: { page: id(1), task: 'T-1' } });
+});
+it('refuses a work row or a parent outside the bounds the owner derives', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const base = { comments: 0, waiting: false, needsYou: 0 };
+  const agent = { kind: 'agent', name: 'feat-1' };
+  const row = { stage: 'in-progress', done: 1, total: 3, signoff: 0, working: [agent] };
+  const parent = { page: '10000000-0000-4000-8000-000000000001', task: 'T-1' };
+  for (const summary of [
+    { ...base, work: null },
+    { ...base, work: [] },
+    { ...base, work: {} },
+    { ...base, work: { ...row, extra: 1 } },
+    { ...base, work: { ...row, stage: 'blocked' } },
+    // The stage must follow the counts.
+    { ...base, work: { ...row, stage: 'done' } },
+    { ...base, work: { ...row, stage: 'discussion' } },
+    { ...base, work: { ...row, done: 3, total: 3, stage: 'in-progress' } },
+    { ...base, work: { ...row, done: 4, total: 3 } },
+    { ...base, work: { ...row, total: 257 } },
+    { ...base, work: { ...row, done: -1 } },
+    { ...base, work: { ...row, done: 1.5 } },
+    { ...base, work: { ...row, signoff: 3 } },
+    { ...base, work: { ...row, signoff: '0' } },
+    { ...base, work: { stage: 'in-progress', done: 1, total: 3, signoff: 0 } },
+    { ...base, work: { ...row, working: 'feat-1' } },
+    { ...base, work: { ...row, working: [agent, agent, agent, agent] } },
+    { ...base, work: { ...row, working: [{ kind: 'bot', name: 'x' }] } },
+    { ...base, work: { ...row, working: [{ kind: 'agent', name: '' }] } },
+    { ...base, work: { ...row, working: [{ kind: 'agent', name: 'a'.repeat(129) }] } },
+    { ...base, work: { ...row, working: [{ kind: 'agent', name: 'tab\there' }] } },
+    // An identity is not part of a row.
+    { ...base, work: { ...row, working: [{ ...agent, id: parent.page }] } },
+    { ...base, work: { ...row, working: [agent, agent], more: 1 } },
+    { ...base, work: { ...row, working: [agent, agent, agent], more: 0 } },
+    { ...base, work: { ...row, working: [agent, agent, agent], more: 1.5 } },
+    { ...base, work: { ...row, working: [agent, agent, agent], total: 3, more: 1 } },
+    { ...base, parent: null },
+    { ...base, parent: 'T-1' },
+    { ...base, parent: {} },
+    { ...base, parent: { page: parent.page } },
+    { ...base, parent: { ...parent, extra: 1 } },
+    { ...base, parent: { ...parent, page: 'not-a-page' } },
+    { ...base, parent: { ...parent, page: 7 } },
+    { ...base, parent: { ...parent, task: 'T-0' } },
+    { ...base, parent: { ...parent, task: 'T-01' } },
+    { ...base, parent: { ...parent, task: 'T-10000000' } },
+    { ...base, parent: { ...parent, task: 'task' } },
+    { ...base, parent: { ...parent, task: 1 } },
+  ]) {
+    await response([{ ...metadata, summary }]);
+    await expect(discover(mount)).rejects.toThrow();
+  }
 });
 it('accepts a summary with or without a creator and leaves absent summaries absent', async () => {
   vi.stubGlobal('navigator', {

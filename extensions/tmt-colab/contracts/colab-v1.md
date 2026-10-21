@@ -3706,7 +3706,7 @@ no credential. Pages returns exactly `{spaceId, ownerKey, revision, projects, pa
 `pageIds` is sorted, at most 1,000 entries, each exactly `{pageId, deleted}`. It includes
 the existing retained deleted-page IDs solely to prevent historical prefixes rebinding;
 no title/content of deleted pages is exposed. Its non-deleted IDs exactly match `pages`.
-Browser discovery caps the complete serialized metadata response at 1 MiB.
+Browser discovery caps the complete serialized metadata response at 2 MiB.
 
 A serve running from an installed release (`<lib>/tmt-colab/releases/<id>/tmt-colab`)
 follows the install's `current` selection (`serve_release.rs`); version direction belongs to
@@ -5027,7 +5027,7 @@ with none, and `ls --project <name>` lists only the pages in it.
 ### Page summary (#2588)
 
 Each page in the owner-served `GET /api/pages` list may carry a display-only `summary` the
-The home page list shows with its title: `{comments, waiting, needsYou, author?}`. Like projects it is **not signed**,
+The home page list shows with its title: `{comments, waiting, needsYou, author?, work?, parent?}`. Like projects it is **not signed**,
 is never an owner-log statement and never enters a page's content or any stream, and it
 appears only in this owner list: not in a reader link's or a member's views, and not in the
 CLI's `ls`/`show`. A client treats it as untrusted text.
@@ -5049,6 +5049,18 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
 - `author` is the page's creation label, `meta.originalAuthor` (the bounded display label
   derived from `publisherAgent` at creation; never identity proof), and is omitted when the
   page has none. Never the last editor.
+- `work` is the page's tasks as the list shows them (see [Work](#work-4050)), omitted for a page
+  with no `meta.work`, so a fresh summary without it is in discussion. It is
+  `{stage, done, total, signoff, working, more?}`: the derived stage (`discussion` with no task,
+  `in-progress` while any is not done, `done` when all are), the tasks done and in all, the tasks
+  waiting in review for a sign-off, and the assignees of in-progress tasks, each once in task
+  order, at most 3 as `{kind, name}` (never an identity), with `more` counting the rest and
+  present only then. Every task that follows a page counts as that page's stage says
+  ([A task that follows a page](#a-task-that-follows-a-page-4118)), so the stage agrees with the
+  counts: `total` 0 is `discussion`, `done == total` is `done`. A followed page without a fresh
+  summary is unavailable, and its task counts as its own stored state.
+- `parent` is `{page, task}`, the task that follows this page, omitted when none does. With
+  several (two writers raced) it is the first by page ID, then by task number.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the
@@ -5074,9 +5086,15 @@ run by one background worker, one page at a time, through the same materialize p
 deadline as `threads`; a read that finds a worker running schedules nothing. A page whose fold
 fails or times out stays without a summary and is tried again on a later read after every page
 that has not failed at its fingerprint, never in a loop. A restart refills the cache lazily.
-`summary` is at most `{comments:4294967295, waiting, needsYou:350, author:128 bytes}` per page (the author
-escapes to at most 256 bytes on the wire), so a full space of 1,000 pages with the longest
-labels stays within the unchanged 1 MiB discovery cap (the browser boundary test pins the complete encoded reply).
+The cache holds each page's _own_ work (its derived values and, only when a task follows a page,
+its task lines); the effective `work` and `parent` are resolved from the fresh entries on every list
+read (`work_links.rs`) and never cached, because a page's stage changes when the page it follows
+does.
+`summary` is at most `{comments:4294967295, waiting, needsYou:350, author:128 bytes, work:{3
+assignee labels of 128 bytes, counts to 256}, parent}` per page (each label and the author escape to
+at most 256 bytes on the wire), so a full space of 1,000 pages with the longest labels measures
+1,926,186 bytes and stays within the 2 MiB discovery cap (raised from 1 MiB for the work row; the
+browser boundary test pins the complete encoded reply).
 
 ### Owner chapter details (#3578)
 
@@ -5132,7 +5150,7 @@ pagination. Replies contain only these allowlisted descriptors and the one bound
 excerpt, never passage HTML, other discussion bodies or certificate bytes. The browser validates exact keys, byte/count/text bounds, UUID
 uniqueness and states before rendering any descriptor as inert text. A malformed,
 failed or stale result remains unknown, never an empty complete list. Discovery
-keeps its unchanged 1 MiB and 1,000-page bounds.
+keeps its 2 MiB and 1,000-page bounds.
 
 The owner app's shell page is the one browser consumer: it reads this route for its first 20
 chapters' pages to show each chapter's passage, without writing anything. The route never marks a
