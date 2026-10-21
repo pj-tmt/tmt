@@ -1,3 +1,4 @@
+import { text } from '../src/strings.js';
 import { createHash } from 'node:crypto';
 import {
   expect,
@@ -386,7 +387,7 @@ test('connection soak: explicit revoke ends access and cannot dispatch a retaine
       '--json',
     ]);
     await expect(s.page.locator('.tmt-ui-drawer[data-panel=chat]')).toContainText(
-      'Your access to this page ended.',
+      text.failurePairingRemoved,
       { timeout: 90_000 },
     );
     await expect(
