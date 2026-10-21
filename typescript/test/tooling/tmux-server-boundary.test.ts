@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 
 // A server-ending tmux verb run against the wrong server ends every agent pane (#4189). Test
-// code, scripts and agent skills therefore name `kill-server` or `kill-session` only in the
+// code and scripts therefore name `kill-server` or `kill-session` only in the
 // files below, each of which proves its socket private first. Anything else goes through
 // `privateTmux`, `scripts/private-tmux.sh` or the e2e fixture's `tmux`.
 
@@ -34,8 +34,6 @@ const ALLOWED: Record<string, string> = {
   'typescript/test/tooling/private-tmux.test.ts': GUARD,
   'typescript/test/tooling/private-tmux-script.test.ts': GUARD,
   'typescript/test/tooling/tmux-server-boundary.test.ts': GUARD,
-  '.agents/skills/tmt-dev/references/focused-checks.md': GUARD,
-  '.agents/skills/tmt-e2e/references/test-boundaries.md': GUARD,
   'rust/crates/tmt-adapters/src/tmux/server_id_tests.rs':
     'PrivateServer, which proves its socket private before every command',
   'typescript/test/e2e/harness/fixture.ts': FIXTURE,
@@ -50,8 +48,7 @@ function files(directory: string): string[] {
     if (SKIPPED.has(entry.name)) return [];
     const target = path.join(directory, entry.name);
     if (entry.isDirectory()) return files(target);
-    const agentSkill = target.includes(`${path.sep}.agents${path.sep}`) && target.endsWith('.md');
-    return EXTENSIONS.has(path.extname(entry.name)) || agentSkill ? [target] : [];
+    return EXTENSIONS.has(path.extname(entry.name)) ? [target] : [];
   });
 }
 
