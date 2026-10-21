@@ -5106,7 +5106,8 @@ The list's needs-you filter keeps the pages whose summary says `waiting`. A page
 summary is unknown, never a false zero, so the filter does not count it. Navigation back to Home
 or a browser reload makes the existing owner-list read again. While a page that is not archived
 still has no summary, the visible Home list also reads again every 2 s, at most 15 times, and stops
-at once when every page has one or the route changes; a hidden tab does not read. Chapter reading
+at once when every page has one or the route changes; a hidden tab does not read, and a re-read
+leaves the window where the reader scrolled. Chapter reading
 descriptors use the separate bounded owner-only read below; they never enter discovery.
 
 The values come from the owner fold, which is too slow for a list read, so the serving process

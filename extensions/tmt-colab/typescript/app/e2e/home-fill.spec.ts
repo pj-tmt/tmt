@@ -94,3 +94,36 @@ test('a page that loses its summary later gets a fresh set of tries', async ({ p
   await page.clock.runFor(2000);
   expect(await reads(page)).toBe(16);
 });
+
+// The router scrolls the window to the top when a load renders; a re-read must not move a reader
+// who is part-way down the list (#4226: it reset the page-scroll checks of the chrome spec too).
+for (const width of [1440, 390, 320])
+  test(`a re-read keeps the reader where they scrolled: ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto('/');
+    await page.evaluate(async () => {
+      const path = '/test/page-list-browser.tsx';
+      // 130 pages that have not reported: the list is long and reads again every 2 s.
+      await (await import(path)).mountPageList('bulk', '/?stage=all');
+    });
+    const list = page.locator('#list-fixture');
+    await expect(list.locator('.pages > li').first()).toBeVisible();
+    await page.evaluate(() => {
+      scrollTo(0, (document.documentElement.scrollHeight - innerHeight) / 2);
+      // The lowest offset a scroll event ever reports: a reset to the top would show as 0.
+      const seen = { lowest: scrollY };
+      window.addEventListener('scroll', () => (seen.lowest = Math.min(seen.lowest, scrollY)));
+      (window as unknown as { seen: typeof seen }).seen = seen;
+    });
+    const before = await page.evaluate(() => scrollY);
+    expect(before).toBeGreaterThan(100);
+    const reads = await page.evaluate(() => window.__listReads);
+    // The first re-read is done once the second one starts: it is scheduled after the render.
+    await expect
+      .poll(() => page.evaluate(() => window.__listReads), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(reads + 2);
+    expect(
+      await page.evaluate(() => (window as unknown as { seen: { lowest: number } }).seen.lowest),
+    ).toBe(before);
+    expect(await page.evaluate(() => scrollY)).toBe(before);
+  });
