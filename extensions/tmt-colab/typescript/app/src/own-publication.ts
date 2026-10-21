@@ -64,6 +64,17 @@ export class OwnAppendRefused extends Error {
   }
 }
 
+/** The serve refused this device's own checkpoint with `CONFLICT`: it already holds a different
+ * checkpoint of the stream at that position (an owner fold of it). The refused checkpoint was
+ * never stored and no update is lost, so it may be dropped; the connection and the stream are
+ * intact. It is answered to the checkpoint alone, so the message stays `CONFLICT` for any caller
+ * that reads one. */
+export class OwnCheckpointRefused extends Error {
+  constructor() {
+    super('CONFLICT');
+  }
+}
+
 /** The stream's leader refused a write because one of its own keys already holds a different value.
  * Own records are immutable: the first value stays, whichever tab wrote it, and nothing of the
  * refused write was appended. A byte-identical write is not a conflict (it is already present).

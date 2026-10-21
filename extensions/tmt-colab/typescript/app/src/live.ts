@@ -826,6 +826,10 @@ export class Live implements PageBinding {
     const device = this.registration.deviceId;
     const before = c.objects.tail(device);
     const serve = await c.compact();
+    // The serve folds this device's stream too, and that checkpoint reaches this connection as a
+    // notice only: catch up to it first, or the checkpoint this device seals next would take the
+    // same position with other bytes and be refused.
+    const settled = await this.#settled();
     let own: OwnCompaction;
     try {
       own = await this.#writer.compact();
@@ -834,7 +838,7 @@ export class Live implements PageBinding {
     }
     const combined = serve.compacted || own.outcome === 'combined';
     // After this device combined, ask again so `after` is what the serve now counts.
-    const after = own.outcome === 'combined' ? await c.usage() : serve.after;
+    const after = own.outcome === 'combined' ? await settled.usage() : serve.after;
     return {
       pageId: serve.pageId,
       compacted: combined,
@@ -851,7 +855,7 @@ export class Live implements PageBinding {
       mergedObjects: serve.mergedObjects + (own.outcome === 'combined' ? own.merged : 0),
       sourceSha256: serve.sourceSha256,
       before: this.#mine(serve.before, before),
-      after: this.#mine(after, c.objects.tail(device)),
+      after: this.#mine(after, settled.objects.tail(device)),
     };
   }
   async #settleLost(lost: Connection, operationId: string): Promise<SaveResult> {
