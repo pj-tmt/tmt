@@ -25,12 +25,32 @@ impl Point {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HourlySeries {
     pub from_ms: u64,
-    pub points: Vec<Point>,
+    points: Option<Box<HourlyPoints>>,
 }
-impl std::ops::Deref for HourlySeries {
-    type Target = [Point];
-    fn deref(&self) -> &Self::Target {
-        &self.points
+/// Separate arrays avoid padding every token count with its coverage boolean.
+#[derive(Clone, Debug, PartialEq)]
+struct HourlyPoints {
+    tokens: [u64; 24],
+    complete: [bool; 24],
+}
+impl HourlySeries {
+    pub fn new(from_ms: u64, tokens: [u64; 24], complete: [bool; 24]) -> Self {
+        Self {
+            from_ms,
+            points: Some(Box::new(HourlyPoints { tokens, complete })),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.points.is_none()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = Point> + '_ {
+        self.points.iter().flat_map(|points| {
+            points
+                .tokens
+                .iter()
+                .zip(&points.complete)
+                .map(|(&tokens, &complete)| Point { tokens, complete })
+        })
     }
 }
 

@@ -78,7 +78,7 @@ pub(super) fn activity(report: Option<&Report>, ids: &[&str]) -> Vec<Option<u64>
             unknown.fill(true);
             continue;
         };
-        if seat.series.len() != 24 {
+        if seat.series.is_empty() {
             unknown.fill(true);
             continue;
         }

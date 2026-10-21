@@ -1,8 +1,6 @@
 //! Public Core observations for the shared TOK window. The admitted roster is
 //! passed in; neither a provider scan nor a second roster read belongs here.
-use super::model::{
-    HourlySeries, Pair, Point, Report, Seat, Since, Traffic, Unavailable, Warning, Who,
-};
+use super::model::{HourlySeries, Pair, Report, Seat, Since, Traffic, Unavailable, Warning, Who};
 use crate::{config::TokRange, core::Core};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -169,7 +167,8 @@ fn hourly(series: &Value, id: &str) -> Result<HourlySeries, String> {
     if raw.len() != 24 {
         return Err("Activity must contain 24 hourly observations.".into());
     }
-    let mut points = Vec::with_capacity(24);
+    let mut tokens = [0; 24];
+    let mut complete = [false; 24];
     for (index, point) in raw.iter().enumerate() {
         let expected = from + index as u64 * 3_600_000;
         if point["fromMs"] != expected || point["toMs"] != expected + 3_600_000 {
@@ -182,17 +181,12 @@ fn hourly(series: &Value, id: &str) -> Result<HourlySeries, String> {
         {
             return Err("Invalid hourly coverage.".into());
         }
-        points.push(Point {
-            tokens: number(&point["inputTokens"])? + number(&point["outputTokens"])?,
-            complete: point["complete"]
-                .as_bool()
-                .ok_or("Missing hourly coverage.")?,
-        });
+        tokens[index] = number(&point["inputTokens"])? + number(&point["outputTokens"])?;
+        complete[index] = point["complete"]
+            .as_bool()
+            .ok_or("Missing hourly coverage.")?;
     }
-    Ok(HourlySeries {
-        from_ms: from,
-        points,
-    })
+    Ok(HourlySeries::new(from, tokens, complete))
 }
 fn traffic(document: &Value) -> Result<Traffic, String> {
     let since_ms = number(&document["sinceMs"])?;

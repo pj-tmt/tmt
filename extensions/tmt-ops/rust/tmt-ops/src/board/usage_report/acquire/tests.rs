@@ -27,8 +27,11 @@ fn every_shared_range_uses_exact_core_totals_independent_of_hourly_activity() {
             1000,
             "totals are Core's one aggregate, never the 24 hourly tokens"
         );
-        assert_eq!(seat.series.iter().map(Point::total).sum::<u64>(), 24);
-        assert_eq!(seat.series.len(), 24);
+        assert_eq!(
+            seat.series.iter().map(|point| point.total()).sum::<u64>(),
+            24
+        );
+        assert_eq!(seat.series.iter().count(), 24);
         assert_eq!(seat.window_ms, range.milliseconds());
         assert!(!seat.complete);
         assert_eq!(warning, None);

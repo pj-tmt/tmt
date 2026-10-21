@@ -6,7 +6,7 @@ use crate::{
         shell::{OpsTab, RightTab},
         usage_report::{
             Delivery, Report,
-            model::{HourlySeries, Pair, Point, Seat, Traffic, Who},
+            model::{HourlySeries, Pair, Seat, Traffic, Who},
         },
     },
     config::TokRange,
@@ -58,15 +58,11 @@ fn fixture() -> App {
             observed_at_ms: 186_400_000,
             starts_at_ms: Some(100_000_000),
             complete: true,
-            series: HourlySeries {
-                from_ms: 100_000_000,
-                points: (0..24)
-                    .map(|hour| Point {
-                        tokens: hour * (i as u64 + 1),
-                        complete: true,
-                    })
-                    .collect(),
-            },
+            series: HourlySeries::new(
+                100_000_000,
+                std::array::from_fn(|hour| hour as u64 * (i as u64 + 1)),
+                [true; 24],
+            ),
         })
         .collect();
     let flow = Traffic::from_pairs(
