@@ -305,7 +305,7 @@ pub fn derived(work: &Value) -> Result<Derived> {
 }
 /// `derived` where `stage_of` answers a linked page's stage. A page it cannot answer for (deleted,
 /// unreadable) leaves its task showing its own state.
-pub fn derived_with(work: &Value, stage_of: &dyn Fn(&str) -> Option<String>) -> Result<Derived> {
+fn derived_with(work: &Value, stage_of: &dyn Fn(&str) -> Option<String>) -> Result<Derived> {
     validate(work)?;
     Ok(derive(&lines(work)?, stage_of))
 }

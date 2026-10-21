@@ -4,7 +4,7 @@
 //! pull request, asking GitHub about every open linked task with one GraphQL call per 100 issues.
 //! Both run `gh` on the owner's machine (`work_github.rs`). A failure writes nothing to the page.
 use crate::{
-    cli_management::{ManagementFault, active_page_ids, fail, resolve_page},
+    cli_management::{ManagementFault, fail, resolve_page},
     cli_work::{read_page_work, spec, task_arg, write_work},
 };
 use clap::{ArgMatches, Command};
@@ -101,11 +101,9 @@ fn push(root: &Path, gh: &dyn Gh, args: &ArgMatches) -> Result<()> {
     let page = args.get_one::<String>("page").expect("required page");
     let task_id = args.get_one::<String>("task").expect("required task");
     let (page_id, read) = read_page_work(root, page)?;
-    let task = read.work["tasks"].get(task_id.as_str()).ok_or_else(|| {
-        invalid(&format!(
-            "This page has no task {task_id}; tmt colab task ls shows its tasks."
-        ))
-    })?;
+    let task = read.work["tasks"]
+        .get(task_id.as_str())
+        .ok_or_else(|| invalid(&tmt_colab::work_admission::no_such_task(task_id)))?;
     // A task that follows a page takes its state from that page; an issue would be a second owner.
     if task.get("child").is_some() {
         return Err(invalid(&format!(
@@ -249,7 +247,7 @@ fn candidates(root: &Path, page: Option<&String>) -> Result<Vec<Candidate>> {
     store.require_current_schema()?;
     let pages = match page {
         Some(operand) => vec![resolve_page(&store, &key, operand)?],
-        None => active_page_ids(&store, &key)?,
+        None => tmt_colab::inspection::active_page_ids(&store, &key)?,
     };
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let found = work_index::scan(&layout, &store, &key, &mut decoder, &pages);
