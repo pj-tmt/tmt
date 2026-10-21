@@ -8,7 +8,13 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod last;
 mod process;
+
+/// The start time of the last admitted tick, if one was recorded ([`last`]).
+pub fn last_tick_ms(root: &std::path::Path) -> Option<u64> {
+    last::read(&root.join("digest"))
+}
 
 const MINUTE_MS: u64 = 60_000;
 // Refresh arrivals and settings between deadlines; this is not a delivery retry lease.
@@ -78,6 +84,7 @@ pub fn execute() -> Result<(), Error> {
     if Instant::now() >= boundary || now_ms()? >= boundary_ms {
         return Ok(());
     }
+    last::record(&directory, entered);
     let core = core.until(boundary + Duration::from_secs(15));
     let path = core.settings_path()?;
     let history = crate::history::Store::open(&root, true).and_then(|mut history| {

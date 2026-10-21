@@ -406,6 +406,7 @@ fn live_clock_holder(root: &Path, now: i64) -> io::Result<Option<tmt_ops::cron::
             pane: pane.map(str::to_owned),
             since_ms: since,
             expires_ms: expiry,
+            build: None,
         }),
     )
 }

@@ -548,7 +548,7 @@ fn deferred_retry_preserves_guard_root_pairing_then_promotes_every_clone() {
     let time = jiff::Timestamp::now().as_millisecond();
     let lease = tmt_ops::cron::Clock::new(&f.directory.join("squad"))
         .unwrap()
-        .acquire(time, 123, Some("%41".into()))
+        .acquire(time, 123, Some("%41".into()), "0.1.0")
         .unwrap()
         .unwrap();
     let core = Core::at(f.core.executable().into());

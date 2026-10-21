@@ -146,6 +146,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "unicode-width",
             "signal-hook",
             "pulldown-cmark",
+            // Orders the Ops versions that contend for the board clock lease (#4107).
+            "semver",
             // Disposable observed-age cache: content fingerprints and
             // nonblocking Unix advisory locking, no TMT behavior.
             "sha2",

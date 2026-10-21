@@ -64,6 +64,17 @@ Count clicks freeze the painted UUID scope and reject superseded geometry.
 The shared cron projection retains earliest active-slot and next-run detail for
 job rows; the retired squad-tab jobs half owns no focus, geometry or controls.
 
+## Clock lease
+
+`cron::clock::Clock::acquire` takes the Ops version (`CARGO_PKG_VERSION`) and publishes it as
+`opsVersion` in `clock.json`. `serve` (the board clock and `cron run`) acquires with
+`acquire_current`: a live lease whose holder has no version (written before the field) or an older
+semantic version is taken over (#4107), and its owner finds the lease changed at its next `renew`
+and stops. Equal, newer or non-semver versions never preempt, and the one-shot `tick` uses plain
+`acquire`, which never disturbs a live lease.
+`tmt digest status` shows the last admitted tick (`tick.lastAtMs`), so a clock held by a UI that
+does not tick is visible.
+
 ## Idle alert scan
 
 `idle_alert` is the clock tick's second duty: `Watch::advance` runs after `digest.advance` and the
