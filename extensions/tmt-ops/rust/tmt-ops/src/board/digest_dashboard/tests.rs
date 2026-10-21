@@ -30,8 +30,8 @@ fn null_stats_keep_the_inherited_idle_setting_without_a_zero_count() {
     assert!(model::summary(&supplied, None).contains("held unavailable"));
     assert!(!model::summary(&supplied, None).contains("0 held"));
     let details = model::details(&supplied, MEMBER, 121_000, &jiff::tz::TimeZone::UTC);
-    assert!(details.iter().any(|s| s.contains("inherited default")));
-    assert!(details.iter().any(|s| s == "Auto: when idle"));
+    assert_eq!(details[0], "Digest: Auto ▾ · when idle (default)");
+    assert!(!details.iter().any(|s| s.starts_with("Setting:")));
     assert!(!details.iter().any(|s| s.starts_with("Next send")));
 }
 
@@ -190,8 +190,8 @@ fn shell_dashboard_keeps_the_same_identity_and_uses_the_supplied_picker() {
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Digest"));
     assert!(shown.contains("Auto ▾"));
-    assert!(shown.contains("inherited default"));
-    assert!(shown.contains("Auto: when idle"));
+    assert!(shown.contains("Digest: Auto ▾ · when idle (default)"));
+    assert!(shown.contains("when idle (default)"));
     match press(&mut app, 'D') {
         Effect::Act(Request::DigestOpen(ask)) => {
             assert_eq!(ask.squad, "product");
@@ -1079,7 +1079,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
         "claude-opus-5-5: $4.00 per 1M input tokens · https://example.test/anthropic-pricing",
         "gpt-6-sol: $2.00 per 1M input tokens",
         "Cost quote: $12.40 at list price · gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
-        "Share of input: 18.20% (18200 avoided of 100000 input tokens)",
+        "Share of input: 18% (18.2k of 100k input tokens)",
     ] {
         assert!(
             shown
@@ -1090,6 +1090,9 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
             "{expected}\n{shown}"
         );
     }
+    assert!(shown.contains("Supplier context avoided 24h: 18.2k · under 1 s"));
+    assert!(shown.contains("over 1–2 min"));
+    assert!(!shown.contains(" ms"));
     // The origin is the supplier's word: each known one is named, others are not.
     for (origin, shown_as) in [
         ("cached", Some("cached")),

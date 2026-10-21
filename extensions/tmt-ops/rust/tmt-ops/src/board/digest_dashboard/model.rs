@@ -68,10 +68,7 @@ pub(in crate::board) fn details(
     now_ms: u64,
     zone: &jiff::tz::TimeZone,
 ) -> Vec<String> {
-    let mut fields: Vec<_> = labels(supplied, id)
-        .into_iter()
-        .map(|(text, _, _)| text)
-        .collect();
+    let mut fields = Vec::new();
     let Some((status, stale)) = supplied.digest() else {
         fields.push("Settings and statistics unavailable".into());
         return fields;
@@ -80,22 +77,38 @@ pub(in crate::board) fn details(
         fields.push("Member not reported by Digest".into());
         return fields;
     };
+    let choice = if labels(supplied, id).iter().any(|(_, _, choice)| *choice) {
+        " ▾"
+    } else {
+        ""
+    };
+    let mode = match member.mode {
+        crate::labels::digest::Mode::Auto => format!("Auto{choice} · when idle"),
+        crate::labels::digest::Mode::Off => format!("Off{choice}"),
+        crate::labels::digest::Mode::Interval => format!(
+            "Every {}{choice}",
+            member
+                .interval_ms
+                .map_or("unavailable".into(), human_duration)
+        ),
+    };
+    fields.push(format!(
+        "Digest: {mode} ({})",
+        match member.setting_source {
+            SettingSource::Default => "default",
+            SettingSource::Member => "override",
+        }
+    ));
     if stale {
         fields.push("Stale observation · retained values; refresh before acting".into());
     }
     fields.push(format!(
-        "Setting: {} ({})",
-        member.setting_value,
-        match member.setting_source {
-            SettingSource::Default => "inherited default",
-            SettingSource::Member => "member override",
-        }
-    ));
-    fields.push(format!(
         "Held: {}",
         member
             .held_count
-            .map_or("unavailable".into(), |n| n.to_string())
+            .map_or("unavailable".into(), |n| crate::source::tokens(u128::from(
+                n
+            )))
     ));
     fields.push(format!(
         "Status observed: {}",
@@ -105,33 +118,24 @@ pub(in crate::board) fn details(
         "Stats observed: {}",
         observation_time(member.stats_observed_at_ms, now_ms, zone)
     ));
-    if member.mode == crate::labels::digest::Mode::Auto {
-        fields.push("Auto: when idle".into());
-    } else {
+    if member.mode == crate::labels::digest::Mode::Interval {
         fields.push(format!(
-            "Next send threshold: {}",
-            member
-                .next_send_at_ms
-                .map_or("unavailable".into(), |n| format!("{n} ms"))
-        ));
-        fields.push(format!(
-            "Threshold remaining: {}",
+            "Next send in: {}",
             member
                 .time_to_send_ms
-                .map_or("unavailable".into(), |n| format!("{n} ms"))
+                .map_or("unavailable".into(), human_duration)
         ));
     }
     if let Some(savings) = &member.savings {
         fields.push(format!(
-            "Supplier context avoided {}: {} · {}–{} ms{}",
+            "Supplier context avoided {}: {} · {}{}",
             savings.window.label(),
             savings
                 .tokens
                 .map_or("—".into(), |tokens| crate::source::tokens(u128::from(
                     tokens
                 ))),
-            savings.from_ms,
-            savings.through_ms,
+            human_window(savings.from_ms, savings.through_ms),
             if savings.complete { "" } else { " · partial" }
         ));
     }
@@ -179,16 +183,54 @@ fn valuation_details(member: &crate::labels::digest::Member) -> Vec<String> {
     }
     if let Some(percent) = &savings.percent {
         fields.push(format!(
-            "Share of input: {}.{:02}% ({} avoided of {} input tokens) over {}–{} ms",
-            percent.basis_points / 100,
-            percent.basis_points % 100,
-            percent.avoided,
-            percent.avoided.saturating_add(percent.observed),
-            percent.from_ms,
-            percent.through_ms
+            "Share of input: {} ({} of {} input tokens) over {}",
+            detail_percent(percent.basis_points),
+            crate::source::tokens(u128::from(percent.avoided)),
+            crate::source::tokens(u128::from(percent.avoided) + u128::from(percent.observed)),
+            human_window(percent.from_ms, percent.through_ms)
         ));
     }
     fields
+}
+
+fn detail_percent(points: u16) -> String {
+    match points {
+        0 => "0%".into(),
+        1..=4 => "<0.1%".into(),
+        5..=94 => format!("0.{}%", (points + 5) / 10),
+        _ => percent_text(points),
+    }
+}
+fn duration_parts(ms: u64) -> (String, &'static str) {
+    let (unit, label) = if ms >= 86_400_000 {
+        (86_400_000, "d")
+    } else if ms >= 3_600_000 {
+        (3_600_000, "h")
+    } else if ms >= 60_000 {
+        (60_000, "min")
+    } else {
+        (1_000, "s")
+    };
+    (crate::source::tokens(u128::from(ms / unit)), label)
+}
+fn human_duration(ms: u64) -> String {
+    if ms < 1_000 {
+        return "under 1 s".into();
+    }
+    let (value, unit) = duration_parts(ms);
+    format!("{value} {unit}")
+}
+fn human_window(from: u64, through: u64) -> String {
+    if through <= 1_000 {
+        return "under 1 s".into();
+    }
+    let (start, start_unit) = duration_parts(from);
+    let (end, end_unit) = duration_parts(through);
+    if start_unit == end_unit {
+        format!("{start}–{end} {end_unit}")
+    } else {
+        format!("{}–{}", human_duration(from), human_duration(through))
+    }
 }
 
 /// The supplier's list-price table and where it came from, read-only. Source
@@ -393,4 +435,25 @@ pub(in crate::board) fn savings_start(
             line
         }
     })
+}
+
+#[cfg(test)]
+mod detail_copy_tests {
+    use super::*;
+    #[test]
+    fn readable_detail_units_preserve_unknown_and_small_nonzero_values() {
+        for (points, expected) in [
+            (0, "0%"),
+            (1, "<0.1%"),
+            (5, "0.1%"),
+            (49, "0.5%"),
+            (99, "1%"),
+            (1820, "18%"),
+        ] {
+            assert_eq!(detail_percent(points), expected);
+        }
+        assert_eq!(human_window(0, 1_000), "under 1 s");
+        assert_eq!(human_window(60_000, 120_000), "1–2 min");
+        assert_eq!(human_duration(600_000), "10 min");
+    }
 }

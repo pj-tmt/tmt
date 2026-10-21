@@ -319,11 +319,17 @@ fn detail_lines(
             metrics::token_text(metrics::tokens(report, &ids))
         ),
     ];
+    let price_column_shown = table::price_column_shown(app);
     if let Some(cost) = metrics::input_price(app, report, &ids) {
         text.push(format!(
             "Input list-price estimate: {}",
             model::usd_text(cost)
         ));
+    } else if !price_column_shown {
+        text.push("Input list-price estimate: —".into());
+    }
+    if !price_column_shown {
+        text.push("Input tokens at list price; not a bill.".into());
     }
     if let Some(id) = row.and_then(|row| row["id"].as_str()) {
         text.extend(model::details(
@@ -336,7 +342,11 @@ fn detail_lines(
             report
                 .and_then(|report| metrics::recipient(report, id))
                 .map_or("Talks to: unavailable".into(), |(id, count)| {
-                    format!("Talks to: {} · {count} messages", metrics::name(app, id))
+                    format!(
+                        "Talks to: {} · {} messages",
+                        metrics::name(app, id),
+                        crate::source::tokens(u128::from(count))
+                    )
                 }),
         );
         if let Some(seat) = report.and_then(|report| report.seat(id)) {
@@ -430,7 +440,6 @@ fn detail_lines(
     if let Some(error) = app.usage_report.refresh_error(app.tok_range()) {
         text.push(format!("Stale usage retained · refresh failed: {error}"));
     }
-    text.push("Input tokens at list price; not a bill.".into());
     let narrow_activity = app.conversation.borrow().area.width.saturating_sub(2) < 70;
     if narrow_activity {
         text.push(if width >= 28 {

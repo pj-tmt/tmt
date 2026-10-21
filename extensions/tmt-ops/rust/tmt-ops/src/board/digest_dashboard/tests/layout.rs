@@ -465,3 +465,22 @@ fn digest_event_draw_timing() {
         }
     });
 }
+
+#[test]
+fn input_price_qualification_is_shown_once_by_the_visible_amount() {
+    let _no_commands = crate::runner::forbid_commands();
+    for width in [160, 100, 80, 60] {
+        let mut app = fixture();
+        let shown = paint(&mut app, width, 60);
+        assert_eq!(
+            shown
+                .matches("Input tokens at list price; not a bill.")
+                .count(),
+            1,
+            "width={width}: {shown}"
+        );
+        if width < 100 {
+            assert!(shown.contains("Input list-price estimate: —"));
+        }
+    }
+}

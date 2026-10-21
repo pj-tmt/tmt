@@ -62,6 +62,17 @@ fn tracks(width: u16) -> Vec<(Field, u16)> {
     });
     fields
 }
+pub(super) fn price_column_shown(app: &App) -> bool {
+    app.digest_placement(app.conversation.borrow().area)
+        .list
+        .is_some_and(|area| {
+            let inside = crate::board::pane_chrome::content_area(area);
+            !inside.is_empty()
+                && tracks(inside.width)
+                    .iter()
+                    .any(|(field, _)| matches!(field, Field::Cost))
+        })
+}
 pub(super) fn hourly(app: &App, values: &[Option<u64>], selected: bool) -> Vec<Span<'static>> {
     let max = values.iter().flatten().copied().max().unwrap_or(0);
     values
