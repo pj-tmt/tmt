@@ -20,9 +20,10 @@ interface SdkWindow {
 }
 
 // The served SDK keeps each tab on its own signed operation lane. Opening a
-// ninth session evicts the oldest under Remote's default limit of eight.
+// ninth session evicts the oldest under an explicitly configured limit of eight.
 test('Remote keeps concurrent sessions per device and reports the evicted limit', async () => {
   await withWorld(async (world) => {
+    run(world, world.binaries.remote, ['settings', 'sessions-per-device', '8', '--json']);
     const door = await startDoor(world);
     await world.startAgent('ask-recipient');
     const browser = await pairBrowser(world, 'one-device');
