@@ -2,7 +2,7 @@
 // command on the host server (#4189). It reads the hook payload on stdin; exit 2 blocks the
 // command and sends stderr to the agent. A seatbelt for direct commands, not a sandbox: it
 // cannot see inside a script the command runs or a shell variable that names the tmux binary.
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -487,7 +487,16 @@ export function decide(payload, env = process.env, uid = process.getuid?.()) {
   return violations.length > 0 ? refusal(violations) : undefined;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+/** Node resolves import.meta.url through symlinks but leaves argv[1] as typed, so compare real paths. */
+function isEntryPoint() {
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   try {
     const message = decide(JSON.parse(readFileSync(0, 'utf8')));
     if (message) {

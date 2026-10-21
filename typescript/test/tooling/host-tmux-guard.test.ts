@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import {
@@ -42,6 +44,8 @@ describe('commands that reach the host server', () => {
     '/opt/homebrew/bin/tmux kill-server',
     'tmux -2 kill-server',
     'tmux -L default kill-server',
+    'tmux -L work kill-session -t a',
+    'tmux -Lwork kill-server',
     'tmux -f /dev/null kill-server',
     'env TERM=xterm tmux kill-server',
     'env -u TMUX tmux kill-server',
@@ -199,6 +203,29 @@ describe('the hook', () => {
     expect(result.stderr).toContain('tmux kill-server');
     expect(result.stderr).toContain('scripts/private-tmux.sh');
     expect(result.stderr).toContain("kill-window -t '=<session>:=<name>'");
+  });
+
+  it('still blocks when started through a symlink to the script or to its directory', () => {
+    // Node resolves import.meta.url through symlinks but leaves argv[1] as typed; a worktree opened
+    // through a symlinked path (/tmp on macOS) must not turn the guard into a silent no-op.
+    const directory = mkdtempSync(join(tmpdir(), 'host-tmux-guard-'));
+    try {
+      const toFile = join(directory, 'guard-link.mjs');
+      symlinkSync(script, toFile);
+      const toDirectory = join(directory, 'scripts-link');
+      symlinkSync(dirname(script), toDirectory);
+      for (const entry of [toFile, join(toDirectory, 'host-tmux-guard.mjs')]) {
+        const result = spawnSync(process.execPath, [entry], {
+          input: payload('tmux kill-server'),
+          encoding: 'utf8',
+          env: { PATH: process.env.PATH ?? '' },
+        });
+        expect(result.status, entry).toBe(2);
+        expect(result.stderr, entry).toContain('Host tmux safety');
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('lets an allowed command, another tool and a payload without a command through silently', () => {
