@@ -10,24 +10,17 @@ import { fileURLToPath } from 'node:url';
  * real `tmt remote serve` and Chromium. Run it with the binary built by
  * `cargo build -p tmt-remote`, or point TMT_REMOTE_BINARY at one.
  *
- * Browser tests need a binary whose embedded SDK (`assets/remote-v1.js`) exports `shellApp`. When
- * it does not, they are expected to fail with the TODO below, so a rebuilt SDK turns them into
- * real checks (Playwright then reports the stale expectation). TMT_E2E_SDK=<file> serves that
- * freshly built SDK in place of the embedded one, to check a change before the asset is rebuilt.
  * Tests whose reason is a door or shell gap name it in a TODO and start expected-to-fail.
  */
 const BINARY =
   process.env.TMT_REMOTE_BINARY ??
   fileURLToPath(new URL('../../../../../rust/target/debug/tmt-remote', import.meta.url));
-const SDK_OVERRIDE = process.env.TMT_E2E_SDK;
 
 let root: string;
 let serve: ChildProcessWithoutNullStreams;
 let origin: string;
 let address: string;
 let browser: Browser;
-/** Whether the SDK a page will load starts the app. */
-let sdkStartsApp: boolean;
 
 test.beforeAll(async () => {
   // Short root: Unix socket paths are limited to about 100 bytes. The door runs in this private
@@ -57,10 +50,6 @@ test.beforeAll(async () => {
   });
   address = (JSON.parse(line) as { address: string }).address;
   origin = new URL(address).origin;
-  const sdk = SDK_OVERRIDE
-    ? await readFile(SDK_OVERRIDE, 'utf8')
-    : await (await fetch(`${origin}/sdk/remote-v1.js`)).text();
-  sdkStartsApp = /\bshellApp\b/.test(sdk);
   browser = await chromium.launch();
 });
 test.afterAll(async () => {
@@ -271,23 +260,13 @@ function parsePolicy(policy: string): Map<string, string[]> {
   );
 }
 
-/** Open an app route in a fresh page, serving TMT_E2E_SDK when set, and watch its requests. */
+/** Open an app route in a fresh page and watch its requests. */
 async function openApp(path: string, prepare?: (page: Page) => Promise<void>) {
-  test.fail(
-    !sdkStartsApp,
-    'TODO(ux-4): rebuild assets/remote-v1.js so the served SDK exports shellApp',
-  );
-  // Without the SDK's app there is nothing to open; fail now, not after a wait.
-  expect(sdkStartsApp, 'the served SDK exports shellApp').toBe(true);
   const page = await browser.newPage();
   const requests: Request[] = [];
   page.on('request', (request) => requests.push(request));
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  if (SDK_OVERRIDE)
-    await page.route('**/sdk/remote-v1.js', (route) =>
-      route.fulfill({ path: SDK_OVERRIDE, contentType: 'text/javascript' }),
-    );
   await prepare?.(page);
   await page.goto(`${origin}${path}`, { waitUntil: 'load' });
   await page.locator('.tmt-ui-shell-main[data-route]').waitFor({ timeout: 10000 });

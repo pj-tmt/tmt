@@ -62,11 +62,19 @@ function remotePage(
   };
 }
 
+/** The script an older Colab, which names no `entry`, is loaded from under its own mount. */
+const COLAB_ENTRY = 'assets/colab-module.js';
+
 /** Colab as the composed answer describes it: its own link, and its entry only if confined. */
 function colabLoad(answer: ShellAnswer | undefined): ModuleLoad | undefined {
   const colab = answer?.modules.find((module) => module.extension === 'colab');
   if (!colab) return undefined;
-  return moduleLoad(colab.rail.path, (colab as { entry?: string }).entry, location.href);
+  return moduleLoad(
+    colab.rail.path,
+    (colab as { entry?: string }).entry,
+    location.href,
+    COLAB_ENTRY,
+  );
 }
 
 function message(

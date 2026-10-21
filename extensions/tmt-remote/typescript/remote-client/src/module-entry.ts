@@ -8,9 +8,6 @@
 
 /** `/r/<prefix>/x/<module>`, the door's mount for one module, with or without a trailing slash. */
 const MOUNT = /^\/r\/[a-z0-9]+\/x\/[a-z0-9][a-z0-9-]*\/?$/;
-/** The module entry the shell asks for when the answer names none. */
-const DEFAULT_ENTRY = 'assets/colab-module.js';
-
 export interface ModuleLoad {
   /** The module's own mount path, ending in `/`, when the answer's `rail.path` is a valid mount. */
   link?: string;
@@ -25,8 +22,17 @@ function plain(entry: string): boolean {
   return entry.split('/').every((segment) => segment !== '.' && segment !== '..');
 }
 
-/** Confine a described module to its mount; `here` is the page's URL, the base of relative paths. */
-export function moduleLoad(rail: string, entry: string | undefined, here: string): ModuleLoad {
+/**
+ * Confine a described module to its mount; `here` is the page's URL, the base of relative paths.
+ * A module that names no `entry` loads `fallback` (an older Colab names none); without either it
+ * has no entry and only its link.
+ */
+export function moduleLoad(
+  rail: string,
+  entry: string | undefined,
+  here: string,
+  fallback?: string,
+): ModuleLoad {
   let page: URL;
   let mount: URL;
   try {
@@ -38,7 +44,8 @@ export function moduleLoad(rail: string, entry: string | undefined, here: string
   if (mount.origin !== page.origin || mount.search || mount.hash || !MOUNT.test(mount.pathname))
     return {};
   const link = mount.pathname.endsWith('/') ? mount.pathname : `${mount.pathname}/`;
-  const wanted = entry ?? DEFAULT_ENTRY;
+  const wanted = entry ?? fallback;
+  if (wanted === undefined) return { link };
   if (!plain(wanted)) return { link };
   let target: URL;
   try {

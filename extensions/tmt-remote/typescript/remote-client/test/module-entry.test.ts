@@ -4,16 +4,28 @@ import { moduleLoad } from '../src/module-entry.js';
 const HERE = 'http://127.0.0.1:4000/colab/';
 const MOUNT = '/r/abcdefgh/x/colab/';
 const ENTRY = `http://127.0.0.1:4000${MOUNT}assets/colab-module.js`;
+const DEFAULT = 'assets/colab-module.js';
 
 it('loads the default entry, or a named file, under the module mount', () => {
-  expect(moduleLoad(MOUNT, undefined, HERE)).toEqual({ link: MOUNT, entry: ENTRY });
+  expect(moduleLoad(MOUNT, undefined, HERE, DEFAULT)).toEqual({ link: MOUNT, entry: ENTRY });
   expect(moduleLoad(MOUNT, 'assets/other.js', HERE).entry).toBe(
     `http://127.0.0.1:4000${MOUNT}assets/other.js`,
   );
   expect(moduleLoad(MOUNT, `${MOUNT}assets/colab-module.js`, HERE).entry).toBe(ENTRY);
   // A mount written without its trailing slash is the same mount.
-  expect(moduleLoad('/r/abcdefgh/x/colab', undefined, HERE)).toEqual({ link: MOUNT, entry: ENTRY });
-  expect(moduleLoad(`http://127.0.0.1:4000${MOUNT}`, undefined, HERE).entry).toBe(ENTRY);
+  expect(moduleLoad('/r/abcdefgh/x/colab', undefined, HERE, DEFAULT)).toEqual({
+    link: MOUNT,
+    entry: ENTRY,
+  });
+  expect(moduleLoad(`http://127.0.0.1:4000${MOUNT}`, undefined, HERE, DEFAULT).entry).toBe(ENTRY);
+});
+
+it('gives a module that names no entry and has no fallback only its link', () => {
+  // The Colab-named script is for Colab alone; another module's mount is never asked for it.
+  expect(moduleLoad('/r/abcdefgh/x/ops/', undefined, HERE)).toEqual({ link: '/r/abcdefgh/x/ops/' });
+  expect(moduleLoad('/r/abcdefgh/x/ops/', 'app.js', HERE).entry).toBe(
+    'http://127.0.0.1:4000/r/abcdefgh/x/ops/app.js',
+  );
 });
 
 it('refuses an entry outside the mount and keeps the module link', () => {
