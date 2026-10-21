@@ -932,14 +932,10 @@ fn workspace_discovery_and_capture_share_the_clock_shutdown_owner() {
 }
 
 #[test]
-fn workspace_missing_old_or_malformed_core_is_a_session_local_noop() {
-    for mode in ["old", "malformed", "discovery-failure", "missing"] {
+fn workspace_old_or_malformed_answer_is_a_session_local_noop() {
+    for mode in ["old", "malformed"] {
         let f = Fixture::new();
-        let core = if mode == "missing" {
-            Core::at(f.directory.join("missing-tmt"))
-        } else {
-            workspace_core(&f, mode)
-        };
+        let core = workspace_core(&f, mode);
         let mut ticks = MinuteJobs::new(&core, false);
         for time in [0, 60_000, 120_000] {
             ticks.advance(time);
@@ -949,14 +945,44 @@ fn workspace_missing_old_or_malformed_core_is_a_session_local_noop() {
             });
         }
         assert_eq!(ticks.capture_supported, Some(false));
-        assert_eq!(
-            workspace_calls(&f),
-            if mode == "missing" {
-                vec![]
-            } else {
-                vec!["capabilities"]
-            }
-        );
+        assert_eq!(workspace_calls(&f), ["capabilities"]);
+    }
+}
+
+#[test]
+fn workspace_discovery_errors_retry_next_minute_and_cache_recovery() {
+    for mode in ["discovery-failure", "missing"] {
+        let f = Fixture::new();
+        let core = if mode == "missing" {
+            Core::at(f.directory.join("with-workspace"))
+        } else {
+            workspace_core(&f, mode)
+        };
+        let mut ticks = MinuteJobs::new(&core, false);
+        ticks.advance(0);
+        wait_for(|| {
+            ticks.reap();
+            (ticks.capture.is_none() && ticks.children.is_empty()).then_some(())
+        });
+        assert_eq!(ticks.capture_supported, None, "{mode}");
+        let failed_calls = workspace_calls(&f);
+        // Publish a working executable at the same path after the failed admission.
+        workspace_core(&f, "success");
+        ticks.advance(1);
+        assert!(ticks.capture.is_none());
+        assert_eq!(workspace_calls(&f), failed_calls);
+        for time in [60_000, 120_000] {
+            ticks.advance(time);
+            wait_for(|| {
+                ticks.reap();
+                (ticks.capture.is_none() && ticks.children.is_empty()).then_some(())
+            });
+        }
+        let mut expected = failed_calls;
+        expected
+            .extend(["capabilities", "workspace.capture", "workspace.capture"].map(str::to_owned));
+        assert_eq!(workspace_calls(&f), expected);
+        assert_eq!(ticks.capture_supported, Some(true));
     }
 }
 
@@ -983,13 +1009,18 @@ fn workspace_capture_failure_does_not_change_digest_or_retry_the_same_minute() {
 }
 
 #[test]
-fn workspace_discovery_timeout_never_starts_capture_and_reaps_the_process() {
+fn workspace_discovery_timeout_reaps_then_retries_next_minute() {
     use nix::{sys::signal::kill, unistd::Pid};
     let f = Fixture::new();
     let core = workspace_core(&f, "discovery-block");
+    let mut ticks = MinuteJobs::new(&core, false);
     let start = Instant::now();
-    assert!(!capture_workspace(&core, None, Duration::from_secs(1)));
-    assert!(start.elapsed() < Duration::from_secs(3));
+    ticks.advance(0);
+    wait_for(|| {
+        ticks.reap();
+        (ticks.capture.is_none() && ticks.children.is_empty()).then_some(())
+    });
+    assert!(start.elapsed() < Duration::from_secs(7));
     assert_eq!(workspace_calls(&f), ["capabilities"]);
     let pid: i32 = fs::read_to_string(f.directory.join("workspace.pid"))
         .unwrap()
@@ -998,6 +1029,21 @@ fn workspace_discovery_timeout_never_starts_capture_and_reaps_the_process() {
     assert_eq!(
         kill(Pid::from_raw(pid), None),
         Err(nix::errno::Errno::ESRCH)
+    );
+    assert_eq!(ticks.capture_supported, None);
+    fs::write(f.directory.join("workspace-mode"), "success").unwrap();
+    ticks.advance(1);
+    assert!(ticks.capture.is_none());
+    assert_eq!(workspace_calls(&f), ["capabilities"]);
+    ticks.advance(60_000);
+    wait_for(|| {
+        ticks.reap();
+        (ticks.capture.is_none() && ticks.children.is_empty()).then_some(())
+    });
+    assert_eq!(ticks.capture_supported, Some(true));
+    assert_eq!(
+        workspace_calls(&f),
+        ["capabilities", "capabilities", "workspace.capture"]
     );
 }
 

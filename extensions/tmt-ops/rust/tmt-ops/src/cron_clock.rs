@@ -295,7 +295,7 @@ struct MinuteJobs {
     minute: Option<i64>,
     core: Core,
     capture_supported: Option<bool>,
-    capture: Option<std::thread::JoinHandle<bool>>,
+    capture: Option<std::thread::JoinHandle<Option<bool>>>,
     cancellation: Cancellation,
     children: Vec<std::thread::JoinHandle<Option<&'static str>>>,
     skipped: u64,
@@ -335,7 +335,7 @@ impl MinuteJobs {
             .as_ref()
             .is_some_and(|child| child.is_finished())
         {
-            self.capture_supported = Some(self.capture.take().unwrap().join().unwrap_or(false));
+            self.capture_supported = self.capture.take().unwrap().join().unwrap_or(None);
         }
         let mut index = 0;
         while index < self.children.len() {
@@ -419,21 +419,25 @@ impl Drop for MinuteJobs {
 
 /// Feature discovery and capture share one finite budget and one cancellation owner.
 /// Both streams are captured by Core's runner; optional failures are never rendered.
-fn capture_workspace(core: &Core, supported: Option<bool>, budget: Duration) -> bool {
+fn capture_workspace(core: &Core, supported: Option<bool>, budget: Duration) -> Option<bool> {
     let deadline = Instant::now() + budget;
     let remaining = || deadline.saturating_duration_since(Instant::now());
-    let supported = supported.unwrap_or_else(|| {
-        core.api_within("capabilities", json!({}), remaining())
-            .is_ok_and(|value| {
-                value["operations"]
-                    .as_array()
-                    .is_some_and(|operations| operations.iter().any(|op| op == "workspace.capture"))
-            })
-    });
+    let supported = match supported {
+        Some(supported) => supported,
+        None => {
+            // A failed discovery remains unknown so the next minute can recover.
+            let value = core
+                .api_within("capabilities", json!({}), remaining())
+                .ok()?;
+            value["operations"]
+                .as_array()
+                .is_some_and(|operations| operations.iter().any(|op| op == "workspace.capture"))
+        }
+    };
     if supported && !remaining().is_zero() {
         let _ = core.api_within("workspace.capture", json!({}), remaining());
     }
-    supported
+    Some(supported)
 }
 
 fn serve(

@@ -76,8 +76,10 @@ its current metadata. The API opens no Core write store and creates no timer.
 
 The lease-owning Ops minute worker consumes this optional API after feature
 discovery, with cancellation, no overlapping capture and no paint/input work or
-visible output. Discovery and capture share a five-second budget; an absent/older
-Core is a silent no-op for that worker session. The existing command refresh
+visible output. Discovery and capture share a five-second budget. Successful
+discovery is cached for the worker session, including an answer without the
+operation. Discovery errors and timeouts stay silent and retry at the next
+admitted minute, never within the same minute. The existing command refresh
 setting and binding/launch event triggers retain their own policy.
 
 ## Retention and shrink protection
