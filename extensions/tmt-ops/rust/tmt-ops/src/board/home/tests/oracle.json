@@ -98738,7 +98738,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })"
+      "input": "Some(Rect { x: 77, y: 30, width: 82, height: 4 })"
     },
     {
       "lines": [
@@ -98832,7 +98832,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 98, height: 4 })"
     },
     {
       "lines": [
@@ -98926,7 +98926,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 78, height: 4 })"
     },
     {
       "lines": [
@@ -98961,7 +98961,7 @@
         "│ Enter runs · Esc closes                                  │",
         "└──────────────────────────────────────────────────────────┘",
         "",
-        " 1–3 / 3 rows  ·  0 more ↓                1 squad · 1 agent",
+        "",
         "",
         "",
         "",
@@ -98999,7 +98999,7 @@
         "0:1=s9 1:1=s0 2:56=s1 58:1=s0 59:1=s9",
         "0:60=s9",
         "0:60=s2",
-        "0:1=s2 1:25=s9 26:16=s2 42:17=s1 59:1=s2",
+        "0:60=s2",
         "0:60=s2",
         "0:60=s2",
         "0:60=s2",
@@ -99020,7 +99020,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 58, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 58, height: 4 })"
     },
     {
       "lines": [
@@ -100658,7 +100658,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })"
+      "input": "Some(Rect { x: 77, y: 30, width: 82, height: 4 })"
     },
     {
       "lines": [
@@ -100752,7 +100752,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 98, height: 4 })"
     },
     {
       "lines": [
@@ -100846,7 +100846,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 78, height: 4 })"
     },
     {
       "lines": [
@@ -100881,7 +100881,7 @@
         "│ Enter runs · Esc closes                                  │",
         "└──────────────────────────────────────────────────────────┘",
         "",
-        " 1–3 / 3 rows  ·  0 more ↓                1 squad · 1 agent",
+        "",
         "",
         "",
         "",
@@ -100919,7 +100919,7 @@
         "0:1=s30 1:1=s24 2:56=s25 58:1=s24 59:1=s30",
         "0:60=s30",
         "0:60=s2",
-        "0:1=s2 1:25=s30 26:16=s2 42:17=s25 59:1=s2",
+        "0:60=s2",
         "0:60=s2",
         "0:60=s2",
         "0:60=s2",
@@ -100940,7 +100940,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 58, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 58, height: 4 })"
     },
     {
       "lines": [
@@ -102578,7 +102578,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })"
+      "input": "Some(Rect { x: 77, y: 30, width: 82, height: 4 })"
     },
     {
       "lines": [
@@ -102672,7 +102672,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 98, height: 4 })"
     },
     {
       "lines": [
@@ -102766,7 +102766,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 78, height: 4 })"
     },
     {
       "lines": [
@@ -102801,7 +102801,7 @@
         "│ Enter runs · Esc closes                                  │",
         "└──────────────────────────────────────────────────────────┘",
         "",
-        " 1–3 / 3 rows  ·  0 more ↓                1 squad · 1 agent",
+        "",
         "",
         "",
         "",
@@ -102839,7 +102839,7 @@
         "0:1=s52 1:1=s2 2:56=s45 58:1=s2 59:1=s52",
         "0:60=s52",
         "0:60=s2",
-        "0:1=s2 1:25=s52 26:16=s2 42:17=s45 59:1=s2",
+        "0:60=s2",
         "0:60=s2",
         "0:60=s2",
         "0:60=s2",
@@ -102860,7 +102860,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 58, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 58, height: 4 })"
     },
     {
       "lines": [
@@ -104498,7 +104498,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })"
+      "input": "Some(Rect { x: 77, y: 30, width: 82, height: 4 })"
     },
     {
       "lines": [
@@ -104592,7 +104592,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 98, height: 4 })"
     },
     {
       "lines": [
@@ -104686,7 +104686,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 78, height: 4 })"
     },
     {
       "lines": [
@@ -104721,7 +104721,7 @@
         "│ Enter runs · Esc closes                                  │",
         "└──────────────────────────────────────────────────────────┘",
         "",
-        " 1–3 / 3 rows  ·  0 more ↓                1 squad · 1 agent",
+        "",
         "",
         "",
         "",
@@ -104780,7 +104780,7 @@
       "selected": "Some(Member { room_id: Some(\"11111111-1111-4111-8111-111111111111\"), identity_id: \"22222222-2222-4222-8222-222222222222\" })",
       "selectionState": "Visible",
       "focus": "Some(Rows)",
-      "input": "Some(Rect { x: 1, y: 32, width: 58, height: 2 })"
+      "input": "Some(Rect { x: 1, y: 30, width: 58, height: 4 })"
     },
     {
       "lines": [
