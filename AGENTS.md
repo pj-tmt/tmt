@@ -166,8 +166,10 @@ The tmux server an agent runs in hosts the whole team; losing it stops every age
   and asserts that socket is not the host default (`tmux-$UID/default` under
   `$TMUX_TMPDIR`, else `/tmp`; `/private/tmp` on macOS) before any server command.
 - Never run `kill-server`, `kill-session`, `kill-window` or `kill-pane` on a server
-  that the same test did not create. Outside tests, use only `tmt` commands that
-  target your own pane, or names your lead gave you.
+  that the same test did not create, and never change host server options or hooks.
+  On the host server, use `tmt` commands, and read or type into an explicit pane or
+  window you are responsible for (`list-*`, `capture-pane`, `send-keys -t <target>`).
+  Never run a bare `tmux` in an agent shell: it inherits `TMUX` and reaches the host.
 - If a command reaches the host server by mistake, stop at once, tell your lead,
   and do not retry. Change the approach, and get it reviewed, before continuing.
 
