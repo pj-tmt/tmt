@@ -100,7 +100,7 @@ pub fn apply(
                     ));
                 }
             }
-            let created = init(core, config, &name, None)?;
+            let created = init(core, &name, None)?;
             if created.document["created"] != true {
                 return Err(SquadError::new(
                     "SQUAD_ALREADY_EXISTS",

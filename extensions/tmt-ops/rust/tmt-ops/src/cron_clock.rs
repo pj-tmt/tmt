@@ -61,13 +61,12 @@ pub(crate) fn manual_operation() -> Result<String, SquadError> {
 /// Retains the operator and viewed revision; never silently sends a newer job.
 pub fn send_now(
     core: &Core,
-    config: &Config,
     key: &JobKey,
     actor: &CronActor,
     expected_revision: u64,
     operation_id: &str,
 ) -> Result<Value, SquadError> {
-    let job = service::authorize_write(core, config, key, actor, expected_revision)?;
+    let job = service::authorize_write(core, key, actor, expected_revision)?;
     let receipt = dispatch(core, &job, operation_id, Some(&actor.id))?;
     Ok(json!({"action":"send","job":job.document(),"dispatch":receipt,"warnings":[]}))
 }
@@ -196,7 +195,6 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
     if action == "send" {
         let actor = service::actor(
             core,
-            config,
             flags.get_one::<String>("identity").map(String::as_str),
         )?;
         let squad = Squad::resolve(core, flags.get_one::<String>("squad").map(String::as_str))?;
@@ -206,14 +204,7 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
             id: flags.get_one::<String>("id").expect("job id").clone(),
         };
         let shown = service::show_job(core, config, &key, now())?;
-        let mut sent = send_now(
-            core,
-            config,
-            &key,
-            &actor,
-            shown.job.revision,
-            &manual_operation()?,
-        )?;
+        let mut sent = send_now(core, &key, &actor, shown.job.revision, &manual_operation()?)?;
         sent["warnings"] = json!(
             shown
                 .warnings

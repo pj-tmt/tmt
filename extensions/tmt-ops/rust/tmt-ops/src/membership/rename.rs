@@ -324,7 +324,7 @@ pub fn rename_squad(
     if snapshot["name"] == squad::room_name(&request.old) {
         let writer = match crate::me::caller(core)? {
             Some(caller) => Some(caller.me.id),
-            None => crate::me::current(core, config)?.map(|person| person.id),
+            None => crate::me::current(core)?.map(|person| person.id),
         };
         let written = core.api_write("rooms.write", json!({"roomId":request.room_id,
             "room":{"expectedRevision":journal["revision"],"name":squad::room_name(&request.new),"memberIds":journal["memberIds"]}}), writer.as_deref());

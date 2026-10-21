@@ -88,17 +88,14 @@ fn fields(core: &Core, squad: &Squad, id: &str) -> Result<BTreeMap<String, Strin
 }
 
 /// Creates the squad's room and nothing else; it never asks. `--me` (for
-/// scripts) is checked before any effect, so a bad name changes nothing.
-pub fn init(
-    core: &Core,
-    config: &mut Config,
-    name: &str,
-    me: Option<&str>,
-) -> Result<Outcome, SquadError> {
+/// scripts) sets the user's name first, so a bad name changes nothing.
+pub fn init(core: &Core, name: &str, me: Option<&str>) -> Result<Outcome, SquadError> {
     if !valid_name(name) {
         return Err(name_invalid(name));
     }
-    let chosen = me.map(|requested| saved(core, requested)).transpose()?;
+    let chosen = me
+        .map(|requested| crate::me::set(core, requested))
+        .transpose()?;
     let room = squad::room_name(name);
     let (shown, created) = match core.json(&["room", "show", &room]) {
         Ok(shown) => (shown, false),
@@ -107,20 +104,10 @@ pub fn init(
         }
         Err(error) => return Err(error),
     };
-    if let Some(chosen) = chosen {
-        let _ = crate::me::mark_user(core, &chosen.id);
-        crate::me::record(
-            config,
-            &crate::me::Me {
-                id: chosen.id,
-                name: chosen.name,
-            },
-        )?;
-    }
     Ok(json!({
         "squad": {"name": name, "roomId": shown["room"]["id"]},
         "created": created,
-        "me": config.me()?,
+        "me": chosen.map(|chosen| chosen.name),
     })
     .into())
 }
@@ -191,12 +178,21 @@ pub fn add(
         .into_iter()
         .map(|member| member.id)
         .collect();
+    let user = crate::me::current(core)?;
     let mut complete = true;
     let results: Vec<Value> = names
         .iter()
         .map(|name| {
             let added = (|| {
                 let (member, _) = identity(core, name)?;
+                if user.as_ref().is_some_and(|user| user.id == member.id) {
+                    return Err(SquadError::hinted(
+                        "SQUAD_MEMBER_IS_USER",
+                        &format!("'{}' is you (Core's user.name), not an agent.", member.name),
+                        " ",
+                        "Set another name with tmt ops squad me <name> first.",
+                    ));
+                }
                 let current = fields(core, squad, &member.id)?;
                 let already_joined = joined.contains(&member.id);
                 let marker = current
