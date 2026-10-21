@@ -8,6 +8,7 @@ mod extensions;
 mod identities;
 mod identity_hooks;
 mod notes;
+mod pane;
 mod references;
 mod requests;
 mod responses;
@@ -48,6 +49,7 @@ const OPS: &[&str] = &[
     "requests.list",
     "requests.show",
     "responses.recent",
+    "pane.screen",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -176,6 +178,9 @@ pub enum Request {
     RecentResponses {
         identity_id: String,
         limit: u64,
+    },
+    PaneScreen {
+        identity_id: String,
     },
     ConsumptionHistory {
         identities: Vec<String>,
@@ -329,6 +334,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "requests.list" => Request::History(requests::decode_list(input)?),
         "requests.show" => Request::Detail(requests::decode_show(input)?),
         "responses.recent" => responses::decode(input)?,
+        "pane.screen" => pane::decode(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -437,6 +443,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         Request::RecentResponses { identity_id, limit } => {
             responses::recent(&mut storage, &identity_id, limit)
         }
+        Request::PaneScreen { identity_id } => pane::screen(&mut storage, &identity_id),
         Request::ConsumptionHistory {
             identities,
             windows,

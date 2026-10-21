@@ -11,11 +11,14 @@
 //   MOCK_HANDSHAKE         complete (default) | delay | never
 //   MOCK_HANDSHAKE_DELAY_MS  for `delay`
 //   MOCK_AUTOREPLY=1       answer a channel request with `tmt reply`
-//   MOCK_RESULT_ON_HINT=1  on a reply hint, read the durable response row at that
-//                          moment (read-only SQL on MOCK_DB, no TMT command)
+//   MOCK_RESULT_ON_HINT=1  on a reply hint, read the durable response row as the
+//                          notice arrives, before it is logged (read-only SQL on
+//                          MOCK_DB, no TMT command)
 //   MOCK_REQUEST_ON_WAKE=1 on a request wake, read the durable request row at that
 //                          moment (read-only SQL on MOCK_DB, no TMT command)
 //   MOCK_DB                the TMT database, for MOCK_RESULT_ON_HINT and MOCK_REQUEST_ON_WAKE
+//   MOCK_STALL_FIRST_CHANNEL_MS  block the mock once, right after it logs its first channel
+//                          notice, as if it were descheduled under CI load
 //   MOCK_TURN_TRANSCRIPT   private telemetry fixture; prompt follows SessionStart,
 //                          then `<log>.stop-turn` explicitly releases one Stop
 // Digest steps (`<log>.digest-step`, MOCK_LAUNCH_HOOKS=1) emit one installed-hook Stop:
@@ -216,9 +219,40 @@ async function emitInstalledHooks(
   }
 }
 
+// The durable response a reply hint points at, or undefined: a notice whose first
+// line ends in `tmt result <operand>` and whose request already has a stored final.
+function readHintResponse(content) {
+  // The result command ends the notice's first line; an inlined reply body follows it.
+  const hint = /\btmt result (\S+)$/.exec(content.split('\n')[0]);
+  if (!hint) return undefined;
+  // The response is committed before the hint is sent, so the row exists by
+  // the time the hint first reaches the provider. Read-only, no side effects.
+  const database = new Database(process.env.MOCK_DB, { readonly: true });
+  try {
+    // Correlate a short result operand independently against request IDs,
+    // with exact IDs taking precedence. A timeout also carries a result
+    // command; it must not manufacture response evidence before a final.
+    const ids = database
+      .prepare(
+        'SELECT request_id FROM request_attempts WHERE request_id = ? OR substr(request_id, 1, 12) = ?'
+      )
+      .all(hint[1], /^[0-9a-f]{8}$/.test(hint[1]) ? `req_${hint[1]}` : '');
+    const exact = ids.find((row) => row.request_id === hint[1]);
+    const selected = exact ?? (ids.length === 1 ? ids[0] : undefined);
+    if (!selected) return undefined;
+    const row = database
+      .prepare('SELECT body FROM request_responses WHERE request_id = ?')
+      .get(selected.request_id);
+    return row ? { requestId: selected.request_id, body: row.body } : undefined;
+  } finally {
+    database.close();
+  }
+}
+
 let turnReady = false;
 let turnSubmitted = false;
 let digestStepRunning = false;
+let stalled = false;
 
 let server;
 let serverClosed;
@@ -261,7 +295,16 @@ if (configIndex >= 0) {
     }
     if (message.method === 'notifications/claude/channel') {
       const content = message.params.content;
+      // Read as the notice arrives, before it is logged: whoever sees the notice
+      // logged may answer at once, and that must not change what this notice found.
+      const hintResponse =
+        process.env.MOCK_RESULT_ON_HINT === '1' ? readHintResponse(content) : undefined;
       log({ event: 'channel', content });
+      const stall = Number(process.env.MOCK_STALL_FIRST_CHANNEL_MS ?? 0);
+      if (stall > 0 && !stalled) {
+        stalled = true;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, stall);
+      }
       const reply = /tmt reply (\S+) --receipt (\S+) --message <text>/.exec(content);
       if (process.env.MOCK_AUTOREPLY === '1' && reply) {
         execPeer(
@@ -295,34 +338,7 @@ if (configIndex >= 0) {
           database.close();
         }
       }
-      // The result command ends the notice's first line; an inlined reply body follows it.
-      const hint = /\btmt result (\S+)$/.exec(content.split('\n')[0]);
-      if (process.env.MOCK_RESULT_ON_HINT === '1' && hint) {
-        // The response is committed before the hint is sent, so the row exists by
-        // the time the hint first reaches the provider. Read-only, no side effects.
-        const database = new Database(process.env.MOCK_DB, { readonly: true });
-        try {
-          // Correlate a short result operand independently against request IDs,
-          // with exact IDs taking precedence. A timeout also carries a result
-          // command; it must not manufacture response evidence before a final.
-          const ids = database
-            .prepare(
-              'SELECT request_id FROM request_attempts WHERE request_id = ? OR substr(request_id, 1, 12) = ?'
-            )
-            .all(hint[1], /^[0-9a-f]{8}$/.test(hint[1]) ? `req_${hint[1]}` : '');
-          const exact = ids.find((row) => row.request_id === hint[1]);
-          const selected = exact ?? (ids.length === 1 ? ids[0] : undefined);
-          if (selected) {
-            const row = database
-              .prepare('SELECT body FROM request_responses WHERE request_id = ?')
-              .get(selected.request_id);
-            if (row)
-              log({ event: 'hint-response', requestId: selected.request_id, body: row.body });
-          }
-        } finally {
-          database.close();
-        }
-      }
+      if (hintResponse) log({ event: 'hint-response', ...hintResponse });
     }
   });
   send({
