@@ -2,6 +2,8 @@
    as in block flow (a contenteditable control has no width of its own). */
 .tmt-ui-field {
   display: grid;
+  /* A track of `auto` grows to its widest child; the field stays as wide as its container. */
+  grid-template-columns: minmax(0, 1fr);
   justify-items: stretch;
   gap: var(--tmt-ui-space-xs);
   color: var(--tmt-ui-color-text);
