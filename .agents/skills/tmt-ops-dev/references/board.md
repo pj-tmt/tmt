@@ -68,7 +68,10 @@ A retained list selection keeps its cursor but loses the active highlight
 and dims while content has focus. App's effective table owns Tab/backtab pane
 switching; text and modal owners handle their raw events first. The same
 workspace Placement feeds paint and frame-title pointer focus; invalidation
-revokes its authority until a new paint. Conversation reserves its WP1 composer
+revokes its authority until a new paint. A plain left click focuses the pane under the pointer, including its title
+rule: history gives the reader focus, the input places the caret, and the Talk/Measure chips (the
+conversation's title rule) keep the focus in the conversation, while a click on the list or its
+strips focuses the list. A drag still selects, and no click sends or changes the recipient. Conversation reserves its WP1 composer
 band before insetting the response; the shared title replaces its former header
 row and is the single stacked separator. Header actions retain complete-visibility
 and UUID/scope guards over painted coordinates. Conversation and inline input

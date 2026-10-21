@@ -25,7 +25,7 @@ impl std::fmt::Display for Refused {
     }
 }
 impl std::error::Error for Refused {}
-fn refused(
+pub(crate) fn refused(
     code: &'static str,
     message: impl Into<String>,
 ) -> Box<dyn std::error::Error + Send + Sync> {

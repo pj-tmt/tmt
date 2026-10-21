@@ -1,6 +1,6 @@
 import { expect, test, type Page, type BrowserContext, type Locator } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
-import { homeList } from '../test/home-list.js';
+import { homeList, showAllPages } from '../test/home-list.js';
 import { text } from '../src/strings.js';
 import * as c from '@tmt/colab-client';
 
@@ -222,6 +222,7 @@ test('mounted owner discovers a pinned space; registration failure stays blocked
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
   await expect(page).toHaveURL(/\/colab\/$/);
+  await showAllPages(page);
   await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
   await page.route(`**${mount}api/devices/register`, (route) =>
     route.fulfill({ status: 403, json: { code: 'DENIED' } }),
@@ -238,6 +239,7 @@ test('discovery cannot silently replace an existing mount pin or conflicting fra
   await fixture(page);
   await page.goto(mount);
   await expect(page).toHaveURL(/\/colab\/$/);
+  await showAllPages(page);
   await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
   await page.goto(`/colab/#space=${'a'.repeat(32)}`);
   await expect(page.getByRole('alert')).toContainText('does not match the pinned space');
@@ -294,6 +296,7 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
     });
   });
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page.getByRole('alert')).toContainText('no verified page key');
   // The visible location keeps the short page path, with no space or route in the fragment.
@@ -486,6 +489,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   });
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
+  await showAllPages(page);
   await page
     .locator('.pages li')
     .getByRole('button', { name: /^Actions for/ })
@@ -740,6 +744,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   });
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
+  await showAllPages(page);
   const row = (id: string) => page.locator(`.pages li[data-page-id="${id}"]`);
   await row(pageId)
     .getByRole('button', { name: /^Actions for/ })
@@ -907,6 +912,7 @@ test.describe('relative retention evidence', () => {
     );
     await page.goto(mount);
     await expect(homeList(page)).toBeVisible();
+    await showAllPages(page);
     const row = page.locator(`.pages li[data-page-id="${pageId}"]`);
     const hint = page.getByRole('menu').locator('.retention-hint');
     await row.getByRole('button', { name: /^Actions for/ }).click();
@@ -959,6 +965,7 @@ test.describe('relative retention evidence', () => {
     now = expires + 2 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
+    await showAllPages(page);
     await row.getByRole('button', { name: /^Actions for/ }).click();
     await expect(hint).toHaveText('not in the cloud');
     await expect(row.getByRole('link')).toBeVisible();
@@ -972,6 +979,7 @@ test.describe('relative retention evidence', () => {
     now = expires - 10 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
+    await showAllPages(page);
     await row.getByRole('button', { name: /^Actions for/ }).click();
     await expect(hint).toHaveText('expires in 10 days');
     await expect(hint.locator('.retention-mark .lucide-clock')).toHaveCount(0);
@@ -982,6 +990,35 @@ test.describe('relative retention evidence', () => {
   });
 });
 
+// A mounted address names the list as `/colab/` and no more, so the tab it was left on lives in its
+// history entry: a reload, Back and Forward return to it, and a fresh visit opens In progress.
+test('the list keeps its tab across a reload, Back and Forward, and a fresh visit opens In progress', async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto(mount);
+  await showAllPages(page);
+  const row = page.locator(`[data-page-id="${pageId}"] a`);
+  const all = page.getByRole('tab', { name: 'All', exact: true });
+  await expect(row).toBeVisible();
+  await page.reload();
+  await expect(all).toHaveAttribute('aria-selected', 'true');
+  await expect(row).toBeVisible();
+  await row.click();
+  await expect(page).toHaveURL(/\/p\//);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/colab\/$/);
+  await expect(all).toHaveAttribute('aria-selected', 'true');
+  await expect(row).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(/\/p\//);
+  await page.goto(mount);
+  await expect(page.getByRole('tab', { name: /^In progress/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
 // Back from a page to the list reads the catalog again; an ended Remote session is refreshed once
 // for the same device, as the page's own read does, instead of ending in a terminal error.
 for (const status of [403, 503])
@@ -990,6 +1027,7 @@ for (const status of [403, 503])
   }) => {
     await fixture(page);
     await page.goto(mount);
+    await showAllPages(page);
     await page.locator(`[data-page-id="${pageId}"] a`).click();
     await expect(page).toHaveURL(/\/p\//);
     let reads = 0;
@@ -999,16 +1037,23 @@ for (const status of [403, 503])
     const registers = page.waitForRequest(`**${mount}api/devices/register`);
     await page.goBack();
     await registers;
+    // The list is back on the tab it was left on: count the reads as soon as it is shown (a page
+    // with no task makes it read again every 2 s).
+    await expect(page.getByRole('tab', { name: 'All', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(reads).toBe(2);
     await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page).toHaveURL(/\/colab\/$/);
-    expect(reads).toBe(2);
   });
 test('Back to the list still ends in the error when a refreshed session is refused again', async ({
   page,
 }) => {
   await fixture(page);
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page).toHaveURL(/\/p\//);
   let reads = 0;

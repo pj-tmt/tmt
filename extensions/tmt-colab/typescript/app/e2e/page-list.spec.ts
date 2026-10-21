@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
+/** The list opens on In progress; these specs are about rows, so a link that names no tab gets All. */
+const onAll = (hash: string) =>
+  /[?&](stage=(in-progress|discussion|done|all)|archived=true)(&|$)/.test(hash)
+    ? hash
+    : `${hash}${hash.includes('?') ? '&' : '?'}stage=all`;
 async function mount(
   page: Page,
   size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' = 'few',
@@ -19,7 +24,7 @@ async function mount(
       const path = '/test/page-list-browser.tsx';
       await (await import(path)).mountPageList(size, hash);
     },
-    { size, hash },
+    { size, hash: onAll(hash) },
   );
 }
 /** The fixture mounts beside the hidden app, which renders the same route; scope to the fixture. */
@@ -43,6 +48,8 @@ async function scopeTo(page: Page, name: string) {
   await page.getByRole('menuitemradio', { name: new RegExp(`^${name}`) }).click();
 }
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
+/** A page's project crumb links to the scoped list, which opens on In progress like any bare link. */
+const showAll = (page: Page) => app(page).getByRole('tab', { name: 'All', exact: true }).click();
 
 test('a project button filters the list, adds a token and removes it again', async ({ page }) => {
   await mount(page);
@@ -278,7 +285,7 @@ test('the home is the list: no Today or view tabs, and an old /all link lands on
   // Search it cannot read is dropped and the address is the plain home.
   await mount(page, 'few', '/all?project=design&q=123');
   await expect(titles(page)).toHaveCount(4);
-  expect(new URL(page.url()).hash).toBe('#/');
+  expect(new URL(page.url()).hash).toBe('#/?stage=all');
 });
 
 test('the needs-you chip keeps the pages waiting on the viewer, combines with a project and survives reload', async ({
@@ -904,6 +911,7 @@ test('a page opened from a scoped list shows the project it came from and links 
   await crumb.click();
   await expect(scopeTrigger(page, 'design')).toBeVisible();
   expect(new URL(page.url()).hash).toContain('scope=design');
+  await showAll(page);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   // From the unscoped list, or by a copied link, no crumb: the page link stays clean.
   await scopeTo(page, 'All pages');
@@ -1157,8 +1165,10 @@ for (const width of [1440, 390])
       else await expect(crumb).toBeHidden();
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3747-page-crumb-${width}-${theme}.png`) });
-      if (width > 390) await crumb.click();
-      else await page.goBack();
+      if (width > 390) {
+        await crumb.click();
+        await showAll(page);
+      } else await page.goBack();
       await scopeTo(page, 'All pages');
       await expect(titles(page)).toHaveCount(4);
       await app(page).getByRole('button', { name: 'Needs you, 1 page' }).click();
@@ -1385,8 +1395,10 @@ for (const width of [1440, 390, 320])
           await page.screenshot({
             path: await capturePath(`3747-page-crumb-long-${width}-${theme}.png`),
           });
-        if (width > 390) await crumb.click();
-        else await page.goBack();
+        if (width > 390) {
+          await crumb.click();
+          await showAll(page);
+        } else await page.goBack();
         await expect(scopeTrigger(page, long)).toBeVisible();
       }
     });

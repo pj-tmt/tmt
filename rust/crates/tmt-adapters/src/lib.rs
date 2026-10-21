@@ -68,6 +68,8 @@ pub mod skill_installation;
 pub mod storage;
 #[cfg(unix)]
 pub mod tmux;
+#[cfg(unix)]
+pub mod user;
 
 #[cfg(all(test, unix))]
 mod scripted_runner;

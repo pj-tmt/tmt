@@ -2769,7 +2769,7 @@ both be admitted: the limit is a working agreement, not a lock.
 #### Browser work actions (#4051)
 
 The owner browser changes work through the sync socket's `work` frame (`operationId, action, body`),
-owner device only, never a link or a public reader. `action` is one of the nine closed actions above
+owner device only, never a link or a public reader. `action` is one of the nine closed actions above, or `task.convert`,
 and `body` its closed body; neither carries attribution, and the write is the root-local writer's,
 with no display agent. The serve prepares it from a snapshot of its own outside the sync lock, like a
 browser Save, and runs the write command's admission first: the task the body names exists, the
@@ -2780,6 +2780,23 @@ command and the browser. An action the contract does not name is a protocol viol
 applies to the revision the serve reads when it prepares, so the action's own preconditions fence it
 (a task that is gone is `COLAB_INPUT_INVALID`), and the commit's fences turn a page that moved
 meanwhile into `COLAB_STALE_BASE`; nothing is written on a refusal.
+
+A tenth action, `task.convert` with the body `{taskId}` and nothing else, makes the task a page of its
+own, as `tmt colab task convert` does, and is the only browser action that makes a page. Page
+creation is otherwise root-only, so this is a narrow authority of the owner device (`Access::Publish`,
+checked again under the sync lock when the page is made): the page is a column page titled like the
+task, its first text is the task's title and detail as escaped paragraphs, and no title, source,
+layout or agent comes from the caller. The serve refuses a task that is gone, follows a page or has
+an `externalId` (`COLAB_INPUT_INVALID`) before anything is made; makes the page with the root-local
+`page.create` in process; reads the task again and runs `task.link` through the shared admission only
+if the task is still the one copied. The page's ID is a name-based ID over the space ID and the
+operation ID (a generated-ID shape; its creation is recorded under a second ID derived the same
+way), so the same operation never makes two pages, a replay finds its page, and a new operation makes
+a new one. A committed `workresult` carries `childPage`. If the link then fails, the result is
+rejected and still carries `childPage`: the page exists and the task is unlinked, nothing is retried,
+and `task.link` finishes it. `savestatus` for the operation carries `childPage` whenever that page
+exists, so a lost reply says whether the page was made (`absent` with a page) and whether the link
+landed (`committed`). No page is ever searched for or adopted.
 
 The one `workresult` has a `saveresult`'s fields: `state` `committed` with the `revision` (and `taskId`
 for a `task.add`), `unchanged` for an action that changes nothing, or `rejected` with `code` and
@@ -3541,27 +3558,27 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type            | Additional fields / behavior                                                                                                                    |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`         | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                           |
-| `catchup`       | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail    |
-| `subscribe`     | `cursors`; observe only the admitted page/current epoch                                                                                         |
-| `append`        | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                               |
-| `save`          | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively |
-| `savestatus`    | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                  |
-| `saveresult`    | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`; the one reply to a `save` or `savestatus`          |
-| `work`          | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively        |
-| `workresult`    | as `saveresult`, plus `taskId` for a committed `task.add`; the one reply to a `work`                                                            |
-| `usage`         | no fields; owner device only; how full the page is                                                                                              |
-| `usageresult`   | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                       |
-| `compact`       | no fields; owner device only; combine the root-local device's own stream                                                                        |
-| `compactresult` | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                      |
-| `receipt`       | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                          |
-| `broadcast`     | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                 |
-| `checkpoint`    | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                    |
-| `ack`           | `cursors`; scoped delivery positions only                                                                                                       |
-| `awareness`     | `device, data`; bounded ephemeral presence, never persisted or authority                                                                        |
-| `error`         | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                  |
+| Type            | Additional fields / behavior                                                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`         | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                                                                       |
+| `catchup`       | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail                                                |
+| `subscribe`     | `cursors`; observe only the admitted page/current epoch                                                                                                                                     |
+| `append`        | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                                                           |
+| `save`          | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]`; owner device only; the browser's Save, prepared and committed natively                                             |
+| `savestatus`    | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                                                              |
+| `saveresult`    | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `task.convert` made a page; the one reply to a `save` or `savestatus` |
+| `work`          | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                    |
+| `workresult`    | as `saveresult`, plus `taskId` for a committed `task.add` and `childPage` for a `task.convert`; the one reply to a `work`                                                                   |
+| `usage`         | no fields; owner device only; how full the page is                                                                                                                                          |
+| `usageresult`   | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                   |
+| `compact`       | no fields; owner device only; combine the root-local device's own stream                                                                                                                    |
+| `compactresult` | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                                                                  |
+| `receipt`       | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                                                                      |
+| `broadcast`     | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                                                             |
+| `checkpoint`    | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                                                                |
+| `ack`           | `cursors`; scoped delivery positions only                                                                                                                                                   |
+| `awareness`     | `device, data`; bounded ephemeral presence, never persisted or authority                                                                                                                    |
+| `error`         | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                                                              |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -6199,8 +6216,11 @@ The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
 the same dialog; local samples remain read-only. Home offers the tabs In progress, Discussion
 and Done (the stage of each row's `summary.work`, a fresh summary without work being in
-discussion), Archived and All, and opens on All; an archived page counts only under Archived, and a
-page whose summary has not arrived is in no stage tab. Its rows offer archive and delete, each behind a confirmation that
+discussion), Archived and All, and opens on In progress (a link with `stage=all` opens on All; a mounted address is the list and no more, so a reload,
+Back and Forward return to the tab the entry was left on); an
+archived page counts only under Archived, and a page whose summary has not arrived is in no stage
+tab. An empty In progress says so and points to Discussion and All, and never opens another tab by
+itself. Its rows offer archive and delete, each behind a confirmation that
 names the page, and a selection of rows takes them together (one signed statement per page, in
 order, stopping at the first refusal), and the dialog provides retention days/forever, archive and explicit
 delete confirmation. An archived row offers `Restore…` with a named confirmation, using the

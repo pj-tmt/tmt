@@ -42,12 +42,14 @@ export function usePageLayers({
     host,
     state,
     source: view.source,
+    // The inline layers mount only once the discussion is verified (`discussionPending`), after
+    // the page is ready: measuring has to run again then, or their slots are never requested.
     identity: `${(view.threads ?? [])
       .filter((thread) => thread.proposal && !thread.deleted)
       .map((thread) => thread.threadId)
       .join(
         ',',
-      )}|${groups.map((group) => group.id).join(',')}|${reviews.map((review) => review.id).join(',')}|${readings.map((reading) => reading.id).join(',')}`,
+      )}|${groups.map((group) => group.id).join(',')}|${reviews.map((review) => review.id).join(',')}|${readings.map((reading) => reading.id).join(',')}|${view.discussionPending ? 'pending' : 'verified'}`,
   });
   const associatedQuestionThreads = useRef<(id: string) => readonly ThreadView[]>(() => []);
   const reviewLayer = useReviewLayer({

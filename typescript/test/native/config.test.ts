@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import {
@@ -8,6 +9,15 @@ import {
   runCli,
   withSandbox,
 } from '../support/cli-process.js';
+
+/** The account name Core falls back to for `user.name`, read the way Core reads it. */
+function loginName(): string | null {
+  try {
+    return os.userInfo().username || null;
+  } catch {
+    return null;
+  }
+}
 
 describe('native configuration process boundary', () => {
   it('keeps concurrent config writes and opaque project data without sibling locks', async () => {
@@ -178,6 +188,50 @@ describe('native configuration process boundary', () => {
           .status
       ).toBe(0);
       expect(await badge()).toEqual(['off', 'global']);
+    });
+  });
+
+  it('sets and shows the person name the Core identity takes, global only', async () => {
+    await withSandbox(async (sandbox) => {
+      const name = async () => {
+        const shown = parseWholeStdout(await runCli(sandbox, ['config', '--json']));
+        return [
+          (shown.resolved as { user: { name: string | null } }).user.name,
+          (shown.sources as { user: { name: string } }).user.name,
+        ];
+      };
+      expect(await name()).toEqual([loginName(), 'default']);
+      expect(
+        (await runCli(sandbox, ['config', 'set', 'user.name', 'Ben', '--global', '--json'])).status
+      ).toBe(0);
+      expect(await name()).toEqual(['Ben', 'global']);
+      expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+        user: { name: 'Ben' },
+      });
+      const text = await runCli(sandbox, ['config', 'show']);
+      const row = text.stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .find((line) => line.startsWith('user.name'));
+      expect(row?.split(/\s{2,}/)).toEqual([
+        'user.name',
+        'Ben',
+        'global',
+        'global CLI',
+        'a name of 1 to 64 characters that is not a pane target',
+      ]);
+      const before = fileSnapshot(sandbox.root);
+      for (const value of ['', '%1', 'a'.repeat(65)]) {
+        const refused = await runCli(sandbox, ['config', 'set', 'user.name', value, '--global']);
+        expect(refused.status).toBe(1);
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      }
+      const local = await runCli(sandbox, ['config', 'set', 'user.name', 'Ben']);
+      expect(local.status).toBe(1);
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect((await runCli(sandbox, ['config', 'rm', 'user.name', '--json'])).status).toBe(1);
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(await name()).toEqual(['Ben', 'global']);
     });
   });
 
@@ -518,6 +572,7 @@ describe('native configuration process boundary', () => {
         },
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'on' },
+        user: { name: loginName() },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         experimental: { channel: false },
         notes: { compactionReminder: true },
@@ -530,6 +585,7 @@ describe('native configuration process boundary', () => {
         pasteEnterDelayMs: 'default',
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
+        user: { name: 'default' },
         notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
         experimental: { channel: 'default' },
         notes: { compactionReminder: 'default' },
@@ -661,6 +717,7 @@ describe('native configuration process boundary', () => {
         },
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'on' },
+        user: { name: loginName() },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         experimental: { channel: false },
         notes: { compactionReminder: true },
@@ -673,6 +730,7 @@ describe('native configuration process boundary', () => {
         pasteEnterDelayMs: 'global',
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
+        user: { name: 'default' },
         notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
         experimental: { channel: 'default' },
         notes: { compactionReminder: 'default' },

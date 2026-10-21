@@ -33,7 +33,7 @@ identity UUID or name, or `"originator":"anonymous"`, which stores no writer ide
 exactly like the CLI without `--identity`. Anonymous is not an authenticated owner and
 grants nothing beyond what same-user CLI calls without an identity can already do; both
 or neither is `API_INPUT_INVALID`. Operations without originator attribution, including
-`identity.meta.apply` and `identity.rename`, name neither. Their target is input `identityId`. Unknown request fields
+`identity.meta.apply`, `identity.rename` and `user.identity`, name neither. Their target is input `identityId`. Unknown request fields
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
 Clients must tolerate additive response fields. Public `tmt api` storage opens,
 including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
@@ -66,6 +66,7 @@ independent of storage access.
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs` | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                              |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                           |
+| `user.identity`          | `{}`                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                         |
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                            |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
 | `extensions.uses`        | `extension`, `feature`                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
@@ -255,6 +256,30 @@ and close within five seconds; invalid input is `IDENTITY_METADATA_INVALID`.
 The CLI shares the success/conflict documents and conflict exit 5 with the API.
 This mutation sends no notification; callers own any subsequent notification and
 must not repeat a confirmed mutation to retry it.
+
+## The person's identity
+
+`user.identity` resolves the identity that stands for the person at this machine,
+so a surface sends as the person without recording a name of its own. The name is
+the global `user.name` setting, else the OS login name from the account database
+(not `$USER`). Core reuses the saved identity with that name or creates it, then
+writes the reserved `user` entry as `true` only when the entry is absent; an
+existing value, including one that says the identity is not a person, is kept.
+The result is `{identityId, name, created}`.
+
+An identity that has a recorded pane binding and no `user=true` entry is an agent,
+and the operation never takes it over. Instead it resolves `<name>-user` and
+returns `renamedFrom` with the name that was wanted. When agents hold both names,
+or the name cannot be read or is not a valid identity name, the operation returns
+`USER_NAME_TAKEN`, `USER_NAME_UNAVAILABLE` or `USER_NAME_INVALID`; each message
+names `tmt config set user.name <name>`. Changing `user.name` resolves a new
+identity on the next call; the previous identity keeps its `user` entry, so
+earlier messages keep their meaning.
+
+The operation takes no sender fields. A caller that is the person's own session
+passes the returned `identityId` as the `identity` originator of `dispatch.create`;
+the identity is local attribution, not authentication, so a surface calls it only
+for sessions already authenticated as the machine's owner.
 
 ## Consumption history
 

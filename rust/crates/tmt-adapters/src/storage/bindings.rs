@@ -376,6 +376,18 @@ pub struct PurgedSession {
 }
 
 impl Storage {
+    /// Whether an agent is bound to this identity (a recorded pane or endpoint).
+    /// The person's identity never takes over such a name.
+    pub fn identity_has_binding(&self, identity_id: &str) -> Result<bool, StorageError> {
+        self.connection()?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM bindings WHERE identity_id = ?)",
+                [identity_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| classify(error, "Check identity binding"))
+    }
+
     /// Read an active identity's remembered preferences without a write
     /// transaction, for read-only projections such as show and list.
     pub fn session_preferences(

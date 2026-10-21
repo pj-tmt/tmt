@@ -35,30 +35,27 @@ test('the tabs are In progress, Discussion, Done, Archived and All, counting wha
     'Archived 1',
     'All',
   ]);
-  // An archived page counts only under Archived, and a page that has not reported under no stage.
-  await expect(tab(page, 'All')).toHaveAttribute('aria-selected', 'true');
-  await expect(titles(page)).toHaveText([
-    'Alpha plan',
-    'Beta review',
-    'Gamma notes',
-    'Delta ops',
-    'Epsilon draft',
-  ]);
+  // The bare link opens on In progress, and the address stays plain: that is the default.
+  await expect(tab(page, 'In progress 2')).toHaveAttribute('aria-selected', 'true');
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
+  expect(hash(page)).not.toContain('stage=');
   const shown = async (name: string, expected: string[]) => {
     await tab(page, name).click();
     await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true');
     await expect(titles(page)).toHaveText(expected);
   };
-  await shown('In progress 2', ['Alpha plan', 'Beta review']);
-  expect(hash(page)).toContain('stage=in-progress');
   await shown('Discussion 1', ['Gamma notes']);
+  expect(hash(page)).toContain('stage=discussion');
   await shown('Done 1', ['Delta ops']);
   await shown('Archived 1', ['Archived spec']);
   expect(hash(page)).toContain('archived=true');
   expect(hash(page)).not.toContain('stage=');
+  // An archived page counts only under Archived, and a page that has not reported under no stage.
   await shown('All', ['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops', 'Epsilon draft']);
-  expect(hash(page)).not.toContain('stage=');
+  expect(hash(page)).toContain('stage=all');
   expect(hash(page)).not.toContain('archived');
+  await shown('In progress 2', ['Alpha plan', 'Beta review']);
+  expect(hash(page)).not.toContain('stage=');
 });
 
 test('a copied link lands on its stage, and one it cannot read lands on the default', async ({
@@ -67,16 +64,22 @@ test('a copied link lands on its stage, and one it cannot read lands on the defa
   await mount(page, 'stages', '/?stage=done');
   await expect(tab(page, 'Done 1')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Delta ops']);
-  await mount(page, 'stages', '/?stage=blocked');
+  // A link to All keeps working, and so does one that names the default.
+  await mount(page, 'stages', '/?stage=all');
   await expect(tab(page, 'All')).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveCount(5);
+  await mount(page, 'stages', '/?stage=in-progress');
+  await expect(tab(page, 'In progress 2')).toHaveAttribute('aria-selected', 'true');
+  await mount(page, 'stages', '/?stage=blocked');
+  await expect(tab(page, 'In progress 2')).toHaveAttribute('aria-selected', 'true');
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   // Archived wins over a stage in the same link.
   await mount(page, 'stages', '/?stage=done&archived=true');
   await expect(tab(page, 'Archived 1')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('a row shows its progress in words and who works on it', async ({ page }) => {
-  await mount(page);
+  await mount(page, 'stages', '/?stage=all');
   const alpha = rows(page).filter({ hasText: 'Alpha plan' });
   await expect(alpha.getByRole('progressbar', { name: '7 of 10 tasks done' })).toHaveAttribute(
     'value',
@@ -171,7 +174,7 @@ test('the project filters and the scope count what the stage tab holds', async (
 test('an empty In progress says where pages without tasks are and links the way out', async ({
   page,
 }) => {
-  await mount(page, 'quiet', '/?stage=in-progress');
+  await mount(page, 'quiet');
   await expect(tab(page, 'In progress 0')).toHaveAttribute('aria-selected', 'true');
   const empty = app(page).locator('.page-list-empty');
   await expect(empty).toHaveText(
@@ -185,6 +188,7 @@ test('an empty In progress says where pages without tasks are and links the way 
   await tab(page, 'In progress 0').click();
   await empty.getByRole('button', { name: 'All' }).click();
   await expect(tab(page, 'All')).toHaveAttribute('aria-selected', 'true');
+  expect(hash(page)).toContain('stage=all');
   await expect(titles(page)).toHaveCount(2);
   await tab(page, 'Done 0').click();
   await expect(empty).toHaveText('Nothing done yet.');
@@ -198,12 +202,30 @@ test('a stage tab in a project with nothing at that stage names the project', as
 test('before any page has reported its tasks a stage tab says it is reading, not that it is empty', async ({
   page,
 }) => {
-  await mount(page, 'cold', '/?stage=in-progress');
+  await mount(page, 'cold');
   await expect(app(page).locator('.page-list-empty')).toHaveText('Reading page details…');
   await expect(tab(page, 'In progress 0')).toBeVisible();
   // All still lists the pages, so the list is never blank.
   await tab(page, 'All').click();
   await expect(titles(page)).toHaveText(['Gamma notes', 'Zeta notes']);
+});
+
+test('a cold start reads again and fills In progress as the pages report, with no click', async ({
+  page,
+}) => {
+  await mount(page, 'cold');
+  await expect(app(page).locator('.page-list-empty')).toHaveText('Reading page details…');
+  await page.evaluate(() => window.__reportTasks!());
+  // The list reads again every 2 s: the page that reports work appears, the other is a discussion.
+  await expect(titles(page)).toHaveText(['Gamma notes'], { timeout: 10_000 });
+  await expect(app(page).getByRole('tab')).toHaveText([
+    'In progress 1',
+    'Discussion 1',
+    'Done 0',
+    'Archived 0',
+    'All',
+  ]);
+  await expect(app(page).locator('.page-list-empty')).toHaveCount(0);
 });
 
 // A phone cannot fit five tabs: the strip scrolls on its own, the edge that hides tabs fades, and
@@ -213,7 +235,7 @@ for (const width of [1440, 390, 320])
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
-    await mount(page, 'stages', '/?stage=in-progress');
+    await mount(page);
     const strip = app(page).getByRole('tablist');
     const host = app(page).locator('.page-stage-tabs');
     const names = [/^In progress/, /^Discussion/, /^Done/, /^Archived/, 'All'];
@@ -289,7 +311,7 @@ for (const width of [1440, 390])
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
-      await mount(page, 'stages', '/?stage=in-progress');
+      await mount(page);
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
@@ -309,7 +331,7 @@ for (const width of [1440, 390])
       await expect(page.getByRole('option')).toHaveCount(4);
       await page.screenshot({ path: await capturePath(`4052-stage-token-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
-      await mount(page, 'quiet', '/?stage=in-progress');
+      await mount(page, 'quiet');
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
