@@ -781,6 +781,8 @@ pub struct App {
     pub hits: RefCell<Vec<Hit>>,
     /// Clock text belongs to painted surfaces and is invalidated with frame geometry.
     pub(in crate::board) frame_clocks: RefCell<Vec<super::view::ClockSurface>>,
+    /// The last paint drew a row in conversation (its tint follows the selection's word policy).
+    pub(in crate::board) conversation_tinted: std::cell::Cell<bool>,
     pub(super) peek_areas: super::peek::PeekAreas,
     /// Where a row's choice chip was last drawn, with its row.
     pub(super) chip_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,

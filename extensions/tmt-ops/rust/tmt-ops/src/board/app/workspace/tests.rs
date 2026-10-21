@@ -2958,6 +2958,7 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
 }
 
 mod agents_chips;
+mod conversation_tint;
 mod member_actions;
 mod member_rename;
 mod membership_context;

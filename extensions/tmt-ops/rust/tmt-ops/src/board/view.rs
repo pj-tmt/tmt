@@ -106,6 +106,7 @@ pub(in crate::board) fn render_frame(
     app.buttons.begin_frame();
     app.hits.borrow_mut().clear();
     app.frame_clocks.borrow_mut().clear();
+    app.conversation_tinted.set(false);
     app.chip_hits.borrow_mut().clear();
     app.workspace_action_hits.borrow_mut().clear();
     app.cron_scope_hits.borrow_mut().clear();
@@ -243,9 +244,13 @@ pub(in crate::board) fn render_frame(
     waiting::prompt(frame, app, body);
     super::mentions::render(frame, app);
     if app.modal_open() {
-        look.selected_words(frame.buffer_mut());
+        look.selected_words(frame.buffer_mut(), &[], app.conversation_tinted.get());
     } else {
-        look.selected_words_except(frame.buffer_mut(), &app.workspace_state_cells.borrow());
+        look.selected_words(
+            frame.buffer_mut(),
+            &app.workspace_state_cells.borrow(),
+            app.conversation_tinted.get(),
+        );
     }
     header::finish_meter_styles(frame, app, summary);
     super::conversation::source::paint(frame, app);
