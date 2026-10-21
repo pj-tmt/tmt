@@ -9,10 +9,33 @@ use ratatui::{
 use serde_json::json;
 
 fn fixture(source: &str) -> App {
+    fixture_with_look(source, crate::look::Look::default())
+}
+
+fn fixture_with_look(source: &str, look: crate::look::Look) -> App {
     let mut app = crate::board::app::workspace::tests::board();
-    app.view.as_mut().unwrap().replies =
-        vec![json!({"recipientId":MEMBER,"requestId":"r1","response":source})];
+    let view = app.view.as_mut().unwrap();
+    view.replies = vec![json!({"recipientId":MEMBER,"requestId":"r1","response":source})];
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     app
+}
+
+fn selection_looks() -> impl Iterator<Item = crate::look::Look> {
+    [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight]
+        .into_iter()
+        .flat_map(|base| {
+            [
+                tmt_cli_style::Depth::TrueColor,
+                tmt_cli_style::Depth::Ansi16,
+                tmt_cli_style::Depth::None,
+            ]
+            .into_iter()
+            .map(move |depth| crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            })
+        })
 }
 fn draw(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -290,10 +313,9 @@ fn capture_rendered_quote_chip_packet() {
     });
 }
 
-#[test]
-fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
-    let mut app = fixture("separate reply");
-    let selected = app.workspace.selected.clone().unwrap();
+fn task_field_fixture(look: crate::look::Look) -> App {
+    let mut app = fixture_with_look("separate reply", look);
+    let target = app.workspace.selected.clone().unwrap();
     app.view
         .as_mut()
         .unwrap()
@@ -302,7 +324,7 @@ fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
         .unwrap()
         .workspace
         .rows
-        .get_mut(&selected)
+        .get_mut(&target)
         .unwrap()["fields"] = json!({"task":"task proof"});
     app.view
         .as_mut()
@@ -318,7 +340,10 @@ fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
         crate::board::workspace::OpsTarget::Squad(crate::board::app::workspace::tests::ROOM.into()),
     ));
     app.focus = 1;
-    let buffer = draw(&mut app, 100, 36);
+    app
+}
+
+fn task_field_start(app: &App, buffer: &ratatui::buffer::Buffer) -> (u16, u16) {
     let area = app
         .conversation
         .borrow()
@@ -327,40 +352,65 @@ fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
         .find(|surface| surface.text().contains("task proof"))
         .expect("the actual task painter publishes its displayed cells")
         .area;
-    let line: String = (area.x..area.right())
-        .map(|x| buffer[(x, area.y)].symbol())
-        .collect();
-    let x = area.x + line.find("task proof").unwrap() as u16;
-    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, area.y);
-    mouse(
-        &mut app,
-        MouseEventKind::Drag(MouseButton::Left),
-        x + 10,
-        area.y,
-    );
-    assert!(
-        matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+10,area.y),
-        Effect::Act(Request::Copy{text,..}) if text=="task proof")
-    );
+    for y in area.y..area.bottom() {
+        let line: String = (area.x..area.right())
+            .map(|x| buffer[(x, y)].symbol())
+            .collect();
+        if let Some(x) = line.find("task proof") {
+            return (area.x + x as u16, y);
+        }
+    }
+    panic!("the published task field contains its displayed text");
+}
+
+#[test]
+fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
+    for look in selection_looks() {
+        let mut app = task_field_fixture(look);
+        let buffer = draw(&mut app, 100, 36);
+        let (x, y) = task_field_start(&app, &buffer);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
+        let highlighted = draw(&mut app, 100, 36);
+        assert!(matches!(
+            app.conversation.borrow().selection,
+            Some(Selection::Cells(_))
+        ));
+        assert_ne!(highlighted[(x, y)], buffer[(x, y)], "{look:?}");
+        if look.depth == tmt_cli_style::Depth::None {
+            assert!(
+                highlighted[(x, y)]
+                    .modifier
+                    .contains(ratatui::style::Modifier::REVERSED)
+            );
+        }
+        assert_eq!(selected(&app).as_deref(), Some("task proof"));
+        assert!(
+            matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+10,y),
+            Effect::Act(Request::Copy{text,..}) if text=="task proof")
+        );
+    }
 }
 
 #[test]
 fn literal_selection_keeps_wide_and_combining_glyphs_whole() {
-    let mut app = fixture("漢字 e\u{301} end");
-    let buffer = draw(&mut app, 100, 36);
-    let (x, y) = (0..buffer.area.height)
-        .find_map(|y| {
-            (0..buffer.area.width)
-                .find(|x| buffer[(*x, y)].symbol() == "漢")
-                .map(|x| (x, y))
-        })
-        .unwrap();
-    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
-    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 6, y);
-    assert!(
-        matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+6,y),
-        Effect::Act(Request::Copy{text,..}) if text=="漢字 e\u{301}")
-    );
+    for look in selection_looks() {
+        let mut app = fixture_with_look("漢字 e\u{301} end", look);
+        let buffer = draw(&mut app, 100, 36);
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                (0..buffer.area.width)
+                    .find(|x| buffer[(*x, y)].symbol() == "漢")
+                    .map(|x| (x, y))
+            })
+            .unwrap();
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 6, y);
+        assert!(
+            matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+6,y),
+            Effect::Act(Request::Copy{text,..}) if text=="漢字 e\u{301}")
+        );
+    }
 }
 
 #[test]
@@ -523,66 +573,72 @@ fn replace_reply(app: &mut App, text: String) {
 
 #[test]
 fn a_selection_follows_its_text_through_a_new_message_and_scrolling() {
-    let mut app = fixture(&long(80));
-    pick(&mut app, "passage 070");
-    assert!(marked(&mut app, "passage 070"));
-    assert!(quote_button(&app).is_some());
+    for look in selection_looks() {
+        let mut app = fixture_with_look(&long(80), look);
+        pick(&mut app, "passage 070");
+        assert!(marked(&mut app, "passage 070"), "{look:?}");
+        assert!(quote_button(&app).is_some());
 
-    replace_reply(&mut app, format!("{}fresh news\n", long(80)));
-    assert!(marked(&mut app, "passage 070"));
-    assert!(quote_button(&app).is_some());
-    assert_eq!(selected(&app).as_deref(), Some("passage 070"));
+        replace_reply(&mut app, format!("{}fresh news\n", long(80)));
+        assert!(marked(&mut app, "passage 070"), "{look:?}");
+        assert!(quote_button(&app).is_some());
+        assert_eq!(selected(&app).as_deref(), Some("passage 070"));
 
-    let before = locate(&draw(&mut app, 100, TALL), "passage 070").unwrap().1;
-    app.scroll_pane(Pane::Replies, Step::Lines(-4));
-    let after = locate(&draw(&mut app, 100, TALL), "passage 070").unwrap().1;
-    assert_eq!(after, before + 4);
-    assert!(marked(&mut app, "passage 070"), "it moves with its text");
-    assert!(quote_button(&app).is_some());
+        let before = locate(&draw(&mut app, 100, TALL), "passage 070").unwrap().1;
+        app.scroll_pane(Pane::Replies, Step::Lines(-4));
+        let after = locate(&draw(&mut app, 100, TALL), "passage 070").unwrap().1;
+        assert_eq!(after, before + 4);
+        assert!(marked(&mut app, "passage 070"), "it moves with its text");
+        assert!(quote_button(&app).is_some());
 
-    app.scroll_pane(Pane::Replies, Step::Top);
-    assert!(!marked(&mut app, "passage 070"));
-    assert!(
-        quote_button(&app).is_none(),
-        "no button for text out of view"
-    );
-    assert_eq!(selected(&app).as_deref(), Some("passage 070"));
+        app.scroll_pane(Pane::Replies, Step::Top);
+        assert!(!marked(&mut app, "passage 070"));
+        assert!(
+            quote_button(&app).is_none(),
+            "no button for text out of view"
+        );
+        assert_eq!(selected(&app).as_deref(), Some("passage 070"));
 
-    app.scroll_pane(Pane::Replies, Step::Bottom);
-    assert!(
-        marked(&mut app, "passage 070"),
-        "restored when scrolled back"
-    );
-    assert!(quote_button(&app).is_some());
+        app.scroll_pane(Pane::Replies, Step::Bottom);
+        assert!(
+            marked(&mut app, "passage 070"),
+            "restored when scrolled back"
+        );
+        assert!(quote_button(&app).is_some());
+    }
 }
 
 #[test]
 fn a_selection_follows_its_text_when_lines_are_inserted_above_it() {
-    let mut app = fixture(&long(80));
-    pick(&mut app, "passage 070");
-    replace_reply(&mut app, format!("one\ntwo\nthree\n\n{}", long(80)));
-    assert!(marked(&mut app, "passage 070"));
-    assert_eq!(selected(&app).as_deref(), Some("passage 070"));
+    for look in selection_looks() {
+        let mut app = fixture_with_look(&long(80), look);
+        pick(&mut app, "passage 070");
+        replace_reply(&mut app, format!("one\ntwo\nthree\n\n{}", long(80)));
+        assert!(marked(&mut app, "passage 070"), "{look:?}");
+        assert_eq!(selected(&app).as_deref(), Some("passage 070"));
+    }
 }
 
 #[test]
 fn a_selection_survives_the_input_band_growing_and_still_quotes() {
-    let mut app = fixture(&long(80));
-    pick(&mut app, "passage 070");
-    app.perform(&crate::action::Action::parse("talk").unwrap());
-    assert!(app.input.is_some(), "the draft opens under the transcript");
-    app.paste("a\nb\nc\nd\ne");
-    assert!(marked(&mut app, "passage 070"));
-    let button = quote_button(&app).expect("the button stays");
-    mouse(
-        &mut app,
-        MouseEventKind::Down(MouseButton::Left),
-        button.x,
-        button.y,
-    );
-    let quotes = &app.input.as_ref().unwrap().chat_quotes;
-    assert_eq!(quotes.len(), 1);
-    assert_eq!(quotes[0].text, "passage 070");
+    for look in selection_looks() {
+        let mut app = fixture_with_look(&long(80), look);
+        pick(&mut app, "passage 070");
+        app.perform(&crate::action::Action::parse("talk").unwrap());
+        assert!(app.input.is_some(), "the draft opens under the transcript");
+        app.paste("a\nb\nc\nd\ne");
+        assert!(marked(&mut app, "passage 070"), "{look:?}");
+        let button = quote_button(&app).expect("the button stays");
+        mouse(
+            &mut app,
+            MouseEventKind::Down(MouseButton::Left),
+            button.x,
+            button.y,
+        );
+        let quotes = &app.input.as_ref().unwrap().chat_quotes;
+        assert_eq!(quotes.len(), 1);
+        assert_eq!(quotes[0].text, "passage 070");
+    }
 }
 
 #[test]
@@ -896,4 +952,219 @@ mod click_focus {
             draw(&mut app, WIDE, HIGH);
         }
     }
+}
+
+#[test]
+#[ignore = "writes task-owned selected-text styles, never frozen fixtures"]
+fn capture_selection_fallback_packet() {
+    let output = std::env::var_os("TMT_SELECTION_FALLBACK_PACKET")
+        .expect("task-owned selection packet path");
+    let _no_commands = crate::runner::forbid_commands();
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut frames = Vec::new();
+        for look in selection_looks() {
+            let mut app = fixture_with_look(&long(80), look);
+            pick(&mut app, "passage 070");
+            for scene in [
+                "selected",
+                "append",
+                "insert",
+                "input-grown",
+                "out-of-view",
+                "scrolled-back",
+            ] {
+                match scene {
+                    "append" => replace_reply(&mut app, format!("{}fresh news\n", long(80))),
+                    "insert" => replace_reply(&mut app, format!("one\ntwo\nthree\n\n{}", long(80))),
+                    "input-grown" => {
+                        app.perform(&crate::action::Action::parse("talk").unwrap());
+                        app.paste("a\nb\nc\nd\ne");
+                    }
+                    "out-of-view" => {
+                        app.scroll_pane(Pane::Replies, Step::Top);
+                    }
+                    "scrolled-back" => {
+                        app.scroll_pane(Pane::Replies, Step::Bottom);
+                    }
+                    _ => (),
+                }
+                frames.push(selection_frame(
+                    &mut app,
+                    look,
+                    scene,
+                    100,
+                    TALL,
+                    "passage 070",
+                ));
+            }
+            let mut app = task_field_fixture(look);
+            let buffer = draw(&mut app, 100, 36);
+            let (x, y) = task_field_start(&app, &buffer);
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+            mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
+            assert!(matches!(
+                app.conversation.borrow().selection,
+                Some(Selection::Cells(_))
+            ));
+            assert_eq!(selected(&app).as_deref(), Some("task proof"));
+            frames.push(selection_frame(
+                &mut app,
+                look,
+                "task-field",
+                100,
+                36,
+                "task proof",
+            ));
+        }
+        std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
+    });
+}
+
+fn selection_frame(
+    app: &mut App,
+    look: crate::look::Look,
+    scene: &str,
+    width: u16,
+    height: u16,
+    needle: &str,
+) -> serde_json::Value {
+    let buffer = draw(app, width, height);
+    let start = if scene == "task-field" {
+        Some(task_field_start(app, &buffer))
+    } else {
+        locate(&buffer, needle)
+    };
+    let highlighted: Vec<_> = start
+        .into_iter()
+        .flat_map(|(x, y)| (x..x + needle.len() as u16).map(move |x| (x, y)))
+        .collect();
+    json!({
+        "scene": scene, "base": format!("{:?}", look.theme.base), "depth": format!("{:?}", look.depth),
+        "width": width, "height": height,
+        "lines": buffer.content.chunks(usize::from(width)).map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>()).collect::<Vec<_>>(),
+        "cells": buffer.content.iter().map(|cell| json!({"symbol":cell.symbol(), "fg":format!("{:?}", cell.fg), "bg":format!("{:?}", cell.bg), "modifier":format!("{:?}", cell.modifier)})).collect::<Vec<_>>(),
+        "highlightCells": highlighted, "selected": selected(app),
+        "quoteControl": format!("{:?}", quote_button(app)), "inputBand": format!("{:?}", app.input_band.get()),
+        "scroll": app.scrolls.offset(Pane::Replies),
+    })
+}
+
+/// One actual backend frame in a fixture-owned terminal; no tmux command runs here.
+#[test]
+#[ignore = "requires an explicitly isolated private-terminal capture"]
+fn selection_private_terminal_evidence() {
+    use std::io::{Read, Write};
+    assert!(std::env::var_os("TMUX").is_none());
+    assert!(std::env::var_os("TMUX_PANE").is_none());
+    let ready = std::env::var("TMT_SELECTION_TERMINAL_READY").unwrap();
+    assert!(
+        ready.starts_with("selection-4242-")
+            && ready.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    );
+    let width: u16 = std::env::var("TMT_SELECTION_TERMINAL_WIDTH")
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!([80, 100, 160].contains(&width));
+    let look = match std::env::var("TMT_SELECTION_TERMINAL_LOOK")
+        .unwrap()
+        .as_str()
+    {
+        "tmt" => crate::look::Look::default(),
+        "tmt-light" => crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::TmtLight),
+            depth: tmt_cli_style::Depth::TrueColor,
+        },
+        "NO_COLOR" => crate::look::Look {
+            depth: tmt_cli_style::Depth::None,
+            ..crate::look::Look::default()
+        },
+        other => panic!("unsupported fixture look: {other}"),
+    };
+    let scene = std::env::var("TMT_SELECTION_TERMINAL_SCENE").unwrap();
+    assert!(
+        [
+            "selected-top",
+            "selected-bottom",
+            "input-grown",
+            "task-field",
+            "help"
+        ]
+        .contains(&scene.as_str())
+    );
+    let _no_commands = crate::runner::forbid_commands();
+    crate::board::terminal::restore_before_panic_reports();
+    let mut screen =
+        crate::board::terminal::Guard::enter(crate::board::terminal::Crossterm::default()).unwrap();
+    let mut terminal =
+        Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout())).unwrap();
+    assert_eq!(
+        terminal.size().unwrap(),
+        ratatui::layout::Size::new(width, 36)
+    );
+    let position = crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut app = if scene == "task-field" {
+            task_field_fixture(look)
+        } else {
+            fixture_with_look(&long(80), look)
+        };
+        draw(&mut app, width, 36);
+        let needle = match scene.as_str() {
+            "task-field" => "task proof",
+            "selected-top" => {
+                app.scroll_pane(Pane::Replies, Step::Top);
+                "passage 001"
+            }
+            _ => "passage 078",
+        };
+        if scene == "task-field" {
+            let buffer = draw(&mut app, width, 36);
+            let (x, y) = task_field_start(&app, &buffer);
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+            mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
+            assert!(matches!(
+                app.conversation.borrow().selection,
+                Some(Selection::Cells(_))
+            ));
+        } else {
+            select_at_width(&mut app, needle, width);
+        }
+        assert_eq!(selected(&app).as_deref(), Some(needle));
+        if scene == "input-grown" {
+            app.perform(&crate::action::Action::parse("talk").unwrap());
+            app.paste("a\nb\nc\nd\ne");
+            app.scroll_pane(Pane::Replies, Step::Bottom);
+        }
+        if scene == "help" {
+            app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        }
+        let preview = draw(&mut app, width, 36);
+        let position = if scene == "help" {
+            (0, 0)
+        } else if scene == "task-field" {
+            task_field_start(&app, &preview)
+        } else {
+            locate(&preview, needle).expect("selected passage is visible")
+        };
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        position
+    });
+    // The private-server window-renamed hook runs after all preceding frame bytes.
+    write!(
+        std::io::stdout(),
+        "\x1bk{ready}-{}-{}\x1b\\",
+        position.0,
+        position.1
+    )
+    .unwrap();
+    std::io::stdout().flush().unwrap();
+    let mut quit = [0];
+    std::io::stdin().read_exact(&mut quit).unwrap();
+    assert_eq!(quit, [b'q']);
+    screen.restore().unwrap();
 }

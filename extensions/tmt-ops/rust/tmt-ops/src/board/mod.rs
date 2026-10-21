@@ -23,6 +23,7 @@ mod exchange_view;
 mod filter_bar;
 #[cfg(test)]
 mod glyph_guard;
+mod header_sort;
 mod help;
 mod home;
 mod home_leads;
@@ -1076,6 +1077,7 @@ fn session(
                     discovery.changed();
                 }
                 app.meter_hover = None;
+                app.header_hover = None;
                 app.invalidate_frame_geometry();
                 dirty = true;
                 Effect::None

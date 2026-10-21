@@ -14,7 +14,7 @@ use ratatui::{
     },
     layout::Rect,
 };
-use tmt_cli_style::{Role, grid::Align};
+use tmt_cli_style::grid::Align;
 use tmt_tui::components::Editor;
 use unicode_width::UnicodeWidthStr;
 
@@ -298,9 +298,10 @@ fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Su
         }
     }
     if matches && let Some(end) = end {
+        let style = app.look().selection();
         for (x, y, width) in highlights {
             for column in x..x.saturating_add(width).min(source.surface.area.right()) {
-                frame.buffer_mut()[(column, y)].set_style(app.look().role(Role::Selection));
+                frame.buffer_mut()[(column, y)].set_style(style);
             }
         }
         source.control = quote_control(frame, app, source.surface.area, end);
@@ -322,6 +323,7 @@ fn paint_text(
         return None;
     }
     let area = surface.area;
+    let style = app.look().selection();
     let (first, last) = anchored.lines();
     let mut end = None;
     for (row, text) in displayed(surface, rendered.mapped.lines.len(), offset).enumerate() {
@@ -334,7 +336,7 @@ fn paint_text(
             let y = area.y + row as u16;
             let x = area.x + column as u16;
             for column in x..x.saturating_add(width as u16).min(area.right()) {
-                frame.buffer_mut()[(column, y)].set_style(app.look().role(Role::Selection));
+                frame.buffer_mut()[(column, y)].set_style(style);
             }
             end = Some((x + width as u16, y));
         }

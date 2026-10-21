@@ -2530,6 +2530,11 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     }
     match scene {
         "overview" => app.shell.tab = OpsTab::Agents,
+        "agents-sorted" | "agents-header-hover" => {
+            app.shell.tab = OpsTab::Agents;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+        }
+        "agents-state-sorted" => app.shell.tab = OpsTab::Agents,
         "named-layer" => app.view_layer = crate::board::ViewLayer::parse("popup").unwrap(),
         "named-layer-long" => {
             app.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap()
@@ -2626,6 +2631,25 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     snapshot.shell_counts = snapshot.roster.shell_counts();
     app.workspace_reconcile();
     match scene {
+        "agents-sorted" => {
+            app.workspace.order = Some(crate::board::view_state::Order {
+                overview: Some(crate::config::OverviewSort::initial(
+                    crate::config::OverviewColumn::TokensPerHour,
+                )),
+                ..Default::default()
+            })
+        }
+        "agents-state-sorted" => {
+            app.workspace.order = Some(crate::board::view_state::Order {
+                agents: crate::config::OpsSort::Attention,
+                ..Default::default()
+            })
+        }
+        "agents-header-hover" => {
+            app.header_hover = Some(crate::board::header_sort::Header::Overview(
+                crate::config::OverviewColumn::Squad,
+            ))
+        }
         "member-links" | "member-links-menu" => {
             app.references = crate::board::inventory::Inventory::from_listed(
                 &[],
@@ -2959,6 +2983,7 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
 
 mod agents_chips;
 mod conversation_tint;
+mod header_sort;
 mod member_actions;
 mod member_rename;
 mod membership_context;
@@ -3192,8 +3217,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_) | Choice::RightTab(_) | Choice::TokRange(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
-        "Agents paints filter/search/estimate controls, the TOK window, Talk/Measure and the global Snapshots action"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_) | Choice::RightTab(_) | Choice::TokRange(_) | Choice::SortBy(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
+        "Agents paints filter/search/estimate controls, the TOK window, column sorts, Talk/Measure and the global Snapshots action"
     );
 }
 

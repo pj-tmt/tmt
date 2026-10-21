@@ -154,7 +154,9 @@ preserve authored configuration and identify replacements. Independent public
 `ls --tab`/layout projections remain separate contracts.
 
 Tree arrows move/expand/collapse; authored sort bindings change the current
-view layer. The compatible `p` action saves an identity pin without
+view layer. Agents column headers are controls too: a click sorts by the header
+word (a second click reverses), the hovered word turns accent with `↕`, and the
+sorted word shows `↑`/`↓`. Only the order changes; selection and sends do not. The compatible `p` action saves an identity pin without
 changing waiting order (squad pins remain in Agents), `n` creates, `m` manages
 or assigns, `x` removes only the selected membership, `D` opens Digest, and `c`
 opens Timers. Member rename is deferred and has no `r` hint/default. `w` is reserved
