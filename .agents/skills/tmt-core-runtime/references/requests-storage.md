@@ -156,7 +156,7 @@ owns event cardinality, direction, window rounding, `--bucket` summing
 
 ## Reply notices
 
-- A request opts in only through its notification policy; historical, anonymous and queue-only
+- A request opts in only through its notification policy; historical, anonymous and API-dispatched
   requests have none. First-final acceptance reserves a callback only without a live blocking
   waiter, with process evidence observed outside the transaction and matched against stored waiter
   ownership inside it.
@@ -291,7 +291,7 @@ legacy facts remain unknown. The local API contract owns pagination and coverage
 
 The ordinary request wake and existing reply-frame/joined-fallback writer claims
 admit Digest before granting new external input. Owner UUID and urgent bypass only
-this gate. Existing explicit inbox publication remains pull-only. A provider owns
+this gate. A request already stored as queue-only remains pull-only. A provider owns
 turn/launch admission; talk/check and the UUID-pinned `digest.checklist.flush` API
 use fresh matching live idle evidence and the ordinary channel-first delivery owner.
 There is no Core Digest timer, detached worker,

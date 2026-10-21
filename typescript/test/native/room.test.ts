@@ -73,7 +73,7 @@ describe('shared local rooms without Office or tmux', () => {
       const design = await room(sandbox, ['create', 'Design']);
       for (const name of ['Alice', 'Bob'])
         await room(sandbox, ['join', design.id, '--identity', name]);
-      const options = ['--room', design.id, '--inbox', '--detach', '--identity', 'Sender'];
+      const options = ['--room', design.id, '--detach', '--identity', 'Sender'];
       const accepted = await json(sandbox, [
         'talk',
         'Alice',

@@ -514,7 +514,7 @@ describe('native Digest held delivery and checklist seam', () => {
     });
   });
 
-  it('prints remaining time; owner and urgent bypass only Digest, while explicit inbox remains pull-only', async () => {
+  it('prints remaining time; owner and urgent bypass only Digest', async () => {
     await withSandbox(async (sandbox) => {
       const target = await identity(sandbox, 'Worker');
       const owner = await identity(sandbox, 'Owner');
@@ -559,19 +559,6 @@ describe('native Digest held delivery and checklist seam', () => {
           expect(JSON.parse(history.stdout).exchange.urgent).toBe(true);
         }
       }
-      const pull = await runCli(sandbox, [
-        'talk',
-        'Worker',
-        'Pull only',
-        '--inbox',
-        '--detach',
-        '--json',
-      ]);
-      expect(pull.status).toBe(0);
-      expect(JSON.parse(pull.stdout)).toMatchObject({
-        notification: 'not_attempted',
-        waitingFor: 'recipient_inbox_pull',
-      });
       const clear = await api(sandbox, 'digest.policy.clear', {
         identityId: target,
         ownerIdentityId: owner,

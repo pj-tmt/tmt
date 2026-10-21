@@ -2869,7 +2869,6 @@ sort = ["-name"]
           question,
           '--identity',
           'auth-fix',
-          '--inbox',
           '--detach',
           '--json',
         ]);
@@ -4978,7 +4977,6 @@ describe('large board responsiveness', () => {
           'Ben',
           '--room',
           'squad-product',
-          '--inbox',
           '--detach',
           '--json',
         ]);
@@ -5214,7 +5212,6 @@ describe('large board responsiveness', () => {
         'Ben',
         '--room',
         'squad-product',
-        '--inbox',
         '--detach',
         '--json',
       ]);
@@ -5405,7 +5402,6 @@ describe('large board responsiveness', () => {
         'Ben',
         '--room',
         'squad-product',
-        '--inbox',
         '--detach',
         '--json',
       ]);

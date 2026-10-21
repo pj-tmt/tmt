@@ -35,10 +35,9 @@ describe('identity context request summaries', { concurrent: false }, () => {
         );
         const queue = async (sender: string, recipient: string, body: string) =>
           expectJsonResult<{ requestId: string }>(
-            await fixture.runJsonCli(
-              ['talk', recipient, body, '--inbox', '--identity', sender, '--detach'],
-              { withoutTmux: true }
-            )
+            await fixture.runJsonCli(['talk', recipient, body, '--identity', sender, '--detach'], {
+              withoutTmux: true,
+            })
           ).requestId;
         const pending = await queue('Reader', 'Peer', 'private pending body');
         expectJsonResult(
@@ -130,7 +129,6 @@ it.each(['claude', 'codex'] as const)(
               'talk',
               'Prompt Inbox',
               'private queued body',
-              '--inbox',
               '--identity',
               'Sender',
               '--detach',

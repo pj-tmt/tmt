@@ -493,7 +493,6 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                     digest_kind: tmt_core::request::digest::DigestKind::parse(&required(m, "kind"))
                         .expect("validated purpose"),
                     room: text(m, "room"),
-                    inbox: flag(m, "inbox"),
                     force: flag(m, "force"),
                     detach: flag(m, "detach"),
                     delay_seconds: delay,

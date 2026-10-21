@@ -172,7 +172,7 @@ describe(
 
           const anonymousResult = await fixture.runJsonCli<{
             error: { code: string; reason: string; fix: string };
-          }>(['talk', 'Alice', 'Anonymous from shared host', '--inbox', '--detach']);
+          }>(['talk', 'Alice', 'Anonymous from shared host', '--detach']);
           expect(anonymousResult.code).toBe(1);
           expect(anonymousResult.json?.error).toMatchObject({
             code: 'CALLER_IDENTITY_AMBIGUOUS',
@@ -192,7 +192,6 @@ describe(
               'talk',
               'Host',
               'Explicit Alice from shared host',
-              '--inbox',
               '--detach',
               '--identity',
               alice.id,
@@ -244,7 +243,6 @@ describe(
                 'talk',
                 'Receiver',
                 'Independent caller',
-                '--inbox',
                 '--detach',
               ])
             );

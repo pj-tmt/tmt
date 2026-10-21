@@ -75,7 +75,6 @@ fn correlation() -> Correlation {
         pane: "%1".into(),
         identity: None,
         inbox: false,
-        explicit_inbox: false,
         delivery_uncertain: false,
         digest_until_ms: None,
     }
