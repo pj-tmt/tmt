@@ -338,7 +338,7 @@ export function ShellUnavailable({ count }: { count: number }): ReactNode {
   if (count === 0) return null;
   return (
     <p className="shell-state" role="status" data-unavailable={count}>
-      {t.unavailable} · {count}
+      {t.cannotShow(count)}
     </p>
   );
 }

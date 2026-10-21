@@ -555,7 +555,8 @@ export const text = {
     loadingPassage: 'Loading…',
     latest: 'Latest',
     earlier: (count: number) => `Earlier · ${count} ${count === 1 ? 'page' : 'pages'}`,
-    unavailable: 'Unavailable',
+    cannotShow: (count: number) =>
+      count === 1 ? "1 page can't be shown" : `${count} pages can't be shown`,
     changedSince: (count: number) =>
       `${count} ${count === 1 ? 'page' : 'pages'} changed since this summary`,
   },

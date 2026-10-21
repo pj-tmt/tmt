@@ -126,8 +126,8 @@
   border-bottom: 1px solid var(--tmt-ui-surface-rule);
   scroll-margin-top: 16px;
 }
-.shell-chapter p,
-.shell-chapter h3 {
+/* Zero specificity, so the title's and the meta line's own margins below still apply. */
+:where(.shell-chapter) :where(p, h3) {
   margin: 0;
 }
 .shell-chapter-number {
@@ -148,6 +148,10 @@
   overflow-wrap: anywhere;
 }
 .shell-chapter-title a {
+  /* A block link's box is the title's own lines, so its focus ring cannot reach the text around it. */
+  display: block;
+  width: fit-content;
+  max-width: 100%;
   color: inherit;
   text-decoration: none;
 }
@@ -179,6 +183,11 @@
 .shell-earlier a:focus-visible {
   outline: 2px solid var(--c-accent);
   outline-offset: 2px;
+}
+/* The title's line box is tight, so its ring sits further out and clears the eyebrow above and the
+ * meta line below. */
+.shell-chapter-title a:focus-visible {
+  outline-offset: 6px;
 }
 
 /* The passage on the right of a chapter. */

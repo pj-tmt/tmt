@@ -105,7 +105,9 @@ for (const width of [1440, 390])
         'Usage chart round two',
         'Last quarter',
       ]);
-      await expect(page.locator('.shell-state[data-unavailable]')).toContainText('Unavailable · 1');
+      await expect(page.locator('.shell-state[data-unavailable]')).toHaveText(
+        "1 page can't be shown",
+      );
       // Full bleed and borderless: no card, a hairline between chapters, nothing scrolls sideways.
       const geometry = await page.evaluate(() => {
         const rect = (node: Element) => node.getBoundingClientRect();
@@ -225,6 +227,30 @@ test('a failed details read leaves each chapter with its note and no passage, ne
     'href',
     `/#/pages/${PLAN}`,
   );
+});
+
+test('the focus ring on a chapter title clears the eyebrow above and the meta line below', async ({
+  page,
+}) => {
+  await openShell(page, 'full');
+  const geometry = await page.evaluate(() => {
+    const chapter = document.querySelector('.shell-chapter')!;
+    const link = chapter.querySelector<HTMLElement>('.shell-chapter-title a')!;
+    link.focus({ focusVisible: true } as FocusOptions);
+    const style = getComputedStyle(link);
+    const ring = Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth);
+    const box = link.getBoundingClientRect();
+    const above = chapter.querySelector('.shell-chapter-number')!.getBoundingClientRect();
+    const below = chapter.querySelector('.shell-chapter-meta')!.getBoundingClientRect();
+    return {
+      matches: link.matches(':focus-visible'),
+      top: box.top - ring - above.bottom,
+      bottom: below.top - (box.bottom + ring),
+    };
+  });
+  expect(geometry.matches).toBe(true);
+  expect(geometry.top).toBeGreaterThanOrEqual(0);
+  expect(geometry.bottom).toBeGreaterThanOrEqual(0);
 });
 
 test('an empty shell, one without a summary and a failed page list stay readable', async ({
