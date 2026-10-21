@@ -137,7 +137,7 @@ pub struct ContentEdit<'a> {
     /// A typed change to `meta.attachments`, bound to `source`; `None` keeps the list as it is.
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentChange>,
 }
-/// The closed structured value an edit acts on: a shell page's value, or the work an ordinary
+/// The closed structured value an edit acts on: a dashboard's value, or the work an ordinary
 /// page carries beside its HTML.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -1349,7 +1349,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             }) {
                 return Err(DecodeFault::InvalidOutput);
             }
-            // The reason belongs to a canvas and to nothing else; a shell page has no layout.
+            // The reason belongs to a canvas and to nothing else; a dashboard has no layout.
             if meta.contains_key("layoutReason")
                 != (meta.get("layout").and_then(Value::as_str) == Some("canvas"))
                 || (meta.contains_key("shell") && meta.contains_key("layout"))

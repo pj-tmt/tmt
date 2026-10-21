@@ -25,7 +25,7 @@ const pageRoute = getRouteApi('/pages/$pageId');
 const WIDE = '(min-width: 900px)';
 const t = text.shellPage;
 
-/** The shell page: the app owns the whole look, the document only supplies the data. Every number,
+/** The dashboard: the app owns the whole look, the document only supplies the data. Every number,
  * the order and each chapter's passage are computed here from the space list and the owner chapter
  * details (`shell-model.ts`); items are links to their source pages and carry no content of their
  * own. A page with no admitted value says so instead of drawing nothing. */

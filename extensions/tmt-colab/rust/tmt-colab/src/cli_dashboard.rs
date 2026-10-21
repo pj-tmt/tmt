@@ -1,4 +1,4 @@
-//! Structured shell commands: conditional actions through the existing page publication owner.
+//! Structured dashboard commands: conditional actions through the existing page publication owner.
 use crate::cli_management::{fail, resolve_page};
 use clap::{Arg, ArgMatches, Command};
 use serde_json::{Value, json};
@@ -17,23 +17,27 @@ use tmt_colab::{
 };
 
 const ACTIONS: &[(&str, &str, &str)] = &[
-    ("item-add", "item.add", "Add a reference to a shell"),
+    ("item-add", "item.add", "Add a reference to a dashboard"),
     (
         "item-remove",
         "item.remove",
         "Remove a reference, keeping its source page",
     ),
-    ("item-move", "item.move", "Move a reference within a shell"),
+    (
+        "item-move",
+        "item.move",
+        "Move a reference within a dashboard",
+    ),
     ("item-set", "item.set", "Replace one whole reference"),
     (
         "summary-set",
         "summary.set",
-        "Set the shell's two summary lines",
+        "Set the dashboard's two summary lines",
     ),
     (
         "summary-clear",
         "summary.clear",
-        "Clear the shell's summary",
+        "Clear the dashboard's summary",
     ),
     (
         "reading-suggest",
@@ -44,40 +48,40 @@ const ACTIONS: &[(&str, &str, &str)] = &[
 fn spec(name: &'static str, summary: &'static str, details: &'static str) -> Command {
     let examples: &'static [Example] = match name {
         "create" => &[Example {
-            command: "tmt colab shell create --title 'Release notes' --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard create --title 'Release notes' --json",
+            note: "Run this dashboard command",
         }],
         "item-add" => &[Example {
-            command: "tmt colab shell item-add 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file item-add.json --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard item-add 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file item-add.json --json",
+            note: "Run this dashboard command",
         }],
         "item-remove" => &[Example {
-            command: "tmt colab shell item-remove 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file item-remove.json --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard item-remove 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file item-remove.json --json",
+            note: "Run this dashboard command",
         }],
         "item-move" => &[Example {
-            command: "tmt colab shell item-move 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file item-move.json --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard item-move 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file item-move.json --json",
+            note: "Run this dashboard command",
         }],
         "item-set" => &[Example {
-            command: "tmt colab shell item-set 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file item-set.json --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard item-set 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file item-set.json --json",
+            note: "Run this dashboard command",
         }],
         "summary-set" => &[Example {
-            command: "tmt colab shell summary-set 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file summary.json --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard summary-set 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file summary.json --json",
+            note: "Run this dashboard command",
         }],
         "summary-clear" => &[Example {
-            command: "tmt colab shell summary-clear 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard summary-clear 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --json",
+            note: "Run this dashboard command",
         }],
         "reading-suggest" => &[Example {
-            command: "tmt colab shell reading-suggest 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file reading.json --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard reading-suggest 10000000-0000-4000-8000-000000000001 --expected-revision v1:0000000000000000000000000000000000000000000000000000000000000000 --file reading.json --json",
+            note: "Run this dashboard command",
         }],
         _ => &[Example {
-            command: "tmt colab shell read 10000000-0000-4000-8000-000000000001 --json",
-            note: "Run this shell command",
+            command: "tmt colab dashboard read 10000000-0000-4000-8000-000000000001 --json",
+            note: "Run this dashboard command",
         }],
     };
     tmt_cli_style::command(&CommandSpec {
@@ -89,12 +93,12 @@ fn spec(name: &'static str, summary: &'static str, details: &'static str) -> Com
     })
 }
 pub fn command() -> Command {
-    let mut shell = spec("shell", "Read and change structured shell pages",
-        "Shells contain references and two summary lines, not HTML. A space may have many shells; none is its default or Home. Changes require the revision shell read returned. Nothing opens a browser.")
+    let mut dashboard = spec("dashboard", "Read and change structured dashboards",
+        "Dashboards contain references and two summary lines, not HTML. A space may have many dashboards; none is its default or Home. Changes require the revision dashboard read returned. Nothing opens a browser.")
         .subcommand_required(true)
-        .subcommand(spec("create", "Create an empty shell page", "Creates an owner page through ordinary page creation. Never opens a browser.")
+        .subcommand(spec("create", "Create an empty dashboard", "Creates an owner page through ordinary page creation. Never opens a browser.")
             .arg(Arg::new("title").long("title").required(true).value_name("TITLE")))
-        .subcommand(spec("read", "Read a shell and its current revision", "Returns the verified structured value, identity, epoch and revision without creating state.")
+        .subcommand(spec("read", "Read a dashboard and its current revision", "Returns the verified structured value, identity, epoch and revision without creating state.")
             .arg(crate::cli_grammar::page()));
     for &(name, _, summary) in ACTIONS {
         let mut action = spec(name, summary,
@@ -111,9 +115,9 @@ pub fn command() -> Command {
                     .value_parser(clap::value_parser!(PathBuf)),
             );
         }
-        shell = shell.subcommand(action);
+        dashboard = dashboard.subcommand(action);
     }
-    shell
+    dashboard
 }
 fn now() -> Result<u64> {
     Ok(SystemTime::now()
@@ -122,9 +126,9 @@ fn now() -> Result<u64> {
         .try_into()?)
 }
 pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
-    let (name, args) = args.subcommand().expect("required shell command");
+    let (name, args) = args.subcommand().expect("required dashboard command");
     if name == "create" {
-        return crate::cli_management::create_shell(root, args);
+        return crate::cli_management::create_dashboard(root, args);
     }
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
@@ -158,7 +162,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             tmt_cli_style::detail::write(
                 &mut output,
                 terminal,
-                "SHELL PAGE",
+                "DASHBOARD",
                 &[
                     ("page", page_id),
                     ("link", reach.text(&path)),
@@ -166,7 +170,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     ("revision", view.revision),
                     ("epoch", view.epoch),
                     (
-                        "shell",
+                        "dashboard",
                         String::from_utf8(
                             tmt_colab::closed::canonical(&view.shell)
                                 .map_err(|_| Fault::Invalid)?,
@@ -258,5 +262,5 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             receipt
         }
     };
-    crate::print_receipt(receipt, &[], args.get_flag("json"), "SHELL UPDATED")
+    crate::print_receipt(receipt, &[], args.get_flag("json"), "DASHBOARD UPDATED")
 }

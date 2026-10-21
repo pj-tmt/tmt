@@ -408,7 +408,7 @@ test('an editor reader link shows the shell notice as read-only, never a Source 
   await expect(page.locator('.chip')).toHaveText(text.readerOnly);
   await expect(page.getByTestId('source-toggle')).toHaveCount(0);
   await expect(page.locator('code')).toHaveText(
-    'tmt colab shell read 10000000-0000-4000-8000-000000000001',
+    'tmt colab dashboard read 10000000-0000-4000-8000-000000000001',
   );
   await expect(page.getByRole('button', { name: 'Copy', exact: true })).toHaveCount(0);
   await expect(page.locator('iframe')).toHaveCount(0);

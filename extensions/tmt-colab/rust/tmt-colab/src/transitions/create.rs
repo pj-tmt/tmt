@@ -20,7 +20,7 @@ pub(super) struct Selection<'a> {
     pub source: &'a str,
     pub publisher_agent: Option<&'a str>,
     pub creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
-    /// The page's chosen layout; a shell page has none.
+    /// The page's chosen layout; a dashboard has none.
     pub layout: Option<&'a crate::decoder::PageLayout>,
 }
 struct Prepared {
