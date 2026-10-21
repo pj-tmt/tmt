@@ -133,7 +133,7 @@ for (const width of [1440, 390])
       ).toBeVisible();
       await expect(resolved.locator('.conversation-history')).toBeHidden();
       await expect(resolved.locator('.resolved-summary')).toContainText(
-        '1 messages · 0 attachments',
+        '1 message · 0 attachments',
       );
       await resolved.scrollIntoViewIfNeeded();
       const rejectedDrop = await resolved.evaluate((element) => {

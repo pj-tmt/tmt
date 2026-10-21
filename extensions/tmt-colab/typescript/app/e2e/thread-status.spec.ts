@@ -100,10 +100,11 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   page,
 }) => {
   await setLook(page);
-  const { row } = await open(page);
+  const { row, status } = await open(page);
   await row.click();
   const thread = page.getByTestId('comment-thread');
   await expect(thread.getByTestId('comment-entry').first()).toBeVisible();
+  await expect(status).toHaveText('Open');
   await capture(page, 'open');
   const open_ = await box(thread);
   await run(page, 'holdStatusOnce');
@@ -112,6 +113,9 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await expect(thread.locator('.resolved-summary')).toBeVisible();
   await expect(thread.getByTestId('comment-entry').first()).toBeHidden();
   await expect(thread.getByText('Resolved', { exact: true })).toBeVisible();
+  // The Comments list row shows the same state in the same frame.
+  await expect(status).toHaveText('Resolved');
+  await expect(row).toHaveAttribute('data-resolved', 'true');
   await capture(page, 'click-frame');
   const echoed = await box(thread);
   expect(echoed.height).toBeLessThan(open_.height);
@@ -119,6 +123,9 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await run(page, 'releaseStatus');
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
   await expect(thread.locator('.resolved-summary')).toBeVisible();
+  await expect(status).toHaveText('Resolved by You');
+  // Focus stays on the control, which now offers Reopen.
+  await expect(thread.getByRole('button', { name: 'Reopen', exact: true })).toBeFocused();
   const verified = await box(thread);
   expect(Math.abs(verified.y - echoed.y)).toBeLessThanOrEqual(1);
   expect(Math.abs(verified.height - echoed.height)).toBeLessThanOrEqual(1);
@@ -129,7 +136,7 @@ test('a Resolve that fails restores the open thread, reports at once and keeps f
   page,
 }) => {
   await setLook(page);
-  const { row } = await open(page);
+  const { row, status } = await open(page);
   await row.click();
   const thread = page.getByTestId('comment-thread');
   const open_ = await box(thread);
@@ -143,6 +150,8 @@ test('a Resolve that fails restores the open thread, reports at once and keeps f
     fixture,
   );
   await expect(thread.locator('.resolved-summary')).toHaveCount(0);
+  await expect(status).toHaveText('Open');
+  await expect(row).not.toHaveAttribute('data-resolved');
   await expect(thread.getByRole('alert')).toBeVisible();
   await expect(thread.getByRole('button', { name: 'Resolve', exact: true })).toBeFocused();
   await capture(page, 'failed');
