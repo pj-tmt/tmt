@@ -56,6 +56,7 @@ import {
 } from './page-list-search.js';
 import { PageWork } from './page-work.js';
 import { RetentionHint } from './retention-hint.js';
+import { useScrollEdges } from './scroll-edges.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
 import './page-list.css';
@@ -360,6 +361,8 @@ export function Home() {
     tab('archived', t.tabArchived(archivedInScope)),
     tab('all', t.tabAll),
   ];
+  const tabsHost = useRef<HTMLDivElement>(null);
+  useScrollEdges(tabsHost, `${Boolean(port)}|${viewTabs.map((item) => item.label).join('|')}`);
   const pages = filterPages(scoped, filter, sort);
   const counts = projectCounts(scoped);
   const waiting = waitingCount(scoped);
@@ -789,15 +792,17 @@ export function Home() {
         </div>
       )}
       {port ? (
-        <BrowserTabs
-          label={t.views}
-          variant="flush"
-          tabs={viewTabs}
-          selected={view}
-          onSelect={(id) => chooseView(id as HomeStage | 'archived')}
-        >
-          {(current) => (current.id === view ? content : null)}
-        </BrowserTabs>
+        <div className="page-stage-tabs" ref={tabsHost}>
+          <BrowserTabs
+            label={t.views}
+            variant="flush"
+            tabs={viewTabs}
+            selected={view}
+            onSelect={(id) => chooseView(id as HomeStage | 'archived')}
+          >
+            {(current) => (current.id === view ? content : null)}
+          </BrowserTabs>
+        </div>
       ) : (
         content
       )}

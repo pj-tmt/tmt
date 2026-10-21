@@ -165,3 +165,21 @@
 .pages > li[data-selected] {
   background: var(--tmt-ui-surface-selection);
 }
+/* The tab strip scrolls on its own on a phone: the edge that hides tabs fades, so a cut-off tab
+ * reads as "more this way". `data-edge-*` comes from `useScrollEdges`; the fade stays inside a
+ * tab's own padding, so a tab flush with the edge keeps its label. */
+.page-stage-tabs[data-edge-end] [role='tablist'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+}
+.page-stage-tabs[data-edge-start] [role='tablist'] {
+  mask-image: linear-gradient(to left, #000 calc(100% - 16px), transparent);
+}
+.page-stage-tabs[data-edge-start][data-edge-end] [role='tablist'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 16px,
+    #000 calc(100% - 16px),
+    transparent
+  );
+}

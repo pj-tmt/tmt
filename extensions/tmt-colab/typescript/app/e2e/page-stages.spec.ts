@@ -206,6 +206,58 @@ test('before any page has reported its tasks a stage tab says it is reading, not
   await expect(titles(page)).toHaveText(['Gamma notes', 'Zeta notes']);
 });
 
+// A phone cannot fit five tabs: the strip scrolls on its own, the edge that hides tabs fades, and
+// every tab stays reachable by keyboard, by selecting it and by scrolling the strip.
+for (const width of [1440, 390, 320])
+  test(`every stage tab is reachable and a hidden one is cued by a fade: ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page, 'stages', '/?stage=in-progress');
+    const strip = app(page).getByRole('tablist');
+    const host = app(page).locator('.page-stage-tabs');
+    const names = [/^In progress/, /^Discussion/, /^Done/, /^Archived/, 'All'];
+    const overflows = await strip.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
+    expect(overflows).toBe(width < 600);
+    const fade = () => strip.evaluate((node) => getComputedStyle(node).maskImage);
+    const inside = (name: string | RegExp) =>
+      tab(page, name).evaluate((node) => {
+        const bounds = node.closest('[role="tablist"]')!.getBoundingClientRect();
+        const box = node.getBoundingClientRect();
+        return box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
+      });
+    if (!overflows) {
+      await expect(host).not.toHaveAttribute('data-edge-end');
+      await expect(host).not.toHaveAttribute('data-edge-start');
+      expect(await fade()).toBe('none');
+      for (const name of names) expect(await inside(name)).toBe(true);
+      return;
+    }
+    // In progress is selected and first: the fade is on the end, where the other tabs wait.
+    await expect(host).toHaveAttribute('data-edge-end', '');
+    await expect(host).not.toHaveAttribute('data-edge-start');
+    expect(await fade()).not.toBe('none');
+    await tab(page, names[0]).focus();
+    for (const [index, name] of names.entries()) {
+      if (index > 0) await page.keyboard.press('ArrowRight');
+      await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true');
+      await expect.poll(() => inside(name)).toBe(true);
+    }
+    // All is last: nothing more to the end, the earlier tabs are the cue.
+    await expect(host).toHaveAttribute('data-edge-start', '');
+    await expect(host).not.toHaveAttribute('data-edge-end');
+    await page.keyboard.press('Home');
+    await expect(tab(page, names[0])).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(() => inside(names[0])).toBe(true);
+    await expect(host).not.toHaveAttribute('data-edge-start');
+    // Scrolling the strip by hand reaches the middle: both edges fade.
+    await strip.evaluate((node) => {
+      node.scrollLeft = (node.scrollWidth - node.clientWidth) / 2;
+    });
+    await expect(host).toHaveAttribute('data-edge-start', '');
+    await expect(host).toHaveAttribute('data-edge-end', '');
+  });
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`the stage tabs keep one scroll axis and capture their states: ${width}px ${theme}`, async ({
