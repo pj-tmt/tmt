@@ -25,15 +25,15 @@ interface ManagementOption<Value extends string> {
 
 const errors: Record<string, string> = {
   INVALID: 'The request was rejected. Review the selected values.',
-  DENIED: 'Management access was denied. Reopen your paired session.',
-  EXPIRED: 'This request expired. Refresh and review before signing a new request.',
-  STALE_HEAD: 'Space state changed. Refresh and review before signing a new request.',
+  DENIED: 'This device is not allowed to manage this page. Reopen your paired session.',
+  EXPIRED: 'This request expired. Refresh and review, then try again.',
+  STALE_HEAD: 'Sharing changed while you were reviewing. Refresh and review, then try again.',
   CONFLICT:
-    'This operation conflicts with stored bytes. Refresh and review; the old request will not be changed.',
-  CAPACITY: 'The owner reached a capacity limit. No success has been verified.',
-  UNAVAILABLE: 'This operation is unavailable on the owner. No success has been verified.',
+    'This change conflicts with one already saved. Refresh and review; the saved one is not changed.',
+  CAPACITY: 'The owner is at a size limit. The change was not confirmed.',
+  UNAVAILABLE: 'The owner is unavailable right now. The change was not confirmed.',
   UNKNOWN:
-    'Result unknown: the request may have committed. Retry only these exact bytes before expiry.',
+    'Result unknown: the change may have gone through. Retry this same request before it expires.',
 };
 const audienceOptions: readonly ManagementOption<ManagementView['page']['sharing']>[] = [
   { value: 'private', label: 'Named members only' },
@@ -118,7 +118,7 @@ export function ShareDialog({
       })
       .catch(() => {
         if (active) {
-          setError('Management metadata is unavailable. Refresh to retry.');
+          setError('Sharing settings could not be loaded. Refresh to try again.');
           setPhase('error');
         }
       });
@@ -141,7 +141,7 @@ export function ShareDialog({
       setPhase('ready');
     } catch {
       if (lifetime.current?.signal.aborted) return;
-      setError('Management metadata is unavailable. Refresh to retry.');
+      setError('Sharing settings could not be loaded. Refresh to try again.');
       setPhase('error');
     }
   }
@@ -162,7 +162,7 @@ export function ShareDialog({
     } catch {
       if (lifetime.current?.signal.aborted) return;
       setError(
-        `${p.operation === 'page.delete' ? 'Deletion' : 'Change'} acknowledged, awaiting verification. Refresh the signed log before claiming completion.`,
+        `The owner accepted the ${p.operation === 'page.delete' ? 'deletion' : 'change'}, but it is not confirmed yet. Check again before relying on it.`,
       );
       setPhase('verify');
     }
@@ -229,38 +229,31 @@ export function ShareDialog({
         <p>Share and manage page</p>
         {(phase === 'loading' || phase === 'busy') && (
           <p role="status">
-            {phase === 'loading'
-              ? 'Loading verified management state…'
-              : 'Waiting for the owner and signed log…'}
+            {phase === 'loading' ? 'Loading sharing settings…' : 'Applying the change…'}
           </p>
         )}
         {error && <p role="alert">{error}</p>}
         {pending && phase !== 'done' && (
           <p>
-            Closing forgets this request and any new sharing secret; the change may already be
-            saved. If you lose the secret, use Replace link.
+            Closing forgets this request and any new link; the change may already be saved. If you
+            lose a new link, use Replace link.
           </p>
         )}
         {phase === 'error' &&
           (unknown && pending ? (
-            <button onClick={() => void submit()}>Retry exact request</button>
+            <button onClick={() => void submit()}>Retry this request</button>
           ) : (
             <button onClick={() => void refresh()}>Refresh and review</button>
           ))}
         {phase === 'verify' && pending && ack && (
-          <button onClick={() => void verify(pending, ack)}>Verify signed log</button>
+          <button onClick={() => void verify(pending, ack)}>Check again</button>
         )}
         {phase === 'confirm' && action && (
           <section aria-label="Confirm management change">
             <h3>{action.label}</h3>
             <p>{action.detail || 'Apply this change to the selected page?'}</p>
-            <p>
-              New readers:{' '}
-              {view?.page.history === 'shared' ? 'Recent history too' : 'Current page only'}.
-              Changes apply at the latest verified revision {view?.revision}.
-            </p>
             <button onClick={() => void submit()}>
-              {action.confirmLabel ?? `Confirm ${action.label.toLowerCase()}`}
+              {action.confirmLabel ?? action.label}
             </button>{' '}
             <button
               onClick={() => {
@@ -275,8 +268,7 @@ export function ShareDialog({
         {phase === 'done' && (
           <section>
             <p role="status">
-              {pending?.operation === 'page.delete' ? 'Deletion' : 'Change'} verified in the signed
-              owner log.
+              Done.
               {pending?.operation === 'page.delete' && ack?.storage && (
                 <> {text.deletedStorage(ack.storage, ack.storageHint)}</>
               )}
@@ -309,11 +301,10 @@ export function ShareDialog({
         )}
         {phase === 'ready' && view && (
           <>
-            <p>{view.page.archived ? 'Archived: readable, writes frozen' : 'Active'}</p>
+            <p>{view.page.archived ? 'Archived: readable, but no one can edit it' : 'Active'}</p>
             <details>
               <summary>Details</summary>
               <p className="management-id">Page ID: {pageId}</p>
-              <p>Verified revision {view.revision}</p>
               <p>Last edit: {localTime(view.page.lastUpdateAtMs)}</p>
               {view.page.history === 'shared' && (
                 <p>Later joins receive the current key and up to 63 earlier keys.</p>
@@ -328,7 +319,7 @@ export function ShareDialog({
                   e.preventDefault();
                   const days = forever ? null : Number(new FormData(e.currentTarget).get('days'));
                   if (days !== null && (!Number.isSafeInteger(days) || days < 1)) {
-                    setError('Retention must be a positive whole number of days or forever.');
+                    setError('Enter a whole number of days, 1 or more.');
                     return;
                   }
                   review(
@@ -450,7 +441,9 @@ export function ShareDialog({
                       value: { pageId, mode },
                     },
                     'Change history',
-                    'Applies to people who join later. Access already given stays.',
+                    mode === 'shared'
+                      ? 'People who join later will also get recent history, including deleted text, snapshots and comments. Access already given stays.'
+                      : 'People who join later will get the page as it is now, without earlier history. Access already given stays.',
                   );
                 }}
               />
@@ -476,14 +469,15 @@ export function ShareDialog({
             <section>
               <h3>Members and links</h3>
               <p>
-                Editors can change what this page’s scripts do for every viewer. A page can navigate
-                its own frame; complete exfiltration prevention is not guaranteed.
+                Editors can change what this page’s scripts do for everyone who opens it. A page’s
+                scripts can open another address inside the page’s own frame, which can pass along
+                what the page can read. Colab cannot fully prevent that.
               </p>
               {view.members.map((m) => (
                 <div className="recipient" key={m.id}>
                   <span>
                     {m.id}
-                    {m.id === view.ownerMember ? ' (owner management member)' : ''}
+                    {m.id === view.ownerMember ? ' (owner)' : ''}
                   </span>
                   {m.id !== view.ownerMember && (
                     <>
@@ -578,7 +572,7 @@ export function ShareDialog({
                   review(
                     { operation: 'link.add', value: newLink(role, [pageId]) },
                     'Create a sharing link',
-                    `Anyone with this link gets ${roleOptions.find((option) => option.value === role)!.label.toLowerCase()} access to ${view.page.history === 'shared' ? 'the page and recent history' : 'everything since the last history start'}; the browser opens it read-only whatever its permission. You can copy the link once, right after it is created.`,
+                    `${role === 'viewer' ? 'Create a read-only link to this page.' : `Create a link to this page with ${roleOptions.find((option) => option.value === role)!.label.toLowerCase()} access.`} Anyone you give it to can open it and sees ${view.page.history === 'shared' ? 'the page and recent history' : 'everything since the last history start'}${role === 'viewer' ? '' : '; the browser opens it read-only whatever its permission'}. You can copy the link once, right after it is created.`,
                   )
                 }
               >
@@ -602,7 +596,7 @@ export function ShareDialog({
                           },
                         },
                         'Replace link',
-                        `The old link and devices opened from it lose access on ${l.pages.join(', ')}. Share the new link only with intended readers.`,
+                        `This link and every device opened from it stop working on ${l.pages.join(', ')}. You get a new link; share it only with people you want to have access.`,
                       )
                     }
                   >
@@ -616,7 +610,7 @@ export function ShareDialog({
                           value: { linkId: l.id, pages: l.pages, replacement: null },
                         },
                         'Stop access through this link',
-                        `The link and devices opened from it lose access on ${l.pages.join(', ')}; no replacement link is created. Earlier copies cannot be taken back.`,
+                        `This link and every device opened from it stop working on ${l.pages.join(', ')}. No new link is created. Copies already made cannot be taken back.`,
                       )
                     }
                   >
