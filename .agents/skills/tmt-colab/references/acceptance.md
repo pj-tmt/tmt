@@ -50,8 +50,10 @@ keys, values, generic errors and URLs remain excluded. This metadata never ackno
 or advances admission; the exact local verified fold still owns publication completion.
 A failed `expectLive` check (the soak tests' Live status) retains `liveStates`: the header state it
 stayed in (`live`, `opening`, `stopped`, `reconnecting`, `archived`, `none` or `other`), whether the
-renderer frame existed and the tab's visibility. The harness maps the parent's status label to that
-closed set and never reads frame text; the report drops any other value.
+renderer frame existed, the tab's visibility and `ended`, the failure cause named by the terminal
+notice's `Code:` label (a `FailureCause` key, `none` without a notice or `other`). The harness maps
+the parent's status and reference labels to those closed sets and never reads frame text; the
+report drops any other value.
 Set `TMT_ACCEPTANCE_KEEP=1` to keep a world's root (counter rows, `*.stderr`) after a run.
 Use that setting only for diagnostics: the harness's injected-failure case requires root deletion,
 so a retained-root run cannot satisfy the complete suite's cleanup gate. A Colab PR handoff
