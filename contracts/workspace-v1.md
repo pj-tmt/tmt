@@ -74,10 +74,11 @@ An absent root returns zero counts without initialization. Unknown, stopped,
 replaced, malformed or busy candidates never enroll a server, start one or adopt
 its current metadata. The API opens no Core write store and creates no timer.
 
-A running Ops minute worker may consume this optional API after feature discovery,
-with cancellation and no paint/input work or visible output. Its [Ops consumer](https://github.com/pj-tmt/tmt/issues/4205) ships
-separately; an absent/older Core must remain a silent no-op. The existing command
-refresh setting and binding/launch event triggers retain their own policy.
+The lease-owning Ops minute worker consumes this optional API after feature
+discovery, with cancellation, no overlapping capture and no paint/input work or
+visible output. Discovery and capture share a five-second budget; an absent/older
+Core is a silent no-op for that worker session. The existing command refresh
+setting and binding/launch event triggers retain their own policy.
 
 ## Retention and shrink protection
 

@@ -403,7 +403,7 @@ use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
 [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
 own module/drawing boundaries and verification.
 
-- **Seam.** Ops uses public `tmt --json`/`tmt api` and starts `tmt digest tick`
+- **Seam.** Ops uses public `tmt --json`/`tmt api` (minute `workspace.capture`) and starts `tmt digest tick`
   through `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. Digest owns
   locking, deadlines and delivery. No direct Core state, tmux or provider writes.
   The guard rejects TMT-to-Ops and Ops-to-Core Cargo/source edges. Dependencies

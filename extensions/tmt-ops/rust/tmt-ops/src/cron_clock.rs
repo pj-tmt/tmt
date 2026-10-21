@@ -16,7 +16,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tmt_cli_style::{Terminal, detail, message};
 use tmt_ops::cron::{self, Clock, ClockStatus, Dispatch, Job, Lease, Store, Tick};
@@ -290,10 +290,12 @@ impl Drop for ClockWorker {
     }
 }
 
-/// Only invocation cadence belongs to Ops. Digest owns deadlines and overlap admission.
-struct DigestTicks {
+/// One minute gate for independent background duties; never paint/input work.
+struct MinuteJobs {
     minute: Option<i64>,
-    executable: std::path::PathBuf,
+    core: Core,
+    capture_supported: Option<bool>,
+    capture: Option<std::thread::JoinHandle<bool>>,
     cancellation: Cancellation,
     children: Vec<std::thread::JoinHandle<Option<&'static str>>>,
     skipped: u64,
@@ -301,12 +303,15 @@ struct DigestTicks {
     foreground: bool,
 }
 
-impl DigestTicks {
+impl MinuteJobs {
     fn new(core: &Core, foreground: bool) -> Self {
+        let cancellation = Cancellation::default();
         Self {
             minute: None,
-            executable: core.executable().to_owned(),
-            cancellation: Cancellation::default(),
+            core: core.cancellable(cancellation.clone()),
+            capture_supported: None,
+            capture: None,
+            cancellation,
             children: Vec::new(),
             skipped: 0,
             last_reason: None,
@@ -325,6 +330,13 @@ impl DigestTicks {
     }
 
     fn reap(&mut self) {
+        if self
+            .capture
+            .as_ref()
+            .is_some_and(|child| child.is_finished())
+        {
+            self.capture_supported = Some(self.capture.take().unwrap().join().unwrap_or(false));
+        }
         let mut index = 0;
         while index < self.children.len() {
             if self.children[index].is_finished() {
@@ -349,7 +361,15 @@ impl DigestTicks {
         // Record the attempt before spawning: failure is never a same-minute retry.
         // A missed minute or clock rollback never produces catch-up invocations.
         self.minute = Some(minute);
-        let executable = self.executable.clone();
+        if self.capture.is_none() && self.capture_supported != Some(false) {
+            let core = self.core.clone();
+            let supported = self.capture_supported;
+            self.capture = std::thread::Builder::new()
+                .name("ops-workspace-capture".into())
+                .spawn(move || capture_workspace(&core, supported, Duration::from_secs(5)))
+                .ok();
+        }
+        let executable = self.core.executable().to_owned();
         let cancellation = self.cancellation.clone();
         let child = std::thread::Builder::new()
             .name("ops-digest-tick".into())
@@ -380,9 +400,12 @@ impl DigestTicks {
     }
 }
 
-impl Drop for DigestTicks {
+impl Drop for MinuteJobs {
     fn drop(&mut self) {
         self.cancellation.cancel();
+        if let Some(child) = self.capture.take() {
+            let _ = child.join();
+        }
         while let Some(child) = self.children.pop() {
             // runner cancels and reaps the owned process group before lease release.
             match child.join() {
@@ -392,6 +415,25 @@ impl Drop for DigestTicks {
             }
         }
     }
+}
+
+/// Feature discovery and capture share one finite budget and one cancellation owner.
+/// Both streams are captured by Core's runner; optional failures are never rendered.
+fn capture_workspace(core: &Core, supported: Option<bool>, budget: Duration) -> bool {
+    let deadline = Instant::now() + budget;
+    let remaining = || deadline.saturating_duration_since(Instant::now());
+    let supported = supported.unwrap_or_else(|| {
+        core.api_within("capabilities", json!({}), remaining())
+            .is_ok_and(|value| {
+                value["operations"]
+                    .as_array()
+                    .is_some_and(|operations| operations.iter().any(|op| op == "workspace.capture"))
+            })
+    });
+    if supported && !remaining().is_zero() {
+        let _ = core.api_within("workspace.capture", json!({}), remaining());
+    }
+    supported
 }
 
 fn serve(
@@ -427,7 +469,7 @@ fn serve(
     };
     let root = service::root(core)?;
     let clock = Clock::new(&root)?;
-    let mut digest = DigestTicks::new(core, foreground);
+    let mut minute_jobs = MinuteJobs::new(core, foreground);
     let mut lease: Option<Lease> = None;
     let mut tick = Tick::new(now());
     let mut idle = idle_alert::Watch::new();
@@ -464,7 +506,7 @@ fn serve(
                 idle = idle_alert::Watch::new();
             }
             if let Some(owned) = lease.as_mut() {
-                digest.advance(time);
+                minute_jobs.advance(time);
                 last = match pass(core, config, &root, owned, Some(&mut tick), cancellation) {
                     Ok(value) => value,
                     Err(error)
@@ -498,7 +540,7 @@ fn serve(
         last["action"] = json!("run");
         Ok(last)
     })();
-    drop(digest);
+    drop(minute_jobs);
     let released = lease.map_or(Ok(()), Lease::release);
     if cancellation.cancelled() {
         released?;

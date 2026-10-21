@@ -622,7 +622,7 @@ fn digest_calls(f: &Fixture, name: &str) -> usize {
 fn digest_minute_gate_has_no_same_minute_retry_catchup_or_rollback_replay() {
     let f = Fixture::new();
     let core = digest_core(&f, "success");
-    let mut ticks = DigestTicks::new(&core, false);
+    let mut ticks = MinuteJobs::new(&core, false);
     for (time, calls) in [
         (61_000, 1),
         (119_999, 1),
@@ -642,7 +642,7 @@ fn digest_minute_gate_has_no_same_minute_retry_catchup_or_rollback_replay() {
     assert_eq!(ticks.last_reason, None);
     drop(ticks);
     // A new clock run can attempt the current minute; Digest owns lock admission.
-    let mut restarted = DigestTicks::new(&core, false);
+    let mut restarted = MinuteJobs::new(&core, false);
     restarted.advance(600_002);
     wait_for(|| {
         restarted.reap();
@@ -655,7 +655,7 @@ fn digest_minute_gate_has_no_same_minute_retry_catchup_or_rollback_replay() {
 fn digest_nonzero_and_missing_process_are_quiet_one_attempt_per_minute() {
     let f = Fixture::new();
     let core = digest_core(&f, "fail");
-    let mut ticks = DigestTicks::new(&core, false);
+    let mut ticks = MinuteJobs::new(&core, false);
     ticks.advance(0);
     wait_for(|| {
         ticks.reap();
@@ -673,7 +673,7 @@ fn digest_nonzero_and_missing_process_are_quiet_one_attempt_per_minute() {
     assert_eq!(ticks.skipped, 2);
     assert_eq!(digest_calls(&f, "digest-calls"), 2);
     let missing = Core::at(f.directory.join("absent-tmt"));
-    let mut ticks = DigestTicks::new(&missing, false);
+    let mut ticks = MinuteJobs::new(&missing, false);
     ticks.advance(0);
     wait_for(|| {
         ticks.reap();
@@ -690,7 +690,7 @@ fn digest_overlap_is_admitted_by_extension_and_shutdown_reaps_the_waiting_child(
     use nix::{sys::signal::kill, unistd::Pid};
     let f = Fixture::new();
     let core = digest_core(&f, "block");
-    let mut ticks = DigestTicks::new(&core, false);
+    let mut ticks = MinuteJobs::new(&core, false);
     ticks.advance(0);
     let pid: i32 = wait_for(|| {
         fs::read_to_string(f.directory.join("digest.pid"))
@@ -769,4 +769,313 @@ fn board_and_explicit_clocks_run_digest_without_refresh_and_stop_before_lease_re
         );
         assert_eq!(clock.status(now()), ClockStatus::NoClock);
     }
+}
+
+/// The public API is the only workspace seam: no tmux or Core files are opened.
+fn workspace_core(f: &Fixture, mode: &str) -> Core {
+    fs::write(f.directory.join("workspace-mode"), mode).unwrap();
+    let script = f.directory.join("workspace.py");
+    fs::write(&script, r#"
+import json,os,pathlib,signal,sys
+p=pathlib.Path(__file__).parent
+if sys.argv[1:]==['digest','tick']:
+ with open(p/'workspace-digest-calls','a') as log: log.write('tick\n')
+ sys.exit(0)
+if sys.argv[1:]==['api']:
+ raw=sys.stdin.read(); request=json.loads(raw); op=request['operation']
+ if op in ['capabilities','workspace.capture']:
+  assert request=={'version':1,'operation':op,'input':{}}, request
+  with open(p/'workspace-calls','a') as log: log.write(op+'\n')
+  mode=(p/'workspace-mode').read_text()
+  if (mode=='block' and op=='workspace.capture') or (mode=='discovery-block' and op=='capabilities'):
+   signal.signal(signal.SIGUSR1, lambda *_: None)
+   (p/'workspace.pid').write_text(str(os.getpid()))
+   signal.pause()
+  print('workspace diagnostic must stay captured',file=sys.stderr)
+  if mode=='discovery-failure' or (mode=='failure' and op=='workspace.capture'):
+   print(json.dumps({'error':{'code':'API_INPUT_INVALID','message':'workspace failure must stay captured'}})); sys.exit(1)
+  if op=='capabilities':
+   print(json.dumps({'operations':[] if mode=='old' else ['workspace.capture']} if mode!='malformed' else {}))
+  else: print(json.dumps({'attempted':1,'published':1,'skipped':0}))
+  sys.exit(0)
+ # Non-workspace cron requests still use the existing independent public-port fixture.
+ import subprocess
+ sys.exit(subprocess.run([str(p/'tmt'),*sys.argv[1:]],input=raw,text=True).returncode)
+os.execv(str(p/'tmt'),[str(p/'tmt'),*sys.argv[1:]])
+"#).unwrap();
+    let executable = f.directory.join("with-workspace");
+    crate::test_support::write_ready_executable(
+        &executable,
+        &format!("#!/bin/sh\nexec python3 '{}' \"$@\"\n", script.display()),
+    );
+    Core::at(executable)
+}
+
+fn workspace_calls(f: &Fixture) -> Vec<String> {
+    fs::read_to_string(f.directory.join("workspace-calls"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn workspace_capture_shares_minute_cadence_and_discovers_once_per_session() {
+    let f = Fixture::new();
+    let core = workspace_core(&f, "success");
+    let mut ticks = MinuteJobs::new(&core, false);
+    for (time, captures) in [
+        (61_000, 1),
+        (119_999, 1),
+        (120_000, 2),
+        (600_000, 3),
+        (60_000, 3),
+    ] {
+        ticks.advance(time);
+        wait_for(|| {
+            ticks.reap();
+            let calls = workspace_calls(&f);
+            (calls.iter().filter(|op| *op == "workspace.capture").count() == captures
+                && ticks.capture.is_none()
+                && ticks.children.is_empty())
+            .then_some(())
+        });
+        assert_eq!(
+            workspace_calls(&f)
+                .iter()
+                .filter(|op| *op == "capabilities")
+                .count(),
+            1
+        );
+    }
+    drop(ticks);
+    let mut restarted = MinuteJobs::new(&core, false);
+    restarted.advance(600_001);
+    wait_for(|| {
+        restarted.reap();
+        let calls = workspace_calls(&f);
+        assert_ne!(
+            restarted.capture_supported,
+            Some(false),
+            "restart discovery failed: {calls:?}"
+        );
+        (calls.len() == 6 && restarted.capture.is_none() && restarted.children.is_empty())
+            .then_some(())
+    });
+    assert_eq!(
+        workspace_calls(&f),
+        [
+            "capabilities",
+            "workspace.capture",
+            "workspace.capture",
+            "workspace.capture",
+            "capabilities",
+            "workspace.capture"
+        ]
+    );
+}
+
+#[test]
+fn workspace_capture_suppresses_overlap_without_holding_up_digest_or_shutdown() {
+    use nix::{sys::signal::kill, unistd::Pid};
+    let f = Fixture::new();
+    let core = workspace_core(&f, "block");
+    let mut ticks = MinuteJobs::new(&core, false);
+    ticks.advance(0);
+    let pid: i32 = wait_for(|| {
+        fs::read_to_string(f.directory.join("workspace.pid"))
+            .ok()
+            .and_then(|s| s.parse().ok())
+    });
+    ticks.advance(60_000);
+    wait_for(|| {
+        ticks.reap();
+        (digest_calls(&f, "workspace-digest-calls") == 2).then_some(())
+    });
+    assert_eq!(workspace_calls(&f), ["capabilities", "workspace.capture"]);
+    let start = Instant::now();
+    drop(ticks);
+    assert!(start.elapsed() < Duration::from_secs(2));
+    assert_eq!(
+        kill(Pid::from_raw(pid), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+}
+
+#[test]
+fn workspace_discovery_and_capture_share_the_clock_shutdown_owner() {
+    use nix::{sys::signal::kill, unistd::Pid};
+    for foreground in [false, true] {
+        for mode in ["discovery-block", "block"] {
+            let f = Fixture::new();
+            let core = workspace_core(&f, mode);
+            let mut worker = ClockWorker::spawn(core, f.config.clone(), foreground);
+            let pid: i32 = wait_for(|| {
+                fs::read_to_string(f.directory.join("workspace.pid"))
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+            });
+            let start = Instant::now();
+            let result = worker.stop().unwrap();
+            assert!(start.elapsed() < Duration::from_secs(2));
+            assert_eq!(result["warnings"], json!([]));
+            assert_eq!(
+                kill(Pid::from_raw(pid), None),
+                Err(nix::errno::Errno::ESRCH)
+            );
+            assert_eq!(
+                Clock::new(&f.directory.join("ops")).unwrap().status(now()),
+                ClockStatus::NoClock
+            );
+        }
+    }
+}
+
+#[test]
+fn workspace_missing_old_or_malformed_core_is_a_session_local_noop() {
+    for mode in ["old", "malformed", "discovery-failure", "missing"] {
+        let f = Fixture::new();
+        let core = if mode == "missing" {
+            Core::at(f.directory.join("missing-tmt"))
+        } else {
+            workspace_core(&f, mode)
+        };
+        let mut ticks = MinuteJobs::new(&core, false);
+        for time in [0, 60_000, 120_000] {
+            ticks.advance(time);
+            wait_for(|| {
+                ticks.reap();
+                (ticks.capture.is_none() && ticks.children.is_empty()).then_some(())
+            });
+        }
+        assert_eq!(ticks.capture_supported, Some(false));
+        assert_eq!(
+            workspace_calls(&f),
+            if mode == "missing" {
+                vec![]
+            } else {
+                vec!["capabilities"]
+            }
+        );
+    }
+}
+
+#[test]
+fn workspace_capture_failure_does_not_change_digest_or_retry_the_same_minute() {
+    let f = Fixture::new();
+    let core = workspace_core(&f, "failure");
+    // Foreground is intentional: workspace failure must not become a Digest diagnostic.
+    let mut ticks = MinuteJobs::new(&core, true);
+    for time in [0, 1, 60_000] {
+        ticks.advance(time);
+        wait_for(|| {
+            ticks.reap();
+            (ticks.capture.is_none() && ticks.children.is_empty()).then_some(())
+        });
+    }
+    assert_eq!(
+        workspace_calls(&f),
+        ["capabilities", "workspace.capture", "workspace.capture"]
+    );
+    assert_eq!(digest_calls(&f, "workspace-digest-calls"), 2);
+    assert_eq!(ticks.skipped, 0);
+    assert_eq!(ticks.last_reason, None);
+}
+
+#[test]
+fn workspace_discovery_timeout_never_starts_capture_and_reaps_the_process() {
+    use nix::{sys::signal::kill, unistd::Pid};
+    let f = Fixture::new();
+    let core = workspace_core(&f, "discovery-block");
+    let start = Instant::now();
+    assert!(!capture_workspace(&core, None, Duration::from_secs(1)));
+    assert!(start.elapsed() < Duration::from_secs(3));
+    assert_eq!(workspace_calls(&f), ["capabilities"]);
+    let pid: i32 = fs::read_to_string(f.directory.join("workspace.pid"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        kill(Pid::from_raw(pid), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+}
+
+#[test]
+fn workspace_optional_job_emits_no_stdout_or_stderr() {
+    const PROBE: &str = "TMT_TEST_WORKSPACE_QUIET_PROBE";
+    if let Some(directory) = std::env::var_os(PROBE) {
+        let directory = std::path::PathBuf::from(directory);
+        let core = Core::at(directory.join("with-workspace"));
+        // Include noisy success and failure streams, not only an absent operation.
+        for mode in [
+            "success",
+            "failure",
+            "old",
+            "malformed",
+            "discovery-failure",
+        ] {
+            fs::write(directory.join("workspace-mode"), mode).unwrap();
+            let mut ticks = MinuteJobs::new(&core, true);
+            ticks.advance(0);
+            wait_for(|| {
+                ticks.reap();
+                (ticks.capture.is_none() && ticks.children.is_empty()).then_some(())
+            });
+            assert_eq!(ticks.skipped, 0);
+        }
+        return;
+    }
+    // Publish and prewarm executables through the existing fixture owner before
+    // measuring the subprocess's output; macOS assessment is not capture work.
+    let f = Fixture::new();
+    let _core = workspace_core(&f, "success");
+    let executable = std::env::current_exe().unwrap();
+    let args = [
+        "--exact".into(),
+        "cron_clock::tests::workspace_optional_job_emits_no_stdout_or_stderr".into(),
+        "--nocapture".into(),
+    ];
+    let environment = [(PROBE.into(), f.directory.as_os_str().to_owned())];
+    let output = tmt_invoke::invoke(
+        tmt_invoke::Request {
+            program: &executable,
+            args: &args,
+            input: b"",
+            deadline: Instant::now() + Duration::from_secs(15),
+            max_stream_bytes: 64 * 1024,
+            launch: tmt_invoke::LaunchOptions {
+                environment: tmt_invoke::EnvironmentPolicy::InheritWith(&environment),
+                ..Default::default()
+            },
+        },
+        None,
+    )
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<_> = stdout.lines().filter(|line| !line.is_empty()).collect();
+    assert_eq!(
+        lines.len(),
+        3,
+        "only the test harness writes stdout: {stdout}"
+    );
+    assert_eq!(lines[0], "running 1 test");
+    assert_eq!(
+        lines[1],
+        "test cron_clock::tests::workspace_optional_job_emits_no_stdout_or_stderr ... ok"
+    );
+    assert!(
+        lines[2].starts_with("test result: ok. 1 passed;"),
+        "{stdout}"
+    );
 }
