@@ -1,3 +1,4 @@
+import { text } from '../src/strings.js';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, restartRemote, startDoor } from './harness/browser.js';
 import {
@@ -99,7 +100,7 @@ test('a device revoked while its page is open ends with the access card and Pair
     ]);
 
     const card = page.locator('.tmt-ui-notice');
-    await expect(card).toContainText('Your access to this page ended.', { timeout: 90_000 });
+    await expect(card).toContainText(text.failurePairingRemoved, { timeout: 90_000 });
     await expect(card).toContainText('Pair again');
     await expect(card).toContainText('tmt remote pair');
     await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
@@ -133,11 +134,11 @@ test('a device revoked while its Chat drawer is open shows the ended notice in t
 
     const notice = drawer.getByTestId('annotation-compose').getByRole('status');
     await expect(drawer.locator('.drawer-recovery')).toHaveCount(0);
-    await expect(notice).toContainText('Your access to this page ended.', { timeout: 90_000 });
+    await expect(notice).toContainText(text.failurePairingRemoved, { timeout: 90_000 });
     await expect(notice).toContainText('Pair again');
     await expect(notice).toContainText('tmt remote pair');
     await expect(
-      drawer.getByText('Your access to this page ended. Open it again to continue.', {
+      drawer.getByText(text.failurePairingRemoved, {
         exact: true,
       }),
     ).toHaveCount(1);

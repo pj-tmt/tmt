@@ -528,6 +528,20 @@ test('a foreign write during an upload leaves a message attachment valid; a memb
     const author = await pairBrowser(world, 'fence-author');
     const viewer = await pairBrowser(world, 'fence-viewer');
     const created = createPage(world, 'Fence', '<h1>Fence</h1>');
+    let heldPart: { arrived: boolean; wait: Promise<void>; release(): void } | undefined;
+    await author.context.routeWebSocket(/\/sync/, (socket) => {
+      const server = socket.connectToServer();
+      socket.onMessage(async (message) => {
+        const frame = JSON.parse(String(message)) as { type: string; request?: { method: string } };
+        const held = heldPart;
+        if (held && !held.arrived && frame.type === 'object' && frame.request?.method === 'part') {
+          held.arrived = true;
+          await held.wait;
+        }
+        server.send(message);
+      });
+      server.onMessage((message) => socket.send(message));
+    });
     const first = await openPage(door, author, created);
     const second = await openPage(door, viewer, created);
     await openChat(first);
@@ -539,35 +553,57 @@ test('a foreign write during an upload leaves a message attachment valid; a memb
       mimeType: 'application/octet-stream',
       buffer: bytes(3 * 1024 * 1024, 21),
     };
-    const chip = mine.getByTestId('attachment-chip');
     const sendBig = async (message: string) => {
+      let release = () => {};
+      heldPart = {
+        arrived: false,
+        wait: new Promise<void>((resolve) => (release = resolve)),
+        release: () => release(),
+      };
       await (await annotationInput(mine)).fill(message);
       const chooser = first.waitForEvent('filechooser');
       await mine.getByRole('button', { name: text.messageAttach }).click();
       await (await chooser).setFiles([big]);
       await mine.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
-      await expect(chip).toHaveAttribute('data-state', 'uploading');
+      await expect.poll(() => heldPart?.arrived).toBe(true);
+      await expect(mine.locator('[data-testid=comment-echo][data-echo=pending]')).toContainText(
+        message,
+      );
     };
     const colab = (args: string[], input?: string) =>
       run(world, world.binaries.colab, [...args, '--json'], input);
 
     // A foreign write (the page's source moves) while the upload runs: the message still
     // sends with its attachment and no "page changed" notice appears.
-    await sendBig('Big one');
-    colab(
-      ['page', 'write', created.pageId, '--file', '-'],
-      '<h1>Fence, moved by another writer</h1>',
+    try {
+      await sendBig('Big one');
+      colab(
+        ['page', 'write', created.pageId, '--file', '-'],
+        '<h1>Fence, moved by another writer</h1>',
+      );
+    } finally {
+      heldPart?.release();
+    }
+    await expect(mine.getByTestId('comment-entry').getByTestId('message-attachment')).toHaveCount(
+      1,
+      { timeout: 120_000 },
     );
-    await expect(chip).toHaveAttribute('data-state', 'uploading', { timeout: 1000 });
-    await expect(mine.getByTestId('message-attachment')).toHaveCount(1, { timeout: 120_000 });
     await expect(first.getByText(text.attachAgainPageChanged)).toHaveCount(0);
     await expect(theirs.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });
 
     // A membership change (the share mode) while it runs: that upload is no longer valid.
-    await sendBig('Second one');
-    colab(['share', 'mode', created.pageId, 'link', '--yes']);
-    await expect(chip).toHaveAttribute('data-state', 'refused', { timeout: 120_000 });
-    await expect(mine.getByTestId('message-attachment')).toHaveCount(1);
+    try {
+      await sendBig('Second one');
+      colab(['share', 'mode', created.pageId, 'link', '--yes']);
+    } finally {
+      heldPart?.release();
+    }
+    const failed = mine.locator('[data-testid=comment-echo][data-echo=failed]');
+    await expect(failed.getByRole('alert')).toContainText(text.messageUnsent, { timeout: 120_000 });
+    await expect(failed).toContainText('Second one');
+    await expect(mine.getByTestId('comment-entry').getByTestId('message-attachment')).toHaveCount(
+      1,
+    );
     await expect(theirs.getByTestId('message-attachment')).toHaveCount(1);
   });
 });
@@ -604,7 +640,10 @@ test('export and attachment read return the same bytes as the browser, and say w
       await panel.getByRole('button', { name: text.messageAttach }).click();
       await (await pick).setFiles([chat]);
       await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
-      await expect(panel.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });
+      // Only a verified record is durable enough for export; the local echo is provisional.
+      await expect(
+        panel.getByTestId('comment-entry').getByTestId('message-attachment'),
+      ).toHaveCount(1, { timeout: 30_000 });
       const originals = new Map([notes, picture, chat].map((file) => [file.name, file.buffer]));
 
       // The CLI export lists and includes all three, byte for byte, in private files.
