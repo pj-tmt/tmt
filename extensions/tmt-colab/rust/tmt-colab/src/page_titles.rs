@@ -7,6 +7,57 @@ use crate::{
     keyring::{Keyring, Layout},
     store::Store,
 };
+use std::collections::BTreeMap;
+
+/// Adds each page's local title to the owner catalog's page entries, most recently updated page
+/// first (then by page ID), while the whole serialized reply stays within
+/// [`crate::limits::DISCOVERY_BYTES`]. A title that no longer fits is left out, never the catalog:
+/// the browser then keeps its own hint, as for a page with no title yet. Archived pages and pages
+/// without a title are skipped.
+pub(crate) fn attach_to_catalog(
+    catalog: &mut serde_json::Value,
+    titles: &BTreeMap<String, String>,
+) {
+    let Ok(encoded) = serde_json::to_vec(catalog) else {
+        return;
+    };
+    let mut used = encoded.len();
+    let Some(pages) = catalog["pages"].as_array_mut() else {
+        return;
+    };
+    let mut order: Vec<(u64, usize)> = pages
+        .iter()
+        .enumerate()
+        .filter(|(_, page)| {
+            page["archived"] != true
+                && page["pageId"]
+                    .as_str()
+                    .is_some_and(|id| titles.contains_key(id))
+        })
+        .map(|(index, page)| (page["lastUpdateAtMs"].as_u64().unwrap_or(0), index))
+        .collect();
+    // The page array is sorted by ID, so the index breaks a tie in ID order.
+    order.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    for (_, index) in order {
+        let Some(title) = pages[index]["pageId"]
+            .as_str()
+            .and_then(|id| titles.get(id))
+        else {
+            continue;
+        };
+        let Ok(text) = serde_json::to_string(title) else {
+            continue;
+        };
+        // `,"title":` and the quoted text.
+        let cost = 9 + text.len();
+        if used + cost > crate::limits::DISCOVERY_BYTES {
+            continue;
+        }
+        used += cost;
+        let title = title.clone();
+        pages[index]["title"] = serde_json::Value::String(title);
+    }
+}
 
 /// One worker's best-effort writer: its own writable store handle, opened on first use. A write that
 /// cannot happen (no handle, a busy or stale store) leaves the page without a row, never fails the
@@ -52,5 +103,96 @@ impl TitleWriter {
                     None => Ok(()),
                 },
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn id(n: usize) -> String {
+        format!("10000000-0000-4000-8000-{n:012}")
+    }
+
+    /// A catalog of `pages` entries (page `n` updated at `updated(n)`) padded to leave `spare` bytes
+    /// of the reply budget.
+    fn catalog(pages: usize, updated: impl Fn(usize) -> u64, spare: usize) -> serde_json::Value {
+        let entries: Vec<_> = (1..=pages)
+            .map(|n| json!({"pageId": id(n), "archived": false, "lastUpdateAtMs": updated(n)}))
+            .collect();
+        let mut catalog = json!({"pages": entries, "padding": ""});
+        let used = serde_json::to_vec(&catalog).unwrap().len();
+        catalog["padding"] = "x"
+            .repeat(crate::limits::DISCOVERY_BYTES - spare - used)
+            .into();
+        catalog
+    }
+
+    fn titled(catalog: &serde_json::Value) -> Vec<usize> {
+        let mut found: Vec<usize> = catalog["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .filter(|(_, page)| page.get("title").is_some())
+            .map(|(n, _)| n + 1)
+            .collect();
+        found.sort_unstable();
+        found
+    }
+
+    #[test]
+    fn the_newest_pages_get_their_titles_until_the_reply_is_full() {
+        // 1,000 pages, page 1 the oldest: each title costs 9 + 2 quotes + 100 bytes.
+        let mut value = catalog(1000, |n| n as u64, 111 * 40 + 50);
+        let titles: BTreeMap<_, _> = (1..=1000).map(|n| (id(n), "t".repeat(100))).collect();
+        attach_to_catalog(&mut value, &titles);
+        assert_eq!(titled(&value), (961..=1000).collect::<Vec<_>>());
+        let bytes = serde_json::to_vec(&value).unwrap().len();
+        assert!(bytes <= crate::limits::DISCOVERY_BYTES);
+        // What is left is less than one more title.
+        assert!(crate::limits::DISCOVERY_BYTES - bytes < 111);
+    }
+
+    #[test]
+    fn a_title_that_does_not_fit_is_left_out_and_a_shorter_one_after_it_still_can() {
+        let mut value = catalog(3, |n| 10 - n as u64, 9 + 2 + 20);
+        // Page 1 is the newest but its title is too long for what is left; page 2's fits exactly.
+        let titles = BTreeMap::from([
+            (id(1), "a".repeat(40)),
+            (id(2), "b".repeat(20)),
+            (id(3), "c".repeat(20)),
+        ]);
+        attach_to_catalog(&mut value, &titles);
+        assert_eq!(titled(&value), [2]);
+        assert_eq!(
+            serde_json::to_vec(&value).unwrap().len(),
+            crate::limits::DISCOVERY_BYTES
+        );
+    }
+
+    #[test]
+    fn a_title_is_costed_by_its_escaped_size_and_a_tie_in_time_goes_to_the_lower_id() {
+        // A quote is two bytes on the wire: `""""` costs 9 + 2 + 8.
+        let mut value = catalog(2, |_| 5, 9 + 2 + 8);
+        let titles = BTreeMap::from([
+            (id(1), "\"\"\"\"".to_owned()),
+            (id(2), "\"\"\"\"".to_owned()),
+        ]);
+        attach_to_catalog(&mut value, &titles);
+        assert_eq!(titled(&value), [1]);
+        assert_eq!(value["pages"][0]["title"], "\"\"\"\"");
+        assert!(serde_json::to_vec(&value).unwrap().len() <= crate::limits::DISCOVERY_BYTES);
+    }
+
+    #[test]
+    fn an_archived_page_and_a_page_without_a_title_get_none() {
+        let mut value = catalog(3, |n| n as u64, 10_000);
+        value["pages"][2]["archived"] = true.into();
+        let titles = BTreeMap::from([(id(1), "One".to_owned()), (id(3), "Three".to_owned())]);
+        attach_to_catalog(&mut value, &titles);
+        assert_eq!(titled(&value), [1]);
+        assert_eq!(value["pages"][0]["title"], "One");
     }
 }
