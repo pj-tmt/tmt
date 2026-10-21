@@ -430,12 +430,8 @@ own module/drawing boundaries and verification.
   The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
   `labels::Reader` acquires Config-selected windows; `labels::digest` sums
   [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings), never provider history.
-  `usage_report::Reader` acquires public Core `consumption.history` and content-free
-  `x flow` on its own cancellable thread for Digest and non-hour Agents TOK ranges.
-  The acquired roster supplies batched UUIDs; one workspace TOK preference owns
-  1h/3h/6h/1d/7d. `digest_dashboard` projects held totals, coverage and hourly activity;
-  the reusable `exchange_matrix` paints message counts without routing effects.
-  Digest remains the owner of supplied settings, held counts, savings and quotes.
+  `usage_report::Reader` acquires public Core usage/traffic off-thread;
+  [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns its range and lifecycle.
   Member references resolve through the acquired global identity inventory;
   Markdown carries UUID tags into clipped frame hits. Existing menu/actions own
   navigation, while copy/annotation retain raw source. No text grants new delivery
