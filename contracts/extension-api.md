@@ -119,7 +119,10 @@ complete transcript backup or a guarantee that an identity has prior text.
 
 Core's SQLite store retains at most the newest 10 captures per identity. Capture
 occurs only when the existing Stop admission commits a turn end, in that same
-CAS transaction; a duplicate Stop treated as a no-op captures nothing. Text is
+CAS transaction; a duplicate Stop treated as a no-op captures nothing. A Stop
+reported while the provider continues because a Stop hook blocked an earlier one
+(`stop_hook_active`, for example a Digest checklist) ends that continuation: it is
+admitted after the earlier end, and its text is captured. Text is
 not deduplicated: two distinct committed turns with identical text are retained
 separately. The transaction appends the capture and removes overflow. Each
 capture freezes the current global `exchange.retentionDays` policy (default 90,

@@ -25,13 +25,17 @@ pub enum EventKind {
     ApprovalPrompt,
     ToolFinished,
     TurnEnded,
+    /// The end of a turn that an earlier end already closed and a provider
+    /// continued without a new prompt (a Stop hook blocked the stop). Nothing
+    /// announces that restart, so this end is the only evidence of its work.
+    ContinuationEnded,
 }
 impl EventKind {
     pub fn phase(self) -> ActivityPhase {
         match self {
             Self::TurnStarted | Self::ToolFinished => ActivityPhase::Working,
             Self::ApprovalPrompt => ActivityPhase::Waiting,
-            Self::TurnEnded => ActivityPhase::Idle,
+            Self::TurnEnded | Self::ContinuationEnded => ActivityPhase::Idle,
         }
     }
 }
@@ -77,10 +81,17 @@ impl Activity {
                 return None;
             }
             if event.turn == previous.turn {
-                if event.kind.phase() == previous.phase
-                    || (event.kind == EventKind::TurnStarted && event.turn.is_some())
-                    || (previous.phase == ActivityPhase::Idle
-                        && event.kind != EventKind::TurnStarted)
+                // A continued turn ends again after it was already idle; any
+                // other end of an idle turn is a duplicate. The strictly later
+                // time keeps a replayed event from counting twice.
+                let continued = event.kind == EventKind::ContinuationEnded
+                    && previous.phase == ActivityPhase::Idle
+                    && now > previous.last_activity_ms;
+                if !continued
+                    && (event.kind.phase() == previous.phase
+                        || (event.kind == EventKind::TurnStarted && event.turn.is_some())
+                        || (previous.phase == ActivityPhase::Idle
+                            && event.kind != EventKind::TurnStarted))
                 {
                     return None;
                 }
@@ -115,6 +126,91 @@ mod tests {
             turn: turn.map(|id| ProviderSessionId::new(id).unwrap()),
         }
     }
+    #[test]
+    fn a_continued_turn_ends_again_once_while_ordinary_duplicates_stay_refused() {
+        let session = ProviderSessionId::new("session").unwrap();
+        let process = ProcessIncarnation::new(12, "start").unwrap();
+        let continued = |turn: Option<&str>| Event {
+            kind: EventKind::ContinuationEnded,
+            turn: turn.map(|id| ProviderSessionId::new(id).unwrap()),
+        };
+        for turn in [None, Some("a")] {
+            let start = Activity::observe(
+                None,
+                &session,
+                &process,
+                &event(ActivityPhase::Working, turn),
+                10,
+            )
+            .unwrap();
+            // No admitted end yet: a continuation end is an ordinary end.
+            let ended =
+                Activity::observe(Some(&start), &session, &process, &continued(turn), 11).unwrap();
+            assert_eq!((ended.phase, ended.since_ms), (ActivityPhase::Idle, 11));
+            // After the blocked end, the continuation's end is admitted once.
+            let idle = Activity::observe(
+                None,
+                &session,
+                &process,
+                &event(ActivityPhase::Working, turn),
+                10,
+            )
+            .and_then(|start| {
+                Activity::observe(
+                    Some(&start),
+                    &session,
+                    &process,
+                    &event(ActivityPhase::Idle, turn),
+                    11,
+                )
+            })
+            .unwrap();
+            let again =
+                Activity::observe(Some(&idle), &session, &process, &continued(turn), 12).unwrap();
+            assert_eq!((again.phase, again.since_ms), (ActivityPhase::Idle, 12));
+            // A replay at the same instant, an older one and a plain end are refused.
+            assert!(
+                Activity::observe(Some(&again), &session, &process, &continued(turn), 12).is_none()
+            );
+            assert!(
+                Activity::observe(Some(&again), &session, &process, &continued(turn), 9).is_none()
+            );
+            assert!(
+                Activity::observe(
+                    Some(&idle),
+                    &session,
+                    &process,
+                    &event(ActivityPhase::Idle, turn),
+                    13
+                )
+                .is_none(),
+                "an ordinary end of an idle turn stays a duplicate"
+            );
+        }
+        // Without an admitted start, or for another turn, nothing is admitted.
+        assert!(Activity::observe(None, &session, &process, &continued(Some("a")), 5).is_none());
+        let idle = Activity::observe(
+            None,
+            &session,
+            &process,
+            &event(ActivityPhase::Working, Some("a")),
+            10,
+        )
+        .and_then(|start| {
+            Activity::observe(
+                Some(&start),
+                &session,
+                &process,
+                &event(ActivityPhase::Idle, Some("a")),
+                11,
+            )
+        })
+        .unwrap();
+        assert!(
+            Activity::observe(Some(&idle), &session, &process, &continued(Some("b")), 12).is_none()
+        );
+    }
+
     #[test]
     fn correlated_turns_reject_duplicates_old_stops_and_clock_rollback() {
         let session = ProviderSessionId::new("session").unwrap();
