@@ -542,6 +542,11 @@ fn serve(
                 },
             )?;
         }
+        // The first list read folds every page for its summary and title: start that fold now, so a
+        // store that has no titles yet (an upgrade) fills without anyone opening the list.
+        if let Ok(registration) = registration.lock() {
+            registration.start_summaries();
+        }
         // The socket is bound first, so a door started now mounts it as soon as it is ready.
         let access = supervisor::Access::open(stop);
         if let supervisor::Access::Unavailable {

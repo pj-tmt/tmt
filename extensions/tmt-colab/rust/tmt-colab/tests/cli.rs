@@ -718,6 +718,22 @@ fn confirm_cloud_copy(pilot: &Pilot, page: &str, after_ms: u64) -> u64 {
         .unwrap();
     now + after_ms
 }
+/// Waits, bounded, until the store holds `count` page-title rows: the serve folds every page once at
+/// start and records its title, so a test that compares the store's bytes waits for that first.
+fn wait_for_title_rows(database: &std::path::Path, count: i64) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let rows: i64 = rusqlite::Connection::open(database)
+            .unwrap()
+            .query_row("SELECT count(*) FROM page_titles", [], |row| row.get(0))
+            .unwrap();
+        if rows >= count {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{rows} title rows of {count}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
 fn seed_page_with_title(pilot: &Pilot, title: &str) {
     use ed25519_dalek::{Signer, SigningKey};
     use tmt_colab::{
@@ -1163,6 +1179,8 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
         );
         if serving {
             pilot.start();
+            // The serve's start fold records the page's title; compare the store once it has.
+            wait_for_title_rows(&db, 1);
         }
         let before = fs::read(&db).unwrap();
         failure(
@@ -1380,7 +1398,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -6355,7 +6373,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6451,7 +6469,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -7364,6 +7382,9 @@ fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
     );
     serving.ready();
     let database = pilot.root.join("selected/colab/space.db");
+    // The serve's start fold records the page's title (display state, not content); compare the
+    // store only once that has settled.
+    wait_for_title_rows(&database, 1);
     let before = fs::read(&database).unwrap();
     for args in [vec!["open"], vec!["open", &PAGE[..8]]] {
         // Captured stdout is not a terminal: explicit intent still opens.

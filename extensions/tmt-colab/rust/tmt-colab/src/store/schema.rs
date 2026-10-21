@@ -131,6 +131,15 @@ const MIGRATIONS: &[&str] = &[
         CHECK(last_activity_at_ms IS NULL OR
             (typeof(last_activity_at_ms)='integer' AND last_activity_at_ms>=0 AND last_activity_at_ms<=9007199254740991));
     "#,
+    // Schema 16: the owner's local plaintext page titles (#4218), one row per active page, written
+    // only from the owner's verified fold at the page's progress key (`page_progress`). Display-only
+    // projection state: never a log statement, never synced, published, exported or shared, and
+    // rebuildable from the fold, so losing it loses nothing.
+    r#"
+    CREATE TABLE page_titles(page TEXT PRIMARY KEY, progress TEXT NOT NULL,
+        title TEXT NOT NULL CHECK(length(CAST(title AS BLOB)) BETWEEN 1 AND 512),
+        FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 
