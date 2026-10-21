@@ -444,9 +444,14 @@ is added.
   `$TMT_EXECUTABLE` (`core.rs`, the only core access). A missing or invalid root fails
   before any state is created; `spaces` creates nothing.
 - State is `<dataRoot>/colab/` (owned 0700, no symlink) holding `owner.key`, `serve.lock`,
-  `keyring.lock`, `space.db` and the socket `door.sock` (0600 files). The layout is the
+  `keyring.lock`, `space.db`, `settings.json`, `work-index.json` (a rebuildable page-work cache,
+  under `work-index.lock`) and the socket `door.sock` (0600 files). The layout is the
   `tmt-extension-state` leaf behind `keyring::Layout`; Colab adds only its file names and
-  error codes. `Keyring` publishes the owner seed create-only; an existing wrong-length key
+  error codes. A settings change is one `tmt_extension_state::Document` update (the shared lock
+  in `<dataRoot>/document-locks/`, an atomic rename, a five-second wait whose refusal names the
+  file and the exact `tmt colab settings` retry), so a reader takes no lock and a crash leaves the
+  old file; a file past its 4,096-byte bound is refused, never replaced. `space.db` waits five
+  seconds (`store::BUSY`) for another connection. `Keyring` publishes the owner seed create-only; an existing wrong-length key
   fails closed (`COLAB_KEY_INVALID`) and is never replaced. The seed never leaves
   `Keyring`; callers ask it to sign or seal.
 - `space.db` schemas are append-only (`store/schema.rs`): 1 ciphertext (pages, streams,

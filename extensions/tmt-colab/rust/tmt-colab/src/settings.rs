@@ -7,20 +7,19 @@
 //! is the space's days without activity before a page is archived (`page_expiry.rs`).
 use crate::{
     Result,
-    keyring::Layout,
+    keyring::{Layout, StateFault},
     page_expiry::{MAX_DAYS, SpaceExpiry},
     wip::{Limits, MAX_LIMIT},
     work_github::Repo,
 };
 use serde_json::{Value, json};
 use std::{
-    io::{Read, Write},
     path::Path,
     time::{Duration, Instant},
 };
+use tmt_extension_state::{Document, StateError, UpdateError};
 
 const FILE: &str = "settings.json";
-const LOCK: &str = "settings.lock";
 /// A settings file larger than this is not ours; it reads as malformed.
 const LIMIT: u64 = 4096;
 
@@ -140,8 +139,8 @@ fn parse_expiry(value: &Value) -> Option<SpaceExpiry> {
 /// What a person is told when the file is damaged or unreadable.
 pub const UNREADABLE: &str = "settings.json could not be read; defaults apply";
 
-/// How long a reader or setter waits for the lock before giving up on the file.
-const LOCK_WAIT: Duration = Duration::from_secs(1);
+/// How long a scan waits for the work-index lock before giving up: the shared state wait bound.
+const LOCK_WAIT: Duration = Duration::from_secs(5);
 
 /// The settings for a command whose effect already happened (a created page, a ready door):
 /// any failure to read them is the defaults with `malformed` set, never an error.
@@ -152,7 +151,7 @@ pub fn read_or_default(root: &Path) -> ColabSettings {
     })
 }
 
-/// A named state lock, waiting a bounded time for whoever holds it (a reader or a setter).
+/// A named state lock, waiting a bounded time for whoever holds it.
 pub(crate) fn locked(layout: &Layout, name: &str) -> Result<nix::fcntl::Flock<std::fs::File>> {
     let deadline = Instant::now() + LOCK_WAIT;
     loop {
@@ -166,53 +165,78 @@ pub(crate) fn locked(layout: &Layout, name: &str) -> Result<nix::fcntl::Flock<st
     }
 }
 
-/// Read the settings of this data root. A missing directory or file is the defaults. The read
-/// takes the setter's lock, so it never sees a half-written file.
+/// The settings document: the file is replaced whole by an atomic rename under the shared document
+/// lock, so a reader takes no lock and never sees a half-written file. `retry` is the command that
+/// repeats a change a refusal names.
+fn document(layout: &Layout, retry: &str) -> Result<Document> {
+    // The shared lock files live in the data root, beside the extension directory.
+    let state_root = layout
+        .directory
+        .parent()
+        .ok_or(StateFault::RootNotAbsolute)?;
+    Document::new(state_root, &layout.directory.join(FILE), LIMIT, retry).map_err(document_error)
+}
+
+/// A refusal of the shared state entry as Colab words it: an unsafe file keeps its code, and every
+/// other refusal (a wait that ran out, an oversized file) says which file and, where it can be
+/// repeated, the exact retry.
+fn document_error(error: StateError) -> Box<dyn std::error::Error + Send + Sync> {
+    match error {
+        StateError::Unsafe { .. } => StateFault::UnsafeFile.into(),
+        error => error.into(),
+    }
+}
+
+/// Read the settings of this data root. A missing directory or file is the defaults. A setter
+/// replaces the file whole, so the read never sees a half-written file and takes no lock.
 pub fn read(root: &Path) -> Result<ColabSettings> {
     let Some(layout) = Layout::existing(root)? else {
         return Ok(ColabSettings::default());
     };
-    let _lock = locked(&layout, LOCK)?;
-    match layout.read(FILE, LIMIT) {
-        Ok(bytes) => Ok(ColabSettings::parse(&bytes)),
-        Err(tmt_extension_state::Error::ReadOpen(error))
-            if error.kind() == std::io::ErrorKind::NotFound =>
-        {
-            Ok(ColabSettings::default())
-        }
-        Err(error) => Err(crate::keyring::state_error(error)),
+    match document(&layout, "tmt colab settings")?
+        .read()
+        .map_err(document_error)?
+    {
+        Some(bytes) => Ok(ColabSettings::parse(&bytes)),
+        None => Ok(ColabSettings::default()),
     }
 }
 
-/// Change the settings under the setter's lock: `change` edits the file's own object, so a key this
-/// setter does not own is kept. Two concurrent setters serialize; a crash mid-write leaves a
-/// malformed file, which reads as the defaults with a warning rather than an error. A file that is
-/// not an object starts again from an empty one.
+/// Change the settings in one document update: `change` edits the file's own object, so a key this
+/// setter does not own is kept. Two concurrent setters serialize and neither loses its change; a
+/// crash leaves the old file whole (the update is a rename). A file that is not an object starts
+/// again from an empty one; one past the byte bound is not ours and is refused, never replaced.
 fn update(
     root: &Path,
+    retry: &str,
     change: impl FnOnce(&mut serde_json::Map<String, Value>),
 ) -> Result<ColabSettings> {
     let layout = Layout::open(root)?;
-    let _lock = locked(&layout, LOCK)?;
-    let mut file = layout.file(FILE)?;
-    let mut text = Vec::new();
-    std::io::Read::take(&mut file, LIMIT + 1).read_to_end(&mut text)?;
-    let mut table = match serde_json::from_slice::<Value>(&text) {
-        Ok(Value::Object(table)) if text.len() as u64 <= LIMIT => table,
-        _ => serde_json::Map::new(),
-    };
-    change(&mut table);
-    let bytes = Value::Object(table).to_string();
-    file.set_len(0)?;
-    std::io::Seek::rewind(&mut file)?;
-    file.write_all(bytes.as_bytes())?;
-    file.sync_all()?;
-    Ok(ColabSettings::parse(bytes.as_bytes()))
+    let mut saved = Vec::new();
+    document(&layout, retry)?
+        .update(|current| {
+            let mut table = match current.map(serde_json::from_slice::<Value>) {
+                Some(Ok(Value::Object(table))) => table,
+                _ => serde_json::Map::new(),
+            };
+            change(&mut table);
+            saved = Value::Object(table).to_string().into_bytes();
+            Ok::<_, std::convert::Infallible>(saved.clone())
+        })
+        .map_err(|error| match error {
+            UpdateError::State(error) => document_error(error),
+            UpdateError::Change(never) => match never {},
+        })?;
+    Ok(ColabSettings::parse(&saved))
 }
 
 /// Set `open`.
 pub fn set_open(root: &Path, open: bool) -> Result<ColabSettings> {
-    update(root, |table| {
+    let retry = format!(
+        "tmt colab settings open {}",
+        if open { "on" } else { "off" }
+    );
+    update(root, &retry, |table| {
         table.insert("open".into(), json!(open));
     })
 }
@@ -224,7 +248,13 @@ pub fn set_wip_limit(
     agent: Option<&str>,
     limit: Option<u32>,
 ) -> Result<ColabSettings> {
-    update(root, |table| {
+    let retry = match (agent, limit) {
+        (None, Some(limit)) => format!("tmt colab settings wip-limit {limit}"),
+        (None, None) => "tmt colab settings wip-limit".to_owned(),
+        (Some(agent), Some(limit)) => format!("tmt colab settings wip-limit {agent} {limit}"),
+        (Some(agent), None) => format!("tmt colab settings wip-limit {agent} default"),
+    };
+    update(root, &retry, |table| {
         let mut wip = match table.remove("wip") {
             Some(Value::Object(wip)) => wip,
             _ => serde_json::Map::new(),
@@ -258,7 +288,15 @@ pub fn set_wip_limit(
 
 /// Set the space's days without activity before a page is archived; `Default` removes the key.
 pub fn set_page_expiry(root: &Path, expiry: SpaceExpiry) -> Result<ColabSettings> {
-    update(root, |table| {
+    let retry = format!(
+        "tmt colab settings page-expiry {}",
+        match expiry {
+            SpaceExpiry::Default => "default".to_owned(),
+            SpaceExpiry::Days(days) => days.to_string(),
+            SpaceExpiry::Off => "off".to_owned(),
+        }
+    );
+    update(root, &retry, |table| {
         table.remove("pageExpiry");
         match expiry {
             SpaceExpiry::Default => {}
@@ -274,7 +312,11 @@ pub fn set_page_expiry(root: &Path, expiry: SpaceExpiry) -> Result<ColabSettings
 
 /// Set the repository the GitHub driver pushes tasks to, or clear it (`repo` is `None`).
 pub fn set_github_repo(root: &Path, repo: Option<&Repo>) -> Result<ColabSettings> {
-    update(root, |table| {
+    let retry = format!(
+        "tmt colab settings github-repo {}",
+        repo.map_or("none".to_owned(), |repo| repo.slug())
+    );
+    update(root, &retry, |table| {
         table.remove("github");
         if let Some(repo) = repo {
             table.insert("github".into(), json!({"repo": repo.slug()}));
