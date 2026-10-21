@@ -2964,6 +2964,7 @@ mod member_rename;
 mod membership_context;
 mod navigation;
 mod talk_measure;
+mod tok_window_chip;
 
 #[test]
 fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() {
@@ -3191,8 +3192,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_) | Choice::RightTab(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
-        "Agents paints filter/search/estimate controls, Talk/Measure and the global Snapshots action"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_) | Choice::RightTab(_) | Choice::TokRange(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
+        "Agents paints filter/search/estimate controls, the TOK window, Talk/Measure and the global Snapshots action"
     );
 }
 

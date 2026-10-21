@@ -268,6 +268,18 @@ impl AgentsLayout {
     }
 }
 
+/// The window word of the TOK caption (`1h` of `TOK 1h`) is its own control,
+/// separate from the rest of the caption. `slot` is the right-aligned TOK cell;
+/// a truncated caption has no whole word to hit.
+pub fn tok_window_chip(slot: Rect, range: crate::config::TokRange) -> Option<Rect> {
+    let word = range.argument().len() as u16;
+    let caption = range.caption().len() as u16;
+    (slot.height > 0 && slot.width >= caption)
+        .then(|| Rect::new(slot.x + slot.width - word, slot.y, word, 1))
+}
+
+/// Paints the Agents column header and returns the hit area of the TOK window
+/// word when the TOK column is present.
 pub fn paint_agents_header(
     buffer: &mut ratatui::buffer::Buffer,
     area: Rect,
@@ -275,14 +287,16 @@ pub fn paint_agents_header(
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
     range: crate::config::TokRange,
-) {
+) -> Option<Rect> {
     if area.height == 0 {
-        return;
+        return None;
     }
+    let mut chip = None;
     for (field, slot) in slots {
         let caption = if *field == AgentsField::Agent {
             format!("  {}", field.caption(glyphs))
         } else if *field == AgentsField::Tokens {
+            chip = tok_window_chip(*slot, range);
             range.caption().to_owned()
         } else {
             field.caption(glyphs).to_owned()
@@ -306,6 +320,7 @@ pub fn paint_agents_header(
             ),
         );
     }
+    chip
 }
 
 pub fn paint_roster_header(

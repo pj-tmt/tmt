@@ -294,7 +294,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             ..inside
         },
     );
-    columns::paint_agents_header(
+    if let Some(chip) = columns::paint_agents_header(
         frame.buffer_mut(),
         Rect {
             y: inside.y + rule_height,
@@ -305,7 +305,11 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         look,
         app.cron_glyphs,
         app.tok_range(),
-    );
+    ) {
+        app.workspace_strip_hits
+            .borrow_mut()
+            .push((chip, Choice::TokRange(app.tok_range().next())));
+    }
     let body = Rect::new(
         inside.x,
         inside.y + rule_height + header_height,

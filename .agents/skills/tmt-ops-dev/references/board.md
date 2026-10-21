@@ -132,7 +132,9 @@ state only, no squad data or durable preference policy.
 - `workspace::render::tree` projects viewport UUID targets through `tree_row`.
   `workspace::columns` owns fixed tracks and whole optional-column removal;
   The saved TOK range is visible with STATE, owned-timer count and a local lead marker when
-  they fit. Connectors follow filtered siblings. Selection fills the whole row
+  they fit; `columns::tok_window_chip` gives the window word of the TOK heading its own
+  `Choice::TokRange` strip hit in the tree and flat headers (the TOK word stays free for
+  header sort). Connectors follow filtered siblings. Selection fills the whole row
   at normal weight, including when the conversation has focus; attention belongs
   to state glyphs. `agents_focus` owns selected member/squad projection through
   shared identity/stat/usage/timer/exchange/input components. Digest choices and
