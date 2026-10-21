@@ -237,7 +237,14 @@ export function QuestionGroupCard({
       (!answer || draft.changing || draft.failed) &&
       !draft.pending &&
       !answerFiles.uploading(question.id);
-    return { question, draft, threads, thread, answer, body, eligible };
+    // From Send until the verified record arrives, the answer being sent stands on its line and
+    // the card is folded: the page moves once, at Send, and the record and the Ask move nothing.
+    // Display only: nothing here is a record, and a failure drops it, re-opening the card.
+    const echo =
+      !readOnly && (sending.includes(question.id) || !!draft.pending) && body !== undefined
+        ? answerOf(question, body)
+        : undefined;
+    return { question, draft, threads, thread, answer, body, eligible, echo };
   });
   // The Send row belongs to its physical answer block. A folded answered line
   // never shows it; Change answer restores it. A wrapper can still submit drafts
@@ -301,6 +308,9 @@ export function QuestionGroupCard({
     setFocusReply(undefined);
     setFocusChange(undefined);
     busy.current = true;
+    // The panel folds with this Send; focus stays on its line instead of falling to the page.
+    if (section.current?.contains(document.activeElement))
+      lines.current.get(selected)?.focus({ preventScroll: true });
     setSending(answers.map((answer) => answer.question.id));
     setError(undefined);
     // Keep the chosen disclosure until its recorded answers are verified.
@@ -344,7 +354,9 @@ export function QuestionGroupCard({
           version: disclosureVersion,
           questions: recorded.map((outcome) => outcome.question),
         });
-      section.current?.focus({ preventScroll: true });
+      // Focus the group only when it fell to the page; a line that took it at Send keeps it.
+      if (!section.current?.contains(document.activeElement))
+        section.current?.focus({ preventScroll: true });
     } catch {
       setError('Could not confirm these answers. Your drafts are kept.');
     } finally {
@@ -650,7 +662,7 @@ export function QuestionGroupCard({
                   </p>
                 )}
                 {blockRows.map((row, index) => {
-                  const open = expanded && selected === row.question.id;
+                  const open = expanded && selected === row.question.id && row.echo === undefined;
                   const panelId = `question-panel-${row.question.id}`;
                   return (
                     <div key={row.question.id}>
@@ -660,7 +672,11 @@ export function QuestionGroupCard({
                           else lines.current.delete(row.question.id);
                         }}
                         question={row.question}
-                        answer={row.answer}
+                        answer={
+                          row.echo ??
+                          (row.answer ? (answerOf(row.question, row.answer.body) ?? '') : undefined)
+                        }
+                        pending={row.echo !== undefined}
                         expanded={open}
                         panelId={panelId}
                         onToggle={() => onToggle(row.question.id)}

@@ -188,6 +188,85 @@ test('an answered question closes to its focused line and Change answer restores
   await expect(card.getByRole('button', { name: 'Remove @Agent 1' })).toBeVisible();
 });
 
+/** Each change of the card's reserved height (the page moves by it), with the step it came in. */
+async function watchSlotHeight(page: Page) {
+  await page.evaluate(() => {
+    const steps: { step: string; height: number }[] = [];
+    const watch = window as unknown as { slotSteps: typeof steps; slotStep: string };
+    watch.slotSteps = steps;
+    watch.slotStep = 'before';
+    let last = 0;
+    const tick = () => {
+      const slot = document.querySelector('[data-inline-slot]');
+      const height = slot ? Math.round(slot.getBoundingClientRect().height) : last;
+      if (Math.abs(height - last) > 1) {
+        if (last) steps.push({ step: watch.slotStep, height: height - last });
+        last = height;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+const slotStep = (page: Page, step: string) =>
+  page.evaluate((step) => {
+    (window as unknown as { slotStep: string }).slotStep = step;
+  }, step);
+const slotSteps = (page: Page) =>
+  page.evaluate(() => (window as unknown as { slotSteps: unknown[] }).slotSteps);
+
+test('answering a card moves the page once, however late the record and the Ask land', async ({
+  page,
+}) => {
+  const card = await mount(page, {}, { holdQuestionView: true });
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await run(page, 'pausePrepare');
+  await watchSlotHeight(page);
+  await slotStep(page, 'send');
+  await card.getByRole('button', { name: /^Send answer/ }).click();
+  await expect(card.locator('.question-line')).toContainText('Answered: Keep it');
+  await page.waitForTimeout(600);
+  await slotStep(page, 'record');
+  await run(page, 'releaseQuestionView');
+  // The record has landed once the answer's history stands in the folded card.
+  await expect(card.locator('.question-history').first()).toBeAttached();
+  await page.waitForTimeout(600);
+  await slotStep(page, 'ask');
+  await run(page, 'resumePrepare');
+  await expect(card.locator('.question-line')).toHaveAttribute('aria-expanded', 'false');
+  await page.waitForTimeout(600);
+  // The sampler sees every frame: the one fold is Send's; the record and the Ask move nothing.
+  const steps = (await slotSteps(page)) as { step: string; height: number }[];
+  expect(
+    steps.map(({ step }) => step),
+    JSON.stringify(steps),
+  ).toEqual(['send']);
+  expect(steps[0].height).toBeLessThan(0);
+});
+
+test('a failed answer re-opens its folded card on the error row, Retry focused, draft kept', async ({
+  page,
+}) => {
+  const card = await mount(page, {}, { failAnswerAt: 1 });
+  const line = card.locator('.question-line');
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await card.getByRole('button', { name: /^Send answer/ }).click();
+  // The failure is the one move after Send's fold: the card opens in place on its error row.
+  const retry = card.getByRole('button', { name: 'Retry', exact: true });
+  await expect(card.getByRole('alert')).toHaveText(
+    'Could not confirm this answer. Your draft is kept for the next Send.',
+  );
+  await expect(line).toHaveAttribute('aria-expanded', 'true');
+  await expect(line).toContainText('Waiting for you');
+  await expect(retry).toBeFocused();
+  await expect(card.getByLabel('Keep it', { exact: true })).toBeChecked();
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
+  await retry.click();
+  await expect(line).toContainText('Answered: Keep it');
+  await expect(line).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
+});
+
 for (const change of [false, true]) {
   test(`a verified answer before Ask completion releases its recorded draft (Change answer ${change})`, async ({
     page,
@@ -201,11 +280,12 @@ for (const change of [false, true]) {
     }
     await run(page, 'pausePrepare');
     await card.getByRole('button', { name: /^Send answer/ }).click();
-    await expect(card.locator('.question-answer > p')).toHaveText(change ? 'Change it' : 'Keep it');
-    // The answer stands in its place at once; no step is spelled out and nothing is inserted.
-    await expect(card.locator('.question-answer')).toHaveAttribute('data-echo', 'true');
-    await expect(card.getByText('Sending…', { exact: true })).toHaveCount(0);
-    await expect(card.getByText(/waiting for the verified view/)).toHaveCount(0);
+    // The answer stands on its folded line at once; no step is spelled out.
+    const line = card.locator('.question-line');
+    await expect(line).toContainText(`Answered: ${change ? 'Change it' : 'Keep it'}`);
+    await expect(line).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByText('Sending…', { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/waiting for the verified view/)).toHaveCount(0);
     const recorded = await run(page, 'discussionProof');
     expect(recorded).toHaveLength(1);
     expect(recorded[0].comments).toHaveLength(change ? 2 : 1);

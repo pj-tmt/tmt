@@ -309,20 +309,22 @@ test('a successful local callback cannot supply a verified answer or close the q
   await rows.first().click();
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
-  // The answer is shown at once as an echo that no record backs: the line still waits, the count
-  // does not move, and no status step is spelled out.
-  const echo = activeCard(page).locator('.question-answer');
-  await expect(echo).toHaveAttribute('data-echo', 'true');
-  await expect(echo.locator('> p')).toHaveText('Keep it');
-  await expect(activeCard(page).getByText(/Sending…|waiting for the verified view/)).toHaveCount(0);
-  await expect(rows.first()).toHaveAttribute('aria-expanded', 'true');
-  await expect(rows.first()).toContainText('Waiting for you');
+  // The answer stands at once on its folded line as an echo that no record backs: the count does
+  // not move, and no status step is spelled out.
+  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
+  await expect(rows.first()).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByText(/Sending…|waiting for the verified view/)).toHaveCount(0);
   await expect(group.locator('.question-compact-heading')).toHaveText(
     'Questions from Agent 1 · 2 of 2 waiting',
   );
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   await run(page, 'releaseQuestionView');
+  await expect(group.locator('.question-compact-heading')).toHaveText(
+    'Questions from Agent 1 · 1 of 2 waiting',
+  );
   await expect(rows.first()).toContainText('Answered: Keep it');
+  await expect(rows.first()).not.toHaveAttribute('aria-disabled');
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
   await expect(group.locator('.question-compact-heading')).toHaveText(
     'Questions from Agent 1 · 1 of 2 waiting',
@@ -341,7 +343,8 @@ test('a delayed verified answer preserves a question the reader explicitly opene
   await rows.first().click();
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
-  await expect(activeCard(page).locator('.question-answer')).toHaveAttribute('data-echo', 'true');
+  await expect(rows.first()).toHaveAttribute('aria-disabled', 'true');
+  await expect(rows.first()).toContainText('Answered: Keep it');
   await rows.nth(2).click();
   await activeCard(page).getByLabel('Your answer', { exact: true }).fill('A newer local draft.');
   await run(page, 'releaseQuestionView');
@@ -356,7 +359,7 @@ test('a delayed verified answer preserves a question the reader explicitly opene
   expect(await run(page, 'discussionProof')).toHaveLength(1);
 });
 
-test('an echo is replaced in place by the verified answer, with nothing inserted or moved', async ({
+test('an echo on the folded line is replaced in place by the verified answer, nothing moved', async ({
   page,
 }) => {
   await page.goto('/');
@@ -370,36 +373,35 @@ test('an echo is replaced in place by the verified answer, with nothing inserted
   // An idle card has no status line: only a failure takes one.
   await expect(card.locator('.question-status')).toHaveCount(0);
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
-  const answer = card.locator('.question-answer');
-  await expect(answer).toHaveAttribute('data-echo', 'true');
-  // Unconfirmed past 0.4 s, the echo gains a mark with no words; no button turns busy.
-  const mark = card.locator('.question-pending .comment-echo-mark');
+  // Send folds the card to its answered line; focus stays on that line, not the page.
+  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
+  await expect(rows.first()).toBeFocused();
+  await expect(page.locator('.question-card:visible')).toHaveCount(0);
+  // Unconfirmed past 0.4 s, the line's mark turns to a spinner with no words; no button turns busy.
+  const mark = rows.first().locator('.question-line-mark .comment-echo-mark');
   await expect(mark).toHaveCSS('visibility', 'visible');
   await expect(mark).toHaveText('');
-  await expect(card.locator('.question-pending')).toHaveAttribute('aria-hidden', 'true');
+  await expect(rows.first().locator('.question-line-mark')).toHaveAttribute('aria-hidden', 'true');
   const measure = () =>
     page.evaluate(() => {
       const box = (selector: string) => {
-        const rect = document
-          .querySelector(`.question-card:not([hidden]) ${selector}`)!
-          .getBoundingClientRect();
+        const rect = document.querySelector(selector)!.getBoundingClientRect();
         return { top: rect.top, height: rect.height };
       };
-      return {
-        answer: box('.question-answer'),
-        controls: box('.question-controls'),
-      };
+      return { slot: box('[data-inline-slot]'), line: box('.question-line') };
     });
   const echoed = await measure();
-  await expect(card.locator('.question-status')).toHaveCount(0);
   await run(page, 'releaseQuestionView');
+  await expect(group.locator('.question-compact-heading')).toHaveText(
+    'Questions from Agent 1 · 1 of 2 waiting',
+  );
+  await expect(rows.first()).not.toHaveAttribute('aria-disabled');
+  await expect(rows.first().locator('.comment-echo-mark')).toHaveCount(0);
   await expect(rows.first()).toContainText('Answered: Keep it');
+  expect(await measure()).toEqual(echoed);
   await rows.first().click();
-  await expect(answer).not.toHaveAttribute('data-echo');
-  await expect(card.locator('.question-pending .comment-echo-mark')).toHaveCount(0);
-  await expect(answer.locator('> p')).toHaveText('Keep it');
-  const verified = await measure();
-  expect(verified.answer).toEqual(echoed.answer);
+  await expect(card.locator('.question-answer > p')).toHaveText('Keep it');
   await expect(card.locator('.question-status')).toHaveCount(0);
 });
 
@@ -414,7 +416,7 @@ test('an answer verified within 0.4 s never shows the pending mark', async ({ pa
     const seen = { mark: false };
     (window as unknown as { markSeen: typeof seen }).markSeen = seen;
     new MutationObserver(() => {
-      if (document.querySelector('.question-card .comment-echo-mark[data-shown]')) seen.mark = true;
+      if (document.querySelector('.question-line .comment-echo-mark[data-shown]')) seen.mark = true;
     }).observe(document.body, { subtree: true, childList: true, attributes: true });
   });
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
