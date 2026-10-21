@@ -70,6 +70,16 @@ impl From<store::Fault> for Code {
         }
     }
 }
+/// One admitted object of [`Server::ingest_bootstrap`]: a checkpoint or fold, or the update a
+/// fold binds.
+pub struct Bootstrapped {
+    pub namespace: store::Namespace,
+    pub hash: [u8; 32],
+    pub previous: [u8; 32],
+    pub bytes: Vec<u8>,
+    /// The device that signed a fold.
+    pub signer: Option<String>,
+}
 /// The trusted caller resolves live device/page/epoch authority from its verified
 /// owner log and certificate chain. It must reject expired/revoked principals,
 /// stale epochs and unauthorized namespaces/revisions, including on Read.
@@ -798,6 +808,58 @@ impl<A: Admission> Server<A> {
             return Err(Code::ResyncRequired);
         }
         state.apply(None, scope, &principal, &checked, author_key, false)
+    }
+    /// Install the checkpoint pair (or owner fold pair) the cloud delivered for a stream this
+    /// machine holds nothing of, in the Store's one bootstrap transaction, then announce each
+    /// stored checkpoint as for a local compact. The caller has already admitted every object and
+    /// the anchor a fold binds. Nothing is queued for publication.
+    pub fn ingest_bootstrap(
+        &self,
+        scope: &SyncScope,
+        stream: &str,
+        seq: u64,
+        anchor: Option<&Bootstrapped>,
+        objects: &[Bootstrapped],
+    ) -> Result<Accepted, Code> {
+        let epoch = values::decimal(&scope.epoch, false)?;
+        let at = StreamScope {
+            page: &scope.page,
+            epoch,
+            stream,
+        };
+        fn envelope<'a>(
+            scope: StreamScope<'a>,
+            seq: u64,
+            object: &'a Bootstrapped,
+        ) -> store::Envelope<'a> {
+            store::Envelope {
+                scope,
+                namespace: object.namespace,
+                seq,
+                hash: object.hash,
+                previous: object.previous,
+                bytes: &object.bytes,
+            }
+        }
+        let anchor = anchor.map(|object| envelope(at, seq, object));
+        let installed: Vec<store::Bootstrapped<'_>> = objects
+            .iter()
+            .map(|object| store::Bootstrapped {
+                envelope: envelope(at, seq, object),
+                signer: object.signer.as_deref(),
+            })
+            .collect();
+        let mut state = self.0.lock().map_err(|_| Code::Denied)?;
+        if state.draining {
+            return Err(Code::ResyncRequired);
+        }
+        let accepted = state.store.bootstrap(anchor.as_ref(), &installed)?;
+        if accepted == Accepted::New {
+            for object in objects {
+                state.announce_checkpoint(scope, stream, object.namespace, seq);
+            }
+        }
+        Ok(accepted)
     }
     /// Share the activity the cloud-sync worker waits on.
     pub fn set_activity(&self, activity: ActivePage) -> Result<(), Code> {

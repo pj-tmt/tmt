@@ -1695,6 +1695,32 @@ updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1 except the
 [owner fold](#owner-fold-3983); the epoch baseline above is a distinct owner-authorized reset.
 
+#### Stream position and native cloud bootstrap
+
+A stream's **position** is its latest sequence and the hash it has there. The Store defines it in
+one place, `position` in `store.rs`, and no other code reads the receipts table for it: it is the
+latest receipt or, when later, the head that the stream's latest checkpoint binds. A stream built by
+appends and checkpoints has a receipt at its checkpoint's sequence (the Store refuses a checkpoint
+without one), so for it the two are the same; only a bootstrap leaves a checkpoint without its
+receipt. An update must follow the position: the next sequence, citing its hash.
+
+When this machine holds nothing of a foreign stream (no receipt and no checkpoint), native cloud
+inbound starts it from the cloud's latest paired checkpoint, ordinary or an owner fold, if the
+provider no longer holds the stream's log from sequence 1 or holds no log of it at all. It lists
+the page's checkpoints once per pass, only for a stream that needs one, and takes the stream's latest
+sequence. Both namespaces must be there with one signed head; for a fold the anchor is read by
+exact ID from the log. A pair that is not whole yet, or no checkpoint at all, changes nothing and is
+looked for again only when the page's records change. Each object is admitted by the code that reads
+a stored checkpoint or fold (signature, role, epoch, a revoked device's signed cut, a fold's signer
+list and anchor), and the Store installs the pair in one transaction: both checkpoints and, for a
+fold, its anchor as the receipt at its sequence. The page's activity time is refreshed as for any
+admitted update. The same pair again is a replay. A stream that holds a receipt or a checkpoint is
+never joined to a pruned prefix, and a frozen stream takes nothing: both stay stopped with the
+visible line. The tail then follows from the next sequence under ordinary continuity, the serve
+announces each stored checkpoint as for a local compact, and nothing is queued for publication. A
+pair that is not admitted, a malformed record or a missing anchor stops that writer, and no other,
+with its line.
+
 Authority reductions commit the exact checkpoint envelope hash, checkpoint
 sequence and tail head/hash. A revoked device's newly signed replacement cannot
 be admitted solely because it cites the old head. Checkpoint signatures do not
@@ -1872,10 +1898,10 @@ anything is pruned.
   from the anchor. Missing or invalid anchors, chains or pairs refuse without applying their data.
   Existing discovery supplies the anchor on first load; a newly discovered fold on a later wake
   can use a bounded, budget-charged exact-ID log read. Neither Rules nor declaration changes.
-  Native cloud inbound still has no verified checkpoint bootstrap, for ordinary checkpoints or
-  folds ([#4113](https://github.com/pj-tmt/tmt/issues/4113)); a pruned prefix stops that writer
-  visibly rather than applying a partial prefix, directing the reader to keep editing on the
-  machine that created the page. This limit does not prevent publication or a hosted reader opening it.
+  Native cloud inbound starts a stream it holds nothing of from the fold pair and its anchor
+  ([native cloud bootstrap](#stream-position-and-native-cloud-bootstrap)); a stream it holds a prefix
+  of stays stopped with its visible line, directing the reader to keep editing on the machine that
+  created the page.
 
 Frozen vectors, replayed by native and browser admission, ship with the code and must cover: a fold
 admitted; an unlisted fold from a revoked signer refused; a listed fold from a revoked signer
