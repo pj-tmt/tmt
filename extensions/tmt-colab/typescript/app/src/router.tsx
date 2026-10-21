@@ -2032,6 +2032,8 @@ function Page() {
           <PageWorkBand
             work={view.work}
             binding={snapshot.binding}
+            transport={transport}
+            space={space}
             pageHref={(pageId) =>
               router.history.createHref(
                 router.buildLocation({ to: '/pages/$pageId', params: { pageId } }).publicHref,
