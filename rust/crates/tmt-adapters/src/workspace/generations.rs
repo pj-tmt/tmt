@@ -258,6 +258,106 @@ mod tests {
     use super::super::encode;
     use super::*;
     #[test]
+    fn existing_v1_history_stays_readable_and_trims_only_on_changed_publication() {
+        use std::os::unix::fs::MetadataExt;
+        let root = crate::test_support::TestDirectory::new();
+        let paths = super::super::tests::paths(&root.path);
+        let mut protected = super::super::tests::sample();
+        protected.panes[0].identity = Some(tmt_core::workspace::WorkspaceIdentity {
+            id: "11111111-1111-4111-8111-111111111111".into(),
+            name: "retained".into(),
+            lifetime: "saved".into(),
+            binding: "22222222-2222-4222-8222-222222222222".into(),
+            harness: None,
+            session: None,
+            mode: None,
+            channel: None,
+        });
+        let socket = protected.server.socket.clone();
+        assert!(super::super::publish_event(&paths, &socket, || Ok(protected.clone())).unwrap());
+        let directory = paths.workspace_directory(&socket);
+        let protected_bytes = encode(&protected).unwrap();
+        let protected_entry = record(&protected, &protected_bytes);
+        let mut old = Catalogue {
+            protected: Some(protected_entry.id.clone()),
+            entries: vec![protected_entry.clone()],
+        };
+        let mut latest = protected.clone();
+        latest.panes[0].identity = None;
+        // Frozen v1 shape from the earlier 35-entry policy. Do not run today's
+        // retention selector to construct the compatibility input.
+        for index in 2..=35 {
+            latest.captured_at_ms = index;
+            latest.windows[0].name = format!("old-layout-{index}");
+            let mut entry = retain_bytes(&directory, &latest, &encode(&latest).unwrap()).unwrap();
+            entry.shrink = true;
+            old.entries.push(entry);
+        }
+        crate::private_file::replace(&directory.join(INDEX), &index_bytes(&old).unwrap()).unwrap();
+        crate::private_file::replace(&directory.join("latest.json"), &encode(&latest).unwrap())
+            .unwrap();
+        let inventory = || {
+            let mut files = fs::read_dir(&directory)
+                .unwrap()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    let metadata = entry.metadata().unwrap();
+                    (
+                        entry.file_name(),
+                        fs::read(entry.path()).unwrap(),
+                        metadata.ino(),
+                        metadata.mtime(),
+                        metadata.mtime_nsec(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            files.sort_by(|left, right| left.0.cmp(&right.0));
+            files
+        };
+        let before = inventory();
+        let admitted = read(&directory).unwrap().unwrap();
+        assert_eq!(admitted.entries.len(), 35);
+        assert_eq!(admitted.preferred(), Some(&protected_entry));
+        assert_eq!(
+            acquire(&directory, admitted.protected().unwrap()).unwrap(),
+            protected_bytes
+        );
+        assert_eq!(
+            inventory(),
+            before,
+            "reading old history must not rewrite it"
+        );
+        latest.captured_at_ms = 36;
+        assert!(!super::super::publish_event(&paths, &socket, || Ok(latest.clone())).unwrap());
+        assert_eq!(
+            inventory(),
+            before,
+            "unchanged capture must not migrate history"
+        );
+        latest.windows[0].name = "changed after upgrade".into();
+        assert!(super::super::publish_event(&paths, &socket, || Ok(latest.clone())).unwrap());
+        let trimmed = read(&directory).unwrap().unwrap();
+        assert_eq!(trimmed.entries.len(), 6);
+        assert_eq!(trimmed.preferred(), Some(&protected_entry));
+        assert_eq!(
+            acquire(&directory, trimmed.protected().unwrap()).unwrap(),
+            protected_bytes
+        );
+        for entry in &trimmed.entries {
+            acquire(&directory, entry).unwrap();
+        }
+        let automatic = fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("auto-"))
+            .count();
+        assert_eq!(automatic, 6);
+        assert_eq!(
+            acquire(&directory, trimmed.latest().unwrap()).unwrap(),
+            encode(&latest).unwrap()
+        );
+    }
+    #[test]
     fn failed_index_commit_keeps_old_index_and_complete_generation() {
         let root = crate::test_support::TestDirectory::new();
         let directory = &root.path;

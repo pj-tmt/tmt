@@ -3,6 +3,8 @@ use std::collections::BTreeSet;
 
 pub const RECENT: usize = 5;
 pub const MAX_GENERATIONS: usize = RECENT + 1;
+/// Existing v1 history is readable; publication applies the smaller retention bound.
+pub const MAX_READ_GENERATIONS: usize = 35;
 
 /// Separate from manually named snapshots: `:` is not a valid saved name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -78,7 +80,7 @@ impl Catalogue {
         }
     }
     pub fn is_valid(&self) -> bool {
-        self.entries.len() <= MAX_GENERATIONS
+        self.entries.len() <= MAX_READ_GENERATIONS
             && self.entries.iter().all(|entry| {
                 entry.panes <= super::MAX_PANES
                     && entry.agents <= entry.panes
@@ -211,14 +213,14 @@ mod tests {
         assert!(history.is_valid());
     }
     #[test]
-    fn a_catalogue_over_six_generations_is_invalid() {
-        let history = Catalogue {
-            entries: (1..=7).map(|number| entry(number, 20, 10)).collect(),
+    fn v1_read_admission_accepts_existing_history_but_rejects_overflow() {
+        let mut history = Catalogue {
+            entries: (1..=35).map(|number| entry(number, 20, 10)).collect(),
             protected: None,
         };
+        assert!(history.is_valid());
+        history.entries.push(entry(36, 20, 10));
         assert!(!history.is_valid());
-        assert_eq!(RECENT, 5);
-        assert_eq!(MAX_GENERATIONS, 6);
     }
     #[test]
     fn clock_rollback_keeps_five_recent_generations_and_the_protected_baseline() {

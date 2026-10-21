@@ -89,6 +89,10 @@ and removes only owned, unreferenced, valid documents whose exact content digest
 matches their automatic filename. A later update can remove complete crash
 orphans under the same lock. Manual saves are independent of this bound.
 
+V1 read admission accepts existing catalogues of up to 35 entries. Reads and
+unchanged captures do not rewrite them. The next changed publication commits the
+current retention selection before pruning, leaving at most 6 verified generations.
+
 Compare each capture with the protected baseline (or the preceding capture
 before a baseline exists). Losing at least half of either nonzero pane count or
 unique annotated identity count marks a shrink. The smaller capture is retained,

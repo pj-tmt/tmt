@@ -32,6 +32,8 @@ content equality excludes capture time, so no-change publication preserves
 recovery bytes and timestamps. The pure Core catalogue retains recent distinct
 generations plus the protected pre-shrink baseline, without hourly buckets.
 It owns the bound and shrink classification; IO callers do not duplicate them.
+Existing v1 history remains readable within the contract's admission bound and
+is trimmed on the next changed publication, preserving no-write reads and unchanged captures.
 
 ## Recovery commands
 
