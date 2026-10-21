@@ -127,3 +127,35 @@ for (const width of [1440, 390, 320])
     ).toBe(before);
     expect(await page.evaluate(() => scrollY)).toBe(before);
   });
+
+test('a reader who scrolls while a re-read is pending keeps the new position', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.goto('/');
+  const kept = await page.evaluate(async () => {
+    const path = '/src/home-fill.ts';
+    const { rereadInPlace } = await import(path);
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    document.body.style.minHeight = '5000px';
+    scrollTo(0, 1000);
+    await frame();
+    let finish!: () => void;
+    // The read: it ends the way the router's does, by scrolling the window to the top.
+    const read = rereadInPlace(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = () => {
+            scrollTo(0, 0);
+            resolve();
+          };
+        }),
+    );
+    // The reader scrolls on while it is in flight.
+    scrollTo(0, 1600);
+    await frame();
+    await frame();
+    finish();
+    await read;
+    return scrollY;
+  });
+  expect(kept).toBe(1600);
+});
