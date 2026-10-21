@@ -16,6 +16,8 @@
 //   MOCK_REQUEST_ON_WAKE=1 on a request wake, read the durable request row at that
 //                          moment (read-only SQL on MOCK_DB, no TMT command)
 //   MOCK_DB                the TMT database, for MOCK_RESULT_ON_HINT and MOCK_REQUEST_ON_WAKE
+//   MOCK_STALL_FIRST_CHANNEL_MS  block the mock once, right after it logs its first channel
+//                          notice, as if it were descheduled under CI load
 //   MOCK_TURN_TRANSCRIPT   private telemetry fixture; prompt follows SessionStart,
 //                          then `<log>.stop-turn` explicitly releases one Stop
 // Digest steps (`<log>.digest-step`, MOCK_LAUNCH_HOOKS=1) emit one installed-hook Stop:
@@ -219,6 +221,7 @@ async function emitInstalledHooks(
 let turnReady = false;
 let turnSubmitted = false;
 let digestStepRunning = false;
+let stalled = false;
 
 let server;
 let serverClosed;
@@ -262,6 +265,11 @@ if (configIndex >= 0) {
     if (message.method === 'notifications/claude/channel') {
       const content = message.params.content;
       log({ event: 'channel', content });
+      const stall = Number(process.env.MOCK_STALL_FIRST_CHANNEL_MS ?? 0);
+      if (stall > 0 && !stalled) {
+        stalled = true;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, stall);
+      }
       const reply = /tmt reply (\S+) --receipt (\S+) --message <text>/.exec(content);
       if (process.env.MOCK_AUTOREPLY === '1' && reply) {
         execPeer(
