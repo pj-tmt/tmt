@@ -176,7 +176,8 @@ pub const WORK_BYTES: usize = 128 * 1024;
 pub const WORK_ID_MAX: u64 = 9_999_999;
 pub const WORK_TITLE_POINTS: usize = 120;
 /// The longest page title the owner's local title projection keeps, in UTF-8 bytes: a longer one is
-/// not stored, so every consumer's reply stays bounded and shows its own fallback instead.
+/// not stored (nor one with a control character), so every consumer's reply stays bounded and shows
+/// its own fallback instead.
 pub const PAGE_TITLE_BYTES: usize = 512;
 pub const WORK_DETAIL_BYTES: usize = 4096;
 pub const WORK_REASON_BYTES: usize = 256;

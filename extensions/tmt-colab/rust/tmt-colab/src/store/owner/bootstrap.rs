@@ -205,15 +205,18 @@ impl OwnerTransaction<'_> {
     /// The owner's local plaintext title of a page, display-only projection state (#4218). It is
     /// stored only while `expected` is still the page's fingerprint: the one the verified fold that
     /// produced `title` started from, so a page that changed meanwhile (an edit, a membership change,
-    /// an archive or a delete) keeps its old row, or none, until its next fold. A title that is empty
-    /// or over [`crate::limits::PAGE_TITLE_BYTES`] is not stored and removes the older row. Returns
-    /// whether a row was written.
+    /// an archive or a delete) keeps its old row, or none, until its next fold. A title that is empty,
+    /// over [`crate::limits::PAGE_TITLE_BYTES`] or holds a control character is not stored and removes
+    /// the older row, so every consumer reads only text it can show. Returns whether a row was written.
     pub fn record_page_title(&mut self, page: &str, expected: &str, title: &str) -> Result<bool> {
         values::generated_id(page).map_err(|_| OwnerFault::Invalid)?;
         if self.page_fingerprint(page)?.as_deref() != Some(expected) {
             return Ok(false);
         }
-        if title.is_empty() || title.len() > crate::limits::PAGE_TITLE_BYTES {
+        if title.is_empty()
+            || title.len() > crate::limits::PAGE_TITLE_BYTES
+            || title.chars().any(char::is_control)
+        {
             self.drop_page_title(page)?;
             return Ok(false);
         }

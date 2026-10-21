@@ -570,7 +570,7 @@ mod page_titles {
     }
 
     #[test]
-    fn an_empty_or_over_long_title_is_not_stored_and_removes_the_older_row() {
+    fn an_empty_over_long_or_control_title_is_not_stored_and_removes_the_older_row() {
         let mut t = Titled::new();
         t.edit(1);
         let fingerprint = t.fingerprint();
@@ -581,6 +581,12 @@ mod page_titles {
         assert!(t.record(&fingerprint, "Back"));
         assert!(!t.record(&fingerprint, ""));
         assert_eq!(t.rows(), 0);
+        // A control character (a tab, a newline, a NUL) is not displayable text.
+        for control in ["a\tb", "a\nb", "a\u{0}b", "\u{85}"] {
+            assert!(t.record(&fingerprint, "Back"));
+            assert!(!t.record(&fingerprint, control), "{control:?}");
+            assert_eq!(t.rows(), 0);
+        }
     }
 
     #[test]
