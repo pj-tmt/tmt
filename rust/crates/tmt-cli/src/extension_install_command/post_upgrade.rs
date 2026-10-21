@@ -16,7 +16,7 @@ impl PostUpgradeNotice {
         let Some(executable) = executable else {
             return PostUpgradeObservation::NotApplicable;
         };
-        let core = std::env::current_exe().ok();
+        let core = tmt_adapters::core_executable::selected().ok();
         native_install::observe_before_upgrade(product, executable, core.as_deref())
     }
     pub fn observe(
@@ -25,7 +25,7 @@ impl PostUpgradeNotice {
         previous: Option<&str>,
         before: PostUpgradeObservation,
     ) -> Self {
-        let core = std::env::current_exe().ok();
+        let core = tmt_adapters::core_executable::selected().ok();
         let replaced = previous.is_some_and(|old| old != report.version);
         Self(native_install::post_upgrade_hint(
             product,

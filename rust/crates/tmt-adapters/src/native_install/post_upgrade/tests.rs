@@ -35,6 +35,7 @@ fn partial_failure_evidence_requires_an_actual_activation_report() {
 }
 
 struct Remote<'a> {
+    core: &'a Path,
     status: &'a str,
     restart: &'a str,
     calls: RefCell<Vec<String>>,
@@ -44,16 +45,10 @@ struct Remote<'a> {
 impl CommandRunner for Remote<'_> {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
         assert_eq!(request.program, "/usr/bin/env");
-        assert_eq!(
-            &request.args[..5],
-            [
-                "-u",
-                "GH_TOKEN",
-                "-u",
-                "GITHUB_TOKEN",
-                "TMT_EXECUTABLE=/verified/core with spaces/tmt"
-            ]
-        );
+        assert_eq!(&request.args[..4], ["-u", "GH_TOKEN", "-u", "GITHUB_TOKEN"]);
+        let mut core = OsString::from("TMT_EXECUTABLE=");
+        core.push(self.core);
+        assert_eq!(request.args[4], core);
         let command = request.args[6].to_str().unwrap();
         self.calls.borrow_mut().push(command.into());
         assert!(request.input.is_empty());
@@ -93,6 +88,7 @@ impl CommandRunner for Remote<'_> {
 }
 fn remote<'a>(status: &'a str, restart: &'a str) -> Remote<'a> {
     Remote {
+        core: Path::new(CORE),
         status,
         restart,
         calls: RefCell::new(vec![]),
@@ -133,6 +129,41 @@ fn replaced_running_remote_uses_its_restart_owner_and_reports_success() {
         r#"{"outcome":"restarted","reason":null,"additive":true}"#,
     );
     assert_eq!(hint(&runner), Some(RESTARTED));
+    assert_eq!(*runner.calls.borrow(), ["status", "restart"]);
+}
+#[test]
+fn managed_remote_status_and_restart_receive_the_stable_core_launcher() {
+    let (_directory, layout, receipt) = super::super::test_support::published_layout();
+    let active = layout
+        .root
+        .join("releases")
+        .join(receipt.id.to_string())
+        .join("tmt");
+    assert_eq!(
+        super::super::inspect(&active).unwrap().active_executable,
+        active
+    );
+    let stable = layout.prefix.join("bin/tmt");
+    let mut runner = remote(LIVE, r#"{"outcome":"restarted","reason":null}"#);
+    runner.core = &stable;
+    let before = capture(
+        Product::Remote,
+        Path::new("/verified/old release/tmt-remote"),
+        Some(&active),
+        &runner,
+    );
+    assert_eq!(before, PostUpgradeObservation::Running);
+    assert_eq!(
+        observe(
+            Product::Remote,
+            &report(true),
+            true,
+            Some(&active),
+            before,
+            &runner
+        ),
+        Some(RESTARTED)
+    );
     assert_eq!(*runner.calls.borrow(), ["status", "restart"]);
 }
 #[test]
@@ -352,4 +383,44 @@ fn additive_members_cannot_supply_missing_or_mistyped_required_members() {
             "{value}"
         );
     }
+}
+
+#[test]
+fn callback_selection_keeps_stale_or_uncertain_managed_executables_exact() {
+    use super::super::{receipt::Receipt, test_support};
+    let (_directory, layout, first) = test_support::published_layout();
+    let original = layout
+        .root
+        .join("releases")
+        .join(first.id.to_string())
+        .join("tmt");
+    let launcher = layout.prefix.join("bin/tmt");
+    assert_eq!(
+        crate::core_executable::callback_executable(&original),
+        launcher
+    );
+    let artifact = test_support::artifact("1.2.4", b"next synthetic tmt payload\n");
+    let next = Receipt::new(&artifact, test_support::state("1.2.4", None));
+    test_support::publish(&layout, &artifact, &next);
+    assert!(original.is_file());
+    assert_eq!(
+        crate::core_executable::callback_executable(&original),
+        original
+    );
+    let active = layout
+        .root
+        .join("releases")
+        .join(next.id.to_string())
+        .join("tmt");
+    assert_eq!(
+        crate::core_executable::callback_executable(&active),
+        launcher
+    );
+    std::fs::write(
+        active.parent().unwrap().join("receipt.json"),
+        b"invalid receipt",
+    )
+    .unwrap();
+    assert!(super::super::inspect(&active).is_err());
+    assert_eq!(crate::core_executable::callback_executable(&active), active);
 }
