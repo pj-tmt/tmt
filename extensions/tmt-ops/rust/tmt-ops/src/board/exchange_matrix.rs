@@ -135,6 +135,30 @@ pub(in crate::board) fn paint(
     )
 }
 
+/// `text` cut to `width` cells from its left, behind a `…`, so its tail stays.
+fn fit_tail(text: &str, width: usize) -> String {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    if text.width() <= width {
+        return text.to_owned();
+    }
+    let mut tail = Vec::new();
+    let mut used = 1;
+    for c in text.chars().rev() {
+        let cells = c.width().unwrap_or(0);
+        if used + cells > width {
+            break;
+        }
+        used += cells;
+        tail.push(c);
+    }
+    let tail: String = tail.into_iter().rev().collect();
+    if width == 0 {
+        String::new()
+    } else {
+        format!("…{tail}")
+    }
+}
+
 /// Missing traffic is `—`, observed zero is `·`, and self is a blank cell.
 pub(in crate::board) fn paint_with(
     buffer: &mut Buffer,
@@ -165,7 +189,18 @@ pub(in crate::board) fn paint_with(
     let fit = |text: &str, width: u16| {
         super::view::fit(&super::notes::single_line(text), usize::from(width))
     };
-    let abbreviated: Vec<_> = rows.iter().map(|row| fit(&row.name, value_cells)).collect();
+    // A column name sits over its right-aligned numbers, in the cell less its trailing gap, and
+    // keeps its tail when cut: sibling names differ at the end.
+    let value_width = usize::from(value_cells.saturating_sub(1));
+    let column = |text: &str| {
+        let text = super::notes::single_line(text);
+        let cut = fit_tail(&text, value_width);
+        format!("{cut:>value_width$} ")
+    };
+    let abbreviated: Vec<_> = rows
+        .iter()
+        .map(|row| fit_tail(&super::notes::single_line(&row.name), value_width))
+        .collect();
     let numbered = abbreviated.iter().collect::<BTreeSet<_>>().len() != abbreviated.len();
     let label = |index: usize, name: &str| {
         if numbered {
@@ -180,15 +215,12 @@ pub(in crate::board) fn paint_with(
     )];
     for (index, row) in rows.iter().enumerate() {
         header.push(Span::styled(
-            fit(&label(index, &row.name), value_cells),
+            column(&label(index, &row.name)),
             look.role(Role::Muted),
         ));
     }
     if options.sum {
-        header.push(Span::styled(
-            fit("sum", value_cells),
-            look.role(Role::Muted),
-        ));
+        header.push(Span::styled(column("sum"), look.role(Role::Muted)));
     }
     strip::paint_left(buffer, Rect { height: 1, ..area }, Line::from(header));
     let mut hits = Vec::new();
@@ -334,6 +366,13 @@ mod tests {
             }),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn long_names_keep_their_tail_behind_an_ellipsis() {
+        assert_eq!(fit_tail("agent-00001", 8), "…t-00001");
+        assert_eq!(fit_tail("worker", 8), "worker");
+        assert_eq!(fit_tail("agent-00001", 0), "");
     }
 
     #[test]
