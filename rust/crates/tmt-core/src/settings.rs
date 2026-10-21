@@ -6,7 +6,24 @@ use crate::limits::{
     is_valid_timer_delay_ms,
 };
 
+use crate::names::validate_name;
 use crate::retention::{DEFAULT_RETENTION_DAYS, MAX_RETENTION_DAYS, valid_retention_days};
+
+/// The person's name (`user.name`): a name a new saved identity may take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserName(String);
+
+impl UserName {
+    pub fn parse(text: &str) -> Option<Self> {
+        validate_name(text)
+            .ok()
+            .map(|name| Self(name.display_name().to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -93,11 +110,13 @@ pub enum SettingKey {
     NotesCompactionReminder,
     WorkspaceSnapshotEnabled,
     WorkspaceSnapshotIntervalMs,
+    UserName,
 }
 
-pub const EDITABLE_KEYS: [SettingKey; 11] = [
+pub const EDITABLE_KEYS: [SettingKey; 12] = [
     SettingKey::PreambleMode,
     SettingKey::PaneBadge,
+    SettingKey::UserName,
     SettingKey::PreambleEvery,
     SettingKey::PasteEnterDelayMs,
     SettingKey::RetentionDays,
@@ -126,6 +145,7 @@ impl SettingKey {
             Self::NotesCompactionReminder => "notes.compactionReminder",
             Self::WorkspaceSnapshotEnabled => "workspace.snapshotEnabled",
             Self::WorkspaceSnapshotIntervalMs => "workspace.snapshotIntervalMs",
+            Self::UserName => "user.name",
         }
     }
 
@@ -147,13 +167,15 @@ impl SettingKey {
             Self::WorkspaceSnapshotIntervalMs => {
                 "an integer from 0 through 2147483647 milliseconds"
             }
+            Self::UserName => "a name of 1 to 64 characters that is not a pane target",
         }
     }
 
     pub fn global_only(self) -> bool {
         matches!(
             self,
-            Self::RetentionDays
+            Self::UserName
+                | Self::RetentionDays
                 | Self::PaneBadge
                 | Self::ReplyBatchWindowMs
                 | Self::TypingQuietMs
@@ -186,7 +208,7 @@ pub enum Scalar<'a> {
     Invalid,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Setting {
     PreambleMode(PreambleMode),
     Timeout(f64),
@@ -202,6 +224,7 @@ pub enum Setting {
     NotesCompactionReminder(bool),
     WorkspaceSnapshotEnabled(bool),
     WorkspaceSnapshotIntervalMs(u64),
+    UserName(UserName),
 }
 
 fn unsigned_integer(value: f64, maximum: u64) -> bool {
@@ -241,6 +264,7 @@ impl Setting {
             (SettingKey::PreambleMode, Scalar::Text("disabled")) => {
                 Some(Self::PreambleMode(PreambleMode::Disabled))
             }
+            (SettingKey::UserName, Scalar::Text(text)) => UserName::parse(text).map(Self::UserName),
             (SettingKey::PaneBadge, Scalar::Text("on")) => Some(Self::PaneBadge(PaneBadge::On)),
             (SettingKey::PaneBadge, Scalar::Text("off")) => Some(Self::PaneBadge(PaneBadge::Off)),
             (SettingKey::Timeout, Scalar::Number(value))
@@ -300,7 +324,10 @@ impl Setting {
                 "false" => Scalar::Boolean(false),
                 _ => Scalar::Invalid,
             }
-        } else if matches!(key, SettingKey::PreambleMode | SettingKey::PaneBadge) {
+        } else if matches!(
+            key,
+            SettingKey::PreambleMode | SettingKey::PaneBadge | SettingKey::UserName
+        ) {
             Scalar::Text(text)
         } else {
             if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -322,6 +349,9 @@ impl Setting {
             let expected = match key {
                 SettingKey::PreambleMode => "Valid values: always, disabled",
                 SettingKey::PaneBadge => "Valid values: on, off",
+                SettingKey::UserName => {
+                    "Must be 1 to 64 characters, without control characters, and not a pane target."
+                }
                 SettingKey::ExperimentalChannel
                 | SettingKey::NotesCompactionReminder
                 | SettingKey::WorkspaceSnapshotEnabled => "Valid values: true, false",
@@ -331,7 +361,7 @@ impl Setting {
         })
     }
 
-    pub fn key(self) -> SettingKey {
+    pub fn key(&self) -> SettingKey {
         match self {
             Self::PreambleMode(_) => SettingKey::PreambleMode,
             Self::Timeout(_) => SettingKey::Timeout,
@@ -347,6 +377,7 @@ impl Setting {
             Self::NotesCompactionReminder(_) => SettingKey::NotesCompactionReminder,
             Self::WorkspaceSnapshotEnabled(_) => SettingKey::WorkspaceSnapshotEnabled,
             Self::WorkspaceSnapshotIntervalMs(_) => SettingKey::WorkspaceSnapshotIntervalMs,
+            Self::UserName(_) => SettingKey::UserName,
         }
     }
 }
@@ -368,6 +399,8 @@ pub struct Settings {
     pub workspace_snapshot_enabled: bool,
     /// Reserved for command refresh (#2102); event capture does not consult it.
     pub workspace_snapshot_interval_ms: u64,
+    /// The person's name; unset means the OS login name (see the user identity resolution).
+    pub user_name: Option<UserName>,
 }
 
 pub struct ResolvedSettings {
@@ -422,6 +455,7 @@ impl Default for Settings {
             notes_compaction_reminder: true,
             workspace_snapshot_enabled: true,
             workspace_snapshot_interval_ms: 60_000,
+            user_name: None,
         }
     }
 }
@@ -445,6 +479,7 @@ impl Settings {
             Setting::WorkspaceSnapshotIntervalMs(value) => {
                 self.workspace_snapshot_interval_ms = value
             }
+            Setting::UserName(value) => self.user_name = Some(value),
         }
     }
 }

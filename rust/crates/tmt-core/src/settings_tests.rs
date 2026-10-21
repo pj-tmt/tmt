@@ -2,7 +2,7 @@ use super::limits::{MAX_CAPTURE_LINES, MAX_JS_SAFE_INTEGER, MAX_TIMER_DELAY_MS};
 use super::retention::DEFAULT_RETENTION_DAYS;
 use super::settings::{
     EDITABLE_KEYS, LocalClear, PaneBadge, PreambleMode, ResolvedSettings, Scalar, Scope, Setting,
-    SettingKey, Settings,
+    SettingKey, Settings, UserName,
 };
 
 #[test]
@@ -51,6 +51,33 @@ fn the_pane_badge_defaults_on_and_an_explicit_off_wins() {
     let on = ResolvedSettings::from_layers(vec![Setting::PaneBadge(PaneBadge::On)], Vec::new());
     assert_eq!(on.settings.pane_badge, PaneBadge::On);
     assert_eq!(on.source(SettingKey::PaneBadge), "global");
+}
+
+/// #513: `user.name` is the person's name. Unset means the OS login name (resolved elsewhere); a set
+/// value must be a name an identity may take, and it is global-only like the other personal settings.
+#[test]
+fn the_user_name_is_unset_by_default_and_must_be_a_valid_global_name() {
+    let unset = ResolvedSettings::from_layers(Vec::new(), Vec::new());
+    assert_eq!(unset.settings.user_name, None);
+    assert_eq!(unset.source(SettingKey::UserName), "default");
+
+    let set = Setting::edit("user.name", " Ben ", Scope::Global).unwrap();
+    assert_eq!(set.key(), SettingKey::UserName);
+    let resolved = ResolvedSettings::from_layers(vec![set], Vec::new());
+    assert_eq!(
+        resolved.settings.user_name.as_ref().map(UserName::as_str),
+        Some("Ben")
+    );
+    assert_eq!(resolved.source(SettingKey::UserName), "global");
+
+    assert!(Setting::edit("user.name", "ben", Scope::Local).is_err());
+    assert!(LocalClear::parse(Some("user.name")).is_err());
+    for invalid in ["", "   ", "two\nlines", &"x".repeat(65)] {
+        let error = Setting::edit("user.name", invalid, Scope::Global).unwrap_err();
+        assert!(error.contains("user.name"), "{invalid:?}: {error}");
+    }
+    assert!(Setting::validate(SettingKey::UserName, Scalar::Number(3.0)).is_none());
+    assert!(Setting::validate(SettingKey::UserName, Scalar::Boolean(true)).is_none());
 }
 
 #[test]
@@ -347,6 +374,7 @@ fn apply_has_last_write_precedence_across_all_setting_kinds() {
             notes_compaction_reminder: true,
             workspace_snapshot_enabled: true,
             workspace_snapshot_interval_ms: 60_000,
+            user_name: None,
         }
     );
 }

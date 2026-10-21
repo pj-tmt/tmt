@@ -1025,6 +1025,14 @@ Badge writes are bounded and best-effort; a display failure is not a reason to
 retry a successful identity mutation. Binding commands validate loaded settings
 before mutation.
 
+`tmt config set user.name <name> --global` sets the name of the person's own
+identity (1 to 64 characters, not a pane target); without it the OS login name is
+used. Surfaces that send as the person resolve it with the `user.identity` API
+operation, which creates and marks that identity. A name an agent already holds is
+never taken over: the identity becomes `<name>-user`. Changing the name starts a
+new identity; the old one keeps its history. The key is global-only and has no
+`config rm`.
+
 On a badge refresh, TMT prefixes the conditional fragment
 `#{?@tmt.badge, [#{@tmt.badge}],}` to the pane's inherited
 `pane-border-format`, using a pane-local override only. The inherited content,
