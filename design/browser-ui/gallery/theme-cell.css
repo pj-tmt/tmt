@@ -1,0 +1,9 @@
+/* Gallery-only: the sample surface under a theme choice (theme-cell.tsx). */
+.gallery-theme-preview {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  padding: var(--tmt-ui-space-m);
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-paper);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}

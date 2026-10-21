@@ -54,7 +54,13 @@ function dotsOf(
 const sweep = (
   <span className="variant variant-sweep" aria-hidden="true">
     <svg viewBox="0 0 16 16">
-      {dotsOf('sweep', sweepDots, (c) => 5.5 + c * 5, (r) => 2.5 + r * 3.67, 1.3)}
+      {dotsOf(
+        'sweep',
+        sweepDots,
+        (c) => 5.5 + c * 5,
+        (r) => 2.5 + r * 3.67,
+        1.3,
+      )}
     </svg>
   </span>
 );
@@ -63,7 +69,13 @@ const sweep = (
 const snake = (
   <span className="variant variant-snake" aria-hidden="true">
     <svg viewBox="0 0 16 16">
-      {dotsOf('snake', snakeDots, (c) => 5 + c * 6, (r) => 3 + r * 5, 1.6)}
+      {dotsOf(
+        'snake',
+        snakeDots,
+        (c) => 5 + c * 6,
+        (r) => 3 + r * 5,
+        1.6,
+      )}
     </svg>
   </span>
 );

@@ -1,0 +1,15 @@
+/* TMT settings (/settings): sections of shared list rows; the theme choice is the shared tab list. */
+.tmt-settings-section {
+  display: grid;
+  justify-items: start;
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-settings-section > .tmt-ui-list {
+  justify-self: stretch;
+}
+.tmt-settings-section > .home-heading:not(:first-child) {
+  margin-top: var(--tmt-ui-space-l);
+}
+.tmt-settings .tmt-ui-list-leading[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
