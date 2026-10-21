@@ -1,0 +1,163 @@
+/* Gallery-only logo spinners (logo-spinners.tsx). The base rules are the still frame; motion is
+   added below only for viewers who have not asked for less, and never for `data-still`. */
+.logo-spin {
+  display: inline-block;
+  line-height: 0;
+  vertical-align: middle;
+  color: var(--tmt-ui-color-text, currentColor);
+}
+.logo-spin > svg {
+  display: block;
+  overflow: visible;
+}
+.logo-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+/* Colour: the mark's own roles. */
+.logo-panel {
+  stroke: var(--tmt-ui-brand-mark-panel-edge);
+  stroke-width: 2.5;
+}
+.logo-prompt {
+  fill: none;
+  stroke: var(--tmt-ui-brand-mark-prompt);
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.logo-band {
+  fill: #fff;
+  opacity: 0.6;
+  transform: translateX(42px) skewX(-16deg);
+}
+.logo-glow {
+  fill: var(--tmt-ui-brand-mark-glow);
+  opacity: 0.45;
+  transform-origin: 40px 64px;
+}
+.logo-caret {
+  fill: none;
+  stroke: var(--tmt-ui-brand-mark-prompt);
+  stroke-width: 9;
+  stroke-linecap: round;
+}
+.logo-edge,
+.logo-trail {
+  fill: none;
+  stroke: var(--tmt-ui-brand-mark-aurora-gold);
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.logo-edge {
+  stroke-dasharray: 14 86;
+  stroke-dashoffset: -6;
+}
+.logo-trail {
+  stroke: var(--tmt-ui-brand-mark-aurora-cyan);
+  stroke-width: 7;
+  opacity: 0.55;
+  stroke-dasharray: 12 88;
+  stroke-dashoffset: 4;
+}
+
+/* Mono: everything in currentColor, so the mark sits in a line of text. */
+.logo-spin[data-mono] .logo-beam {
+  fill: currentColor;
+  opacity: 0.28;
+}
+.logo-spin[data-mono] .logo-panel {
+  fill: currentColor;
+  fill-opacity: 0.1;
+  stroke: currentColor;
+  stroke-width: 5;
+}
+.logo-spin[data-mono] .logo-prompt,
+.logo-spin[data-mono] .logo-caret,
+.logo-spin[data-mono] .logo-edge,
+.logo-spin[data-mono] .logo-trail {
+  stroke: currentColor;
+}
+.logo-spin[data-mono] .logo-band,
+.logo-spin[data-mono] .logo-glow {
+  fill: currentColor;
+}
+.logo-spin[data-mono] .logo-band {
+  opacity: 0.55;
+}
+
+/* Motion: one cycle per --tmt-ui-spin-duration. */
+@media (prefers-reduced-motion: no-preference) {
+  .logo-spin:not([data-still]) .logo-band {
+    animation: logo-sweep var(--tmt-ui-spin-duration) linear infinite;
+  }
+  .logo-spin:not([data-still]) .logo-caret {
+    animation: logo-caret var(--tmt-ui-spin-duration) ease-in-out infinite;
+  }
+  .logo-spin:not([data-still]) .logo-glow {
+    animation: logo-glow var(--tmt-ui-spin-duration) ease-in-out infinite;
+  }
+  .logo-spin:not([data-still]) .logo-edge {
+    animation: logo-run var(--tmt-ui-spin-duration) linear infinite;
+  }
+  .logo-spin:not([data-still]) .logo-trail {
+    animation: logo-run var(--tmt-ui-spin-duration) linear infinite;
+    animation-delay: calc(var(--tmt-ui-spin-duration) * -0.09);
+  }
+}
+@keyframes logo-sweep {
+  from {
+    transform: translateX(-30px) skewX(-16deg);
+  }
+  to {
+    transform: translateX(120px) skewX(-16deg);
+  }
+}
+@keyframes logo-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+@keyframes logo-glow {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.35);
+  }
+}
+@keyframes logo-run {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+/* L3b: the terminal alone. The light is the prompt's own colour, not the aurora's. */
+.logo-spin[data-kind='panel'] .logo-edge,
+.logo-spin[data-kind='panel'] .logo-trail {
+  stroke: var(--tmt-ui-brand-mark-prompt);
+}
+.logo-spin[data-kind='panel'] .logo-edge {
+  stroke-width: 15;
+}
+.logo-spin[data-kind='panel'] .logo-trail {
+  stroke-width: 11;
+  opacity: 0.4;
+}
+.logo-spin[data-kind='panel'][data-mono] .logo-edge,
+.logo-spin[data-kind='panel'][data-mono] .logo-trail {
+  stroke: currentColor;
+}

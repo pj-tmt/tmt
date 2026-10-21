@@ -1,5 +1,6 @@
 import { BrowserAction, BusyMark } from '../src/react.js';
 import { Cell, Cells, Pair, Section, noop } from './kit.js';
+import { LogoSpinners } from './logo-spinners.js';
 import { SpinnerVariants } from './spinner-variants.js';
 import './spinner-candidates.css';
 
@@ -55,6 +56,7 @@ export function SpinnerCandidates() {
         </Pair>
       ))}
       <SpinnerVariants />
+      <LogoSpinners />
     </Section>
   );
 }
