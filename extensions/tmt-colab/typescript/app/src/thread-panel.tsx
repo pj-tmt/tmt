@@ -19,7 +19,7 @@ import { ConversationWindow } from './components/conversation-window.js';
 import { conversationRecordKey } from './conversation-record-key.js';
 import { threadNotificationDestination } from './reply-notification-context.js';
 import { MarkdownText } from './components/markdown-text.js';
-import { MessageAttachments } from './message-attachments.js';
+import { EchoAttachments, MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './ask-panel.js';
@@ -139,6 +139,7 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
       }
     >
       <MarkdownText className="comment-body" value={echo.body} names={[]} />
+      <EchoAttachments attachments={echo.attachments} />
     </ConversationTurn>
   );
 }

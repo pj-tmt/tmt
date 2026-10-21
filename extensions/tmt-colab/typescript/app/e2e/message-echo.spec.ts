@@ -2,6 +2,13 @@ import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { destination } from '../test/ask-fixtures.js';
+import {
+  mount as mountAttachments,
+  openChat as openAttachmentChat,
+  attach as attachFiles,
+  actions as attachmentActions,
+  fixture as attachmentFixture,
+} from '../test/attachment-page.js';
 const fixture = '/test/annotation-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -498,3 +505,233 @@ test('comments: a reply that fails after Comments closed mid-send still holds it
   await expect(input).toHaveText('Closed while sending.', { useInnerText: true });
   await expect(panel.getByTestId('comment-entry')).toHaveCount(1);
 });
+
+async function attachmentPage(page: Page, method: string) {
+  return page.evaluate(async ({ path, method }) => (await import(path))[method](), {
+    path: attachmentFixture,
+    method,
+  });
+}
+
+async function attachmentComposer(page: Page, surface: 'chat' | 'anchored') {
+  await mountAttachments(page);
+  if (surface === 'chat') return openAttachmentChat(page);
+  await page
+    .frameLocator('#ask-page-fixture iframe')
+    .locator('#selected')
+    .evaluate((node) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNodeContents(node);
+      const selection = node.ownerDocument.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+  await page.getByTestId('selection-ask').click();
+  const panel = page.getByRole('dialog', { name: 'Annotate selection' });
+  return { panel, input: panel.getByRole('combobox', { name: 'Message', exact: true }) };
+}
+
+async function pickEchoAttachments(page: Page) {
+  // Larger than the unloaded single-image placeholder: catches shrink/growth at record swap.
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 160;
+    canvas.height = 80;
+    canvas.getContext('2d')!.fillRect(0, 0, 160, 80);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await attachFiles(page, [
+    { name: 'diagram.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') },
+    { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('The attached notes.') },
+  ]);
+  await expect(page.getByTestId('attachment-chip')).toHaveCount(2);
+}
+
+type AttachmentFrame = {
+  kind: string;
+  rows: number;
+  y: number;
+  height: number;
+  tiles: number;
+  boxes: { x: number; y: number; width: number; height: number }[];
+  composer: string;
+  chips: number;
+};
+type AttachmentFrames = { frames: AttachmentFrame[]; stop: boolean };
+
+for (const surface of ['chat', 'anchored'] as const) {
+  for (const width of [1440, 390]) {
+    for (const colorScheme of ['light', 'dark'] as const) {
+      test(`attachment echo ${surface} ${width} ${colorScheme}: tiles occupy their final size from Send through verification`, async ({
+        page,
+      }, testInfo) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme });
+        const { panel, input } = await attachmentComposer(page, surface);
+        await pickEchoAttachments(page);
+        await input.fill('Here are the attachments.');
+        await attachmentPage(page, 'holdReply');
+        await page.evaluate(() => {
+          const watch: AttachmentFrames = { frames: [], stop: false };
+          (window as unknown as { attachmentFrames: AttachmentFrames }).attachmentFrames = watch;
+          const tick = () => {
+            if (watch.stop) return;
+            const rows = document.querySelectorAll(
+              '[data-testid="comment-echo"], [data-testid="comment-entry"]',
+            );
+            const row = rows[0];
+            if (row || watch.frames.length) {
+              const box = row?.getBoundingClientRect();
+              watch.frames.push({
+                kind: row?.getAttribute('data-testid') ?? 'missing',
+                rows: rows.length,
+                y: box?.y ?? 0,
+                height: box?.height ?? 0,
+                tiles: row?.querySelectorAll('[data-testid="message-attachment"]').length ?? 0,
+                boxes: Array.from(
+                  row?.querySelectorAll('[data-testid="message-attachment"]') ?? [],
+                ).map((tile) => {
+                  const rect = tile.getBoundingClientRect();
+                  return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+                }),
+                composer: (
+                  document.querySelector('[role="combobox"]') as HTMLElement
+                ).innerText.trim(),
+                chips: document.querySelectorAll('[data-testid="attachment-chip"]').length,
+              });
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        });
+        try {
+          await input.press('Enter');
+          await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
+          // The DOM may commit before the next animation frame under a busy full suite.
+          // Wait for the sampler, retaining its very first frame rather than taking a later one.
+          await page.waitForFunction(
+            () =>
+              (window as unknown as { attachmentFrames: AttachmentFrames }).attachmentFrames.frames
+                .length > 0,
+          );
+          const first = await page.evaluate(
+            () =>
+              (window as unknown as { attachmentFrames: AttachmentFrames }).attachmentFrames
+                .frames[0],
+          );
+          expect(first).toMatchObject({ kind: 'comment-echo', tiles: 2, composer: '', chips: 0 });
+          await expect(
+            echo(page).getByRole('button', { name: 'Preview diagram.png' }),
+          ).toBeDisabled();
+          await expect(
+            echo(page).getByRole('button', { name: text.attachmentDownload, exact: true }),
+          ).toBeDisabled();
+          expect(await attachmentActions(page)).not.toContain(
+            'message:Here are the attachments.:2',
+          );
+          expect(
+            (await attachmentActions(page)).filter((action) => action.startsWith('attach:open:')),
+          ).toEqual([]);
+          if (process.env.COLAB_CAPTURE_DIR)
+            await panel.screenshot({
+              path: `${process.env.COLAB_CAPTURE_DIR}/echo-${surface}-${width}-${colorScheme}.png`,
+            });
+          await attachmentPage(page, 'releaseReply');
+          await expect(echo(page)).toHaveCount(0);
+          const recorded = panel.getByTestId('comment-entry');
+          await expect(recorded).toHaveCount(1);
+          await expect(recorded.getByTestId('message-attachment')).toHaveCount(2);
+          await expect(recorded.locator('.attachment-thumbnail img')).toBeVisible();
+          await expect
+            .poll(() =>
+              recorded
+                .locator('.attachment-thumbnail img')
+                .evaluate((img) => (img as HTMLImageElement).naturalWidth),
+            )
+            .toBe(160);
+          const frames = await page.evaluate(async () => {
+            // Observe two painted frames after the authenticated image has loaded too.
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+            );
+            const watch = (window as unknown as { attachmentFrames: AttachmentFrames })
+              .attachmentFrames;
+            watch.stop = true;
+            return watch.frames;
+          });
+          await testInfo.attach('attachment-frames', {
+            body: JSON.stringify(frames),
+            contentType: 'application/json',
+          });
+          expect(frames.some((frame) => frame.kind === 'comment-entry')).toBe(true);
+          for (const frame of frames) {
+            expect(frame.rows).toBe(1);
+            expect(frame.tiles).toBe(2);
+            expect(Math.abs(frame.y - first.y)).toBeLessThanOrEqual(1);
+            expect(Math.abs(frame.height - first.height)).toBeLessThanOrEqual(1);
+            frame.boxes.forEach((box, index) => {
+              for (const dimension of ['x', 'y', 'width', 'height'] as const)
+                expect(
+                  Math.abs(box[dimension] - first.boxes[index][dimension]),
+                ).toBeLessThanOrEqual(1);
+            });
+          }
+          expect(
+            (await attachmentActions(page)).filter((action) => action.startsWith('message:')),
+          ).toEqual(['message:Here are the attachments.:2']);
+          if (process.env.COLAB_CAPTURE_DIR)
+            await panel.screenshot({
+              path: `${process.env.COLAB_CAPTURE_DIR}/record-${surface}-${width}-${colorScheme}.png`,
+            });
+        } finally {
+          await page.evaluate(() => {
+            (window as unknown as { attachmentFrames: AttachmentFrames }).attachmentFrames.stop =
+              true;
+          });
+          await attachmentPage(page, 'releaseReply');
+        }
+      });
+    }
+  }
+
+  test(`attachment echo ${surface}: failed row retains files through Retry and Edit`, async ({
+    page,
+  }) => {
+    const { input } = await attachmentComposer(page, surface);
+    await pickEchoAttachments(page);
+    await input.fill('Keep these files.');
+    await attachmentPage(page, 'failNextReply');
+    await input.press('Enter');
+    await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+    await expect(echo(page).getByTestId('message-attachment')).toHaveCount(2);
+    const uploads = (await attachmentActions(page)).filter((action) =>
+      action.startsWith('attach:upload:'),
+    );
+    await attachmentPage(page, 'holdReply');
+    await attachmentPage(page, 'failNextReply');
+    await echo(page).getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
+    await expect(echo(page).getByTestId('message-attachment')).toHaveCount(2);
+    await attachmentPage(page, 'releaseReply');
+    await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+    await expect(echo(page).getByTestId('message-attachment')).toHaveCount(2);
+    expect(
+      (await attachmentActions(page)).filter((action) => action.startsWith('attach:upload:')),
+    ).toEqual(uploads);
+    await echo(page).getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(echo(page)).toHaveCount(0);
+    await expect(input).toHaveText('Keep these files.', { useInnerText: true });
+    await expect(page.getByTestId('attachment-chip')).toHaveCount(2);
+    await input.press('Enter');
+    await expect(echo(page)).toHaveCount(0);
+    await expect(page.getByTestId('comment-entry').getByTestId('message-attachment')).toHaveCount(
+      2,
+    );
+    expect(
+      (await attachmentActions(page)).filter((action) => action.startsWith('attach:upload:')),
+    ).toEqual(uploads);
+    expect(
+      (await attachmentActions(page)).filter((action) => action.startsWith('message:')),
+    ).toEqual(['message:Keep these files.:2']);
+  });
+}

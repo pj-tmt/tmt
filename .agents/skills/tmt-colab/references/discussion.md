@@ -112,6 +112,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   `message-attachments.tsx` own composer controls and visible message tiles respectively.
   Sent-image grids in threads, Chat and answers share `attachment-tray.css`: top-aligned
   equal thumbnails, single-line ellipsized name/size labels, and the full filename in its title.
+  A single image reserves a centred 200×120 frame before decoding; `scale-down` preserves
+  small images at natural size against the existing thumbnail background.
   `attachment-raster.ts` rechecks bounded raster bytes before data-URL conversion;
   `attachment-preview.tsx` owns the modal viewer and return focus. Message thumbnails
   retain display URLs only for their live binding/scope/reference; hidden overflow images
@@ -138,7 +140,11 @@ owns record fields, limits, revision semantics and trust boundaries.
 - `message-echo.ts` is the sent-message echo seam. Thread windows (including a parent's
   composer slot, as in the anchored dialog) and Chat provide `MessageEchoContext`; inside it,
   for replies and Chat, `AnnotationInput` shows an echo and clears its composer in the same
-  frame. A send that fails before it is recorded turns its echo into the failed row, which
+  frame. The echo captures attachment labels and bounded local preview promises before upload;
+  `message-attachments.tsx` shares the final tile layout with preview/download disabled.
+  These copies live only with the echo; the replacement record still reads through the admitted
+  attachment opener and never receives local bytes or read authority from the echo.
+  A send that fails before it is recorded turns its echo into the failed row, which
   holds the full draft (text, recipient chips, attachments) and is the one place the failure is
   reported (`✗ Not sent.` with its reference). Retry re-sends that exact draft once; Edit moves
   it back into the composer. While a failed row exists the composer is empty, inert (not grey)
