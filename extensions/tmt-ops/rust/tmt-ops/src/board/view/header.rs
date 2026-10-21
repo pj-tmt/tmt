@@ -179,7 +179,7 @@ pub(super) fn render_visibility(frame: &mut Frame, app: &App, area: Rect) {
                 (
                     counts.waiting,
                     if ascii { "!" } else { "◆" },
-                    "waiting",
+                    "need you",
                     Role::Waiting,
                 ),
                 (

@@ -148,7 +148,7 @@ fn agents_omit_the_waiting_note_when_none_are_waiting() {
         .map(|cell| cell.symbol())
         .collect();
     assert!(line.trim_end().ends_with("3 agents"));
-    assert!(!line.contains("waiting first") && !line.contains('◆'));
+    assert!(!line.contains("need you first") && !line.contains('◆'));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
                 lines[filter]
             );
             assert!(!lines[filter + 2].contains(" of "));
-            assert!(!lines[filter + 2].contains("waiting first"));
+            assert!(!lines[filter + 2].contains("need you first"));
         }
     }
 }
@@ -496,7 +496,7 @@ fn missing_sources_stay_unknown_instead_of_claiming_zero_waiting() {
     app.overview_rows.borrow_mut().clear();
     let shown = text(&paint(&mut app, 103, 51));
     assert!(shown.contains("~3 agents"));
-    assert!(!shown.contains("waiting first"));
+    assert!(!shown.contains("need you first"));
     assert!(shown.contains("AGENT"));
     // No Needs you section; the words may still read on a waiting request or state cell.
     assert!(
@@ -505,7 +505,7 @@ fn missing_sources_stay_unknown_instead_of_claiming_zero_waiting() {
             .any(|line| line.trim().starts_with("Needs you")),
         "{shown}"
     );
-    assert!(!shown.contains("◆ 0 waiting"));
+    assert!(!shown.contains("◆ 0 need you"));
 }
 #[test]
 fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {

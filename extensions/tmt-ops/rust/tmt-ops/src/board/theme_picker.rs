@@ -493,7 +493,7 @@ mod tests {
                     (0..108)
                         .map(|x| buffer[(x, *y)].symbol())
                         .collect::<String>()
-                        .contains("waiting first")
+                        .contains("need you first")
                 })
                 .expect("actual Agents count line");
             assert_eq!(buffer[(find(summary_y, "◆"), summary_y)].fg, expected);

@@ -71,7 +71,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled(" · ", look.role(Role::Muted)),
                 state_cell::mark(Some("waiting"), look),
                 Span::styled(
-                    format!(" {} waiting first", observed(scene.waiting)),
+                    format!(" {} need you first", observed(scene.waiting)),
                     look.role(Role::Muted),
                 ),
             ]);

@@ -50,7 +50,7 @@ impl Attention {
                 }),
             ),
             Span::styled(
-                format!(" {}{}  ", self.waiting, if words { " waiting" } else { "" }),
+                format!(" {}{}  ", self.waiting, if words { " need you" } else { "" }),
                 look.role(Role::Muted),
             ),
             Span::styled(
@@ -241,7 +241,7 @@ mod tests {
             let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
             assert!(text.contains("OPS / UI"), "{text}");
             assert!(
-                text.contains("online") && text.contains("waiting") && text.contains("blocked"),
+                text.contains("online") && text.contains("need you") && text.contains("blocked"),
                 "{text}"
             );
             assert_eq!(control.is_some(), width == 100);
@@ -298,7 +298,7 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(text.contains("online") && text.contains("waiting") && text.contains("blocked"));
+        assert!(text.contains("online") && text.contains("need you") && text.contains("blocked"));
     }
 }
 
@@ -333,7 +333,7 @@ mod narrow_tests {
             .collect::<String>();
         assert!(
             text.contains("online")
-                && text.contains("waiting")
+                && text.contains("need you")
                 && text.contains("blocked")
                 && text.contains("totals unknown"),
             "{text}"
@@ -377,7 +377,7 @@ mod unread_tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        for word in ["≥28 online", "≥9 waiting", "50+ unread", "≥1 blocked"] {
+        for word in ["≥28 online", "≥9 need you", "50+ unread", "≥1 blocked"] {
             assert!(text.contains(word), "{text}");
         }
     }
