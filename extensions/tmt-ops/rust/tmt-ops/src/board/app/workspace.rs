@@ -35,6 +35,14 @@ impl App {
                 .unwrap_or_default()
         })
     }
+    /// A click on an Agents column header: only the order changes.
+    pub(in crate::board) fn sort_by_header(
+        &mut self,
+        header: crate::board::header_sort::Header,
+    ) -> Effect {
+        let order = header.clicked(self.workspace_order());
+        self.changed_view_order(order)
+    }
     fn changed_view_order(&mut self, order: crate::board::view_state::Order) -> Effect {
         self.workspace.order = Some(order);
         self.overview_rows.borrow_mut().clear();

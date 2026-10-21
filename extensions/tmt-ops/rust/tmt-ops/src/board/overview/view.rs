@@ -3,10 +3,12 @@ use super::monitor;
 use crate::{
     board::{
         app::{App, Choice, Hit, HitTarget},
-        empty_state, state_cell,
+        empty_state,
+        header_sort::Header,
+        state_cell,
         workspace::OpsTreeRow,
     },
-    config::Pane,
+    config::{OverviewColumn, Pane},
     look::Look,
 };
 use ratatui::{
@@ -113,26 +115,40 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     .borrow_mut()
                     .push((chip, Choice::TokRange(app.tok_range().next())));
             }
-            strip::paint_left(
-                frame.buffer_mut(),
-                slot,
-                Line::styled(
-                    format!(
-                        " {:<23} {:<11} {:<state$} {:>7}{}",
-                        "AGENT",
-                        "SQUAD",
-                        "STATE",
-                        app.tok_range().caption(),
-                        if model_width(slot.width, state_width(slot.width, widest)).is_some() {
-                            "   MODEL"
-                        } else {
-                            ""
-                        },
-                        state = usize::from(state_width(slot.width, widest))
-                    ),
-                    look.role(Role::Muted),
-                ),
-            )
+            let marks = crate::board::header_sort::Marks::new(
+                app.workspace_order(),
+                app.header_hover,
+                app.cron_glyphs,
+            );
+            let mut header =
+                crate::board::header_sort::Row::new(slot, &marks, look, look.role(Role::Muted));
+            header.plain(" ");
+            header.word(Header::Overview(OverviewColumn::Agent), "AGENT", 23);
+            header.plain(" ");
+            header.word(Header::Overview(OverviewColumn::Squad), "SQUAD", 11);
+            header.plain(" ");
+            header.word(
+                Header::Overview(OverviewColumn::State),
+                "STATE",
+                state_width(slot.width, widest),
+            );
+            header.plain(" ");
+            header.tokens(
+                Header::Overview(OverviewColumn::TokensPerHour),
+                app.tok_range().caption(),
+                7,
+            );
+            if model_width(slot.width, state_width(slot.width, widest)).is_some() {
+                header.plain("   ");
+                header.word(Header::Overview(OverviewColumn::Model), "MODEL", 5);
+            }
+            let (line, sorts) = header.finish();
+            app.workspace_strip_hits.borrow_mut().extend(
+                sorts
+                    .into_iter()
+                    .map(|(area, header)| (area, Choice::SortBy(header))),
+            );
+            strip::paint_left(frame.buffer_mut(), slot, line)
         }
         at if at >= LIST_HEADER_ROWS => {
             let Some(row) = rows.get(at - LIST_HEADER_ROWS) else {

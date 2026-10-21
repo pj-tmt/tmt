@@ -301,6 +301,8 @@ pub enum Choice {
     DigestWindow(crate::config::DigestWindow),
     /// The shared saved TOK range for Agents and Digest.
     TokRange(crate::config::TokRange),
+    /// A click on an Agents column header: sort by it, or reverse it.
+    SortBy(super::header_sort::Header),
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
     ClearSearch,
@@ -711,6 +713,8 @@ pub struct App {
     pub(super) local_zone: Option<jiff::tz::TimeZone>,
     pub(super) excluded_counters: Vec<String>,
     pub(super) meter_hover: Option<Option<usize>>,
+    /// The Agents column header under the pointer.
+    pub(super) header_hover: Option<super::header_sort::Header>,
     squad_keys: Vec<String>,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
@@ -1798,6 +1802,7 @@ impl App {
             return self.say("Select a squad from the workspace; old squad tabs are retired.");
         }
         self.meter_hover = None;
+        self.header_hover = None;
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -2892,6 +2897,7 @@ impl App {
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::TokRange(range) => self.select_tok_range(range),
+            Choice::SortBy(header) => self.sort_by_header(header),
             Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::ClearSearch => {
                 super::search_field::clear(&mut self.search, &mut self.searching);
@@ -3697,6 +3703,7 @@ impl App {
     pub fn key(&mut self, key: KeyEvent) -> Effect {
         self.buttons.clear_hover();
         self.meter_hover = None;
+        self.header_hover = None;
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
         }
@@ -4011,12 +4018,31 @@ impl App {
             (event.column, event.row).into(),
             !self.modal_open() && !self.loading(),
         );
+        let header = if self.loading()
+            || self.overlay().is_some()
+            || self.menu.is_some()
+            || self.input.is_some()
+            || self.searching
+        {
+            None
+        } else {
+            self.workspace_strip_hits
+                .borrow()
+                .iter()
+                .find(|(area, _)| area.contains((event.column, event.row).into()))
+                .and_then(|(_, choice)| match choice {
+                    Choice::SortBy(header) => Some(*header),
+                    _ => None,
+                })
+        };
         let changed = chart_changed
             || resize_changed
             || buttons_changed
             || links_changed
-            || next != self.meter_hover;
+            || next != self.meter_hover
+            || header != self.header_hover;
         self.meter_hover = next;
+        self.header_hover = header;
         changed
     }
 
@@ -4078,7 +4104,7 @@ impl App {
         self.buttons.clear_hover();
         // A button/wheel event carries the current position too. Reconcile an
         // existing hover, without inventing hover on terminals lacking motion.
-        if self.meter_hover.is_some() {
+        if self.meter_hover.is_some() || self.header_hover.is_some() {
             self.move_pointer(event);
         }
         // A peek window closes on an outside press and the press goes on below.

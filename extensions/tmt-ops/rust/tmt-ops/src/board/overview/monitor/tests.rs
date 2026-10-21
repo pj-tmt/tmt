@@ -394,32 +394,6 @@ fn authored_sort_changes_only_the_layer_order_and_retains_the_selected_uuid() {
     assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
 }
 #[test]
-fn the_retired_table_header_has_no_pointer_sort_or_recipient_authority() {
-    let mut app = board();
-    paint(&mut app, 103, 51);
-    let selected = app.workspace.selected.clone();
-    let order = app.workspace_order();
-    let body = app
-        .workspace_placement(app.conversation.borrow().area)
-        .unwrap()
-        .list
-        .unwrap();
-    assert_eq!(
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: body.x + 2,
-                row: body.y + 1,
-                modifiers: KeyModifiers::NONE
-            },
-            std::time::Instant::now()
-        ),
-        Effect::None
-    );
-    assert_eq!(app.workspace_order(), order);
-    assert_eq!(app.workspace.selected, selected);
-}
-#[test]
 fn real_frames_publish_only_clipped_agent_hits_and_neutral_state_words() {
     for width in [60, 103, 148, 160] {
         for height in [8, 18, 36, 51] {

@@ -278,8 +278,8 @@ pub fn tok_window_chip(slot: Rect, range: crate::config::TokRange) -> Option<Rec
         .then(|| Rect::new(slot.x + slot.width - word, slot.y, word, 1))
 }
 
-/// Paints the Agents column header and returns the hit area of the TOK window
-/// word when the TOK column is present.
+/// Paints the Agents column header and returns the hit areas of its controls:
+/// the TOK window word when the TOK column is present, and the sortable words.
 pub fn paint_agents_header(
     buffer: &mut ratatui::buffer::Buffer,
     area: Rect,
@@ -287,19 +287,38 @@ pub fn paint_agents_header(
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
     range: crate::config::TokRange,
-) -> Option<Rect> {
+    marks: &crate::board::header_sort::Marks,
+) -> AgentsHeaderHits {
+    use crate::board::header_sort::{Header, word_hit};
+    let mut hits = AgentsHeaderHits::default();
     if area.height == 0 {
-        return None;
+        return hits;
     }
-    let mut chip = None;
     for (field, slot) in slots {
-        let caption = if *field == AgentsField::Agent {
-            format!("  {}", field.caption(glyphs))
-        } else if *field == AgentsField::Tokens {
-            chip = tok_window_chip(*slot, range);
+        let sorts = match field {
+            AgentsField::Agent => Some((Header::Squads(crate::config::OpsSort::Name), 2)),
+            AgentsField::State => Some((Header::Squads(crate::config::OpsSort::Attention), 0)),
+            _ => None,
+        };
+        let base = look.role(Role::Muted);
+        let mut word = field.caption(glyphs);
+        let mut style = base;
+        let caption = if *field == AgentsField::Tokens {
+            hits.window = tok_window_chip(*slot, range);
+            word = range.caption();
             range.caption().to_owned()
+        } else if let Some((header, lead)) = sorts {
+            if let Some(hit) = word_hit(*slot, lead, word) {
+                hits.sorts.push((hit, header));
+            }
+            style = marks.style(header, base, look);
+            let lead = " ".repeat(usize::from(lead));
+            match marks.mark(header) {
+                Some(mark) => format!("{lead}{word} {mark}"),
+                None => format!("{lead}{word}"),
+            }
         } else {
-            field.caption(glyphs).to_owned()
+            word.to_owned()
         };
         let align = if *field == AgentsField::Tokens {
             tmt_cli_style::grid::Align::Right
@@ -316,11 +335,19 @@ pub fn paint_agents_header(
                     tmt_tui::style::TextFlow::Truncate,
                     align,
                 ),
-                look.role(Role::Muted),
+                style,
             ),
         );
     }
-    chip
+    hits
+}
+
+/// What the Agents header made clickable.
+#[derive(Default)]
+pub struct AgentsHeaderHits {
+    /// The window word of `TOK 1h`.
+    pub window: Option<Rect>,
+    pub sorts: Vec<(Rect, crate::board::header_sort::Header)>,
 }
 
 pub fn paint_roster_header(
@@ -809,6 +836,11 @@ mod tests {
                     look,
                     Default::default(),
                     Default::default(),
+                    &crate::board::header_sort::Marks::new(
+                        Default::default(),
+                        None,
+                        Default::default(),
+                    ),
                 );
                 assert_eq!(
                     buffer[(0, 2)].symbol(),
