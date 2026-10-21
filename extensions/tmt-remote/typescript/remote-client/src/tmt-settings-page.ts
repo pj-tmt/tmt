@@ -176,7 +176,7 @@ function themeChoice(): HTMLElement {
     button.type = 'button';
     button.className = 'tmt-ui-tab';
     button.setAttribute('role', 'tab');
-    button.dataset.theme = theme;
+    button.dataset.choice = theme;
     const label = document.createElement('span');
     label.className = 'tmt-ui-tab-label';
     label.textContent = THEME_LABELS[theme];
@@ -186,7 +186,7 @@ function themeChoice(): HTMLElement {
   const show = (theme: ThemeChoice) => {
     current = theme;
     for (const button of buttons) {
-      const selected = button.dataset.theme === theme;
+      const selected = button.dataset.choice === theme;
       button.setAttribute('aria-selected', String(selected));
       button.tabIndex = selected ? 0 : -1;
     }
@@ -196,7 +196,7 @@ function themeChoice(): HTMLElement {
     show(theme);
   };
   for (const button of buttons) {
-    button.addEventListener('click', () => choose(button.dataset.theme as ThemeChoice));
+    button.addEventListener('click', () => choose(button.dataset.choice as ThemeChoice));
     button.addEventListener('keydown', (event) => {
       const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
       if (!step) return;

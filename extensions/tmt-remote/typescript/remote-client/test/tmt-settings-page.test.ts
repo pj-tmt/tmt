@@ -199,6 +199,8 @@ it('renders General with the theme choice, stores a pick and applies it to the r
   expect(title.textContent).toBe('General');
   const tabs = section().all((node) => node.attributes.get('role') === 'tab');
   expect(tabs.map((tab) => tab.textContent)).toEqual(['System', 'Light', 'Dark']);
+  // `data-theme` scopes the design tokens, so a tab must not carry one.
+  expect(tabs.every((tab) => !('theme' in tab.dataset))).toBe(true);
   expect(tabs.map((tab) => tab.attributes.get('aria-selected'))).toEqual([
     'true',
     'false',
