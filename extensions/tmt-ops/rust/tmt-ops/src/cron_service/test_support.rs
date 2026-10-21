@@ -23,16 +23,12 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let model = json!({"room":ROOM,"caller":null,"retired":[],"rosterWithout":[],"hooks":[],"calls":[],"notices":[],"noticeFailure":false,"hookFailure":false,
+        let model = json!({"room":ROOM,"user":USER,"caller":null,"retired":[],"rosterWithout":[],"hooks":[],"calls":[],"notices":[],"noticeFailure":false,"hookFailure":false,
             "members":[{"id":USER,"name":"Ben","lifetime":"saved","metadata":{}},
             {"id":LEAD,"name":"Sol","lifetime":"saved","metadata":{"squad.product.lead.marker":"true"}},
             {"id":WORKER,"name":"worker","lifetime":"saved","metadata":{}}]});
         fs::write(directory.join("model.json"), model.to_string()).unwrap();
-        fs::write(
-            directory.join("ops.toml"),
-            format!("me='Ben'\nme_id='{USER}'\n"),
-        )
-        .unwrap();
+        fs::write(directory.join("ops.toml"), "").unwrap();
         fs::write(directory.join("core.py"), r#"
 import json,sys,pathlib,fcntl,os,signal,tempfile
 p=pathlib.Path(__file__).parent
@@ -77,6 +73,10 @@ if a[0]=='api':
    if room is None: save(m); fail('ROOM_NOT_FOUND')
    ids=room['memberIds']
   out={'room':room,'members':[x for x in m['members'] if x['id'] not in m['retired'] and x['id'] in ids]}
+ elif op=='user.identity':
+  user=next((x for x in m['members'] if x['id']==m.get('user') and x['id'] not in m['retired']),None)
+  if user is None: save(m); fail('USER_NAME_UNAVAILABLE')
+  out={'identityId':user['id'],'name':user['name'],'created':False}
  elif op=='references.resolve':
   out={'identities':[dict(next((x for x in m['members'] if x['id']==id),{'id':id}),found=any(x['id']==id for x in m['members']),retired=id in m['retired']) for id in i.get('identityIds',[])]}
   if m.get('malformedReferences'): out={'identities':[]}
@@ -223,7 +223,7 @@ else: fail('UNKNOWN_COMMAND')
         fs::rename(temporary, self.directory.join("model.json")).unwrap();
     }
     pub(crate) fn actor(&self, id: &str) -> CronActor {
-        actor(&self.core, &self.config, Some(id)).unwrap()
+        actor(&self.core, Some(id)).unwrap()
     }
     pub(crate) fn add(&self, actor: &CronActor, owner: &str) -> Result<Applied, SquadError> {
         apply(

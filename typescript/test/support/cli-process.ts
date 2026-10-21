@@ -970,3 +970,12 @@ export async function withSandbox<T>(
   if (failure) throw failure.error;
   return value as T;
 }
+
+/** The account name Core falls back to for `user.name`, read the way Core reads it. */
+export function loginName(): string | null {
+  try {
+    return os.userInfo().username || null;
+  } catch {
+    return null;
+  }
+}

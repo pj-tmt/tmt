@@ -37,36 +37,36 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
   task; only a missing state gets the configured initial value. `lead --none` reports
   a null lead and the former leads in `replaced`.
 
-## The recorded user (`me`)
+## The user (`me`)
 
-- `me` and `me_id` are written together. `init` only creates the room (`--me` is
-  checked before any effect); `tmt ops squad me [<name>|--clear]` shows, records or
-  removes it. Nothing else asks for `me`.
-- The UUID decides. While `me_id` names an active identity, that identity is the user
-  and `me::resolve` rewrites `me` to its current name. Only when `me_id` is missing
-  or inactive does the name decide and its UUID get recorded. An edited `me` naming a
-  different identity is reported with a warning, never followed. A failed write never
-  fails the command; the board's refresh (`me::current`) neither writes nor prints.
-- `me::mark_user` gives the `me_id` identity Core's reserved `user = true` metadata
-  entry (contracts/extension-api.md) from `sq me`, `init --me` and, off-thread and
-  best effort, each board start (`me::mark_recorded_user`). It writes only when the
-  entry is absent and the identity exists with room under the metadata limit, never
-  removes it and never marks a pane caller or any other identity. Ops metadata is
-  otherwise `squad.*` only; this key is the one exception, and native scenarios that
-  compare metadata leave `user` out.
-- The board's sender is `me`, else the saved identity bound to the calling pane
+- Core owns the user: the global `user.name` setting (default: the OS login name) and
+  the `user.identity` API operation, which resolves, creates and marks the identity
+  (contracts/extension-api.md). Ops keeps no copy. `me::current` asks Core; `None` means
+  Core could not resolve a name (`USER_NAME_*`), and callers say how to set one.
+  `tmt ops squad me [<name>]` shows the user or runs `tmt config set user.name <name>
+--global`; `init --me` sets it first, so a bad name changes nothing. Nothing else
+  asks for the user.
+- `ops.toml` once held `me` and `me_id`. `me::migrate` runs after every config load
+  (command entry and board start): while either key exists it carries the identity
+  `me_id` names (else `me`) into `user.name`, unless Core already has a name, and
+  drops the keys. A failed move keeps them for the next run. The readers
+  `Config::me`/`me_id` exist only for that migration.
+- Core marks the user `user = true`; Ops never writes that key. Ops metadata is
+  otherwise `squad.*` only.
+- The board's sender is the user, else the saved identity bound to the calling pane
   (`tmt whoami`). A pane that is not bound is no sender; a `whoami` failure (a host
   that cannot name the pane) is kept as `App.caller_failure` and the sender prompt says
   `Could not identify this pane: <core's message>`, never the unbound-pane wording.
 - With hooks enabled, `tmt-ops __tmt-hooks 1 observe` applies an `identity.renamed`
-  observation for `me_id` at once; the hooks are optional and the next command that
-  reads `me` makes the same repair.
+  observation at once (`me::renamed`): when the renamed identity carries `user = true`
+  and the name in effect no longer resolves, `user.name` takes the new name. Without
+  hooks `user.name` keeps the old name until the user sets the new one.
 - Sender (`me::resolve_sender`): explicit `--identity`, else the identity core
-  attributes the call to (`tmt whoami`), else the recorded user; with none,
+  attributes the call to (`tmt whoami`), else the user; with none,
   `SQUAD_SENDER_UNKNOWN` names both ways to set one. `whoami`'s `PANE_NOT_FOUND` and an
   unbound pane mean "no caller"; any other core error, such as
   `CALLER_IDENTITY_AMBIGUOUS`, fails the command instead of falling back.
-- "You" for `waitingOnYou`, `ls` and the board (`me::you`) is the recorded user, else
+- "You" for `waitingOnYou`, `ls` and the board (`me::you`) is the user, else
   the saved identity bound to the calling pane (the board reads it once per worker);
   with neither, `ls` and the board footer show one hint line. The board also sends as
   "you", because a popup's pane is not its operator.
@@ -270,14 +270,14 @@ projects its typed results/errors. The board consumes the same typed service dir
   and 100000 retained item identities; every individual admitted title/body/reference bound
   fits within these limits. The previous release's `checklist/<room-uuid>/items.json` is
   imported on first use (see the database section) and never deleted.
-- The service captures the public caller through `me::caller`, using read-only recorded
-  user context only when no caller is bound. Ambiguous callers refuse. A retired recorded
-  UUID cannot adopt a same-name successor. Active recorded users and current room leads
+- The service captures the public caller through `me::caller`, using the Core user
+  (`me::current`) only when no caller is bound. Ambiguous callers refuse. A user Core
+  cannot resolve is no actor. The user and current room leads
   are managers; other current members are collaborators. Non-null Create assignment also
   requires manager permission. Assignment admits an exact active same-room UUID; departure
   preserves its last admitted label and projects it as unavailable. Unassign needs no live
   former assignee. Exact room UUIDs survive rename; successor rooms never inherit data.
-  Only the recorded active user can explicitly inspect unavailable-room data read-only.
+  Only the active user can explicitly inspect unavailable-room data read-only.
 - Locked writes reload and validate storage, check exact expectations, and recheck current
   actor/room/operation/assignment admission immediately before rename. These public Core
   reads and file replacement are not a cross-database transaction. Temp write/file sync/
@@ -320,10 +320,10 @@ own these layers:
   paused too; the second pause is best effort because the departure is done.
 - `cron_command` composes the management grammar and output; one `cron_service` is shared
   with clock and board callers. `cron_service` owns `list_jobs`/`show_job`/apply,
-  explicit recorded-or-verified `CronActor` admission and room/owner/revision revalidation.
+  explicit user-or-verified `CronActor` admission and room/owner/revision revalidation.
   Existing mutations carry a `JobKey` (squad name, room UUID, c-id) and an expected revision;
   `add` carries its selected room UUID. Admission and stored comparisons run inside the
-  stable jobs lock. The recorded user or the squad's current lead may write; an identified
+  stable jobs lock. The user or the squad's current lead may write; an identified
   ordinary member never falls back to the user; reads need no permission. Manual and
   scheduled send callers obtain admitted immutable jobs through the same locked path, and
   anonymous scheduled admission requires an enabled job and active owner membership. No

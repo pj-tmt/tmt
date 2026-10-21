@@ -27,7 +27,14 @@ impl Fixture {
 root=${0%/*}
 printf '%s\n' "$*" >> "$root/calls"
 case "$1:$2:$3" in
-  api:*) cat > /dev/null; cat "$root/roster" ;;
+  api:*)
+    case "$(cat)" in
+      *'"user.identity"'*)
+        if [ -e "$root/user" ]; then cat "$root/user"; else
+          printf '%s\n' '{"error":{"code":"USER_NAME_UNAVAILABLE","message":"no name"}}'; exit 1
+        fi ;;
+      *) cat "$root/roster" ;;
+    esac ;;
   ls:*) printf '%s\n' '{"identities":[]}' ;;
   identity:show:*) printf '{"identity":{"id":"%s","name":"%s","lifetime":"saved"}}\n' "$3" "$3" ;;
   identity:meta:list) cat "$root/$5-metadata" ;;
@@ -351,4 +358,44 @@ fn clearing_reports_a_failed_marker_write_without_removing_members() {
     );
     assert!(!fixture.root.join("sol-squad.p.lead.marker").exists());
     assert!(!fixture.calls().contains("room leave"));
+}
+
+#[test]
+fn the_user_cannot_join_a_squad_as_a_member_and_the_others_still_do() {
+    let f = Fixture::new(
+        "user-not-member",
+        json!([
+            member("lead", json!({})),
+            member("ben", json!({})),
+            member("worker", json!({}))
+        ]),
+    );
+    fs::write(
+        f.root.join("user"),
+        r#"{"identityId":"ben","name":"ben","created":false}"#,
+    )
+    .unwrap();
+    // Only the lead is in the squad so far.
+    fs::write(
+        f.root.join("roster"),
+        json!({"members": [member("lead", json!({}))]}).to_string(),
+    )
+    .unwrap();
+    let outcome = add(
+        &f.core,
+        &f.squad,
+        Layout::Team,
+        &["ben".to_owned(), "worker".to_owned()],
+    )
+    .unwrap();
+    assert!(!outcome.complete);
+    let results = outcome.document["results"].as_array().unwrap();
+    assert_eq!(results[0]["error"]["code"], "SQUAD_MEMBER_IS_USER");
+    assert_eq!(results[1]["added"], true);
+    let calls = f.calls();
+    assert!(
+        calls.contains("room join room --identity worker"),
+        "{calls}"
+    );
+    assert!(!calls.contains("room join room --identity ben"), "{calls}");
 }

@@ -111,9 +111,8 @@ fn run(
             let (mutation, verb) = match op {
                 Op::Send => {
                     let operation = crate::cron_clock::manual_operation()?;
-                    let sent = crate::cron_clock::send_now(
-                        core, config, &key, &actor, revision, &operation,
-                    )?;
+                    let sent =
+                        crate::cron_clock::send_now(core, &key, &actor, revision, &operation)?;
                     return Ok(format!(
                         "Accepted {} {} for its owner (delivery is not confirmed; operation {}).",
                         key.squad,

@@ -4,12 +4,12 @@
 //! Core runs it only after the user enabled squad's hooks, within a shared
 //! deadline. Lifecycle observations follow committed commands; context runs
 //! before a turn. Squad observes one lifecycle event: an identity
-//! rename, so `me` in `ops.toml` follows the user's renamed identity at
-//! once. Hooks are optional: without them the next command that needs `me`
-//! repairs it (`me::resolve`). Lifecycle output is empty and non-vetoing.
+//! rename, so Core's `user.name` follows the user's renamed identity at
+//! once. Hooks are optional: without them `user.name` keeps the old name until
+//! the user sets the new one. Lifecycle output is empty and non-vetoing.
 //! Context returns an optional informational reminder within its own budget.
 
-use crate::{config::Config, core::Core, me, reminder};
+use crate::{core::Core, me, reminder};
 use serde_json::Value;
 use std::{
     ffi::OsString,
@@ -74,10 +74,9 @@ pub fn run(arguments: &[OsString]) -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             let followed = Core::discover().and_then(|core| {
-                let mut config = Config::load(&core)?;
                 renamed
                     .iter()
-                    .try_for_each(|id| me::renamed(&core, &mut config, id).map(drop))
+                    .try_for_each(|id| me::renamed(&core, id).map(drop))
             });
             if followed.is_ok() {
                 ExitCode::SUCCESS

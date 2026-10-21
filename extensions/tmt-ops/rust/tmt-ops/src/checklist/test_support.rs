@@ -62,11 +62,11 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).unwrap();
-        let state = json!({"roomId":ROOM,"roomName":"squad-product","roomRetired":false,"caller":WORKER,"retired":[],"absent":[],"removed":[],"lead":LEAD,"calls":[],"lockedReads":0,
+        let state = json!({"roomId":ROOM,"roomName":"squad-product","roomRetired":false,"user":USER,"caller":WORKER,"retired":[],"absent":[],"removed":[],"lead":LEAD,"calls":[],"lockedReads":0,
             "members":[{"id":USER,"name":"Ben","lifetime":"saved"},{"id":LEAD,"name":"Lead","lifetime":"saved"},{"id":WORKER,"name":"Worker","lifetime":"saved"}],
             "pending":"waiting","agentState":"busy","requests":["unchanged request"]});
         fs::write(root.join("model.json"), state.to_string()).unwrap();
-        fs::write(root.join("ops.toml"), format!("me='Ben'\nme_id='{USER}'\n")).unwrap();
+        fs::write(root.join("ops.toml"), "").unwrap();
         for name in ["pending", "agent-state", "requests", "config.json"] {
             fs::write(root.join(name), format!("untouched {name}\n")).unwrap();
         }
@@ -93,13 +93,17 @@ if database.exists():
  except sqlite3.OperationalError:locked=True
 if a[0]=='api':
  q=json.load(sys.stdin);op=q['operation'];i=q['input']
- assert op in ['storage.root','references.resolve','rooms.roster'], 'unexpected side effect'
+ assert op in ['storage.root','references.resolve','rooms.roster','user.identity'], 'unexpected side effect'
  if locked and op=='references.resolve' and i.get('roomIds'):
   m['lockedReads']+=1
   if m.get('changeAtLockedRead')==m['lockedReads']:
    m.update(m['change']);m['changeAtLockedRead']=None
  m['calls'].append({'operation':op,'input':i,'locked':locked})
  if op=='storage.root':out={'dataRoot':str(p)}
+ elif op=='user.identity':
+  u=next((x for x in m['members'] if x['id']==m.get('user') and x['id'] not in m['retired']+m['absent']),None)
+  if u is None:fail('USER_NAME_UNAVAILABLE')
+  out={'identityId':u['id'],'name':u['name'],'created':False}
  elif op=='references.resolve':out={'identities':identities(i.get('identityIds',[])),'rooms':[{'id':r,'found':r==m['roomId'],'retired':m['roomRetired']} for r in i.get('roomIds',[])]}
  else:
   if i['room']!=m['roomId'] or m['roomRetired']:fail('ROOM_NOT_FOUND')

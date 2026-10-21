@@ -22,7 +22,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { workspaceVersion } from '../support/workspace-version.js';
-import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
+import {
+  loginName,
+  parseWholeStdout,
+  runCli,
+  withSandbox,
+  type Sandbox,
+} from '../support/cli-process.js';
 import { install } from '../support/native-installation.js';
 import { locateTmux, privateTmux } from '../support/private-tmux.js';
 
@@ -136,6 +142,11 @@ function observe(sandbox: Sandbox) {
   }
 }
 
+/** `ops.toml`, or empty before anything wrote it: the user lives in Core, not in this file. */
+function readOpsConfig(file: string): string {
+  return existsSync(file) ? readFileSync(file, 'utf8') : '';
+}
+
 /** Cache setup shared only by the context invocation and deadline scenarios. */
 async function reminderFixture(sandbox: Sandbox) {
   installSquad(sandbox);
@@ -145,7 +156,7 @@ async function reminderFixture(sandbox: Sandbox) {
   const config = path.join(sandbox.globalDir, 'ops.toml');
   writeFileSync(
     config,
-    readFileSync(config, 'utf8') + '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
+    readOpsConfig(config) + '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
   );
   const notebook = JSON.parse(
     (await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json'])).stdout
@@ -275,7 +286,7 @@ describe('squad extension', () => {
       ).toBe('LAYOUT_IO');
       expect((await runCli(offline, ['squad', 'layout', 'validate', '--json'])).status).toBe(1);
       expect(existsSync(sandbox.database)).toBe(before);
-      expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml'), 'utf8')).toBe('invalid [');
+      expect(readOpsConfig(path.join(sandbox.globalDir, 'ops.toml'))).toBe('invalid [');
     });
   });
 
@@ -322,7 +333,7 @@ o = "run touch ${marker}"
       expect(
         (await squad(sandbox, ['config', 'show', '--squad', 'product', '--tab', 'all'])).status
       ).not.toBe(0);
-      expect(readFileSync(config, 'utf8')).toBe(original);
+      expect(readOpsConfig(config)).toBe(original);
       expect(existsSync(marker)).toBe(false);
       expect(observe(sandbox)).toEqual(before);
     });
@@ -346,7 +357,7 @@ o = "run touch ${marker}"
       const rejected = await squad(sandbox, ['config', 'set', 'board.home_replies', 'true']);
       expect(rejected.status).not.toBe(0);
       expect(rejected.body.error.message).toContain('read-only in this scope');
-      expect(readFileSync(config, 'utf8')).toBe(before);
+      expect(readOpsConfig(config)).toBe(before);
     });
   });
 
@@ -398,7 +409,7 @@ o = "run touch ${marker}"
         source: 'squad.product.board.refresh',
         editable: true,
       });
-      const saved = readFileSync(config, 'utf8');
+      const saved = readOpsConfig(config);
       expect(saved).toContain('# keep timing comment');
       expect(saved).toContain('opaque = "retained"');
       for (const [key, value] of [
@@ -411,7 +422,7 @@ o = "run touch ${marker}"
         expect(
           (await squad(sandbox, ['config', 'set', key, value, '--squad', 'product'])).status
         ).not.toBe(0);
-        expect(readFileSync(config, 'utf8')).toBe(saved);
+        expect(readOpsConfig(config)).toBe(saved);
       }
       expect(
         (await squad(sandbox, ['config', 'set', 'board.refresh', '10s', '--squad', 'product'])).body
@@ -545,7 +556,7 @@ o = "run touch ${marker}"
       expect((await squad(sandbox, ['ls', '--tab', '@tab:needs-me'])).status).not.toBe(0);
       expect((await squad(sandbox, ['ls', '--tab', 'needs-me'])).status).toBe(0);
       expect((await squad(sandbox, ['ls', '--tabs', 'product'])).status).not.toBe(0);
-      expect(readFileSync(config, 'utf8')).toBe(source);
+      expect(readOpsConfig(config)).toBe(source);
       expect(observe(sandbox)).toEqual(before);
     });
   });
@@ -810,8 +821,7 @@ o = "run touch ${marker}"
       const config = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         config,
-        readFileSync(config, 'utf8') +
-          '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
+        readOpsConfig(config) + '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
       );
       const notebook = JSON.parse(
         (await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json'])).stdout
@@ -1001,8 +1011,8 @@ o = "run touch ${marker}"
       ])
         expect((await squad(sandbox, args)).status).toBe(0);
       const toml = path.join(sandbox.globalDir, 'ops.toml');
-      writeFileSync(toml, `${readFileSync(toml, 'utf8')}\n[squad.product]\nlayout = "crew"\n`);
-      const original = readFileSync(toml, 'utf8');
+      writeFileSync(toml, `${readOpsConfig(toml)}\n[squad.product]\nlayout = "crew"\n`);
+      const original = readOpsConfig(toml);
       const listing = () => squad(sandbox, ['ls', '--squad', 'product']);
       const disabled = await listing();
       expect(disabled.status).toBe(0);
@@ -1015,7 +1025,7 @@ o = "run touch ${marker}"
       });
       const directory = path.join(sandbox.root, 'cache', 'tmt-ops', 'staleness');
       expect(existsSync(directory)).toBe(false);
-      expect(readFileSync(toml, 'utf8')).toBe(original);
+      expect(readOpsConfig(toml)).toBe(original);
       const created = await runCli(sandbox, ['notes', 'path', '--identity', 'Sol', '--json']);
       expect(created.status).toBe(0);
       const notebook = JSON.parse(created.stdout).path as string;
@@ -1130,7 +1140,7 @@ o = "run touch ${marker}"
         updated.body.sections[0].rows[0].staleness.unchangedSinceMs
       );
       const afterReenable = readFileSync(file, 'utf8');
-      const validSettings = readFileSync(toml, 'utf8');
+      const validSettings = readOpsConfig(toml);
       for (const [key, value] of [
         ['reminders.enabled', 'yes'],
         ['reminders.stale_after', '59s'],
@@ -1139,17 +1149,17 @@ o = "run touch ${marker}"
         const rejected = await squad(sandbox, ['config', 'set', key, value, '--squad', 'product']);
         expect(rejected.status).toBe(1);
         expect(rejected.body.error.code).toBe('SQUAD_CONFIG_INVALID');
-        expect(readFileSync(toml, 'utf8')).toBe(validSettings);
+        expect(readOpsConfig(toml)).toBe(validSettings);
         expect(readFileSync(file, 'utf8')).toBe(afterReenable);
       }
       expect((await squad(sandbox, ['config', 'set', 'reminders.enabled', 'true'])).status).toBe(1);
-      expect(readFileSync(toml, 'utf8')).toBe(validSettings);
+      expect(readOpsConfig(toml)).toBe(validSettings);
       const invalid = `${original}\n[squad.product.reminders]\nenabled = true\nstale_after = "59s"\n`;
       writeFileSync(toml, invalid);
       const refused = await listing();
       expect(refused.status).toBe(1);
       expect(refused.body.error.code).toBe('SQUAD_CONFIG_INVALID');
-      expect(readFileSync(toml, 'utf8')).toBe(invalid);
+      expect(readOpsConfig(toml)).toBe(invalid);
       expect(readFileSync(file, 'utf8')).toBe(afterReenable);
     });
   });
@@ -1265,7 +1275,10 @@ o = "run touch ${marker}"
       expect(unknown.stderr).toContain("unrecognized subcommand 'bogus'");
       // Without --squad the shape never depends on how many squads exist.
       const none = await squad(sandbox, ['status']);
-      expect(none).toMatchObject({ status: 0, body: { squads: [], you: null } });
+      expect(none).toMatchObject({
+        status: 0,
+        body: { squads: [], you: { name: loginName(), source: 'recorded' } },
+      });
       expect((await runCli(sandbox, ['ops', 'sq', 'ls'])).stdout).toBe(
         'No squad exists yet.\nhint: tmt ops squad init <name>\n'
       );
@@ -1429,7 +1442,10 @@ o = "run touch ${marker}"
       // stop it (the theme is presentation, reported by config show).
       writeFileSync(sandbox.globalConfig, JSON.stringify({ theme: { waiting: 'orange' } }));
       const none = await squad(sandbox, ['ls']);
-      expect(none).toMatchObject({ status: 0, body: { squads: [], you: null } });
+      expect(none).toMatchObject({
+        status: 0,
+        body: { squads: [], you: { name: loginName(), source: 'recorded' } },
+      });
       expect((await runCli(sandbox, ['ops', 'squad', 'init', 'product', '--json'])).status).toBe(0);
       const listed = await squad(sandbox, ['ls']);
       expect(listed.status).toBe(0);
@@ -1437,52 +1453,27 @@ o = "run touch ${marker}"
     });
   });
 
-  it('follows a renamed user through me_id, with hooks off and then on', async () => {
+  it('follows a renamed user through user.name, with hooks off and then on', async () => {
     await withSandbox(async (sandbox) => {
       const bin = installSquad(sandbox);
       const ada = await identity(sandbox, 'ada');
-      const rin = await identity(sandbox, 'rin');
-      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
-      const me = () => {
-        const text = readFileSync(squadToml, 'utf8');
-        return {
-          me: /^me = "([^"]*)"$/m.exec(text)?.[1],
-          id: /^me_id = "([^"]*)"$/m.exec(text)?.[1],
-        };
-      };
+      const userName = async () =>
+        (
+          parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json'])).resolved as {
+            user: { name: string };
+          }
+        ).user.name;
+      const you = async () => (await squad(sandbox, ['status'])).body.you;
       expect((await squad(sandbox, ['init', 'product', '--me', 'ada'])).status).toBe(0);
-      expect(me()).toEqual({ me: 'ada', id: ada });
+      expect(await userName()).toBe('ada');
+      expect(await you()).toEqual({ id: ada, name: 'ada', source: 'recorded' });
 
-      // Hooks off: the next command that needs `me` repairs it.
+      // Hooks off: user.name keeps the old name until the user sets the new one.
       expect((await runCli(sandbox, ['rename', 'ada', 'ada-2', '--json'])).status).toBe(0);
-      expect(me()).toEqual({ me: 'ada', id: ada });
-      const healed = await squad(sandbox, ['status']);
-      expect(healed.status).toBe(0);
-      expect(healed.stderr).toBe('');
-      expect(me()).toEqual({ me: 'ada-2', id: ada });
-
-      // The UUID decides: a reused old name never moves the user.
-      expect((await runCli(sandbox, ['rename', 'ada-2', 'ada-3', '--json'])).status).toBe(0);
-      await identity(sandbox, 'ada-2');
-      const reused = await squad(sandbox, ['status']);
-      expect(reused.status).toBe(0);
-      expect(reused.stderr).toContain('still acting as ada-3');
-      expect(me()).toEqual({ me: 'ada-3', id: ada });
-
-      // A hand edit naming someone else is reported, not followed.
-      writeFileSync(
-        squadToml,
-        readFileSync(squadToml, 'utf8').replace('me = "ada-3"', 'me = "rin"')
-      );
-      const edited = await squad(sandbox, ['status']);
-      expect(edited.status).toBe(0);
-      expect(edited.stderr).toContain(
-        "warning: ops.toml named 'rin' as you, but me_id is ada-3; still acting as ada-3"
-      );
-      expect(edited.stderr).toContain('hint: tmt ops squad me rin');
-      expect(me()).toEqual({ me: 'ada-3', id: ada });
-      expect((await squad(sandbox, ['me', 'rin'])).status).toBe(0);
-      expect(me()).toEqual({ me: 'rin', id: rin });
+      expect(await userName()).toBe('ada');
+      expect((await squad(sandbox, ['me', 'ada-2'])).body.me).toEqual({ id: ada, name: 'ada-2' });
+      expect(await userName()).toBe('ada-2');
+      expect(await you()).toEqual({ id: ada, name: 'ada-2', source: 'recorded' });
 
       // Hooks on: the rename observation follows the user at once.
       const capabilities = await runCli(sandbox, ['ops', '__tmt-hooks', '1', 'capabilities']);
@@ -1490,22 +1481,57 @@ o = "run touch ${marker}"
       const enabled = await runCli(sandbox, ['extension', 'hooks', 'enable', 'ops', '--json']);
       expect(enabled.status, enabled.stdout + enabled.stderr).toBe(0);
       expect(realpathSync(path.join(bin, 'tmt-ops'))).toBe(realpathSync(squadExecutable));
-      expect((await runCli(sandbox, ['rename', 'rin', 'rin-2', '--json'])).status).toBe(0);
-      expect(me()).toEqual({ me: 'rin-2', id: rin });
+      expect((await runCli(sandbox, ['rename', 'ada-2', 'ada-3', '--json'])).status).toBe(0);
+      expect(await userName()).toBe('ada-3');
+      expect(await you()).toEqual({ id: ada, name: 'ada-3', source: 'recorded' });
 
-      // Someone else's rename leaves the file alone.
-      const before = readFileSync(squadToml, 'utf8');
+      // Someone else's rename leaves the setting alone.
       await identity(sandbox, 'sol');
       expect((await runCli(sandbox, ['rename', 'sol', 'sol-2', '--json'])).status).toBe(0);
-      expect(readFileSync(squadToml, 'utf8')).toBe(before);
+      expect(await userName()).toBe('ada-3');
     });
   });
 
-  it('initializes without asking; --me records the user only after it resolves', async () => {
+  it('carries an ops.toml me into user.name once and drops it', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const ben = await identity(sandbox, 'Ben');
+      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
+      const user = '# mine\n[squad.product]\nlayout = "crew" # keep\n';
+      // The UUID decides, as it did when ops.toml owned the user: the stale name is ignored.
+      writeFileSync(squadToml, `me = "stale"\nme_id = "${ben}"\n${user}`);
+      const shown = await squad(sandbox, ['me']);
+      expect(shown.body).toMatchObject({
+        action: 'show',
+        me: { id: ben, name: 'Ben' },
+        source: 'recorded',
+      });
+      expect(readOpsConfig(squadToml)).toBe(user);
+      const config = parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json']));
+      expect(config.resolved).toMatchObject({ user: { name: 'Ben' } });
+      expect(config.sources).toMatchObject({ user: { name: 'global' } });
+
+      // A name Core already has wins over an older record.
+      writeFileSync(squadToml, `me = "Ben"\nme_id = "${ben}"\n${user}`);
+      expect(
+        (await runCli(sandbox, ['config', 'set', 'user.name', 'Sol', '--global'])).status
+      ).toBe(0);
+      expect((await squad(sandbox, ['me'])).body.me.name).toBe('Sol');
+      expect(readOpsConfig(squadToml)).toBe(user);
+    });
+  });
+
+  it('initializes without asking; --me sets the user name before anything else', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       await identity(sandbox, 'Ben');
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
+      const userName = async () =>
+        (
+          parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json'])).sources as {
+            user: { name: string };
+          }
+        ).user.name;
 
       // No --me and no terminal question: the room exists, ops.toml does not.
       const created = await squad(sandbox, ['init', 'product']);
@@ -1515,10 +1541,11 @@ o = "run touch ${marker}"
       const text = await runCli(sandbox, ['ops', 'sq', 'init', 'reviews']);
       expect(text).toMatchObject({ status: 0, stderr: '' });
       expect(text.stdout).toBe('✓ Created squad reviews (room squad-reviews)\n');
+      expect(await userName()).toBe('default');
 
-      // --me is checked before any effect.
-      const unknown = await squad(sandbox, ['init', 'docs', '--me', 'Nobody']);
-      expect(unknown.body.error.code).toBe('NAME_NOT_FOUND');
+      // A bad --me or squad name changes nothing.
+      const invalid = await squad(sandbox, ['init', 'docs', '--me', '%1']);
+      expect(invalid.status).toBe(1);
       expect((await squad(sandbox, ['init', 'Product', '--me', 'Ben'])).body.error.code).toBe(
         'SQUAD_NAME_INVALID'
       );
@@ -1526,83 +1553,62 @@ o = "run touch ${marker}"
         'squad-product',
         'squad-reviews',
       ]);
+      expect(await userName()).toBe('default');
 
-      const userText = '# mine\n[squad.product]\nlayout = "crew" # keep\n';
-      writeFileSync(squadToml, userText);
       const recorded = await squad(sandbox, ['init', 'product', '--me', 'Ben']);
       expect(recorded).toMatchObject({ status: 0, body: { created: false, me: 'Ben' } });
-      const written = readFileSync(squadToml, 'utf8');
-      expect(written).toContain(userText);
-      expect(written).toContain('me = "Ben"');
-      const again = await squad(sandbox, ['init', 'product']);
-      expect(again).toMatchObject({ status: 0, body: { created: false, me: 'Ben' } });
-      expect(readFileSync(squadToml, 'utf8')).toBe(written);
+      expect(await userName()).toBe('global');
+      expect(existsSync(squadToml)).toBe(false);
     });
   });
 
-  it('shows, records and clears who you are with sq me, never asking', async () => {
+  it('shows and sets who you are with sq me, never asking', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const ben = await identity(sandbox, 'Ben');
-      const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       await squad(sandbox, ['init', 'product']);
 
-      // Nobody yet: outside a pane, nothing is recorded or derived.
-      const nobody = await squad(sandbox, ['me']);
-      expect(nobody.body).toMatchObject({ action: 'show', me: null, source: null });
-      const nobodyText = await runCli(sandbox, ['ops', 'sq', 'me']);
-      expect(nobodyText.stdout).toBe(
-        'No identity is recorded as you, and this pane has no saved identity.\nhint: tmt ops squad me <name>\n'
-      );
-      const status = await squad(sandbox, ['status']);
-      expect(status.body.you).toBeNull();
-      expect((await runCli(sandbox, ['ops', 'sq', 'status'])).stdout).toContain(
-        '◆ needs to know who you are: tmt ops squad me <name>'
-      );
+      // Nothing set: Core's default, the OS login name, is you.
+      const login = loginName();
+      const first = await squad(sandbox, ['me']);
+      expect(first.body).toMatchObject({
+        action: 'show',
+        me: { name: login },
+        source: 'recorded',
+      });
+      const firstText = await runCli(sandbox, ['ops', 'sq', 'me']);
+      expect(firstText.stdout).toBe(`You are ${login} (user.name in Core).\n`);
+      expect((await squad(sandbox, ['status'])).body.you).toEqual({
+        id: first.body.me.id,
+        name: login,
+        source: 'recorded',
+      });
+      expect((await runCli(sandbox, ['ops', 'sq', 'status'])).stdout).not.toContain('◆ needs');
 
-      // Recording needs a saved identity and changes nothing else.
+      // Setting the name is tmt config set user.name; an existing saved identity is adopted.
       const set = await squad(sandbox, ['me', 'Ben']);
       expect(set.body).toMatchObject({
         action: 'set',
         me: { id: ben, name: 'Ben' },
         source: 'recorded',
-        path: squadToml,
       });
-      expect(readFileSync(squadToml, 'utf8')).toBe(`me = "Ben"\nme_id = "${ben}"\n`);
+      expect(set.body.path).toBeUndefined();
       const shown = await runCli(sandbox, ['ops', 'sq', 'me']);
-      expect(shown.stdout).toBe(`You are Ben (recorded in ${squadToml}).\n`);
-      expect((await squad(sandbox, ['status'])).body.you).toEqual({
-        id: ben,
-        name: 'Ben',
-        source: 'recorded',
-      });
-      expect((await runCli(sandbox, ['ops', 'sq', 'status'])).stdout).not.toContain('◆ needs');
-      // Core learns the recorded user is a person, so Digest never holds their messages.
-      const metadata = async () =>
+      expect(shown.stdout).toBe('You are Ben (user.name in Core).\n');
+      // Core marks the user as a person, so Digest never holds their messages.
+      const metadata = async (id: string) =>
         JSON.parse(
-          (await runCli(sandbox, ['identity', 'meta', 'list', '--identity', ben, '--json'])).stdout
+          (await runCli(sandbox, ['identity', 'meta', 'list', '--identity', id, '--json'])).stdout
         ).metadata;
-      expect(await metadata()).toEqual({ user: 'true' });
+      expect(await metadata(ben)).toEqual({ user: 'true' });
       const sol = await identity(sandbox, 'Sol');
-      expect(
-        JSON.parse(
-          (await runCli(sandbox, ['identity', 'meta', 'list', '--identity', sol, '--json'])).stdout
-        ).metadata,
-        'only the recorded user is marked'
-      ).toEqual({});
-      const missing = await squad(sandbox, ['me', 'Nobody']);
-      expect(missing.body.error.code).toBe('NAME_NOT_FOUND');
+      expect(await metadata(sol), 'only the user is marked').toEqual({});
+      const bad = await squad(sandbox, ['me', '%1']);
+      expect(bad).toMatchObject({ status: 1, body: { error: { code: 'ERROR' } } });
+      expect((await squad(sandbox, ['me'])).body.me).toEqual({ id: ben, name: 'Ben' });
 
-      const cleared = await squad(sandbox, ['me', '--clear']);
-      expect(cleared.body).toMatchObject({ action: 'clear', changed: true, me: null });
-      expect(await metadata(), 'clearing the record never removes the mark').toEqual({
-        user: 'true',
-      });
-      expect(readFileSync(squadToml, 'utf8')).toBe('');
-      const repeat = await runCli(sandbox, ['ops', 'sq', 'me', '--clear']);
-      expect(repeat.stdout).toBe('No identity was recorded; nothing changed.\n');
-      const both = await runCli(sandbox, ['ops', 'sq', 'me', 'Ben', '--clear']);
-      expect(both.status).toBe(1);
+      // The old --clear is gone: a global setting has no unset, and the record lives in Core.
+      expect((await runCli(sandbox, ['ops', 'sq', 'me', '--clear'])).status).not.toBe(0);
     });
   });
 
@@ -2217,7 +2223,7 @@ o = "run touch ${marker}"
       const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
-        `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
+        `${readOpsConfig(legacyConfig)}\n[squad.product]\nlayout = "crew"\n`
       );
       await squad(sandbox, ['add', 'auth-fix']);
       await squad(sandbox, ['set', 'auth-fix', 'task=rotate session tokens']);
@@ -2279,10 +2285,7 @@ o = "run touch ${marker}"
       expect(help.stdout).not.toMatch(/\n {2}status /);
       // Explicit F5 remains valid while the host preset uses ctrl-r.
       const toml = path.join(sandbox.globalDir, 'ops.toml');
-      writeFileSync(
-        toml,
-        `${readFileSync(toml, 'utf8')}\n[bind]\nctrl-r = "refresh"\nf5 = "refresh"\n`
-      );
+      writeFileSync(toml, `${readOpsConfig(toml)}\n[bind]\nctrl-r = "refresh"\nf5 = "refresh"\n`);
       const rebound = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(rebound.status).toBe(0);
       expect(rebound.body.sections).toEqual(one.body.sections);
@@ -2447,14 +2450,14 @@ o = "run touch ${marker}"
       const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
-        `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
+        `${readOpsConfig(legacyConfig)}\n[squad.product]\nlayout = "crew"\n`
       );
       await squad(sandbox, ['add', 'exact', 'pattern', 'working', 'unknown']);
       await squad(sandbox, ['set', 'exact', 'state=blocked']);
       await squad(sandbox, ['set', 'pattern', 'state=BLOCKED-on-ci']);
       await squad(sandbox, ['set', 'unknown', 'state=unranked']);
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
-      const base = readFileSync(squadToml, 'utf8');
+      const base = readOpsConfig(squadToml);
       const settings = `
 [squad.product.states]
 blocked = { color = "red", sort = 7 }
@@ -2517,7 +2520,7 @@ sort = 9
       await squad(sandbox, ['set', 'auth-fix', 'state=blocked', 'pending=approve the plan']);
       await squad(sandbox, ['set', 'docs-sweep', 'state=review']);
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
-      const base = readFileSync(squadToml, 'utf8');
+      const base = readOpsConfig(squadToml);
       writeFileSync(
         squadToml,
         `${base}
@@ -2602,7 +2605,7 @@ sort = ["-name"]
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
-        `${readFileSync(squadToml, 'utf8')}\n[squad.product.states]\nreview = { sort = 0 }\nparked = { sort = 0, color = "dim" }\n`
+        `${readOpsConfig(squadToml)}\n[squad.product.states]\nreview = { sort = 0 }\nparked = { sort = 0, color = "dim" }\n`
       );
       expect(await order()).toEqual(['b-review', 'c-parked', 'a-work']);
       writeFileSync(squadToml, 'me = "Ben"\n[squad.product.states]\nreview = { sort = -1 }\n');
@@ -2640,7 +2643,7 @@ sort = ["-name"]
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         squadToml,
-        `${readFileSync(squadToml, 'utf8')}\nopener = ["record-open", "--new-tab"]\nclipboard = ["${clipboard}"]\n`
+        `${readOpsConfig(squadToml)}\nopener = ["record-open", "--new-tab"]\nclipboard = ["${clipboard}"]\n`
       );
       const waitForOpened = () =>
         vi.waitFor(() => readFileSync(opened, 'utf8'), { timeout: 5000, interval: 25 });
@@ -2705,7 +2708,7 @@ sort = ["-name"]
       const legacyConfig = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(
         legacyConfig,
-        `${readFileSync(legacyConfig, 'utf8')}\n[squad.product]\nlayout = "crew"\n`
+        `${readOpsConfig(legacyConfig)}\n[squad.product]\nlayout = "crew"\n`
       );
       await squad(sandbox, ['lead', 'Sol']);
       await squad(sandbox, ['add', 'auth-fix', 'docs']);
@@ -3106,10 +3109,7 @@ sort = ["-name"]
       expect(readFileSync(conf, 'utf8')).toBe(original);
 
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
-      writeFileSync(
-        squadToml,
-        `${readFileSync(squadToml, 'utf8')}\n[tmux]\npopup = "C-s"\nback = "b"\n`
-      );
+      writeFileSync(squadToml, `${readOpsConfig(squadToml)}\n[tmux]\npopup = "C-s"\nback = "b"\n`);
       const installed = await hotkeys(['install', '--yes']);
       expect(installed.body).toMatchObject({ installed: true, changed: true, creates: false });
       const line = `source-file -q '${squadFile}' # tmt ops hotkeys`;
@@ -3718,7 +3718,7 @@ describe('Squad cron management', () => {
       ).toBe(message);
       expect(statSync(opsDatabase(root)).mode & 0o777).toBe(0o600);
       const config = path.join(sandbox.globalDir, 'ops.toml');
-      const originalConfig = readFileSync(config, 'utf8');
+      const originalConfig = readOpsConfig(config);
       const denied = await squad(sandbox, [
         'cron',
         'pause',
@@ -3761,7 +3761,7 @@ describe('Squad cron management', () => {
         (await squad(sandbox, ['cron', 'rm', 'product', 'c1', '--identity', 'Sol'])).status
       ).toBe(0);
       expect(announcements()).toHaveLength(count);
-      expect(readFileSync(config, 'utf8')).toBe(originalConfig);
+      expect(readOpsConfig(config)).toBe(originalConfig);
       expect(
         (
           await squad(sandbox, [
@@ -3913,7 +3913,9 @@ describe('Squad checklist native commands', () => {
                 .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
             ])
         ),
-        squadConfig: readFileSync(path.join(sandbox.globalDir, 'ops.toml')),
+        squadConfig: existsSync(path.join(sandbox.globalDir, 'ops.toml'))
+          ? readFileSync(path.join(sandbox.globalDir, 'ops.toml'))
+          : null,
         coreConfig: existsSync(sandbox.globalConfig) ? readFileSync(sandbox.globalConfig) : null,
         localConfig: existsSync(sandbox.localConfig) ? readFileSync(sandbox.localConfig) : null,
       };
@@ -4740,7 +4742,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
       const config = path.join(sandbox.globalDir, 'ops.toml');
       const configBytes = Buffer.concat([
         Buffer.from('# user comments survive exactly\n'),
-        readFileSync(config),
+        Buffer.from(readOpsConfig(config)),
       ]);
       writeFileSync(config, configBytes);
       const opsRoot = path.join(root, 'ops');
@@ -4951,7 +4953,7 @@ describe('large board responsiveness', () => {
         const config = path.join(sandbox.globalDir, 'ops.toml');
         writeFileSync(
           config,
-          `${readFileSync(config, 'utf8')}\nclipboard = ["${clipboard}"]\n[bind]\nz = "view-reply"\n`
+          `${readOpsConfig(config)}\nclipboard = ["${clipboard}"]\n[bind]\nz = "view-reply"\n`
         );
         if (theme !== 'NO_COLOR')
           expect(
@@ -5616,7 +5618,7 @@ describe('large board responsiveness', () => {
         })
       );
       const config = path.join(sandbox.globalDir, 'ops.toml');
-      const configBefore = readFileSync(config, 'utf8');
+      const configBefore = readOpsConfig(config);
       tmux([
         'new-session',
         '-d',
@@ -5724,7 +5726,7 @@ describe('large board responsiveness', () => {
         const longName = 'x'.repeat(32);
         await launch(['--view', longName], longName);
         await quit();
-        expect(readFileSync(config, 'utf8')).toBe(configBefore);
+        expect(readOpsConfig(config)).toBe(configBefore);
         if (process.env.TMT_VIEW_LAYER_CAPTURES) {
           writeFileSync(process.env.TMT_VIEW_LAYER_CAPTURES, JSON.stringify(captures));
         }

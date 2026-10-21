@@ -48,8 +48,8 @@ fn refuse(message: &str) -> SquadError {
 pub(crate) fn valid_value(value: &str) -> bool {
     !value.is_empty() && value.len() <= 1024 && !value.chars().any(char::is_control)
 }
-fn actor(core: &Core, config: &Config, expected: &str) -> Result<String, SquadError> {
-    let actor = match me::current(core, config)? {
+fn actor(core: &Core, expected: &str) -> Result<String, SquadError> {
+    let actor = match me::current(core)? {
         Some(actor) => Some(actor),
         None => me::you(None, me::caller(core)?.as_ref()),
     };
@@ -60,8 +60,7 @@ fn actor(core: &Core, config: &Config, expected: &str) -> Result<String, SquadEr
 }
 pub(crate) fn read(core: &Core, target: &Target) -> Result<Preview, SquadError> {
     let squad = Squad::resolve(core, Some(&target.squad))?;
-    let config = Config::load(core)?;
-    let actor_name = actor(core, &config, &target.actor)?;
+    let actor_name = actor(core, &target.actor)?;
     let member = squad
         .roster(core)?
         .into_iter()
@@ -80,7 +79,7 @@ pub(crate) fn read(core: &Core, target: &Target) -> Result<Preview, SquadError> 
 }
 fn context(core: &Core, preview: &Preview) -> Result<Config, SquadError> {
     let config = Config::load(core)?;
-    actor(core, &config, &preview.target.actor)?;
+    actor(core, &preview.target.actor)?;
     let current = Squad::resolve(core, Some(&preview.target.squad))?;
     if current.room_id != preview.room
         || current.prefix() != preview.namespace

@@ -62,7 +62,7 @@ Eligible UUIDs come from the acquired `rooms.roster` snapshots, whose contract
 excludes retired/nonmembers; document-shaped objects cannot add eligible identities.
 Presence (including offline/unknown) is independent of identity retirement.
 Command writes pass exactly the [digest contract](../../../contracts/extension-api.md#digest-policy-and-checklist)
-fields: target, owner `me_id`, setter, expected revision and set-only expiry.
+fields: target, owner (the user's identity), setter, expected revision and set-only expiry.
 No policy storage or retry lives in Squad. `ls` enriches once after all source
 observations; aggregate/HOME acquisition shares one read across source and flat rows.
 Unsupported, failed or malformed policy reads silently omit digest. Overflow UUIDs

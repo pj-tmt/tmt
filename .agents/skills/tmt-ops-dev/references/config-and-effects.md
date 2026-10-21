@@ -17,7 +17,7 @@ board-only home/meter/`usage.*` data.
   `config show --json` child. An inherited marker refuses another bootstrap spawn
   with `SQUAD_CORE_UNAVAILABLE`, bounding indirect launchers too. Ordinary Core/API
   calls and hook dispatch retain their existing policy; the parent environment is unchanged.
-- `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order, board
+- `Config::write` owns format-preserving replacement for the legacy `me`/`me_id` removal, tab order, board
   views, theme bases and settings edits. It checks the original bytes, edits a cloned
   document, skips unchanged bytes and assigns the new document only after successful
   publication. A changed file is refused, not overwritten. The shared

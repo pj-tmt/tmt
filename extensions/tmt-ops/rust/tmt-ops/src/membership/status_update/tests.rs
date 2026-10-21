@@ -142,11 +142,7 @@ fn refused_notification_context_keeps_applied_status_and_frozen_intent() {
         let applies = calls(&fixture, "identity.meta.apply");
         let dispatches = calls(&fixture, "dispatch.create");
         match changed {
-            "actor" => std::fs::write(
-                fixture.directory.join("ops.toml"),
-                format!("me='worker'\nme_id='{WORKER}'\n"),
-            )
-            .unwrap(),
+            "actor" => fixture.change_model(|model| model["user"] = json!(WORKER)),
             "room" => fixture.change_model(|model| model["room"] = json!("different")),
             "retired" => fixture.change_model(|model| model["retired"] = json!([WORKER])),
             _ => unreachable!(),

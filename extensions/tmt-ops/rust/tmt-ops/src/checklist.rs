@@ -136,7 +136,7 @@ impl Service {
     pub fn new(core: &Core, config: &Config, room_id: Id) -> Result<Self, Error> {
         let actor = match me::caller(core).map_err(|e| port(Code::Forbidden, e))? {
             Some(caller) => caller.me,
-            None => recorded(core, config)?.ok_or_else(|| {
+            None => recorded(core)?.ok_or_else(|| {
                 Error::new(
                     Code::Forbidden,
                     "No admitted caller or recorded active user.",
@@ -170,11 +170,8 @@ impl Service {
         manager: bool,
         assignment: Option<&Id>,
     ) -> Result<(Admission, Option<Assignee>), Error> {
-        let config =
-            Config::read(self.config_path.clone()).map_err(|e| port(Code::Forbidden, e))?;
         active(&self.core, &self.actor_id, Code::Forbidden)?;
-        let user =
-            recorded(&self.core, &config)?.is_some_and(|user| user.id == self.actor_id.as_str());
+        let user = recorded(&self.core)?.is_some_and(|user| user.id == self.actor_id.as_str());
         let refs = self
             .core
             .api(
@@ -414,40 +411,8 @@ impl Service {
 fn port(code: Code, error: SquadError) -> Error {
     Error::new(code, error.to_string())
 }
-fn recorded(core: &Core, config: &Config) -> Result<Option<me::Me>, Error> {
-    // me::current's legacy name fallback must never adopt a same-name successor
-    // when a recorded UUID has retired.
-    if let Some(id) = config.me_id().map_err(|e| port(Code::Forbidden, e))? {
-        let id = Id::parse(id).map_err(|e| Error::new(Code::Forbidden, e.message))?;
-        let refs = core
-            .api("references.resolve", json!({"identityIds":[id.as_str()]}))
-            .map_err(|e| port(Code::Forbidden, e))?;
-        let identity = &refs["identities"][0];
-        if identity["id"] != id.as_str()
-            || !identity["found"].is_boolean()
-            || (identity["found"] == true && !identity["retired"].is_boolean())
-        {
-            return Err(Error::new(
-                Code::Forbidden,
-                "Core returned an incomplete user reference.",
-            ));
-        }
-        if identity["found"] != true || identity["retired"] != false {
-            return Ok(None);
-        }
-    }
-    let current = me::current(core, config).map_err(|e| port(Code::Forbidden, e))?;
-    if let Some(expected) = config.me_id().map_err(|e| port(Code::Forbidden, e))?
-        && current
-            .as_ref()
-            .is_some_and(|user| !user.id.eq_ignore_ascii_case(expected))
-    {
-        return Err(Error::new(
-            Code::Forbidden,
-            "The recorded user UUID changed during admission.",
-        ));
-    }
-    Ok(current)
+fn recorded(core: &Core) -> Result<Option<me::Me>, Error> {
+    me::current(core).map_err(|e| port(Code::Forbidden, e))
 }
 fn active(core: &Core, id: &Id, code: Code) -> Result<String, Error> {
     let refs = core

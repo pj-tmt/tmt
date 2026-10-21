@@ -128,12 +128,8 @@ fn store(core: &Core) -> Result<(Store, crate::migration::LegacyGuard), SquadErr
     Ok((Store::new(&root(core)?)?, guard))
 }
 
-pub fn actor(
-    core: &Core,
-    config: &Config,
-    explicit: Option<&str>,
-) -> Result<CronActor, SquadError> {
-    crate::management::actor(core, config, explicit, &crate::management::CRON)
+pub fn actor(core: &Core, explicit: Option<&str>) -> Result<CronActor, SquadError> {
+    crate::management::actor(core, explicit, &crate::management::CRON)
 }
 pub fn member(core: &Core, selector: &str) -> Result<CronActor, SquadError> {
     crate::management::member(core, selector, &crate::management::CRON)
@@ -154,13 +150,8 @@ fn room(core: &Core, name: &str, expected: &str) -> Result<Squad, SquadError> {
     }
     Ok(selected)
 }
-fn admit(
-    core: &Core,
-    config: &Config,
-    selected: &Squad,
-    actor: &CronActor,
-) -> Result<Vec<Member>, SquadError> {
-    crate::management::admit(core, config, selected, actor, &crate::management::CRON)
+fn admit(core: &Core, selected: &Squad, actor: &CronActor) -> Result<Vec<Member>, SquadError> {
+    crate::management::admit(core, selected, actor, &crate::management::CRON)
 }
 fn owner(core: &Core, roster: &[Member], id: &str) -> Result<(), SquadError> {
     active_identity(core, id)?;
@@ -208,12 +199,11 @@ fn increment(job: &mut Job) -> Result<(), SquadError> {
 /// Dispatch happens after return, never while the jobs lock is held.
 pub fn authorize_write(
     core: &Core,
-    config: &Config,
     key: &JobKey,
     actor: &CronActor,
     expected_revision: u64,
 ) -> Result<Job, SquadError> {
-    admitted_job(core, key, expected_revision, Some((config, actor)))
+    admitted_job(core, key, expected_revision, Some(actor))
 }
 
 /// Scheduled callers do not invent a human actor. Room, revision and active
@@ -236,14 +226,14 @@ fn admitted_job(
     core: &Core,
     key: &JobKey,
     expected_revision: u64,
-    actor: Option<(&Config, &CronActor)>,
+    actor: Option<&CronActor>,
 ) -> Result<Job, SquadError> {
     let (store, _migration) = store(core)?;
     store
         .update(|jobs| {
             let selected = room(core, &key.squad, &key.room_id).map_err(stored)?;
             let roster = match actor {
-                Some((config, actor)) => admit(core, config, &selected, actor),
+                Some(actor) => admit(core, &selected, actor),
                 None => selected.roster(core),
             }
             .map_err(stored)?;
@@ -413,7 +403,7 @@ pub fn apply(
             Change::Existing { key, .. } => (&key.squad, &key.room_id),
         };
         let selected = room(core, name, room_id).map_err(stored)?;
-        let roster = admit(core, config, &selected, actor).map_err(stored)?;
+        let roster = admit(core, &selected, actor).map_err(stored)?;
         match change {
             Change::Add {
                 squad,
