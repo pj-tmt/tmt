@@ -5,6 +5,7 @@ import {
   SwitcherSourceStore,
   rememberPages,
   useSwitcherSource,
+  watchRememberedPages,
 } from '../src/quick-switcher-source.js';
 import type { PageSummary, PageTransport, SpaceHome } from '../src/transport.js';
 
@@ -209,4 +210,18 @@ it('a list the space home already loaded is shown at once by a switcher that nev
     pages: [page(9, 'Later')],
     opened: new Map([[loaded[0].id, 7]]),
   });
+});
+
+it('a watcher follows each list remembered for its transport and space until it stops', () => {
+  const { transport: t } = transport();
+  const { transport: other } = transport();
+  const seen: number[] = [];
+  const stop = watchRememberedPages(t, SPACE, (pages) => seen.push(pages.length));
+  rememberPages(t, SPACE, [page(1, 'One')]);
+  rememberPages(t, OTHER, [page(1, 'One'), page(2, 'Two')]);
+  rememberPages(other, SPACE, [page(1, 'One'), page(2, 'Two'), page(3, 'Three')]);
+  expect(seen).toEqual([1]);
+  stop();
+  rememberPages(t, SPACE, [page(1, 'One'), page(2, 'Two')]);
+  expect(seen).toEqual([1]);
 });

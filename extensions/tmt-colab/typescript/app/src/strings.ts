@@ -538,7 +538,7 @@ export const text = {
       count === 1 ? '1 waiting for sign-off' : `${count} waiting for sign-off`,
     showTasks: (count: number) => (count === 1 ? 'Show 1 task' : `Show ${count} tasks`),
     hideTasks: 'Hide tasks',
-    followsParent: (taskId: string, title: string) => `Follows ${taskId} · ${title}`,
+    parentTask: (title: string, taskId: string) => `${title} › ${taskId}`,
     followsPage: 'Follows its own page →',
     detailLabel: (id: string) => `Task ${id}`,
     close: 'Close',

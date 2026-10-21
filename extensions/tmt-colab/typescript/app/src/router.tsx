@@ -2029,19 +2029,18 @@ function Page() {
       </BrowserDrawer>
       <div className="workspace">
         {pageLinkBar}
-        {view.work && (
-          <PageWorkBand
-            work={view.work}
-            binding={snapshot.binding}
-            transport={transport}
-            space={space}
-            pageHref={(pageId) =>
-              router.history.createHref(
-                router.buildLocation({ to: '/pages/$pageId', params: { pageId } }).publicHref,
-              )
-            }
-          />
-        )}
+        <PageWorkBand
+          work={view.work}
+          binding={snapshot.binding}
+          transport={transport}
+          space={space}
+          pageId={snapshot.id}
+          pageHref={(pageId) =>
+            router.history.createHref(
+              router.buildLocation({ to: '/pages/$pageId', params: { pageId } }).publicHref,
+            )
+          }
+        />
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
