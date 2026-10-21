@@ -67,6 +67,7 @@ frames! {
     Chunk { object_id: String, envelope_hash: String, index: usize, count: usize, bytes: String },
     Save { operation_id: String, base_sha256: String, source_sha256: String, source: Payload, attachments: Option<tmt_colab_model::attachment::DocumentChange>, hunks: Option<List<WireHunk, 64>> },
     SaveStatus { operation_id: String },
+    Work { operation_id: String, action: String, body: serde_json::Value },
     Usage {},
     Compact {},
     Object { request_id: String, request: Box<crate::object_channel::ObjectRequest> },

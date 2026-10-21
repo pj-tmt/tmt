@@ -431,6 +431,9 @@ pub(crate) struct SaveJob {
     save: crate::page::save::Save,
     /// The editor's change as anchored hunks, evaluated when the page moved since its base.
     hunks: Option<Vec<crate::page::patch::Hunk>>,
+    /// A work action instead of a source: `save` then names only the page and the operation, and
+    /// the job prepares from the action.
+    work: Option<crate::page::work::WorkEdit>,
 }
 /// Whether a save's turn under the lock replied, or its hunks are to be evaluated once more on
 /// a page that moved after they were.
@@ -740,19 +743,27 @@ impl<A: Admission> Server<A> {
         let mut evaluations = 0;
         loop {
             let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
-            let prepared = match &job.hunks {
-                Some(hunks) => {
-                    crate::page::save::prepare_merging(&job.open, &job.save, hunks, &read_clock)
-                }
-                None => crate::page::save::prepare(&job.open, &job.save, &read_clock)
-                    .map(|prepared| (prepared, None)),
+            let (prepared, task) = match (&job.work, &job.hunks) {
+                (Some(work), _) => match crate::page::work::prepare(&job.open, work, &read_clock) {
+                    Ok((prepared, task)) => (Ok((prepared, None)), task),
+                    Err(error) => (Err(error), None),
+                },
+                (None, Some(hunks)) => (
+                    crate::page::save::prepare_merging(&job.open, &job.save, hunks, &read_clock),
+                    None,
+                ),
+                (None, None) => (
+                    crate::page::save::prepare(&job.open, &job.save, &read_clock)
+                        .map(|prepared| (prepared, None)),
+                    None,
+                ),
             };
             let now = clock();
             let mut state = self.0.lock().map_err(|_| Code::Denied)?;
             match now {
                 Ok(now) => {
                     let may_retry = job.hunks.is_some() && evaluations < limits::SAVE_EVALUATIONS;
-                    match state.finish_save(reply_to, job, prepared, now, may_retry)? {
+                    match state.finish_save(reply_to, job, prepared, task, now, may_retry)? {
                         SaveFinish::Replied(result) => return Ok(result),
                         SaveFinish::Retry => evaluations += 1,
                     }
@@ -1080,7 +1091,8 @@ impl<A: Admission> State<A> {
             Frame::Save { .. }
             | Frame::Awareness { .. }
             | Frame::Usage { .. }
-            | Frame::Compact { .. } => {
+            | Frame::Compact { .. }
+            | Frame::Work { .. } => {
                 self.admission
                     .authorize(&principal, &scope, Access::Publish)?;
             }
@@ -1093,6 +1105,7 @@ impl<A: Admission> State<A> {
                     | Frame::Chunk { .. }
                     | Frame::Save { .. }
                     | Frame::Compact { .. }
+                    | Frame::Work { .. }
             )
         {
             return Err(Code::ResyncRequired);
@@ -1382,6 +1395,20 @@ impl<A: Admission> State<A> {
                 let result = report.map(|report| serde_json::json!({ "report": report }));
                 self.reply_page(id, &scope, "compactresult", result)?;
             }
+            Frame::Work {
+                operation_id,
+                action,
+                body,
+                ..
+            } => {
+                if self.peers[&id].incoming.is_some() {
+                    return Err(Code::Invalid);
+                }
+                values::generated_id(&operation_id)?;
+                return self
+                    .work_job(&scope, principal, operation_id, action, body)
+                    .map(Some);
+            }
             Frame::SaveStatus { operation_id, .. } => {
                 if self.peers[&id].incoming.is_some() {
                     return Err(Code::Invalid);
@@ -1399,7 +1426,7 @@ impl<A: Admission> State<A> {
                             crate::page::save::SaveResult::rejected(&operation_id, error.as_ref())
                         })
                 };
-                self.reply_save(id, &scope, &reply)?;
+                self.reply_save(id, &scope, "saveresult", &reply)?;
             }
         }
         // Foreground subscriptions select a page; Hello also serves bounded title reads.
@@ -1466,6 +1493,45 @@ impl<A: Admission> State<A> {
                 attachments,
             },
             hunks,
+            work: None,
+        })
+    }
+    /// One work action of the owner device, handed out of the lock like a save.
+    fn work_job(
+        &mut self,
+        scope: &SyncScope,
+        principal: String,
+        operation_id: String,
+        action: String,
+        body: serde_json::Value,
+    ) -> Result<SaveJob, Code> {
+        if !crate::page::work::known(&action) {
+            return Err(Code::Invalid);
+        }
+        let open = self.admission.save_source().ok_or(Code::Denied)?;
+        *self
+            .saving
+            .entry((scope.page.clone(), operation_id.clone()))
+            .or_default() += 1;
+        Ok(SaveJob {
+            open,
+            scope: scope.clone(),
+            principal,
+            for_request: false,
+            save: crate::page::save::Save {
+                page: scope.page.clone(),
+                operation_id: operation_id.clone(),
+                base_sha256: [0; 32],
+                source: String::new(),
+                attachments: None,
+            },
+            hunks: None,
+            work: Some(crate::page::work::WorkEdit {
+                page: scope.page.clone(),
+                operation_id,
+                action,
+                body,
+            }),
         })
     }
     /// The save is no longer preparing; its outcome, if any, is in the store.
@@ -1501,11 +1567,12 @@ impl<A: Admission> State<A> {
         &mut self,
         id: u64,
         scope: &SyncScope,
+        kind: &str,
         reply: &crate::page::save::SaveResult,
     ) -> Result<(), Code> {
         let text = wire::output(
             scope,
-            "saveresult",
+            kind,
             serde_json::to_value(reply).map_err(|_| Code::Invalid)?,
         )?;
         if let Some(peer) = self.peers.get_mut(&id) {
@@ -1521,6 +1588,7 @@ impl<A: Admission> State<A> {
         id: Option<u64>,
         job: &SaveJob,
         prepared: crate::Result<(crate::page::save::Prepared, Option<[u8; 32]>)>,
+        task: Option<String>,
         now_ms: u64,
         may_retry: bool,
     ) -> Result<SaveFinish, Code> {
@@ -1533,7 +1601,7 @@ impl<A: Admission> State<A> {
                 }
                 (Prepared::Write(frozen), merged) => (frozen, merged),
             };
-            let access = if job.save.attachments.is_some() {
+            let access = if job.save.attachments.is_some() || job.work.is_some() {
                 Access::Publish
             } else {
                 Access::Save
@@ -1582,6 +1650,7 @@ impl<A: Admission> State<A> {
                     Some(digest) => {
                         SaveResult::merged(&operation, revision, values::encode_binary(&digest))
                     }
+                    None if job.work.is_some() => SaveResult::made(&operation, revision, task),
                     None => SaveResult::committed(&operation, revision),
                 },
                 fan_out.then_some((outputs, combined)),
@@ -1604,7 +1673,16 @@ impl<A: Admission> State<A> {
         // Under this lock hold the commit and the removal are one step for a status request.
         self.unsave(job);
         if let Some(id) = id {
-            self.reply_save(id, &job.scope, &reply)?;
+            self.reply_save(
+                id,
+                &job.scope,
+                if job.work.is_some() {
+                    "workresult"
+                } else {
+                    "saveresult"
+                },
+                &reply,
+            )?;
         }
         if let Some(((scope, delivery), combined)) = outputs {
             self.fanout_delivery(&scope, delivery);

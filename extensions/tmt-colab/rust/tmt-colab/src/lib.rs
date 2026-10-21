@@ -48,6 +48,7 @@ pub mod threads;
 pub mod transitions;
 pub mod wip;
 pub mod work;
+pub mod work_admission;
 pub mod work_github;
 pub mod work_index;
 pub mod work_links;

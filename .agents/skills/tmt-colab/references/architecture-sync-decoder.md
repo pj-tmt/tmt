@@ -233,6 +233,12 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   `commit_publication` (through `Admission::commit_save` and the same combine as a CLI write), the one
   `saveresult` and the shared fan-out. The browser's `Connection.save` paces the chunks and holds one
   request in flight; `Live.edit` settles a lost reply with one `savestatus` and never resends.
+  A browser work action (`work`/`workresult`, colab-v1 Browser work actions) rides the same pipeline: its
+  `SaveJob` carries a `WorkEdit` instead of a source, `run_save_job` calls `page::work::prepare` (which reads the
+  page's work, runs `work_admission::admit`, the one admission the `tmt colab task` write command also runs,
+  and prepares `prepare_structured_publication` with the browser's operation ID) and `finish_save` commits
+  it with `Access::Publish` and answers `workresult`; `savestatus` settles a lost reply. The connection
+  sends at most eight frames before the browser acknowledges some, so a client acks each frame it reads.
   A `save` may carry the editor's change as `hunks` (`save-hunks.ts` `hunksOf`, no evaluator in the
   browser): `page::save::prepare_merging` runs `prepare` first and, only when the page moved
   (`COLAB_STALE_BASE`), places the hunks with `page/patch.rs` on the page as it now is and prepares that

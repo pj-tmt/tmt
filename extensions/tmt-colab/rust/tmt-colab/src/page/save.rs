@@ -20,6 +20,10 @@ pub struct Source {
     pub store: Store,
     pub keyring: Keyring,
     pub decoder: Decoder,
+    /// The data root and its layout, for what a preparation reads beyond the page (the space's
+    /// settings and work index).
+    pub root: std::path::PathBuf,
+    pub layout: crate::keyring::Layout,
 }
 /// How the serve opens a `Source`; supplied by whoever owns the data root.
 pub type SourceOpener = Arc<dyn Fn() -> crate::Result<Source> + Send + Sync>;
@@ -35,6 +39,8 @@ pub fn open_source(
         keyring: Keyring::read(&layout)?,
         store,
         decoder: Decoder::with_config(decoder)?,
+        root: root.to_path_buf(),
+        layout,
     })
 }
 
@@ -192,6 +198,9 @@ pub struct SaveResult {
     /// Rejected only: the hunks (as sent, 0-based) whose anchors moved or changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conflicts: Option<Vec<usize>>,
+    /// Committed work action only: the task a `task.add` made.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
 }
 impl SaveResult {
     fn state(operation_id: &str, state: &'static str) -> Self {
@@ -204,12 +213,20 @@ impl SaveResult {
             merged: None,
             source_sha256: None,
             conflicts: None,
+            task_id: None,
         }
     }
     pub fn committed(operation_id: &str, revision: String) -> Self {
         Self {
             revision: Some(revision),
             ..Self::state(operation_id, "committed")
+        }
+    }
+    /// A committed work action; `task_id` names the task a `task.add` made.
+    pub fn made(operation_id: &str, revision: String, task_id: Option<String>) -> Self {
+        Self {
+            task_id,
+            ..Self::committed(operation_id, revision)
         }
     }
     /// A commit whose source is the editor's change merged into a page that had moved.
@@ -285,6 +302,10 @@ fn refusal(error: &(dyn std::error::Error + 'static)) -> (&'static str, String) 
     }
     if let Some(conflict) = error.downcast_ref::<HunkConflict>() {
         return (conflict.fault.code(), error.to_string());
+    }
+    // A work action the write command's admission refuses (the limit, a link, a task that is gone).
+    if let Some(refused) = error.downcast_ref::<crate::work_admission::Refused>() {
+        return (refused.code, refused.message.clone());
     }
     // The operation ID was used before with different bytes: that save is not this one.
     if error.downcast_ref::<OwnerFault>() == Some(&OwnerFault::Conflict) {
