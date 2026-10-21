@@ -66,7 +66,7 @@ const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
 const homeRoute = getRouteApi('/');
 /** The tab a bare list URL opens on; the route search keeps any other. */
-export const DEFAULT_VIEW: HomeStage = 'all';
+export const DEFAULT_VIEW: HomeStage = 'in-progress';
 /** The query that may filter and order the list (and a copied URL), bounded and validated. */
 export interface HomeSearch {
   q?: string;
@@ -263,22 +263,22 @@ function PageMetadata({
 }
 
 /**
- * A stage tab with no page. While some pages have not reported their tasks it says so instead of
+ * A stage tab with no page. While the list is still reading the pages' tasks it says so instead of
  * claiming the tab is empty; an empty In progress names where pages without tasks are and offers
  * the way out, and never opens another tab by itself.
  */
 function StageEmpty({
   stage,
   scope,
-  unreported,
+  reading,
   choose,
 }: {
   stage: PageStage;
   scope: string | undefined;
-  unreported: number;
+  reading: boolean;
   choose(view: HomeStage): void;
 }) {
-  if (unreported > 0) return <p>{t.readingDetails}</p>;
+  if (reading) return <p>{t.readingDetails}</p>;
   if (scope !== undefined) return <p>{t.noStageInProject[stage](scope)}</p>;
   if (stage === 'discussion') return <p>{t.noDiscussion}</p>;
   if (stage === 'done') return <p>{t.noDone}</p>;
@@ -314,9 +314,11 @@ export function Home() {
   const router = useRouter();
   const { pages: homePages, hints: titleHints } = useHomeSpace(space);
   const port = transport.management;
-  // The owner folds summaries in the background: while an active page has none the list reads again.
-  useSummaryFill(port ? homePages.filter((p) => !p.archived && !p.summary).length : 0, () =>
-    rereadInPlace(() => router.invalidate()),
+  // The owner folds summaries in the background: while an active page has none the list reads
+  // again, and an empty stage tab says it is reading until the pages are in or the tries are up.
+  const reading = useSummaryFill(
+    port ? homePages.filter((p) => !p.archived && !p.summary).length : 0,
+    () => rereadInPlace(() => router.invalidate()),
   );
   const archived = !!port && search.archived === true;
   // Only the owner app has tabs; a list without them is every active page, as All is.
@@ -705,7 +707,7 @@ export function Home() {
             <StageEmpty
               stage={filter.stage}
               scope={scope}
-              unreported={unreported}
+              reading={reading && unreported > 0}
               choose={chooseView}
             />
           ) : scope !== undefined && scoped.length === 0 ? (

@@ -69,6 +69,7 @@ import { useProposalLayer } from './proposal-layer.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
+import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
 import { shareView } from './share-view.js';
@@ -2565,7 +2566,9 @@ export function createAppRouter(
             ? 'read' in hint
               ? `?read=${hint.read}`
               : `?anchor=${hint.anchor}`
-            : '';
+            : path === '/'
+              ? storedListSearch(window.history.state)
+              : '';
           return {
             href: path + search,
             pathname: path,
@@ -2574,7 +2577,9 @@ export function createAppRouter(
             state: { ...window.history.state, __TSR_index: window.history.state?.__TSR_index ?? 0 },
           };
         },
-        createHref: (path) => {
+        createHref: (routerPath) => {
+          // The list's search is never part of the address (see `keepListSearch`).
+          const path = isListPath(routerPath) ? '/' : routerPath;
           if (!publicEntry()) return ownerReadingHref(path, location.pathname, space);
           const { route, hint } = splitPageHint(path);
           const id = route.replace(/^\/(?:pages|short)\//, '');
@@ -2600,6 +2605,7 @@ export function createAppRouter(
         },
       })
     : createHashHistory();
+  if (space) keepListSearch(history);
   const router = createRouter({
     routeTree: root.addChildren([home, allPages, page, shortPage, blocked]),
     history,

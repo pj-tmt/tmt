@@ -158,7 +158,10 @@ export async function mount(screen: Screen, failure: RecoveryFailure = 'uncertai
           ? '/blocked'
           : screen === 'not-found'
             ? '/missing'
-            : '/';
+            : screen === 'pages'
+              ? // The list opens on In progress, and these pages have not reported their tasks.
+                '/?stage=all'
+              : '/';
     root.render(<RouterProvider router={router} />);
   }
 }

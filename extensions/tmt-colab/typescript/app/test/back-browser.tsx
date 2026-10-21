@@ -70,3 +70,7 @@ export async function selectThread(thread: string) {
   // The router resolves a same-page address change at once; a router that ignores it never does.
   await Promise.race([settled, new Promise((resolve) => setTimeout(resolve, 1000))]);
 }
+/** The address the mounted router writes for a router path. */
+export function addressOf(path: string) {
+  return router!.history.createHref(path);
+}
