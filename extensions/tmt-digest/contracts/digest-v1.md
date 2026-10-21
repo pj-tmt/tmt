@@ -325,6 +325,11 @@ assumption excludes cached input, cache writes, fast/regional/long-context
 modifiers, negotiated discounts, subscription allowances and historical price
 reconstruction. Updating rates requires a new verified file `version`.
 
+A successful status document also contains additive root `tick: {lastAtMs}`, the
+start time of the last tick that was admitted ([liveness record](digest-tick-v1.md#tick-liveness)),
+or null when none is recorded or the record is unsafe. It is liveness evidence only:
+status never infers a hold, a delivery or an owner from it.
+
 `percent` is null or `{basisPoints, estimatedInputTokensAvoided,
 observedInputTokens, fromMs, throughMs}`. It is available only for `24h` and `7d`;
 **lifetime percent is always null**. Its interval uses whole closed minutes inside

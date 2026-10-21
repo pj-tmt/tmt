@@ -501,6 +501,7 @@ pub(in crate::board) fn populate_lower_band(app: &mut crate::board::app::App, sc
             pane: Some("%41".into()),
             since_ms: now - 60_000,
             expires_ms: now + 5_000,
+            build: None,
         }),
     );
     cron.read_ms = now;
