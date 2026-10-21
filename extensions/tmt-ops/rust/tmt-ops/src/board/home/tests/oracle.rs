@@ -545,6 +545,35 @@ fn captures() -> Value {
                 }
             }
         }
+        // Measure's `Exchanges · <range>` section with one, a few and many agents: additive scenes.
+        for (look_name, look) in looks() {
+            for (scene, extra, flows) in [
+                ("measure-exchanges-one", 0, &[][..]),
+                (
+                    "measure-exchanges-three",
+                    2,
+                    &[(1, 2, 7), (2, 0, 3), (0, 1, 12)][..],
+                ),
+                (
+                    "measure-exchanges-many",
+                    8,
+                    &[(8, 7, 90), (7, 8, 80), (1, 2, 1), (0, 3, 4000), (3, 0, 2)][..],
+                ),
+            ] {
+                for width in [200, 160, 140] {
+                    let mut app = capture_case("agents", look);
+                    crate::board::app::workspace::tests::measure_exchanges(&mut app, extra, flows);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        51,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         // Paste attachments belong only to the Agents conversation. #4100
         // carries these scenes into Talk when it migrates the shell.
         for (look_name, look) in looks() {

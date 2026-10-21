@@ -400,6 +400,13 @@ Usage and traffic come from bounded background Core reads, even without Digest;
 held and avoided values then show unavailable, with `tmt extension install digest`.
 Missing, partial and failed/stale observations never become measured zeros.
 
+The Measure view shows `Exchanges · <range>` under the tiles: the same matrix as Digest
+over the shared range, for the selected squad (or every visible agent), the busiest
+six first, with a `sum` column of what each row sent to others (`—` without traffic).
+Enter or a click on a cell selects that row's agent and opens Talk; a pair between two
+agents has no view of its own, so the status line says so. The section paints whole or
+not at all, and Measure requests the same background usage report at every range.
+
 The Measure view shows up to three soonest timers, with a more
 control and the effective all-room shortcut, beside Digest key/value observations.
 Paused timers are dim. Empty, stale and unavailable reads stay distinct; a missing

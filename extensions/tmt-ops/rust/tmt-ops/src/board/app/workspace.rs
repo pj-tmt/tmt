@@ -35,6 +35,43 @@ impl App {
                 .unwrap_or_default()
         })
     }
+    /// A click on a matrix cell selects the row's agent and opens Talk with it. No pair
+    /// view exists, so the notice says whose conversation opened.
+    pub(in crate::board) fn open_exchange_pair(&mut self, sender: &str, recipient: &str) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return Effect::None;
+        };
+        let name = |id: &str| {
+            snapshot
+                .roster
+                .members
+                .get(id)
+                .map_or_else(|| id.to_owned(), |member| member.name.clone())
+        };
+        let notice = format!(
+            "Talk opens with {}; there is no pair view for {} and {}.",
+            name(sender),
+            name(sender),
+            name(recipient)
+        );
+        let current = self.workspace.selected.clone().filter(|target| {
+            matches!(target, OpsTarget::Member { identity_id, .. } if identity_id == sender)
+        });
+        let Some(target) = current.or_else(|| {
+            snapshot
+                .rows
+                .keys()
+                .find(|target| {
+                    matches!(target, OpsTarget::Member { identity_id, .. } if identity_id == sender)
+                })
+                .cloned()
+        }) else {
+            return self.say("The row's agent is no longer observed.");
+        };
+        self.workspace.selected = Some(target);
+        self.workspace_action(OpsUiAction::Inspect);
+        self.say(&notice)
+    }
     /// A click on an Agents column header: only the order changes.
     pub(in crate::board) fn sort_by_header(
         &mut self,
@@ -135,7 +172,11 @@ impl App {
         &self,
     ) -> Option<super::super::usage_report::Request> {
         let snapshot = self.workspace_snapshot()?;
-        (self.shell.tab == OpsTab::Digest || self.tok_range() != crate::config::TokRange::Hour)
+        // The Measure pane's exchange matrix reads the same report at every range.
+        (self.shell.tab == OpsTab::Digest
+            || self.tok_range() != crate::config::TokRange::Hour
+            || (self.shell.tab == OpsTab::Agents
+                && self.right_tab == super::super::shell::RightTab::Measure))
             .then(|| {
                 super::super::usage_report::Request::new(
                     self.tok_range(),
