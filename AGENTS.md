@@ -163,8 +163,8 @@ The tmux server an agent runs in hosts the whole team; losing it stops every age
 
 - Any test, fixture, script or experiment that starts or drives tmux runs with
   `env -u TMUX -u TMUX_PANE`, uses its own `-S` socket in a private temp directory,
-  and asserts that socket is not the host default (`$TMUX_TMPDIR` or
-  `/private/tmp/tmux-$UID`, socket `default`) before any server command.
+  and asserts that socket is not the host default (`tmux-$UID/default` under
+  `$TMUX_TMPDIR`, else `/tmp`; `/private/tmp` on macOS) before any server command.
 - Never run `kill-server`, `kill-session`, `kill-window` or `kill-pane` on a server
   that the same test did not create. Outside tests, use only `tmt` commands that
   target your own pane, or names your lead gave you.
