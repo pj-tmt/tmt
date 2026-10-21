@@ -28,7 +28,7 @@ async function start() {
               ? text.failurePairingExpired
               : reason === 'unpaired'
                 ? text.failureUnpaired
-                : text.reconnectFailed;
+                : 'Reopen the page to try again.';
     if (guidance) {
       const paragraph = document.createElement('p');
       paragraph.textContent = sentence;

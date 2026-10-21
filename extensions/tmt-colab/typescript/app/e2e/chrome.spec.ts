@@ -449,31 +449,11 @@ for (const entry of ['restart', 'public'] as const) {
       "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.",
       false,
     ],
-    [
-      'unreachable',
-      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
-      false,
-    ],
-    [
-      'unconfirmed',
-      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
-      false,
-    ],
-    [
-      'transient',
-      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
-      false,
-    ],
-    [
-      'storage',
-      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
-      false,
-    ],
-    [
-      'plain-revoked',
-      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
-      false,
-    ],
+    ['unreachable', 'Reopen the page to try again.', false],
+    ['unconfirmed', 'Reopen the page to try again.', false],
+    ['transient', 'Reopen the page to try again.', false],
+    ['storage', 'Reopen the page to try again.', false],
+    ['plain-revoked', 'Reopen the page to try again.', false],
   ] as const) {
     test(`native ${entry} recovery ${cause} offers only evidence-based guidance`, async ({
       page,
@@ -560,9 +540,7 @@ for (const entry of ['restart', 'public'] as const) {
       }
       if (entry === 'restart') {
         await page.reload();
-        await expect(detail).toContainText(
-          'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
-        );
+        await expect(detail).toContainText('Reopen the page to try again.');
         await expect(detail.locator('code')).toHaveCount(0);
         expect(await page.evaluate(() => sessionStorage.getItem('fixture:attempts'))).toBe('1');
       }

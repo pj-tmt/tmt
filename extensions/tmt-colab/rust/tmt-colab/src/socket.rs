@@ -1180,8 +1180,7 @@ fn guidance_page(
             } else {
                 "Could not reconnect"
             },
-            "<p>Could not reconnect. Reopen the page to try again. Your pairing is unchanged.</p>"
-                .into(),
+            "<p>Reopen the page to try again.</p>".into(),
         ),
     };
     let stylesheet = format!("<link rel=\"stylesheet\" href=\"{assets}assets/chrome.css\">");

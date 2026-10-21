@@ -759,11 +759,8 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("<title>Colab</title>"));
     assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Could not reconnect</h2>"));
-    assert!(
-        private.contains(
-            "Could not reconnect. Reopen the page to try again. Your pairing is unchanged."
-        )
-    );
+    assert!(private.contains("<p>Reopen the page to try again.</p>"));
+    assert!(!private.contains("Your pairing is unchanged."));
     assert!(!private.contains("tmt remote pair"));
     assert!(private.contains("<main class=\"guidance-main\">"));
     assert!(!private.contains("./assets/reader.css"));
@@ -2457,7 +2454,7 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
         }
     }
     let guidance = server.request(&Running::get("/", ""));
-    assert!(guidance.contains("Your pairing is unchanged."));
+    assert!(guidance.contains("Reopen the page to try again."));
     // The browser leaf owns the mark. This test-only source read detects copy drift.
     let shared_header = include_str!("../../../../../design/browser-ui/src/header.tsx");
     let shared_mark = shared_header

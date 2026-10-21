@@ -292,7 +292,7 @@ for (let run = 1; run <= 2; run++) {
       );
       const privatePage = await fetch(server.origin + mount);
       const privateHtml = await privatePage.text();
-      expect(privateHtml).toContain('Your pairing is unchanged.');
+      expect(privateHtml).toContain('Reopen the page to try again.');
       expect(privateHtml).toContain('<h2 class="tmt-ui-notice-heading">Opening Colab</h2>');
       expect(privateHtml).not.toContain('tmt remote pair');
       expect(privateHtml).toContain('<link rel="stylesheet" href="./assets/chrome.css">');
@@ -308,9 +308,7 @@ for (let run = 1; run <= 2; run++) {
       await expect(page.getByRole('heading', { name: 'Could not reconnect' })).toBeVisible();
       await expect(page.locator('.guidance-mark circle')).toHaveAttribute('r', '10');
       await expect(page.locator('.tmt-ui-notice-mark')).toContainText('not connected');
-      await expect(page.locator('#colab-guidance')).toContainText(
-        'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
-      );
+      await expect(page.locator('#colab-guidance')).toContainText('Reopen the page to try again.');
       await expect(page.locator('.tmt-ui-command .tmt-ui-command-text')).toHaveCount(0);
       expect(
         await page
