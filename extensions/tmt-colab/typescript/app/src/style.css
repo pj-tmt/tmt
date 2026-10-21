@@ -155,8 +155,9 @@ footer {
 .needs-you-header-menu {
   inline-size: 320px;
 }
-/* The modal menu's scroll lock normalizes body padding; retain this host's fixed-header inset. */
-body:has(.needs-you-header-menu) {
+/* The modal menu's scroll lock normalizes body padding; retain this host's fixed-header inset.
+   Inside the TMT web shell the header is in flow and the body has no inset to retain. */
+body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   padding-top: calc(var(--colab-header-height) + env(safe-area-inset-top, 0px)) !important;
 }
 .needs-you-header-group,
