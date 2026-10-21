@@ -521,14 +521,20 @@ export function ThreadWindow({
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
   const [showResolved, setShowResolved] = useState(false);
+  // A status change shows in the click frame; the verified record replaces it, or a failure undoes it.
+  const [pendingResolved, setPendingResolved] = useState<boolean>();
   const [echoes, echoHost, held] = useMessageEcho(thread?.comments ?? []);
+  const shownResolved = pendingResolved ?? thread?.resolved;
   useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
-  const collapsed = !!thread?.resolved && !showResolved;
+  useEffect(() => {
+    if (pendingResolved === thread?.resolved) setPendingResolved(undefined);
+  }, [pendingResolved, thread?.resolved]);
+  const collapsed = !!thread && !!shownResolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
   // A resolved thread leaves the page's marker set, so its attachment is not
   // observed until Reopen restores the marker.
-  const tracked = !!anchor && !thread?.resolved;
+  const tracked = !!anchor && !shownResolved;
   const messageIds = [
     ...(thread?.comments.map((comment) =>
       conversationRecordKey('comment', comment.ref.writer, comment.messageId),
@@ -560,6 +566,7 @@ export function ThreadWindow({
     onBusy?.(true);
     setError(false);
     setNotNotified([]);
+    setPendingResolved(resolved);
     let closeAfter = false;
     void Promise.resolve()
       .then(() => onStatusChange(resolved))
@@ -568,10 +575,15 @@ export function ThreadWindow({
           const names = (result.warnings ?? []).map((warning) => warning.name);
           setReattach(null);
           setNotNotified(names);
+          // The record that follows replaces the display; nothing changed means nothing follows.
+          if (!result.changed) setPendingResolved(undefined);
           // Keep the window open while it still has something to tell the person.
           closeAfter = result.changed && resolved && layout === 'anchored' && !names.length;
         },
-        () => setError(true),
+        () => {
+          setPendingResolved(undefined);
+          setError(true);
+        },
       )
       .finally(() => {
         setBusy(false);
@@ -614,7 +626,7 @@ export function ThreadWindow({
         data-anchor={
           thread?.deleted || !anchor
             ? 'page'
-            : thread?.resolved
+            : shownResolved
               ? 'resolved'
               : attached
                 ? 'attached'
@@ -624,14 +636,16 @@ export function ThreadWindow({
           <span className="thread-state" title={anchor?.exact}>
             {number !== undefined && <span className="annotation-number">{number}</span>}
             {thread && <span className="annotation-heading">THREAD</span>}
-            {thread && (thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
+            {thread && (shownResolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
             <span>
               {!thread
                 ? 'ANNOTATE THE SELECTION'
                 : thread.deleted
                   ? text.threadDeleted
-                  : thread.resolved
-                    ? resolvedLabel(status)
+                  : shownResolved
+                    ? pendingResolved
+                      ? text.threadResolved
+                      : resolvedLabel(status)
                     : text.threadOpen}
             </span>
           </span>
