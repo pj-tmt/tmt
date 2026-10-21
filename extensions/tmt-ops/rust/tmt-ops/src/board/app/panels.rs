@@ -51,39 +51,21 @@ impl App {
         &self,
         area: ratatui::layout::Rect,
     ) -> crate::board::conversation::layout::Placement {
-        use crate::board::conversation::layout::{self, Placement, Preference};
+        use crate::board::conversation::layout::{self, Placement};
         let policy = self.digest_panels();
         let placement = if !policy.shown(crate::config::DigestPanel::List) {
             Placement {
                 list: None,
                 conversation: Some(area),
             }
-        } else if !policy.side_shown() {
-            Placement {
-                list: Some(area),
-                conversation: None,
-            }
         } else {
-            let preference = self
-                .workspace_snapshot()
-                .map_or(Preference::Auto, |snapshot| {
-                    match snapshot.preferences.layout {
-                        crate::config::OpsLayout::Auto => Preference::Auto,
-                        crate::config::OpsLayout::Side => Preference::Side,
-                        crate::config::OpsLayout::Stack => Preference::Stack,
-                    }
-                });
-            layout::agents(
-                area,
-                preference,
-                self.focused() == crate::config::Pane::Replies,
-            )
+            layout::digest(area, self.focused() == crate::config::Pane::Replies)
         };
         self.pane_resize.panes(
             placement,
             crate::action::ResizeBoundary::DigestColumns,
             crate::action::ResizeBoundary::DigestRows,
-            crate::board::conversation::layout::LIST_MIN_COLUMNS,
+            94,
         )
     }
     pub(in crate::board) fn overview_usage_band(

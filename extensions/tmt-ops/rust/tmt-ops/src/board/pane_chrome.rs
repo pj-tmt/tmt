@@ -133,6 +133,17 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect, pane: Pane, title:
             line,
         ),
     );
+    content_area(area)
+}
+
+/// The exact content viewport used by frame paint and column admission.
+pub(super) fn content_area(area: Rect) -> Rect {
+    if area.height < 3 || area.width < 3 {
+        return area;
+    }
+    if !boxed(area) {
+        return Rect::new(area.x + 1, area.y + 1, area.width - 2, area.height - 1);
+    }
     // Content is inset by one cell from each side, unless the pane is too narrow to spare them.
     let inset = u16::from(area.width >= INSET_MIN_WIDTH);
     Rect::new(

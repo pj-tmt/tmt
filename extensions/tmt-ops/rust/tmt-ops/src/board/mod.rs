@@ -18,6 +18,7 @@ mod digest_matrix;
 mod discovery;
 mod divider;
 mod empty_state;
+mod exchange_matrix;
 mod exchange_view;
 mod filter_bar;
 #[cfg(test)]
@@ -526,7 +527,7 @@ fn session(
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
     labels_window: impl Fn(crate::config::DigestWindow),
-    usage_wants: impl Fn(Option<usage_report::Since>),
+    usage_wants: impl Fn(Option<usage_report::Request>),
     mut suspend: impl FnMut() -> io::Result<()>,
     mut reassert_mouse: impl FnMut() -> io::Result<()>,
     mut state: Option<&mut view_state::Session>,
@@ -548,7 +549,7 @@ fn session(
     let mut capture_lost = false;
     // The event that ended a wheel burst; it is the next turn's first event.
     let mut deferred: Option<BoardEvent> = None;
-    let mut wanted: Option<usage_report::Since> = None;
+    let mut wanted: Option<usage_report::Request> = None;
     let mut history_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
@@ -639,7 +640,7 @@ fn session(
         // The reader runs only while the panel is on screen, for its window.
         let want = app.usage_report_want();
         if want != wanted {
-            usage_wants(want);
+            usage_wants(want.clone());
             wanted = want;
         }
         let history = app.history_demand();
@@ -886,6 +887,7 @@ fn session(
             }
             Ok(BoardEvent::UsageReport(delivery)) => {
                 app.usage_report.apply(delivery);
+                app.workspace_reconcile();
                 dirty = true;
                 Effect::None
             }

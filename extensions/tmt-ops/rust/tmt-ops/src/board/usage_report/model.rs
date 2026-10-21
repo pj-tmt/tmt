@@ -1,45 +1,5 @@
-//! The usage report document as the board holds it: validated once, then shown
-//! as the supplier decided it. Nothing here reads Core or the clock.
-
-use serde_json::Value;
-
-const MAX: u64 = 9_007_199_254_740_991;
-
-/// The windows the report offers, as its `--since` takes them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Since {
-    #[default]
-    Day,
-    Week,
-    Month,
-}
-
-impl Since {
-    pub const ALL: [Self; 3] = [Self::Day, Self::Week, Self::Month];
-
-    pub fn text(self) -> &'static str {
-        match self {
-            Self::Day => "24h",
-            Self::Week => "7d",
-            Self::Month => "30d",
-        }
-    }
-
-    fn parse(text: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|since| since.text() == text)
-    }
-}
-
-/// One line's totals (`claude`, `gpt`, `other`, `unattributed`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Line {
-    pub name: String,
-    pub input: u64,
-    pub output: u64,
-    pub cached: u64,
-    pub seats: u64,
-    pub partial_seats: u64,
-}
+//! Validated, content-free Core observations for the shared TOK range.
+pub use crate::config::TokRange as Since;
 
 /// A name the report could not resolve is shown by the start of its UUID.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,18 +9,66 @@ pub struct Who {
     pub retired: bool,
 }
 
+/// One admitted hourly observation. Its clock is owned once by HourlySeries;
+/// cached/input/output are validated at acquisition, then reduced to visible TOK.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Point {
+    pub tokens: u64,
+    pub complete: bool,
+}
+impl Point {
+    pub fn total(&self) -> u64 {
+        self.tokens
+    }
+}
+/// A validated 24-hour window, never a collection of independent clocks.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HourlySeries {
+    pub from_ms: u64,
+    points: Option<Box<HourlyPoints>>,
+}
+/// Separate arrays avoid padding every token count with its coverage boolean.
+#[derive(Clone, Debug, PartialEq)]
+struct HourlyPoints {
+    tokens: [u64; 24],
+    complete: [bool; 24],
+}
+impl HourlySeries {
+    pub fn new(from_ms: u64, tokens: [u64; 24], complete: [bool; 24]) -> Self {
+        Self {
+            from_ms,
+            points: Some(Box::new(HourlyPoints { tokens, complete })),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.points.is_none()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = Point> + '_ {
+        self.points.iter().flat_map(|points| {
+            points
+                .tokens
+                .iter()
+                .zip(&points.complete)
+                .map(|(&tokens, &complete)| Point { tokens, complete })
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Seat {
+    /// Exact per-model input attribution, absent when the source cannot provide it.
+    pub model_inputs: Option<Vec<(String, u64)>>,
     pub who: Who,
     pub input: u64,
     pub output: u64,
     pub cached: u64,
-    /// The lines the seat's tokens belong to, as the supplier counted them.
-    pub lines: Vec<String>,
     /// Input plus output per bucket, oldest first.
-    pub series: Vec<u64>,
+    pub series: HourlySeries,
     pub covered_ms: u64,
     pub window_ms: u64,
+    pub from_ms: u64,
+    pub to_ms: u64,
+    pub observed_at_ms: u64,
     /// Where the seat's evidence begins inside the window; None from a supplier
     /// that does not report it.
     pub starts_at_ms: Option<u64>,
@@ -68,6 +76,10 @@ pub struct Seat {
 }
 
 impl Seat {
+    /// Incomplete zero is missing evidence, not a measured zero.
+    pub fn observed_total(&self) -> Option<u64> {
+        (self.complete || self.total() > 0).then(|| self.total())
+    }
     pub fn total(&self) -> u64 {
         self.input.saturating_add(self.output)
     }
@@ -79,32 +91,66 @@ pub struct Unavailable {
     pub reason: String,
 }
 
+/// Content-free volume. Only talk/reply are messages; retrieval and acknowledgement
+/// counts remain available without silently becoming messages in the matrix.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Limit {
-    pub window_minutes: u64,
-    pub used_percent: f64,
-    pub elapsed_percent: Option<f64>,
-    pub pace_delta_points: Option<f64>,
-    pub stale: bool,
-    pub seats: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct LimitUnavailable {
-    pub line: String,
-    pub reason: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Tally {
-    pub who: Who,
+pub struct Pair {
+    pub sender: Who,
+    pub recipient: Who,
+    pub kind: String,
     pub count: u64,
+}
+
+impl Pair {
+    pub fn is_message(&self) -> bool {
+        matches!(self.kind.as_str(), "talk" | "reply")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Traffic {
-    pub senders: Vec<Tally>,
-    pub recipients: Vec<Tally>,
+    pub maximum: u64,
+    pub since_ms: u64,
+    pub observed_at_ms: u64,
+    pub messages:
+        std::collections::BTreeMap<Option<String>, std::collections::BTreeMap<Option<String>, u64>>,
+}
+
+impl Traffic {
+    /// Normalize once at acquisition. Paint and each visible row only look up
+    /// an admitted sender's recipients, rather than rescanning the full flow.
+    pub fn from_pairs(
+        since_ms: u64,
+        observed_at_ms: u64,
+        pairs: impl IntoIterator<Item = Pair>,
+    ) -> Result<Self, String> {
+        let mut messages = std::collections::BTreeMap::<
+            Option<String>,
+            std::collections::BTreeMap<Option<String>, u64>,
+        >::new();
+        for pair in pairs.into_iter().filter(Pair::is_message) {
+            let count = messages
+                .entry(pair.sender.id)
+                .or_default()
+                .entry(pair.recipient.id)
+                .or_default();
+            *count = count
+                .checked_add(pair.count)
+                .ok_or("Exchange message count overflow.")?;
+        }
+        let maximum = messages
+            .values()
+            .flat_map(|recipients| recipients.values())
+            .copied()
+            .max()
+            .unwrap_or(0);
+        Ok(Self {
+            maximum,
+            since_ms,
+            observed_at_ms,
+            messages,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -119,202 +165,19 @@ pub struct Report {
     pub observed_at_ms: u64,
     /// The start of the window, None when no identity could be read.
     pub window_from_ms: Option<u64>,
-    pub lines: Vec<Line>,
     pub seats: Vec<Seat>,
     pub unavailable: Vec<Unavailable>,
-    pub limits: Vec<Limit>,
-    pub limits_unavailable: Vec<LimitUnavailable>,
     /// None when the supplier could not read the flow.
     pub exchange: Option<Traffic>,
     pub warnings: Vec<Warning>,
 }
 
-fn malformed() -> String {
-    "The usage report is malformed.".into()
-}
-
-fn number(value: &Value) -> Result<u64, String> {
-    value.as_u64().filter(|n| *n <= MAX).ok_or_else(malformed)
-}
-
-fn optional_number(value: &Value) -> Result<Option<u64>, String> {
-    if value.is_null() {
-        Ok(None)
-    } else {
-        number(value).map(Some)
-    }
-}
-
-fn text(value: &Value) -> Result<String, String> {
-    value.as_str().map(clean).ok_or_else(malformed)
-}
-
-fn clean(text: &str) -> String {
-    crate::board::notes::sanitize(text)
-}
-
-fn array<'a>(value: &'a Value, key: &str) -> Result<&'a Vec<Value>, String> {
-    value[key].as_array().ok_or_else(malformed)
-}
-
-fn who(value: &Value) -> Result<Who, String> {
-    let id = match &value["id"] {
-        Value::Null => None,
-        Value::String(id) => Some(clean(id)),
-        _ => return Err(malformed()),
-    };
-    let name = match &value["name"] {
-        Value::Null => None,
-        Value::String(name) => Some(clean(name)),
-        _ => return Err(malformed()),
-    };
-    Ok(Who {
-        id,
-        name,
-        retired: value["retired"].as_bool().ok_or_else(malformed)?,
-    })
-}
-
-fn percent(value: &Value) -> Result<f64, String> {
-    value
-        .as_f64()
-        .filter(|p| p.is_finite() && (-1000.0..=1000.0).contains(p))
-        .ok_or_else(malformed)
-}
-
-fn optional_percent(value: &Value) -> Result<Option<f64>, String> {
-    if value.is_null() {
-        Ok(None)
-    } else {
-        percent(value).map(Some)
-    }
-}
-
-fn seat(value: &Value) -> Result<Seat, String> {
-    let totals = &value["totals"];
-    let coverage = &value["coverage"];
-    Ok(Seat {
-        who: who(value)?,
-        input: number(&totals["input"])?,
-        output: number(&totals["output"])?,
-        cached: number(&totals["cached"])?,
-        lines: array(value, "lines")?
-            .iter()
-            .map(text)
-            .collect::<Result<_, _>>()?,
-        series: array(value, "series")?
-            .iter()
-            .map(|point| Ok(number(&point["input"])?.saturating_add(number(&point["output"])?)))
-            .collect::<Result<_, String>>()?,
-        covered_ms: number(&coverage["coveredMs"])?,
-        window_ms: number(&coverage["windowMs"])?,
-        starts_at_ms: optional_number(&coverage["startsAtMs"])?,
-        complete: coverage["complete"].as_bool().ok_or_else(malformed)?,
-    })
-}
-
-fn limit(value: &Value) -> Result<Limit, String> {
-    Ok(Limit {
-        window_minutes: number(&value["windowMinutes"]).and_then(|minutes| {
-            if minutes > 0 {
-                Ok(minutes)
-            } else {
-                Err(malformed())
-            }
-        })?,
-        used_percent: percent(&value["usedPercent"])?,
-        elapsed_percent: optional_percent(&value["elapsedPercent"])?,
-        pace_delta_points: optional_percent(&value["paceDeltaPoints"])?,
-        stale: value["stale"].as_bool().ok_or_else(malformed)?,
-        seats: array(value, "seats")?
-            .iter()
-            .map(text)
-            .collect::<Result<_, _>>()?,
-    })
-}
-
-fn tallies(value: &Value, key: &str) -> Result<Vec<Tally>, String> {
-    array(value, key)?
-        .iter()
-        .map(|row| {
-            Ok(Tally {
-                who: who(&row["participant"])?,
-                count: number(&row["count"])?,
-            })
-        })
-        .collect()
-}
-
 impl Report {
-    /// Version 1 documents only. Unknown additive fields are ignored; a field
-    /// this view shows that is missing or mistyped refuses the whole document.
-    pub fn parse(document: &Value) -> Result<Self, String> {
-        if document["version"] != 1 {
-            return Err("The usage report is not version 1.".into());
-        }
-        let usage = &document["usage"];
-        Ok(Self {
-            since: document["since"]
-                .as_str()
-                .and_then(Since::parse)
-                .ok_or_else(malformed)?,
-            observed_at_ms: number(&document["observedAtMs"])?,
-            window_from_ms: optional_number(&document["window"]["fromMs"])?,
-            lines: array(usage, "lines")?
-                .iter()
-                .map(|row| {
-                    Ok(Line {
-                        name: text(&row["line"])?,
-                        input: number(&row["totals"]["input"])?,
-                        output: number(&row["totals"]["output"])?,
-                        cached: number(&row["totals"]["cached"])?,
-                        seats: number(&row["seats"])?,
-                        partial_seats: number(&row["partialSeats"])?,
-                    })
-                })
-                .collect::<Result<_, String>>()?,
-            seats: array(usage, "seats")?
-                .iter()
-                .map(seat)
-                .collect::<Result<_, _>>()?,
-            unavailable: array(usage, "unavailable")?
-                .iter()
-                .map(|row| {
-                    Ok(Unavailable {
-                        who: who(row)?,
-                        reason: text(&row["reason"])?,
-                    })
-                })
-                .collect::<Result<_, String>>()?,
-            limits: array(document, "limits")?
-                .iter()
-                .map(limit)
-                .collect::<Result<_, _>>()?,
-            limits_unavailable: array(document, "limitsUnavailable")?
-                .iter()
-                .map(|row| {
-                    Ok(LimitUnavailable {
-                        line: text(&row["line"])?,
-                        reason: text(&row["reason"])?,
-                    })
-                })
-                .collect::<Result<_, String>>()?,
-            exchange: match &document["exchange"] {
-                Value::Null => None,
-                exchange => Some(Traffic {
-                    senders: tallies(exchange, "bySender")?,
-                    recipients: tallies(exchange, "byRecipient")?,
-                }),
-            },
-            warnings: array(document, "warnings")?
-                .iter()
-                .map(|row| {
-                    Ok(Warning {
-                        section: text(&row["section"])?,
-                        message: text(&row["message"])?,
-                    })
-                })
-                .collect::<Result<_, String>>()?,
-        })
+    /// Acquisition keeps UUIDs sorted once; visible lookups remain logarithmic.
+    pub fn seat(&self, id: &str) -> Option<&Seat> {
+        self.seats
+            .binary_search_by(|seat| seat.who.id.as_deref().cmp(&Some(id)))
+            .ok()
+            .map(|index| &self.seats[index])
     }
 }

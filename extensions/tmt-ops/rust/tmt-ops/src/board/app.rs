@@ -299,8 +299,8 @@ pub enum Choice {
     Rule,
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
-    /// The window the Digest tab's Usage report shows.
-    UsageReportSince(super::usage_report::Since),
+    /// The shared saved TOK range for Agents and Digest.
+    TokRange(crate::config::TokRange),
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
     ClearSearch,
@@ -1077,6 +1077,19 @@ impl App {
     }
 
     pub(in crate::board) fn overview_member_usage(&self, id: &str) -> Option<super::rate::Reading> {
+        if self.tok_range() != crate::config::TokRange::Hour {
+            let super::usage_report::View::Report(report) =
+                self.usage_report.view_for(self.tok_range())
+            else {
+                return None;
+            };
+            let seat = report.seat(id)?;
+            return Some(super::rate::Reading {
+                tokens: u128::from(seat.observed_total()?),
+                partial: !seat.complete,
+                span: seat.covered_ms,
+            });
+        }
         self.member_usage_observation(id, Instant::now())
             .map(|(_, reading)| reading)
     }
@@ -1987,9 +2000,7 @@ impl App {
                 if !policy.shown(crate::config::DigestPanel::List) {
                     collapsed.insert(Pane::Rows);
                 }
-                if !policy.side_shown() {
-                    collapsed.insert(Pane::Replies);
-                }
+                // Exchanges remain accessible when Details are hidden.
             }
         }
         collapsed
@@ -2719,6 +2730,29 @@ impl App {
                 to: send.name.clone(),
             }
         };
+        if self.shell.tab == super::shell::OpsTab::Digest
+            && matches!(verb, Verb::Talk | Verb::Reply)
+        {
+            // The admitted UUID remains the recipient; the existing conversation
+            // and draft owners move together to their Agents host.
+            self.shell.tab = super::shell::OpsTab::Agents;
+            self.right_tab = super::shell::RightTab::Talk;
+            self.workspace.selected = match &send.target {
+                RowTarget::Workspace(target) => Some(target.clone()),
+                _ => self.workspace.selected.clone(),
+            };
+            if let RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id, .. }) =
+                &send.target
+            {
+                if let Some(room) = room_id {
+                    self.workspace.expanded.insert(room.clone());
+                } else {
+                    self.workspace.pool_expanded = true;
+                }
+            }
+            self.workspace_reconcile();
+            self.focus = 1;
+        }
         let effect = self.ask(String::new(), compose, squad.clone());
         self.attach_row(send, squad);
         if verb == Verb::UpdateStatus {
@@ -2841,10 +2875,7 @@ impl App {
             Choice::Rule => Effect::None,
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
-            Choice::UsageReportSince(since) => {
-                self.usage_report.since = since;
-                Effect::None
-            }
+            Choice::TokRange(range) => self.select_tok_range(range),
             Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::ClearSearch => {
                 super::search_field::clear(&mut self.search, &mut self.searching);
@@ -4209,9 +4240,11 @@ impl App {
                 .find(|(area, _)| area.contains((event.column, event.row).into()))
                 .map(|(_, choice)| choice.clone());
             if let Some(choice) = strip {
-                // Scope controls and the savings figure work on every tab that paints them.
-                let visibility = matches!(choice, Choice::SavingsUnit | Choice::ClearSearch)
-                    || matches!(&choice, Choice::Action(action) if matches!(action.verb,
+                // Scope, range and savings controls work on every tab that paints them.
+                let visibility = matches!(
+                    choice,
+                    Choice::SavingsUnit | Choice::ClearSearch | Choice::TokRange(_)
+                ) || matches!(&choice, Choice::Action(action) if matches!(action.verb,
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {

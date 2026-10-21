@@ -68,9 +68,8 @@ clipped only by available width. Each query edit selects the first visible match
 Up/Down then move among its matches. Clearing retains the current exact row and
 squad occurrence, expands its group when needed, and scrolls it into view. A
 subsequent Escape uses the normal list behavior. No matches leave the previous
-pane visible as a read-only
-preview, without hidden-row actions, revealing hidden rooms or bypassing scope
-or the Pinned filter.
+pane visible as a read-only preview, without hidden-row actions, revealing hidden
+rooms or bypassing scope or the Pinned filter.
 While editing, match counts live on section rules. Committing moves the count
 into the shared field (`/ foo  3 of 23  ×`); × clears and closes through the same
 transition as Escape. The shared field reports distinct clipped clear geometry;
@@ -128,7 +127,10 @@ identities across memberships and include collapsed matching children, without
 building or sorting display rows. Binding resolution shares the existing immutable
 row scope and releases it before any input or model change. Explicit authored keys
 win; App retains the only search query and editing state.
-While focus is in a conversation, the selected agent's row (Agents tab tree and Overview agents list) takes the `conversation` tint and a bold name instead of the plain selection, with state colours unchanged; without background colours it is reverse video plus the bold name (`Look::conversation`, `tree_row::Row::in_conversation`).
+While focus is in a conversation, the selected agent's row takes the
+`conversation` tint and a bold name instead of the plain selection, with state
+colours unchanged. Without background colours it is reverse video plus the bold
+name (`Look::conversation`, `tree_row::Row::in_conversation`).
 `overview::monitor` caches canonical rows and the scoped numeric summary; acquired
 roster, preferences, label and meter/job updates invalidate it. Waiting membership
 occurrences are admitted before UUID deduplication, so an unobserved or nonwaiting
@@ -164,14 +166,15 @@ still refuse to widen.
 Agents Usage is a fixed full-width band reserved once before body placement; it yields to its one-line summary, then to nothing, when the two panes would no longer fit below it.
 Panels exposes Usage, its inline quota, the list, and the side column;
 retired Summary, Recent exchanges and table controls are absent. Agents section
-positions are fixed, while Digest keeps its independent ordered panels and Details
-switch. Timers are
+positions are fixed in both destinations. Digest retains chart/list/details
+visibility; obsolete status/usage/report IDs and ordering get located notices
+without rewriting authored values. Timers are
 a fixed Measure module. Persisted Config IDs and compare-and-save semantics remain with
 [config-and-effects](config-and-effects.md#views-pane-arrangements); unrelated
 preferences are retained. Hidden surfaces have no stale hits or clocks. Only
 explicit message focus reveals a configured-off Agents side column; Escape
-keeps the UUID draft. Hidden Digest Status still exposes failed/loading/stale
-observations.
+keeps the UUID draft. Digest always exposes failed/loading/stale observations;
+Exchanges remains reachable when Details is hidden.
 
 The narrow lower band places shared timer rows beside key/value, joined by
 divider. Timer rows show at most three soonest jobs from the acquired all-room cron
@@ -232,8 +235,12 @@ Attention keeps priority over a truncated named-layer caption.
 `workspace::render` projects the Agents tree through `tree_row`; `agents_focus`
 projects the selected member or squad through the shared board components.
 Conversation, editor, drafts, reply reader and Send keep their existing owners. Digest projects the
-supplier-owned status snapshot and UUID-deduplicated member list through
-`digest_dashboard`; the canonical roster owns membership and action admission.
+Core usage/traffic and supplier-owned Digest status through `digest_dashboard`:
+range summary, TOK-ranked table with read-only `all`, six-level 24-hour activity,
+Exchanges and details. Wide frames place Exchanges above details; narrower frames
+stack the table and details, with Tab exposing Exchanges. Enter on a real member
+opens its Agents Talk pane; `all` grants no recipient or Digest mutation.
+The canonical roster owns membership and action admission.
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message
 focuses the selected agent's conversation: a compact Agents tab shows the conversation
@@ -345,7 +352,7 @@ Missing windows, stale balances or insufficient rate evidence remain explicit.
 The Subscriptions panel ID controls these inline cells; Usage controls the section.
 At 103/148 columns the quota track occupies 37/49 cells plus its three-cell gap.
 Smaller widths admit complete fields or leave full values in the existing Details.
-Digest retains its independent held account meters and width rules.
+Digest leaves Allowance empty until its provider projection is implemented.
 
 Agents quota pace uses the last two hours of the actual clock, including the
 latest admitted observation and both horizon endpoints, independent of token
@@ -379,7 +386,7 @@ Agents retains provider rows when counts are missing or measured zero. With no
 observed token bucket, EmptyState paints one muted status in the trend track;
 provider names and available quotas remain, totals/shares are em dashes, and no
 axis, blank bar rows or invented unknown provider appears. Measured zero remains
-zero. Digest retains its existing summary collapse for nonpositive evidence. If
+zero. Digest opens this existing chart only while its controls have focus. If
 placement would leave fewer than six target rows, the chart collapses to one
 summary line. Its effective shortcut, summary click or Actions entry focuses the
 same controls; Enter opens the anchored dropdown. When the Usage band is omitted

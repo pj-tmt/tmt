@@ -581,6 +581,61 @@ pub mod screen {
             .remove_modifier(Modifier::DIM)
     }
 
+    fn rgb_fill(r: u8, g: u8, b: u8) -> Style {
+        let linear = |v: u8| {
+            let x = f64::from(v) / 255.0;
+            if x <= 0.04045 {
+                x / 12.92
+            } else {
+                ((x + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+        let foreground = if (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) {
+            ScreenColor::Black
+        } else {
+            ScreenColor::White
+        };
+        Style::new().bg(ScreenColor::Rgb(r, g, b)).fg(foreground)
+    }
+
+    /// Six neutral fills from the existing Track and Text endpoints. The
+    /// caller quantizes its observations to 0..=5; larger steps clamp to 5.
+    /// Custom endpoint hues are projected to grey, preserving this surface's
+    /// neutral meaning. The label uses the same contrast choice as other fills.
+    pub fn neutral_ramp(theme: &Theme, depth: Depth, step: u8) -> Style {
+        if depth == Depth::None || theme.base == super::Base::Mono {
+            return Style::new();
+        }
+        let step = usize::from(step.min(5));
+        let grey = |role| match theme.paint(role, Depth::TrueColor).color(Depth::TrueColor) {
+            Some(Color::Rgb(rgb)) => {
+                Some((u16::from(rgb.0) + u16::from(rgb.1) + u16::from(rgb.2)) / 3)
+            }
+            _ => None,
+        };
+        if depth == Depth::TrueColor
+            && let (Some(start), Some(end)) = (grey(Role::Track), grey(Role::Text))
+        {
+            let value = ((start * (5 - step as u16) + end * step as u16) / 5) as u8;
+            return rgb_fill(value, value, value);
+        }
+        let background = [
+            ScreenColor::Black,
+            ScreenColor::DarkGray,
+            ScreenColor::DarkGray,
+            ScreenColor::Gray,
+            ScreenColor::Gray,
+            ScreenColor::White,
+        ][step];
+        let foreground = if step < 3 {
+            ScreenColor::White
+        } else {
+            ScreenColor::Black
+        };
+        Style::new().bg(background).fg(foreground)
+    }
+
     /// A bar segment in the role's color, with a label color readable on it.
     /// Only TrueColor RGB paint is lightened; other depths preserve Solid.
     pub fn fill(theme: &Theme, role: Role, depth: Depth, fill: Fill) -> Style {
@@ -596,21 +651,7 @@ pub mod screen {
                 }
             };
             let (r, g, b) = (lighten(rgb.0), lighten(rgb.1), lighten(rgb.2));
-            let linear = |v: u8| {
-                let x = f64::from(v) / 255.0;
-                if x <= 0.04045 {
-                    x / 12.92
-                } else {
-                    ((x + 0.055) / 1.055).powf(2.4)
-                }
-            };
-            let luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
-            let foreground = if (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) {
-                ScreenColor::Black
-            } else {
-                ScreenColor::White
-            };
-            Style::new().bg(ScreenColor::Rgb(r, g, b)).fg(foreground)
+            rgb_fill(r, g, b)
         } else {
             Style::new().bg(color(paint))
         }

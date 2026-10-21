@@ -108,7 +108,7 @@ impl AgentsField {
             Self::Agent => "SQUAD / AGENT",
             Self::Model => "MODEL / NOW",
             Self::State => "STATE",
-            Self::Tokens => TOKENS_CAPTION,
+            Self::Tokens => crate::config::TokRange::Hour.caption(),
             Self::Cron => match glyphs {
                 crate::board::overview::cron_counts::GlyphSet::Unicode => "◷",
                 crate::board::overview::cron_counts::GlyphSet::Ascii => "CRON",
@@ -132,8 +132,6 @@ impl AgentsField {
         }
     }
 }
-
-pub const TOKENS_CAPTION: &str = "TOK 1h";
 
 #[derive(Default)]
 pub(in crate::board) struct AgentsLayout {
@@ -276,6 +274,7 @@ pub fn paint_agents_header(
     slots: &[(AgentsField, Rect)],
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
+    range: crate::config::TokRange,
 ) {
     if area.height == 0 {
         return;
@@ -283,6 +282,8 @@ pub fn paint_agents_header(
     for (field, slot) in slots {
         let caption = if *field == AgentsField::Agent {
             format!("  {}", field.caption(glyphs))
+        } else if *field == AgentsField::Tokens {
+            range.caption().to_owned()
         } else {
             field.caption(glyphs).to_owned()
         };
@@ -791,6 +792,7 @@ mod tests {
                     Rect { height: 2, ..area },
                     &slots,
                     look,
+                    Default::default(),
                     Default::default(),
                 );
                 assert_eq!(

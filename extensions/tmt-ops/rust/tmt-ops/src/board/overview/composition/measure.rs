@@ -125,7 +125,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         let text = |value: String| Line::styled(value, look.role(Role::Text));
         let tiles = [
             crate::board::stat_tiles::Tile {
-                label: "TOK 1h",
+                label: app.tok_range().caption(),
                 value: text(tokens),
                 detail: Line::default(),
             },

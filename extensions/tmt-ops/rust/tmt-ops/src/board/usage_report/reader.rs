@@ -1,18 +1,24 @@
-//! The reader thread: one report read in flight, started only while the panel
-//! is on screen. It never runs inside the refresh worker, so a slow supplier
+//! The reader thread: one observation read in flight while the saved TOK range
+//! is wanted by Agents or Digest. It never runs inside the refresh worker, so a slow supplier
 //! cannot hold up a reload, and the board never waits for it.
 
-use super::model::{Report, Since};
+use super::{
+    Request,
+    model::{Report, Since},
+};
 use crate::{core::Core, runner::Cancellation};
 use std::{
-    sync::mpsc::{self, RecvTimeoutError},
-    time::{Duration, Instant},
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, RecvTimeoutError},
+    },
+    time::Duration,
 };
 
 /// How the reader paces itself.
 #[derive(Clone, Copy, Debug)]
 pub struct Timing {
-    /// Between reads while the panel stays on screen.
+    /// Between reads while observations remain wanted.
     pub every: Duration,
     /// One read's limit.
     pub deadline: Duration,
@@ -38,54 +44,44 @@ pub struct Delivery {
 }
 
 enum Signal {
-    Want(Option<Since>),
+    Changed,
     Stop,
 }
 
-/// Tells the reader which window the panel shows, or that it is not on screen.
+#[derive(Default)]
+struct Demand {
+    request: Option<Request>,
+    cancellation: Cancellation,
+    stopped: bool,
+}
+
+/// Owns both the current demand and cancellation of its in-flight read.
 #[derive(Clone)]
-pub struct Wants(mpsc::Sender<Signal>);
+pub struct Wants {
+    signals: mpsc::Sender<Signal>,
+    demand: Arc<Mutex<Demand>>,
+}
 
 impl Wants {
-    pub fn set(&self, want: Option<Since>) {
-        let _ = self.0.send(Signal::Want(want));
+    pub fn set(&self, want: Option<Request>) {
+        let mut demand = self.demand.lock().expect("reader demand");
+        if demand.stopped || demand.request == want {
+            return;
+        }
+        demand.cancellation.cancel();
+        demand.cancellation = Cancellation::default();
+        demand.request = want;
+        let _ = self.signals.send(Signal::Changed);
     }
 }
 
 pub struct Reader {
-    cancellation: Cancellation,
-    signals: mpsc::Sender<Signal>,
+    wants: Wants,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
-/// Applies queued signals; `None` once the reader is told to stop.
-fn drain(
-    wake: &mpsc::Receiver<Signal>,
-    first: Option<Signal>,
-    want: &mut Option<Since>,
-) -> Option<bool> {
-    let mut changed = false;
-    for signal in first.into_iter().chain(wake.try_iter()) {
-        match signal {
-            Signal::Stop => return None,
-            Signal::Want(next) if next != *want => {
-                *want = next;
-                changed = true;
-            }
-            Signal::Want(_) => {}
-        }
-    }
-    Some(changed)
-}
-
-fn read(core: &Core, since: Since, deadline: Duration) -> Result<Report, String> {
-    let document = core
-        .json_within(
-            &["digest", "usage", "report", "--since", since.text()],
-            deadline,
-        )
-        .map_err(|error| error.message)?;
-    Report::parse(&document)
+fn read(core: &Core, request: &Request, deadline: Duration) -> Result<Report, String> {
+    super::acquire::read(core, request, deadline)
 }
 
 impl Reader {
@@ -96,72 +92,89 @@ impl Reader {
         timing: Timing,
         mut deliver: impl FnMut(Delivery) -> bool + Send + 'static,
     ) -> Self {
-        let cancellation = Cancellation::default();
-        let core = core.cancellable(cancellation.clone());
+        let core = core.clone();
         let (signals, wake) = mpsc::channel::<Signal>();
+        let demand = Arc::new(Mutex::new(Demand::default()));
+        let wants = Wants {
+            signals,
+            demand: Arc::clone(&demand),
+        };
         let thread = std::thread::spawn(move || {
-            let mut want: Option<Since> = None;
             let mut wait = timing.every;
             loop {
-                let Some(since) = want else {
-                    // Not on screen: no reads until the panel is wanted again.
-                    let Ok(signal) = wake.recv() else { return };
-                    if drain(&wake, Some(signal), &mut want).is_none() {
+                let (request, cancellation) = {
+                    let demand = demand.lock().expect("reader demand");
+                    if demand.stopped {
                         return;
+                    }
+                    (demand.request.clone(), demand.cancellation.clone())
+                };
+                let Some(request) = request else {
+                    // Not on screen: no reads until the panel is wanted again.
+                    match wake.recv() {
+                        Ok(Signal::Changed) => {}
+                        Ok(Signal::Stop) | Err(_) => return,
                     }
                     wait = timing.every;
                     continue;
                 };
-                let result = read(&core, since, timing.deadline);
-                match drain(&wake, None, &mut want) {
-                    None => return,
-                    Some(true) => {
-                        wait = timing.every;
-                        continue;
+                // Signals already represented by this demand need no further wake.
+                for signal in wake.try_iter() {
+                    if matches!(signal, Signal::Stop) {
+                        return;
                     }
-                    Some(false) => {}
                 }
+                let result = read(
+                    &core.cancellable(cancellation.clone()),
+                    &request,
+                    timing.deadline,
+                );
+                let current = demand.lock().expect("reader demand");
+                if cancellation.cancelled() {
+                    wait = timing.every;
+                    continue;
+                }
+                drop(current);
                 wait = if result.is_err() {
                     (wait * 2).min(timing.slowest)
                 } else {
                     timing.every
                 };
-                if !deliver(Delivery { since, result }) {
+                if !deliver(Delivery {
+                    since: request.since(),
+                    result,
+                }) {
                     return;
                 }
-                let end = Instant::now() + wait;
-                loop {
-                    match wake.recv_timeout(end.saturating_duration_since(Instant::now())) {
-                        Err(RecvTimeoutError::Timeout) => break,
-                        Err(RecvTimeoutError::Disconnected) => return,
-                        Ok(signal) => match drain(&wake, Some(signal), &mut want) {
-                            None => return,
-                            Some(true) => {
-                                wait = timing.every;
-                                break;
-                            }
-                            Some(false) => {}
-                        },
+                match wake.recv_timeout(wait) {
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => return,
+                    Ok(Signal::Stop) => return,
+                    Ok(Signal::Changed) => {
+                        wait = timing.every;
                     }
                 }
             }
         });
         Self {
-            cancellation,
-            signals,
+            wants,
             thread: Some(thread),
         }
     }
 
     pub fn wants(&self) -> Wants {
-        Wants(self.signals.clone())
+        self.wants.clone()
     }
 }
 
 impl Drop for Reader {
     fn drop(&mut self) {
-        self.cancellation.cancel();
-        let _ = self.signals.send(Signal::Stop);
+        {
+            let mut demand = self.wants.demand.lock().expect("reader demand");
+            demand.stopped = true;
+            demand.cancellation.cancel();
+        }
+        let _ = self.wants.signals.send(Signal::Stop);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }

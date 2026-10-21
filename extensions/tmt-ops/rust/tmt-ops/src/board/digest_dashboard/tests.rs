@@ -30,8 +30,8 @@ fn null_stats_keep_the_inherited_idle_setting_without_a_zero_count() {
     assert!(model::summary(&supplied, None).contains("held unavailable"));
     assert!(!model::summary(&supplied, None).contains("0 held"));
     let details = model::details(&supplied, MEMBER, 121_000, &jiff::tz::TimeZone::UTC);
-    assert!(details.iter().any(|s| s.contains("inherited default")));
-    assert!(details.iter().any(|s| s == "Auto: when idle"));
+    assert_eq!(details[0], "Digest: Auto ▾ · when idle (default)");
+    assert!(!details.iter().any(|s| s.starts_with("Setting:")));
     assert!(!details.iter().any(|s| s.starts_with("Next send")));
 }
 
@@ -186,12 +186,12 @@ fn shell_dashboard_keeps_the_same_identity_and_uses_the_supplied_picker() {
     press(&mut app, '2');
     assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Digest);
     assert_eq!(app.workspace.selected, selected);
-    assert_eq!(app.workspace_rows().len(), 1);
+    assert_eq!(app.workspace_rows().len(), 2);
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Digest"));
     assert!(shown.contains("Auto ▾"));
-    assert!(shown.contains("inherited default"));
-    assert!(shown.contains("Auto: when idle"));
+    assert!(shown.contains("Digest: Auto ▾ · when idle (default)"));
+    assert!(shown.contains("when idle (default)"));
     match press(&mut app, 'D') {
         Effect::Act(Request::DigestOpen(ask)) => {
             assert_eq!(ask.squad, "product");
@@ -249,7 +249,7 @@ fn quota_details_open_from_current_cells_and_menu_without_retargeting_or_replayi
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     let mut app = quota_board();
-    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
     app.limits = Some(vec![crate::board::limits::Standing {
         provider: crate::board::limits::Provider::named("claude"),
         latest: None,
@@ -387,7 +387,7 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
             .take(2)
             .enumerate()
         {
-            for tab in [OpsTab::Agents, OpsTab::Digest] {
+            for tab in [OpsTab::Agents] {
                 for width in [160, 140, 100, 80, 60] {
                     let mut app = quota_board();
                     app.shell.tab = tab;
@@ -581,7 +581,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     app.shell.tab = OpsTab::Digest;
     app.workspace.visibility.scope = vec![room];
     app.workspace_reconcile();
-    assert_eq!(app.workspace_rows().len(), 1);
+    assert_eq!(app.workspace_rows().len(), 2);
     assert_eq!(super::summary(&app), "Digest · 3 held");
     let mut captures = Vec::new();
     for (base, depth) in [
@@ -613,10 +613,10 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
                 text.contains("Digest · 3 held"),
                 "the scoped summary must actually paint"
             );
-            assert!(text.contains("Usage · global identities"));
+            assert!(text.contains("Range 1h"));
             assert!(
-                text.contains("Est. ctx avoided 24h: — (0 of 2)"),
-                "Usage estimates keep the global roster while held counts follow scope"
+                text.contains("TOK —"),
+                "TOK demand follows the shared range"
             );
             assert!(text.contains("Scope:"));
             captures.push(serde_json::json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":"Digest","mode":"scoped","lines":lines,
@@ -628,17 +628,25 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     }
     app.search = "outside".into();
     app.workspace_reconcile();
-    assert!(app.workspace_rows().is_empty());
+    assert_eq!(app.workspace_rows().len(), 1);
+    assert_eq!(app.workspace_rows()[0].target, OpsTarget::DigestAll);
     assert_eq!(super::summary(&app), "Digest · 0 held");
     assert!(
-        paint(&mut app, 100, 36).contains("Est. ctx avoided 24h: — (0 of 2)"),
-        "scoped search must not narrow the separately labeled global Usage estimate"
+        paint(&mut app, 100, 36).contains("Digest · 0 held"),
+        "empty scoped search retains only the read-only aggregate"
     );
     app.search.clear();
     app.workspace.visibility.scope.clear();
     app.workspace_reconcile();
-    assert_eq!(app.workspace_rows().len(), 2, "Digest ignores saved hiding");
-    assert_eq!(super::summary(&app), "Digest · 3 held");
+    assert_eq!(
+        app.workspace_rows().len(),
+        3,
+        "Digest ignores saved hiding and has one aggregate"
+    );
+    assert_eq!(
+        super::summary(&app),
+        "Digest · ≥3 observed held · 1 unknown"
+    );
 }
 
 #[test]
@@ -843,6 +851,15 @@ pub(in crate::board) fn savings_document() -> serde_json::Value {
 pub(in crate::board) fn savings_board() -> crate::board::app::App {
     let mut app = board();
     app.labels = crate::labels::Supplied::from_document("digest", &savings_document(), false);
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .tok_range = crate::config::TokRange::Day;
     app
 }
 
@@ -897,6 +914,15 @@ pub(in crate::board) fn valued_board() -> crate::board::app::App {
     let mut app = board();
     app.labels = crate::labels::Supplied::from_document("digest", &valued_document(), false);
     bind_unit_key(&mut app);
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .tok_range = crate::config::TokRange::Day;
     app
 }
 
@@ -1033,12 +1059,27 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     let mut app = valued_board();
     press(&mut app, '2');
     let shown = paint(&mut app, 200, 60);
+    let pane = app.conversation.borrow().pane.unwrap();
+    let cells: Vec<_> = shown.chars().collect();
+    let shown = cells
+        .chunks(200)
+        .map(|line| {
+            line[usize::from(pane.x)..usize::from(pane.right())]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .trim_matches('│')
+                .trim()
+                .to_owned()
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
     for expected in [
         "Prices as of 2026-10-14 · table 2026-10-14 · standard-base-input (uncached input, list price) · source: fetched",
         "claude-opus-5-5: $4.00 per 1M input tokens · https://example.test/anthropic-pricing",
         "gpt-6-sol: $2.00 per 1M input tokens",
         "Cost quote: $12.40 at list price · gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
-        "Share of input: 18.20% (18200 avoided of 100000 input tokens)",
+        "Share of input: 18% (18.2k of 100k input tokens)",
     ] {
         assert!(
             shown
@@ -1049,6 +1090,9 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
             "{expected}\n{shown}"
         );
     }
+    assert!(shown.contains("Supplier context avoided 24h: 18.2k · under 1 s"));
+    assert!(shown.contains("over 1–2 min"));
+    assert!(!shown.contains(" ms"));
     // The origin is the supplier's word: each known one is named, others are not.
     for (origin, shown_as) in [
         ("cached", Some("cached")),
@@ -1252,64 +1296,18 @@ fn member_savings_remain_visible_at_each_supported_width() {
 }
 
 #[test]
-fn digest_all_time_keeps_both_collection_dates_visible_at_narrow_widths() {
-    use crate::config::DigestWindow;
-    const SECOND: &str = "44444444-4444-4444-8444-444444444444";
-    let ms = |text: &str| text.parse::<jiff::Timestamp>().unwrap().as_millisecond() as u64;
-    for width in [60, 80, 100, 160] {
-        let mut app = savings_board();
-        app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
-        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-        workspace.preferences.digest_window = DigestWindow::AllTime;
-        workspace.roster.members.insert(
-            SECOND.into(),
-            OpsMember {
-                id: SECOND.into(),
-                name: "second".into(),
-                state: None,
-                waiting: false,
-                presence: None,
-                usage: None,
-                activity: Default::default(),
-            },
-        );
-        let mut document = savings_document();
-        document["observedAtMs"] = serde_json::json!(1_792_036_800_000u64);
-        let mut second = document["members"][0].clone();
-        second["identityId"] = serde_json::json!(SECOND);
-        document["members"].as_array_mut().unwrap().push(second);
-        for (row, start) in document["members"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .zip(["2026-10-01T15:00:00Z", "2026-10-08T15:00:00Z"])
-        {
-            row["savings"]["window"] = serde_json::json!("lifetime");
-            row["savings"]["fromMs"] = serde_json::json!(ms(start));
-            row["savings"]["throughMs"] = serde_json::json!(1_792_036_800_000u64);
-        }
-        app.labels = crate::labels::Supplied::from_document("digest", &document, false);
-        press(&mut app, '2');
-        let shown = paint(&mut app, width, 36);
-        assert!(
-            shown.contains("since Digest began recording"),
-            "width {width}: {shown}"
-        );
-        assert!(
-            shown.contains("10-02"),
-            "first collection date, width {width}: {shown}"
-        );
-        assert!(
-            shown.contains("10-09"),
-            "last collection date, width {width}: {shown}"
-        );
-        assert!(
-            shown
-                .lines()
-                .any(|line| line.contains("members started 10-02 to 10-09")),
-            "collection date range stays together, width {width}: {shown}"
-        );
-    }
+fn digest_shared_range_does_not_relabel_a_supplier_lifetime_estimate() {
+    let mut app = savings_board();
+    let mut document = savings_document();
+    document["members"][0]["savings"]["window"] = serde_json::json!("lifetime");
+    app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+    press(&mut app, '2');
+    let shown = paint(&mut app, 160, 44);
+    assert!(shown.contains("Est. ctx avoided 24h: —"), "{shown}");
+    assert!(
+        shown.contains("Supplier context avoided all time: 18.2k"),
+        "{shown}"
+    );
 }
 
 #[test]
@@ -1350,12 +1348,25 @@ fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
         .unwrap()
         .workspace
         .preferences = next;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .tok_range = crate::config::TokRange::Week;
     press(&mut app, '2');
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Est. ctx avoided 7d: — (0 of 1)"), "{shown}");
     assert!(
-        !shown.contains("18.2k"),
+        !shown.contains("Est. ctx avoided 7d: 18.2k"),
         "old-window estimate cannot become a new-window value"
+    );
+    assert!(
+        shown.contains("Supplier context avoided 24h: 18.2k"),
+        "the original source window remains inspectable"
     );
     assert_eq!(app.workspace.selected, selected);
 }
@@ -1509,208 +1520,33 @@ fn capture_savings_packet() {
 }
 
 #[test]
-fn moved_or_hidden_status_keeps_admitted_policy_geometry_bounded_at_every_size() {
-    use crate::config::{DigestPanel as Id, DigestPanels, PanelSetting, TokenRate};
+fn fixed_digest_layout_keeps_geometry_and_hits_bounded_at_tiny_sizes() {
     use ratatui::{Terminal, backend::TestBackend};
-    crate::status::with_now_ms(1_791_600_000_000, || {
-        let mut baseline_marks = std::collections::BTreeMap::new();
-        for status_position in [None, Some(2), Some(4)] {
-            for meter_configured in [false, true] {
-                for usage_shown in [false, true] {
-                    let mut app = board();
-                    app.shell.tab = crate::board::shell::OpsTab::Digest;
-                    app.labels = supplied(serde_json::json!(3), false);
-                    assert!(
-                        !app.loading(),
-                        "the policy sweep must use an admitted snapshot"
-                    );
-                    assert!(crate::tabs::aggregate(app.current.as_deref().unwrap()));
-                    let settings = TokenRate {
-                        enabled: meter_configured,
-                        ..TokenRate::default()
-                    };
-                    app.meter = Some(crate::board::meter::Meter::new(
-                        settings,
-                        &crate::board::rate::tests::input(100),
-                        std::time::Instant::now(),
-                    ));
-                    assert_eq!(
-                        app.meter.as_ref().unwrap().layout(160).is_some(),
-                        meter_configured
-                    );
-                    let mut policy = DigestPanels::default();
-                    if let Some(position) = status_position {
-                        for _ in 0..position {
-                            policy.move_panel(Id::Status, true);
-                        }
-                    } else {
-                        policy.set_shown(Id::Status, false).unwrap();
-                    }
-                    policy.set_shown(Id::Usage, usage_shown).unwrap();
-                    app.view
-                        .as_mut()
-                        .unwrap()
-                        .home
-                        .as_mut()
-                        .unwrap()
-                        .workspace
-                        .preferences
-                        .digest_panels = Some(PanelSetting::configured(policy));
-                    assert!(super::render::status_in_body(&app));
-                    for width in 0..=160 {
-                        for height in 0..=44 {
-                            let mut terminal =
-                                Terminal::new(TestBackend::new(width, height)).unwrap();
-                            terminal
-                                .draw(|frame| {
-                                    crate::board::view::prepare(&mut app, frame.area());
-                                    crate::board::view::render(frame, &app);
-                                })
-                                .unwrap();
-                            let marks = crate::board::view::time_marks(&app, 1_791_600_000_000);
-                            let key = (status_position, usage_shown, width, height);
-                            if meter_configured {
-                                assert_eq!(
-                                    baseline_marks.get(&key),
-                                    Some(&marks),
-                                    "configured sampling cannot add a named-meter clock"
-                                );
-                            } else {
-                                baseline_marks.insert(key, marks);
-                            }
-                            let text: String = terminal
-                                .backend()
-                                .buffer()
-                                .content
-                                .iter()
-                                .map(|cell| cell.symbol())
-                                .collect();
-                            assert!(
-                                !text.contains("no usage reported yet")
-                                    && !text.contains("Updating usage…"),
-                                "the named meter status is not admitted: {text}"
-                            );
-                            let area = ratatui::layout::Rect::new(0, 0, width, height);
-                            let state = app.conversation.borrow();
-                            assert_eq!(state.area.intersection(area), state.area);
-                            if let Some(pane) = state.pane {
-                                assert_eq!(pane.intersection(area), pane);
-                            }
-                            for hit in app.hits.borrow().iter() {
-                                assert!(
-                                    !matches!(hit.target, crate::board::app::HitTarget::Meter(_)),
-                                    "an aggregate snapshot cannot grant named-meter authority"
-                                );
-                                assert!(
-                                    hit.x.saturating_add(hit.width) <= width && hit.y < height,
-                                    "{status_position:?}/{meter_configured}/{usage_shown}/{width}x{height}: {hit:?}"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
-
-#[test]
-fn hiding_status_does_not_hide_a_failed_observation_or_retain_old_list_controls() {
-    use crate::config::{DigestPanel as Id, DigestPanels, PanelSetting};
+    let _no_commands = crate::runner::forbid_commands();
     let mut app = board();
     app.shell.tab = crate::board::shell::OpsTab::Digest;
     app.labels = supplied(serde_json::json!(3), false);
-    paint(&mut app, 160, 36);
-    assert!(!app.chip_hits.borrow().is_empty());
-    let selected = app.workspace.selected.clone();
-    let mut policy = DigestPanels::default();
-    policy.set_shown(Id::Status, false).unwrap();
-    policy.set_shown(Id::List, false).unwrap();
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .preferences
-        .digest_panels = Some(PanelSetting::configured(policy));
-    app.labels = Default::default();
-    app.invalidate_frame_geometry();
-    let text = paint(&mut app, 100, 18);
-    assert!(text.contains("Digest status unavailable"), "{text}");
-    assert!(app.chip_hits.borrow().is_empty());
-    assert_eq!(app.workspace.selected, selected);
-    assert!(!app.workspace_selection_visible());
-    assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
-}
-
-#[test]
-fn workspace_status_is_a_body_panel_and_keeps_the_shared_shell_unchanged() {
-    use crate::config::{DigestPanel as Id, DigestPanels, PanelSetting};
-    use ratatui::{Terminal, backend::TestBackend};
-    for width in [60, 100, 160] {
-        for position in [0, 1] {
-            let mut app = board();
-            app.shell.tab = crate::board::shell::OpsTab::Digest;
-            app.labels = supplied(serde_json::json!(3), false);
-            assert!(!app.loading());
-            let expected = super::summary(&app);
-            let mut policy = DigestPanels::default();
-            for _ in 0..position {
-                policy.move_panel(Id::Status, true);
-            }
-            app.view
-                .as_mut()
-                .unwrap()
-                .home
-                .as_mut()
-                .unwrap()
-                .workspace
-                .preferences
-                .digest_panels = Some(PanelSetting::configured(policy));
-            let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+    for width in [0, 1, 20, 59, 60, 80, 100, 144, 145, 160] {
+        for height in [0, 1, 4, 8, 12, 18, 24, 44] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal
                 .draw(|frame| {
                     crate::board::view::prepare(&mut app, frame.area());
                     crate::board::view::render(frame, &app);
                 })
                 .unwrap();
-            let lines = terminal
-                .backend()
-                .buffer()
-                .content
-                .chunks(usize::from(width))
-                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
-                .collect::<Vec<_>>();
-            let fitted = crate::board::view::fit(&expected, usize::from(width));
-            let matching = lines
-                .iter()
-                .enumerate()
-                .filter_map(|(row, line)| (line == &fitted).then_some(row))
-                .collect::<Vec<_>>();
-            assert_eq!(
-                matching.len(),
-                1,
-                "Status must appear exactly once at {width}: {lines:?}"
-            );
-            let status_y = matching[0];
-            let usage_y = lines
-                .iter()
-                .position(|line| line.starts_with("Usage · unique identities"))
-                .unwrap();
-            if position == 0 {
-                assert_eq!(status_y + 1, usage_y);
-            } else {
-                assert!(lines[usage_y + 2].starts_with("Est. ctx avoided"));
-                assert_eq!(usage_y + 3, status_y);
+            let area = ratatui::layout::Rect::new(0, 0, width, height);
+            let state = app.conversation.borrow();
+            assert_eq!(state.area.intersection(area), state.area);
+            if let Some(pane) = state.pane {
+                assert_eq!(pane.intersection(area), pane);
             }
-            assert!(
-                status_y >= 4,
-                "Status never replaces the four-row shell chrome"
-            );
-            assert!(lines[0].contains("OPS / UI"));
-            assert!(lines[2].contains("Agents") && lines[2].contains("Digest"));
+            for hit in app.hits.borrow().iter() {
+                assert!(
+                    hit.x.saturating_add(hit.width) <= width && hit.y < height,
+                    "{width}x{height}: {hit:?}"
+                );
+            }
         }
     }
 }
@@ -1811,4 +1647,93 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
             "hidden Details has no clock registration"
         );
     });
+}
+
+mod layout;
+
+#[test]
+fn legacy_panel_bytes_survive_details_toggle_and_picker_save() {
+    use crate::{
+        board::app::{Effect, Request},
+        config::Config,
+    };
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "digest-panel-save-{}-{}.toml",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    struct Remove(std::path::PathBuf);
+    impl Drop for Remove {
+        fn drop(&mut self) {
+            std::fs::remove_file(&self.0).unwrap();
+        }
+    }
+    let authored = "[workspace]\ndigest_panels = { order=['report','list','status','usage','subscriptions','chart'], hidden=['usage','chart'], details=false } # legacy\n";
+    std::fs::write(&path, authored).unwrap();
+    let _remove = Remove(path.clone());
+    let mut config = Config::read(path.clone()).unwrap();
+    let mut app = board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .configure(&config)
+        .unwrap();
+    press(&mut app, '2');
+    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) = press(&mut app, 'e')
+    else {
+        panic!("e must request a Config CAS");
+    };
+    config.save_workspace_preferences(&expected, &next).unwrap();
+    assert_eq!(
+        Config::read(path.clone())
+            .unwrap()
+            .workspace_preferences()
+            .unwrap(),
+        next,
+        "confirmed preferences must round-trip for the next CAS"
+    );
+    let toggled = std::fs::read_to_string(&path).unwrap();
+    assert!(toggled.contains("order=['report','list','status','usage','subscriptions','chart']"));
+    assert!(toggled.contains("hidden=['usage','chart']"));
+    assert!(toggled.contains("details=true } # legacy"));
+    app.finished_workspace_preferences(
+        Config::read(path.clone())
+            .unwrap()
+            .workspace_preferences()
+            .unwrap(),
+        "saved".into(),
+    );
+    app.open_panels();
+    // End selects Cancel, Up selects Save; confirm through the actual picker input.
+    app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+    else {
+        panic!("picker Save must request a Config CAS");
+    };
+    let mut config = Config::read(path.clone()).unwrap();
+    config.save_workspace_preferences(&expected, &next).unwrap();
+    assert!(std::fs::read_to_string(&path).unwrap().contains("digest_panels = { order=['report','list','status','usage','subscriptions','chart'], hidden=['usage','chart'], details=true } # legacy"));
+
+    // A fresh configuration must not acquire a retired order key from Save.
+    std::fs::write(&path, "[workspace]\n").unwrap();
+    let mut config = Config::read(path.clone()).unwrap();
+    let expected = config.workspace_preferences().unwrap();
+    let mut next = expected.clone();
+    next.digest_panels = Some(crate::config::PanelSetting::configured(Default::default()));
+    config.save_workspace_preferences(&expected, &next).unwrap();
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("order"));
+    assert!(
+        Config::read(path)
+            .unwrap()
+            .workspace_migration_notices()
+            .is_empty()
+    );
 }

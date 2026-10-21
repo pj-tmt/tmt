@@ -157,7 +157,7 @@ fn theme_and_panels_cannot_open_together() {
 }
 
 #[test]
-fn mouse_toggle_and_move_use_fresh_painted_rows_and_match_plain_keys() {
+fn mouse_toggle_uses_fresh_painted_rows_and_matches_plain_key() {
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -170,10 +170,8 @@ fn mouse_toggle_and_move_use_fresh_painted_rows_and_match_plain_keys() {
     keys.shell.tab = OpsTab::Digest;
     keys.open_panels();
     let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
-    for (label, code) in [
-        ("Status", KeyCode::Enter),
-        ("Move selected panel down", KeyCode::Char('d')),
-    ] {
+    {
+        let (label, code) = ("Subscription quota", KeyCode::Enter);
         terminal
             .draw(|frame| crate::board::view::render(frame, &mouse))
             .unwrap();
