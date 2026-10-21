@@ -156,10 +156,25 @@ Follow the [layout procedure](.agents/skills/tmt-layout/SKILL.md) when adding or
   dependency before expanding scope. Do not silently turn optional hardening into
   a milestone gate or declare unresolved blockers complete.
 
+## Host tmux safety
+
+The tmux server an agent runs in hosts the whole team; losing it stops every agent
+(#4189). This is a hard rule, not a test-quality preference:
+
+- Any test, fixture, script or experiment that starts or drives tmux runs with
+  `env -u TMUX -u TMUX_PANE`, uses its own `-S` socket in a private temp directory,
+  and asserts that socket is not the host default (`$TMUX_TMPDIR` or
+  `/private/tmp/tmux-$UID`, socket `default`) before any server command.
+- Never run `kill-server`, `kill-session`, `kill-window` or `kill-pane` on a server
+  that the same test did not create. Outside tests, use only `tmt` commands that
+  target your own pane, or names your lead gave you.
+- If a command reaches the host server by mistake, stop at once, tell your lead,
+  and do not retry. Change the approach, and get it reviewed, before continuing.
+
 ## Verification quality
 
 - Verify observable behavior and durable state, not only exit codes, log echoes, snapshots, or test counts.
 - Include representative success, failure, cleanup, and lifecycle cases for the changed behavior.
 - Prefer deterministic readiness signals and bounded polling over fixed sleeps.
-- Treat false positives, leaked processes, leaked tmux servers, non-isolated state, and any test that opens the host browser or touches the host tmux server or stores as test failures.
+- Treat false positives, leaked processes, leaked tmux servers, non-isolated state, and any test that opens the host browser or touches host stores as test failures; host tmux is covered by [Host tmux safety](#host-tmux-safety).
 - Run the repository checks relevant to every changed layer and report the exact commands and results.
