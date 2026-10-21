@@ -39,6 +39,28 @@ export function rememberPages(
   let spaces = cache.get(transport);
   if (!spaces) cache.set(transport, (spaces = new Map()));
   spaces.set(space, { state: 'ready', pages, opened: spaces.get(space)?.opened ?? NO_OPENED });
+  watchers
+    .get(transport)
+    ?.get(space)
+    ?.forEach((watcher) => watcher(pages));
+}
+const watchers = new WeakMap<
+  PageTransport,
+  Map<string | undefined, Set<(pages: readonly PageSummary[]) => void>>
+>();
+/** Calls `watcher` with each list this transport and space remembers from now on, so a view that
+ * only shows the list's data follows a read another view makes instead of making its own. */
+export function watchRememberedPages(
+  transport: PageTransport,
+  space: string | undefined,
+  watcher: (pages: readonly PageSummary[]) => void,
+): () => void {
+  let spaces = watchers.get(transport);
+  if (!spaces) watchers.set(transport, (spaces = new Map()));
+  let set = spaces.get(space);
+  if (!set) spaces.set(space, (set = new Set()));
+  set.add(watcher);
+  return () => void set.delete(watcher);
 }
 
 /**

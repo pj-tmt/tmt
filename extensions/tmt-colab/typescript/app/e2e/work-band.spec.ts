@@ -132,7 +132,7 @@ test('blocked, sign-off, follow-up page and tracker id each show where they belo
 test('a page that follows a task shows the way back above its summary', async ({ page }) => {
   const host = await mountBand(page, 'parent');
   const link = host.locator('.work-parent a');
-  await expect(link).toHaveText('Follows T-6 · Follow-up page for sizes');
+  await expect(link).toHaveText('Follow-up page for sizes › T-6');
   await expect(link).toHaveAttribute('href', /#\/pages\/2000/);
 });
 
@@ -149,7 +149,13 @@ async function mountRoute(
   page: Page,
   withWork: boolean,
   owner = false,
-  scenario?: 'linked-done' | 'linked-missing' | 'summary-only' | 'external',
+  scenario?:
+    | 'linked-done'
+    | 'linked-missing'
+    | 'summary-only'
+    | 'external'
+    | 'child'
+    | 'child-orphan',
 ) {
   await page.goto('/');
   await page.evaluate(
@@ -161,6 +167,36 @@ async function mountRoute(
   );
   await expect(page.locator('.page-header-actions:visible')).toBeVisible();
 }
+
+test('a child page names its parent page and task in the band header, with or without work', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await mountRoute(page, true, false, 'child');
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  const link = band.locator('.work-parent a');
+  await expect(link).toHaveText('Release plan › T-3');
+  await expect(link).toHaveAttribute('href', /#\/pages\/30000000-0000-4000-8000-000000000003/);
+  // The header line sits above the summary and adds no row to the actions.
+  const parent = (await band.locator('.work-parent').boundingBox())!;
+  const line = (await band.locator('.work-line1').boundingBox())!;
+  expect(parent.y + parent.height).toBeLessThanOrEqual(line.y);
+  expect(await band.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  // A page that never had work still shows where it belongs, and nothing else.
+  await mountRoute(page, false, false, 'child');
+  const bare = page.getByRole('region', { name: 'Work on this page' });
+  await expect(bare.locator('.work-parent a')).toHaveText('Release plan › T-3');
+  await expect(bare.locator('.work-line1')).toHaveText('Discussion');
+  await expect(bare.getByRole('button')).toHaveCount(0);
+});
+
+test('a parent the owner list does not name shows no breadcrumb', async ({ page }) => {
+  await mountRoute(page, true, false, 'child-orphan');
+  await expect(page.getByRole('region', { name: 'Work on this page' })).toBeVisible();
+  await expect(page.locator('.work-parent')).toHaveCount(0);
+  await mountRoute(page, false, false, 'child-orphan');
+  await expect(page.getByRole('region', { name: 'Work on this page' })).toHaveCount(0);
+});
 
 test('the page route draws the band under the header and follows live work', async ({ page }) => {
   await mountRoute(page, true);
@@ -403,7 +439,7 @@ for (const [width, height] of [
   [390, 844],
 ] as const) {
   for (const scheme of ['light', 'dark'] as const) {
-    test(`the owner's empty band and a followed page at ${width} in ${scheme}`, async ({
+    test(`the owner's empty band, a followed page and a child page at ${width} in ${scheme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height });
@@ -418,6 +454,12 @@ for (const [width, height] of [
         .getByRole('button', { name: 'Show 2 tasks' })
         .click();
       await page.screenshot({ path: capturePath(`work-followed-${width}-${scheme}.png`) });
+      await mountRoute(page, true, false, 'child');
+      await expect(page.locator('.work-parent a')).toHaveText('Release plan › T-3');
+      await page.screenshot({ path: capturePath(`work-child-${width}-${scheme}.png`) });
+      await mountRoute(page, false, false, 'child');
+      await expect(page.locator('.work-parent a')).toHaveText('Release plan › T-3');
+      await page.screenshot({ path: capturePath(`work-child-bare-${width}-${scheme}.png`) });
     });
   }
 }

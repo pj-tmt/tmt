@@ -874,8 +874,8 @@ controls, and the shared and hosted readers keep `ShellNotice`.
 
 ## The work band
 
-An ordinary page whose view carries `work` (`PageSnapshot.work`, then every live projection) draws
-`WorkBand` (`work-band.tsx`) in the page route between the link bar and the canvas, so it scrolls
+An ordinary page whose view carries `work` (`PageSnapshot.work`, then every live projection), or
+whose list row names a parent, draws `WorkBand` (`work-band.tsx`) in the page route between the link bar and the canvas, so it scrolls
 with the page and pushes it down when the list opens. The band itself is read-only: `derivedWork`
 gives the stage, progress, workers and sign-off count; `work-list.tsx` lists the tasks and
 `work-detail.tsx` shows one, with an `actions` slot, a `listActions` slot and an optional `parent`
@@ -890,10 +890,14 @@ answered by `workresult`; a lost reply is settled by one `savestatus`, never res
 applied locally: one action is in flight at a time, and the list changes when the page's own stream
 brings the commit back. A refusal (`COLAB_WIP_LIMIT`, `COLAB_STALE_BASE`, …) is told in the serve's
 words and changes nothing. A dashboard never draws it. The browser
-takes a followed page's stage from the owner list's summaries (`useLinkedStage`, `work-stages.ts`: the list
-the viewer last loaded, then one fresh read, and only when some task follows a page); a page the list
-does not name, or whose summary has not arrived, leaves its task showing its own stored state, as the
-page list does. A band with a summary and no task offers the owner the add-task field directly.
+takes a followed page's stage, and this page's parent, from the owner list's summaries
+(`useLinkedPages`, `work-stages.ts`: the list the viewer last loaded, followed as other views refresh
+it, plus one fresh read only when some task follows a page); a page the list does not name, or whose
+summary has not arrived, leaves its task showing its own stored state, as the page list does. The
+parent is the page's own row `summary.parent` and the parent row's title, drawn above the summary as
+`<parent title> › T-n` linking to the parent page; a parent the list does not name draws nothing, and
+nothing reads the parent page. A page without work draws the band only for that line. A band with a
+summary and no task offers the owner the add-task field directly.
 `work-people.tsx` is the one place an assignee is drawn (`AgentChip` for an agent).
 
 ## Short owner-page links
