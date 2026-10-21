@@ -357,6 +357,34 @@ test.describe('the door serving the TMT app', () => {
       ).not.toHaveAttribute('aria-disabled', 'true');
     });
 
+    test('a tab left open across a Colab upgrade shows the update row in the shell bar', async ({
+      page,
+    }) => {
+      const id = await door!.createPage('Upgrade page', '<h1>Upgrade content</h1>');
+      await door!.pair(page);
+      // The first read of the mount's entry (when Colab mounts) names this build; later reads
+      // name an upgraded one. Only fetches are rewritten, never a navigation.
+      let reads = 0;
+      await page.route(
+        (url) => url.pathname === new URL(door!.mount).pathname,
+        async (route) => {
+          if (route.request().isNavigationRequest() || reads++ === 0) return route.continue();
+          const response = await route.fetch();
+          const html = (await response.text()).replace(
+            /index-[A-Za-z0-9_-]{8}\.js/,
+            'index-NEWNEW34.js',
+          );
+          await route.fulfill({ response, body: html });
+        },
+      );
+      await page.goto(`${door!.origin}/colab/pages/${id}`);
+      await expect(page.locator('.colab-route')).toBeVisible();
+      const row = page.locator('.tmt-ui-shell-bar > [data-update-notice]');
+      await expect(row).toBeVisible();
+      await expect(row).toHaveAttribute('role', 'status');
+      expect(reads).toBeGreaterThanOrEqual(2);
+    });
+
     test('a Recent card on Home opens its page in the same document', async ({ page }) => {
       const id = await door!.createPage('Recent page', '<h1>Recent content</h1>');
       await door!.pair(page);

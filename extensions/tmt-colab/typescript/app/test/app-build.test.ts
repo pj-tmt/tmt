@@ -43,6 +43,29 @@ it('is stale only when two known builds differ, and tells subscribers once', asy
   expect(w.state.reads).toBe(1);
 });
 
+it('compares a build read when Colab mounted in the TMT app, and says nothing without one', async () => {
+  // Inside the TMT app the running build is the mount's entry read once at mount (a promise).
+  let served = '/r/abc/x/colab/assets/index-OLDOLD12.js';
+  const mounted = Promise.resolve(served);
+  const stale = createBuildWatch({
+    loaded: () => mounted,
+    served: async () => served,
+    now: () => 0,
+  });
+  expect(await stale.check()).toBe(false);
+  const later = createBuildWatch({
+    loaded: () => mounted,
+    served: async () => (served = '/r/abc/x/colab/assets/index-NEWNEW34.js'),
+    now: () => 0,
+  });
+  expect(await later.check()).toBe(true);
+  // Unpaired or unreadable at mount: no running build, so no row and no served read.
+  const read = vi.fn(async () => served);
+  const quiet = createBuildWatch({ loaded: async () => null, served: read, now: () => 0 });
+  expect(await quiet.check()).toBe(false);
+  expect(read).not.toHaveBeenCalled();
+});
+
 it('tells an upgrade from a different kind of page', () => {
   expect(isNewerBuild('/a/index-AAAAAAAA.js', '/a/index-BBBBBBBB.js')).toBe(true);
   expect(isNewerBuild('/a/index-AAAAAAAA.js', '/a/index-AAAAAAAA.js')).toBe(false);

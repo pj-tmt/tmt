@@ -2025,7 +2025,7 @@ for (const surface of ['Chat', 'annotation'] as const)
 
 // A tab that outlives an upgrade shows one row directly under the fixed header; the page
 // moves down by its height, so no control (Chat composer, annotate window) is covered.
-test('an upgraded server shows the update row under the header without covering page controls', async ({
+test('an upgraded server shows the update row in the shell bar without covering page controls', async ({
   page,
   context,
 }, testInfo) => {
@@ -2033,19 +2033,26 @@ test('an upgraded server shows the update row under the header without covering 
   const [oldEntry, newEntry] = [built('OLDOLD12'), built('NEWNEW34')];
   await draftRecoveryWire(context);
   let loaded = false;
-  await context.route(`**${mount}`, async (route) => {
-    const first = route.request().isNavigationRequest() && !loaded;
-    loaded ||= route.request().isNavigationRequest();
-    const response = await route.fetch();
-    const html = await response.text();
-    await route.fulfill({
-      response,
-      body: html.replace(
-        /\/src\/main\.tsx(?:\?[^"']*)?/,
-        `${first ? oldEntry : newEntry}?fixture=upgrade`,
-      ),
-    });
-  });
+  // The mount's old link moves to `/colab/`, so both documents load the old build; the server's
+  // later read of its mount names the new one.
+  await context.route(
+    (url) => url.pathname === mount || url.pathname === '/colab/',
+    async (route) => {
+      const first = route.request().isNavigationRequest() && !loaded;
+      loaded ||=
+        route.request().isNavigationRequest() &&
+        new URL(route.request().url()).pathname === '/colab/';
+      const response = await route.fetch();
+      const html = await response.text();
+      await route.fulfill({
+        response,
+        body: html.replace(
+          /\/src\/main\.tsx(?:\?[^"']*)?/,
+          `${first ? oldEntry : newEntry}?fixture=upgrade`,
+        ),
+      });
+    },
+  );
   for (const entry of [oldEntry, newEntry])
     // Vite may retain an HMR timestamp on the rewritten entry URL.
     await context.route(
@@ -2064,11 +2071,15 @@ test('an upgraded server shows the update row under the header without covering 
     await page.setViewportSize({ width, height: 900 });
     const rowBox = (await row.boundingBox())!;
     const headerBox = (await page.locator('header.tmt-ui-header').boundingBox())!;
-    // Directly under the header bar, full width, one line, pushing the page down.
+    const barBox = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
+    // Inside the TMT web shell the row is the shell bar's line directly under the header: as wide
+    // as Colab's column (the bar), one line, and the page starts below it.
     expect(rowBox.y).toBeCloseTo(headerBox.y + headerBox.height, 0);
-    expect(rowBox.width).toBeCloseTo(width, 0);
+    expect(rowBox.x).toBeCloseTo(barBox.x, 0);
+    expect(rowBox.width).toBeCloseTo(barBox.width, 0);
+    expect(rowBox.y + rowBox.height).toBeCloseTo(barBox.y + barBox.height, 0);
     expect(rowBox.height).toBe(40);
-    const mainBox = (await page.locator('main').boundingBox())!;
+    const mainBox = (await page.locator('.tmt-ui-shell-main').boundingBox())!;
     expect(mainBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
     // Chat open: the composer's actions stay reachable, not under the row.
     const toggle = await pageAction(page, 'Chat');

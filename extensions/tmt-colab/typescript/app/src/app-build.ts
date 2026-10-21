@@ -47,10 +47,22 @@ export function loadedEntry(root: Document = document): string | null {
   return pick([...scripts].map((script) => new URL(script.src, root.baseURI).pathname));
 }
 
-/** The build the server serves now: one uncached read of this app's root page. */
+/**
+ * Inside the TMT app the document is the app's, so the build this tab runs is the one its paired
+ * mount served when Colab mounted: one read then, kept for the tab's life. Unpaired (the local
+ * preview) or unreadable, there is none and the update row stays quiet.
+ */
+let mountedBuild: Promise<string | null> | undefined;
+export function rememberMountedBuild(): void {
+  mountedBuild ??= publicEntry() ? servedEntry().catch(() => null) : Promise.resolve(null);
+}
+function runningEntry(): string | null | Promise<string | null> {
+  return inShell() ? (mountedBuild ?? null) : loadedEntry();
+}
+
+/** The build the server serves now: one uncached read of this app's root page (inside the TMT
+ * app, of its paired mount). */
 async function servedEntry(): Promise<string | null> {
-  // Inside the TMT app the document is the app's, not Colab's; the app reloads it as a whole.
-  if (inShell()) return null;
   const root = publicEntry() ? entryMount() : new URL(location.href);
   root.hash = '';
   root.search = '';
@@ -112,7 +124,7 @@ async function serveRelease(): Promise<ServeRelease | null> {
 }
 
 export interface BuildSources {
-  loaded(): string | null;
+  loaded(): string | null | Promise<string | null>;
   served(): Promise<string | null>;
   /** Absent in tests that only cover the bundle comparison. */
   release?(): Promise<ServeRelease | null>;
@@ -126,7 +138,7 @@ export interface BuildSources {
  */
 export function createBuildWatch(
   sources: BuildSources = {
-    loaded: loadedEntry,
+    loaded: runningEntry,
     served: servedEntry,
     release: serveRelease,
     now: () => performance.now(),
@@ -150,7 +162,7 @@ export function createBuildWatch(
       checking = true;
       last = sources.now();
       try {
-        const loaded = sources.loaded();
+        const loaded = await sources.loaded();
         const served = loaded ? await sources.served().catch(() => null) : null;
         const release = (await sources.release?.().catch(() => null)) ?? null;
         stale = !!loaded && !!served && isNewerBuild(loaded, served);
