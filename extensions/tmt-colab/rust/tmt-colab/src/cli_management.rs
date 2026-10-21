@@ -1050,12 +1050,13 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             // A task that follows a page shows that page's stage; a page that is followed names the
             // task, so the list says it is part of another page's work.
             let graph = tmt_colab::work_links::Graph(&found);
+            let parents = graph.parents();
             for page in catalog["pages"].as_array_mut().into_iter().flatten() {
                 let id = page["pageId"].as_str().unwrap_or_default().to_owned();
                 if let Some(derived) = graph.derived(&id) {
                     page["work"] = derived;
                 }
-                if let Some((parent, task)) = graph.parent(&id) {
+                if let Some((parent, task)) = parents.get(&id) {
                     page["parent"] = json!({"page":parent,"task":task});
                 }
             }
