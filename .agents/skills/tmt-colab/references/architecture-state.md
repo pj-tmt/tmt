@@ -623,7 +623,8 @@ groups, reviews) from the admitted owner fold and `page_check::summary`'s static
 associations (200 ms projection bound), without executing authored code or trusting device labels.
 The shared needs-you vectors pin native/browser parity. A missing summary is unknown, never a false
 zero. Returning through the existing Home loader or reloading reads again; while a non-archived
-page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`).
+page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`;
+`rereadInPlace` puts the window back, since the router scrolls to the top when a load renders).
 
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
