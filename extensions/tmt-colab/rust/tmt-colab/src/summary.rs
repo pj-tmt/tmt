@@ -333,26 +333,28 @@ pub fn recent_first(
 
 /// Folds every stale page, `REFRESH_PAGES` at a time, until none is left that this drain has not
 /// tried. `order` reads the catalog again before each pass (newest first), so a page that changed
-/// during the drain is served next; a failure leaves a page without a fresh entry, and the drain
-/// never tries one page twice, so it always ends.
+/// before its turn is served at its new fingerprint next. A page is tried once per drain, by ID: a
+/// failure leaves it without a fresh entry, and one that changes after its fold (an agent keeps
+/// writing) waits for the next list read instead of keeping this drain folding it, so the drain
+/// ends after at most one fold per page.
 fn drain_with(
     cache: &SummaryCache,
     mut order: impl FnMut() -> Result<Vec<(String, String)>>,
     mut summarize: impl FnMut(&str, &str) -> Result<SummaryProjection>,
 ) {
-    let mut tried: HashSet<(String, String)> = HashSet::new();
+    let mut tried: HashSet<String> = HashSet::new();
     loop {
         let Ok(pages) = order() else { return };
         let batch: Vec<_> = cache
             .stale(&pages, usize::MAX)
             .into_iter()
-            .filter(|page| !tried.contains(page))
+            .filter(|(page, _)| !tried.contains(page))
             .take(REFRESH_PAGES)
             .collect();
         if batch.is_empty() {
             return;
         }
-        tried.extend(batch.iter().cloned());
+        tried.extend(batch.iter().map(|(page, _)| page.clone()));
         run(cache, &batch, &mut summarize);
     }
 }
@@ -745,6 +747,35 @@ mod tests {
         expected.extend(["p11:2", "p08:1", "p09:1", "p10:1"].map(str::to_owned));
         assert_eq!(calls, expected);
         assert!(cache.get("p11", "2").is_some());
+    }
+
+    #[test]
+    fn a_page_that_changes_on_every_pass_is_folded_once_and_the_drain_ends() {
+        let cache = SummaryCache::default();
+        let mut passes = 0;
+        let mut calls = Vec::new();
+        drain_with(
+            &cache,
+            || {
+                passes += 1;
+                // A runaway drain ends here instead of hanging the test.
+                if passes > 10 {
+                    return Err(crate::page::Fault::Unavailable.into());
+                }
+                // `busy` is written again before every read of the catalog: a new fingerprint each pass.
+                Ok(vec![
+                    ("busy".to_owned(), passes.to_string()),
+                    ("quiet".to_owned(), "1".to_owned()),
+                ])
+            },
+            |page, fingerprint| {
+                calls.push(format!("{page}:{fingerprint}"));
+                Ok(summary(1).into())
+            },
+        );
+        assert_eq!(calls, ["busy:1", "quiet:1"]);
+        // The pass that folded them and the pass that found `busy` already tried.
+        assert_eq!(passes, 2);
     }
 
     #[test]

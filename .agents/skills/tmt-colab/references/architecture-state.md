@@ -565,8 +565,9 @@ is added.
   single-flight background worker (`summary::drain`) over every stale page, most recently updated
   first (`recent_first`), reading that order again every `REFRESH_PAGES` pages; the worker folds
   through a second read-only `page::save::Source` (its own opener, `with_summary_source`), never
-  the request path's store, keyring or decoder. A failed or timed-out page keeps no summary, is
-  tried once per drain, and waits behind pages not yet tried at its fingerprint. The cached `work` is the page's own
+  the request path's store, keyring or decoder. A drain folds each page at most once (its `tried`
+  set is keyed by page ID, so a page an agent keeps writing cannot hold it): a failed or timed-out
+  page keeps no summary and waits behind pages not yet tried at its fingerprint. The cached `work` is the page's own
   (`work_index::page_work`, the same derivation the CLI index uses); the list read resolves each
   fresh page's row and parent across the fresh entries with `work_links::Graph`, so a followed
   page's stage is never cached. The same projection caches complete reading

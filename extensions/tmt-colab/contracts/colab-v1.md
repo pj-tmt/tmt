@@ -5088,10 +5088,11 @@ with the summaries that are fresh and omits `summary` for every other page; it n
 fold and shows no placeholder. It also schedules a refresh of every stale page, most recently
 updated first, run by one background worker, one page at a time, through the same materialize path
 and 2 s decoder deadline as `threads`; the worker reads the order again every 8 pages
-(`REFRESH_PAGES`), so a page that changed meanwhile is served next, and a read that finds a worker
-running schedules nothing. A page whose fold fails or times out stays without a summary, is not
-tried again in that run, and is tried on a later read after every page that has not failed at its
-fingerprint. A restart refills the cache lazily.
+(`REFRESH_PAGES`), so a page that changed before its turn is served next, and a read that finds a
+worker running schedules nothing. A run folds each page at most once: a page whose fold fails or
+times out stays without a summary, and one that changes after its fold waits for the next read,
+which tries the pages that have not failed at their fingerprint first. A restart refills the cache
+lazily.
 The cache holds each page's _own_ work (its derived values and, only when a task follows a page,
 its task lines); the effective `work` and `parent` are resolved from the fresh entries on every list
 read (`work_links.rs`) and never cached, because a page's stage changes when the page it follows
