@@ -312,11 +312,12 @@ fn target(path: &str) -> bool {
     if let Some(query) = path.strip_prefix("/pair?") {
         return query.bytes().all(|b| b.is_ascii_graphic() && b != b'#');
     }
-    // A short page link keeps its query in the redirect to the app, so the query is plain
-    // name=value text: no escapes, separators of other grammars or anything but unreserved bytes.
+    // A short page link keeps its query in the redirect to the app, and the app writes its own
+    // keys (`?open=`, `?read=`, `?anchor=`) onto its routes, so either query is plain name=value
+    // text: no escapes, separators of other grammars or anything but unreserved bytes.
     let path = match path.split_once('?') {
         Some((short, query))
-            if short.starts_with("/p/")
+            if (short.starts_with("/p/") || crate::pages::app_route(short))
                 && !query.is_empty()
                 && !query.contains("tmt-session")
                 && query.bytes().all(|b| {

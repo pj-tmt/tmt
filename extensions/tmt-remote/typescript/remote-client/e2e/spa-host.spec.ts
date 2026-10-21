@@ -176,11 +176,21 @@ test.describe('the door', () => {
   });
 
   test('keeps the strict request-target grammar in front of the fallback', async () => {
-    // A query, an escape or an empty inner segment is a malformed target (400),
-    // never the shell: the app's routes carry no query and the fallback stays an explicit list.
-    for (const path of ['/settings?section=modules', '/colab/a%2Fb', '/colab//x'])
+    // An escape, an empty inner segment or a query beyond plain name=value text is a malformed
+    // target (400), never the shell; the fallback stays an explicit list.
+    for (const path of [
+      '/settings?section=%2F',
+      '/colab/pages/abcd?read=a/b',
+      '/colab/pages/abcd?tmt-session=x',
+      '/colab/a%2Fb',
+      '/colab//x',
+    ])
       for (const method of ['GET', 'HEAD'])
         expect((await get(path, { method })).status, `${method} ${path}`).toBe(400);
+    // The app writes its own plain keys onto its routes (`?open=`, `?read=`, `?anchor=`), so a
+    // reload of such an address is the shell.
+    for (const path of ['/colab/pages/abcd?read=x', '/colab/p/abcd?open=1&a=b'])
+      expect((await get(path)).status, path).toBe(200);
   });
 
   test('redirects a short page link that carries a plain query', async () => {

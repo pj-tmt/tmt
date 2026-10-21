@@ -931,6 +931,36 @@ fn door_routes_legacy_pair_redirect_is_fixed_and_admitted_before_location() {
 }
 
 #[test]
+fn door_routes_app_routes_keep_the_app_plain_query() {
+    let h = Harness::new(FAST);
+    // A short link's query follows its redirect to an app route, which serves the shell with it.
+    let short = get(&h, "/p/abcd?open=1", "");
+    assert_eq!(short.status, 308);
+    let location = short.header("location").unwrap().to_owned();
+    assert_eq!(location, "/colab/p/abcd?open=1");
+    app_page(&h, &location, "");
+    // The app writes its own keys onto its routes; a reload asks the door for the same address.
+    for path in [
+        "/colab/pages/abcd?read=x",
+        "/colab/pages/abcd?anchor=a-1&read=r_2",
+        "/settings?tab=one",
+    ] {
+        app_page(&h, path, "");
+    }
+    // The same plain byte set as a short link: no escapes, session key or other separators.
+    for path in [
+        "/colab/pages/abcd?read=%2F",
+        "/colab/pages/abcd?tmt-session=x",
+        "/colab/pages/abcd?read=a/b",
+        "/colab/pages/abcd?",
+        "/home?read=x",
+        "/colab/a.b?read=x",
+    ] {
+        assert_ne!(get(&h, path, "").status, 200, "{path}");
+    }
+}
+
+#[test]
 fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move() {
     let h = Harness::new(FAST);
     // Every app route is the same shell document; the rail and Home's rows come from its script.
