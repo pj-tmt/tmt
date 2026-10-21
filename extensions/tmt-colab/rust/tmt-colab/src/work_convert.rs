@@ -116,6 +116,22 @@ mod tests {
     }
 
     #[test]
+    fn every_refusal_names_its_task_and_the_command_that_fixes_it() {
+        assert_eq!(
+            Blocked::Missing.message("T-9"),
+            "This page has no task T-9; tmt colab task ls shows its tasks."
+        );
+        assert_eq!(
+            Blocked::Follows.message("T-2"),
+            "T-2 already follows a page."
+        );
+        assert_eq!(
+            Blocked::External.message("T-3"),
+            "T-3 has an external ID, so it cannot follow a page; clear the ID first (tmt colab task set)."
+        );
+    }
+
+    #[test]
     fn the_first_text_is_the_escaped_title_and_detail_paragraphs() {
         assert_eq!(
             child_source("A <b> & \"c\"", "one\nline\n\n\n  two  "),
