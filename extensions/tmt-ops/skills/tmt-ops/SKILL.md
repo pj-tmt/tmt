@@ -904,7 +904,10 @@ notifies the lead; each management invocation handles at most 16 pending hooks.
 An open board keeps the clock running independently of its refresh setting.
 Outside a board, `tmt ops sq cron run` keeps it in the current pane; `clock` shows
 its pane, PID and how long it has held the lease. Only one clock holds the lease. Stop `run` with
-Ctrl-C; stale leases can be taken over. Startup and takeover begin at now, so
+Ctrl-C; stale leases can be taken over, and a running clock (a board or `run`) replaces
+a live lease held by an older Ops version, or by an Ops that predates the version field,
+whose holder then stops at its next renewal; a one-shot `tick` never displaces a clock.
+Startup and takeover begin at now, so
 slots missed while no clock was running are not caught up. A running clock
 admits slots since its previous tick, capped at five minutes. `tick` makes one
 pass over the last 60 seconds and refuses an active clock. Scheduled messages

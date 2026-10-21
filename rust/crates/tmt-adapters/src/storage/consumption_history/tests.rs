@@ -6,7 +6,14 @@ fn history_empty_and_missing_keep_complete_wire_shape() {
     let (_directory, path, id) = fixture();
     let mut storage = Storage::open(&path).unwrap();
     let response = storage
-        .consumption_history(&[id.clone(), "missing".into()], &[10000], 120, 15001, false)
+        .consumption_history(
+            &[id.clone(), "missing".into()],
+            &[10000],
+            120,
+            15001,
+            false,
+            None,
+        )
         .unwrap();
     assert_eq!(
         response,
@@ -27,6 +34,94 @@ fn history_empty_and_missing_keep_complete_wire_shape() {
             ]
         })
     );
+}
+
+/// A client carries the first batch's cut to its later batches (#4176): every
+/// window ends there, whatever the read time, exactly as an unpinned read at that
+/// moment would end it.
+#[test]
+fn a_pinned_cut_ends_every_window_there_whatever_the_read_time() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    for (from, input) in [(0, 1), (5000, 2), (10000, 3), (15000, 4), (20000, 99)] {
+        Bucket {
+            from,
+            input,
+            covered: 5000,
+            ..Bucket::default()
+        }
+        .write(storage.connection().unwrap(), FINE, &id)
+        .unwrap();
+    }
+    let ask = |storage: &mut Storage, now: u64, pin: Option<u64>| {
+        storage
+            .consumption_history(
+                std::slice::from_ref(&id),
+                &[15000, 5000],
+                120,
+                now,
+                false,
+                pin,
+            )
+            .unwrap()
+    };
+    let first = ask(&mut storage, 22_500, Some(15_000));
+    let later = ask(&mut storage, 26_000, Some(15_000));
+    assert_eq!(
+        (first["asOfMs"].as_u64(), later["asOfMs"].as_u64()),
+        (Some(22_500), Some(26_000))
+    );
+    assert_eq!(
+        (&first["throughMs"], &later["throughMs"]),
+        (&json!(15_000), &json!(15_000))
+    );
+    assert_eq!(
+        first["identities"], later["identities"],
+        "the read time is not part of the cut"
+    );
+    // The same as a read that happened at the cut, and it excludes what closed later.
+    assert_eq!(
+        first["identities"],
+        ask(&mut storage, 17_500, None)["identities"]
+    );
+    let windows = first["identities"][0]["windows"].as_array().unwrap();
+    assert_eq!(
+        windows
+            .iter()
+            .map(|w| w["toMs"].clone())
+            .collect::<Vec<_>>(),
+        [json!(15_000), json!(15_000)]
+    );
+    let total: u64 = windows[0]["buckets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|bucket| bucket["inputTokens"].as_u64().unwrap())
+        .sum();
+    assert_eq!(
+        total,
+        1 + 2 + 3,
+        "the buckets that closed after the cut are not counted"
+    );
+    // An unpinned read at the later time does see them.
+    let unpinned = ask(&mut storage, 26_000, None);
+    assert_eq!(unpinned["throughMs"], json!(25_000));
+    // A cut that is off the resolution or later than the read is refused here too.
+    for pin in [15_001, 25_000] {
+        assert!(
+            storage
+                .consumption_history(
+                    std::slice::from_ref(&id),
+                    &[5000],
+                    120,
+                    22_500,
+                    false,
+                    Some(pin)
+                )
+                .is_err(),
+            "{pin}"
+        );
+    }
 }
 
 #[test]
@@ -53,7 +148,14 @@ fn history_populated_windows_preserve_gaps_and_exact_boundaries() {
         .unwrap();
     }
     let response = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000, 5000], 2, 22500, false)
+        .consumption_history(
+            std::slice::from_ref(&id),
+            &[15000, 5000],
+            2,
+            22500,
+            false,
+            None,
+        )
         .unwrap();
     assert_eq!(
         response,
@@ -89,7 +191,7 @@ fn history_corrupt_retained_rows_outside_requested_window_still_fail() {
     .write(storage.connection().unwrap(), FINE, &id)
     .unwrap();
     let error = storage
-        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000, false)
+        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000, false, None)
         .unwrap_err();
     assert_eq!(error.code, StorageErrorCode::Corrupt);
     assert_eq!(error.message, "Invalid consumption history evidence");
@@ -122,7 +224,7 @@ fn shared_seed_fixture_excludes_open_counter() {
         .unwrap();
     }
     let response = storage
-        .consumption_history(&[id.to_owned()], &[15000], 120, 22500, false)
+        .consumption_history(&[id.to_owned()], &[15000], 120, 22500, false, None)
         .unwrap();
     assert_eq!(response, fixture["response"]);
     assert_eq!(
@@ -192,7 +294,7 @@ fn duplicate_read_is_zero_and_failure_never_bridges_coverage() {
     record_sample(connection, &id, Some(second), 12000).unwrap();
     record_sample(connection, &id, None, 13000).unwrap();
     let failed = storage
-        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false)
+        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false, None)
         .unwrap();
     assert_eq!(failed["identities"][0]["latest"], Value::Null);
     assert_eq!(failed["identities"][0]["lastSampleAtMs"], Value::Null);
@@ -208,7 +310,7 @@ fn duplicate_read_is_zero_and_failure_never_bridges_coverage() {
     )
     .unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false)
+        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false, None)
         .unwrap();
     let buckets = history["identities"][0]["windows"][0]["buckets"]
         .as_array()
@@ -249,7 +351,7 @@ fn rollback_discontinuity_and_expiry_are_fail_closed_and_bounded() {
     boundary.session = "other-session".into();
     record_sample(storage.connection().unwrap(), &id, Some(boundary), 11000).unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false)
+        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false, None)
         .unwrap();
     let row = &history["identities"][0]["windows"][0]["buckets"][1];
     assert_eq!(row["discontinuous"], true);
@@ -277,7 +379,7 @@ fn rollback_discontinuity_and_expiry_are_fail_closed_and_bounded() {
     let now = 15000 + 1443 * BUCKET_MS + HISTORY_MS + BUCKET_MS;
     let cursor = storage.change_cursor().unwrap();
     let expired = storage
-        .consumption_history(std::slice::from_ref(&id), &[3600000], 120, now, false)
+        .consumption_history(std::slice::from_ref(&id), &[3600000], 120, now, false, None)
         .unwrap();
     assert_eq!(expired["identities"][0]["reporting"], false);
     assert_eq!(expired["identities"][0]["latest"], Value::Null);
@@ -372,7 +474,7 @@ fn binding_and_preferences_cas_commits_counter_and_history_once() {
         latest(110, 55, 2, 11000).consumption
     ));
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false)
+        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false, None)
         .unwrap();
     let sum: u64 = history["identities"][0]["windows"][0]["buckets"]
         .as_array()
@@ -416,7 +518,7 @@ fn first_gap_baseline_retains_known_following_delta_without_claiming_coverage() 
     )
     .unwrap();
     let result = storage
-        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false)
+        .consumption_history(std::slice::from_ref(&id), &[10000], 120, 15000, false, None)
         .unwrap();
     let row = &result["identities"][0]["windows"][0]["buckets"][1];
     assert_eq!(row["inputTokens"], 10);
@@ -445,7 +547,7 @@ fn invalid_cached_delta_creates_gap_instead_of_freezing_future_reads() {
     next.consumption.cached_input_tokens = 1;
     record_sample(storage.connection().unwrap(), &id, Some(next), 16000).unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false)
+        .consumption_history(std::slice::from_ref(&id), &[15000], 120, 20000, false, None)
         .unwrap();
     let rows = history["identities"][0]["windows"][0]["buckets"]
         .as_array()
@@ -532,7 +634,7 @@ fn model_changes_in_one_sample_and_bucket_survive_reopen_aggregation_and_replay(
     storage.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[10000], 1, 15000, false)
+        .consumption_history(std::slice::from_ref(&id), &[10000], 1, 15000, false, None)
         .unwrap();
     let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
     assert_eq!(bucket["inputTokens"], 40);
@@ -585,7 +687,7 @@ fn unknown_attribution_never_labels_the_whole_mixed_bucket_with_the_last_model()
     )
     .unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 15000, false)
+        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 15000, false, None)
         .unwrap();
     let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
     assert_eq!(bucket["inputTokens"], 20);
@@ -618,7 +720,7 @@ fn from_driver(
 
 fn only_bucket(storage: &mut Storage, id: &str, window: u64, now: u64) -> Value {
     let history = storage
-        .consumption_history(&[id.to_owned()], &[window], 120, now, false)
+        .consumption_history(&[id.to_owned()], &[window], 120, now, false, None)
         .unwrap();
     history["identities"][0]["windows"][0]["buckets"][0].clone()
 }
@@ -701,7 +803,14 @@ fn a_restart_gap_keeps_the_older_tokens_under_their_driver() {
     counted.consumption.epoch = "44444444-4444-4444-8444-444444444444".into();
     record_sample(connection, &id, Some(counted), 26000).unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[25000], 120, 30_500, false)
+        .consumption_history(
+            std::slice::from_ref(&id),
+            &[25000],
+            120,
+            30_500,
+            false,
+            None,
+        )
         .unwrap();
     let buckets = history["identities"][0]["windows"][0]["buckets"]
         .as_array()
@@ -1075,7 +1184,7 @@ fn an_identity_that_reports_nothing_says_why_from_its_binding_alone() {
     let mut storage = Storage::open(&path).unwrap();
     let cause = |storage: &mut Storage| {
         let history = storage
-            .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000, false)
+            .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000, false, None)
             .unwrap();
         let entry = history["identities"][0].clone();
         assert_eq!(entry["found"], true);
@@ -1125,7 +1234,7 @@ fn a_reporting_or_unknown_identity_has_no_cause() {
     .unwrap();
     let missing = "ffffffff-ffff-4fff-8fff-ffffffffffff".to_owned();
     let history = storage
-        .consumption_history(&[id.clone(), missing], &[5000], 120, 20000, false)
+        .consumption_history(&[id.clone(), missing], &[5000], 120, 20000, false, None)
         .unwrap();
     assert_eq!(history["identities"][0]["reporting"], true);
     assert!(history["identities"][0].get("cause").is_none());
@@ -1178,7 +1287,7 @@ fn a_window_keeps_the_attributed_models_and_leaves_the_rest_unattributed() {
     read.consumption.delta_by_model = Some(vec![model_row("b", 5, 1, None)]);
     record_sample(connection, &id, Some(read), 21000).unwrap();
     let history = storage
-        .consumption_history(std::slice::from_ref(&id), &[15000], 1, 25_500, false)
+        .consumption_history(std::slice::from_ref(&id), &[15000], 1, 25_500, false, None)
         .unwrap();
     let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
     assert_eq!(bucket["inputTokens"], 35);

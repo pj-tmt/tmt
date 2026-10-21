@@ -21,7 +21,7 @@ use tmt_colab::{
     keyring::{Keyring, Layout},
     page::{self, Fault},
     store::{
-        Accepted, Envelope, Namespace, Store, StreamScope,
+        Accepted, Bootstrapped, Envelope, Namespace, Store, StreamScope,
         owner::{Device, Mutation, Recipient},
     },
     transitions::{DeviceRevoke, Engine, EpochAdvance},
@@ -85,6 +85,46 @@ impl OwnerDevice {
             })
             .unwrap();
         (seq, hash)
+    }
+    /// The checkpoint pair this device would publish after compacting its stream through `seq`
+    /// (whose head is `head`): everything it typed in the content namespace, nothing in its own.
+    fn checkpoint_pair(&self, f: &Fixture, seq: u64, head: [u8; 32]) -> Vec<Held> {
+        let state = |doc: &Doc| {
+            doc.transact()
+                .encode_state_as_update_v1(&StateVector::default())
+        };
+        [
+            (Namespace::Content, "content", state(&self.doc)),
+            (Namespace::Own, "own", state(&Doc::new())),
+        ]
+        .into_iter()
+        .map(|(namespace, name, plaintext)| {
+            let envelope = object::seal(
+                &object::Context {
+                    space: f.key.space_id.clone(),
+                    page: PAGE.into(),
+                    epoch: "1".into(),
+                    kind: "checkpoint".into(),
+                    namespace: name.into(),
+                    author_device: self.id.into(),
+                    membership_revision: "2".into(),
+                    stream_seq: seq.to_string(),
+                    prev_hash: head,
+                },
+                &[11; 32],
+                &self.signing,
+                &plaintext,
+            )
+            .unwrap();
+            Held {
+                namespace,
+                hash: envelope.hash().unwrap(),
+                previous: head,
+                bytes: envelope.to_json().unwrap(),
+                signer: None,
+            }
+        })
+        .collect()
     }
 }
 struct Fixture {
@@ -236,6 +276,32 @@ impl Fixture {
     }
     fn decoder(&self) -> Decoder {
         Decoder::with_config(support::decoder_config(BINARY.into())).unwrap()
+    }
+    /// Another machine of the same owner, started from what this one holds now: the same keys
+    /// and authority, this machine's own stream so far, and nothing it stores afterwards.
+    fn copy(&self) -> Self {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "cp-{}-copy-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let layout = Layout::open(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        for name in ["owner.key", "space.db"] {
+            let target = layout.directory.join(name);
+            fs::write(&target, fs::read(self.layout.directory.join(name)).unwrap()).unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let key = Keyring::open(&layout).unwrap();
+        let store = Store::open(&layout).unwrap();
+        Self {
+            root,
+            retain_diagnostic: false,
+            layout,
+            key,
+            store,
+        }
     }
     /// An owner-member device other than the local writer, as a browser paired through Remote or
     /// another machine's agent becomes one: its chain is issued by the owner's management member.
@@ -1973,6 +2039,275 @@ fn a_requested_compaction_folds_an_owner_devices_stream_and_an_edit_in_flight_su
     assert!(!last.compacted);
     assert_eq!(last.skipped, Some(page::compact::Skipped::NothingToCombine));
     assert_eq!(last.folded, []);
+}
+
+/// One object of a stream as the cloud hands it to a machine that holds none of that stream.
+struct Held {
+    namespace: Namespace,
+    hash: [u8; 32],
+    previous: [u8; 32],
+    bytes: Vec<u8>,
+    signer: Option<String>,
+}
+fn held_envelope<'a>(scope: StreamScope<'a>, seq: u64, held: &'a Held) -> Envelope<'a> {
+    Envelope {
+        scope,
+        namespace: held.namespace,
+        seq,
+        hash: held.hash,
+        previous: held.previous,
+        bytes: &held.bytes,
+    }
+}
+/// Start `stream` on `into` from a checkpoint pair at `seq`, the way the native cloud inbound does
+/// when the stream was compacted before it was first published.
+fn start_stream(into: &mut Fixture, stream: &str, seq: u64, anchor: Option<&Held>, pair: &[Held]) {
+    let scope = StreamScope {
+        page: PAGE,
+        epoch: 1,
+        stream,
+    };
+    let anchor = anchor.map(|held| held_envelope(scope, seq, held));
+    let objects: Vec<Bootstrapped> = pair
+        .iter()
+        .map(|held| Bootstrapped {
+            envelope: held_envelope(scope, seq, held),
+            signer: held.signer.as_deref(),
+        })
+        .collect();
+    assert_eq!(
+        into.store.bootstrap(anchor.as_ref(), &objects).unwrap(),
+        Accepted::New
+    );
+}
+/// The update of `stream` at `seq` that `from` holds, stored on `into` as the cloud's tail would be.
+fn deliver(from: &Fixture, into: &mut Fixture, stream: &str, seq: u64) {
+    let held = held_update(from, stream, seq);
+    into.store
+        .append(&Envelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream,
+            },
+            namespace: held.namespace,
+            seq,
+            hash: held.hash,
+            previous: held.previous,
+            bytes: &held.bytes,
+        })
+        .unwrap();
+}
+fn namespace_of(name: &str) -> Namespace {
+    if name == "own" {
+        Namespace::Own
+    } else {
+        Namespace::Content
+    }
+}
+/// The checkpoints (or folds) of `stream` at `seq` that `from` holds, as the cloud would hold them.
+fn held_checkpoints(from: &Fixture, stream: &str, seq: u64) -> Vec<Held> {
+    let db = from.sql();
+    let mut statement = db
+        .prepare(
+            "SELECT namespace, hash, head, payload, signer FROM checkpoints \
+             WHERE stream = ?1 AND seq = ?2 AND payload IS NOT NULL ORDER BY namespace",
+        )
+        .unwrap();
+    statement
+        .query_map([stream, &format!("{seq:020}")], |row| {
+            Ok(Held {
+                namespace: namespace_of(&row.get::<_, String>(0)?),
+                hash: row.get::<_, Vec<u8>>(1)?.try_into().unwrap(),
+                previous: row.get::<_, Vec<u8>>(2)?.try_into().unwrap(),
+                bytes: row.get(3)?,
+                signer: row.get(4)?,
+            })
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+/// The update `from` keeps at `seq` of `stream`, which a fold binds and a machine that starts from
+/// the fold needs.
+fn held_update(from: &Fixture, stream: &str, seq: u64) -> Held {
+    let db = from.sql();
+    let at = |seq: u64| {
+        db.query_row(
+            "SELECT namespace, hash, payload FROM receipts WHERE stream = ?1 AND seq = ?2",
+            [stream, &format!("{seq:020}")],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, Option<Vec<u8>>>(2)?,
+                ))
+            },
+        )
+        .unwrap()
+    };
+    let (namespace, hash, payload) = at(seq);
+    Held {
+        namespace: namespace_of(&namespace),
+        hash: hash.try_into().unwrap(),
+        previous: if seq == 1 {
+            [0; 32]
+        } else {
+            at(seq - 1).1.try_into().unwrap()
+        },
+        bytes: payload.unwrap(),
+        signer: None,
+    }
+}
+/// The page source the real `export` command writes.
+fn exported_source(f: &Fixture) -> Vec<u8> {
+    let output = f
+        .command()
+        .args(["export", PAGE, "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    fs::read(PathBuf::from(value["directory"].as_str().unwrap()).join("page.html")).unwrap()
+}
+
+#[test]
+fn a_stream_started_from_a_checkpoint_pair_reads_exports_and_compacts_like_the_machine_that_wrote_it()
+ {
+    let mut a = Fixture::new();
+    let mut other = a.owner_device(FOLDED, 21);
+    a.write("old 🐈\r\n<p>local</p>");
+    // The second machine starts here: the same authority and the same first write, none of the
+    // other device's stream.
+    let mut b = a.copy();
+    for i in 0..4 {
+        other.type_text(&mut a, &format!("[{i}]"));
+    }
+    let head = a
+        .store
+        .stream_head(StreamScope {
+            page: PAGE,
+            epoch: 1,
+            stream: FOLDED,
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(head.0, 4);
+    // The other device compacted before its first publication: the cloud holds only the pair.
+    start_stream(
+        &mut b,
+        FOLDED,
+        4,
+        None,
+        &other.checkpoint_pair(&a, 4, head.1),
+    );
+
+    // Reading and exporting give what the machine that holds every update gives.
+    let expected = a.read();
+    assert_eq!(b.read().source, expected.source);
+    assert!(expected.source.contains("[3]"));
+    assert_eq!(exported_source(&b), exported_source(&a));
+
+    // Compacting the second machine's own stream leaves the started stream as it is: it has no
+    // tail to combine, so nothing is folded and nothing fails.
+    let mut source = b.read().source;
+    for i in 0..4 {
+        source.push_str(&format!("<p>b{i}</p>"));
+        b.write(&source);
+    }
+    let rows = fold_rows(&b, FOLDED);
+    assert_eq!(rows.len(), 2, "both namespaces' checkpoints, at 4");
+    let report = request_compaction(&mut b);
+    assert!(report.compacted && report.skipped.is_none(), "{report:?}");
+    assert_eq!((report.folded.len(), report.unfolded), (0, 0), "{report:?}");
+    assert_eq!(fold_rows(&b, FOLDED), rows);
+    assert_eq!(b.read().source, source);
+
+    // The tail follows from the next sequence, and reads and exports the same again.
+    other.type_text(&mut a, "[tail]");
+    deliver(&a, &mut b, FOLDED, 5);
+    let after = b.read().source;
+    assert!(after.contains("[tail]") && after.contains("[3]") && after.contains("b3"));
+    assert_eq!(exported_source(&b), after.as_bytes());
+    // Now the stream has a tail, so this machine's fold combines it from the checkpoint the stream
+    // started with, and the page reads and exports the same afterwards.
+    let report = request_compaction(&mut b);
+    assert_eq!(
+        report.folded,
+        [page::owner_fold::Folded {
+            stream: FOLDED.into(),
+            through: 5,
+            merged_objects: 3
+        }],
+        "{report:?}"
+    );
+    assert_eq!(report.unfolded, 0);
+    assert_eq!(b.read().source, after);
+    assert_eq!(exported_source(&b), after.as_bytes());
+    assert_eq!(
+        retained(&b, FOLDED),
+        [(5, true)],
+        "only the fold's anchor is kept of a stream that started from a checkpoint"
+    );
+}
+
+#[test]
+fn a_stream_started_from_an_owner_fold_and_its_anchor_reads_exports_and_folds_again() {
+    let mut a = Fixture::new();
+    let mut other = a.owner_device(FOLDED, 21);
+    let receipt = a.write("old 🐈\r\n<p>local</p>");
+    let writer = receipt.publication.as_ref().unwrap().stream_id.clone();
+    let mut b = a.copy();
+    for i in 0..4 {
+        other.type_text(&mut a, &format!("[{i}]"));
+    }
+    // The first machine folds the other device's stream: the fold is the cloud's checkpoint, and
+    // the update it binds is the anchor.
+    assert_eq!(request_compaction(&mut a).folded.len(), 1);
+    let fold = held_checkpoints(&a, FOLDED, 4);
+    assert!(
+        !fold.is_empty()
+            && fold
+                .iter()
+                .all(|held| held.signer.as_ref() == Some(&writer))
+    );
+    let anchor = held_update(&a, FOLDED, 4);
+    start_stream(&mut b, FOLDED, 4, Some(&anchor), &fold);
+
+    assert_eq!(b.read().source, a.read().source);
+    assert_eq!(exported_source(&b), exported_source(&a));
+    assert_eq!(fold_rows(&b, FOLDED), fold_rows(&a, FOLDED));
+    assert_eq!(
+        retained(&b, FOLDED),
+        [(4, true)],
+        "the anchor, and no update before it"
+    );
+
+    // Nothing is left to combine, so compacting this machine's own stream leaves the fold alone.
+    let mut source = b.read().source;
+    for i in 0..4 {
+        source.push_str(&format!("<p>b{i}</p>"));
+        b.write(&source);
+    }
+    let rows = fold_rows(&b, FOLDED);
+    let report = request_compaction(&mut b);
+    assert!(report.compacted && report.skipped.is_none(), "{report:?}");
+    assert_eq!((report.folded.len(), report.unfolded), (0, 0), "{report:?}");
+    assert_eq!(fold_rows(&b, FOLDED), rows);
+    assert_eq!(b.read().source, source);
+
+    // The stream's next edit cites the fold's head: it follows, and the next fold supersedes the
+    // first one and moves the anchor, as on the machine that made the first.
+    other.type_text(&mut a, "[tail]");
+    deliver(&a, &mut b, FOLDED, 5);
+    let after = b.read().source;
+    assert!(after.contains("[tail]") && after.contains("b3"));
+    let report = request_compaction(&mut b);
+    assert_eq!(report.folded.len(), 1, "{report:?}");
+    assert_eq!(fold_rows(&b, FOLDED), [(5, Some(writer))]);
+    assert_eq!(retained(&b, FOLDED), [(4, false), (5, true)]);
+    assert_eq!(b.read().source, after);
+    assert_eq!(exported_source(&b), after.as_bytes());
 }
 
 #[test]

@@ -121,9 +121,25 @@ impl Dispatch for Scheduled<'_> {
     }
 }
 
-fn acquire(core: &Core, clock: &Clock, time: i64) -> Result<Option<Lease>, SquadError> {
+/// `preempt_older`: a clock that keeps running replaces an older Ops's live lease
+/// (#4107); a one-shot `tick` never displaces a running clock.
+fn acquire(
+    core: &Core,
+    clock: &Clock,
+    time: i64,
+    preempt_older: bool,
+) -> Result<Option<Lease>, SquadError> {
     let _migration = crate::migration::state_guard(core)?;
-    Ok(clock.acquire(time, std::process::id(), std::env::var("TMUX_PANE").ok())?)
+    let (pid, pane, build) = (
+        std::process::id(),
+        std::env::var("TMUX_PANE").ok(),
+        env!("CARGO_PKG_VERSION"),
+    );
+    Ok(if preempt_older {
+        clock.acquire_current(time, pid, pane, build)?
+    } else {
+        clock.acquire(time, pid, pane, build)?
+    })
 }
 /// The refusal when another clock owns the lease; it names that clock when its lease says who.
 fn occupied(clock: &Clock) -> SquadError {
@@ -218,7 +234,7 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
             json!({"action":"clock","complete":status != ClockStatus::Unknown,"clock":status_document(status)}),
         );
     }
-    let mut lease = acquire(core, &clock, now())?.ok_or_else(|| occupied(&clock))?;
+    let mut lease = acquire(core, &clock, now(), false)?.ok_or_else(|| occupied(&clock))?;
     let result = pass(
         core,
         config,
@@ -445,7 +461,7 @@ fn serve(
                 }
             }
             if lease.is_none() {
-                lease = match acquire(core, &clock, time) {
+                lease = match acquire(core, &clock, time, true) {
                     Ok(lease) => lease,
                     Err(error) if !foreground && error.code == "SQUAD_CRON_CLOCK_BUSY" => None,
                     Err(error) => return Err(error),

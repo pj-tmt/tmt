@@ -1997,6 +1997,255 @@ fn the_github_driver_pushes_a_task_once_and_syncs_done_from_merged_closures() {
 }
 
 #[test]
+fn a_task_follows_a_page_with_one_parent_and_no_loop_and_a_task_becomes_a_page() {
+    fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap()
+    }
+    fn call(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = run(pilot, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        assert!(out.stderr.is_empty(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+    fn refused(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = run(pilot, args);
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"].clone()
+    }
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("source.html");
+        fs::write(&source, "<h1>Plan</h1>").unwrap();
+        let create = |title: &str| {
+            call(
+                &pilot,
+                &[
+                    "page",
+                    "create",
+                    "--title",
+                    title,
+                    "--layout",
+                    "column",
+                    "--file",
+                    source.to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ],
+            )["pageId"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let (top, mid, leaf) = (create("Top"), create("Middle"), create("Leaf"));
+        for page in [&top, &mid, &leaf] {
+            call(&pilot, &["task", "add", page, "--title", "First", "--json"]);
+        }
+        call(
+            &pilot,
+            &["task", "add", &top, "--title", "Second", "--json"],
+        );
+        let tasks = |page: &str| call(&pilot, &["task", "ls", page, "--json"]);
+
+        // A task follows a page: it shows the page's stage as its state (the page's task is todo, so
+        // the page is in progress), and the page is listed as part of the task's page.
+        let linked = call(&pilot, &["task", "link", &top, "T-1", &mid, "--json"]);
+        assert!(linked["changed"].as_bool().unwrap());
+        let listed = tasks(&top);
+        assert_eq!(listed["work"]["tasks"]["T-1"]["child"], json!(mid));
+        assert_eq!(listed["work"]["tasks"]["T-1"]["state"], "todo");
+        assert_eq!(listed["derived"]["states"], json!({"T-1":"in-progress"}));
+        let rows = call(&pilot, &["ls", "--json"]);
+        let row = |id: &str| {
+            rows["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["pageId"] == id)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(row(&mid)["parent"], json!({"page":top,"task":"T-1"}));
+        assert!(row(&top).get("parent").is_none());
+        let text = String::from_utf8(run(&pilot, &["ls"]).stdout).unwrap();
+        assert!(text.contains("part of T-1 of"), "{text}");
+        let human = String::from_utf8(run(&pilot, &["task", "ls", &top]).stdout).unwrap();
+        assert!(human.contains("in-progress  follows"), "{human}");
+
+        // Linking the same page again changes nothing, and a second parent, a loop, itself and a
+        // page that is not there are each refused, naming why. The loop needs the chain top, middle,
+        // leaf first.
+        call(&pilot, &["task", "link", &mid, "T-1", &leaf, "--json"]);
+        let again = call(&pilot, &["task", "link", &top, "T-1", &mid, "--json"]);
+        assert!(!again["changed"].as_bool().unwrap());
+        for (args, words) in [
+            (
+                vec!["task", "link", &top, "T-2", &mid],
+                "already followed by T-1",
+            ),
+            (
+                vec!["task", "link", &leaf, "T-1", &top],
+                "would make a loop",
+            ),
+            (vec!["task", "link", &top, "T-2", &top], "own page"),
+            (
+                vec![
+                    "task",
+                    "link",
+                    &top,
+                    "T-2",
+                    "99999999-9999-4999-8999-999999999999",
+                ],
+                "not a page of this space",
+            ),
+        ] {
+            let mut args = args;
+            args.push("--json");
+            let error = refused(&pilot, &args);
+            assert_eq!(error["code"], "COLAB_LINK_REFUSED", "{args:?}");
+            assert!(
+                error["message"].as_str().unwrap().contains(words),
+                "{error}"
+            );
+        }
+        assert_eq!(
+            tasks(&top)["work"],
+            listed["work"],
+            "a refused link changes nothing"
+        );
+
+        // The state of a task that follows a page is not set by hand, and an external ID cannot join
+        // it.
+        assert_eq!(
+            refused(&pilot, &["task", "state", &top, "T-1", "done", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        let file = pilot.root.join("task.json");
+        fs::write(
+            &file,
+            json!({"title":"First","externalId":"#7"}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            refused(
+                &pilot,
+                &[
+                    "task",
+                    "set",
+                    &top,
+                    "T-1",
+                    "--file",
+                    file.to_str().unwrap(),
+                    "--json"
+                ]
+            )["code"],
+            "COLAB_INPUT_INVALID"
+        );
+
+        // The state follows all the way down: a finished leaf finishes the middle page and the
+        // task above it.
+        call(&pilot, &["task", "state", &leaf, "T-1", "done", "--json"]);
+        let done = tasks(&top);
+        assert_eq!(done["derived"]["states"], json!({"T-1":"done"}));
+        assert_eq!(done["derived"]["done"], 1);
+        assert_eq!(done["derived"]["stage"], "in-progress", "T-2 is still todo");
+        assert_eq!(row_of(&pilot, &mid)["work"]["stage"], "done");
+        // The task's own state is untouched underneath.
+        assert_eq!(done["work"]["tasks"]["T-1"]["state"], "todo");
+
+        // Unlinking shows the task's own state again, and the page is no longer a child.
+        call(&pilot, &["task", "unlink", &top, "T-1", "--json"]);
+        let free = tasks(&top);
+        assert!(free["work"]["tasks"]["T-1"].get("child").is_none());
+        assert!(free["derived"].get("states").is_none());
+        assert!(row_of(&pilot, &mid).get("parent").is_none());
+        call(
+            &pilot,
+            &["task", "state", &top, "T-1", "in-progress", "--json"],
+        );
+
+        // A task becomes a page of its own: a new page with its title and detail, linked.
+        let detail = pilot.root.join("detail.json");
+        fs::write(
+            &detail,
+            json!({"title":"Write <the> guide","detail":"First & foremost\n\nSecond line"})
+                .to_string(),
+        )
+        .unwrap();
+        call(
+            &pilot,
+            &[
+                "task",
+                "set",
+                &top,
+                "T-2",
+                "--file",
+                detail.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        let converted = call(&pilot, &["task", "convert", &top, "T-2", "--json"]);
+        let child = converted["childPage"].as_str().unwrap().to_owned();
+        assert_eq!(converted["taskId"], "T-2");
+        assert_eq!(tasks(&top)["work"]["tasks"]["T-2"]["child"], json!(child));
+        let source = call(&pilot, &["page", "read", &child, "--json"])["source"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            source,
+            "<h1>Write &lt;the&gt; guide</h1>\n<p>First &amp; foremost</p>\n<p>Second line</p>\n"
+        );
+        assert_eq!(row_of(&pilot, &child)["title"], "Write <the> guide");
+        assert_eq!(row_of(&pilot, &child)["parent"]["page"], json!(top));
+        // A task that follows a page is not pushed to GitHub: the page owns its state.
+        call(&pilot, &["settings", "github-repo", "pj-tmt/tmt", "--json"]);
+        let pushed = refused(&pilot, &["task", "github", "push", &top, "T-2", "--json"]);
+        assert_eq!(pushed["code"], "COLAB_INPUT_INVALID");
+        assert!(
+            pushed["message"]
+                .as_str()
+                .unwrap()
+                .contains("follows a page"),
+            "{pushed}"
+        );
+        // A task that already follows a page is not converted again, and no page is made for it.
+        let before = call(&pilot, &["ls", "--json"])["pages"]
+            .as_array()
+            .unwrap()
+            .len();
+        assert_eq!(
+            refused(&pilot, &["task", "convert", &top, "T-2", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(
+            call(&pilot, &["ls", "--json"])["pages"]
+                .as_array()
+                .unwrap()
+                .len(),
+            before
+        );
+    }
+    fn row_of(pilot: &Pilot, id: &str) -> Value {
+        call(pilot, &["ls", "--json"])["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["pageId"] == id)
+            .unwrap()
+            .clone()
+    }
+}
+
+#[test]
 fn work_commands_change_a_page_limit_each_agent_across_the_space_and_list() {
     fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {
         pilot

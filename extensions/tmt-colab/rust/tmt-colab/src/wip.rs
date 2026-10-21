@@ -36,7 +36,7 @@ impl Limits {
     }
 }
 
-/// The tasks an agent holds in one page's work, in task order.
+/// The tasks an agent holds in one page's work, in task order. A task that follows a page is not held.
 pub fn held(page: &str, work: &Value) -> Vec<Held> {
     let (Some(order), Some(tasks)) = (work["order"].as_array(), work["tasks"].as_object()) else {
         return Vec::new();
@@ -48,7 +48,9 @@ pub fn held(page: &str, work: &Value) -> Vec<Held> {
             let task = tasks.get(id)?;
             let assignee = &task["assignee"];
             let in_hand = matches!(task["state"].as_str(), Some("todo" | "in-progress"));
-            (in_hand && assignee["kind"] == "agent").then(|| Held {
+            // A task that follows a page is held where the work is, by that page's own tasks.
+            let own = task.get("child").is_none();
+            (own && in_hand && assignee["kind"] == "agent").then(|| Held {
                 agent: assignee["name"].as_str().unwrap_or_default().to_owned(),
                 page: page.to_owned(),
                 task: id.to_owned(),
@@ -135,6 +137,21 @@ mod tests {
         let mut person = work(&[("T-1", "todo", None)]);
         person["tasks"]["T-1"]["assignee"] = json!({"kind":"person","name":"ben"});
         assert!(held("p", &person).is_empty());
+    }
+
+    #[test]
+    fn a_task_that_follows_a_page_is_not_held() {
+        let mut page = work(&[
+            ("T-1", "todo", Some("ada")),
+            ("T-2", "in-progress", Some("ada")),
+        ]);
+        page["tasks"]["T-1"]["child"] = json!("20000000-0000-4000-8000-000000000001");
+        let tasks: Vec<_> = held("p", &page).into_iter().map(|h| h.task).collect();
+        assert_eq!(
+            tasks,
+            ["T-2"],
+            "the work is held where it is, in the page it follows"
+        );
     }
 
     #[test]

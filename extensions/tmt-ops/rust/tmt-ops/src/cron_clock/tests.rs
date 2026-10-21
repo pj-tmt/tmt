@@ -70,6 +70,7 @@ fn clock_status_projection_keeps_full_holder_evidence() {
         pid: 123,
         since_ms: 100,
         expires_ms: 30_100,
+        build: None,
     };
     assert_eq!(
         status_document(ClockStatus::Running(holder)),
@@ -96,8 +97,7 @@ fn clock_status_projection_keeps_full_holder_evidence() {
 fn clock_text_uses_relative_age_without_changing_exact_json_evidence() {
     let since_ms = 100_000;
     let document = json!({"action":"clock","clock":status_document(ClockStatus::Running(cron::Holder {
-        pane: Some("%41".into()), pid: 123, since_ms, expires_ms: 400_000,
-    }))});
+        pane: Some("%41".into()), pid: 123, since_ms, expires_ms: 400_000, build: None, }))});
     let unchanged = document.clone();
     let text = text_at(&document, Terminal::PLAIN, since_ms + 180_000);
     assert!(
@@ -190,7 +190,7 @@ fn scheduled_replay_and_lost_response_recover_one_anonymous_acceptance() {
     let f = Fixture::new();
     let job = minute_job(&f);
     let clock = Clock::new(&f.directory.join("ops")).unwrap();
-    let mut lease = acquire(&f.core, &clock, now()).unwrap().unwrap();
+    let mut lease = acquire(&f.core, &clock, now(), false).unwrap().unwrap();
     f.change_model(|model| model["loseResponse"] = json!(true));
     let cancellation = Cancellation::default();
     for attempt in 0..3 {
@@ -234,7 +234,7 @@ fn scheduled_admission_rejects_changed_revision_and_current_roster_loss() {
     let f = Fixture::new();
     let job = minute_job(&f);
     let clock = Clock::new(&f.directory.join("ops")).unwrap();
-    let mut lease = acquire(&f.core, &clock, now()).unwrap().unwrap();
+    let mut lease = acquire(&f.core, &clock, now(), false).unwrap().unwrap();
     let cancellation = Cancellation::default();
     let mut dispatcher = Scheduled {
         core: &f.core,
@@ -273,7 +273,9 @@ fn expired_lease_stops_scheduled_work_before_dispatch() {
     let f = Fixture::new();
     let job = minute_job(&f);
     let clock = Clock::new(&f.directory.join("ops")).unwrap();
-    let mut lease = acquire(&f.core, &clock, now() - 40_000).unwrap().unwrap();
+    let mut lease = acquire(&f.core, &clock, now() - 40_000, false)
+        .unwrap()
+        .unwrap();
     let cancellation = Cancellation::default();
     let mut dispatcher = Scheduled {
         core: &f.core,
@@ -399,7 +401,7 @@ fn standby_shutdown_cancels_an_inflight_root_read_without_releasing_another_hold
     let root = service::root(&f.core).unwrap();
     let clock = Clock::new(&root).unwrap();
     let lease = clock
-        .acquire(now(), 123, Some("%41".into()))
+        .acquire(now(), 123, Some("%41".into()), "0.1.0")
         .unwrap()
         .unwrap();
     let held = fs::read(root.join("cron/clock.json")).unwrap();
@@ -461,7 +463,7 @@ fn deferred_ui_workers_never_take_the_old_clock_and_migrate_without_stopping() {
     }
     let old_clock = Clock::new(&f.directory.join("squad")).unwrap();
     let old_lease = old_clock
-        .acquire(now(), 123, Some("%41".into()))
+        .acquire(now(), 123, Some("%41".into()), "0.1.0")
         .unwrap()
         .unwrap();
     let held = fs::read(f.directory.join("squad/cron/clock.json")).unwrap();
@@ -533,7 +535,7 @@ fn stopping_a_deferred_ui_worker_is_interruptible_and_preserves_the_old_holder()
         fs::remove_file(f.directory.join(name)).unwrap();
     }
     let old = Clock::new(&f.directory.join("squad")).unwrap();
-    let lease = old.acquire(now(), 123, None).unwrap().unwrap();
+    let lease = old.acquire(now(), 123, None, "0.1.0").unwrap().unwrap();
     let core = Core::at(f.core.executable().into());
     let config = Config::load(&core).unwrap();
     let mut worker = ClockWorker::spawn(core, config, false);
@@ -557,7 +559,7 @@ fn deferred_worker_shutdown_cancels_and_joins_an_inflight_migration_read() {
         fs::remove_file(f.directory.join(name)).unwrap();
     }
     let old = Clock::new(&f.directory.join("squad")).unwrap();
-    let lease = old.acquire(now(), 123, None).unwrap().unwrap();
+    let lease = old.acquire(now(), 123, None, "0.1.0").unwrap().unwrap();
     let core = Core::at(f.core.executable().into());
     let config = Config::load(&core).unwrap();
     f.change_model(|model| model["blockOn"] = json!("storage.root"));

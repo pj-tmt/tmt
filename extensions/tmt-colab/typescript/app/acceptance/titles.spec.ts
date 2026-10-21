@@ -21,15 +21,28 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
       await expect(header.locator('.tmt-ui-mark')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       if (screen === 'page') {
-        const chip = header.locator('.page-sharing');
-        if (width === 390) await expect(chip).toBeHidden();
-        else {
-          await expect(chip).toHaveText('Private · Live');
-          expect(await chip.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-        }
-        await expect(header.locator('.page-header-actions').getByRole('button')).toHaveCount(
-          width === 390 ? 2 : 5,
+        const connection = header.locator('.page-connection');
+        await expect(connection).toHaveText('Private · Live');
+        expect((await connection.boundingBox())!.width).toBeLessThanOrEqual(1);
+        const actions = header.getByRole('navigation', { name: 'Page actions' });
+        await expect(actions.getByRole('button')).toHaveCount(3);
+        for (const name of [/^Discussion \(/, 'Agents', 'More'])
+          await expect(actions.getByRole('button', { name, exact: true })).toBeInViewport();
+        await expect(
+          header.getByRole('button', { name: 'Search pages', exact: true }),
+        ).toBeInViewport();
+        const more = actions.getByRole('button', { name: 'More', exact: true });
+        await more.click();
+        const menu = actions.getByRole('menu');
+        for (const name of [/^Share…/, /^Remote:/, /^Files \(/, 'Source'])
+          await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
+        await expect(menu.getByRole('menuitem', { name: /^Share…/ })).toContainText(
+          'Private · Live',
         );
+        await page.screenshot({ path: testInfo.outputPath(`page-more-${width}-${theme}.png`) });
+        await page.keyboard.press('Escape');
+        await expect(menu).toHaveCount(0);
+        await expect(more).toBeFocused();
       }
       await page.screenshot({
         path: testInfo.outputPath(`one-row-${screen}-${width}-${theme}.png`),

@@ -27,9 +27,27 @@ Every change applies to the page's current revision, or to `--expected-revision`
 `COLAB_STALE_BASE` means the page changed, so read it again. An invalid value refuses the whole
 change.
 
+## Follow a page
+
+A task can follow another page, so one piece of work becomes a page of its own:
+
+```sh
+tmt colab task convert PAGE T-3 --json   # makes a page from the task and links it; prints childPage
+tmt colab task link PAGE T-3 CHILD --json
+tmt colab task unlink PAGE T-3 --json
+```
+
+A task that follows a page shows that page's stage: `todo` while the page has no task, `in-progress`
+while it has, `done` when all of them are (`in-review` instead if the task needs sign-off). You
+cannot set its state; `task ls` shows the states it follows. A page has one parent, and a link that
+would make a loop is refused as `COLAB_LINK_REFUSED` naming why. A task cannot follow a page and have
+an external ID. If `convert` fails after making the page, it prints the page and the `task link`
+command that finishes the job; do not run `convert` again.
+
 ## Limit
 
-An agent holds a task while it is assigned to it and the task is `todo` or `in-progress`, and holds
+An agent holds a task while it is assigned to it and the task is `todo` or `in-progress` (a task that
+follows a page is not held), and holds
 at most its limit across all pages (1 unless set). A change that would exceed it is refused as
 `COLAB_WIP_LIMIT` naming the agent and its tasks: finish, block or reassign one first. A person
 changes the limit with `tmt colab settings wip-limit [AGENT] N`; do not raise it yourself to get past a

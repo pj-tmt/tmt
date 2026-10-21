@@ -514,7 +514,7 @@ test('harness: a failed Live check attaches the closed header state and keeps it
       .attachments.filter((attachment) => attachment.name === 'colab-live-state')
       .map((attachment) => JSON.parse(attachment.body!.toString('utf8')));
   const header = (label: string) =>
-    `<span class="chip page-sharing status"><span class="status-label">${label}</span></span>`;
+    `<span class="status page-connection"><span class="status-label">${label}</span></span>`;
   await page.setContent(`${header('Live')}<iframe></iframe>`);
   await expectLive(page, 300);
   expect(attached()).toEqual([]);
@@ -534,14 +534,14 @@ test('harness: a failed Live check attaches the closed header state and keeps it
   ]);
 });
 
-// A stopped preview names its renderer stop kind in the failure line, which the hosted log keeps.
-test('harness: a stopped preview names whether the renderer timed out or navigated', async ({
+// A stopped preview names its renderer notice without inferring an unobserved cause.
+test('harness: a stopped preview names its renderer notice without inferring the cause', async ({
   page,
 }) => {
   const stopped = (notice: string) =>
-    `<span class="chip page-sharing status"><span class="status-label">Preview stopped</span></span><p>${notice}</p>`;
+    `<span class="status page-connection"><span class="status-label">Preview stopped</span></span><p>${notice}</p>`;
   await page.setContent(stopped(text.failed));
-  await expect(expectLive(page, 300)).rejects.toThrow(/ · renderer stop mount-deadline$/);
+  await expect(expectLive(page, 300)).rejects.toThrow(/ · renderer stop failed$/);
   await page.setContent(stopped(text.navigation));
   await expect(expectLive(page, 300)).rejects.toThrow(/ · renderer stop navigation$/);
   await page.setContent(stopped(''));

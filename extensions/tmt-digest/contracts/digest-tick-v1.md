@@ -139,6 +139,15 @@ evidence. Retention and the byte budget are otherwise the
 [history store](digest-v1.md#history)'s. A record that cannot be written is reported
 after the minute like a collection failure and never blocks or retries delivery.
 
+## Tick liveness
+
+An admitted run records its start time in `<dataRoot>/digest/tick.json`
+(`{"version":1,"lastAtMs":N}`, private permissions, replaced atomically) as soon as it
+holds the tick lock, so [status](digest-v1.md) can show whether ticks are running at all.
+A failed write leaves the previous record and never fails the tick. The record is
+Digest's own state: Ops, the scheduler and Core neither write nor read it, and it grants
+no delivery eligibility.
+
 Tick success produces no stdout. Invalid settings, unavailable Core, lock errors
 and incomplete Core responses return a human error and nonzero status. There is
 no long-lived service or board dependency.

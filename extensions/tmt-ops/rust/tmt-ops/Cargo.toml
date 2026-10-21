@@ -28,6 +28,7 @@ clap.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 toml_edit.workspace = true
+semver.workspace = true
 ratatui.workspace = true
 pulldown-cmark.workspace = true
 unicode-width = { workspace = true, features = ["cjk"] }

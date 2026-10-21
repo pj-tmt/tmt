@@ -10,6 +10,7 @@ fn running() -> ClockStatus {
         pane: Some("%41".into()),
         since_ms: TEST_NOW,
         expires_ms: TEST_NOW + 5_000,
+        build: None,
     })
 }
 #[test]

@@ -1,7 +1,7 @@
 {
   "format": "tmt-colab-work",
   "version": 1,
-  "description": "Closed work values (an ordinary page's summary and task list), detached actions and the derived values, shared by the native and browser validators. Attribution comes from the write owner and appears only in the stored summary; the work-in-progress limit is the write owner's admission rule and appears in no vector.",
+  "description": "Closed work values (an ordinary page's summary and task list), detached actions and the derived values, shared by the native and browser validators. Attribution comes from the write owner and appears only in the stored summary; the work-in-progress limit and the link admission (one parent, no loop, a page that exists) are the write owner's rules and appear in no vector. A case may carry `stages`, the stage of each page its tasks follow, which `derived` is computed with.",
   "cases": [
     {
       "name": "empty",
@@ -2697,6 +2697,926 @@
       },
       "action": "summary.clear",
       "body": {},
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "task following a page",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": true,
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"todo\",\"title\":\"Build\"}},\"version\":1}",
+      "derived": {
+        "stage": "in-progress",
+        "done": 0,
+        "total": 1,
+        "working": [],
+        "signoff": 0
+      }
+    },
+    {
+      "name": "child with an external id",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001",
+            "externalId": "#4118"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "child that is not a page id",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "not-a-page"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "child in upper case",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "2000000A-0000-4000-8000-00000000000A"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "null child",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": null
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "empty child",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": ""
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "tasks follow the stage of their pages",
+      "document": {
+        "version": 1,
+        "next": 6,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          },
+          "T-2": {
+            "title": "Under way",
+            "state": "todo",
+            "assignee": {
+              "kind": "agent",
+              "name": "feat-2"
+            },
+            "child": "20000000-0000-4000-8000-000000000002"
+          },
+          "T-3": {
+            "title": "Signed",
+            "state": "todo",
+            "needsSignoff": true,
+            "child": "20000000-0000-4000-8000-000000000003"
+          },
+          "T-4": {
+            "title": "Finished",
+            "state": "in-progress",
+            "child": "20000000-0000-4000-8000-000000000004"
+          },
+          "T-5": {
+            "title": "Unknown page",
+            "state": "in-progress",
+            "child": "20000000-0000-4000-8000-000000000005"
+          }
+        },
+        "order": [
+          "T-1",
+          "T-2",
+          "T-3",
+          "T-4",
+          "T-5"
+        ]
+      },
+      "valid": true,
+      "canonical": "{\"next\":6,\"order\":[\"T-1\",\"T-2\",\"T-3\",\"T-4\",\"T-5\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"todo\",\"title\":\"Build\"},\"T-2\":{\"assignee\":{\"kind\":\"agent\",\"name\":\"feat-2\"},\"child\":\"20000000-0000-4000-8000-000000000002\",\"state\":\"todo\",\"title\":\"Under way\"},\"T-3\":{\"child\":\"20000000-0000-4000-8000-000000000003\",\"needsSignoff\":true,\"state\":\"todo\",\"title\":\"Signed\"},\"T-4\":{\"child\":\"20000000-0000-4000-8000-000000000004\",\"state\":\"in-progress\",\"title\":\"Finished\"},\"T-5\":{\"child\":\"20000000-0000-4000-8000-000000000005\",\"state\":\"in-progress\",\"title\":\"Unknown page\"}},\"version\":1}",
+      "derived": {
+        "stage": "in-progress",
+        "done": 1,
+        "total": 5,
+        "working": [
+          {
+            "kind": "agent",
+            "name": "feat-2"
+          }
+        ],
+        "signoff": 1,
+        "states": {
+          "T-1": "todo",
+          "T-2": "in-progress",
+          "T-3": "in-review",
+          "T-4": "done"
+        }
+      },
+      "stages": {
+        "20000000-0000-4000-8000-000000000001": "discussion",
+        "20000000-0000-4000-8000-000000000002": "in-progress",
+        "20000000-0000-4000-8000-000000000003": "done",
+        "20000000-0000-4000-8000-000000000004": "done"
+      }
+    },
+    {
+      "name": "all pages done finish the page",
+      "document": {
+        "version": 1,
+        "next": 3,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          },
+          "T-2": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000002"
+          }
+        },
+        "order": [
+          "T-1",
+          "T-2"
+        ]
+      },
+      "valid": true,
+      "canonical": "{\"next\":3,\"order\":[\"T-1\",\"T-2\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"todo\",\"title\":\"Build\"},\"T-2\":{\"child\":\"20000000-0000-4000-8000-000000000002\",\"state\":\"todo\",\"title\":\"Build\"}},\"version\":1}",
+      "derived": {
+        "stage": "done",
+        "done": 2,
+        "total": 2,
+        "working": [],
+        "signoff": 0,
+        "states": {
+          "T-1": "done",
+          "T-2": "done"
+        }
+      },
+      "stages": {
+        "20000000-0000-4000-8000-000000000001": "done",
+        "20000000-0000-4000-8000-000000000002": "done"
+      }
+    },
+    {
+      "name": "a page nobody can read leaves the stored state",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Kept",
+            "state": "done",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": true,
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"done\",\"title\":\"Kept\"}},\"version\":1}",
+      "derived": {
+        "stage": "done",
+        "done": 1,
+        "total": 1,
+        "working": [],
+        "signoff": 0
+      },
+      "stages": {}
+    },
+    {
+      "name": "a stage that is not a stage leaves the stored state",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Kept",
+            "state": "done",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": true,
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"done\",\"title\":\"Kept\"}},\"version\":1}",
+      "derived": {
+        "stage": "done",
+        "done": 1,
+        "total": 1,
+        "working": [],
+        "signoff": 0
+      },
+      "stages": {
+        "20000000-0000-4000-8000-000000000001": "archived"
+      }
+    },
+    {
+      "name": "a stored state is ignored while the page is known",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Ignored",
+            "state": "done",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "valid": true,
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"done\",\"title\":\"Ignored\"}},\"version\":1}",
+      "derived": {
+        "stage": "in-progress",
+        "done": 0,
+        "total": 1,
+        "working": [],
+        "signoff": 0,
+        "states": {
+          "T-1": "in-progress"
+        }
+      },
+      "stages": {
+        "20000000-0000-4000-8000-000000000001": "in-progress"
+      }
+    },
+    {
+      "name": "link a task to a page",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.link",
+      "body": {
+        "taskId": "T-1",
+        "pageId": "20000000-0000-4000-8000-000000000001"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"todo\",\"title\":\"Build\"}},\"version\":1}"
+    },
+    {
+      "name": "link to the same page again changes nothing",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.link",
+      "body": {
+        "taskId": "T-1",
+        "pageId": "20000000-0000-4000-8000-000000000001"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"todo\",\"title\":\"Build\"}},\"version\":1}"
+    },
+    {
+      "name": "link refuses a second page",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.link",
+      "body": {
+        "taskId": "T-1",
+        "pageId": "20000000-0000-4000-8000-000000000002"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "link refuses a task with an external id",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "externalId": "#1"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.link",
+      "body": {
+        "taskId": "T-1",
+        "pageId": "20000000-0000-4000-8000-000000000001"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "link refuses an unknown task",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.link",
+      "body": {
+        "taskId": "T-9",
+        "pageId": "20000000-0000-4000-8000-000000000001"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "link refuses a page that is not an id",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.link",
+      "body": {
+        "taskId": "T-1",
+        "pageId": "page"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "link refuses a missing page",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.link",
+      "body": {
+        "taskId": "T-1"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "link refuses an extra field",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.link",
+      "body": {
+        "taskId": "T-1",
+        "pageId": "20000000-0000-4000-8000-000000000001",
+        "title": "x"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "unlink",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.unlink",
+      "body": {
+        "taskId": "T-1"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"state\":\"todo\",\"title\":\"Build\"}},\"version\":1}"
+    },
+    {
+      "name": "unlink an unlinked task changes nothing",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.unlink",
+      "body": {
+        "taskId": "T-1"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"state\":\"todo\",\"title\":\"Build\"}},\"version\":1}"
+    },
+    {
+      "name": "unlink refuses an extra field",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.unlink",
+      "body": {
+        "taskId": "T-1",
+        "pageId": "20000000-0000-4000-8000-000000000001"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "unlink refuses an unknown task",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.unlink",
+      "body": {
+        "taskId": "T-9"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "state refuses a linked task",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.state",
+      "body": {
+        "taskId": "T-1",
+        "state": "done"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "set keeps the link",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001",
+            "detail": "old"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.set",
+      "body": {
+        "taskId": "T-1",
+        "title": "New",
+        "detail": "new"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "New",
+            "state": "todo",
+            "detail": "new",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"child\":\"20000000-0000-4000-8000-000000000001\",\"detail\":\"new\",\"state\":\"todo\",\"title\":\"New\"}},\"version\":1}"
+    },
+    {
+      "name": "set refuses an external id on a linked task",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.set",
+      "body": {
+        "taskId": "T-1",
+        "title": "Build",
+        "externalId": "#1"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "set refuses a child",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.set",
+      "body": {
+        "taskId": "T-1",
+        "title": "Build",
+        "child": "20000000-0000-4000-8000-000000000001"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": false
+    },
+    {
+      "name": "assign keeps the link",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.assign",
+      "body": {
+        "taskId": "T-1",
+        "assignee": {
+          "kind": "person",
+          "name": "Ben"
+        }
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001",
+            "assignee": {
+              "kind": "person",
+              "name": "Ben"
+            }
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "canonical": "{\"next\":2,\"order\":[\"T-1\"],\"tasks\":{\"T-1\":{\"assignee\":{\"kind\":\"person\",\"name\":\"Ben\"},\"child\":\"20000000-0000-4000-8000-000000000001\",\"state\":\"todo\",\"title\":\"Build\"}},\"version\":1}"
+    },
+    {
+      "name": "remove a linked task",
+      "document": {
+        "version": 1,
+        "next": 2,
+        "tasks": {
+          "T-1": {
+            "title": "Build",
+            "state": "todo",
+            "child": "20000000-0000-4000-8000-000000000001"
+          }
+        },
+        "order": [
+          "T-1"
+        ]
+      },
+      "action": "task.remove",
+      "body": {
+        "taskId": "T-1"
+      },
+      "attribution": {
+        "writerId": "10000000-0000-4000-8000-000000000001",
+        "timeMs": 1760000000000
+      },
+      "valid": true,
+      "expected": {
+        "version": 1,
+        "next": 2,
+        "tasks": {},
+        "order": []
+      },
+      "canonical": "{\"next\":2,\"order\":[],\"tasks\":{},\"version\":1}"
+    },
+    {
+      "name": "add refuses a child",
+      "document": {
+        "version": 1,
+        "next": 1,
+        "tasks": {},
+        "order": []
+      },
+      "action": "task.add",
+      "body": {
+        "task": {
+          "title": "a",
+          "child": "20000000-0000-4000-8000-000000000001"
+        }
+      },
       "attribution": {
         "writerId": "10000000-0000-4000-8000-000000000001",
         "timeMs": 1760000000000

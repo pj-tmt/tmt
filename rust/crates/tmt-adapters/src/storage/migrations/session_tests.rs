@@ -278,7 +278,7 @@ fn consumption_attribution_migration_preserves_legacy_bucket_without_backfill() 
     let mut storage = Storage::open(&path).unwrap();
     assert_eq!(oracle.query_row("SELECT input_tokens,output_tokens,cached_input_tokens,details FROM consumption_buckets",[],|row| Ok((row.get::<_,i64>(0)?,row.get::<_,i64>(1)?,row.get::<_,i64>(2)?,row.get::<_,Option<String>>(3)?))).unwrap(),(10,3,5,None));
     let response = storage
-        .consumption_history(&["meter".into()], &[5000], 120, 15000, false)
+        .consumption_history(&["meter".into()], &[5000], 120, 15000, false, None)
         .unwrap();
     let bucket = &response["identities"][0]["windows"][0]["buckets"][0];
     assert_eq!(bucket["inputTokens"], 10);
