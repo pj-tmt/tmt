@@ -109,12 +109,13 @@ subagent event, malformed payload or missing admissible final text creates no
 entry, not an empty replacement. Hooks keep their existing finite budgets and
 best-effort, non-veto behavior.
 
-Claude extracts the final main-conversation assistant text blocks, in their
-original order joined by a newline, from the Stop handler's existing bounded
-transcript read. It performs no additional transcript read for this feature.
-User text, tools and thinking are excluded. Codex takes `last_assistant_message`
-from its admitted turn-end payload. Neither driver scrapes pane text or follows
-an unverified transcript path. This is bounded turn-end observation, not a
+Both drivers take `last_assistant_message` from the admitted turn-end payload
+when it is a non-empty string. Claude, whose transcript receives the final record
+slightly after the Stop fires, otherwise extracts the final main-conversation
+assistant text blocks, in their original order joined by a newline, from the Stop
+handler's existing bounded transcript read; it performs no additional transcript
+read for this feature. User text, tools and thinking are excluded. Neither driver
+scrapes pane text or follows an unverified transcript path. This is bounded turn-end observation, not a
 complete transcript backup or a guarantee that an identity has prior text.
 
 Core's SQLite store retains at most the newest 10 captures per identity. Capture
