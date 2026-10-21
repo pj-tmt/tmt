@@ -990,6 +990,35 @@ test.describe('relative retention evidence', () => {
   });
 });
 
+// A mounted address names the list as `/colab/` and no more, so the tab it was left on lives in its
+// history entry: a reload, Back and Forward return to it, and a fresh visit opens In progress.
+test('the list keeps its tab across a reload, Back and Forward, and a fresh visit opens In progress', async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto(mount);
+  await showAllPages(page);
+  const row = page.locator(`[data-page-id="${pageId}"] a`);
+  const all = page.getByRole('tab', { name: 'All', exact: true });
+  await expect(row).toBeVisible();
+  await page.reload();
+  await expect(all).toHaveAttribute('aria-selected', 'true');
+  await expect(row).toBeVisible();
+  await row.click();
+  await expect(page).toHaveURL(/\/p\//);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/colab\/$/);
+  await expect(all).toHaveAttribute('aria-selected', 'true');
+  await expect(row).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(/\/p\//);
+  await page.goto(mount);
+  await expect(page.getByRole('tab', { name: /^In progress/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
 // Back from a page to the list reads the catalog again; an ended Remote session is refreshed once
 // for the same device, as the page's own read does, instead of ending in a terminal error.
 for (const status of [403, 503])
@@ -1008,11 +1037,13 @@ for (const status of [403, 503])
     const registers = page.waitForRequest(`**${mount}api/devices/register`);
     await page.goBack();
     await registers;
-    // The list is back on the default tab: count the reads as soon as it is shown (a page with no
-    // task makes it read again every 2 s), then ask for All, where a page with no task is.
-    await expect(page.getByRole('tab', { name: 'All', exact: true })).toBeVisible();
+    // The list is back on the tab it was left on: count the reads as soon as it is shown (a page
+    // with no task makes it read again every 2 s).
+    await expect(page.getByRole('tab', { name: 'All', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     expect(reads).toBe(2);
-    await showAllPages(page);
     await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page).toHaveURL(/\/colab\/$/);

@@ -26,6 +26,23 @@ for (const scope of [undefined, 'design'])
     await expect(app(page).getByRole('alert')).toHaveCount(0);
   });
 
+// The tab and filters live in the history entry (#4052), so a reload of an owner address must not
+// find them in it: the list is `#space=…` and never a `path=` the router cannot read back.
+for (const start of ['/colab/', `/r/abcdefghijklmnop/x/colab/#space=${'a'.repeat(32)}`])
+  test(`the list search never reaches the address (${start.startsWith('/colab/') ? 'public' : 'owner'})`, async ({
+    page,
+  }) => {
+    await mount(page, start);
+    const address = (path: string) =>
+      page.evaluate(async ({ fixture, path }) => (await import(fixture)).addressOf(path), {
+        fixture,
+        path,
+      });
+    const bare = await address('/');
+    expect(await address('/?stage=all')).toBe(bare);
+    expect(await address('/?archived=true&q=notes&project=design')).toBe(bare);
+  });
+
 test('Back from a list opened through a page entry keeps the whole trail', async ({ page }) => {
   await mount(page, '/p/c0000001');
   await expect(body(page, 1)).toBeVisible();

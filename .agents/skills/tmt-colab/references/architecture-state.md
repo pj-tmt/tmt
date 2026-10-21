@@ -662,7 +662,7 @@ them are archived.
 The views are the tabs In progress, Discussion, Done, Archived and All, in that order
 (`BrowserTabs variant="flush"`). `stage` in the route search selects a stage or `all`, `archived`
 selects Archived and wins, and the absent key is `DEFAULT_VIEW`, In progress (a list without the
-management port has no tabs and is every active page; a link that wants every page carries `stage=all`). Each label counts what the scope holds: an archived page
+management port has no tabs and is every active page; a link that wants every page carries `stage=all`). A mounted address names the list as `/colab/` and carries none of this search, so `keepListSearch` (`list-history.ts`) stores it in the history entry's state and `parseLocation` reads it back: a reload, Back and Forward return to the list as it was left, and a fresh visit opens `DEFAULT_VIEW`. Each label counts what the scope holds: an archived page
 counts only under Archived, and a page whose summary has not arrived (`pageStage` is `undefined`; a
 fresh summary without `work` is in discussion) under no stage, so it is in All only. A stage is one
 state with the search: a typed `stage:<name>` (`takeStage`, applied with Enter) or a suggestion pick
