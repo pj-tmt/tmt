@@ -12,6 +12,8 @@ export interface WorkParent {
   taskId: string;
   /** The parent page's title. */
   title: string;
+  /** The parent task's own title, clipped by the owner; absent from an older owner. */
+  taskTitle?: string;
 }
 export interface WorkBandProps extends TaskDetailSlots {
   work: Work;
@@ -48,7 +50,7 @@ export function WorkBand({
       {parent && (
         <p className="work-parent">
           <a href={pageHref?.(parent.pageId)}>
-            {text.workBand.parentTask(parent.title, parent.taskId)}
+            {text.workBand.parentTask(parent.title, parent.taskId, parent.taskTitle)}
           </a>
         </p>
       )}
