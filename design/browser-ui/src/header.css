@@ -96,7 +96,7 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-brand > a:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 
 /* A host navigation landmark keeps the same spacing as adjacent header actions. */

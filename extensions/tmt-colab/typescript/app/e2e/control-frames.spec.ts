@@ -22,6 +22,9 @@ for (const theme of ['light', 'dark'] as const)
       // The composer focuses itself on mount; inspect resting frames after leaving it.
       await fixture.getByRole('button', { name: 'Action', exact: true }).focus();
       await expect(composer).not.toBeFocused();
+      // A focused control recolours its own border (#3998), so the resting frames are read with
+      // nothing focused.
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       const color = (token: string) =>
         fixture.evaluate((node, token) => {
           const probe = document.createElement('span');

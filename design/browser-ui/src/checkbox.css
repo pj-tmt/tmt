@@ -47,8 +47,8 @@
   border-color: var(--tmt-ui-color-edge);
 }
 .tmt-ui-checkbox:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-focus-width);
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-checkbox:disabled {
   color: var(--tmt-ui-color-disabled-text);

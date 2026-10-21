@@ -22,8 +22,6 @@
   --page-bar-size: calc(var(--tmt-ui-header-height) + var(--colab-update-height));
   --reader-bar-size: var(--tmt-ui-header-height);
   --tmt-ui-host-header-action-gap: 6px;
-  --tmt-ui-host-focus-offset: 3px;
-  --tmt-ui-host-toggle-focus-offset: 2px;
   --tmt-ui-host-notice-mark-size: 18px;
   --tmt-ui-host-eyebrow-line-height: 1.55;
   --tmt-ui-host-notice-heading-size: clamp(26px, 4vw, 36px);
@@ -197,8 +195,8 @@ body:not(:has(.tmt-ui-shell)) {
   cursor: pointer;
 }
 .remote-chip-action:focus-visible {
-  outline: 1px solid var(--tmt-ui-color-focus);
-  outline-offset: -1px;
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .remote-header-chip[data-muted='true'] .remote-chip-action,
 .remote-count[data-muted='true'],
@@ -284,5 +282,5 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .colab-scope-crumb:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }

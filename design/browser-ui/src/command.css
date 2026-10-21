@@ -66,8 +66,8 @@
   box-shadow: none;
 }
 .tmt-ui-command-copy:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 2px;
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-command-copy:disabled {
   color: var(--tmt-ui-color-disabled-text);

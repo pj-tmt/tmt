@@ -814,6 +814,9 @@
     outline-style: var(--tmt-foundation-tw-outline-style);
     outline-width: var(--tmt-foundation-focus-width);
   }
+  .tmt\:focus-visible\:-outline-offset-\(length\:--tmt-foundation-focus-width\):focus-visible {
+    outline-offset: calc(var(--tmt-foundation-focus-width) * -1);
+  }
   .tmt\:focus-visible\:outline-ring:focus-visible {
     outline-color: var(--tmt-foundation-ring);
   }

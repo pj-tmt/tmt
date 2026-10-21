@@ -330,7 +330,7 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-brand > a:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 
 /* A host navigation landmark keeps the same spacing as adjacent header actions. */
@@ -941,9 +941,15 @@ svg.tmt-ui-mark {
   background: var(--tmt-ui-surface-hover);
   box-shadow: none;
 }
+/* One focus frame (#3998): a bordered action recolours its own border; the borderless text
+   action draws one inset outline. */
 .tmt-ui-action:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+.tmt-ui-action[data-variant='text']:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .tmt-ui-action:disabled,
 .tmt-ui-action:disabled .tmt-ui-action-label {
@@ -1127,8 +1133,8 @@ svg.tmt-ui-mark {
   background: var(--tmt-ui-surface-hover);
 }
 .tmt-ui-toggle:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-toggle-focus-offset);
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-toggle:disabled {
   color: var(--tmt-ui-color-disabled-text);
@@ -1186,8 +1192,8 @@ svg.tmt-ui-mark {
   border-color: var(--tmt-ui-color-edge);
 }
 .tmt-ui-checkbox:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-focus-width);
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-checkbox:disabled {
   color: var(--tmt-ui-color-disabled-text);
@@ -1362,8 +1368,8 @@ svg.tmt-ui-mark {
   box-shadow: none;
 }
 .tmt-ui-command-copy:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 2px;
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-command-copy:disabled {
   color: var(--tmt-ui-color-disabled-text);
@@ -1672,10 +1678,13 @@ svg.tmt-ui-mark {
 .tmt-ui-menu-item:focus-visible {
   background: var(--tmt-ui-surface-hover);
 }
-.tmt-ui-menu-item:focus-visible,
-.tmt-ui-menu-trigger:focus-visible {
+.tmt-ui-menu-item:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-2 * var(--tmt-ui-focus-width));
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.tmt-ui-menu-trigger:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-menu-item:disabled {
   color: var(--tmt-ui-color-secondary);
@@ -2015,10 +2024,14 @@ svg.tmt-ui-mark {
   border-color: var(--tmt-ui-surface-rule);
   cursor: default;
 }
-.tmt-ui-chips-add:focus-visible,
+.tmt-ui-chips-add:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  border-style: solid;
+  outline: 0;
+}
 .tmt-ui-chips-search:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-2 * var(--tmt-ui-focus-width));
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .tmt-ui-chips-status {
   color: var(--tmt-ui-color-secondary);

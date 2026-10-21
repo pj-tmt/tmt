@@ -72,10 +72,14 @@
   border-color: var(--tmt-ui-surface-rule);
   cursor: default;
 }
-.tmt-ui-chips-add:focus-visible,
+.tmt-ui-chips-add:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  border-style: solid;
+  outline: 0;
+}
 .tmt-ui-chips-search:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-2 * var(--tmt-ui-focus-width));
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .tmt-ui-chips-status {
   color: var(--tmt-ui-color-secondary);
