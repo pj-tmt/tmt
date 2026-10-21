@@ -144,7 +144,7 @@ fn conversation_has_one_title_and_stack_separator_while_uuid_draft_survives_focu
             };
             assert!(line(pane.y).contains("worker"));
             assert!(!line(pane.y).contains("Conversation ·"));
-            assert_eq!(buffer[(pane.x, pane.y)].symbol(), "─");
+            assert!(matches!(buffer[(pane.x, pane.y)].symbol(), "─" | "▸"));
             assert_eq!(
                 (pane.y..pane.bottom())
                     .filter(|y| line(*y).contains("Exchanges with you"))

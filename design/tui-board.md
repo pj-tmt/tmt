@@ -71,6 +71,13 @@ readable state words. Conversation selection follows its own source owner. Secti
 and composer/read reservations are not selected content. Repeated UUIDs retain
 occurrence identity; only the selected occurrence expands or composes.
 
+Focus is drawn on the pane, not the row. A framed pane (the Digest tab's Digest and Details, the
+narrow conversation, the squad and Common pool pane) has all four sides heavy in the bright
+neutral with a bold `▸` title when it has focus, and light dim lines with a secondary title
+otherwise; content keeps full contrast. Where the layout has no boxes (the two Agents columns),
+the focused column's control rule goes heavy `━` with a leading bold `▸`, the other stays light
+and dim, and the `│` divider stays light. With `NO_COLOR` the heavy lines and `▸` carry focus.
+
 Selecting a row does not transfer keyboard focus to it. Keep current title,
 input, modal and effective-hint routing. Borderless workspace rows do not acquire
 new `Focus: rows` footer labels or an extra focus row. Footer input, search,

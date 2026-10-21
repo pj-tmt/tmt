@@ -158,8 +158,8 @@ impl State {
             let area = boundary.hit.intersection(buffer.area);
             let mut start = None;
             for x in area.x..=area.right() {
-                let stroke =
-                    x < area.right() && matches!(buffer[(x, area.y)].symbol(), "─" | "━" | "┬");
+                let stroke = x < area.right()
+                    && matches!(buffer[(x, area.y)].symbol(), "─" | "━" | "┬" | "▸" | ">");
                 if stroke {
                     start.get_or_insert(x);
                 } else if let Some(begin) = start.take() {
@@ -285,7 +285,8 @@ impl State {
             let area = boundary.hit.intersection(buffer.area);
             for y in area.y..area.bottom() {
                 for x in area.x..area.right() {
-                    if matches!(buffer[(x, y)].symbol(), "│" | "─" | "┬" | "━") {
+                    if matches!(buffer[(x, y)].symbol(), "│" | "─" | "┬" | "━" | "▸" | ">")
+                    {
                         buffer[(x, y)].set_style(
                             look.role(Role::Text)
                                 .add_modifier(ratatui::style::Modifier::BOLD),

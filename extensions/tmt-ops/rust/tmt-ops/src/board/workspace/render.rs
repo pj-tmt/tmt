@@ -224,6 +224,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             squad_detail(frame, app, detail);
         }
     }
+    if app.shell.tab == OpsTab::Agents {
+        crate::board::pane_chrome::mark_focused_rule(
+            frame.buffer_mut(),
+            app,
+            placement.list,
+            placement.conversation,
+        );
+    }
 }
 fn tree(frame: &mut Frame, app: &App, area: Rect) {
     use super::columns::{self, AgentsField as Field};

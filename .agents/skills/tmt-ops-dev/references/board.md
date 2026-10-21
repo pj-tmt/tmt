@@ -55,12 +55,15 @@ its scope restores nested paints and unwinding. Input and snapshot updates
 retain no row cache, so changed membership/filtering always resolves fresh.
 
 Workspace tree/detail and conversation chrome use shared Strip/Scrolls.
-`pane_chrome` projects App focus into an accent heavy top rule and bold title; other titles/rules are
-Muted. A retained list selection keeps its cursor but loses the active highlight
-and dims while content has focus. NO_COLOR adds a title marker (`▶`, or `>` with
-the board's ASCII glyph switch), independently of the rule and bold title.
-Pane titles consume one rule row with one-cell side padding, without a bottom
-frame or decorative blank row. App's effective table owns Tab/backtab pane
+`pane_chrome` projects App focus into a frame on all four sides: the focused pane has heavy lines
+(`┏━┓ ┃ ┗━┛`; ASCII `+=+ # +=+`) in the bright `text` role and a bold `▸ ` title (`> ` with the
+board's ASCII glyph switch); other panes have light dim lines (`┌─┐ │ └─┘`) and a `muted` title.
+Content keeps full contrast. Panes under six rows keep only the top rule, and the Digest tab
+leaves the divider column between two framed panes blank (the drag handle stays). The Agents tab
+has no boxes: `pane_chrome::mark_focused_rule` makes the focused column's control rule heavy and
+bright with a leading bold `▸`, and its `▸` counts as part of the rule for the resize hit.
+A retained list selection keeps its cursor but loses the active highlight
+and dims while content has focus. App's effective table owns Tab/backtab pane
 switching; text and modal owners handle their raw events first. The same
 workspace Placement feeds paint and frame-title pointer focus; invalidation
 revokes its authority until a new paint. Conversation reserves its WP1 composer
