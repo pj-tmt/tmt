@@ -168,8 +168,11 @@ moved installations until the separate alias decision.
 - **Persisted paths.** Command links and `tmt setup` hook settings (launcher resolved from `PATH`, so
   `bin/tmt`) are the places that can name the prefix; the audit reads both. Receipts record only the
   installation prefix, skills are published as copies and extension records name extension paths.
-  Processes a CLI release started keep that release's path in `TMT_EXECUTABLE` for their lifetime, as
-  before the move.
+  Core's `core_executable` selects the stable `<prefix>/bin/tmt` launcher for companion
+  callbacks only after inspection identifies the invoking executable as the active managed CLI.
+  It preserves that link through activation and pruning, without canonicalizing it into a release
+  path. Unmanaged, stale or uncertain installations keep the exact invoking executable; embedded
+  processes pass an inherited absolute `TMT_EXECUTABLE` through unchanged.
 - **Handoff protocols** (frozen; wire details in the [handoff contract](../../../../contracts/native-install-handoff-v1.md)):
 
 | Protocol | Request                                 | Updater validates | Candidate publishes                            |

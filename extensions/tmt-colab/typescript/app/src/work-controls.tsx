@@ -3,7 +3,7 @@ import { useCallback, useId, useRef, useState, type FormEvent, type ReactNode } 
 import { SaveNotApplied, SaveRefused, saveMessage, type WorkAction } from './save.js';
 import { text } from './strings.js';
 import type { PageBinding } from './transport.js';
-import { TASK_STATES, type Task, type TaskState } from './work.js';
+import { TASK_STATES, keptByEdit, type Task, type TaskState } from './work.js';
 import { waitsForSignoff } from './work-people.js';
 
 type Body = Record<string, unknown>;
@@ -69,16 +69,6 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
 
 const label = text.workBand.controls;
 
-/** What a task keeps when only its title and detail are edited: `task.set` replaces the whole
- * editable set, so the rest is sent back as it is. */
-function kept(task: Task): Body {
-  return {
-    ...(task.acceptance ? { acceptance: task.acceptance } : {}),
-    ...(task.needsSignoff ? { needsSignoff: true } : {}),
-    ...(task.externalId !== undefined ? { externalId: task.externalId } : {}),
-  };
-}
-
 function TextField({
   label: name,
   value,
@@ -135,62 +125,47 @@ function TextField({
   );
 }
 
+interface TaskPart {
+  id: string;
+  task: Task;
+  work: WorkRun;
+}
+
+/** One task's controls, in the order they read: sign-off, state, assignee, edit and the rest, and
+ * the page a convert made but could not link. Each part owns its own draft and shares `WorkRun`,
+ * so one action is in flight at a time and a refusal is told where it belongs. */
 export function TaskControls({
   id,
   task,
   state,
   work,
   pageHref,
-}: {
-  id: string;
-  task: Task;
+}: TaskPart & {
   state: TaskState;
-  work: WorkRun;
   pageHref?(pageId: string): string;
 }): ReactNode {
+  return (
+    <div className="work-controls">
+      <StateControls id={id} task={task} state={state} work={work} />
+      <AssignForm id={id} task={task} work={work} />
+      <EditArea id={id} task={task} work={work} />
+      <StrandedRow id={id} work={work} pageHref={pageHref} />
+    </div>
+  );
+}
+
+/** Sign-off and send back, the state menu, and the reason a blocked task asks for. */
+function StateControls({ id, task, state, work }: TaskPart & { state: TaskState }): ReactNode {
   const { run, busy } = work;
   const [reason, setReason] = useState<string>();
-  const [kind, setKind] = useState<'agent' | 'person'>(task.assignee?.kind ?? 'agent');
-  const [name, setName] = useState('');
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(task.title);
-  const [detail, setDetail] = useState(task.detail ?? '');
-  const [removing, setRemoving] = useState(false);
   const follows = task.child !== undefined;
-  const reasonNotConvertible = follows
-    ? label.convertFollows
-    : task.externalId !== undefined
-      ? label.convertExternal
-      : undefined;
-  const stranded = work.stranded?.task === id ? work.stranded.page : undefined;
-
+  const shown = reason === undefined ? state : 'blocked';
   const setState = async (next: TaskState, why?: string) => {
     if (await run('task.state', { taskId: id, state: next, ...(why ? { reason: why } : {}) }))
       setReason(undefined);
   };
-  const assign = async (event: FormEvent) => {
-    event.preventDefault();
-    if (
-      name.trim() &&
-      (await run('task.assign', { taskId: id, assignee: { kind, name: name.trim() } }))
-    )
-      setName('');
-  };
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (
-      await run('task.set', {
-        taskId: id,
-        title: title.trim(),
-        ...(detail.trim() ? { detail } : {}),
-        ...kept(task),
-      })
-    )
-      setEditing(false);
-  };
-
   return (
-    <div className="work-controls">
+    <>
       {waitsForSignoff(task, state) && (
         <div className="work-control-group">
           <BrowserAction
@@ -212,13 +187,13 @@ export function TaskControls({
       <div className="work-control-group">
         <BrowserMenu
           label={label.state}
-          valueLabel={text.workBand.taskState[reason === undefined ? state : 'blocked']}
+          valueLabel={text.workBand.taskState[shown]}
           disabled={busy || follows}
           items={TASK_STATES.map((value) => ({
             key: value,
             label: text.workBand.taskState[value],
             role: 'menuitemradio' as const,
-            checked: value === (reason === undefined ? state : 'blocked'),
+            checked: value === shown,
           }))}
           onSelect={(next) => {
             if (next === 'blocked') setReason(task.reason ?? '');
@@ -261,144 +236,213 @@ export function TaskControls({
           />
         </form>
       )}
-      <form className="work-control-group" onSubmit={assign}>
-        <BrowserMenu
-          label={label.assignTo}
-          valueLabel={kind === 'agent' ? label.agent : label.person}
-          disabled={busy}
-          items={(['agent', 'person'] as const).map((value) => ({
-            key: value,
-            label: value === 'agent' ? label.agent : label.person,
-            role: 'menuitemradio' as const,
-            checked: value === kind,
-          }))}
-          onSelect={(key) => setKind(key === 'person' ? 'person' : 'agent')}
-        />
-        <TextField
-          label={label.assigneeName}
-          value={name}
-          maxLength={128}
-          disabled={busy}
-          onChange={setName}
-          trailing={
-            <>
-              <BrowserAction
-                type="submit"
-                variant="primary"
-                label={label.assign}
-                disabled={busy || !name.trim()}
-                onActivate={() => undefined}
-              />
-              {task.assignee && (
-                <BrowserAction
-                  type="button"
-                  variant="text"
-                  label={label.unassign}
-                  disabled={busy}
-                  onActivate={() => void run('task.assign', { taskId: id })}
-                />
-              )}
-            </>
-          }
-        />
-      </form>
-      {editing ? (
-        <form className="work-control-stack" onSubmit={save}>
-          <TextField label={label.title} value={title} maxLength={120} onChange={setTitle} />
-          <TextField
-            label={label.detail}
-            value={detail}
-            maxLength={4096}
-            multiline
-            onChange={setDetail}
-          />
-          <div className="work-control-group">
+    </>
+  );
+}
+
+/** Who the task is assigned to: an agent or a person by name, or nobody. */
+function AssignForm({ id, task, work }: TaskPart): ReactNode {
+  const { run, busy } = work;
+  const [kind, setKind] = useState<'agent' | 'person'>(task.assignee?.kind ?? 'agent');
+  const [name, setName] = useState('');
+  const assign = async (event: FormEvent) => {
+    event.preventDefault();
+    if (
+      name.trim() &&
+      (await run('task.assign', { taskId: id, assignee: { kind, name: name.trim() } }))
+    )
+      setName('');
+  };
+  return (
+    <form className="work-control-group" onSubmit={assign}>
+      <BrowserMenu
+        label={label.assignTo}
+        valueLabel={kind === 'agent' ? label.agent : label.person}
+        disabled={busy}
+        items={(['agent', 'person'] as const).map((value) => ({
+          key: value,
+          label: value === 'agent' ? label.agent : label.person,
+          role: 'menuitemradio' as const,
+          checked: value === kind,
+        }))}
+        onSelect={(key) => setKind(key === 'person' ? 'person' : 'agent')}
+      />
+      <TextField
+        label={label.assigneeName}
+        value={name}
+        maxLength={128}
+        disabled={busy}
+        onChange={setName}
+        trailing={
+          <>
             <BrowserAction
               type="submit"
               variant="primary"
-              label={label.save}
-              disabled={busy || !title.trim()}
+              label={label.assign}
+              disabled={busy || !name.trim()}
               onActivate={() => undefined}
             />
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={label.cancel}
-              disabled={busy}
-              onActivate={() => setEditing(false)}
-            />
-          </div>
-        </form>
-      ) : (
-        <div className="work-control-group">
-          <BrowserAction
-            type="button"
-            variant="primary"
-            label={label.edit}
-            disabled={busy}
-            onActivate={() => {
-              setTitle(task.title);
-              setDetail(task.detail ?? '');
-              setEditing(true);
-            }}
-          />
-          <BrowserAction
-            type="button"
-            variant="primary"
-            label={label.convert}
-            disabled={busy || reasonNotConvertible !== undefined}
-            disabledReason={reasonNotConvertible}
-            disabledReasonId={`${id}-convert-reason`}
-            onActivate={() => void run('task.convert', { taskId: id })}
-          />
-          {removing ? (
-            <>
-              <BrowserAction
-                type="button"
-                variant="destructive"
-                label={label.confirmRemove(id)}
-                disabled={busy}
-                onActivate={() => void run('task.remove', { taskId: id })}
-              />
+            {task.assignee && (
               <BrowserAction
                 type="button"
                 variant="text"
-                label={label.cancel}
+                label={label.unassign}
                 disabled={busy}
-                onActivate={() => setRemoving(false)}
+                onActivate={() => void run('task.assign', { taskId: id })}
               />
-            </>
-          ) : (
-            <BrowserAction
-              type="button"
-              variant="destructive"
-              label={label.remove}
-              disabled={busy}
-              onActivate={() => setRemoving(true)}
-            />
-          )}
-        </div>
-      )}
-      {stranded !== undefined && (
-        <div className="work-control-group work-stranded">
-          <span className="work-control-note">{label.pageMade}</span>
+            )}
+          </>
+        }
+      />
+    </form>
+  );
+}
+
+/** The title and detail form while a task is edited, otherwise its row of actions. */
+function EditArea({ id, task, work }: TaskPart): ReactNode {
+  const [editing, setEditing] = useState(false);
+  return editing ? (
+    <EditForm id={id} task={task} work={work} onDone={() => setEditing(false)} />
+  ) : (
+    <TaskActions id={id} task={task} work={work} onEdit={() => setEditing(true)} />
+  );
+}
+
+/** `task.set` replaces the whole editable set, so what the form does not show is sent back as it is. */
+function EditForm({ id, task, work, onDone }: TaskPart & { onDone(): void }): ReactNode {
+  const { run, busy } = work;
+  const [title, setTitle] = useState(task.title);
+  const [detail, setDetail] = useState(task.detail ?? '');
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (
+      await run('task.set', {
+        taskId: id,
+        title: title.trim(),
+        ...(detail.trim() ? { detail } : {}),
+        ...keptByEdit(task),
+      })
+    )
+      onDone();
+  };
+  return (
+    <form className="work-control-stack" onSubmit={save}>
+      <TextField label={label.title} value={title} maxLength={120} onChange={setTitle} />
+      <TextField
+        label={label.detail}
+        value={detail}
+        maxLength={4096}
+        multiline
+        onChange={setDetail}
+      />
+      <div className="work-control-group">
+        <BrowserAction
+          type="submit"
+          variant="primary"
+          label={label.save}
+          disabled={busy || !title.trim()}
+          onActivate={() => undefined}
+        />
+        <BrowserAction
+          type="button"
+          variant="text"
+          label={label.cancel}
+          disabled={busy}
+          onActivate={onDone}
+        />
+      </div>
+    </form>
+  );
+}
+
+/** Edit, convert to Colab, and remove after a second click. */
+function TaskActions({ id, task, work, onEdit }: TaskPart & { onEdit(): void }): ReactNode {
+  const { run, busy } = work;
+  const [removing, setRemoving] = useState(false);
+  const reasonNotConvertible =
+    task.child !== undefined
+      ? label.convertFollows
+      : task.externalId !== undefined
+        ? label.convertExternal
+        : undefined;
+  return (
+    <div className="work-control-group">
+      <BrowserAction
+        type="button"
+        variant="primary"
+        label={label.edit}
+        disabled={busy}
+        onActivate={onEdit}
+      />
+      <BrowserAction
+        type="button"
+        variant="primary"
+        label={label.convert}
+        disabled={busy || reasonNotConvertible !== undefined}
+        disabledReason={reasonNotConvertible}
+        disabledReasonId={`${id}-convert-reason`}
+        onActivate={() => void run('task.convert', { taskId: id })}
+      />
+      {removing ? (
+        <>
           <BrowserAction
             type="button"
-            variant="primary"
-            label={label.linkIt}
+            variant="destructive"
+            label={label.confirmRemove(id)}
             disabled={busy}
-            onActivate={() => void run('task.link', { taskId: id, pageId: stranded })}
+            onActivate={() => void run('task.remove', { taskId: id })}
           />
-          {pageHref && (
-            <a className="tmt-ui-action" data-variant="text" href={pageHref(stranded)}>
-              {label.openIt}
-            </a>
-          )}
-          {work.error !== undefined && work.errorAt === 'stranded' && (
-            <div className="tmt-ui-field-error work-stranded-error" role="alert">
-              {work.error}
-            </div>
-          )}
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={label.cancel}
+            disabled={busy}
+            onActivate={() => setRemoving(false)}
+          />
+        </>
+      ) : (
+        <BrowserAction
+          type="button"
+          variant="destructive"
+          label={label.remove}
+          disabled={busy}
+          onActivate={() => setRemoving(true)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A convert that made its page but could not link it: link it, open it, and the refusal. */
+function StrandedRow({
+  id,
+  work,
+  pageHref,
+}: {
+  id: string;
+  work: WorkRun;
+  pageHref?(pageId: string): string;
+}): ReactNode {
+  const stranded = work.stranded?.task === id ? work.stranded.page : undefined;
+  if (stranded === undefined) return null;
+  return (
+    <div className="work-control-group work-stranded">
+      <span className="work-control-note">{label.pageMade}</span>
+      <BrowserAction
+        type="button"
+        variant="primary"
+        label={label.linkIt}
+        disabled={work.busy}
+        onActivate={() => void work.run('task.link', { taskId: id, pageId: stranded })}
+      />
+      {pageHref && (
+        <a className="tmt-ui-action" data-variant="text" href={pageHref(stranded)}>
+          {label.openIt}
+        </a>
+      )}
+      {work.error !== undefined && work.errorAt === 'stranded' && (
+        <div className="tmt-ui-field-error work-stranded-error" role="alert">
+          {work.error}
         </div>
       )}
     </div>

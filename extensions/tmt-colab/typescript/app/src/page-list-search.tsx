@@ -43,29 +43,8 @@ import {
   $selectRichInputRange,
   type RichInputRange,
 } from './components/rich-input-document.js';
-import type { PageStage } from './projects.js';
 import { text } from './strings.js';
 import './page-list-search.css';
-
-/** What the page list's tabs show: a stage, or every active page. */
-export type HomeStage = PageStage | 'all';
-export const HOME_STAGES: readonly HomeStage[] = ['in-progress', 'discussion', 'done', 'all'];
-/**
- * The last `stage:<name>` word of the free text, taken out of it: a stage is one state with the
- * tabs, so it never stays in the search as a token. Any other word, `stage:` with an unknown name
- * included, stays as text.
- */
-export function takeStage(q: string): { q: string; stage?: HomeStage } {
-  let stage: HomeStage | undefined;
-  const rest: string[] = [];
-  for (const word of q.split(/\s+/).filter(Boolean)) {
-    const named = /^stage:(.+)$/i.exec(word)?.[1]?.toLowerCase();
-    const known = HOME_STAGES.find((name) => name === named);
-    if (known) stage = known;
-    else rest.push(word);
-  }
-  return { q: rest.join(' '), ...(stage ? { stage } : {}) };
-}
 
 /** The two filters the search takes as tokens: a project the page is in, a creator it has. */
 export type FilterKind = 'project' | 'by';
