@@ -1,0 +1,51 @@
+{
+  "description": "Synthetic pane-screen vector. Text is untrusted display data, never a reply, completion or readiness evidence.",
+  "identityId": "11111111-1111-4111-8111-111111111111",
+  "request": {
+    "version": 1,
+    "operation": "pane.screen",
+    "input": {
+      "identityId": "11111111-1111-4111-8111-111111111111"
+    }
+  },
+  "resources": {
+    "tmux": {
+      "identityId": "11111111-1111-4111-8111-111111111111",
+      "host": "tmux",
+      "format": "ansi",
+      "text": "\u001b[1;31mFAIL\u001b[0m 2 tests\n$ "
+    },
+    "external": {
+      "identityId": "11111111-1111-4111-8111-111111111111",
+      "host": "herdr",
+      "format": "plain",
+      "text": "FAIL 2 tests\n$ "
+    }
+  },
+  "invalidInputs": [
+    {},
+    { "identityId": "Ada" },
+    { "identityId": "11111111-1111-4111-8111-11111111111G" },
+    { "identityId": "AAAAAAAA-1111-4111-8111-111111111111" },
+    { "identityId": "11111111-1111-4111-8111-111111111111", "lines": 5 },
+    { "identityId": null }
+  ],
+  "errors": [
+    { "case": "unknown or retired identity", "code": "NAME_NOT_FOUND" },
+    { "case": "no recorded pane, or the recorded pane is gone", "code": "PANE_NOT_FOUND" },
+    {
+      "case": "host evidence unknown or mismatched, host unreadable within its bound, or screen over the cap",
+      "code": "API_UNAVAILABLE"
+    }
+  ],
+  "limits": {
+    "utf8TextBytes": 1048576,
+    "overCapCode": "API_UNAVAILABLE",
+    "partialText": false
+  },
+  "olderCore": {
+    "operationPresent": false,
+    "meaning": "unavailable",
+    "fallback": "none"
+  }
+}
