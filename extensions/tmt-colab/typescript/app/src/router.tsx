@@ -1197,8 +1197,13 @@ function Page() {
       unsubscribe?.();
     };
   }, [snapshot, loaded, transport, connectionOwner, replyObserver]);
+  // Settles when the Save in flight has landed (true) or failed (false); true when none is.
+  const saveSettled = useRef<Promise<boolean> | null>(null);
   async function save() {
     if (!snapshot.binding || saving) return;
+    let landed = false;
+    let settle!: (landed: boolean) => void;
+    saveSettled.current = new Promise<boolean>((resolve) => (settle = resolve));
     setSaving(true);
     setEditError(null);
     setMerged(false);
@@ -1217,6 +1222,7 @@ function Page() {
       setDraft(latest.current.source);
       setMerged(outcome.merged);
       void size.refresh();
+      landed = true;
     } catch (error) {
       const problem: SaveProblem = {
         message: saveMessage(error),
@@ -1239,6 +1245,8 @@ function Page() {
       setEditError(problem);
     } finally {
       setSaving(false);
+      saveSettled.current = null;
+      settle(landed);
     }
   }
   // A merged Save replaces the text with the merged page; the caret and scroll stay where the new
@@ -2232,7 +2240,8 @@ function Page() {
             descriptors={view.attachments ?? []}
             files={snapshot.binding.files}
             readOnly={archived}
-            disabled={!!liveError || saving}
+            disabled={!!liveError}
+            afterSave={() => saveSettled.current ?? Promise.resolve(true)}
           />
         </BrowserDrawer>
       )}

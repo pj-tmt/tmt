@@ -27,6 +27,12 @@
   color: var(--tmt-ui-color-disabled-text);
   cursor: default;
 }
+/* A save in flight fences the action; it keeps its idle look under the pointer. */
+.source > span button.tmt-ui-action[aria-busy='true'] {
+  color: var(--tmt-ui-color-text);
+  background: transparent;
+  cursor: default;
+}
 .source-notice {
   padding: 12px 16px 0;
 }
