@@ -196,6 +196,7 @@ function Composer({
         edit={{ value: body }}
         resetKey={resetKey}
         disabled={busy || blocked}
+        busy={busy && !blocked}
         onChange={(next) => setBody(next.value)}
       />
       <div className="comment-actions">
@@ -338,6 +339,7 @@ export function DiscussionComment({
                 label={text.commentEditBody}
                 edit={{ value: draft }}
                 disabled={busy || blocked}
+                busy={busy && !blocked}
                 autoFocus
                 onChange={(next) => setDraft(next.value)}
               />
