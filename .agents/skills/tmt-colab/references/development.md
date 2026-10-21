@@ -182,7 +182,10 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
   attachment checks are `test/attachment-channel.test.ts`, `test/attachment-read.test.ts`
   and `e2e/fold.spec.ts`; native reads require an already established channel. The
   composer and message surfaces are `test/attachment-{file,service,draft}.test.ts`,
-  `e2e/attachments.spec.ts` and `acceptance/attachments.spec.ts`.
+  `e2e/attachments.spec.ts` and `acceptance/attachments.spec.ts`. The browser spec always checks
+  paused-upload Send fencing, the pending/failed message echo and Edit restoring stored/refused chips
+  for thread and Chat at 1440/390 in both themes. `COLAB_1854_CAPTURE_DIR` only enables screenshots
+  of those states; it never gates the lifecycle assertions.
 - Management subcommands precede operands: `tmt colab share link list <page>`,
   `tmt colab share mode <page> link --yes`.
 - Full management includes `share member add/remove/role`, `share history`,
