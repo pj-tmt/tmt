@@ -1034,3 +1034,95 @@ fn selection_frame(
         "scroll": app.scrolls.offset(Pane::Replies),
     })
 }
+
+/// One actual backend frame in a fixture-owned terminal; no tmux command runs here.
+#[test]
+#[ignore = "requires an explicitly isolated private-terminal capture"]
+fn selection_private_terminal_evidence() {
+    use std::io::{Read, Write};
+    assert!(std::env::var_os("TMUX").is_none());
+    assert!(std::env::var_os("TMUX_PANE").is_none());
+    let ready = std::env::var("TMT_SELECTION_TERMINAL_READY").unwrap();
+    assert!(
+        ready.starts_with("selection-4242-")
+            && ready.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    );
+    let width: u16 = std::env::var("TMT_SELECTION_TERMINAL_WIDTH")
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!([80, 100, 160].contains(&width));
+    let look = match std::env::var("TMT_SELECTION_TERMINAL_LOOK")
+        .unwrap()
+        .as_str()
+    {
+        "tmt" => crate::look::Look::default(),
+        "tmt-light" => crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::TmtLight),
+            depth: tmt_cli_style::Depth::TrueColor,
+        },
+        "NO_COLOR" => crate::look::Look {
+            depth: tmt_cli_style::Depth::None,
+            ..crate::look::Look::default()
+        },
+        other => panic!("unsupported fixture look: {other}"),
+    };
+    let scene = std::env::var("TMT_SELECTION_TERMINAL_SCENE").unwrap();
+    assert!(
+        [
+            "selected-top",
+            "selected-bottom",
+            "input-grown",
+            "task-field",
+            "help"
+        ]
+        .contains(&scene.as_str())
+    );
+    let _no_commands = crate::runner::forbid_commands();
+    crate::board::terminal::restore_before_panic_reports();
+    let mut screen =
+        crate::board::terminal::Guard::enter(crate::board::terminal::Crossterm::default()).unwrap();
+    let mut terminal =
+        Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout())).unwrap();
+    assert_eq!(
+        terminal.size().unwrap(),
+        ratatui::layout::Size::new(width, 36)
+    );
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut app = if scene == "task-field" {
+            task_field_fixture(look)
+        } else {
+            fixture_with_look(&long(80), look)
+        };
+        draw(&mut app, width, 36);
+        let needle = match scene.as_str() {
+            "task-field" => "task proof",
+            "selected-top" => {
+                app.scroll_pane(Pane::Replies, Step::Top);
+                "passage 001"
+            }
+            _ => "passage 078",
+        };
+        select_at_width(&mut app, needle, width);
+        if scene == "input-grown" {
+            app.perform(&crate::action::Action::parse("talk").unwrap());
+            app.paste("a\nb\nc\nd\ne");
+        }
+        if scene == "help" {
+            app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        }
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+    });
+    // The private-server window-renamed hook runs after all preceding frame bytes.
+    write!(std::io::stdout(), "\x1bk{ready}\x1b\\").unwrap();
+    std::io::stdout().flush().unwrap();
+    let mut quit = [0];
+    std::io::stdin().read_exact(&mut quit).unwrap();
+    assert_eq!(quit, [b'q']);
+    screen.restore().unwrap();
+}
