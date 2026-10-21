@@ -19,6 +19,10 @@ export interface ShellCell {
   lastUpdateAtMs: number | null;
   /** Pending items on the source page, from its owner summary; 0 where none is known. */
   needsYou: number;
+  /** The page's creation label (`summary.author`), when its owner summary has one. */
+  author?: string;
+  /** The first of the page's display-only projects, when it has any. */
+  label?: string;
   note?: string;
   audience?: string;
 }
@@ -42,6 +46,8 @@ export function shellCells(shell: Shell, pages: readonly PageSummary[]): ShellCe
       archived: page?.archived === true,
       lastUpdateAtMs: page?.lastUpdateAtMs ?? null,
       needsYou: page?.summary?.needsYou ?? 0,
+      ...(page?.summary?.author === undefined ? {} : { author: page.summary.author }),
+      ...(page?.projects?.[0] === undefined ? {} : { label: page.projects[0] }),
       ...(item.note === undefined ? {} : { note: item.note }),
       ...(item.audience === undefined ? {} : { audience: item.audience }),
     };
