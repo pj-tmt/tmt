@@ -29,16 +29,13 @@ export function operationStatus(
         total === 1 && only ? t.awaiting(pageTitle(only)) : t.awaitingMany(batch.awaiting.length),
       failed: false,
     };
-  const archiving = operation === 'page.archive';
+  const messages = {
+    'page.archive': { one: t.archived, many: t.archivedMany },
+    'page.unarchive': { one: t.restored, many: t.restoredMany },
+    'page.delete': { one: t.deleted, many: t.deletedMany },
+  }[operation];
   return {
-    text:
-      total === 1 && only
-        ? archiving
-          ? t.archived(pageTitle(only))
-          : t.deleted(pageTitle(only))
-        : archiving
-          ? t.archivedMany(total)
-          : t.deletedMany(total),
+    text: total === 1 && only ? messages.one(pageTitle(only)) : messages.many(total),
     failed: false,
   };
 }

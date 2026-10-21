@@ -650,14 +650,19 @@ The views are the `All` and `Archived` tabs (`BrowserTabs variant="flush"`; `arc
 search selects the second, and each label counts what the scope holds). A page waiting on the viewer
 shows `◆ Waiting for you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
 word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
-menu with `Manage page`, `Archive…` and `Delete…`) show on hover or focus where there is a pointer
+menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
 and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. Archive and
 delete confirm in `PageOperationDialog` and run `runPageOperation` (`page-operations.ts`): the four
-steps `ShareDialog` runs (`read`, `prepare`, `send`, `verify`) for one `page.archive` or
+steps `ShareDialog` runs (`read`, `prepare`, `send`, `verify`) for one `page.archive`, `page.unarchive` or
 `page.delete` statement, ending `verified`, `awaiting` (acknowledged but its log not read back, said
-so and never called done) or `failed` with the management error code. The list never calls archive
-reversible: the contract has no unarchive operation (#3833), so an archived row offers `Delete…`
-only.
+so and never called done) or `failed` with the management error code. An archived row offers `Restore…` and `Delete…`. Restore requires an archived, non-deleted
+page in the verified owner log. Its owner transaction preserves content, keys, epochs and access
+policy while committing the statement, projection, monotonic `pages.last_activity_at_ms` reset and receipt together.
+`pages.last_update_at_ms` remains the last content edit and is unchanged by restore.
+Exact receipt replay does not refresh activity. Archive and restore end existing page sessions
+with `RESYNC_REQUIRED`; replacement verifies current policy before writing and never submits
+retained drafts automatically. The existing touched-page cloud activation republishes the open
+state; confirmed cloud expiry remains the result of a confirmed publication, not a local guess.
 
 Each row has a leading checkbox (`BrowserListRow`'s `leading` slot) when the transport has
 `management`. The selection is a set of page IDs in `Home`; what counts is the selected pages the

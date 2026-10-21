@@ -124,8 +124,8 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE checkpoints ADD COLUMN signer TEXT;
     "#,
     // Schema 15: server-observed page activity (#2600): the clock at the last admitted content or
-    // own-stream update (edits, comments, replies). Legacy pages stay unknown until their next
-    // update; nothing is backfilled and a read never establishes it.
+    // own-stream update (edits, comments, replies) or explicit owner restore. Legacy pages stay
+    // unknown until new activity; nothing is backfilled and a read never establishes it.
     r#"
     ALTER TABLE pages ADD COLUMN last_activity_at_ms INTEGER
         CHECK(last_activity_at_ms IS NULL OR

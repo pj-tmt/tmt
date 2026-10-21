@@ -432,8 +432,8 @@ impl Store {
         })
         .transpose()
     }
-    /// When the page last saw an admitted content or own-stream update, by this machine's clock at
-    /// admission. A page with no update since activity evidence began, or no such page, is `None`
+    /// When the page last saw an admitted content/own-stream update or owner restore, by this
+    /// machine's clock at admission. A page with no activity evidence, or no such page, is `None`
     /// (unknown, never old): the later of the activity time and the older content-edit time, whichever exist.
     pub fn last_activity_ms(&self, page: &str) -> StoreResult<Option<u64>> {
         bounded_id(page)?;
@@ -882,15 +882,24 @@ fn append_in(
             envelope.bytes
         ],
     )?;
-    let now = clock().map_err(|e| Fault::Clock(Box::new(e)))?;
-    tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
+    // Every new update counts, whichever namespace it is in: the store only sees sealed bytes,
+    // so it cannot tell a comment or reply from an Ask record in the `own` stream.
+    let now = touch_activity(tx, s.page, clock)?;
     if envelope.namespace == Namespace::Content {
         tx.execute("UPDATE pages SET last_update_at_ms=CASE WHEN last_update_at_ms IS NULL OR last_update_at_ms<?1 THEN ?1 ELSE last_update_at_ms END WHERE page=?2",
             params![now as i64, s.page])?;
     }
-    // Every new update counts, whichever namespace it is in: the store only sees sealed bytes, so
-    // it cannot tell a comment or reply from an Ask record in the `own` stream.
-    tx.execute("UPDATE pages SET last_activity_at_ms=CASE WHEN last_activity_at_ms IS NULL OR last_activity_at_ms<?1 THEN ?1 ELSE last_activity_at_ms END WHERE page=?2",
-        params![now as i64, s.page])?;
     Ok(Some(Accepted::New))
+}
+
+/// Record admitted activity atomically, never on an exact replay; content-edit time is separate.
+fn touch_activity(tx: &Connection, page: &str, clock: &Clock) -> StoreResult<u64> {
+    let now = clock().map_err(|e| Fault::Clock(Box::new(e)))?;
+    tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
+    let changed = tx.execute("UPDATE pages SET last_activity_at_ms=CASE WHEN last_activity_at_ms IS NULL OR last_activity_at_ms<?1 THEN ?1 ELSE last_activity_at_ms END WHERE page=?2",
+        params![now as i64, page])?;
+    if changed != 1 {
+        return Err(Fault::Invalid);
+    }
+    Ok(now)
 }

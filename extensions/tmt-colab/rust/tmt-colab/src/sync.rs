@@ -824,7 +824,7 @@ impl<A: Admission> Server<A> {
         state.recheck();
         Ok(())
     }
-    /// Commit management and invalidate only its newly archived page under the same
+    /// Commit management and invalidate only its newly archived/restored page under the same
     /// sync lock, before a fresh read peer can subscribe. Admission still owns all denials.
     pub fn manage(
         &self,
@@ -839,7 +839,7 @@ impl<A: Admission> Server<A> {
             .map_err(|_| crate::management::Code::Unavailable)?;
         let mut applied = change(&mut state.admission)?;
         state.recheck();
-        if let Some(page) = applied.archived_page.take() {
+        if let Some(page) = applied.resync_page.take() {
             for peer in state.peers.values_mut() {
                 if peer.scope.as_ref().is_some_and(|scope| scope.page == page) {
                     peer.end(Code::ResyncRequired);

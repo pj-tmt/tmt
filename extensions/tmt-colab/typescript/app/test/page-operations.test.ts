@@ -48,13 +48,16 @@ function port(options: { refuse?: string; unverified?: string } = {}) {
 }
 
 describe('one page', () => {
-  it('reads, prepares, sends and verifies the statement', async () => {
-    const { fake, sent, steps } = port();
-    const [a] = [page(1)];
-    expect(await runPageOperation(fake, a.id, 'page.archive')).toEqual({ state: 'verified' });
-    expect(steps).toEqual([`read ${a.id}`, `prepare ${a.id}`, `send ${a.id}`, `verify ${a.id}`]);
-    expect(sent).toEqual([{ operation: 'page.archive', pageId: a.id }]);
-  });
+  it.each(['page.archive', 'page.unarchive', 'page.delete'] as const)(
+    'reads, prepares, sends and verifies %s',
+    async (operation) => {
+      const { fake, sent, steps } = port();
+      const [a] = [page(1)];
+      expect(await runPageOperation(fake, a.id, operation)).toEqual({ state: 'verified' });
+      expect(steps).toEqual([`read ${a.id}`, `prepare ${a.id}`, `send ${a.id}`, `verify ${a.id}`]);
+      expect(sent).toEqual([{ operation, pageId: a.id }]);
+    },
+  );
   it('is awaiting, not done, when the owner acknowledged but its log cannot be read back', async () => {
     const { fake } = port({ unverified: page(1).id });
     expect(await runPageOperation(fake, page(1).id, 'page.delete')).toEqual({ state: 'awaiting' });
@@ -111,6 +114,9 @@ describe('what the status line says', () => {
       text: 'Archived “Plan”.',
       failed: false,
     });
+    expect(operationStatus(done([page(1, 'Plan')]), 'page.unarchive', 1).text).toBe(
+      'Restored “Plan”.',
+    );
     expect(operationStatus(done([page(1, 'Plan')]), 'page.delete', 1).text).toBe('Deleted “Plan”.');
     expect(operationStatus(done([page(1), page(2)]), 'page.archive', 2).text).toBe(
       'Archived 2 pages.',

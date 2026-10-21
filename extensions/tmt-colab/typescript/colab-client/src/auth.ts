@@ -81,6 +81,7 @@ const OPERATIONS = [
   'page.history',
   'retention.set',
   'page.archive',
+  'page.unarchive',
   'page.delete',
 ];
 export function operation(value: string): void {

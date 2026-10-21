@@ -2069,6 +2069,12 @@ export function archive() {
   emit();
 }
 
+/** A fresh connection publishes verified writable policy after a restore resync. */
+export function restore() {
+  current = { ...current, archived: false };
+  emit();
+}
+
 /** Verified-projection presentation fixture for Chat identity and local-day headings. */
 export function chatPolish(state: 'empty' | 'messages' | 'failed') {
   if (state === 'empty') {

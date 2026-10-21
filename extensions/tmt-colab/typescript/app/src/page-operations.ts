@@ -7,8 +7,8 @@ import {
   type Pending,
 } from './management.js';
 
-/** The two signed owner-log statements the page list can send for one page. */
-export type PageOperation = 'page.archive' | 'page.delete';
+/** Signed owner-log lifecycle statements available to the page list. */
+export type PageOperation = 'page.archive' | 'page.unarchive' | 'page.delete';
 
 export type PageOutcome =
   /** The owner log shows the statement. */

@@ -271,6 +271,7 @@ impl OwnerTransaction<'_> {
         // Existence/epoch are the local creation projection; presentation policy
         // comes only from owner-signed statements. Never expose encrypted titles.
         let mut head = None;
+        let mut policies = std::collections::BTreeMap::<String, crate::fold::PagePolicy>::new();
         let mut log = self
             .tx
             .prepare("SELECT length(envelope),envelope FROM membership_log ORDER BY revision")?;
@@ -284,6 +285,12 @@ impl OwnerTransaction<'_> {
             let envelope = statement::Envelope::from_json(&bytes)?;
             let verified = envelope.verify_next(self.space, self.root, head.as_ref())?;
             head = Some(verified.head);
+            if let Some(page) = verified.payload.page() {
+                policies
+                    .entry(page.to_owned())
+                    .or_default()
+                    .apply(&verified.payload, page)?;
+            }
             match verified.payload {
                 payload::Payload::PageShare(p) => {
                     if let Some(page) = pages.get_mut(&p.page_id) {
@@ -310,9 +317,13 @@ impl OwnerTransaction<'_> {
                         };
                     }
                 }
-                payload::Payload::Archive(p) => {
+                payload::Payload::Archive(p) | payload::Payload::Unarchive(p) => {
                     if let Some(page) = pages.get_mut(&p.page_id) {
-                        page["archived"] = true.into();
+                        page["archived"] = policies
+                            .get(&p.page_id)
+                            .ok_or(OwnerFault::Invalid)?
+                            .archived
+                            .into();
                     }
                 }
                 payload::Payload::Delete(p) => {

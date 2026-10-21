@@ -9,7 +9,7 @@ import {
   BrowserTabs,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Archive, ExternalLink } from 'lucide-react';
+import { Archive, ArchiveRestore, ExternalLink } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -138,7 +138,9 @@ function PageListActions({
           port
             ? [
                 { key: 'manage', label: text.managePage },
-                ...(page.archived ? [] : [{ key: 'archive', label: t.archiveItem }]),
+                page.archived
+                  ? { key: 'restore', label: t.restoreItem }
+                  : { key: 'archive', label: t.archiveItem },
                 { key: 'delete', label: t.deleteItem, separated: true },
               ]
             : []
@@ -146,7 +148,14 @@ function PageListActions({
         onSelect={(key) =>
           key === 'manage'
             ? setManageOpen(true)
-            : operate(key === 'archive' ? 'page.archive' : 'page.delete', page)
+            : operate(
+                key === 'archive'
+                  ? 'page.archive'
+                  : key === 'restore'
+                    ? 'page.unarchive'
+                    : 'page.delete',
+                page,
+              )
         }
       />
       {port && (
@@ -184,14 +193,14 @@ function OpenInNewTabAction({ page }: { page: PageSummary }) {
 }
 
 /** A phone has the same item in the ⋯ menu. */
-function ArchiveAction({ page, operate }: { page: PageSummary; operate(): void }) {
+function PageArchiveAction({ page, operate }: { page: PageSummary; operate(): void }) {
   return (
     <span className="page-archive-action">
       <BrowserIconAction
         type="button"
         variant="text"
-        label={t.archivePage(pageTitle(page))}
-        icon={<Archive />}
+        label={page.archived ? t.restorePage(pageTitle(page)) : t.archivePage(pageTitle(page))}
+        icon={page.archived ? <ArchiveRestore /> : <Archive />}
         hasPopup="dialog"
         onActivate={operate}
       />
@@ -556,12 +565,15 @@ export function Home() {
                         toggle={(page, name) => void toggleOnPage(page, name)}
                         create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
                       />
-                      {!p.archived && (
-                        <ArchiveAction
-                          page={p}
-                          operate={() => setOperation({ kind: 'page.archive', pages: [p] })}
-                        />
-                      )}
+                      <PageArchiveAction
+                        page={p}
+                        operate={() =>
+                          setOperation({
+                            kind: p.archived ? 'page.unarchive' : 'page.archive',
+                            pages: [p],
+                          })
+                        }
+                      />
                       <PageListActions
                         page={p}
                         operate={(kind, page) => setOperation({ kind, pages: [page] })}

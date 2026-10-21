@@ -410,7 +410,7 @@ test('row actions show on hover and focus; a row opens in a new tab without leav
   await expect(titles(page)).toHaveCount(4);
 });
 
-test('archiving from a row confirms, says it cannot be undone yet, and sends one statement', async ({
+test('archiving from a row confirms, explains restoration, and sends one statement', async ({
   page,
 }) => {
   await mount(page);
@@ -422,7 +422,7 @@ test('archiving from a row confirms, says it cannot be undone yet, and sends one
   await row.getByRole('button', { name: 'Archive Gamma notes' }).click();
   const dialog = confirmDialog(page, 'Archive “Gamma notes”?');
   await expect(dialog).toContainText(
-    'An archived page stays readable, but nobody can edit it. Archiving cannot be undone yet.',
+    'An archived page stays readable, but nobody can edit it. You can restore it from Archived.',
   );
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);
@@ -464,7 +464,7 @@ test('deleting from the menu names the page, says it cannot be undone, and remov
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes']);
 });
 
-test('an archived row offers Delete… only: no archive action, and no restore yet', async ({
+test('an archived row offers Restore and Delete while keeping archive unavailable', async ({
   page,
 }) => {
   await mount(page);
@@ -474,7 +474,7 @@ test('an archived row offers Delete… only: no archive action, and no restore y
   const row = rows(page).filter({ hasText: 'Archived spec' });
   await expect(row.getByRole('button', { name: /^Archive / })).toHaveCount(0);
   await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
-  await expect(page.getByRole('menuitem')).toHaveText(['Manage page', 'Delete…']);
+  await expect(page.getByRole('menuitem')).toHaveText(['Manage page', 'Restore…', 'Delete…']);
   await page.getByRole('menuitem', { name: 'Delete…' }).click();
   await confirmDialog(page, 'Delete “Archived spec”?')
     .getByRole('button', { name: 'Delete page' })
@@ -612,7 +612,7 @@ test('bulk archive confirms with the count and titles, then sends one statement 
   await bulkBar(page).getByRole('button', { name: 'Archive…' }).click();
   const dialog = confirmDialog(page, 'Archive 2 pages?');
   await expect(dialog.getByRole('listitem')).toHaveText(['Beta review', 'Gamma notes']);
-  await expect(dialog).toContainText('cannot be undone yet');
+  await expect(dialog).toContainText('You can restore them from Archived.');
   await dialog.getByRole('button', { name: 'Archive pages' }).click();
   await expect(status(page)).toHaveText('Archived 2 pages.');
   expect(await operations(page)).toEqual([
@@ -1312,4 +1312,54 @@ for (const width of [1440, 390, 320])
         else await page.goBack();
         await expect(scopeTrigger(page, long)).toBeVisible();
       }
+    });
+
+test('restoring an Archived row confirms and returns it to the active list after verification', async ({
+  page,
+}) => {
+  await mount(page);
+  await app(page).getByRole('tab', { name: 'Archived 1' }).click();
+  const row = rows(page).filter({ hasText: 'Archived spec' });
+  await row.getByRole('button', { name: 'Restore “Archived spec”', exact: true }).click();
+  const dialog = confirmDialog(page, 'Restore “Archived spec”?');
+  await expect(dialog).toContainText(
+    'This page returns to your active list and can be edited again. Its expiry starts over from today.',
+  );
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(await operations(page)).toEqual([]);
+  await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
+  await page.getByRole('menuitem', { name: 'Restore…', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Restore page', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(status(page)).toHaveText('Restored “Archived spec”.');
+  expect(await operations(page)).toEqual([
+    { operation: 'page.unarchive', pageId: 'c0000005-1111-4111-8111-000000000001' },
+  ]);
+  await expect(titles(page)).toHaveCount(0);
+  await app(page).getByRole('tab', { name: 'All', exact: true }).click();
+  await expect(titles(page)).toHaveCount(5);
+  await expect(titles(page).filter({ hasText: 'Archived spec' })).toBeVisible();
+});
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'])
+    test(`restore confirmation stays readable at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mount(page);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await app(page).getByRole('tab', { name: 'Archived 1' }).click();
+      const row = rows(page).filter({ hasText: 'Archived spec' });
+      await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
+      await page.getByRole('menuitem', { name: 'Restore…', exact: true }).click();
+      const dialog = confirmDialog(page, 'Restore “Archived spec”?');
+      await expect(dialog.getByRole('button', { name: 'Restore page', exact: true })).toBeVisible();
+      expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({ path: await capturePath(`3833-restore-${width}-${theme}.png`) });
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      expect(await operations(page)).toEqual([]);
     });

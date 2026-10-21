@@ -36,6 +36,27 @@ export interface ReaderSeat {
   expiresAt: number;
 }
 
+/** The page's state at a verified owner-log cut. Restore never clears a deletion. */
+export function pageLifecycle(
+  log: readonly statement.Verified[],
+  page: string,
+  through?: bigint,
+): { archived: boolean; deleted: boolean } {
+  let archived = false,
+    deleted = false;
+  for (const { payload: p, head } of log) {
+    if (through !== undefined && head.revision > through) break;
+    if (!('pageId' in p.value) || p.value.pageId !== page) continue;
+    if (p.operation === 'page.archive') archived = true;
+    else if (p.operation === 'page.delete') deleted = true;
+    else if (p.operation === 'page.unarchive') {
+      requireValue(archived && !deleted);
+      archived = false;
+    }
+  }
+  return { archived, deleted };
+}
+
 /** Content subset for the owner browser or a link reader. A transport head/hash is never log authority. */
 export class Admission {
   head: statement.Head | null = null;
@@ -73,6 +94,7 @@ export class Admission {
       log.push(entry.verified);
       head = entry.verified.head;
     }
+    pageLifecycle(log, this.page);
     this.head = head;
     this.#log = log;
     this.#raw = stored;
@@ -137,6 +159,7 @@ export class Admission {
         : head.revision === target.revision && equal(head.hash, target.hash),
     );
     this.#budget(raw);
+    pageLifecycle(log, this.page);
     if (!this.reader)
       await navigator.locks.request(`colab-log:${this.space}`, async () => {
         const previous = await record<string[]>(`log:${this.space}`);
@@ -228,21 +251,18 @@ export class Admission {
         (namespace !== 'content' || add.value.role === 'editor'),
     );
     let epoch = 1n,
-      linkMode = false,
-      writable = true;
+      linkMode = false;
     for (const { payload: p, head } of this.#log) {
       if (head.revision > revision) break;
       if (p.operation === 'epoch.advance' && p.value.pageId === this.page)
         epoch = decimal(p.value.epoch);
       else if (p.operation === 'page.share' && p.value.pageId === this.page)
         linkMode = p.value.mode === 'link';
-      else if (
-        (p.operation === 'page.archive' || p.operation === 'page.delete') &&
-        p.value.pageId === this.page
-      )
-        writable = false;
     }
-    requireValue(linkMode && writable && epoch === decimal(envelopeEpoch));
+    const lifecycle = pageLifecycle(this.#log, this.page, revision);
+    requireValue(
+      linkMode && !lifecycle.archived && !lifecycle.deleted && epoch === decimal(envelopeEpoch),
+    );
   }
   async wraps(values: unknown) {
     requireValue(Array.isArray(values) && values.length <= 512 && this.head !== null);
@@ -390,6 +410,8 @@ export class Admission {
     const revision = decimal(context.membershipRevision);
     if (!this.head || revision > this.head.revision)
       throw new Error('Fresh membership catchup required');
+    const lifecycle = pageLifecycle(this.#log, this.page, revision);
+    requireValue(!lifecycle.archived && !lifecycle.deleted);
     const bridge = this.#bridge(context.authorDevice, revision),
       c = bridge ? undefined : this.#authors.get(context.authorDevice);
     if (!bridge && !c) throw new Error('Fresh membership catchup required');
@@ -466,6 +488,8 @@ export class Admission {
     const revision = decimal(context.membershipRevision);
     if (!this.head || revision > this.head.revision)
       throw new Error('Fresh membership catchup required');
+    const lifecycle = pageLifecycle(this.#log, this.page, revision);
+    requireValue(!lifecycle.archived && !lifecycle.deleted);
     requireValue(
       context.kind === 'fold' &&
         !this.#bridge(context.authorDevice, revision) &&
@@ -587,20 +611,16 @@ export class Admission {
       if (p.operation === 'epoch.advance' && p.value.pageId === this.page) epoch = p.value.epoch;
       if (p.operation === 'device.revoke' && p.value.deviceId === d.authorDevice)
         throw new Error('Attachment creator was revoked');
-      if (
-        (p.operation === 'page.delete' || p.operation === 'page.archive') &&
-        p.value.pageId === this.page
-      )
-        throw new Error('Attachment creation was unavailable');
     }
+    const lifecycle = pageLifecycle(this.#log, this.page, revision);
+    if (lifecycle.archived || lifecycle.deleted)
+      throw new Error('Attachment creation was unavailable');
     requireValue(epoch === d.epoch);
     return c.signingKey.slice();
   }
   /** Read-only presentation comes only from the verified owner log. */
   get archived(): boolean {
-    return this.#log.some(
-      ({ payload: p }) => p.operation === 'page.archive' && p.value.pageId === this.page,
-    );
+    return pageLifecycle(this.#log, this.page).archived;
   }
   /** Current read policy, including the actual link seat. Writes still use
    * validatePage's writable default and author(), never this read purpose. */
@@ -635,12 +655,9 @@ export class Admission {
         mode = p.value.mode;
       }
       if (p.operation === 'epoch.advance' && p.value.pageId === this.page) epoch = p.value.epoch;
-      if (
-        (p.operation === 'page.delete' || (!reading && p.operation === 'page.archive')) &&
-        p.value.pageId === this.page
-      )
-        throw new Error('Page unavailable');
     }
+    const lifecycle = pageLifecycle(this.#log, this.page);
+    if (lifecycle.deleted || (!reading && lifecycle.archived)) throw new Error('Page unavailable');
     requireValue(epoch === this.epoch && [sharing].flat().includes(mode));
   }
 }
