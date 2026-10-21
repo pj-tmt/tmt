@@ -6,6 +6,9 @@ import type { PageSummary } from './transport.js';
 export const PROJECT_REQUEST_PAGES = 64;
 
 export type PageSort = 'updated' | 'title';
+/** The stages the page list tabs name; the owner derives them from a page's tasks. */
+export type PageStage = 'in-progress' | 'discussion' | 'done';
+export const PAGE_STAGES: readonly PageStage[] = ['in-progress', 'discussion', 'done'];
 /** What the page list shows; the route search is its only stored form. */
 export interface PageFilter {
   /** Project names a page must all be in. */
@@ -14,6 +17,8 @@ export interface PageFilter {
   authors: readonly string[];
   /** Words that must each appear in the title, a project or the creator, ignoring case. */
   text: string;
+  /** Only the pages at this stage. */
+  stage?: PageStage;
   /** Only the pages with an item waiting on the viewer (the owner's `waiting`, `needsYou > 0`). */
   needsYou?: boolean;
 }
@@ -90,6 +95,25 @@ export function waitingCount(pages: readonly PageSummary[]): number {
   return pages.filter((page) => page.summary?.waiting).length;
 }
 
+/**
+ * The stage a page's summary says. A fresh summary without work is a page with no task, so it is in
+ * discussion; a page without a summary has not reported yet and is at no stage.
+ */
+export function pageStage(page: PageSummary): PageStage | undefined {
+  const summary = page.summary;
+  return summary ? (summary.work?.stage ?? 'discussion') : undefined;
+}
+
+/** How many of `pages` are at each stage; a page that has not reported counts under none. */
+export function stageCounts(pages: readonly PageSummary[]): Record<PageStage, number> {
+  const counts = { 'in-progress': 0, discussion: 0, done: 0 };
+  for (const page of pages) {
+    const stage = pageStage(page);
+    if (stage) counts[stage] += 1;
+  }
+  return counts;
+}
+
 export function filterPages(
   pages: readonly PageSummary[],
   filter: PageFilter,
@@ -98,6 +122,7 @@ export function filterPages(
   const words = filter.text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const kept = pages.filter((page) => {
     if (filter.needsYou && !page.summary?.waiting) return false;
+    if (filter.stage && pageStage(page) !== filter.stage) return false;
     const projects = page.projects ?? [];
     if (!filter.projects.every((name) => projects.includes(name))) return false;
     const author = page.summary?.author;

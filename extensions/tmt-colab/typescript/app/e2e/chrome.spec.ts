@@ -303,7 +303,7 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   await archived.click();
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
   await expect(archived).toHaveAttribute('aria-selected', 'true');
-  await archived.press('ArrowLeft');
+  await archived.press('ArrowRight');
   await expect(all).toHaveAttribute('aria-selected', 'true');
   await expect(rows.first()).toContainText('Release notes');
   await expect(all).toBeFocused();
