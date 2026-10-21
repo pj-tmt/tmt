@@ -40,7 +40,7 @@ it('validates structured shell projections with the shared corpus and refuses HT
     expect(() => validateProjection(bad)).toThrow();
   const worker = { postMessage: vi.fn(), terminate: vi.fn(), onerror: null, onmessage: null };
   const fold = new Fold(worker as unknown as Worker);
-  expect(() => fold.prepareContent('erase', base)).toThrow('cannot replace a shell');
+  expect(() => fold.prepareContent('erase', base)).toThrow('cannot replace a dashboard');
   expect(worker.postMessage).not.toHaveBeenCalled();
   fold.close();
 });

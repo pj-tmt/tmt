@@ -296,7 +296,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
       validateProjection({ source: command.source, title: '' });
       validateProjection(command.base);
       if (command.base.pageType === 'shell')
-        throw new Error('HTML source operations cannot replace a shell page');
+        throw new Error('HTML source operations cannot replace a dashboard');
       validateOwn(command.base.own);
       const admittedOwn = Object.fromEntries(
         [...own].map(([writer, doc]) => [writer, projectOwn(doc, true)]),

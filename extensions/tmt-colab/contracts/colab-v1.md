@@ -999,13 +999,13 @@ page (`column`: a text column of at most 1280 px; `full`: blocks may run edge to
 existed reads as `freeform` with no migration, and no create or write can choose it.
 `meta.layoutReason` is present exactly when `meta.layout` is `canvas`: one nonempty,
 trimmed line of at most 1024 UTF-8 bytes without control characters, saying why the page
-draws its own frame. A shell page has neither key. Both are display and framing hints,
+draws its own frame. A dashboard has neither key. Both are display and framing hints,
 never authority. The browser frames from the verified, folded metadata, so a change made on
 another device or by the CLI reframes an open page without a new source. Source writes
 (CLI, patch, browser Save), checkpoints, compaction and epoch baselines preserve both keys
 in the committed update bytes; only `page create` and `page layout` set them, and a native
 or browser projection with an unknown kind, a reason on a non-canvas page, a canvas without
-a reason or a shell page with a layout is rejected.
+a reason or a dashboard with a layout is rejected.
 
 `meta.creationRecipient`, when present, is exactly `{machineId,agentId}`: a
 canonical non-nil Remote UUIDv4 and canonical non-nil core UUID. It is an asserted
@@ -2493,22 +2493,25 @@ Detached threads retain their quote and require a fresh selection plus explicit
 parent confirmation to reattach. Re-resolve against every fresh render and epoch;
 absent own history is never recreated automatically.
 
-### Shell pages (#3648)
+### Dashboards (#3648)
 
-A shell is an ordinary page with structured content, not authored HTML. A space
-may have many shells; none is a default or Home. Creation, membership, archive,
+A dashboard is an ordinary page with structured content, not authored HTML. It is the
+name the UI, the CLI (`tmt colab dashboard`) and the skill use; its stored value keeps the
+older name `shell` (`meta.pageType`, `meta.shell`, `shell.json`, `shell-v1.json`), which is
+signed data and never migrated. A space
+may have many dashboards; none is a default or Home. Creation, membership, archive,
 delete, epoch, signed content publication and revision fences retain their existing
-owners. Only the owner and the owner's admitted agents edit a shell in v1;
+owners. Only the owner and the owner's admitted agents edit a dashboard in v1;
 shared viewers read it. References grant no access to their targets.
 
-The content document retains its existing `html` and `meta` roots. A shell has an
+The content document retains its existing `html` and `meta` roots. A dashboard has an
 empty `html` text and `meta.pageType = "shell"`; `meta.shell` holds the complete
 closed value below as plain JSON, not nested executable markup. The empty text
-is a wire container, never rendered as the shell's content. A shell cannot have
-HTML text or document attachments. The discriminator and shell value occur
+is a wire container, never rendered as the dashboard's content. A dashboard cannot have
+HTML text or document attachments. The discriminator and dashboard value occur
 together. Ordinary HTML pages have neither field. The isolated native decoder
 and browser fold validate this on every incoming state and prepared action;
-raw Yjs updates cannot bypass the same schema. A shell's title stays in
+raw Yjs updates cannot bypass the same schema. A dashboard's title stays in
 `meta.title` so the ordinary list and search can display it.
 
 ```json
@@ -2526,20 +2529,20 @@ raw Yjs updates cannot bypass the same schema. A shell's title stays in
 - reading: `{kind:"reading", pageId, readingId, note?, audience?}`.
 
 `pageId` and `readingId` are canonical generated UUIDs. Targets belong to the
-shell's space. An anchor is exactly
+dashboard's space. An anchor is exactly
 `[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}`: it resolves by exact ID to exactly one
 element, never by CSS/XPath, and scrolling or highlighting grants no action
-authority. A reference to another shell is a link only, never expanded.
+authority. A reference to another dashboard is a link only, never expanded.
 Deleted, absent, ambiguous or unreadable targets stay unavailable references;
 they are never automatically removed or admitted.
 
 Optional fields are omitted, never null. `note` is at most 512 UTF-8 bytes;
 `audience` at most 128. Text is inert and contains no control characters or
 unpaired surrogates. `order` contains every item ID exactly once. There are at
-most 256 items. The whole shell value, encoded as compact UTF-8 JSON with
+most 256 items. The whole dashboard value, encoded as compact UTF-8 JSON with
 lexically sorted ASCII field/UUID keys and integral numbers normalized, is at
 most 131072 bytes. Existing update, history and transport limits apply too;
-the shell bound does not measure retained Yjs history.
+the dashboard bound does not measure retained Yjs history.
 
 An optional `summary` is
 `{line1,line2,attribution:{writerId,timeMs,displayAgent?}}`. `line1` is at most
@@ -2572,35 +2575,35 @@ a caller-chosen item ID makes an uncertain outcome inspectable by reading it
 back. Suggesting a reading never marks it read or sends a notice; those remain
 the source reading's explicit person action and existing notification owner.
 
-`tmt colab shell create --title TITLE --json` creates an empty shell and never
-opens a browser. `shell read PAGE --json` returns
+`tmt colab dashboard create --title TITLE --json` creates an empty dashboard and never
+opens a browser. `dashboard read PAGE --json` returns
 `{spaceId,pageId,title,pageType:"shell",shell,epoch,membershipHead,revision}`.
 There is one mutating subcommand per action: `item-add`, `item-remove`,
 `item-move`, `item-set`, `summary-set`, `summary-clear`, `reading-suggest`.
 Each takes `PAGE --expected-revision REV --json` and, except `summary-clear`,
 `--file PATH|-` containing its exact JSON body. Revision is required. Existing
-space selection and short page-ID resolution apply. No raw Yjs or whole-shell
+space selection and short page-ID resolution apply. No raw Yjs or whole-dashboard
 replacement CLI is added. Ordinary publication receipts, no-op and retained
 original-operation/unknown-outcome handling apply; no resend or offline
 fallback follows a possibly published request.
 
-HTML-only source operations refuse a shell with `COLAB_INPUT_INVALID` rather
+HTML-only source operations refuse a dashboard with `COLAB_INPUT_INVALID` rather
 than erase it. Export writes `shell.json` beside the usual metadata, never
-`page.html`. The owner app draws a shell as a greeting, three counts and numbered chapters (one
+`page.html`. The owner app draws a dashboard as a greeting, three counts and numbered chapters (one
 per distinct, available, non-archived source page) joined by hairlines, with older pages in a list;
 the shared and hosted readers open it with a neutral notice explaining
-`tmt colab shell read`. Everything shown is computed from the space list and the owner chapter
+`tmt colab dashboard read`. Everything shown is computed from the space list and the owner chapter
 details, never stored: the greeting and the first count are the sum of the pages' needs-you counts;
 a page not waiting and edited within seven days is in progress; waiting chapters come first, then
-in progress, each by update time with the shell's `order` as the tie-break; a chapter shows the
+in progress, each by update time with the dashboard's `order` as the tie-break; a chapter shows the
 passage that most needs the owner (a pending item an item names, else the first by rank, else the
 page's latest comment, else the item note). From 900 px a chapter's "Open to decide" opens a panel
-beside the shell (the app's drawer: Esc, a click outside or Close dismisses it) listing what waits on
+beside the dashboard (the app's drawer: Esc, a click outside or Close dismisses it) listing what waits on
 that page and its latest comment, with the page and passage links; narrower, it opens the page. The
 panel is the page route's `open` search parameter (a page ID, dropped when it is not a chapter of the
-shell), so Back, Forward, a reload and a pasted link keep it; it changes nothing and is never state of
+dashboard), so Back, Forward, a reload and a pasted link keep it; it changes nothing and is never state of
 the shell. The page never marks a reading read. List/search use its
-title and needs-you counts do not treat shell references as authored questions or pending readings. No Today
+title and needs-you counts do not treat dashboard references as authored questions or pending readings. No Today
 integration or migration of older collection data exists. Native and browser
 consume the shared `shell-v1.json` vectors.
 
@@ -2608,7 +2611,7 @@ consume the shared `shell-v1.json` vectors.
 
 An ordinary HTML page may carry work: a two-line summary and a task list, in the content
 document's `meta.work` beside its HTML. A page with tasks is just a page; there is no other
-tracker concept. A shell page never carries work (it keeps its own summary), and a page with
+tracker concept. A dashboard never carries work (it keeps its own summary), and a page with
 `meta.work` has no `pageType`. The isolated native decoder and the browser fold validate the
 value on every incoming state and prepared action, so raw Yjs cannot bypass the schema. Writing a
 page's HTML source and rotating its epoch keep the value exactly. A page that has had no work carries no `meta.work`; its first action starts from the
@@ -2632,7 +2635,7 @@ value, encoded as compact UTF-8 JSON with lexically sorted ASCII field and ID ke
 numbers normalized, is at most 131072 bytes, so a replacement stays within one update. Existing
 update, history and transport limits apply too.
 
-The optional `summary` is the shell's `{line1,line2,attribution}`: `line1` at most 24 and
+The optional `summary` is the dashboard's `{line1,line2,attribution}`: `line1` at most 24 and
 `line2` at most 60 Unicode code points (where it stands, and what comes next), the same inert-text
 rules, and attribution that the write owner records (its authenticated writer UUID, owner-clock
 Unix milliseconds and the optional Core-resolved `displayAgent`, never proof of agent authority).
@@ -2674,7 +2677,7 @@ becomes an ordinary signed content publication. The nine closed bodies are:
 
 Extra or missing fields, invalid types, `null` optionals, overlimits, a caller-chosen or unknown
 task ID, an unknown state or kind, a `reason` without `blocked` (or `blocked` without one), a
-shell page and any caller-supplied attribution refuse the whole action with
+dashboard and any caller-supplied attribution refuse the whole action with
 `COLAB_INPUT_INVALID`, leaving the base untouched. A changed revision is `COLAB_STALE_BASE`: read
 again, without an automatic retry. The revision fence, not a caller ID, makes a retried
 `task.add` safe: after a publication that did commit, the repeat is stale. An action that changes
@@ -2731,7 +2734,7 @@ held where it is, by that page's own tasks.
 the actions above, one command per action, and never open a browser. A write applies to the
 revision it just read, or to `--expected-revision`; `task add` returns the new `taskId`. `task ls
 --json` returns `{spaceId,pageId,title,work,derived,epoch,membershipHead,revision}`; a page with no
-work returns the empty value, and `derived` carries `states` when a task follows a page. A shell page
+work returns the empty value, and `derived` carries `states` when a task follows a page. A dashboard
 is refused with `COLAB_INPUT_INVALID`. `tmt colab ls` shows `work` (`stage`, `done`, `total`,
 `working`, `signoff`, the tasks following pages counted by the states they show) on each page that has
 work, and one line under its row; a page that is followed also carries `parent` `{page,task}` and says
@@ -4751,7 +4754,7 @@ The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text (the empty string for `page.projects` and `project.manage`, see [Projects](#projects-3747))
 and payload is canonical base64url of the same typed JSON.
-The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient` and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a shell page has none) as defined
+The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient` and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
 in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
 cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
@@ -5193,7 +5196,7 @@ uniqueness and states before rendering any descriptor as inert text. A malformed
 failed or stale result remains unknown, never an empty complete list. Discovery
 keeps its 2 MiB and 1,000-page bounds.
 
-The owner app's shell page is the one browser consumer: it reads this route for its first 20
+The owner app's dashboard is the one browser consumer: it reads this route for its first 20
 chapters' pages to show each chapter's passage, without writing anything. The route never marks a
 reading read, and neither does opening a chapter from a shell.
 
@@ -5807,7 +5810,7 @@ and verified membership head MUST belong to that same snapshot. A later write
 cannot change an already captured bundle. This head is locally verified, not a
 claim of globally current membership.
 
-For a [shell page](#shell-pages-3648), `shell.json` replaces `page.html` and
+For a [dashboard](#dashboards-3648), `shell.json` replaces `page.html` and
 contains the canonical shell value, including summary attribution. The manifest
 also carries `pageType:"shell"`; ordinary HTML exports omit it. An ordinary page
 that has [work](#work-4050) also exports `work.json` right after `page.html`: the

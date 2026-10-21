@@ -50,7 +50,7 @@ export interface PageSnapshot extends PageSummary {
   readonly discussionPending?: boolean;
   readonly pageType?: Projection['pageType'];
   readonly shell?: Projection['shell'];
-  /** The page's summary and task list (`meta.work`); never on a shell page. */
+  /** The page's summary and task list (`meta.work`); never on a dashboard. */
   readonly work?: Projection['work'];
   readonly originalAuthor?: Projection['originalAuthor'];
   readonly publisherAgent?: Projection['publisherAgent'];

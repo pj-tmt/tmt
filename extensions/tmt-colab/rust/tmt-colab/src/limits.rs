@@ -159,7 +159,7 @@ pub const SPACE_PROJECT_PAGES: usize = 1000;
 /// Pages one `page.projects` request may change, in one store transaction (the payload stays under
 /// the 16 KiB management cap for ordinary names; a larger batch is several requests).
 pub const PROJECT_REQUEST_PAGES: usize = 64;
-/// Structured shell value and reference bounds (contract: Shell pages).
+/// Structured shell value and reference bounds (contract: Dashboards).
 pub const SHELL_ITEMS: usize = 256;
 pub const SHELL_BYTES: usize = 128 * 1024;
 pub const SHELL_NOTE_BYTES: usize = 512;
