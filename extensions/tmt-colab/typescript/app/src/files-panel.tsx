@@ -154,11 +154,14 @@ export function FilesPanel({
   descriptors,
   files,
   disabled,
+  fenced = false,
   readOnly = false,
 }: {
   descriptors: readonly attachment.AttachmentDescriptor[];
   files: DocumentFiles;
   disabled: boolean;
+  /** Another save is in flight: the controls keep their look, and nothing is written meanwhile. */
+  fenced?: boolean;
   readOnly?: boolean;
 }) {
   // A same-page reopen may replace the files owner; the draft keeps its picked bytes and reads
@@ -179,7 +182,7 @@ export function FilesPanel({
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string>();
   const add = async () => {
-    if (adding || disabled) return;
+    if (adding || disabled || fenced) return;
     setError(undefined);
     if (descriptors.length + staged.chips.length > PAGE_FILES) {
       setError(text.filesFull);
@@ -209,7 +212,7 @@ export function FilesPanel({
       <FilesList
         descriptors={descriptors}
         binding={files.attachments}
-        remove={readOnly ? undefined : (id) => files.remove([id])}
+        remove={readOnly ? undefined : (id) => (fenced ? Promise.resolve() : files.remove([id]))}
         disabled={disabled || adding}
         readOnly={readOnly}
         epoch={files.epoch}

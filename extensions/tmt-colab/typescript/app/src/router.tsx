@@ -2175,7 +2175,8 @@ function Page() {
             descriptors={view.attachments ?? []}
             files={snapshot.binding.files}
             readOnly={archived}
-            disabled={!!liveError || saving}
+            disabled={!!liveError}
+            fenced={saving}
           />
         </BrowserDrawer>
       )}
