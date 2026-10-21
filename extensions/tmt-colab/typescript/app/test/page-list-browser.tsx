@@ -29,6 +29,9 @@ declare global {
     __opened: { url: string; target: string; features: string }[];
     /** How many times the router has read the list. */
     __listReads: number;
+    /** The owner's fold finishing: every page without a summary gets one (the first in progress),
+     * and the next list read returns them. */
+    __reportTasks?: () => void;
   }
 }
 let root: Root | undefined;
@@ -190,6 +193,16 @@ export async function mountPageList(
                     }),
                     page(5, 'Archived spec', ['design'], { archived: true }),
                   ],
+  };
+  window.__reportTasks = () => {
+    state.pages = state.pages.map((p, index) =>
+      p.summary
+        ? p
+        : {
+            ...p,
+            summary: { ...idle, ...(index === 0 ? { work: work('in-progress', 1, 3) } : {}) },
+          },
+    );
   };
   for (const p of state.pages) for (const name of p.projects ?? []) state.projects.add(name);
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));

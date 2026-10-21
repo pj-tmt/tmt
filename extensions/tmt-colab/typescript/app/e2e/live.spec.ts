@@ -1,3 +1,4 @@
+import { showAllPages } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -1080,6 +1081,7 @@ test('paired guidance reopens once, reloads into the owner app and clears its re
     owner ? route.continue() : route.fulfill({ contentType: 'text/html', body: privateGuidance }),
   );
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
@@ -1101,6 +1103,7 @@ test('authenticated tail past write limits opens and renders exact source', asyn
   expect(f.entries).toHaveLength(206);
   expect(f.tailBytes).toBeGreaterThan(256 * 1024);
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
@@ -1153,6 +1156,7 @@ test('a disconnected active tab replaces its session on its own, with no click a
     return route.fulfill({ json: {} });
   });
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
   await expect(heading).toBeVisible();
@@ -1264,6 +1268,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     }
   });
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
   await expect(heading).toBeVisible();
@@ -1637,6 +1642,7 @@ for (const width of [1440, 390])
         await page.setViewportSize({ width, height: 900 });
         const f = await draftRecoveryWire(context, true);
         await page.goto(mount);
+        await showAllPages(page);
         await page.locator(`[data-page-id="${v.page}"] a`).click();
         const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
         await expect(heading).toBeVisible();
@@ -1799,6 +1805,7 @@ for (const surface of ['Chat', 'annotation'] as const) {
   }, testInfo) => {
     const f = await draftRecoveryWire(context);
     await page.goto(mount);
+    await showAllPages(page);
     await page.locator(`[data-page-id="${v.page}"] a`).click();
     const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
     await expect(heading).toBeVisible();
@@ -1914,6 +1921,7 @@ test('a tab refused at the session limit names the limit and opens on reload onc
     }
   f.free();
   await card.getByRole('button', { name: copy.reload, exact: true }).click();
+  await showAllPages(page);
   await expect(page.locator(`[data-page-id="${v.page}"] a`)).toBeVisible();
 });
 
@@ -1925,6 +1933,7 @@ for (const surface of ['Chat', 'annotation'] as const)
     await page.setViewportSize({ width: 1440, height: 900 });
     const f = await draftRecoveryWire(context);
     await page.goto(mount);
+    await showAllPages(page);
     await page.locator(`[data-page-id="${v.page}"] a`).click();
     const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
     await expect(heading).toBeVisible();
@@ -2044,6 +2053,7 @@ test('an upgraded server shows the update row under the header without covering 
       (route) => route.fulfill({ contentType: 'text/javascript', body: "import '/src/main.tsx';" }),
     );
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
   await expect(heading).toBeVisible();
@@ -2108,6 +2118,7 @@ test('same-device tabs stay connected and exchange source edits without reopenin
     tab.evaluate(() => Number(sessionStorage.getItem('test:reopens') ?? 0));
   for (const tab of [page, other]) {
     await tab.goto(mount);
+    await showAllPages(tab);
     await tab.locator(`[data-page-id="${v.page}"] a`).click();
     await expect(
       tab.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
@@ -2150,6 +2161,7 @@ test('chunked epoch baseline stays live in two tabs through an edit and reload',
   const other = await context.newPage();
   for (const tab of [page, other]) {
     await tab.goto(mount);
+    await showAllPages(tab);
     await tab.locator(`[data-page-id="${v.page}"] a`).click();
     await expect(
       tab.frameLocator('iframe').getByRole('heading', { name: 'Reset baseline' }),
@@ -2188,6 +2200,7 @@ async function twoSourceTabs(page: Page, context: BrowserContext, source: string
   const other = await context.newPage();
   for (const tab of [page, other]) {
     await tab.goto(mount);
+    await showAllPages(tab);
     await tab.locator(`[data-page-id="${v.page}"] a`).click();
     await expect(
       tab.frameLocator('iframe').getByRole('heading', { name: 'Merged rows' }),
@@ -2317,6 +2330,7 @@ for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as cons
   }) => {
     await wire(context, { source: '<h1>Never publish</h1>', invalid });
     await page.goto(mount);
+    await showAllPages(page);
     await page.locator(`[data-page-id="${v.page}"] a`).click();
     // A rejected open is the plain "could not open" card (#4012), never a partial page.
     await expect(page.getByTestId('page-open-failure')).toContainText('This page could not open.');
@@ -2340,6 +2354,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
 }) => {
   const f = await wire(context, undefined, {});
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   // The chapter's panel header repeats the title: read the page header's.
   await expect(
@@ -2404,6 +2419,7 @@ for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap', 'ownBody', 'ow
   }) => {
     await wire(context, undefined, { invalid });
     await page.goto(mount);
+    await showAllPages(page);
     await page.locator(`[data-page-id="${v.page}"] a`).click();
     // A rejected open is the plain "could not open" card (#4012), never a partial page.
     await expect(page.getByTestId('page-open-failure')).toContainText('This page could not open.');
@@ -2435,6 +2451,7 @@ test('baseline finishes before a signed large statement; exact owner log survive
   const source = '<h1>Statement fixture</h1>' + 'x'.repeat(40_000),
     f = await wire(context, { source }, undefined, 'valid');
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Statement fixture' }),
@@ -2461,6 +2478,7 @@ test('a signed statement whose chunks take over two seconds in all still opens t
     source = '<h1>Slow statement</h1>' + 'x'.repeat(40_000),
     f = await wire(context, { source }, undefined, 'valid', undefined, false, { ms: delay });
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Slow statement' }),
@@ -2482,9 +2500,11 @@ test('a page whose catchup takes over ten seconds in all still opens', async ({
     f = await wire(context, { source });
   await page.goto(mount);
   // The home list reads the page's title first; only the page's own catchup is slowed.
+  await showAllPages(page);
   await expect(page.locator(`[data-page-id="${v.page}"] a`)).toBeVisible();
   f.slowChunks({ ms: delay, objectsOnly: true });
   const opened = Date.now();
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Slow catchup' }),
@@ -2572,6 +2592,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   let requested = 0;
   page.on('download', () => requested++);
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Exact export' }),
@@ -2700,6 +2721,7 @@ test('failed export preparation requests no files and closing clears pending pre
 }) => {
   await wire(context);
   await page.goto(mount);
+  await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.locator('section.page').getByRole('heading', { name: 'Live fixture', exact: true }),
@@ -2757,6 +2779,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   const title = '<img src=x onerror="window.titleInjected=true"> Personal notes';
   await wire(context, undefined, undefined, undefined, title);
   await page.goto(mount);
+  await showAllPages(page);
   const row = () => page.locator(`[data-page-id="${v.page}"]`);
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
@@ -2773,9 +2796,11 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await expect(dialog.getByText(`Page ID: ${v.page}`, { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('link', { name: /^Colab · local/ }).click();
+  await showAllPages(page);
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(page).toHaveTitle('Colab');
   await page.reload();
+  await showAllPages(page);
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(page.locator('.home img')).toHaveCount(0);
   const persisted = await page.evaluate(
@@ -2806,11 +2831,13 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
     { space: v.space, device: v.device, pageId: v.page },
   );
   await page.reload();
+  await showAllPages(page);
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await row().locator('a').click();
   await expect(
     page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
   ).toBeVisible();
   await page.getByRole('link', { name: /^Colab · local/ }).click();
+  await showAllPages(page);
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
 });

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { showAllPages } from '../test/home-list.js';
 import { createPage, freePort, openPage, run, selectInRenderer } from './harness/ask.js';
 import {
   openReaderLink,
@@ -52,6 +53,7 @@ test('real Colab keeps public short entries across admission, reload and history
     await page.goto(shown.link);
     await expect(proof()).toHaveText('Short route content');
     await page.getByRole('link', { name: /^Colab · local/ }).click();
+    await showAllPages(page);
     await expect(
       page.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
     ).toBeVisible();
@@ -74,6 +76,7 @@ test('real Colab keeps public short entries across admission, reload and history
     expect(page.url()).toBe(shown.link);
     for (const route of ['/colab', '/colab/']) {
       await page.goto(new URL(route, door.origin).href);
+      await showAllPages(page);
       await expect(
         page.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
       ).toBeVisible();

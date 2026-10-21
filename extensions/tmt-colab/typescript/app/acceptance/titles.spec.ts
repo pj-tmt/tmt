@@ -1,4 +1,4 @@
-import { homeList } from '../test/home-list.js';
+import { homeList, showAllPages } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
@@ -74,6 +74,7 @@ test('native page titles fill missing visible home labels without opening the pa
     );
     const page = await openColab(door, browser);
     await page.setViewportSize({ width: 1440, height: 900 });
+    await showAllPages(page);
     const row = () => page.locator(`[data-page-id="${created.pageId}"]`);
     await expect(row().getByRole('link')).toHaveText(title);
     expect(sent).toContain('hello');
@@ -103,6 +104,7 @@ test('native page titles fill missing visible home labels without opening the pa
     await page.setViewportSize({ width: 1440, height: 900 });
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('link', { name: /^Colab · local/ }).click();
+    await showAllPages(page);
     await expect(row().getByRole('link')).toHaveText(title);
     await expect(page).toHaveTitle('Colab');
     await page.reload();
@@ -127,6 +129,7 @@ test('native page titles fill missing visible home labels without opening the pa
     ).toBeVisible();
     const other = await pairBrowser(world, 'other-title-browser');
     const otherPage = await openColab(door, other);
+    await showAllPages(otherPage);
     await expect(
       otherPage.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
     ).toHaveText(title);

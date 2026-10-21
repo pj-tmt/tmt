@@ -6196,8 +6196,10 @@ The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
 the same dialog; local samples remain read-only. Home offers the tabs In progress, Discussion
 and Done (the stage of each row's `summary.work`, a fresh summary without work being in
-discussion), Archived and All, and opens on All; an archived page counts only under Archived, and a
-page whose summary has not arrived is in no stage tab. Its rows offer archive and delete, each behind a confirmation that
+discussion), Archived and All, and opens on In progress (a link with `stage=all` opens on All); an
+archived page counts only under Archived, and a page whose summary has not arrived is in no stage
+tab. An empty In progress says so and points to Discussion and All, and never opens another tab by
+itself. Its rows offer archive and delete, each behind a confirmation that
 names the page, and a selection of rows takes them together (one signed statement per page, in
 order, stopping at the first refusal), and the dialog provides retention days/forever, archive and explicit
 delete confirmation. An archived row offers `Restore…` with a named confirmation, using the

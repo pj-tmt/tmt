@@ -73,7 +73,7 @@ for (const width of [1440, 1024, 390])
       await page.goto('/');
       await page.evaluate(async () => {
         const path = '/test/page-list-browser.tsx';
-        await (await import(path)).mountPageList('few');
+        await (await import(path)).mountPageList('few', '/?stage=all');
       });
       const sort = page.locator('#list-fixture').getByRole('button', { name: /^Sort:/ });
       await expect(sort).toBeVisible();

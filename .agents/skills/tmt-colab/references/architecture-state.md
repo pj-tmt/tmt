@@ -661,8 +661,8 @@ them are archived.
 
 The views are the tabs In progress, Discussion, Done, Archived and All, in that order
 (`BrowserTabs variant="flush"`). `stage` in the route search selects a stage or `all`, `archived`
-selects Archived and wins, and the absent key is `DEFAULT_VIEW` (a list without the management
-port has no tabs and is every active page). Each label counts what the scope holds: an archived page
+selects Archived and wins, and the absent key is `DEFAULT_VIEW`, In progress (a list without the
+management port has no tabs and is every active page; a link that wants every page carries `stage=all`). Each label counts what the scope holds: an archived page
 counts only under Archived, and a page whose summary has not arrived (`pageStage` is `undefined`; a
 fresh summary without `work` is in discussion) under no stage, so it is in All only. A stage is one
 state with the search: a typed `stage:<name>` (`takeStage`, applied with Enter) or a suggestion pick
@@ -670,7 +670,8 @@ selects the tab and leaves the search text, and a tab click removes one still ty
 progress and who works (`page-work.tsx`: a `<progress>`, the count in digits and at most three
 assignees from `summary.work`, the rest counted); an empty stage tab names its stage, an empty
 In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
-`Reading page details…` while pages have not reported. A page waiting on the viewer
+`Reading page details…` while `useSummaryFill` is still reading (at most 15 re-reads) and a page in
+the scope has not reported, so a cold start never claims a tab is empty. A page waiting on the viewer
 shows `◆ Waiting for you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
 word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
 menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer

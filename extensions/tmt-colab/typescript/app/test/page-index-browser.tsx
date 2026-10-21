@@ -100,7 +100,8 @@ export async function mountPageIndex(
     },
     spaceHome: async () => ({ title: 'Studio pages', pages }),
   });
-  location.hash = '/';
+  // The list opens on In progress; these pages have not reported tasks and the index is the subject.
+  location.hash = '/?stage=all';
   const content = (
     <Profiler
       id="page-index"
