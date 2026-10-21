@@ -30,9 +30,9 @@ test('tmt colab open connects an unpaired browser through Remote and prints only
     expect(launches).toHaveLength(1);
     // Only the harness's opener stand-in sees the private launch link; Colab never printed it.
     const launch = launches[0].replace(/^\S+ /, '');
-    expect(launch).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/pair#auto=/);
-    // The leak check flags unconsumed opener calls, so consume this one.
+    // Consume the recorded stand-in call before validating it, including on assertion failure.
     fs.rmSync(world.openerLog);
+    expect(launch).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/remote\/pair#auto=/);
 
     const browser = await freshBrowser(world, 'launched');
     await browser.page.goto(launch);

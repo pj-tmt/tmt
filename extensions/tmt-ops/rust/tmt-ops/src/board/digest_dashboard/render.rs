@@ -36,11 +36,27 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         Rect::new(area.x, area.y.saturating_add(1), area.width, chart_height),
         now,
     );
-    let body = Rect::new(
-        area.x,
-        area.y.saturating_add(1 + chart_height),
+    let allowance_height = super::allowance::height(
+        app,
         area.width,
         area.height.saturating_sub(1 + chart_height),
+    );
+    super::allowance::paint(
+        frame,
+        app,
+        Rect::new(
+            area.x,
+            area.y.saturating_add(1 + chart_height),
+            area.width,
+            allowance_height,
+        ),
+    );
+    let top = 1 + chart_height + allowance_height;
+    let body = Rect::new(
+        area.x,
+        area.y.saturating_add(top),
+        area.width,
+        area.height.saturating_sub(top),
     );
     app.conversation.borrow_mut().area = body;
     let placement = app.digest_placement(body);

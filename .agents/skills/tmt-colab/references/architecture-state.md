@@ -593,7 +593,9 @@ is added.
   own transaction and `delete_page_data` drops it with the page. The serve calls
   `Registration::start_summaries` once at start (the same single-flight `summary::drain` a list read
   schedules), so a store upgraded to schema 16 fills without the list being opened; no backfill state.
-  Nothing serves it yet.
+  `Registration::pages` reads the current rows in the catalog's own transaction (`CatalogRead`) and
+  `attach_to_catalog` adds them as `title` newest page first while the reply stays within
+  `DISCOVERY_BYTES`; mounted `spaceHome` shows that title instead of the browser's hint.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.

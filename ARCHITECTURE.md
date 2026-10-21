@@ -403,12 +403,12 @@ use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
 [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
 own module/drawing boundaries and verification.
 
-- **Seam.** Ops uses public `tmt --json`/`tmt api` and starts `tmt digest tick`
-  through `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. Digest owns
-  locking, deadlines and delivery. No direct Core state, tmux or provider writes.
-  The guard rejects TMT-to-Ops and Ops-to-Core Cargo/source edges. Dependencies
-  are `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state` and dev-only
-  `tmt-test-support`. New API methods need tmt-lead review.
+- **Seam.** Ops calls public `tmt --json`/`tmt api` (minute `workspace.capture`) and
+  `tmt digest tick` via `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`.
+  Digest owns locks, deadlines and delivery. No direct Core state, tmux or
+  provider writes. The guard bans TMT-to-Ops and Ops-to-Core Cargo/source edges.
+  Uses `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state` and
+  dev-only `tmt-test-support`. tmt-lead reviews new APIs.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. The workspace
@@ -634,5 +634,5 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. `object_channel::cloud_sync` publishes rows, authority and originals once Remote activates; hosted folds verify log anchors before checkpoint pairs. Native bootstrap installs a verified checkpoint pair; other verified originals use serve append ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
-  child decodes Yjs, no browser route serves plaintext, and the Worker is resource
+  child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`), and the Worker is resource
   containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Source/shell actions, thread status and proposals publish through it (offline or the local `page-publish` route), browser Save uses the owner sync socket, signed by the root-local writer.

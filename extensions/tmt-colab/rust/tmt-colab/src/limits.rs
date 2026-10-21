@@ -175,6 +175,10 @@ pub const WORK_BYTES: usize = 128 * 1024;
 /// The highest task number; `next` may reach one past it, and a task is never numbered twice.
 pub const WORK_ID_MAX: u64 = 9_999_999;
 pub const WORK_TITLE_POINTS: usize = 120;
+/// The most the owner's `/api/pages` reply may hold: the browser refuses a longer one
+/// (`DISCOVERY_BYTES` in `bootstrap.ts` holds the same number). The worst case without titles is
+/// about 1.93 MB, so a title is an optional extra that the reply spends what is left on.
+pub const DISCOVERY_BYTES: usize = 2 * 1024 * 1024;
 /// The longest page title the owner's local title projection keeps, in UTF-8 bytes: a longer one is
 /// not stored, so every consumer's reply stays bounded and shows its own fallback instead. The title
 /// is measured after it is made one line of plain text (control and bidirectional formatting
