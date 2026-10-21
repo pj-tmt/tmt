@@ -1137,6 +1137,210 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     });
   }, 60_000);
 
+  it('stores and shows the finals of a Digest-continued turn and of a turn that never replies', async () => {
+    await withE2EFixture(async (fixture) => {
+      const name = 'ChatClaude';
+      const sessionId = randomUUID();
+      const home = path.join(fixture.root, `home-${name}`);
+      const tree = path.join(home, '.claude', 'projects', '-workspace');
+      fs.mkdirSync(tree, { recursive: true });
+      const transcript = path.join(tree, `${sessionId}.jsonl`);
+      // Claude flushes a turn's last record after its Stop hooks run: at every Stop here the
+      // transcript still ends with an older turn, so a read of it alone finds stale text.
+      const flushed = JSON.parse(
+        fs.readFileSync(
+          path.resolve(
+            '../rust/crates/tmt-adapters/src/runtime/fixtures/claude-assistant-usage.jsonl'
+          ),
+          'utf8'
+        )
+      );
+      flushed.sessionId = sessionId;
+      flushed.message.content = [{ type: 'text', text: 'Stale text of an older turn' }];
+      fs.writeFileSync(transcript, JSON.stringify(flushed) + '\n');
+      const env = {
+        PATH: `${path.dirname(fixture.executables.cli.executable)}:${process.env.PATH ?? ''}`,
+        HOME: home,
+        TMT_HOME: fixture.globalDir,
+      };
+      const cli = (args: string[], input?: string) =>
+        execFileSync(
+          fixture.executables.cli.executable,
+          [...fixture.executables.cli.args, ...args],
+          {
+            input,
+            encoding: 'utf8',
+            timeout: 10_000,
+            env,
+          }
+        );
+      // The usage hook is what consents to keeping a turn's final text.
+      cli(['setup', 'claude', '--usage', '--yes', '--json']);
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'claude'),
+        fs.readFileSync('/opt/tmt-tests/claude'),
+        0o755
+      );
+      const worker = start(fixture, name, {
+        channel: false,
+        env: {
+          MOCK_SESSION_ID: sessionId,
+          MOCK_LAUNCH_HOOKS: '1',
+          MOCK_AUTOREPLY: '0',
+          MOCK_TURN_TRANSCRIPT: transcript,
+          TMT_TEST_CLAUDE_MOCK: mock,
+          TMT_TEST_CLAUDE_NODE: process.execPath,
+          TMT_TEST_CLAUDE_NATIVE_CHANNEL: '1',
+        },
+      });
+      const api = (operation: string, input: unknown) =>
+        JSON.parse(cli(['api'], JSON.stringify({ version: 1, operation, input })));
+      const step = async (event: string, extra: Record<string, unknown>) => {
+        await publishDigestStep(worker.log, { event, transcript, ...extra });
+        await waitForEvent(fixture, worker, event);
+      };
+      await withCompletedSession(fixture, worker, async () => {
+        await waitForEvent(fixture, worker, 'prompt-recorded');
+        const id = identityId(fixture, name);
+        const owner = (
+          await fixture.runJsonCli<{ identity: { id: string } }>([
+            'identity',
+            'create',
+            'ChatOwner',
+          ])
+        ).json!.identity.id;
+        expect(
+          api('digest.policy.set', {
+            identityId: id,
+            ownerIdentityId: owner,
+            setterIdentityId: owner,
+            expectedRevision: 0,
+            untilMs: Date.now() + 600_000,
+          })
+        ).toMatchObject({ active: true });
+        const held = await talk(fixture, name, 'Held decision for the next boundary', [
+          '--kind',
+          'decision',
+        ]);
+        expect(held.json).toMatchObject({ status: 'queued', digest: true });
+
+        // Turn 1: the Digest hook blocks the Stop with the checklist, and the provider
+        // continues the same turn with no new prompt. Its last text arrives only in the
+        // continuation Stop's payload.
+        await step('draft-stop', {
+          message: 'Draft before the checklist',
+          continuationMessage: 'Final after the checklist',
+        });
+        await waitForEvent(fixture, worker, 'recursive-stop');
+        expect(named(worker, 'digest-continuation')).toHaveLength(1);
+        // Turn 2 never calls `tmt reply`: only the hook payload carries its answer.
+        await step('prompt-2', { prompt: true });
+        await step('plain-stop', { message: 'Plain answer with no tmt reply' });
+
+        const recent = () =>
+          (api('responses.recent', { identityId: id }) as { items: { text: string }[] }).items.map(
+            (item) => item.text
+          );
+        let stored: string[] = [];
+        await fixture
+          .waitFor(() => (stored = recent()).length === 3, 10_000, 'three stored finals')
+          .catch((error: Error) => {
+            throw new Error(`${error.message} Stored: ${JSON.stringify(stored)}`, { cause: error });
+          });
+        expect(stored).toEqual([
+          'Plain answer with no tmt reply',
+          'Final after the checklist',
+          'Draft before the checklist',
+        ]);
+
+        // The Ops chat for the agent shows those finals and an answered exchange.
+        const cliDir = path.dirname(fixture.executables.cli.executable);
+        fs.symlinkSync(path.join(cliDir, 'tmt-ops'), path.join(fixture.wrapperDir, 'tmt-ops'));
+        fs.symlinkSync(fixture.executables.cli.executable, path.join(fixture.wrapperDir, 'tmt'));
+        const uiHome = path.join(fixture.root, 'ops-ui-home');
+        fs.mkdirSync(uiHome);
+        fixture.tmux(['set-environment', '-g', 'HOME', uiHome]);
+        fixture.tmux(['set-environment', '-g', 'XDG_CACHE_HOME', path.join(uiHome, 'cache')]);
+        expect((await fixture.runJsonCli(['identity', 'create', 'Ben'])).code).toBe(0);
+        expect(
+          (await fixture.runCli(['ops', 'squad', 'init', 'product', '--me', 'Ben', '--json'])).code
+        ).toBe(0);
+        expect((await fixture.runCli(['ops', 'squad', 'add', name, '--json'])).code).toBe(0);
+        fs.appendFileSync(path.join(fixture.globalDir, 'ops.toml'), '\n[board]\nrefresh = "off"\n');
+        const question = await talk(fixture, name, 'Status of the build?', [
+          '--identity',
+          'Ben',
+          '--detach',
+        ]);
+        expect(question.json).toMatchObject({ status: 'sent' });
+        const requestId = String(question.json!.requestId);
+        const shown = await fixture.runJsonCli<{ exchange: { reply: { receipt: string } } }>([
+          'x',
+          'show',
+          requestId,
+          '--incoming',
+          '--identity',
+          name,
+        ]);
+        expect(shown.code).toBe(0);
+        expect(
+          (
+            await fixture.runJsonCli([
+              'reply',
+              requestId,
+              '--receipt',
+              shown.json!.exchange.reply.receipt,
+              '--message',
+              'Replied exchange body: the build is green',
+            ])
+          ).code
+        ).toBe(0);
+        const board = fixture.createShellPane('chat-board').pane;
+        await fixture.attachSessionClient('e2e');
+        fixture.tmux(['select-window', '-t', board]);
+        fixture.tmux(['select-pane', '-t', board]);
+        fixture.tmux(['set-option', '-w', '-t', board, 'window-size', 'manual']);
+        fixture.tmux(['resize-window', '-t', board, '-x', '200', '-y', '50']);
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          board,
+          `tmt ops ui --squad product; printf '\\nBOARD_EXIT=%s\\n' "$?"`,
+          'Enter',
+        ]);
+        await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), board);
+        fixture.tmux(['send-keys', '-t', board, 'Home', 'Right']);
+        fixture.tmux(['send-keys', '-t', board, '/', name, 'Enter']);
+        await fixture.waitForCapture((screen) => /1 of 1/.test(screen), board);
+        fixture.tmux(['send-keys', '-t', board, 'End']);
+        // The chat history is read after the row opens; wait for it on a loaded runner.
+        const wanted = [
+          'Draft before the checklist',
+          'Final after the checklist',
+          'Plain answer with no tmt reply',
+          'Replied exchange body: the build is green',
+        ];
+        let screen = '';
+        await fixture
+          .waitFor(
+            () => {
+              screen = fixture.capture(60, board);
+              return wanted.every((text) => screen.includes(text));
+            },
+            20_000,
+            'the finals and the answered exchange on the Ops board'
+          )
+          .catch((error: Error) => {
+            throw new Error(`${error.message}\n${screen}`, { cause: error });
+          });
+        for (const text of wanted) expect(screen, text).toContain(text);
+        expect(screen).not.toContain('Stale text of an older turn');
+        fixture.tmux(['send-keys', '-t', board, 'q']);
+        await fixture.waitForCapture((text) => /^BOARD_EXIT=0$/m.test(text), board);
+      });
+    });
+  }, 90_000);
+
   it.each([
     { channel: true, nativeParent: true, dueNow: false, flush: false },
     { channel: false, nativeParent: true, dueNow: false, flush: false },
