@@ -449,7 +449,8 @@ fn unread_squad_maximum_label_is_whole_and_tokens_align_with_the_header() {
             .iter()
             .find(|line| line.contains("SQUAD / AGENT") && line.contains("STATE"))
             .unwrap();
-        let token_end = header.find("TOK 1h").unwrap() + "TOK 1h".len() - 1;
+        let token_end =
+            header[..header.find("TOK 1h").unwrap()].chars().count() + "TOK 1h".len() - 1;
         let row = lines
             .iter()
             .find(|line| {

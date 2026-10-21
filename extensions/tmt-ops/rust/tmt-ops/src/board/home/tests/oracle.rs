@@ -355,6 +355,9 @@ fn captures() -> Value {
             for state in [
                 "overview",
                 "agents",
+                "agents-sorted",
+                "agents-state-sorted",
+                "agents-header-hover",
                 "digest",
                 "digest-allowance",
                 "empty",
