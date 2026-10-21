@@ -518,13 +518,15 @@ impl Registration {
         let decoder = self.engine.decoder(page)?;
         crate::page::usage(&self.store, &self.keyring, page, decoder)
     }
-    /// What the root-local stream recorded for an operation a browser Save chose. Read-only.
+    /// What the root-local stream recorded for an operation a browser Save chose. Read-only. A
+    /// convert operation also names the page it made, if that page exists, so a lost reply says
+    /// both whether the page was made and whether the link landed.
     pub(crate) fn save_status(
         &self,
         page: &str,
         operation_id: &str,
     ) -> crate::Result<crate::page::save::SaveResult> {
-        crate::page::save::SaveResult::recorded(
+        let recorded = crate::page::save::SaveResult::recorded(
             operation_id,
             crate::page::publication_status_by_operation(
                 &self.store,
@@ -532,7 +534,51 @@ impl Registration {
                 page,
                 operation_id,
             )?,
-        )
+        )?;
+        let child = crate::work_convert::child_page_id(&self.keyring.space_id, operation_id);
+        Ok(recorded.with_child(self.page_epoch(&child).map(|_| child)))
+    }
+    /// Make the page a browser's convert operation names, as the owner's own `page.create`: a
+    /// column page with this title and first text, no publisher agent and nothing the browser
+    /// chose. The caller holds the sync lock and has authorized the owner device.
+    pub(crate) fn create_child(
+        &mut self,
+        page: &str,
+        operation_id: &str,
+        title: &str,
+        source: &str,
+        now: u64,
+    ) -> crate::Result<()> {
+        let space = self.keyring.space_id.clone();
+        let revision = self
+            .store
+            .owner_head(&space, &self.keyring.owner_public())?
+            .map_or(0, |head| head.revision)
+            .to_string();
+        let payload = serde_json::json!({
+            "pageId": page, "title": title, "source": source,
+            "layout": crate::decoder::PageLayout {
+                kind: crate::decoder::LayoutKind::Column,
+                reason: None,
+            },
+        });
+        let body = serde_json::to_vec(&serde_json::json!({
+            "space": space, "page": page, "expectedRevision": revision,
+            "operationId": crate::work_convert::create_operation_id(&space, operation_id),
+            "operation": "page.create",
+            "payload": tmt_colab_model::values::encode_binary(&serde_json::to_vec(&payload)?),
+        }))?;
+        crate::management::local(self, &space, &body, now)
+            .map(|_| ())
+            .map_err(|code| {
+                crate::work_admission::refused(
+                    match code {
+                        crate::management::Code::Capacity => "COLAB_CAPACITY",
+                        _ => "COLAB_UNAVAILABLE",
+                    },
+                    "The page for this task could not be made.",
+                )
+            })
     }
     /// Where a browser Save gets a snapshot of its own to prepare from, outside every lock.
     pub(crate) fn save_source(&self) -> Option<crate::page::save::SourceOpener> {
@@ -1077,6 +1123,19 @@ impl crate::sync::Admission for OwnerAdmission {
             .lock()
             .map_err(|_| crate::page::Fault::Unavailable)?
             .save_status(page, operation_id)
+    }
+    fn create_child(
+        &mut self,
+        page: &str,
+        operation_id: &str,
+        title: &str,
+        source: &str,
+        now: u64,
+    ) -> crate::Result<()> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .create_child(page, operation_id, title, source, now)
     }
     fn usage(&mut self, page: &str) -> crate::Result<crate::page::PageUsage> {
         self.0

@@ -167,6 +167,18 @@ pub trait Admission: Send {
     ) -> crate::Result<crate::page::save::SaveResult> {
         Err(crate::page::Fault::Denied.into())
     }
+    /// Make the page a browser's convert operation names (see `Registration::create_child`).
+    /// `Denied` for an admission that cannot create pages.
+    fn create_child(
+        &mut self,
+        _page: &str,
+        _operation_id: &str,
+        _title: &str,
+        _source: &str,
+        _now: u64,
+    ) -> crate::Result<()> {
+        Err(crate::page::Fault::Denied.into())
+    }
     /// How full the page is. `Denied` for an admission with no native reader.
     fn usage(&mut self, _page: &str) -> crate::Result<crate::page::PageUsage> {
         Err(crate::page::Fault::Denied.into())
@@ -437,8 +449,15 @@ pub(crate) struct SaveJob {
 }
 /// Whether a save's turn under the lock replied, or its hunks are to be evaluated once more on
 /// a page that moved after they were.
+/// What a work action made besides its commit: the task a `task.add` named, the page a
+/// `task.convert` made.
+#[derive(Default)]
+struct Made {
+    task: Option<String>,
+    child: Option<String>,
+}
 enum SaveFinish {
-    Replied(crate::page::save::SaveResult),
+    Replied(Box<crate::page::save::SaveResult>),
     Retry,
 }
 /// Hunks as the editor sent them. The list type bounds their number and the frame limit bounds
@@ -743,7 +762,20 @@ impl<A: Admission> Server<A> {
         let mut evaluations = 0;
         loop {
             let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
+            let mut made = Made::default();
             let (prepared, task) = match (&job.work, &job.hunks) {
+                (Some(work), _) if crate::page::work::is_convert(&work.action) => {
+                    let mut create = |page: &str, title: &str, source: &str| {
+                        self.create_child(job, page, title, source)
+                    };
+                    let converted =
+                        crate::page::convert::prepare(&job.open, work, &read_clock, &mut create);
+                    made.child = converted.child;
+                    match converted.prepared {
+                        Ok((prepared, task)) => (Ok((prepared, None)), task),
+                        Err(error) => (Err(error), None),
+                    }
+                }
                 (Some(work), _) => match crate::page::work::prepare(&job.open, work, &read_clock) {
                     Ok((prepared, task)) => (Ok((prepared, None)), task),
                     Err(error) => (Err(error), None),
@@ -758,13 +790,14 @@ impl<A: Admission> Server<A> {
                     None,
                 ),
             };
+            made.task = task;
             let now = clock();
             let mut state = self.0.lock().map_err(|_| Code::Denied)?;
             match now {
                 Ok(now) => {
                     let may_retry = job.hunks.is_some() && evaluations < limits::SAVE_EVALUATIONS;
-                    match state.finish_save(reply_to, job, prepared, task, now, may_retry)? {
-                        SaveFinish::Replied(result) => return Ok(result),
+                    match state.finish_save(reply_to, job, prepared, made, now, may_retry)? {
+                        SaveFinish::Replied(result) => return Ok(*result),
                         SaveFinish::Retry => evaluations += 1,
                     }
                 }
@@ -774,6 +807,28 @@ impl<A: Admission> Server<A> {
                 }
             }
         }
+    }
+    /// Make the page a browser's convert operation names, for the owner device that asked. The
+    /// device's authority is checked again here, under the lock, because the page is made out of
+    /// the frame's turn; nothing but the task's own title and first text reaches it.
+    fn create_child(
+        &self,
+        job: &SaveJob,
+        page: &str,
+        title: &str,
+        source: &str,
+    ) -> crate::Result<()> {
+        let now = crate::registration::now_ms()?;
+        let mut state = self.0.lock().map_err(|_| crate::page::Fault::Unavailable)?;
+        state
+            .admission
+            .authorize(&job.principal, &job.scope, Access::Publish)
+            .map_err(|_| crate::page::Fault::Denied)?;
+        state
+            .admission
+            .create_child(page, &job.save.operation_id, title, source, now)?;
+        state.recheck();
+        Ok(())
     }
     pub fn new(store: Store, admission: A) -> Self {
         Self(Arc::new(Mutex::new(State {
@@ -1505,7 +1560,7 @@ impl<A: Admission> State<A> {
         action: String,
         body: serde_json::Value,
     ) -> Result<SaveJob, Code> {
-        if !crate::page::work::known(&action) {
+        if !crate::page::work::known(&action) && !crate::page::work::is_convert(&action) {
             return Err(Code::Invalid);
         }
         let open = self.admission.save_source().ok_or(Code::Denied)?;
@@ -1588,7 +1643,7 @@ impl<A: Admission> State<A> {
         id: Option<u64>,
         job: &SaveJob,
         prepared: crate::Result<(crate::page::save::Prepared, Option<[u8; 32]>)>,
-        task: Option<String>,
+        made: Made,
         now_ms: u64,
         may_retry: bool,
     ) -> Result<SaveFinish, Code> {
@@ -1650,7 +1705,7 @@ impl<A: Admission> State<A> {
                     Some(digest) => {
                         SaveResult::merged(&operation, revision, values::encode_binary(&digest))
                     }
-                    None if job.work.is_some() => SaveResult::made(&operation, revision, task),
+                    None if job.work.is_some() => SaveResult::made(&operation, revision, made.task),
                     None => SaveResult::committed(&operation, revision),
                 },
                 fan_out.then_some((outputs, combined)),
@@ -1670,6 +1725,8 @@ impl<A: Admission> State<A> {
             }
             Err(error) => (SaveResult::rejected(&operation, error.as_ref()), None),
         };
+        // A convert names the page it made in every outcome, so nothing made is lost.
+        let reply = reply.with_child(made.child);
         // Under this lock hold the commit and the removal are one step for a status request.
         self.unsave(job);
         if let Some(id) = id {
@@ -1691,7 +1748,7 @@ impl<A: Admission> State<A> {
             }
             self.touch(&scope);
         }
-        Ok(SaveFinish::Replied(reply))
+        Ok(SaveFinish::Replied(Box::new(reply)))
     }
     /// Tell the page's subscribers that a stream holds a checkpoint for `namespace`, if it holds a
     /// stored and paired one covering `through`. The notice carries the checkpoint's identity and
