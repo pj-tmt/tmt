@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { pageStage } from './projects.js';
+import { pageStage } from './list-stage.js';
 import { rememberPages, rememberedPages } from './quick-switcher-source.js';
 import type { PageSummary, PageTransport } from './transport.js';
 import type { Work } from './work.js';

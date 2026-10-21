@@ -1,6 +1,7 @@
 import { expect, it } from 'vite-plus/test';
-import { DEFAULT_VIEW, validateHomeSearch } from '../src/home.js';
-import { filterQuery, takeStage } from '../src/page-list-search.js';
+import { validateHomeSearch } from '../src/home.js';
+import { DEFAULT_VIEW, takeStage } from '../src/list-stage.js';
+import { filterQuery } from '../src/page-list-search.js';
 
 it('names every key, so one it cannot read replaces the raw value the route merges under it', () => {
   const dropped = validateHomeSearch({
