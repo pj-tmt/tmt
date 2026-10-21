@@ -25,10 +25,24 @@ it('formats token counts compactly and orders agents by share', async () => {
   expect(usageRows({ range: '5m', sample: false, agents: [] })).toEqual([]);
 });
 
-it('marks the mock sources as sample data for every range and the board', async () => {
-  // Until a read exists, the pages read the marked mocks.
-  expect(digestSource).toBe(mockDigestSource);
-  expect(opsSource).toBe(mockOpsSource);
+it('reads no sample data in the product: the default sources say what read they need', async () => {
+  for (const range of USAGE_RANGES) {
+    const report = await digestSource.usage(range);
+    expect(report).toMatchObject({ range, agents: [], sample: false });
+    expect(report.unavailable).toMatch(/^Not available yet: needs /);
+  }
+  const board = await opsSource.board();
+  expect(board).toMatchObject({
+    agents: [],
+    squads: [],
+    schedules: [],
+    settings: [],
+    sample: false,
+  });
+  expect(board.unavailable).toMatch(/^Not available yet: needs /);
+});
+
+it('marks the mock sources (tests, gallery, dev) as sample data for every range and the board', async () => {
   expect(USAGE_RANGES).toEqual(['5m', '1h', '6h', '1d', '7d', '30d']);
   for (const range of USAGE_RANGES) {
     const report = await mockDigestSource.usage(range);

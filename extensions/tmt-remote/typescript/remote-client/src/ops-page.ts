@@ -1,6 +1,7 @@
 /** The Ops web view, read-only: Agents by squad, Squads, Timers and Ops settings, one section at a
  * time from the module menu. Rows are the shared list rows; every state is a mark and a word. */
 import type { RemoteShell } from './remote-shell.js';
+import { notAvailable } from './not-available.js';
 import { AGENT_STATES, opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 
 const SECTIONS = [
@@ -147,6 +148,7 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
   window.addEventListener('hashchange', paint, { signal: shell.signal });
   paint();
   void source.board().then((next) => {
+    if (next.unavailable) return notAvailable(note, next.unavailable);
     board = next;
     note.textContent = next.sample
       ? 'Sample data: Ops has no web read of your board yet. `tmt ops ui` shows the real board.'

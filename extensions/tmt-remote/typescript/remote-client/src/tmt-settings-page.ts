@@ -3,6 +3,7 @@
  * then read-only values), Identities, Modules and Drivers & hooks. Everything but the theme is
  * read-only; rows are the shared list rows and every state is a mark and a word.
  */
+import { notAvailable } from './not-available.js';
 import type { ShellAnswer } from '../../../../../design/browser-ui/src/shell.js';
 import {
   THEMES,
@@ -284,10 +285,16 @@ export function tmtSettingsPage(source: SettingsSource = settingsSource): void |
     (next) => {
       if (!live) return;
       settings = next;
-      note.textContent = next.sample
-        ? 'Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.'
-        : '';
-      note.hidden = !next.sample;
+      const missing = [next.general, next.identities, next.modules, next.drivers, next.hooks].find(
+        (part) => part.unavailable,
+      )?.unavailable;
+      if (missing) notAvailable(note, missing);
+      else {
+        note.textContent = next.sample
+          ? 'Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.'
+          : '';
+        note.hidden = !next.sample;
+      }
       paint();
     },
     () => {

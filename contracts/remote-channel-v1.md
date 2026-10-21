@@ -123,7 +123,8 @@ browser holds an owner session; a module the answer does not describe stays list
 its reason. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
 described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, its
-sections listed in the module menu and sample values marked as such. Home preferences remain a
+sections listed in the module menu. `/ops` and `/digest` are Ops and Digest. Until Core serves a
+browser read for a page, the page says which read it needs and shows no values. Home preferences remain a
 separate consumer. Remote's landing and settings are the app routes `/remote/` and
 `/remote/settings`; their module menu lists each saved remote, Add remote and Remote settings.
 Pairing is not an app route: `/remote/pair` stays its own document with its own policy (below),

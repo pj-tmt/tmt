@@ -6,6 +6,7 @@ import {
   type UsageRange,
   type UsageReport,
 } from './digest-source.js';
+import { notAvailable } from './not-available.js';
 
 /** 1.9B, 48.2M, 310K, 940: compact token counts in the table. */
 export function formatTokens(tokens: number): string {
@@ -85,13 +86,12 @@ export function digestPage(source: DigestSource = digestSource): void {
         return line;
       }),
     );
-    note!.textContent =
-      report.unavailable ??
-      (report.sample
-        ? 'Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers.'
-        : report.agents.some((row) => row.turns === undefined)
-          ? 'Turns show — where Digest does not count them yet.'
-          : '');
+    if (report.unavailable) return notAvailable(note!, report.unavailable);
+    note!.textContent = report.sample
+      ? 'Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers.'
+      : report.agents.some((row) => row.turns === undefined)
+        ? 'Turns show — where Digest does not count them yet.'
+        : '';
     note!.hidden = !note!.textContent;
   }
   void show(current);

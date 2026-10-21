@@ -16,8 +16,12 @@ export interface ColabSettingsView {
   /** Whether these are sample values, not this space's settings. */
   sample: boolean;
 }
+/** A read that does not exist yet: what the page needs, shown instead of any value. */
+export interface ColabSettingsUnavailable {
+  unavailable: string;
+}
 export interface ColabSettingsSource {
-  read(): Promise<ColabSettingsView>;
+  read(): Promise<ColabSettingsView | ColabSettingsUnavailable>;
 }
 
 // MOCK: Colab's defaults, so the page can be built and reviewed before the read exists. Replace with
@@ -28,5 +32,9 @@ export const mockColabSettingsSource: ColabSettingsSource = {
   },
 };
 
-/** The source the page reads by default. */
-export const colabSettingsSource: ColabSettingsSource = mockColabSettingsSource;
+/** The source the page reads by default: no browser read of these settings exists yet. */
+export const colabSettingsSource: ColabSettingsSource = {
+  async read() {
+    return { unavailable: 'Not available yet: needs a Colab read of these settings.' };
+  },
+};

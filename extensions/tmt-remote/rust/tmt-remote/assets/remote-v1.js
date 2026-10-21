@@ -2853,6 +2853,26 @@ var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  
 //#region ../../rust/tmt-remote/assets/digest.html?raw
 var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\">\n        <!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">TMT</span>\n      </span>\n      <span class=\"header-divider\" aria-hidden=\"true\">/</span>\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"page usage\">\n      <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <div class=\"tmt-ui-tabs\">\n        <div class=\"tmt-ui-tabs-header\">\n          <div id=\"usage-ranges\" class=\"tmt-ui-tab-list\" role=\"tablist\" aria-label=\"Range\"></div>\n        </div>\n        <div id=\"usage-panel\" class=\"tmt-ui-tab-panel\" role=\"tabpanel\" aria-label=\"Usage by agent\">\n          <table class=\"usage-table\">\n            <thead>\n              <tr><th scope=\"col\">Agent</th><th scope=\"col\">Tokens</th><th scope=\"col\">Share</th><th scope=\"col\">Turns</th></tr>\n            </thead>\n            <tbody id=\"usage-rows\"></tbody>\n          </table>\n        </div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
+//#region src/not-available.ts
+/**
+* The honest empty state of a page whose read does not exist yet: it names what the page needs and
+* links the request for that read. Product builds show this, never sample values; mocks stay in
+* tests, the gallery and the dev preview.
+*/
+var READ_API_REQUEST = "https://github.com/pj-tmt/tmt/issues/3937#issuecomment-6321040144";
+/** The words a source gives for a read it does not have. */
+function needs(read) {
+	return `Not available yet: needs ${read}.`;
+}
+/** Show `text` in `note` with a link to the read request. */
+function notAvailable(note, text) {
+	const link = document.createElement("a");
+	link.href = READ_API_REQUEST;
+	link.textContent = "Read request";
+	note.replaceChildren(`${text} `, link);
+	note.hidden = false;
+}
+//#endregion
 //#region src/digest-source.ts
 /**
 * What the Digest web view (`/digest/`) reads: per-agent token use over one range. The page depends
@@ -2867,52 +2887,13 @@ var USAGE_RANGES = [
 	"7d",
 	"30d"
 ];
-var SAMPLE = [
-	{
-		agent: "tmt-ux-lead",
-		tokens: 482e5,
-		turns: 312
-	},
-	{
-		agent: "ux-1",
-		tokens: 31e6,
-		turns: 205
-	},
-	{
-		agent: "feat-1",
-		tokens: 274e5,
-		turns: 188
-	},
-	{
-		agent: "remote-1",
-		tokens: 199e5,
-		turns: 141
-	},
-	{
-		agent: "night-1",
-		tokens: 63e5,
-		turns: 52
-	}
-];
-var SCALE = {
-	"5m": 1 / 2016,
-	"1h": 1 / 168,
-	"6h": 1 / 28,
-	"1d": 1 / 7,
-	"7d": 1,
-	"30d": 30 / 7
-};
 /** The source the page reads by default. */
 var digestSource = { async usage(range) {
-	const scale = SCALE[range];
 	return {
 		range,
-		sample: true,
-		agents: SAMPLE.map((row) => ({
-			agent: row.agent,
-			tokens: Math.round(row.tokens * scale),
-			turns: Math.round(row.turns * scale)
-		}))
+		agents: [],
+		sample: false,
+		unavailable: needs("a Core read of Digest usage")
 	};
 } };
 //#endregion
@@ -2983,7 +2964,8 @@ function digestPage(source = digestSource) {
 			line.firstElementChild.setAttribute("scope", "row");
 			return line;
 		}));
-		note.textContent = report.unavailable ?? (report.sample ? "Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers." : report.agents.some((row) => row.turns === void 0) ? "Turns show — where Digest does not count them yet." : "");
+		if (report.unavailable) return notAvailable(note, report.unavailable);
+		note.textContent = report.sample ? "Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers." : report.agents.some((row) => row.turns === void 0) ? "Turns show — where Digest does not count them yet." : "";
 		note.hidden = !note.textContent;
 	}
 	show(current);
@@ -3034,6 +3016,11 @@ function moduleLoad(rail, entry, here, fallback) {
 }
 //#endregion
 //#region src/ops-source.ts
+/**
+* What the Ops web view (`/ops/`) reads: the squad board's agents, squads, schedules and settings,
+* read-only. The page depends only on `OpsSource`; the source below is a MOCK until Core exposes a
+* read API for the board (`tmt ops ui` reads the same facts in the terminal).
+*/
 var AGENT_STATES = {
 	working: {
 		mark: "●",
@@ -3074,99 +3061,12 @@ var AGENT_STATES = {
 /** The source the page reads by default. */
 var opsSource = { async board() {
 	return {
-		sample: true,
-		squads: [
-			{
-				name: "tmt-ux",
-				lead: "tmt-ux-lead",
-				idleAlertMinutes: 30
-			},
-			{
-				name: "tmt-feat",
-				lead: "tmt-feat-lead",
-				idleAlertMinutes: 30
-			},
-			{
-				name: "tmt-remote",
-				lead: "tmt-remote-lead"
-			}
-		],
-		agents: [
-			{
-				name: "tmt-ux-lead",
-				squad: "tmt-ux",
-				role: "lead",
-				state: "working",
-				task: "Night shift: live review",
-				model: "opus"
-			},
-			{
-				name: "ux-1",
-				squad: "tmt-ux",
-				role: "member",
-				state: "working",
-				task: "#3931 input grows with content",
-				model: "sonnet"
-			},
-			{
-				name: "ux-2",
-				squad: "tmt-ux",
-				role: "member",
-				state: "needs-you",
-				task: "Asks: Shift+Enter behavior",
-				model: "sol"
-			},
-			{
-				name: "tmt-feat-lead",
-				squad: "tmt-feat",
-				role: "lead",
-				state: "idle",
-				model: "opus"
-			},
-			{
-				name: "feat-1",
-				squad: "tmt-feat",
-				role: "member",
-				state: "idle-alert",
-				task: "Idle 32m",
-				model: "sonnet"
-			},
-			{
-				name: "tmt-remote-lead",
-				squad: "tmt-remote",
-				role: "lead",
-				state: "offline",
-				model: "opus"
-			},
-			{
-				name: "remote-1",
-				squad: "tmt-remote",
-				role: "member",
-				state: "blocked",
-				task: "Waiting on CI",
-				model: "sol"
-			}
-		],
-		schedules: [{
-			id: "c1",
-			squad: "tmt-infra",
-			when: "hourly :07",
-			what: "Release health tick"
-		}, {
-			id: "c2",
-			squad: "tmt-infra",
-			when: "Mon 10:00",
-			what: "Guidance hygiene pass"
-		}],
-		settings: [{
-			name: "Board refresh",
-			value: "5s",
-			description: "How often the board re-reads agent state"
-		}, {
-			name: "Idle alert default",
-			value: "30m",
-			description: "Used when a squad sets none"
-		}]
+		agents: [],
+		squads: [],
+		schedules: [],
+		settings: [],
+		sample: false,
+		unavailable: needs("a Core read of the squad board")
 	};
 } };
 //#endregion
@@ -3273,6 +3173,7 @@ function opsPage(shell, source = opsSource) {
 	window.addEventListener("hashchange", paint, { signal: shell.signal });
 	paint();
 	source.board().then((next) => {
+		if (next.unavailable) return notAvailable(note, next.unavailable);
 		board = next;
 		note.textContent = next.sample ? "Sample data: Ops has no web read of your board yet. `tmt ops ui` shows the real board." : "";
 		note.hidden = !next.sample;
@@ -3326,78 +3227,37 @@ function setStoredTheme(choice, root, store = browserStore()) {
 	} catch {}
 	applyTheme(choice, root);
 }
+//#endregion
+//#region src/settings-source.ts
+/**
+* What the TMT settings page (`/settings`) reads: this machine's identities, installed modules,
+* host drivers, agent hooks and a few general settings. The page depends only on `SettingsSource`.
+* The source below is a MOCK until Core exposes a read API; the dev preview swaps in reads of the
+* read-only CLI JSON (`tmt ls`, `tmt extension ls`, `tmt driver ls`, `tmt setup --status`,
+* `tmt config show`), which hold the same facts on the terminal side.
+*/
 /** The source the page reads by default. */
 var settingsSource = { async read() {
+	const none = {
+		rows: [],
+		unavailable: needs("a Core read of this machine’s settings")
+	};
 	return {
-		sample: true,
-		general: { rows: [{
-			name: "Upgrade channel",
-			value: "alpha",
-			description: "Where `tmt upgrade` looks"
-		}, {
-			name: "Message batching",
-			value: "5 s",
-			description: "Replies arrive in one batch"
-		}] },
-		identities: { rows: [
-			{
-				name: "ben",
-				lifetime: "saved",
-				online: false
-			},
-			{
-				name: "ux-1",
-				lifetime: "saved",
-				online: true,
-				provider: "claude"
-			},
-			{
-				name: "night-1",
-				lifetime: "temporary",
-				online: false,
-				provider: "codex"
-			}
-		] },
-		modules: { rows: [
-			{
-				name: "colab",
-				installed: true,
-				version: "0.1.0-alpha.231",
-				channel: "alpha"
-			},
-			{
-				name: "remote",
-				installed: true,
-				version: "0.1.0-alpha.135",
-				channel: "alpha"
-			},
-			{
-				name: "ops",
-				installed: true,
-				version: "0.1.0-alpha.158",
-				channel: "alpha"
-			},
-			{
-				name: "office",
-				installed: false
-			}
-		] },
-		drivers: { rows: [{
-			name: "herdr",
-			version: "0.1.0-alpha.0",
-			state: "ok"
-		}] },
-		hooks: { rows: [{
-			provider: "claude",
-			usage: true
-		}, {
-			provider: "codex",
-			usage: true
-		}] }
+		general: none,
+		identities: none,
+		modules: none,
+		drivers: none,
+		hooks: none,
+		sample: false
 	};
 } };
 //#endregion
 //#region src/tmt-settings-page.ts
+/**
+* TMT's own settings (`/settings`), one section at a time from the module menu: General (theme,
+* then read-only values), Identities, Modules and Drivers & hooks. Everything but the theme is
+* read-only; rows are the shared list rows and every state is a mark and a word.
+*/
 var SECTIONS = [
 	{
 		id: "general",
@@ -3628,8 +3488,18 @@ function tmtSettingsPage(source = settingsSource) {
 	source.read().then((next) => {
 		if (!live) return;
 		settings = next;
-		note.textContent = next.sample ? "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values." : "";
-		note.hidden = !next.sample;
+		const missing = [
+			next.general,
+			next.identities,
+			next.modules,
+			next.drivers,
+			next.hooks
+		].find((part) => part.unavailable)?.unavailable;
+		if (missing) notAvailable(note, missing);
+		else {
+			note.textContent = next.sample ? "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values." : "";
+			note.hidden = !next.sample;
+		}
 		paint();
 	}, () => {
 		if (!live) return;

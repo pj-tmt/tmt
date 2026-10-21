@@ -3,6 +3,7 @@
  * read-only. The page depends only on `OpsSource`; the source below is a MOCK until Core exposes a
  * read API for the board (`tmt ops ui` reads the same facts in the terminal).
  */
+import { needs } from './not-available.js';
 /** The shared state marks (c5ccd17a §4): always a mark and a word. */
 export type AgentState =
   | 'working'
@@ -51,6 +52,8 @@ export interface OpsBoard {
   settings: readonly { name: string; value: string; description: string }[];
   /** Whether this is sample data, not the owner's board. */
   sample: boolean;
+  /** Why there is no board to show; every list is then empty. */
+  unavailable?: string;
 }
 export interface OpsSource {
   board(): Promise<OpsBoard>;
@@ -134,4 +137,15 @@ export const mockOpsSource: OpsSource = {
 };
 
 /** The source the page reads by default. */
-export const opsSource: OpsSource = mockOpsSource;
+export const opsSource: OpsSource = {
+  async board() {
+    return {
+      agents: [],
+      squads: [],
+      schedules: [],
+      settings: [],
+      sample: false,
+      unavailable: needs('a Core read of the squad board'),
+    };
+  },
+};

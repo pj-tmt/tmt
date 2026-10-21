@@ -3,14 +3,18 @@ import { BrowserList, BrowserListRow } from '@tmt/browser-ui/react';
 import {
   colabSettingsSource,
   type ColabSettingsSource,
+  type ColabSettingsUnavailable,
   type ColabSettingsView,
 } from './colab-settings-source.js';
+
+/** Where the read this page waits for is requested. */
+const READ_REQUEST = 'https://github.com/pj-tmt/tmt/issues/3937#issuecomment-6321040144';
 import { text } from './strings.js';
 
 /** Colab's own settings, read-only: each row names the setting, what it does and its value. The
  * shell's header names the page. */
 export function ColabSettings({ source = colabSettingsSource }: { source?: ColabSettingsSource }) {
-  const [view, setView] = useState<ColabSettingsView>();
+  const [view, setView] = useState<ColabSettingsView | ColabSettingsUnavailable>();
   useEffect(() => {
     let live = true;
     void source.read().then((next) => live && setView(next));
@@ -19,6 +23,14 @@ export function ColabSettings({ source = colabSettingsSource }: { source?: Colab
     };
   }, [source]);
   const t = text.colabSettings;
+  if (view && 'unavailable' in view)
+    return (
+      <section className="home colab-settings" aria-label={t.title}>
+        <p className="colab-settings-note" role="note">
+          {view.unavailable} <a href={READ_REQUEST}>Read request</a>
+        </p>
+      </section>
+    );
   const agents = view
     ? Object.entries(view.wipLimit.agents).map(([agent, limit]) => t.wipAgent(agent, limit))
     : [];

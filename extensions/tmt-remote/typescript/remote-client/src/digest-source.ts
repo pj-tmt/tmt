@@ -3,6 +3,7 @@
  * only on `DigestSource`; the source below is a MOCK until Core exposes a read API for the
  * owner's usage (`tmt digest usage report --json` holds the same facts on the terminal side).
  */
+import { needs } from './not-available.js';
 export const USAGE_RANGES = ['5m', '1h', '6h', '1d', '7d', '30d'] as const;
 export type UsageRange = (typeof USAGE_RANGES)[number];
 
@@ -61,4 +62,8 @@ export const mockDigestSource: DigestSource = {
 };
 
 /** The source the page reads by default. */
-export const digestSource: DigestSource = mockDigestSource;
+export const digestSource: DigestSource = {
+  async usage(range) {
+    return { range, agents: [], sample: false, unavailable: needs('a Core read of Digest usage') };
+  },
+};

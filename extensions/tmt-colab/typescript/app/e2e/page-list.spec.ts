@@ -838,19 +838,15 @@ test('the module menu lists dashboards under Dashboards and opens Colab settings
   await moduleMenu(page).getByRole('link', { name: 'Colab settings', exact: true }).click();
   await expect(page).toHaveURL(/#\/settings$/);
   const settings = page.getByRole('region', { name: 'Colab settings' }).first();
-  await expect(settings.getByRole('note')).toContainText('Sample values');
-  await expect(settings.locator('.tmt-ui-list-title')).toHaveText([
-    'Open in browser',
-    'Work in progress',
-    'GitHub repository',
-    'Page expiry',
-  ]);
-  await expect(settings.locator('.tmt-ui-list-state')).toHaveText([
-    'On',
-    '1',
-    'Not set',
-    '180 days',
-  ]);
+  // No browser read of these settings yet: the page says so and shows no values.
+  await expect(settings.getByRole('note')).toContainText(
+    'Not available yet: needs a Colab read of these settings.',
+  );
+  await expect(settings.getByRole('link', { name: 'Read request' })).toHaveAttribute(
+    'href',
+    /issues\/3937/,
+  );
+  await expect(settings.locator('.tmt-ui-list-state')).toHaveCount(0);
   await expect(
     moduleMenu(page).locator('a[data-id="colab-settings"][aria-current="page"]'),
   ).toBeVisible();
