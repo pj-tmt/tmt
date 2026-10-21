@@ -319,13 +319,7 @@ impl Session {
             return;
         }
         if let Some(until_ms) = self.status_entry(source).and_then(Entry::sending_boundary) {
-            let mut clocks = app.frame_clocks.borrow_mut();
-            let gate = crate::board::view::ClockSurface::DelayGate { until_ms };
-            if !clocks.iter().any(|held| {
-                matches!(held, crate::board::view::ClockSurface::DelayGate { until_ms: known } if *known == until_ms)
-            }) {
-                clocks.push(gate);
-            }
+            crate::board::view::ClockSurface::admit_delay_gate(app, until_ms);
         }
         let Some(clock) = self.feedback_clock(source) else {
             return;

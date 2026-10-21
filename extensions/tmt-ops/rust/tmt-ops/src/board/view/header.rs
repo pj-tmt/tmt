@@ -338,6 +338,17 @@ pub(in crate::board) enum ClockSurface {
 }
 
 impl ClockSurface {
+    /// Register the repaint wake for a delayed state, once per instant.
+    pub(in crate::board) fn admit_delay_gate(app: &App, until_ms: u64) {
+        let mut clocks = app.frame_clocks.borrow_mut();
+        if !clocks
+            .iter()
+            .any(|held| matches!(held, Self::DelayGate { until_ms: known } if *known == until_ms))
+        {
+            clocks.push(Self::DelayGate { until_ms });
+        }
+    }
+
     fn mark(&self, app: &App, now: u64) -> String {
         match self {
             Self::TopBar { width } => {

@@ -687,10 +687,6 @@ fn fetcher() -> Sender<Fetch> {
     sender
 }
 
-/// Loads each request, newest first, until the board goes away. While idle
-/// it reloads the last squad early when the change stamp moved since that
-/// squad's load, unless its view has automatic reload off. The input loop's
-/// interval reloads are requests like any other and never wait on this.
 /// The selected-read lane: only the newest selection runs, and only while its
 /// generation is current. Returns when the lane's sender is gone or `run` says stop.
 fn serve_selected(
@@ -713,6 +709,10 @@ fn serve_selected(
     }
 }
 
+/// Loads each request, newest first, until the board goes away. While idle
+/// it reloads the last squad early when the change stamp moved since that
+/// squad's load, unless its view has automatic reload off. The input loop's
+/// interval reloads are requests like any other and never wait on this.
 fn serve(
     pending: &Receiver<Work>,
     mut publish: impl FnMut(Snapshot, u64) -> bool,

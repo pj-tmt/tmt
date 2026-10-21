@@ -242,12 +242,7 @@ impl Session {
                 let until_ms = since + LOADING_DELAY_MS;
                 let loading = now >= until_ms;
                 if !loading {
-                    let mut clocks = app.frame_clocks.borrow_mut();
-                    if !clocks.iter().any(|held| {
-                        matches!(held, crate::board::view::ClockSurface::DelayGate { until_ms: known } if *known == until_ms)
-                    }) {
-                        clocks.push(crate::board::view::ClockSurface::DelayGate { until_ms });
-                    }
+                    crate::board::view::ClockSurface::admit_delay_gate(app, until_ms);
                 }
                 Exchanges::Pending { loading }
             }
