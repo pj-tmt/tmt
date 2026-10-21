@@ -385,7 +385,6 @@ for (const surface of ['chat', 'thread'] as const)
   for (const width of [1440, 390])
     for (const scheme of ['light', 'dark'] as const)
       test(`captures the attachment states at ${surface} ${width} ${scheme}`, async ({ page }) => {
-        test.skip(!captures, 'Set COLAB_1854_CAPTURE_DIR to write UX review captures.');
         await page.emulateMedia({ colorScheme: scheme });
         await page.setViewportSize({ width, height: 900 });
         await mount(page);
@@ -411,8 +410,13 @@ for (const surface of ['chat', 'thread'] as const)
           { name: 'shot.png', mimeType: 'image/png', buffer: PNG },
           note('refuse.bin'),
         ]);
-        const shot = (name: string) =>
-          page.screenshot({ path: `${captures}/1854-${surface}-${name}-${width}-${scheme}.png` });
+        const shot = async (name: string) => {
+          if (!captures) return;
+          mkdirSync(captures, { recursive: true });
+          await page.screenshot({
+            path: `${captures}/1854-${surface}-${name}-${width}-${scheme}.png`,
+          });
+        };
         await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
         await expect(panel.getByTestId('attachment-chip').last()).toHaveAttribute(
           'data-state',
@@ -421,21 +425,39 @@ for (const surface of ['chat', 'thread'] as const)
         await shot('chips-ready');
         await page.evaluate(async (path) => (await import(path)).pauseAttachmentUploads(), fixture);
         await send(page).click();
-        await expect(panel.getByTestId('attachment-chip').first()).toHaveAttribute(
-          'data-state',
-          'uploading',
-        );
+        // Send moves the draft into a pending echo before the held upload can finish.
+        await expect
+          .poll(async () =>
+            (await actions(page)).filter((action) => action.startsWith('attach:upload:')),
+          )
+          .toEqual(['attach:upload:notes.txt']);
+        const pending = panel.getByTestId('comment-echo');
+        await expect(pending).toHaveCount(1);
+        await expect(pending).toContainText('Files for review');
+        await expect(pending.getByRole('alert')).toHaveCount(0);
+        await expect(panel.getByTestId('attachment-chip')).toHaveCount(0);
+        await expect(input).toHaveText('', { useInnerText: true });
         await expect(send(page)).toBeDisabled();
-        await shot('chips-uploading');
+        expect((await actions(page)).filter((action) => action.startsWith('message:'))).toEqual([]);
+        await shot('send-pending');
         await page.evaluate(
           async (path) => (await import(path)).resumeAttachmentUploads(),
           fixture,
         );
-        await expect(panel.getByTestId('attachment-chip').nth(2)).toHaveAttribute(
-          'data-state',
-          'refused',
+        await expect(pending.getByRole('alert')).toHaveText(
+          `✗ ${text.messageUnsent} ${text.messageSendReference('S10')}`,
         );
-        await panel.getByTestId('attachment-chip').last().scrollIntoViewIfNeeded();
+        await shot('send-failed');
+        await unsentThenEdit(panel, 'S10');
+        await expect(input).toHaveText('Files for review', { useInnerText: true });
+        const chips = panel.getByTestId('attachment-chip');
+        await expect(chips).toHaveCount(3);
+        await expect(chips.nth(0)).toHaveAttribute('data-state', 'stored');
+        await expect(chips.nth(1)).toHaveAttribute('data-state', 'stored');
+        await expect(chips.nth(2)).toHaveAttribute('data-state', 'refused');
+        await expect(chips.nth(2)).toContainText(text.attachRefused.capacity);
+        expect((await actions(page)).filter((action) => action.startsWith('message:'))).toEqual([]);
+        await chips.last().scrollIntoViewIfNeeded();
         await shot('chips-refused');
         await panel.getByRole('button', { name: text.attachRemove }).last().click();
         await send(page).click();
@@ -444,6 +466,18 @@ for (const surface of ['chat', 'thread'] as const)
           .filter({ has: page.getByRole('button', { name: 'Preview shot.png' }) });
         await expect(png.locator('img')).toBeVisible();
         await shot('message-preview');
+        await expect(panel.getByTestId('comment-echo')).toHaveCount(0);
+        await expect(panel.getByTestId('message-attachment')).toHaveCount(2);
+        expect(
+          (await actions(page)).filter((action) => action.startsWith('attach:upload:')),
+        ).toEqual([
+          'attach:upload:notes.txt',
+          'attach:upload:shot.png',
+          'attach:upload:refuse.bin',
+        ]);
+        expect((await actions(page)).filter((action) => action.startsWith('message:'))).toEqual([
+          'message:Files for review:2',
+        ]);
       });
 
 test('an epoch or admission change disposes and rereads the visible thumbnail', async ({
