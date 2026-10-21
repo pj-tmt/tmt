@@ -875,7 +875,9 @@ gives the stage, progress, workers and sign-off count; `work-list.tsx` lists the
 breadcrumb for a page that follows a task (#4118). Where this device may change the work
 (`PageBinding.canWork`, the owner device's alone), `PageWorkBand` (`work-band-live.tsx`) fills the
 slots from `work-controls.tsx`: state (with a reason for blocked), sign-off and send back, assign,
-edit title and detail, remove after a second click, and add a task by title. Each control sends one
+edit title and detail, convert to Colab (`task.convert`: the serve makes a page from the task and links it;
+refused for a task that follows a page or has an external ID; a page made but not linked is named, with
+"Link to that page" and "Open the page"), remove after a second click, and add a task by title. Each control sends one
 closed action through `PageBinding.work`, which `Live` runs as a `work` frame (`Connection.work`,
 answered by `workresult`; a lost reply is settled by one `savestatus`, never resent). Nothing is
 applied locally: one action is in flight at a time, and the list changes when the page's own stream

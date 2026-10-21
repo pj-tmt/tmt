@@ -68,9 +68,11 @@ export interface PageSnapshot extends PageSummary {
 export interface SaveOutcome {
   merged: boolean;
 }
-/** What a work action made: the ID of a committed `task.add`. */
+/** What a work action made: the ID of a committed `task.add`, the page of a `task.convert`. */
 export interface WorkOutcome {
   taskId?: string;
+  /** The page a committed `task.convert` made and linked. */
+  childPage?: string;
 }
 export interface PageBinding {
   readonly ask?: AskBinding;

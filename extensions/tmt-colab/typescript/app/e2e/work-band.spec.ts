@@ -149,7 +149,7 @@ async function mountRoute(
   page: Page,
   withWork: boolean,
   owner = false,
-  scenario?: 'linked-done' | 'linked-missing' | 'summary-only',
+  scenario?: 'linked-done' | 'linked-missing' | 'summary-only' | 'external',
 ) {
   await page.goto('/');
   await page.evaluate(
@@ -418,6 +418,89 @@ for (const [width, height] of [
         .getByRole('button', { name: 'Show 2 tasks' })
         .click();
       await page.screenshot({ path: capturePath(`work-followed-${width}-${scheme}.png`) });
+    });
+  }
+}
+
+const MADE_PAGE = '20000000-0000-4000-8000-000000000009';
+async function openOwnerTask(
+  page: Page,
+  id: string,
+  scenario?: 'linked-done' | 'linked-missing' | 'external',
+) {
+  await mountRoute(page, true, true, scenario);
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  await band.getByRole('button', { name: /Show \d+ tasks/ }).click();
+  await band.locator('.work-row', { hasText: id }).locator('button').click();
+  return band;
+}
+
+test('Convert to Colab sends one action and the task then follows the page it made', async ({
+  page,
+}) => {
+  const band = await openOwnerTask(page, 'T-2');
+  await band.getByRole('button', { name: 'Convert to Colab' }).click();
+  await expect(band.locator('.work-follows a')).toHaveAttribute('href', new RegExp(MADE_PAGE));
+  await expect(band.getByRole('button', { name: 'Convert to Colab' })).toBeDisabled();
+  expect(await calls(page)).toEqual([{ action: 'task.convert', body: { taskId: 'T-2' } }]);
+});
+
+test('a task that follows a page or has an external ID cannot be converted, and says why', async ({
+  page,
+}) => {
+  let band = await openOwnerTask(page, 'T-2', 'linked-done');
+  await expect(band.getByRole('button', { name: 'Convert to Colab' })).toBeDisabled();
+  await expect(band.getByText('This task already follows a page.')).toBeVisible();
+  band = await openOwnerTask(page, 'T-2', 'external');
+  await expect(band.getByRole('button', { name: 'Convert to Colab' })).toBeDisabled();
+  await expect(band.getByText('A task with an external ID cannot follow a page.')).toBeVisible();
+});
+
+test('a page made but not linked is named, and can be linked or opened', async ({ page }) => {
+  const band = await openOwnerTask(page, 'T-2');
+  await page.evaluate((childPage) => {
+    window.__workPage!.refuse = {
+      code: 'COLAB_LINK_REFUSED',
+      message: 'That page already follows another task.',
+      childPage,
+    };
+  }, MADE_PAGE);
+  await band.getByRole('button', { name: 'Convert to Colab' }).click();
+  await expect(band.getByRole('alert')).toHaveText('That page already follows another task.');
+  await expect(band.getByText('A page was made for this task and is not linked.')).toBeVisible();
+  await expect(band.getByRole('link', { name: 'Open the page' })).toHaveAttribute(
+    'href',
+    new RegExp(MADE_PAGE),
+  );
+  await band.getByRole('button', { name: 'Link to that page' }).click();
+  await expect(band.locator('.work-follows a')).toHaveAttribute('href', new RegExp(MADE_PAGE));
+  expect((await calls(page)).map((entry) => entry.action)).toEqual(['task.convert', 'task.link']);
+  expect((await calls(page))[1].body).toEqual({ taskId: 'T-2', pageId: MADE_PAGE });
+});
+
+for (const [width, height] of [
+  [1440, 900],
+  [390, 844],
+] as const) {
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`Convert to Colab and a page made but not linked at ${width} in ${scheme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await page.emulateMedia({ colorScheme: scheme });
+      const band = await openOwnerTask(page, 'T-2');
+      await page.screenshot({ path: capturePath(`work-convert-${width}-${scheme}.png`) });
+      await page.evaluate((childPage) => {
+        window.__workPage!.refuse = {
+          code: 'COLAB_LINK_REFUSED',
+          message: 'That page already follows another task.',
+          childPage,
+        };
+      }, MADE_PAGE);
+      await band.getByRole('button', { name: 'Convert to Colab' }).click();
+      await expect(band.getByRole('alert')).toBeVisible();
+      await page.mouse.move(0, 0);
+      await page.screenshot({ path: capturePath(`work-convert-stranded-${width}-${scheme}.png`) });
     });
   }
 }

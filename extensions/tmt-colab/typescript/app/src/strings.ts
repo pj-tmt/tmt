@@ -570,6 +570,13 @@ export const text = {
       confirmRemove: (id: string) => `Remove ${id}`,
       newTask: 'New task',
       add: 'Add task',
+      convert: 'Convert to Colab',
+      convertFollows: 'This task already follows a page.',
+      convertExternal: 'A task with an external ID cannot follow a page.',
+      madeNotLinked: 'A page was made for this task, but it was not linked.',
+      pageMade: 'A page was made for this task and is not linked.',
+      linkIt: 'Link to that page',
+      openIt: 'Open the page',
     },
   },
   shellPage: {

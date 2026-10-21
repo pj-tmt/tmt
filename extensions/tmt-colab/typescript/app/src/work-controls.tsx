@@ -1,6 +1,6 @@
 import { BrowserAction, BrowserField, BrowserMenu } from '@tmt/browser-ui/react';
 import { useCallback, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { saveMessage, type WorkAction } from './save.js';
+import { SaveNotApplied, SaveRefused, saveMessage, type WorkAction } from './save.js';
 import { text } from './strings.js';
 import type { PageBinding } from './transport.js';
 import { TASK_STATES, type Task, type TaskState } from './work.js';
@@ -13,6 +13,8 @@ export interface WorkRun {
   busy: boolean;
   /** The sentence for the last refusal, in the serve's own words where it gave them. */
   error?: string;
+  /** A convert that made its page but could not link it: the task and the page that exists. */
+  stranded?: { task: string; page: string };
 }
 
 /** One action at a time: a control is disabled while one is in flight, and nothing is applied
@@ -20,6 +22,7 @@ export interface WorkRun {
 export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): WorkRun {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [stranded, setStranded] = useState<WorkRun['stranded']>();
   const flying = useRef(false);
   const run = useCallback(
     async (action: WorkAction, body: Body) => {
@@ -27,11 +30,22 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
       flying.current = true;
       setBusy(true);
       setError(undefined);
+      setStranded(undefined);
       try {
         await binding.work(action, body);
         return true;
       } catch (failure) {
-        setError(saveMessage(failure));
+        const page =
+          failure instanceof SaveRefused || failure instanceof SaveNotApplied
+            ? failure.childPage
+            : undefined;
+        if (page !== undefined && action === 'task.convert')
+          setStranded({ task: String(body.taskId), page });
+        setError(
+          failure instanceof SaveNotApplied && page !== undefined
+            ? text.workBand.controls.madeNotLinked
+            : saveMessage(failure),
+        );
         return false;
       } finally {
         flying.current = false;
@@ -40,7 +54,7 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
     },
     [binding],
   );
-  return { run, busy, error };
+  return { run, busy, error, stranded };
 }
 
 const label = text.workBand.controls;
@@ -116,11 +130,13 @@ export function TaskControls({
   task,
   state,
   work,
+  pageHref,
 }: {
   id: string;
   task: Task;
   state: TaskState;
   work: WorkRun;
+  pageHref?(pageId: string): string;
 }): ReactNode {
   const { run, busy } = work;
   const [reason, setReason] = useState<string>();
@@ -131,6 +147,12 @@ export function TaskControls({
   const [detail, setDetail] = useState(task.detail ?? '');
   const [removing, setRemoving] = useState(false);
   const follows = task.child !== undefined;
+  const reasonNotConvertible = follows
+    ? label.convertFollows
+    : task.externalId !== undefined
+      ? label.convertExternal
+      : undefined;
+  const stranded = work.stranded?.task === id ? work.stranded.page : undefined;
 
   const setState = async (next: TaskState, why?: string) => {
     if (await run('task.state', { taskId: id, state: next, ...(why ? { reason: why } : {}) }))
@@ -310,6 +332,15 @@ export function TaskControls({
               setEditing(true);
             }}
           />
+          <BrowserAction
+            type="button"
+            variant="primary"
+            label={label.convert}
+            disabled={busy || reasonNotConvertible !== undefined}
+            disabledReason={reasonNotConvertible}
+            disabledReasonId={`${id}-convert-reason`}
+            onActivate={() => void run('task.convert', { taskId: id })}
+          />
           {removing ? (
             <>
               <BrowserAction
@@ -335,6 +366,23 @@ export function TaskControls({
               disabled={busy}
               onActivate={() => setRemoving(true)}
             />
+          )}
+        </div>
+      )}
+      {stranded !== undefined && (
+        <div className="work-control-group work-stranded">
+          <span className="work-control-note">{label.pageMade}</span>
+          <BrowserAction
+            type="button"
+            variant="primary"
+            label={label.linkIt}
+            disabled={busy}
+            onActivate={() => void run('task.link', { taskId: id, pageId: stranded })}
+          />
+          {pageHref && (
+            <a className="tmt-ui-action" data-variant="text" href={pageHref(stranded)}>
+              {label.openIt}
+            </a>
           )}
         </div>
       )}

@@ -2691,7 +2691,7 @@ once, in task order. Sign-off is the count of `in-review` tasks with `needsSigno
 folds the value and validates it, and the page route draws it as a status band under the header:
 the two summary lines, the stage, progress, who works and the sign-off count, with the task list
 and a task's detail opening in place and pushing the page down. On the owner device the open task
-carries controls (state, sign-off, assign, edit, remove) and the list an add-task field, each sending
+carries controls (state, sign-off, assign, edit, convert to Colab, remove) and the list an add-task field, each sending
 one closed action as a [browser work action](#browser-work-actions-4051); the value changes only
 when the page's own stream brings the commit back, and a refusal is shown with the serve's words.
 Every other device sees the band read-only. The band scrolls with the page, and a page with no
