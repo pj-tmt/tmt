@@ -1,6 +1,6 @@
 //! Bounded normalized history reads; no provider discovery or access.
 use super::{Fault, Request, invalid};
-use crate::storage::{MAX_BUCKETS, MAX_RESPONSE_BUCKETS, Storage, window_resolution_ms};
+use crate::storage::{BUCKET_MS, MAX_BUCKETS, MAX_RESPONSE_BUCKETS, Storage, window_resolution_ms};
 use serde::Deserialize;
 use std::collections::HashSet;
 
@@ -13,6 +13,21 @@ struct Input {
     max_buckets: u64,
     #[serde(default)]
     include_retired: bool,
+    /// The cut of an earlier batch of the same refresh (#4176). Absent means the
+    /// read time; an explicit null is not a cut.
+    #[serde(default, deserialize_with = "cut")]
+    through_ms: Option<u64>,
+}
+fn cut<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<u64>, D::Error> {
+    u64::deserialize(deserializer).map(Some)
+}
+/// A pin carries one refresh's cut to its remaining batches; it is not a
+/// historical query, so one older than this before the read is refused.
+const PIN_MAX_AGE_MS: u64 = 60_000;
+/// Whether a pinned cut is refused at read time `now`: it must sit on the 5-second
+/// resolution and be neither in the future nor more than a minute old.
+fn pin_refused(cut: u64, now: u64) -> bool {
+    !cut.is_multiple_of(BUCKET_MS) || cut > now || now - cut > PIN_MAX_AGE_MS
 }
 fn default_max_buckets() -> u64 {
     120
@@ -47,6 +62,7 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
         windows: value.windows_ms,
         max_buckets: value.max_buckets,
         include_retired: value.include_retired,
+        through_ms: value.through_ms,
     })
 }
 pub(super) fn history(
@@ -55,10 +71,21 @@ pub(super) fn history(
     windows: Vec<u64>,
     max_buckets: u64,
     include_retired: bool,
+    through_ms: Option<u64>,
 ) -> Result<Vec<u8>, Fault> {
     let now = crate::request_runtime::wall_time_ms();
+    if through_ms.is_some_and(|cut| pin_refused(cut, now)) {
+        return Err(invalid());
+    }
     let value = storage
-        .consumption_history(&identities, &windows, max_buckets, now, include_retired)
+        .consumption_history(
+            &identities,
+            &windows,
+            max_buckets,
+            now,
+            include_retired,
+            through_ms,
+        )
         .map_err(|_| Fault::unavailable())?;
     serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
 }
@@ -93,6 +120,11 @@ mod tests {
             ("windowsMs", json!([DAYS_30 + 300_000])),
             ("includeRetired", json!("yes")),
             ("extra", json!(true)),
+            // A cut is a non-negative integer; an explicit null is not one.
+            ("throughMs", json!(null)),
+            ("throughMs", json!(-5000)),
+            ("throughMs", json!(1.5)),
+            ("throughMs", json!("5000")),
         ] {
             let mut bad = good.clone();
             bad[key] = value;
@@ -108,6 +140,46 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn a_pinned_cut_is_decoded_and_only_a_recent_aligned_past_one_is_admitted() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../contracts/consumption-history-v1.json"
+        ))
+        .unwrap();
+        let mut input = fixture["request"]["input"].clone();
+        input["throughMs"] = json!(15_000);
+        assert!(matches!(
+            decode(input.to_string().as_bytes()),
+            Ok(Request::ConsumptionHistory {
+                through_ms: Some(15_000),
+                ..
+            })
+        ));
+        input.as_object_mut().unwrap().remove("throughMs");
+        assert!(matches!(
+            decode(input.to_string().as_bytes()),
+            Ok(Request::ConsumptionHistory {
+                through_ms: None,
+                ..
+            })
+        ));
+        let now = 1_000_000;
+        for (cut, refused) in [
+            (now, false),
+            (now - 5_000, false),
+            (995_000, false),
+            (now - 60_000, false),
+            // Older than a minute, in the future, or off the 5-second resolution.
+            (now - 65_000, true),
+            (now + 5_000, true),
+            (now - 1, true),
+            (now + 1, true),
+            (0, true),
+        ] {
+            assert_eq!(pin_refused(cut, now), refused, "cut {cut} at {now}");
+        }
     }
 
     const DAYS_30: u64 = 2_592_000_000;

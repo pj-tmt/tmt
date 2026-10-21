@@ -6,7 +6,7 @@ use super::*;
 const VECTOR: &str = include_str!("../../../../../../contracts/consumption-history-v1.json");
 
 /// One identity fed the shared vector, then asked about a rollup window.
-fn vector_history(now: u64, windows: &[u64]) -> Value {
+fn vector_history(now: u64, windows: &[u64], pinned: Option<u64>) -> Value {
     let fixture: Value = serde_json::from_str(VECTOR).unwrap();
     let directory = crate::test_support::TestDirectory::new();
     let mut storage = Storage::open(directory.path.join("history.sqlite")).unwrap();
@@ -28,13 +28,13 @@ fn vector_history(now: u64, windows: &[u64]) -> Value {
         .unwrap();
     }
     storage
-        .consumption_history(&[id.to_owned()], windows, 120, now, false)
+        .consumption_history(&[id.to_owned()], windows, 120, now, false, pinned)
         .unwrap()
 }
 
 #[test]
 fn the_shared_vector_rolls_up_into_one_closed_bucket_with_the_newest_limits() {
-    let history = vector_history(322_500, &[3_900_000]);
+    let history = vector_history(322_500, &[3_900_000], None);
     let identity = &history["identities"][0];
     // The identity-level fields still describe the 5-second tier.
     assert_eq!(identity["reporting"], true);
@@ -49,10 +49,45 @@ fn the_shared_vector_rolls_up_into_one_closed_bucket_with_the_newest_limits() {
     assert_eq!(window["buckets"][0]["gap"], true);
 }
 
+/// The rollup tier ends at the last whole five-minute slot at or before the cut, so a
+/// pin inside a slot gives the same longer-window answer as a read in that slot.
+#[test]
+fn a_pinned_cut_ends_the_rollup_windows_at_the_slot_before_it() {
+    let fixture: Value = serde_json::from_str(VECTOR).unwrap();
+    // Read well after the slot closed, pinned inside the slot that follows it.
+    let pinned = vector_history(900_000, &[3_900_000], Some(305_000));
+    assert_eq!(pinned["throughMs"], 305_000);
+    assert_eq!(
+        pinned["identities"][0]["windows"][0],
+        fixture["rollup"]["window"]
+    );
+    // The fine tier of the same vector: the shared `pinned` expectation.
+    let fine = vector_history(22_500, &[15_000], Some(15_000));
+    assert_eq!(fixture["pinned"]["asOfMs"], fine["asOfMs"]);
+    assert_eq!(
+        fixture["pinned"]["response"]["throughMs"],
+        fine["throughMs"]
+    );
+    assert_eq!(
+        fixture["pinned"]["response"]["retainedFromMs"],
+        fine["retainedFromMs"]
+    );
+    assert_eq!(
+        fixture["pinned"]["response"]["window"],
+        fine["identities"][0]["windows"][0]
+    );
+    assert_eq!(fixture["pinned"]["request"]["input"]["throughMs"], 15_000);
+    // Pinned before that slot closed, nothing has closed yet.
+    let early = vector_history(900_000, &[3_900_000], Some(295_000));
+    let window = &early["identities"][0]["windows"][0];
+    assert_eq!(window["toMs"], 0);
+    assert_eq!(window["buckets"], json!([]));
+}
+
 #[test]
 fn fine_windows_and_the_open_rollup_bucket_are_unchanged() {
     let fixture: Value = serde_json::from_str(VECTOR).unwrap();
-    let history = vector_history(22_500, &[15_000, 3_900_000]);
+    let history = vector_history(22_500, &[15_000, 3_900_000], None);
     // The shared vector's fine-tier response is byte-identical.
     assert_eq!(history["identities"][0]["windows"][0], {
         fixture["response"]["identities"][0]["windows"][0].clone()
@@ -120,7 +155,14 @@ fn every_rollup_bucket_equals_the_sum_of_the_fine_buckets_it_covers() {
     // 12 buckets make the fine hour 5-minute wide; 13 keep the rollup 5-minute wide.
     let ask = |storage: &mut Storage, window: u64, buckets: u64| {
         let history = storage
-            .consumption_history(std::slice::from_ref(&id), &[window], buckets, now, false)
+            .consumption_history(
+                std::slice::from_ref(&id),
+                &[window],
+                buckets,
+                now,
+                false,
+                None,
+            )
             .unwrap();
         history["identities"][0]["windows"][0].clone()
     };
@@ -251,11 +293,25 @@ fn retired_identities_are_answered_only_when_asked() {
         .unwrap();
     let now = 322_500;
     let hidden = storage
-        .consumption_history(std::slice::from_ref(&id), &[3_900_000], 120, now, false)
+        .consumption_history(
+            std::slice::from_ref(&id),
+            &[3_900_000],
+            120,
+            now,
+            false,
+            None,
+        )
         .unwrap();
     assert_eq!(hidden["identities"][0], json!({"id":id,"found":false}));
     let shown = storage
-        .consumption_history(std::slice::from_ref(&id), &[3_900_000], 120, now, true)
+        .consumption_history(
+            std::slice::from_ref(&id),
+            &[3_900_000],
+            120,
+            now,
+            true,
+            None,
+        )
         .unwrap();
     let identity = &shown["identities"][0];
     assert_eq!(identity["found"], true);
@@ -266,7 +322,14 @@ fn retired_identities_are_answered_only_when_asked() {
     // An active identity carries no `retired` key, so the default shape is unchanged.
     connection_clear_retirement(&mut storage, &id);
     let active = storage
-        .consumption_history(std::slice::from_ref(&id), &[3_900_000], 120, now, true)
+        .consumption_history(
+            std::slice::from_ref(&id),
+            &[3_900_000],
+            120,
+            now,
+            true,
+            None,
+        )
         .unwrap();
     assert!(active["identities"][0].get("retired").is_none());
 }
@@ -284,7 +347,14 @@ fn the_window_boundaries_and_corrupt_rollup_rows_are_refused() {
     let (_directory, path, id) = fixture();
     let mut storage = Storage::open(&path).unwrap();
     let ask = |storage: &mut Storage, window: u64, max: u64| {
-        storage.consumption_history(std::slice::from_ref(&id), &[window], max, 400_000, false)
+        storage.consumption_history(
+            std::slice::from_ref(&id),
+            &[window],
+            max,
+            400_000,
+            false,
+            None,
+        )
     };
     for (window, max) in [
         (3_650_000, 120),
@@ -561,6 +631,7 @@ fn rollup_buckets_report_credits_and_tier_and_merged_bins_take_the_newest() {
                 buckets,
                 920_000,
                 false,
+                None,
             )
             .unwrap();
         history["identities"][0]["windows"][0]["buckets"].clone()
@@ -603,7 +674,14 @@ fn corrupt_credits_or_tier_in_a_rollup_row_are_refused() {
     )
     .unwrap();
     let ask = |storage: &mut Storage| {
-        storage.consumption_history(std::slice::from_ref(&id), &[3_900_000], 13, 322_500, false)
+        storage.consumption_history(
+            std::slice::from_ref(&id),
+            &[3_900_000],
+            13,
+            322_500,
+            false,
+            None,
+        )
     };
     assert!(ask(&mut storage).is_ok());
     for (column, value) in [
