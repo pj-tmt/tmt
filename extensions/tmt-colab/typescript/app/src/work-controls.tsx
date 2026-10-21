@@ -15,6 +15,9 @@ export interface WorkRun {
   error?: string;
   /** A convert that made its page but could not link it: the task and the page that exists. */
   stranded?: { task: string; page: string };
+  /** Where the refusal belongs: `stranded` is the made-but-not-linked row, otherwise the New task
+   * field's error slot. A refusal is told under the control that was refused. */
+  errorAt?: 'stranded';
 }
 
 /** One action at a time: a control is disabled while one is in flight, and nothing is applied
@@ -23,14 +26,20 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [stranded, setStranded] = useState<WorkRun['stranded']>();
+  const [errorAt, setErrorAt] = useState<WorkRun['errorAt']>();
+  const current = useRef<WorkRun['stranded']>(undefined);
+  current.current = stranded;
   const flying = useRef(false);
   const run = useCallback(
     async (action: WorkAction, body: Body) => {
       if (!binding?.work || flying.current) return false;
       flying.current = true;
       setBusy(true);
+      // Linking the page a convert made answers the row that offered it: that row stays.
+      const answering = action === 'task.link' && current.current?.page === body.pageId;
       setError(undefined);
-      setStranded(undefined);
+      setErrorAt(undefined);
+      if (!answering) setStranded(undefined);
       try {
         await binding.work(action, body);
         return true;
@@ -41,6 +50,7 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
             : undefined;
         if (page !== undefined && action === 'task.convert')
           setStranded({ task: String(body.taskId), page });
+        if ((page !== undefined && action === 'task.convert') || answering) setErrorAt('stranded');
         setError(
           failure instanceof SaveNotApplied && page !== undefined
             ? text.workBand.controls.madeNotLinked
@@ -54,7 +64,7 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
     },
     [binding],
   );
-  return { run, busy, error, stranded };
+  return { run, busy, error, stranded, errorAt };
 }
 
 const label = text.workBand.controls;
@@ -384,6 +394,11 @@ export function TaskControls({
               {label.openIt}
             </a>
           )}
+          {work.error !== undefined && work.errorAt === 'stranded' && (
+            <div className="tmt-ui-field-error work-stranded-error" role="alert">
+              {work.error}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -408,7 +423,7 @@ export function AddTask({ work }: { work: WorkRun }): ReactNode {
         value={title}
         maxLength={120}
         disabled={work.busy}
-        error={work.error}
+        error={work.errorAt === 'stranded' ? undefined : work.error}
         onChange={setTitle}
         trailing={
           <BrowserAction

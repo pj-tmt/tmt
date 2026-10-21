@@ -466,16 +466,30 @@ test('a page made but not linked is named, and can be linked or opened', async (
     };
   }, MADE_PAGE);
   await band.getByRole('button', { name: 'Convert to Colab' }).click();
-  await expect(band.getByRole('alert')).toHaveText('That page already follows another task.');
+  // The refusal sits under the stranded row it belongs to, not in the New task field.
+  const stranded = band.locator('.work-stranded');
+  await expect(stranded.getByRole('alert')).toHaveText('That page already follows another task.');
+  await expect(band.locator('.work-add').getByRole('alert')).toHaveCount(0);
   await expect(band.getByText('A page was made for this task and is not linked.')).toBeVisible();
   await expect(band.getByRole('link', { name: 'Open the page' })).toHaveAttribute(
     'href',
     new RegExp(MADE_PAGE),
   );
+  // A refused link answers the same row.
+  await page.evaluate(() => {
+    window.__workPage!.refuse = { code: 'COLAB_LINK_REFUSED', message: 'Still refused.' };
+  });
+  await band.getByRole('button', { name: 'Link to that page' }).click();
+  await expect(stranded.getByRole('alert')).toHaveText('Still refused.');
+  await expect(band.locator('.work-add').getByRole('alert')).toHaveCount(0);
   await band.getByRole('button', { name: 'Link to that page' }).click();
   await expect(band.locator('.work-follows a')).toHaveAttribute('href', new RegExp(MADE_PAGE));
-  expect((await calls(page)).map((entry) => entry.action)).toEqual(['task.convert', 'task.link']);
-  expect((await calls(page))[1].body).toEqual({ taskId: 'T-2', pageId: MADE_PAGE });
+  expect((await calls(page)).map((entry) => entry.action)).toEqual([
+    'task.convert',
+    'task.link',
+    'task.link',
+  ]);
+  expect((await calls(page))[2].body).toEqual({ taskId: 'T-2', pageId: MADE_PAGE });
 });
 
 for (const [width, height] of [
@@ -498,7 +512,7 @@ for (const [width, height] of [
         };
       }, MADE_PAGE);
       await band.getByRole('button', { name: 'Convert to Colab' }).click();
-      await expect(band.getByRole('alert')).toBeVisible();
+      await expect(band.locator('.work-stranded').getByRole('alert')).toBeVisible();
       await page.mouse.move(0, 0);
       await page.screenshot({ path: capturePath(`work-convert-stranded-${width}-${scheme}.png`) });
     });
