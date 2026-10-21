@@ -41,6 +41,7 @@ fn window<'a>(
     duration: u64,
 ) -> Result<(&'a Value, &'a Value), String> {
     let observed = number(&document["asOfMs"])?;
+    let through = number(&document["throughMs"])?;
     let rows = document["identities"]
         .as_array()
         .ok_or("Malformed consumption identities.")?;
@@ -60,7 +61,15 @@ fn window<'a>(
     }
     let from = number(&window["fromMs"])?;
     let to = number(&window["toMs"])?;
-    if to > observed || to.checked_sub(from) != Some(duration) {
+    let resolution = if duration <= 3_600_000 {
+        5_000
+    } else {
+        300_000
+    };
+    if through > observed
+        || to != through / resolution * resolution
+        || to.checked_sub(from) != Some(duration)
+    {
         return Err("Mismatched consumption window.".into());
     }
     Ok((row, window))
@@ -262,29 +271,39 @@ pub(super) fn read(core: &Core, request: &Request, budget: Duration) -> Result<R
             message,
         }),
     }
+    // One refresh carries the first successful history response's closed cut to
+    // every subsequent aggregate and activity call; admission times may differ.
+    let mut through = None;
     for batch in request.identities.chunks(32) {
-        let read = |duration, maximum| {
+        let mut read = |duration, maximum| {
             if remaining().is_zero() {
                 return Err("Observation deadline exceeded.".into());
             }
-            core.api_within(
-                "consumption.history",
-                json!({"identityIds":batch,"windowsMs":[duration],"maxBuckets":maximum}),
-                remaining(),
-            )
-            .map_err(|e| e.message)
+            let mut input =
+                json!({"identityIds":batch,"windowsMs":[duration],"maxBuckets":maximum});
+            if let Some(cut) = through {
+                input["throughMs"] = json!(cut);
+            }
+            let document = core
+                .api_within("consumption.history", input, remaining())
+                .map_err(|e| e.message)?;
+            let cut = number(&document["throughMs"])?;
+            let observed = number(&document["asOfMs"])?;
+            if !cut.is_multiple_of(5_000)
+                || cut > observed
+                || through.is_some_and(|previous| previous != cut)
+            {
+                return Err("Mismatched consumption cut.".into());
+            }
+            through = Some(cut);
+            Ok(document)
         };
         let totals = read(request.range.milliseconds(), 1);
         let series = read(86_400_000u64, 24);
-        if let Ok(totals) = &totals {
-            if let Some(observed) = totals["asOfMs"].as_u64() {
-                report.observed_at_ms = report.observed_at_ms.max(observed);
-            }
-            if let Some(id) = batch.first()
-                && let Ok((_, window)) = window(totals, id, request.range.milliseconds())
-            {
-                report.window_from_ms = report.window_from_ms.or(window["fromMs"].as_u64());
-            }
+        if let Ok(totals) = &totals
+            && let Some(observed) = totals["asOfMs"].as_u64()
+        {
+            report.observed_at_ms = report.observed_at_ms.max(observed);
         }
         for id in batch {
             let found = totals
@@ -308,6 +327,9 @@ pub(super) fn read(core: &Core, request: &Request, budget: Duration) -> Result<R
             }
         }
     }
+    // This clock describes the admitted seats, never an arbitrary first batch
+    // identity that may be missing or malformed.
+    report.window_from_ms = report.seats.first().map(|seat| seat.from_ms);
     if report.exchange.is_none() && report.seats.is_empty() {
         return Err(report
             .warnings

@@ -6,13 +6,13 @@ const NOW: u64 = 1_800_000_000_000;
 
 fn histories(range: TokRange) -> (Value, Value) {
     let from = NOW - range.milliseconds();
-    let total = json!({"asOfMs":NOW,"identities":[{"id":ID,"found":true,"availableFromMs":from,
+    let total = json!({"asOfMs":NOW,"throughMs":NOW,"identities":[{"id":ID,"found":true,"availableFromMs":from,
         "windows":[{"windowMs":range.milliseconds(),"fromMs":from,"toMs":NOW,"availableFromMs":from,
             "buckets":[{"fromMs":from,"toMs":NOW,"inputTokens":900,"outputTokens":100,"cachedInputTokens":800,"coveredMs":range.milliseconds()/2,"complete":false}]}]}]});
     let start = NOW - 86_400_000;
     let points:Vec<_> = (0..24).map(|hour|json!({"fromMs":start+hour*3_600_000,"toMs":start+(hour+1)*3_600_000,
         "inputTokens":1,"outputTokens":0,"cachedInputTokens":0,"coveredMs":3_600_000,"complete":true})).collect();
-    let series = json!({"asOfMs":NOW,"identities":[{"id":ID,"found":true,"windows":[{"windowMs":86_400_000,
+    let series = json!({"asOfMs":NOW,"throughMs":NOW,"identities":[{"id":ID,"found":true,"windows":[{"windowMs":86_400_000,
         "fromMs":start,"toMs":NOW,"bucketMs":3_600_000,"buckets":points}]}]});
     (total, series)
 }
@@ -158,4 +158,176 @@ fn input_price_attribution_requires_the_whole_input_split_and_valid_distinct_mod
     bucket = complete;
     bucket["byModel"][0]["cachedInputTokens"] = json!(61);
     assert_eq!(model_inputs(&bucket), None);
+}
+
+#[test]
+fn skewed_batch_clocks_keep_the_all_row_total_and_activity_on_one_cut() {
+    use crate::board::{
+        app::workspace::tests::board, shell::OpsTab, usage_report::Delivery, workspace::OpsTarget,
+    };
+    use ratatui::{Terminal, backend::TestBackend};
+    const CUT: u64 = NOW - 5_000; // Cross both a fine and rollup boundary on the next call.
+    fn shift(value: &mut Value, by: u64) {
+        match value {
+            Value::Object(fields) => {
+                for (key, value) in fields {
+                    if matches!(
+                        key.as_str(),
+                        "asOfMs" | "throughMs" | "fromMs" | "toMs" | "availableFromMs"
+                    ) {
+                        *value = json!(value.as_u64().unwrap() - by);
+                    } else {
+                        shift(value, by);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(|item| shift(item, by)),
+            _ => {}
+        }
+    }
+    for range in TokRange::ALL {
+        let scratch = super::super::tests::Scratch::new();
+        let ids: Vec<_> = (0..35)
+            .map(|index| format!("10000000-0000-4000-8000-{index:012}"))
+            .collect();
+        let (mut totals, mut series) = histories(range);
+        // Complete totals make SHARE observable as well as the all-row TOK count.
+        totals["identities"][0]["windows"][0]["buckets"][0]["complete"] = json!(true);
+        totals["identities"][0]["windows"][0]["buckets"][0]["coveredMs"] =
+            json!(range.milliseconds());
+        for document in [&mut totals, &mut series] {
+            let template = document["identities"][0].clone();
+            document["identities"] = json!(
+                ids.iter()
+                    .map(|id| {
+                        let mut row = template.clone();
+                        row["id"] = json!(id);
+                        row
+                    })
+                    .collect::<Vec<_>>()
+            );
+        }
+        // Later unpinned reads cross the boundary. A pin must keep the first cut,
+        // while asOfMs still advances (it is not the cut, nor a cache clock).
+        for (name, mut document) in [
+            ("late-total", totals.clone()),
+            ("late-series", series.clone()),
+        ] {
+            document["asOfMs"] = json!(NOW + 10_000);
+            std::fs::write(scratch.0.join(format!("{name}.json")), document.to_string()).unwrap();
+        }
+        shift(
+            &mut totals,
+            if range == TokRange::Hour {
+                5_000
+            } else {
+                300_000
+            },
+        );
+        shift(&mut series, 300_000);
+        for document in [&mut totals, &mut series] {
+            document["throughMs"] = json!(CUT);
+            document["asOfMs"] = json!(NOW + 10_000);
+        }
+        let mut first = totals.clone();
+        first["asOfMs"] = json!(NOW - 1);
+        for (name, document) in [
+            ("first", first),
+            ("pinned-total", totals),
+            ("pinned-series", series),
+        ] {
+            std::fs::write(scratch.0.join(format!("{name}.json")), document.to_string()).unwrap();
+        }
+        let script = scratch.0.join("skewed-core");
+        write_ready_executable(
+            &script,
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in\nx) printf '%s' '{{\"sinceMs\":0,\"observedAtMs\":{NOW},\"rows\":[]}}';;\napi) payload=$(cat); printf '%s\\n' \"$payload\" >> '{root}/calls'\nif [ ! -f '{root}/first-read' ]; then : > '{root}/first-read'; cat '{root}/first.json'; exit; fi\ncase \"$payload\" in *'\"throughMs\":{CUT}'*) prefix=pinned;; *) prefix=late;; esac\ncase \"$payload\" in *'\"maxBuckets\":1'*) cat '{root}/'\"$prefix\"'-total.json';; *) cat '{root}/'\"$prefix\"'-series.json';; esac;;\n*) exit 77;;\nesac\n",
+                root = scratch.0.display()
+            ),
+        );
+        let report = read(
+            &Core::at(script),
+            &Request::new(range, ids.clone()),
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert_eq!(
+            report.seats.len(),
+            35,
+            "{range:?}: {:?}",
+            report.unavailable
+        );
+        assert_eq!(report.observed_at_ms, NOW + 10_000);
+        assert!(
+            report
+                .seats
+                .iter()
+                .all(|seat| Some(seat.from_ms) == report.window_from_ms)
+        );
+        let calls: Vec<Value> = scratch
+            .calls()
+            .iter()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(calls.len(), 4);
+        assert!(calls[0]["input"].get("throughMs").is_none());
+        assert!(
+            calls[1..]
+                .iter()
+                .all(|call| call["input"]["throughMs"] == CUT)
+        );
+
+        let mut app = board();
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let template = snapshot.roster.members.values().next().unwrap().clone();
+        snapshot.roster.members.clear();
+        snapshot.roster.squads.clear();
+        snapshot.rows.clear();
+        for id in &ids {
+            let mut member = template.clone();
+            member.id = id.clone();
+            member.name = id.clone();
+            snapshot.roster.members.insert(id.clone(), member);
+            snapshot.rows.insert(
+                OpsTarget::Member {
+                    room_id: None,
+                    identity_id: id.clone(),
+                },
+                json!({"id":id,"name":id}),
+            );
+        }
+        snapshot.preferences.tok_range = range;
+        app.usage_report.apply(Delivery {
+            since: range,
+            result: Ok(report),
+        });
+        app.shell.tab = OpsTab::Digest;
+        app.workspace.selected = Some(OpsTarget::DigestAll);
+        app.workspace_reconcile();
+        assert_eq!(app.workspace_rows().len(), 36);
+        let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let lines: Vec<String> = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(160)
+            .map(|line| line.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        let all = lines
+            .iter()
+            .find(|line| line.contains("all") && line.contains("35.0k"))
+            .unwrap_or_else(|| panic!("{range:?}: all-row total is missing: {}", lines.join("\n")));
+        assert!(all.contains("100%"), "{all}");
+        assert!(
+            !all.contains('?'),
+            "all-row activity must have a common clock: {all}"
+        );
+    }
 }
