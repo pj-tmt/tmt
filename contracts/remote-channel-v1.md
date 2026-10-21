@@ -122,10 +122,13 @@ TMT settings, filled from the [composed shell](#module-descriptions-and-composed
 browser holds an owner session; a module the answer does not describe stays listed, disabled, with
 its reason. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
-described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, with
-a visible Remote-settings link. Home preferences remain a separate consumer. Remote's existing
-landing, pairing and settings pages live at `/remote/`, `/remote/pair` and `/remote/settings`
-respectively; their module menu lists each saved remote, Add remote and Remote settings.
+described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, its
+sections listed in the module menu and sample values marked as such. Home preferences remain a
+separate consumer. Remote's landing and settings are the app routes `/remote/` and
+`/remote/settings`; their module menu lists each saved remote, Add remote and Remote settings.
+Pairing is not an app route: `/remote/pair` stays its own document with its own policy (below),
+so its fragment-erasing bootstrap runs before any other script. It shows the same rail, with no
+router, and its links load the app's routes.
 
 Only legacy `/pair` GET/HEAD requests return 308 with constant `Location: /remote/pair` and an
 empty body; the query is discarded without reflection. Host and Origin checks and cross-site

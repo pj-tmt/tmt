@@ -195,7 +195,11 @@ export const routes: readonly ShellRoute[] = [
     rail: 'colab',
     async load(_remembered, settled) {
       // Colab loads only from what this page's own read describes: never unpaired.
-      const load = colabLoad(await settled());
+      let answer = await settled();
+      // A paired browser whose door restarted has no session yet: reopen it (an unpaired browser
+      // fails on its local record, before any request) and read the shell again.
+      if (!answer && (await reopened())) answer = await started?.redescribe();
+      const load = colabLoad(answer);
       const entry = load?.entry;
       if (!entry)
         return {
@@ -208,11 +212,17 @@ export const routes: readonly ShellRoute[] = [
                   'This page will not load Colab from the address its description gives.',
                   load.link ? { href: load.link, label: 'Open Colab' } : undefined,
                 )
-              : message(
-                  slot,
-                  'Colab',
-                  'Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.',
-                ),
+              : answer
+                ? message(
+                    slot,
+                    'Colab',
+                    'Colab is not running on your machine. Run tmt colab serve there, then reload.',
+                  )
+                : message(
+                    slot,
+                    'Colab',
+                    'Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.',
+                  ),
         };
       try {
         return (await import(/* @vite-ignore */ entry)) as ShellRouteModule;
@@ -229,6 +239,17 @@ export const routes: readonly ShellRoute[] = [
     },
   },
 ];
+
+/** Whether this browser's pairing reopened a door session. */
+async function reopened(): Promise<boolean> {
+  try {
+    const { reopenSession } = await import('./browser.js');
+    await reopenSession();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Remote's settings page code, served beside the SDK. */
 const settingsEntry = '/sdk/settings-v1.js';

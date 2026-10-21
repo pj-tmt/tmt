@@ -290,6 +290,23 @@ test.describe('the door serving the TMT app', () => {
       ).toBeVisible();
     });
 
+    test('a paired browser opens Colab again after the door restarts', async ({ page }) => {
+      const id = await door!.createPage('Restart page', '<h1>Restart content</h1>');
+      await door!.pair(page);
+      await door!.restartRemote();
+      // The door's sessions ended; the route reopens this browser's session from its pairing.
+      await page.goto(`${door!.origin}/colab/pages/${id}`);
+      await expect(page.locator('.colab-route')).toBeVisible();
+      await expect(
+        page.frameLocator('iframe').getByRole('heading', { name: 'Restart content' }),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByRole('navigation', { name: 'TMT', exact: true })
+          .getByRole('link', { name: 'Colab' }),
+      ).not.toHaveAttribute('aria-disabled', 'true');
+    });
+
     test('a paired Colab closes its Remote session and page bindings on unmount', async ({
       page,
     }) => {

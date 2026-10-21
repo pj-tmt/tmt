@@ -34,6 +34,8 @@ export interface IsolatedDoor {
   createPage(title: string, html: string): Promise<string>;
   /** Pairs the page's browser context with the door, as a person does with `tmt remote pair`. */
   pair(page: Page, name?: string): Promise<void>;
+  /** Stops and starts the Remote serve again at the same origin: its sessions end, pairings stay. */
+  restartRemote(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -76,9 +78,13 @@ export async function startIsolatedDoor(): Promise<IsolatedDoor> {
       TMT_EXECUTABLE: core,
       TMT_FIXTURE_ROOT: root,
     };
-    const remote = spawn(remoteBinary, ['serve', '--json'], { env, cwd: root });
-    children.push(remote);
-    const { address } = JSON.parse(await firstLine(remote)) as { address: string };
+    const serveRemote = async () => {
+      const child = spawn(remoteBinary, ['serve', '--json'], { env, cwd: root });
+      children.push(child);
+      const { address } = JSON.parse(await firstLine(child)) as { address: string };
+      return { child, address };
+    };
+    let { child: remote, address } = await serveRemote();
     const colab = spawn(colabBinary, ['serve', '--json'], { env, cwd: root });
     children.push(colab);
     await firstLine(colab);
@@ -120,6 +126,14 @@ export async function startIsolatedDoor(): Promise<IsolatedDoor> {
         await next(); // paired
         await page.locator('#mark').filter({ hasText: '✓' }).waitFor();
         await exited(pairing);
+      },
+      async restartRemote() {
+        remote.kill('SIGTERM');
+        await exited(remote);
+        const next = await serveRemote();
+        if (next.address !== address)
+          throw new Error(`Remote came back at ${next.address}, not ${address}.`);
+        remote = next.child;
       },
       stop,
     };

@@ -2787,6 +2787,12 @@ function startShellHost(root, routes, options = {}) {
 	show();
 	return {
 		navigate: (href, options) => void go(href, options),
+		redescribe: () => new Promise((resolve) => {
+			asked = false;
+			settled = false;
+			listeners.push(resolve);
+			describe();
+		}),
 		route: (pathname) => matchRoute(routes, pathname),
 		dispose() {
 			document.removeEventListener("click", click);
@@ -3743,12 +3749,14 @@ var routes = [
 		paths: ["/colab", "/colab/"],
 		rail: "colab",
 		async load(_remembered, settled) {
-			const load = colabLoad(await settled());
+			let answer = await settled();
+			if (!answer && await reopened()) answer = await started?.redescribe();
+			const load = colabLoad(answer);
 			const entry = load?.entry;
 			if (!entry) return { mount: (slot) => load ? message(slot, "Colab", "This page will not load Colab from the address its description gives.", load.link ? {
 				href: load.link,
 				label: "Open Colab"
-			} : void 0) : message(slot, "Colab", "Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.") };
+			} : void 0) : answer ? message(slot, "Colab", "Colab is not running on your machine. Run tmt colab serve there, then reload.") : message(slot, "Colab", "Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.") };
 			try {
 				return await import(
 					/* @vite-ignore */
@@ -3760,6 +3768,16 @@ var routes = [
 		}
 	}
 ];
+/** Whether this browser's pairing reopened a door session. */
+async function reopened() {
+	try {
+		const { reopenSession } = await import("./remote-v1.js");
+		await reopenSession();
+		return true;
+	} catch {
+		return false;
+	}
+}
 /** Remote's settings page code, served beside the SDK. */
 var settingsEntry = "/sdk/settings-v1.js";
 var started;

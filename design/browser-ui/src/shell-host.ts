@@ -62,6 +62,8 @@ export interface ShellRoute {
 
 export interface ShellHost {
   navigate(href: string, options?: { replace?: boolean }): void;
+  /** Read the composed shell again (after the page reopened its session) and repaint the rail. */
+  redescribe(): Promise<ShellAnswer | undefined>;
   /** The route that owns `pathname`, if any. */
   route(pathname: string): ShellRoute | undefined;
   dispose(): void;
@@ -264,6 +266,13 @@ export function startShellHost(
   void show();
   return {
     navigate: (href, options) => void go(href, options),
+    redescribe: () =>
+      new Promise((resolve) => {
+        asked = false;
+        settled = false;
+        listeners.push(resolve);
+        describe();
+      }),
     route: (pathname) => matchRoute(routes, pathname),
     dispose() {
       document.removeEventListener('click', click);

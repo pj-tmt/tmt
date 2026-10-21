@@ -266,8 +266,10 @@ owner router and the owner's Ask and export modules are not part of this bundle.
 Remote keeps sessions and door cookies in memory, so after a restart a paired browser's
 reload receives Colab's private guidance page. That page loads the public `assets/recovery.js`
 (`src/guidance.ts`), which lets Remote's SDK check its paired key and call
-`reopenSession()` for that tab, then reloads. A short public link (`/p/<prefix>`) is served this
-entry too: after `reopenSession()` it loads the app in place, and a refusal that is the verified
+`reopenSession()` for that tab, then reloads. Inside the one TMT web app (`/colab/…`) the host
+route does the same before it loads the module: when the composed shell is missing it reopens the
+session from the pairing and reads the shell again (`shell-app.ts`). The public reader entry loads
+the app in place after `reopenSession()`, and a refusal that is the verified
 session limit (`sessionLimit()`, `session-limit-error.ts`) still loads the app, whose own open
 shows the limit card, never the unpaired guidance. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
