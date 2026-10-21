@@ -37,12 +37,27 @@ for (const width of [1440, 390])
       await expect(page.getByText('Page content', { exact: true })).toHaveCount(0);
       await expect(page.locator('.canvas')).toHaveCSS('border-top-width', '0px');
       await expect(page.locator('.canvas')).toHaveCSS('box-shadow', 'none');
+      // Inside the TMT web shell the page fills the column beside the rail and module menu (the
+      // bar's own column) and starts under the bar, plus the module menu's tab row on a phone.
       const rect = await frame.boundingBox();
-      expect(rect?.x).toBe(0);
-      const contentWidth = await page.evaluate(() => document.documentElement.clientWidth);
-      expect(rect?.width).toBe(contentWidth);
-      expect(rect?.y).toBe(width < 480 ? 48 : 56);
-      expect(rect?.height).toBeGreaterThanOrEqual(width < 480 ? 852 : 844);
+      const column = (await bar.boundingBox())!;
+      const lead = await page.evaluate(() =>
+        Number.parseFloat(
+          getComputedStyle(document.querySelector('.tmt-ui-shell-bar')!).getPropertyValue(
+            '--tmt-ui-shell-lead',
+          ),
+        ),
+      );
+      expect(lead).toBe(width < 480 ? 44 : 0);
+      expect(rect?.x).toBe(column.x);
+      expect(rect?.x).toBe(width < 480 ? 0 : 450);
+      expect(rect?.width).toBe(column.width);
+      expect(rect?.width).toBe(
+        (await page.evaluate(() => document.documentElement.clientWidth)) - column.x,
+      );
+      expect(rect?.y).toBe(column.y + column.height + lead);
+      expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(900);
       await expect(frame).toHaveAttribute('scrolling', 'no');
       await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
@@ -52,10 +67,13 @@ for (const width of [1440, 390])
       // The header holds no access chip at any width (#4116), so the title keeps its room.
       await expect(heading).toBeVisible();
       if (width < 480) await expect(heading).toHaveAttribute('title', 'Release notes');
-      await expect(bar.locator('.tmt-ui-mark')).toBeVisible();
-      if (width < 480) {
-        expect((await bar.locator('.tmt-ui-wordmark').boundingBox())?.width).toBeLessThanOrEqual(1);
-      }
+      // The shell's rail carries the TMT mark; the bar keeps none (a phone's menu button opens the rail).
+      await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
+      if (width >= 480)
+        await expect(page.locator('.tmt-ui-rail-brand .tmt-brand-mark')).toBeVisible();
+      else await expect(page.locator('.tmt-ui-shell-open:visible')).toBeVisible();
+      // The bar names the module (the shell keeps the TMT name in the rail), so the title keeps its row.
+      await expect(bar.locator('.tmt-ui-wordmark')).toHaveText('Colab');
       await expect(bar.getByRole('link', { name: 'Colab · local · Studio Mac' })).toHaveAttribute(
         'title',
         'Colab · local · Studio Mac',
@@ -125,9 +143,7 @@ for (const width of [1440, 390])
       await page.keyboard.press('Escape');
       await expect(editor).not.toBeVisible();
       await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused();
-      expect((await frame.boundingBox())?.width).toBe(
-        await page.evaluate(() => document.documentElement.clientWidth),
-      );
+      expect((await frame.boundingBox())?.width).toBe(column.width);
     });
   }
 
@@ -351,7 +367,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
   const remote = header.getByRole('link', { name: `Colab · local · ${deviceName}`, exact: true });
   await expect(heading).toBeVisible();
   await expect(header.locator('.tmt-ui-caption')).toBeVisible();
-  await expect(header.locator('.tmt-ui-mark')).toBeVisible();
+  await expect(header.locator('.tmt-ui-mark')).toBeHidden();
   const iframe = page.locator('#layout-fixture iframe');
   await expect(
     page.frameLocator('#layout-fixture iframe').getByRole('heading', { name: 'Stable content' }),
@@ -361,8 +377,13 @@ test('one-row fitting retains full labels, stable content and compact action aut
   for (const width of [800, 640, 390, 320, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(header.locator('.tmt-ui-caption'))[width <= 900 ? 'toBeHidden' : 'toBeVisible']();
-    // The mark stays at every width, as in Remote; the identity is only in the brand's name.
-    await expect(header.locator('.tmt-ui-mark')).toBeVisible();
+    // The shell carries the mark at every width (the rail, or the phone's menu button), not the bar.
+    await expect(header.locator('.tmt-ui-mark')).toBeHidden();
+    await expect(
+      page.locator(
+        width > 900 ? '.tmt-ui-rail-brand .tmt-brand-mark:visible' : '.tmt-ui-shell-open:visible',
+      ),
+    ).toBeVisible();
     await expect(remote).toHaveAttribute('title', `Colab · local · ${deviceName}`);
     await expect(heading).toHaveAttribute('title', title);
     await expect(header).toHaveCSS('height', width < 480 ? '48px' : '56px');
