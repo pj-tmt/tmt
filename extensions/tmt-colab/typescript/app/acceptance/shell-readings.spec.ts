@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { text } from '../src/strings.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -64,7 +65,7 @@ test('a dashboard reading waits until the page itself marks it read; opening it 
     expect(threads()).toHaveLength(0);
 
     // Opening the item scrolls to the reading; it stays unread until the page's own Mark read.
-    await cell.getByRole('link', { name: 'Open to decide', exact: true }).click();
+    await cell.getByRole('link', { name: text.shellPage.openToDecide, exact: true }).click();
     const band = page.locator(`[data-inline-reading="${reading}"]`);
     await expect(band).toHaveAttribute('data-reading-state', 'unread');
     expect(agent.received()).toHaveLength(0);
@@ -84,7 +85,7 @@ test('a dashboard reading waits until the page itself marks it read; opening it 
     await expect(cell).toHaveAttribute('data-stage', 'in-progress');
     await expect(cell.locator('.shell-passage[data-need=reading]')).toHaveCount(0);
     // Read state survives both the dashboard return and a fresh opening of the source page.
-    await cell.getByRole('link', { name: 'Open full page', exact: true }).click();
+    await cell.getByRole('link', { name: text.shellPage.openFullPage, exact: true }).click();
     await expect(band).toHaveAttribute('data-reading-state', 'read');
     expect(agent.received()).toHaveLength(1);
   });

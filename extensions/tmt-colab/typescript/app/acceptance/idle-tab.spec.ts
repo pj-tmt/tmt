@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage } from './harness/ask.js';
+import { createPage, freePort } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 // The remote door tears down a mounted tunnel that moves no bytes for 120 s, and a browser cannot
@@ -16,7 +16,7 @@ test.describe('idle tab keeps its sync tunnel (#2170)', () => {
       const door = await startDoor(world, await freePort());
       const browser = await pairBrowser(world, 'idle-browser');
       const created = createPage(world, 'Idle tab', '<h1>Idle tab</h1>');
-      const page = await openPage(door, browser, created);
+      const page = await browser.context.newPage();
       const sockets: { closed: boolean }[] = [];
       page.on('websocket', (socket) => {
         if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
@@ -24,9 +24,9 @@ test.describe('idle tab keeps its sync tunnel (#2170)', () => {
         sockets.push(observed);
         socket.on('close', () => (observed.closed = true));
       });
-      await expect(page.locator('.status.live .status-label')).toHaveText('Live');
-      // The tab was already connected before the listener existed: count only changes from here.
-      await page.reload();
+      // Install observation before the first navigation: a reload can otherwise mix late
+      // sockets from the previous document with the connection whose keepalive we test.
+      await page.goto(new URL(created.path, `${door.address}/`).href);
       await expect(page.locator('.status.live .status-label')).toHaveText('Live');
       // Admission has a bounded /sync membership read as well as the page connection.
       await expect.poll(() => sockets.filter((socket) => !socket.closed).length).toBe(1);
