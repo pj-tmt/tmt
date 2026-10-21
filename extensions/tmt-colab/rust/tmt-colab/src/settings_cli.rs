@@ -1,8 +1,13 @@
-//! `tmt colab settings [open on|off | wip-limit [AGENT] N|default | github-repo OWNER/REPO|none]`: show the
-//! settings, or change one.
+//! `tmt colab settings [open on|off | wip-limit [AGENT] N|default | github-repo OWNER/REPO|none |
+//! page-expiry DAYS|off|default]`: show the settings, or change one.
 use crate::cli_management::fail;
 use std::{io::Write, path::Path};
-use tmt_colab::{Result, settings, wip, work_github::Repo};
+use tmt_colab::{
+    Result,
+    page_expiry::{self, SpaceExpiry},
+    settings, wip,
+    work_github::Repo,
+};
 
 fn invalid(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     fail("COLAB_INPUT_INVALID", message)
@@ -30,6 +35,31 @@ pub fn run(root: &Path, args: &clap::ArgMatches, json_output: bool) -> Result<()
                 settings::set_open(root, value == "on")?
             }
             _ => return Err(invalid("open takes on or off.")),
+        },
+        Some("page-expiry") => match (value, extra) {
+            (None, None) => settings::read_or_default(root),
+            (Some(value), None) => settings::set_page_expiry(
+                root,
+                match value.as_str() {
+                    "off" => SpaceExpiry::Off,
+                    "default" => SpaceExpiry::Default,
+                    days => SpaceExpiry::Days(
+                        days.parse::<u64>()
+                            .ok()
+                            .filter(|n| {
+                                (1..=page_expiry::MAX_DAYS).contains(n)
+                                    && days.bytes().all(|b| b.is_ascii_digit())
+                            })
+                            .ok_or_else(|| {
+                                invalid(&format!(
+                                    "page-expiry takes a whole number of days from 1 to {}, off, or default.",
+                                    page_expiry::MAX_DAYS
+                                ))
+                            })?,
+                    ),
+                },
+            )?,
+            _ => return Err(invalid("page-expiry takes DAYS, off, or default.")),
         },
         Some("github-repo") => match (value, extra) {
             (None, None) => settings::read_or_default(root),
@@ -75,6 +105,11 @@ pub fn run(root: &Path, args: &clap::ArgMatches, json_output: bool) -> Result<()
         for (agent, limit) in &limits.agents {
             wip_limit.push_str(&format!(", {agent} {limit}"));
         }
+        let expiry_text = match loaded.page_expiry() {
+            SpaceExpiry::Default => format!("{} days (default)", page_expiry::DEFAULT_DAYS),
+            SpaceExpiry::Days(days) => format!("{days} days"),
+            SpaceExpiry::Off => "off".to_owned(),
+        };
         tmt_cli_style::detail::write(
             &mut out,
             terminal,
@@ -82,6 +117,7 @@ pub fn run(root: &Path, args: &clap::ArgMatches, json_output: bool) -> Result<()
             &[
                 ("open", shown),
                 ("wip-limit", wip_limit),
+                ("page-expiry", expiry_text),
                 (
                     "github-repo",
                     loaded

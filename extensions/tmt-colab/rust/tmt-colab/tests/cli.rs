@@ -7195,12 +7195,12 @@ fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
     let pilot = Pilot::new(None);
     assert_eq!(
         pilot.call(&["settings", "--json"]),
-        json!({"open":true,"source":"default","wipLimit":{"default":1,"agents":{}}})
+        json!({"open":true,"source":"default","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
     );
     assert!(!pilot.root.join("selected/colab").exists());
     assert_eq!(
         pilot.call(&["settings", "open", "off", "--json"]),
-        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}}})
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
     );
     let out = pilot.command().arg("settings").output().unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
@@ -7218,8 +7218,56 @@ fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("settings.json could not be read"));
     assert_eq!(
         pilot.call(&["settings", "open", "on", "--json"]),
-        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}}})
+        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
     );
+}
+#[test]
+fn the_page_expiry_setting_is_days_off_or_default_and_keeps_other_settings() {
+    let pilot = Pilot::new(None);
+    assert_eq!(pilot.call(&["settings", "--json"])["pageExpiryDays"], 180);
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let file = pilot.root.join("selected/colab/settings.json");
+    assert_eq!(
+        pilot.call(&["settings", "page-expiry", "90", "--json"]),
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":90})
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"open":false,"pageExpiry":90}"#
+    );
+    let out = pilot
+        .command()
+        .args(["settings", "page-expiry"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains("90 days"));
+    assert_eq!(
+        pilot.call(&["settings", "page-expiry", "off", "--json"])["pageExpiryDays"],
+        json!(null)
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"open":false,"pageExpiry":"off"}"#
+    );
+    let out = pilot.command().arg("settings").output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains("page-expiry"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("off"));
+    assert_eq!(
+        pilot.call(&["settings", "page-expiry", "default", "--json"])["pageExpiryDays"],
+        180
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"open":false}"#);
+    for bad in ["0", "3651", "-1", "1.5", "+7", "ninety", "forever"] {
+        let out = pilot
+            .command()
+            .args(["settings", "page-expiry", bad, "--json"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{bad}");
+        let error: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(error["error"]["code"], "COLAB_INPUT_INVALID", "{bad}");
+    }
+    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"open":false}"#);
 }
 #[test]
 fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
@@ -8062,7 +8110,7 @@ fn reading_settings_waits_for_a_setter_instead_of_seeing_a_half_written_file() {
     let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(
         answer,
-        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}}})
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
     );
 }
 #[test]
@@ -8089,7 +8137,7 @@ fn setting_waits_for_a_reader_that_holds_the_lock() {
     assert!(out.status.success());
     assert_eq!(
         serde_json::from_slice::<Value>(&out.stdout).unwrap(),
-        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}}})
+        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
     );
 }
 const OUTDATED_ENVELOPE: &str = r#"!{"error":{"code":"REMOTE_SERVE_OUTDATED","message":"The running serve is older; stop it by hand."}}"#;
