@@ -37,8 +37,3 @@
   font-size: var(--tmt-ui-header-action-size);
   line-height: 1.4;
 }
-/* The brand, a divider, then the title, as in Colab's header. */
-[data-tmt-page='tmt-settings'] .header-divider {
-  flex: none;
-  color: var(--tmt-ui-color-secondary);
-}

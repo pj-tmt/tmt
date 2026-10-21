@@ -194,13 +194,17 @@ test.describe('the door', () => {
         expect((await get(path, { method })).status, `${method} ${path}`).toBe(400);
   });
 
-  test('redirects a short page link that carries a query', async () => {
-    // TODO(ux-4, door): `handle` keeps a `/p/<id>?query` in the redirect Location, but the request
-    // target grammar (http.rs `target`) rejects every query except the legacy /pair one, so the
-    // door answers 400 and that branch is unreachable. Allow the query for `/p/<id>` or drop it.
-    test.fail(true, '/p/<id>?query is refused before the redirect');
-    const short = await get('/p/abcd1234?x=1');
-    expect([short.status, short.headers.get('location')]).toEqual([308, '/colab/p/abcd1234?x=1']);
+  test('redirects a short page link that carries a plain query', async () => {
+    for (const method of ['GET', 'HEAD']) {
+      const short = await get('/p/abcd1234?open=1&a=b', { method });
+      expect([short.status, short.headers.get('location')], method).toEqual([
+        308,
+        '/colab/p/abcd1234?open=1&a=b',
+      ]);
+    }
+    // Only a plain name=value query rides on the short link.
+    for (const path of ['/p/abcd1234?a=%2e', '/p/abcd1234?a=/../x', '/p/abcd1234?a=b;c'])
+      expect((await get(path)).status, path).toBe(400);
   });
 
   test('serves shell.html public and static', async () => {
@@ -436,6 +440,8 @@ test.describe('a module entry', () => {
     ['a relative path that climbs out of its mount', MOUNT, '../../colab.js'],
     ['another module under the same prefix', MOUNT, `${PREFIX}/x/other/colab.js`],
     ['the same module under another machine prefix', MOUNT, '/r/zzzzzzzz/x/colab/colab.js'],
+    ['an encoded slash', MOUNT, 'assets%2f..%2fcolab.js'],
+    ['a dot segment', MOUNT, 'assets/../colab.js'],
   ] as const)
     test(`refuses ${name} and loads nothing`, async () => {
       const { page, requests } = await openColab(composed(rail, entry));
@@ -449,10 +455,6 @@ test.describe('a module entry', () => {
     });
 
   test('refuses a sibling that only shares the mount name as a prefix', async () => {
-    // TODO(ux-4, shell-app.ts colabEntry): the confinement is a string prefix test on the mount
-    // path, so a mount written without its trailing slash also admits /x/colab-evil/. Compare
-    // on a path-segment boundary.
-    test.fail(true, 'entry confinement admits a sibling directory');
     const { page, requests } = await openColab(
       composed(`${PREFIX}/x/colab`, `${PREFIX}/x/colab-evil/colab.js`),
     );
@@ -462,9 +464,6 @@ test.describe('a module entry', () => {
   });
 
   test('falls back to the module link when its entry is refused', async () => {
-    // TODO(ux-4, shell-app.ts): a refused entry now shows only the "Pair this browser" message;
-    // the condition asks for a link to the module's own mount (colab.rail.path).
-    test.fail(true, 'no module link is offered when the entry is refused');
     const { page } = await openColab(composed(MOUNT, 'https://evil.example/colab.js'));
     await expect(page.locator(`.tmt-ui-shell-main a[href$="${MOUNT}"]`)).toBeVisible();
     await page.close();

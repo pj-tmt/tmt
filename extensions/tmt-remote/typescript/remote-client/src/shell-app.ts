@@ -17,6 +17,7 @@ import tmtSettings from '../../../rust/tmt-remote/assets/tmt-settings.html?raw';
 import ops from '../../../rust/tmt-remote/assets/ops.html?raw';
 import digest from '../../../rust/tmt-remote/assets/digest.html?raw';
 import { digestPage } from './digest-page.js';
+import { moduleLoad, type ModuleLoad } from './module-entry.js';
 import { opsPage } from './ops-page.js';
 import { homePage, hostRemote, remoteShell } from './remote-shell.js';
 import { tmtSettingsPage } from './tmt-settings-page.js';
@@ -61,19 +62,19 @@ function remotePage(
   };
 }
 
-/** Colab's module entry, under its own mount, only from the composed answer (never unpaired). */
-function colabEntry(answer: ShellAnswer | undefined): string | undefined {
+/** Colab as the composed answer describes it: its own link, and its entry only if confined. */
+function colabLoad(answer: ShellAnswer | undefined): ModuleLoad | undefined {
   const colab = answer?.modules.find((module) => module.extension === 'colab');
   if (!colab) return undefined;
-  const mount = new URL(colab.rail.path, location.href);
-  const entry = new URL((colab as { entry?: string }).entry ?? 'assets/colab-module.js', mount);
-  // Confined to the module's own mount; anything else falls back to the module link.
-  return entry.origin === location.origin && entry.pathname.startsWith(mount.pathname)
-    ? entry.href
-    : undefined;
+  return moduleLoad(colab.rail.path, (colab as { entry?: string }).entry, location.href);
 }
 
-function message(slot: ShellSlot, title: string, text: string): void {
+function message(
+  slot: ShellSlot,
+  title: string,
+  text: string,
+  link?: { href: string; label: string },
+): void {
   const main = document.createElement('main');
   main.className = 'page';
   const heading = document.createElement('h2');
@@ -81,6 +82,14 @@ function message(slot: ShellSlot, title: string, text: string): void {
   const body = document.createElement('p');
   body.textContent = text;
   main.append(heading, body);
+  if (link) {
+    const open = document.createElement('p');
+    const anchor = document.createElement('a');
+    anchor.href = link.href;
+    anchor.textContent = link.label;
+    open.append(anchor);
+    main.append(open);
+  }
   slot.main.replaceChildren(main);
   slot.setTitle(title);
 }
@@ -138,15 +147,24 @@ export const routes: readonly ShellRoute[] = [
     rail: 'colab',
     async load(_remembered, settled) {
       // Colab loads only from what this page's own read describes: never unpaired.
-      const entry = colabEntry(await settled());
+      const load = colabLoad(await settled());
+      const entry = load?.entry;
       if (!entry)
         return {
           mount: (slot) =>
-            message(
-              slot,
-              'Colab',
-              'Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.',
-            ),
+            load
+              ? // Described, but not loadable from here: the module's own link is the way in.
+                message(
+                  slot,
+                  'Colab',
+                  'This page will not load Colab from the address its description gives.',
+                  load.link ? { href: load.link, label: 'Open Colab' } : undefined,
+                )
+              : message(
+                  slot,
+                  'Colab',
+                  'Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.',
+                ),
         };
       try {
         return (await import(/* @vite-ignore */ entry)) as ShellRouteModule;

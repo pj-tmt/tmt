@@ -1,0 +1,59 @@
+/**
+ * Where the shell may load a module's code from. A composed shell answer names a module's mount
+ * (`rail.path`) and optionally its `entry`; the shell imports the entry only when both are paths
+ * of this same origin under `/r/<prefix>/x/<module>/`, compared by path segment, naming a script
+ * (`.js`). Anything else is
+ * refused, and the module's own link is the fallback.
+ */
+
+/** `/r/<prefix>/x/<module>`, the door's mount for one module, with or without a trailing slash. */
+const MOUNT = /^\/r\/[a-z0-9]+\/x\/[a-z0-9][a-z0-9-]*\/?$/;
+/** The module entry the shell asks for when the answer names none. */
+const DEFAULT_ENTRY = 'assets/colab-module.js';
+
+export interface ModuleLoad {
+  /** The module's own mount path, ending in `/`, when the answer's `rail.path` is a valid mount. */
+  link?: string;
+  /** The entry to import, when it is confined to that mount. */
+  entry?: string;
+}
+
+/** An entry has no escapes, backslashes, query, fragment, control characters or dot segments. */
+function plain(entry: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  if (/[\\%?#\u0000-\u001f\u007f]/.test(entry)) return false;
+  return entry.split('/').every((segment) => segment !== '.' && segment !== '..');
+}
+
+/** Confine a described module to its mount; `here` is the page's URL, the base of relative paths. */
+export function moduleLoad(rail: string, entry: string | undefined, here: string): ModuleLoad {
+  let page: URL;
+  let mount: URL;
+  try {
+    page = new URL(here);
+    mount = new URL(rail, page);
+  } catch {
+    return {};
+  }
+  if (mount.origin !== page.origin || mount.search || mount.hash || !MOUNT.test(mount.pathname))
+    return {};
+  const link = mount.pathname.endsWith('/') ? mount.pathname : `${mount.pathname}/`;
+  const wanted = entry ?? DEFAULT_ENTRY;
+  if (!plain(wanted)) return { link };
+  let target: URL;
+  try {
+    target = new URL(wanted, new URL(link, page));
+  } catch {
+    return { link };
+  }
+  // The trailing slash on the mount makes the prefix test a segment boundary.
+  const inside =
+    target.origin === page.origin &&
+    target.pathname.startsWith(link) &&
+    target.pathname.length > link.length &&
+    target.pathname.endsWith('.js') &&
+    !target.pathname.includes('//') &&
+    !target.search &&
+    !target.hash;
+  return inside ? { link, entry: target.href } : { link };
+}

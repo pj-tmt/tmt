@@ -346,3 +346,9 @@ input {
 .ops-mark[data-tone='blocked'] {
   color: var(--tmt-ui-color-blocked);
 }
+
+/* The brand, a divider, then the page title, as in Colab's header. */
+.header-divider {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+}

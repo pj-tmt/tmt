@@ -26,7 +26,15 @@ fn response_drains_input_sent_after_its_fin_until_peer_eof() {
 
 #[test]
 fn target_grammar_isolates_prefixes() {
-    for valid in ["/", "/r/ab/append", "/x/colab/", "/x/colab/app.js"] {
+    for valid in [
+        "/",
+        "/r/ab/append",
+        "/x/colab/",
+        "/x/colab/app.js",
+        "/p/abcd1234",
+        "/p/abcd1234?open=1",
+        "/p/abcd1234?a=b&c=d-e_f.g~h",
+    ] {
         assert!(target(valid), "{valid}");
     }
     for invalid in [
@@ -41,6 +49,18 @@ fn target_grammar_isolates_prefixes() {
         "/x/colab//a",
         "/x/colab/a#b",
         "/x\\colab",
+        // The short link's query is plain text; every other route stays query-free.
+        "/p/abcd1234?",
+        "/p/abcd1234?a=%2e",
+        "/p/abcd1234?a=b#c",
+        "/p/abcd1234?a=b c",
+        "/p/abcd1234?a=/../x",
+        "/p/abcd1234?a=b;c",
+        "/p/abcd1234?tmt-session=x",
+        "/p/../r/ab/append?a=b",
+        "/p//abcd?a=b",
+        "/colab/p/abcd1234?a=b",
+        "/settings?a=b",
     ] {
         assert!(!target(invalid), "{invalid}");
     }
