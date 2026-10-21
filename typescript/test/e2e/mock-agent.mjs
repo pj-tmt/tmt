@@ -16,6 +16,7 @@ const maxInlineReplyBytes = 4 * 1024;
 const replyChildren = new Set();
 const replyGate = process.env.TMT_MOCK_REPLY_GATE;
 const replyInput = process.env.TMT_MOCK_REPLY_INPUT ?? 'stdin';
+const recordGuidance = process.env.TMT_MOCK_RECORD_GUIDANCE === '1';
 
 function appendEvent(event) {
   if (!logPath) return;
@@ -326,8 +327,11 @@ input.on('line', (line) => {
       return;
     }
     guidancePending = false;
-    // The line after the frame says how to answer; record it so a scenario can read it.
-    appendEvent({ event: 'guidance', requestId: guidanceFor, line, mode, pid: process.pid });
+    // The line after the frame says how to answer. Only a scenario that reads it asks for the
+    // event, so the event order of every other scenario stays as it was.
+    if (recordGuidance) {
+      appendEvent({ event: 'guidance', requestId: guidanceFor, line, mode, pid: process.pid });
+    }
     return;
   }
 

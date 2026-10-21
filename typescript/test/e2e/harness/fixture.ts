@@ -352,6 +352,7 @@ exit ${'$'}status
       if (options.replyConflict) this.env.TMT_MOCK_REPLY_CONFLICT = '1';
       if (options.replyAckLoss) this.env.TMT_MOCK_REPLY_ACK_LOSS = '1';
       if (options.summaryFailure) this.env.TMT_MOCK_SUMMARY_FAILURE = '1';
+      if (options.recordGuidance) this.env.TMT_MOCK_RECORD_GUIDANCE = '1';
       if (options.metadataBarrier) {
         this.enableMetadataBarrier(options.metadataBarrier);
       }

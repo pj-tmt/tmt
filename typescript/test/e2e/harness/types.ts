@@ -105,6 +105,8 @@ export interface E2EFixtureOptions {
   replyConflict?: boolean;
   replyAckLoss?: boolean;
   summaryFailure?: boolean;
+  /** Log the line that follows the reply frame as a `guidance` event. */
+  recordGuidance?: boolean;
   globalDir?: string;
   metadataBarrier?: MetadataBarrierOptions;
 }

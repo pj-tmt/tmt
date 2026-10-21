@@ -552,7 +552,7 @@ describe('#4207 a request gets one answer', { concurrent: false }, () => {
         expect(guidance.line).not.toContain('summary');
         expect(submittedFor(fixture.events(), requestId)).toHaveLength(1);
       },
-      { mode: 'respond' }
+      { mode: 'respond', recordGuidance: true }
     );
   }, 35_000);
 });
