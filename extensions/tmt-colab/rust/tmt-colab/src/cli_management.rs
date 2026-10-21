@@ -682,7 +682,7 @@ pub fn create_page(
 ) -> Result<()> {
     create_page_kind(root, args, source, Some(page_layout), checks, false)
 }
-pub fn create_shell(root: &Path, args: &ArgMatches) -> Result<()> {
+pub fn create_dashboard(root: &Path, args: &ArgMatches) -> Result<()> {
     create_page_kind(root, args, String::new(), None, &[], true)
 }
 /// A page committed through ordinary creation, and what was observed of the machine while it was.

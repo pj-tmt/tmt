@@ -42,10 +42,25 @@ pub fn known(action: &str) -> bool {
 /// Prepare outside every lock. Also names the task a `task.add` makes, which is the page's counter
 /// at the revision the action applies to; the commit's fences turn a page that moved meanwhile into
 /// a stale-base refusal.
+/// A browser's convert: a page made from a task, then the link, as one operation.
+pub fn is_convert(action: &str) -> bool {
+    action == "task.convert"
+}
+
 pub fn prepare(
     open: &SourceOpener,
     edit: &WorkEdit,
     clock: &dyn Fn() -> crate::Result<u64>,
+) -> crate::Result<(Prepared, Option<String>)> {
+    prepare_expecting(open, edit, clock, None)
+}
+/// As `prepare`, but only while the named task is still exactly `expect`: a convert links the task
+/// it copied, never one that changed while its page was being made.
+pub(super) fn prepare_expecting(
+    open: &SourceOpener,
+    edit: &WorkEdit,
+    clock: &dyn Fn() -> crate::Result<u64>,
+    expect: Option<(&str, &Value)>,
 ) -> crate::Result<(Prepared, Option<String>)> {
     let mut source = open()?;
     let read = super::read_work(
@@ -54,6 +69,11 @@ pub fn prepare(
         &edit.page,
         &mut source.decoder,
     )?;
+    if let Some((task, copied)) = expect
+        && read.work["tasks"].get(task) != Some(copied)
+    {
+        return Err(super::Fault::StaleBase.into());
+    }
     work_admission::admit(
         &Space {
             root: &source.root,

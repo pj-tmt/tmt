@@ -200,7 +200,7 @@ export class Fold {
     attachments?: attachment.DocumentChange,
   ): Promise<ContentPreparation> {
     if (base.pageType === 'shell')
-      throw new Error('HTML source operations cannot replace a shell page');
+      throw new Error('HTML source operations cannot replace a dashboard');
     exactKeys(base, [
       'source',
       'title',

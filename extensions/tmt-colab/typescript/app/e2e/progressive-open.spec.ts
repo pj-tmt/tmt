@@ -114,3 +114,40 @@ test('the document does not move when verification arrives', async ({ page }) =>
   await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(1);
   expect(await page.locator('#ask-page-fixture iframe').boundingBox()).toEqual(before);
 });
+
+/**
+ * The compact lines of answer blocks sit in slots the frame places once the parent asks for them
+ * (#4253). The parent mounts them only after the discussion is verified, which can be after the
+ * page is ready; a lone question there stayed detached and invisible, so it could not be answered.
+ */
+test('a lone question placed while the discussion was pending shows its line once verified', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true, discussionPending: true, layout: 'column' });
+  await run(
+    page,
+    'authored',
+    '<h1>Project notes</h1><p>Before the question.</p><tmt-question data-id="10000000-0000-4000-8000-000000000090" data-kind="single" data-agent="answer-agent"><p data-question>Which heading should we use?</p><span data-choice>Keep it</span><span data-choice>Change it</span></tmt-question><p id="after-question">The page continues here.</p>',
+  );
+  await expect(frame(page).locator('#after-question')).toBeVisible();
+  // The document is ready and nothing of the discussion is mounted yet.
+  await expect(page.locator('.question-group-card')).toHaveCount(0);
+  await run(page, 'verifyDiscussion');
+  const card = page.locator('.question-group-card');
+  await expect(card).toHaveCount(1);
+  await expect(card).not.toHaveAttribute('data-detached');
+  const line = card.locator('.question-line');
+  await expect(line).toBeVisible();
+  await expect(line).toContainText('Which heading should we use?');
+  // The line sits between the paragraphs it was authored between, and opens like any other.
+  const before = await frame(page).getByText('Before the question.').boundingBox();
+  const after = await frame(page).locator('#after-question').boundingBox();
+  const box = (await line.boundingBox())!;
+  expect(box.y).toBeGreaterThan(before!.y);
+  expect(box.y + box.height).toBeLessThanOrEqual(after!.y + 1);
+  await line.click();
+  await expect(line).toHaveAttribute('aria-expanded', 'true');
+  await expect(card.getByLabel('Keep it', { exact: true })).toBeVisible();
+});

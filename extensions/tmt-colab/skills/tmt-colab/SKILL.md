@@ -115,7 +115,7 @@ editing reference; never delete the original to clear a limit.
 
 ## Page type and look
 
-Shells: [shell](references/shell.md) (`tmt colab skill shell`). Edit data only; the app owns the look.
+Dashboards: [dashboard](references/dashboard.md) (`tmt colab skill dashboard`). Edit data only; the app owns the look.
 HTML: read [layout](references/layout.md) (`tmt colab skill layout`),
 [components](references/components.md) (`tmt colab skill components`) and
 [page-style](references/page-style.md) (`tmt colab skill page-style`).

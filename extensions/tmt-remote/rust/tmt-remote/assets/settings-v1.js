@@ -1298,7 +1298,11 @@ var ManagementPage = class {
 		this.reopen = reopen;
 	}
 	get writable() {
-		return this.access === "live" && this.settings?.capabilities.settingsWrite === true && !this.busy && this.outcome?.state !== "unknown" && !(this.outcome?.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY");
+		return this.writableWhenIdle && !this.busy;
+	}
+	/** Whether controls are available at all; a busy window only fences them, it never mutes them. */
+	get writableWhenIdle() {
+		return this.access === "live" && this.settings?.capabilities.settingsWrite === true && this.outcome?.state !== "unknown" && !(this.outcome?.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY");
 	}
 	async refresh(cursor = this.cursor) {
 		if (this.busy || this.access === "lost") return;
@@ -1378,7 +1382,7 @@ var ManagementPage = class {
 		this.outcome = void 0;
 		this.freshAttempted = false;
 		this.busy = true;
-		this.notice = intent.kind === "revoke" || intent.kind === "remove-others" ? "Removing devices…" : intent.kind === "talk" ? intent.input.enabled ? "Enabling sending…" : "Disabling sending…" : "Saving…";
+		this.notice = "";
 		try {
 			const frozen = this.intent;
 			this.outcome = frozen.kind === "setting" ? await this.client.set(frozen.input) : frozen.kind === "rename" ? await this.client.rename(frozen.input) : frozen.kind === "talk" ? await this.client.talk(frozen.input) : frozen.kind === "remove-others" ? await this.client.removeOthers(frozen.input) : await this.client.revoke(frozen.input);
@@ -1442,6 +1446,156 @@ function accessRefused(error) {
 	return error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code);
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/static.ts
+var browserUiClasses = Object.freeze({
+	chips: "tmt-ui-chips",
+	chip: "tmt-ui-chip",
+	chipLabel: "tmt-ui-chip-label",
+	chipsAdd: "tmt-ui-chips-add",
+	chipsStatus: "tmt-ui-chips-status",
+	chipsSurface: "tmt-ui-chips-surface",
+	chipsSearch: "tmt-ui-chips-search",
+	chipsOption: "tmt-ui-chips-option",
+	notifications: "tmt-ui-notifications",
+	notification: "tmt-ui-notification",
+	notificationStatus: "tmt-ui-notification-status",
+	notificationHeading: "tmt-ui-notification-heading",
+	notificationTag: "tmt-ui-notification-tag",
+	notificationLine: "tmt-ui-notification-line",
+	notificationQuote: "tmt-ui-notification-quote",
+	notificationWaiting: "tmt-ui-notification-waiting",
+	drawer: "tmt-ui-drawer",
+	drawerHeader: "tmt-ui-drawer-header",
+	drawerBody: "tmt-ui-drawer-body",
+	dialog: "tmt-ui-dialog",
+	dialogHeader: "tmt-ui-dialog-header",
+	dialogBody: "tmt-ui-dialog-body",
+	menu: "tmt-ui-menu",
+	menuSurface: "tmt-ui-menu-surface",
+	menuItem: "tmt-ui-menu-item",
+	command: "tmt-ui-command",
+	commandText: "tmt-ui-command-text",
+	commandCopy: "tmt-ui-command-copy",
+	commandFeedback: "tmt-ui-command-feedback",
+	code: "tmt-ui-code",
+	header: "tmt-ui-header",
+	brand: "tmt-ui-brand",
+	mark: "tmt-ui-mark",
+	wordmark: "tmt-ui-wordmark",
+	heading: "tmt-ui-heading",
+	headingSuffix: "tmt-ui-heading-suffix",
+	title: "tmt-ui-title",
+	caption: "tmt-ui-caption",
+	status: "tmt-ui-status",
+	actions: "tmt-ui-actions",
+	icon: "tmt-ui-icon",
+	notice: "tmt-ui-notice",
+	noticeMark: "tmt-ui-notice-mark",
+	noticeEyebrow: "tmt-ui-notice-eyebrow",
+	noticeHeading: "tmt-ui-notice-heading",
+	noticeBody: "tmt-ui-notice-body",
+	noticeActions: "tmt-ui-notice-actions",
+	field: "tmt-ui-field",
+	fieldLabel: "tmt-ui-field-label",
+	fieldControl: "tmt-ui-field-control",
+	fieldDescription: "tmt-ui-field-description",
+	fieldError: "tmt-ui-field-error",
+	action: "tmt-ui-action",
+	actionLabel: "tmt-ui-action-label",
+	actionMark: "tmt-ui-action-mark",
+	spin: "tmt-ui-spin",
+	iconAction: "tmt-ui-icon-action",
+	iconActionControl: "tmt-ui-icon-action-control",
+	iconActionIcon: "tmt-ui-icon-action-icon",
+	iconActionTooltip: "tmt-ui-icon-action-tooltip",
+	iconActionTooltipLabel: "tmt-ui-icon-action-tooltip-label",
+	toggle: "tmt-ui-toggle",
+	toggleIndicator: "tmt-ui-toggle-indicator",
+	list: "tmt-ui-list",
+	listRow: "tmt-ui-list-row",
+	listLeading: "tmt-ui-list-leading",
+	listTitle: "tmt-ui-list-title",
+	listMeta: "tmt-ui-list-meta",
+	listUpdated: "tmt-ui-list-updated",
+	listState: "tmt-ui-list-state",
+	listActions: "tmt-ui-list-actions",
+	tabs: "tmt-ui-tabs",
+	tabsHeader: "tmt-ui-tabs-header",
+	tabList: "tmt-ui-tab-list",
+	tab: "tmt-ui-tab",
+	tabMark: "tmt-ui-tab-mark",
+	tabLabel: "tmt-ui-tab-label",
+	tabsStatus: "tmt-ui-tabs-status",
+	tabPanel: "tmt-ui-tab-panel"
+});
+/**
+* The reserved busy-mark slot of a static Action: a leading span holding the shared LoaderCircle
+* arc, hidden while `data-busy` is `false`. Set `data-busy` to `true` from `createBusyMarkGate`;
+* the shared spinner rule turns it. Non-React pages use this instead of copying the markup.
+*/
+function createActionMark(doc = document) {
+	const mark = doc.createElement("span");
+	mark.className = browserUiClasses.actionMark;
+	mark.setAttribute("aria-hidden", "true");
+	mark.dataset.busy = "false";
+	const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+	for (const [name, value] of Object.entries({
+		width: "1em",
+		height: "1em",
+		viewBox: "0 0 24 24",
+		fill: "none",
+		stroke: "currentColor",
+		"stroke-width": "2",
+		"stroke-linecap": "round",
+		"stroke-linejoin": "round"
+	})) svg.setAttribute(name, value);
+	const arc = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+	arc.setAttribute("d", "M21 12a9 9 0 1 1-6.219-8.56");
+	svg.append(arc);
+	mark.append(svg);
+	return mark;
+}
+/**
+* Decides when a busy mark is visible: only after busy has lasted the delay,
+* then for at least the hold, so short work never flashes a mark.
+*/
+function createBusyMarkGate(onChange) {
+	let busy = false;
+	let shown = false;
+	let shownAt = 0;
+	let timer;
+	const clear = () => {
+		if (timer !== void 0) clearTimeout(timer);
+		timer = void 0;
+	};
+	const show = (value) => {
+		shown = value;
+		if (value) shownAt = Date.now();
+		onChange(value);
+	};
+	return {
+		shown: () => shown,
+		set(next) {
+			if (next === busy) return;
+			busy = next;
+			clear();
+			if (busy) {
+				if (!shown) timer = setTimeout(() => show(true), 400);
+				return;
+			}
+			if (!shown) return;
+			const remaining = shownAt + 400 - Date.now();
+			if (remaining <= 0) show(false);
+			else timer = setTimeout(() => show(false), remaining);
+		},
+		/** Stops pending timers; a later busy start begins a fresh delay. */
+		dispose() {
+			clear();
+			busy = false;
+		}
+	};
+}
+//#endregion
 //#region src/settings-page.ts
 function element(id) {
 	const found = document.getElementById(id);
@@ -1453,6 +1607,7 @@ var mode = element("limit-mode");
 var custom = element("limit-custom");
 var devices = element("devices");
 var refresh = element("refresh");
+var removeOthers = element("remove-others");
 var more = element("more");
 var first = element("first");
 var rows = /* @__PURE__ */ new Map();
@@ -1532,18 +1687,44 @@ function limitChanged() {
 	const value = mode.value === "off" ? null : custom.value;
 	return admitted.sessionsPerDeviceSource !== "settings.json" || value !== admitted.sessionsPerDevice;
 }
+/** Busy is not disabled: only an unavailable control is disabled. A busy one keeps its look and
+* focus and is fenced by aria-disabled; every activation handler already refuses while busy. */
+function fence(button, unavailable) {
+	button.disabled = unavailable;
+	if (page.busy && !unavailable) button.setAttribute("aria-disabled", "true");
+	else button.removeAttribute("aria-disabled");
+}
+/** The action that carries the busy mark: the one the current write started from. */
+var markOwner;
+function markSlot(button) {
+	let slot = button.querySelector(":scope > .tmt-ui-action-mark");
+	if (!slot) {
+		slot = createActionMark();
+		button.prepend(slot);
+	}
+	return slot;
+}
+/** The shared delay and hold: nothing shows for the first 400 ms, then the mark stays 400 ms. */
+var busyMark = createBusyMarkGate((shown) => {
+	if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
+});
+function syncBusyMark() {
+	for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-switcher")) markSlot(button);
+	busyMark.set(page.busy);
+}
 function saveState(form, hint, changed, valid) {
 	const button = element(form).querySelector("button[type=submit]");
-	button.disabled = !page.writable || !changed || !valid;
+	fence(button, !page.writableWhenIdle || !changed || !valid);
 	element(hint).hidden = !page.writable || changed;
 	const described = button.getAttribute("aria-describedby");
 	if (!element(hint).hidden) button.setAttribute("aria-describedby", [described, hint].filter(Boolean).join(" "));
 }
-function recoverOriginal() {
+function recoverOriginal(event) {
+	if (page.busy) return;
 	run(async () => {
 		await page.recover();
 		if (page.access === "live") await refreshView();
-	});
+	}, event.currentTarget);
 }
 /** Mount an empty live region before a device can originate a change. Never move it. */
 function deviceFeedback(clientId) {
@@ -1593,7 +1774,7 @@ function renderOutcome() {
 		original.textContent = selected && page.intent && (page.outcome?.state === "unknown" || page.outcome?.state === "refused") ? `Original operation ${page.intent.input.operationId}` : "";
 		original.hidden = !original.textContent;
 		recover.hidden = !selected || !page.canRecover;
-		recover.disabled = page.busy;
+		fence(recover, false);
 		recover.setAttribute("aria-busy", String(page.busy));
 	}
 }
@@ -1625,7 +1806,7 @@ function render() {
 	designation.hidden = editable || page.access !== "live";
 	if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
 	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
-	const reason = capacity ?? (page.busy ? "A request is in progress. Wait for its outcome." : !editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
+	const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
 	element("controls-reason").textContent = reason;
 	element("controls-reason").hidden = !reason;
 	for (const button of document.querySelectorAll("button")) {
@@ -1658,16 +1839,15 @@ function render() {
 		mode,
 		custom
 	]) field.disabled = !editable || field === custom && mode.value !== "custom";
-	for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) button.disabled = !page.writable;
+	for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
 	if (page.settings) {
 		choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
 		for (const update of choices) update();
 	}
 	saveState("opening-form", "opening-unchanged", openingChanged(), opening.checkValidity());
 	saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
-	const removeOthers = element("remove-others");
 	removeOthers.hidden = page.removalPreview?.count === 0 || page.onFirstPage && page.devices?.nextCursor === null && page.devices.devices.every((device) => device.clientId === page.clientId);
-	removeOthers.disabled = !page.writable || page.removalPreview?.count === 0;
+	fence(removeOthers, !page.writableWhenIdle || page.removalPreview?.count === 0);
 	const preview = page.removalPreview;
 	const panel = element("remove-others-confirmation");
 	panel.hidden = !preview || preview.count === 0 || !page.writable;
@@ -1676,11 +1856,11 @@ function render() {
 		element("remove-others-consequence").textContent = `This ends Remote access for ${preview.count} other ${preview.count === 1 ? "device" : "devices"}. This browser stays connected. Press Remove the others again to confirm.`;
 		removeOthers.setAttribute("aria-describedby", "remove-others-consequence");
 	}
-	refresh.disabled = page.busy;
+	fence(refresh, false);
 	more.hidden = !page.devices?.nextCursor;
-	more.disabled = page.busy;
+	fence(more, false);
 	first.hidden = page.onFirstPage;
-	first.disabled = page.busy;
+	fence(first, false);
 	if (page.devices) {
 		const current = new Set(page.devices.devices.map((device) => device.clientId));
 		for (const [id, row] of rows) if (!current.has(id)) {
@@ -1734,7 +1914,7 @@ function render() {
 							operationId: crypto.randomUUID(),
 							clientId: device.clientId
 						}
-					});
+					}, revoke);
 				});
 				form.addEventListener("submit", (event) => {
 					event.preventDefault();
@@ -1746,7 +1926,7 @@ function render() {
 							clientId: device.clientId,
 							name: name.value
 						}
-					});
+					}, save);
 				});
 				const field = document.createElement("div");
 				field.className = "tmt-ui-field";
@@ -1770,7 +1950,7 @@ function render() {
 							clientId: target.clientId,
 							enabled: !target.talkEnabled
 						}
-					});
+					}, talk);
 				});
 				form.append(field, save, talk, revoke);
 				const panel = document.createElement("div");
@@ -1826,7 +2006,7 @@ function render() {
 			disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.kind !== "remove-others" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
 			disabledReason.hidden = !disabledReason.textContent;
 			for (const button of row.querySelectorAll("form button")) {
-				button.disabled = !page.writable || device.revoked;
+				fence(button, !page.writableWhenIdle || device.revoked);
 				if (disabledReason.textContent) button.setAttribute("aria-describedby", disabledReason.id);
 				else if (confirmation?.button === button) button.setAttribute("aria-describedby", `confirm-${device.clientId}-consequence`);
 				else button.removeAttribute("aria-describedby");
@@ -1835,9 +2015,11 @@ function render() {
 		}
 	}
 	renderOutcome();
+	syncBusyMark();
 }
-async function run(action) {
+async function run(action, owner = refresh) {
 	cancelConfirmation();
+	if (!busyMark.shown()) markOwner = owner;
 	const pending = action();
 	render();
 	try {
@@ -1853,9 +2035,12 @@ async function refreshView(cursor) {
 	render();
 	if (page.access === "live") page.observeFirestore().then(() => renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore));
 }
-async function change(intent) {
-	await run(() => page.submit(intent));
-	if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => refreshView());
+async function change(intent, owner) {
+	await run(() => page.submit(intent), owner);
+	if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => refreshView(), owner);
+}
+function submitButton(form) {
+	return form.querySelector("button[type=submit]");
 }
 element("opening-form").addEventListener("submit", (event) => {
 	event.preventDefault();
@@ -1871,7 +2056,7 @@ element("opening-form").addEventListener("submit", (event) => {
 			setting: "open",
 			value: opening.value === "on"
 		}
-	});
+	}, submitButton(element("opening-form")));
 });
 element("limit-form").addEventListener("submit", (event) => {
 	event.preventDefault();
@@ -1889,7 +2074,7 @@ element("limit-form").addEventListener("submit", (event) => {
 			setting: "sessions-per-device",
 			value
 		}
-	});
+	}, submitButton(element("limit-form")));
 });
 for (const field of [
 	opening,
@@ -1917,7 +2102,7 @@ refresh.addEventListener("click", () => {
 		if (ownedFocus && !moved && refresh.isConnected && !refresh.disabled && (document.activeElement === document.body || document.activeElement === refresh)) refresh.focus({ preventScroll: true });
 	});
 });
-function navigate(cursor) {
+function navigate(cursor, owner) {
 	if (page.busy) return;
 	for (const device of page.devices?.devices ?? []) {
 		const name = rows.get(device.clientId)?.querySelector("input");
@@ -1928,7 +2113,7 @@ function navigate(cursor) {
 			return;
 		}
 	}
-	run(() => refreshView(cursor));
+	run(() => refreshView(cursor), owner);
 }
 element("copy-designation").addEventListener("click", () => {
 	if (page.access !== "live") return;
@@ -1958,10 +2143,10 @@ element("remove-others").addEventListener("click", (event) => {
 				operationId: crypto.randomUUID(),
 				fingerprint
 			}
-		});
+		}, removeOthers);
 	} else {
 		cancelConfirmation();
-		run(() => page.previewRemoval());
+		run(() => page.previewRemoval(), removeOthers);
 	}
 });
 element("cancel-remove-others").addEventListener("click", () => {
@@ -1977,8 +2162,8 @@ element("remove-others").addEventListener("keydown", (event) => {
 		render();
 	}
 });
-more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null));
-first.addEventListener("click", () => navigate(null));
+more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null, more));
+first.addEventListener("click", () => navigate(null, first));
 for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
 try {
 	let session = await reopenSession();

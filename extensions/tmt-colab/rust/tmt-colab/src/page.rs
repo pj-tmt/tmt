@@ -1,6 +1,7 @@
 //! Root-local source access: isolated preparation, then fenced ciphertext commit.
 pub mod compact;
 pub mod compact_ipc;
+pub mod convert;
 pub mod ipc;
 pub mod lines;
 pub mod owner_fold;

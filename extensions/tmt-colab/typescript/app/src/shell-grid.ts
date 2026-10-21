@@ -1,7 +1,7 @@
 import type { Shell, ShellItem } from './shell.js';
 import type { PageSummary } from './transport.js';
 
-/** One grid cell of a shell page: the item plus what the space list knows of its source page. */
+/** One grid cell of a dashboard: the item plus what the space list knows of its source page. */
 export interface ShellCell {
   id: string;
   kind: ShellItem['kind'];

@@ -66,7 +66,7 @@ export interface Projection {
   /** Structured content retains an empty wire text container; never render it as HTML. */
   pageType?: 'shell';
   shell?: Shell;
-  /** An ordinary page's summary and task list (`meta.work`); never on a shell page. */
+  /** An ordinary page's summary and task list (`meta.work`); never on a dashboard. */
   work?: Work;
   attachments?: attachment.AttachmentDescriptor[];
   creationRecipient?: CreationRecipient;
@@ -225,7 +225,7 @@ export function validateProjection(value: unknown): asserts value is Projection 
   }
   if (Object.hasOwn(value, 'attachments'))
     attachment.attachmentList((value as Projection).attachments, attachment.DOCUMENT_ATTACHMENTS);
-  // A reason belongs to a canvas and to nothing else; a shell page has no layout.
+  // A reason belongs to a canvas and to nothing else; a dashboard has no layout.
   requireValue(
     (layout === undefined || layout === 'column' || layout === 'full' || layout === 'canvas') &&
       (layoutReason === undefined ? layout !== 'canvas' : layout === 'canvas') &&

@@ -1,5 +1,6 @@
 mod cli_attachments;
 mod cli_compact;
+mod cli_dashboard;
 mod cli_grammar;
 mod cli_layout;
 mod cli_management;
@@ -8,7 +9,6 @@ mod cli_patch;
 mod cli_projects;
 mod cli_proposal;
 mod cli_read;
-mod cli_shell;
 mod cli_template;
 mod cli_threads;
 mod cli_work;
@@ -60,8 +60,8 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/reviews.md"),
     ),
     (
-        "shell",
-        include_str!("../../../skills/tmt-colab/references/shell.md"),
+        "dashboard",
+        include_str!("../../../skills/tmt-colab/references/dashboard.md"),
     ),
     (
         "work",
@@ -367,7 +367,7 @@ fn grammar() -> Command {
             .subcommand(cli_proposal::command())
             .subcommand(cli_attachments::command())
             .subcommand(cli_projects::command())
-            .subcommand(cli_shell::command())
+            .subcommand(cli_dashboard::command())
             .subcommand(cli_work::task_command())
             .subcommand(cli_work::summary_command())
             .subcommand(cli_template::command())
@@ -493,8 +493,8 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     if command == "project" {
         return cli_projects::run(&root, args);
     }
-    if command == "shell" {
-        return cli_shell::run(&root, args);
+    if command == "dashboard" {
+        return cli_dashboard::run(&root, args);
     }
     if command == "task" || command == "summary" {
         return cli_work::run(&root, command, args);

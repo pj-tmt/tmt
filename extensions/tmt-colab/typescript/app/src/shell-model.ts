@@ -6,7 +6,7 @@ import {
 } from './reading-details.js';
 import type { ShellCell } from './shell-grid.js';
 
-/** The shell page's computed look, from the list data and the owner chapter details alone: the
+/** The dashboard's computed look, from the list data and the owner chapter details alone: the
  * greeting and counts, the chapters in order, and the older pages that fold into a list. Pure: the
  * caller supplies the clock. Nothing here reads or changes shell data beyond what #3733 defined. */
 
@@ -132,7 +132,7 @@ export function passageFor(
   return loading ? { kind: 'pending' } : { kind: 'none' };
 }
 
-/** The shell page's model. `details` holds what the owner chapter details said of each page so far;
+/** The dashboard's model. `details` holds what the owner chapter details said of each page so far;
  * a page without an entry, or with one that is not ready, simply has no passage yet. */
 export function shellModel(
   cells: readonly ShellCell[],

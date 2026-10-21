@@ -1444,7 +1444,7 @@ fn future_schema_keeps_recovery_and_correlation_and_serve_refuses_to_migrate() {
 }
 
 #[test]
-fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
+fn dashboard_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
     fn call(pilot: &Pilot, args: &[&str]) -> Value {
         let out = pilot
             .command()
@@ -1464,7 +1464,13 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
         }
         let created = call(
             &pilot,
-            &["shell", "create", "--title", "Release shell", "--json"],
+            &[
+                "dashboard",
+                "create",
+                "--title",
+                "Release dashboard",
+                "--json",
+            ],
         );
         assert_eq!(created["opened"], false);
         assert!(pilot.opened().is_empty());
@@ -1490,7 +1496,7 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
         let first = "10000000-0000-4000-8000-000000000001";
         let second = "10000000-0000-4000-8000-000000000002";
         let file = pilot.root.join("action.json");
-        let mut before = call(&pilot, &["shell", "read", id, "--json"]);
+        let mut before = call(&pilot, &["dashboard", "read", id, "--json"]);
         assert_eq!(before["pageType"], "shell");
         assert_eq!(before["shell"], json!({"version":1,"items":{},"order":[]}));
         assert!(before.get("source").is_none());
@@ -1520,7 +1526,7 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
         ] {
             fs::write(&file, body.to_string()).unwrap();
             let mut args = vec![
-                "shell",
+                "dashboard",
                 name,
                 id,
                 "--expected-revision",
@@ -1535,7 +1541,7 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
                 outcome["changed"],
                 !(name == "summary-clear" && before["shell"].get("summary").is_none())
             );
-            before = call(&pilot, &["shell", "read", id, "--json"]);
+            before = call(&pilot, &["dashboard", "read", id, "--json"]);
             if name == "summary-set" {
                 summary = before["shell"]["summary"].clone();
                 tmt_colab_model::values::generated_id(
@@ -1562,7 +1568,7 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|p| p["pageId"] == id && p["title"] == "Release shell")
+                .any(|p| p["pageId"] == id && p["title"] == "Release dashboard")
         );
         fs::write(&file, json!({"itemId":second}).to_string()).unwrap();
         let stale = pilot
@@ -1570,7 +1576,7 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
             .env("TMT_AGENT", "1")
             .env("BROWSER", "/usr/bin/true")
             .args([
-                "shell",
+                "dashboard",
                 "item-remove",
                 id,
                 "--expected-revision",
@@ -1592,7 +1598,7 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
             .env("TMT_AGENT", "1")
             .env("BROWSER", "/usr/bin/true")
             .args([
-                "shell",
+                "dashboard",
                 "item-remove",
                 id,
                 "--expected-revision",
@@ -1609,7 +1615,7 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
             "COLAB_INPUT_INVALID"
         );
         assert_eq!(
-            call(&pilot, &["shell", "read", id, "--json"])["revision"],
+            call(&pilot, &["dashboard", "read", id, "--json"])["revision"],
             before["revision"]
         );
         for name in ["read", "write"] {
@@ -1685,7 +1691,7 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
             .unwrap();
         store.close().unwrap();
         drop(_lock);
-        let advanced = call(&pilot, &["shell", "read", id, "--json"]);
+        let advanced = call(&pilot, &["dashboard", "read", id, "--json"]);
         assert_eq!(advanced["epoch"], "2");
         assert_eq!(advanced["shell"], before["shell"]);
     }
@@ -2619,9 +2625,12 @@ fn work_commands_change_a_page_limit_each_agent_across_the_space_and_list() {
         let bare = create("Bare");
         assert!(!exported(&bare).join("work.json").exists());
 
-        // A shell page holds no work.
-        let shell = call(&pilot, &["shell", "create", "--title", "Shell", "--json"]);
-        let shell = shell["pageId"].as_str().unwrap();
+        // A dashboard holds no work.
+        let dashboard = call(
+            &pilot,
+            &["dashboard", "create", "--title", "Dashboard", "--json"],
+        );
+        let shell = dashboard["pageId"].as_str().unwrap();
         assert_eq!(
             refused(&pilot, &["task", "add", shell, "--title", "No", "--json"])["code"],
             "COLAB_INPUT_INVALID"
@@ -8829,8 +8838,8 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             include_bytes!("../../../skills/tmt-colab/references/components.md").as_slice(),
         ),
         (
-            "shell",
-            include_bytes!("../../../skills/tmt-colab/references/shell.md").as_slice(),
+            "dashboard",
+            include_bytes!("../../../skills/tmt-colab/references/dashboard.md").as_slice(),
         ),
         (
             "work",
@@ -8897,7 +8906,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
 
 /// #3708: execute the shipped reference, not a second hand-copied command list.
 #[test]
-fn shell_skill_examples_publish_the_documented_data_without_changing_the_source() {
+fn dashboard_skill_examples_publish_the_documented_data_without_changing_the_source() {
     let pilot = Pilot::new(None);
     let reading = "30000000-0000-4000-8000-000000000001";
     let source = format!(
@@ -8918,8 +8927,8 @@ fn shell_skill_examples_publish_the_documented_data_without_changing_the_source(
     ]);
     let source_id = created["pageId"].as_str().unwrap();
     let mut source_before = Value::Null;
-    let reference = include_str!("../../../skills/tmt-colab/references/shell.md");
-    let mut shell_id = String::new();
+    let reference = include_str!("../../../skills/tmt-colab/references/dashboard.md");
+    let mut dashboard_id = String::new();
     let mut commands = Vec::new();
     let mut first_revision = String::new();
     let first = "10000000-0000-4000-8000-000000000001";
@@ -8937,29 +8946,29 @@ fn shell_skill_examples_publish_the_documented_data_without_changing_the_source(
         }
         assert_eq!(language, "sh");
         for line in sample.lines().filter(|line| !line.is_empty()) {
-            let revision = if shell_id.is_empty() {
+            let revision = if dashboard_id.is_empty() {
                 String::new()
             } else {
-                pilot.call(&["shell", "read", &shell_id, "--json"])["revision"]
+                pilot.call(&["dashboard", "read", &dashboard_id, "--json"])["revision"]
                     .as_str()
                     .unwrap()
                     .to_owned()
             };
             let line = line
-                .replace("SHELL", &shell_id)
+                .replace("DASHBOARD", &dashboard_id)
                 .replace("REVISION", &revision);
             let words: Vec<_> = line.split_whitespace().collect();
-            assert_eq!(&words[..3], &["tmt", "colab", "shell"]);
+            assert_eq!(&words[..3], &["tmt", "colab", "dashboard"]);
             let command = words[3];
             commands.push(command.to_owned());
             let result = pilot.call(&words[2..]);
             if command == "create" {
-                shell_id = result["pageId"].as_str().unwrap().to_owned();
+                dashboard_id = result["pageId"].as_str().unwrap().to_owned();
                 assert_eq!(result["opened"], false);
-                // Creating a shell advances the space membership head used by source revisions.
+                // Creating a dashboard advances the space membership head used by source revisions.
                 source_before = pilot.call(&["page", "read", source_id, "--json"]);
             }
-            let view = pilot.call(&["shell", "read", &shell_id, "--json"]);
+            let view = pilot.call(&["dashboard", "read", &dashboard_id, "--json"]);
             assert_eq!(view["pageType"], "shell");
             match command {
                 "read" => {
@@ -9013,7 +9022,7 @@ fn shell_skill_examples_publish_the_documented_data_without_changing_the_source(
             "item-remove"
         ]
     );
-    let before = pilot.call(&["shell", "read", &shell_id, "--json"]);
+    let before = pilot.call(&["dashboard", "read", &dashboard_id, "--json"]);
     let revision = before["revision"].as_str().unwrap();
     fs::write(
         pilot.root.join("action.json"),
@@ -9023,9 +9032,9 @@ fn shell_skill_examples_publish_the_documented_data_without_changing_the_source(
     failure(
         &pilot,
         &[
-            "shell",
+            "dashboard",
             "item-remove",
-            &shell_id,
+            &dashboard_id,
             "--expected-revision",
             revision,
             "--file",
@@ -9042,9 +9051,9 @@ fn shell_skill_examples_publish_the_documented_data_without_changing_the_source(
     failure(
         &pilot,
         &[
-            "shell",
+            "dashboard",
             "item-remove",
-            &shell_id,
+            &dashboard_id,
             "--expected-revision",
             &first_revision,
             "--file",
@@ -9053,11 +9062,14 @@ fn shell_skill_examples_publish_the_documented_data_without_changing_the_source(
         ],
         "COLAB_STALE_BASE",
     );
-    assert_eq!(pilot.call(&["shell", "read", &shell_id, "--json"]), before);
+    assert_eq!(
+        pilot.call(&["dashboard", "read", &dashboard_id, "--json"]),
+        before
+    );
     let cleared = pilot.call(&[
-        "shell",
+        "dashboard",
         "summary-clear",
-        &shell_id,
+        &dashboard_id,
         "--expected-revision",
         revision,
         "--json",

@@ -10,7 +10,7 @@ struct Field {
     property: &'static str,
 }
 
-const GLOBAL_FIELDS: [Field; 14] = [
+const GLOBAL_FIELDS: [Field; 15] = [
     Field {
         key: SettingKey::ExperimentalChannel,
         container: Some("experimental"),
@@ -55,6 +55,11 @@ const GLOBAL_FIELDS: [Field; 14] = [
         key: SettingKey::PaneBadge,
         container: Some("ui"),
         property: "paneBadge",
+    },
+    Field {
+        key: SettingKey::UserName,
+        container: Some("user"),
+        property: "name",
     },
     Field {
         key: SettingKey::Timeout,
@@ -128,6 +133,7 @@ fn shape(value: &Value, path: &Path, scope: Scope) -> Result<(), ConfigError> {
             "notes",
             "workspace",
             "experimental",
+            "user",
         ],
         Scope::Local => &["$config"],
     };
@@ -213,10 +219,11 @@ pub struct ThemeProblem {
     pub message: String,
 }
 
-fn setting_value(setting: Setting) -> Value {
+fn setting_value(setting: &Setting) -> Value {
     match setting {
         Setting::PreambleMode(value) => json!(value.as_str()),
         Setting::PaneBadge(value) => json!(value.as_str()),
+        Setting::UserName(value) => json!(value.as_str()),
         Setting::ExperimentalChannel(value)
         | Setting::NotesCompactionReminder(value)
         | Setting::WorkspaceSnapshotEnabled(value) => {
@@ -231,6 +238,7 @@ fn setting_value(setting: Setting) -> Value {
         Setting::Timeout(value)
         | Setting::PollInterval(value)
         | Setting::PasteEnterDelayMs(value) => {
+            let value = *value;
             // JSON.stringify emits integral numbers without a fractional suffix.
             if value.fract() == 0.0 && value >= 0.0 && value <= u64::MAX as f64 {
                 json!(value as u64)
@@ -268,7 +276,7 @@ pub(super) fn set(value: &mut Value, setting: Setting, scope: Scope) -> Result<(
     } else {
         root
     };
-    target.insert(field.property.into(), setting_value(setting));
+    target.insert(field.property.into(), setting_value(&setting));
     Ok(())
 }
 
@@ -367,7 +375,7 @@ pub(super) fn update(
     }
 }
 
-pub(super) fn set_retry(setting: Setting, scope: Scope) -> String {
+pub(super) fn set_retry(setting: &Setting, scope: Scope) -> String {
     let value = setting_value(setting);
     let value = value
         .as_str()

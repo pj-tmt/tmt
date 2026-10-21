@@ -119,22 +119,22 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
 
 ## Page source and export
 
-- `shell.rs` and browser `shell.ts` own closed structured shell values and detached trial
-  actions; `cli_shell.rs` exposes conditional actions through the same page publication
+- `shell.rs` and browser `shell.ts` own closed structured dashboard values and detached trial
+  actions; `cli_dashboard.rs` exposes conditional actions through the same page publication
   owner. The isolated decoder prepares and replays each action; no parent parses Yjs.
-  Shell metadata survives fresh epoch baselines. Source operations refuse shells; export
-  publishes their canonical value as `shell.json`. The owner app draws a shell as the
-  [shell page](architecture-state.md#the-shell-page); the shared and hosted readers show a
+  Dashboard metadata survives fresh epoch baselines. Source operations refuse dashboards; export
+  publishes their canonical value as `shell.json`. The owner app draws a dashboard as the
+  [dashboard](architecture-state.md#the-dashboard); the shared and hosted readers show a
   neutral notice, never the empty wire text container.
-  The [Shell pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#shell-pages-3648)
+  The [Dashboards contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#dashboards-3648)
   owns roots, action grammar, attribution and shared validation vectors.
 
 - `work.rs` and browser `work.ts` own the closed work value an ordinary page carries in
   `meta.work` (a two-line summary and a task list) and its detached trial actions and derived
   values; `closed.rs`/`closed.ts` and `summary_lines.rs`/`summary-lines.ts` hold the checks the
-  shell and work values share (`summary.rs` is the unrelated list summary). The decoder treats a
-  shell edit and a work edit as one `StructuredEdit`, admits `meta.work` only on a page that is
-  not a shell, and carries it through `BaselineInput`, so a fresh epoch baseline and an HTML
+  dashboard and work values share (`summary.rs` is the unrelated list summary). The decoder treats a
+  dashboard edit and a work edit as one `StructuredEdit`, admits `meta.work` only on a page that is
+  not a dashboard, and carries it through `BaselineInput`, so a fresh epoch baseline and an HTML
   source write keep it. `page::read_work` and `page::prepare_structured_publication` are the page
   owner's read and write. `wip.rs` owns the work-in-progress limit, the write owner's admission
   rule and never a property of the value, so no published state is invalid for it;
@@ -239,6 +239,13 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   and prepares `prepare_structured_publication` with the browser's operation ID) and `finish_save` commits
   it with `Access::Publish` and answers `workresult`; `savestatus` settles a lost reply. The connection
   sends at most eight frames before the browser acknowledges some, so a client acks each frame it reads.
+  `task.convert` is the one work action that makes a page, so it is the owner device's narrow authority
+  over page creation: `page::convert::prepare` runs the refusals of `work_convert::convertible` on a
+  snapshot, makes the page named by `work_convert::child_page_id` (space and operation) through
+  `Server::create_child` (the one step under the sync lock: it re-checks `Access::Publish`, then
+  `Admission::create_child` runs the root-local `page.create` with a fixed title and `child_source`),
+  and prepares `task.link` with `prepare_expecting`, which refuses a task that changed meanwhile.
+  `finish_save` and `savestatus` attach `childPage` to every outcome, so nothing made is lost.
   A `save` may carry the editor's change as `hunks` (`save-hunks.ts` `hunksOf`, no evaluator in the
   browser): `page::save::prepare_merging` runs `prepare` first and, only when the page moved
   (`COLAB_STALE_BASE`), places the hunks with `page/patch.rs` on the page as it now is and prepares that

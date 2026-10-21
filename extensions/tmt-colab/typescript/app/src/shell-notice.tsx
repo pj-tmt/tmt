@@ -6,7 +6,7 @@ import './shell-notice.css';
 /** Presentation only: the command never opens a terminal or runs on this computer. */
 export function ShellNotice({ pageId, canCopy = false }: { pageId?: string; canCopy?: boolean }) {
   const [feedback, setFeedback] = useState('');
-  const command = pageId ? `tmt colab shell read ${pageId}` : undefined;
+  const command = pageId ? `tmt colab dashboard read ${pageId}` : undefined;
   return (
     <section className="shell-notice">
       <p role="status">{text.shellPageNotice}</p>

@@ -771,9 +771,12 @@ opens, shows the last list of the same transport and space at once (the one a sw
 the one the space home loader remembered with `rememberPages`) and refreshes it, and drops a
 result that arrives after a close, a reopen or a change of transport or space.
 
-## The shell page
+## The dashboard
 
-A shell opens in the owner app as `ShellPage` (`shell-page.tsx`), mounted by the page route in place
+Code identifiers, files and stored values keep the older name `shell` (`ShellPage`, `shell-page.tsx`,
+`meta.shell`); the UI, the CLI and the contract say dashboard.
+
+A dashboard opens in the owner app as `ShellPage` (`shell-page.tsx`), mounted by the page route in place
 of the HTML frame; the app owns every pixel and the document supplies only data. The look is the v4
 design (#4082): a greeting, three counts, numbered chapters joined by hairlines, and a list of older
 pages. `shell-grid.ts` is the plain per-item view: `shellCells` matches each item, in `order`, to its
@@ -787,7 +790,7 @@ the referenced pages are the distinct available, non-archived pages (a page name
 is one chapter); `waiting` is the sum of their `needsYou` (the number the page header shows); a page
 not waiting and edited within seven days is in progress (`inProgress()`, the one place a page's work
 stage can replace that rule); waiting chapters come first, then in progress, each by update time with
-the shell's `order` as the tie-break; older pages fold into `earlier`. A chapter's passage is the
+the dashboard's `order` as the tie-break; older pages fold into `earlier`. A chapter's passage is the
 pending item an item names (a reading ID or an anchor equal to a pending ID), else the first pending
 item by rank (review, question, reading, proposal), else the latest comment, else the item note;
 `pending` only while a waiting page's details are unanswered. `shell-sections.tsx` draws the parts
@@ -798,7 +801,7 @@ A chapter's panel (`shell-panel.tsx`, `ChapterPanel` in the app's `BrowserDrawer
 passage's "Open to decide" button when the window is at least 900 px wide (`useWide` in
 `shell-page.tsx`); narrower, that action is the same link to the page as before. It is the page
 route's `open` search parameter (`openSearch` in `reading-link.ts`, a page ID, dropped otherwise), and
-only a chapter of the shell opens one. Opening pushes a history entry; closing from a panel this
+only a chapter of the dashboard opens one. Opening pushes a history entry; closing from a panel this
 window opened steps back, and one that arrived by link only drops the parameter. The drawer returns
 focus to the trigger (or the chapter title after a reload). `withViewTransition` wraps open and close
 in the browser's view transition when it exists and motion is not reduced. The panel shows the chapter
@@ -814,16 +817,16 @@ to `reveal` it: the frame counts the elements with that exact id and, only when 
 reports its top so the host scrolls there, finishing the scroll if the frame grows within two
 seconds and the reader has not moved; anything else leaves the page open at the top with a short
 notice. Before it leaves for a chapter the page records the page in its own history entry
-(`shellFocus`), and the shell restores focus to it when the browser comes back. The layout is
-borderless and full bleed (no card or shadow) and holds no per-user state; a shell page whose value
+(`shellFocus`), and the dashboard restores focus to it when the browser comes back. The layout is
+borderless and full bleed (no card or shadow) and holds no per-user state; a dashboard whose value
 was not admitted shows one state line instead of an empty page.
 
 Passages come from the owner chapter details (`reading-details.ts`, the optional owner-only
 transport port `readingDetails`) of the first `READING_DETAILS_PAGES` chapters, through
 `ReadingDetailsQueue`: one read in flight, aborted when the page is left; a failed read is published
-as `unavailable`, so a chapter never loads forever. The shell stores and writes none: opening a
+as `unavailable`, so a chapter never loads forever. The dashboard stores and writes none: opening a
 chapter never marks a reading read (only the page's own `Mark read` does), and returning to the
-shell reads again. Editing stays with the seven validated actions; the browser has no edit
+dashboard reads again. Editing stays with the seven validated actions; the browser has no edit
 controls, and the shared and hosted readers keep `ShellNotice`.
 
 ## Trusted browser management
@@ -877,7 +880,7 @@ closed action through `PageBinding.work`, which `Live` runs as a `work` frame (`
 answered by `workresult`; a lost reply is settled by one `savestatus`, never resent). Nothing is
 applied locally: one action is in flight at a time, and the list changes when the page's own stream
 brings the commit back. A refusal (`COLAB_WIP_LIMIT`, `COLAB_STALE_BASE`, …) is told in the serve's
-words and changes nothing. A shell page never draws it. The browser
+words and changes nothing. A dashboard never draws it. The browser
 takes a followed page's stage from the owner list's summaries (`useLinkedStage`, `work-stages.ts`: the list
 the viewer last loaded, then one fresh read, and only when some task follows a page); a page the list
 does not name, or whose summary has not arrived, leaves its task showing its own stored state, as the

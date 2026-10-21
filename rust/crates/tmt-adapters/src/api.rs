@@ -13,6 +13,7 @@ mod requests;
 mod responses;
 mod rooms;
 mod skills;
+mod user;
 
 use crate::{
     config::{ConfigFiles, ConfigPaths},
@@ -63,6 +64,7 @@ const OPS: &[&str] = &[
     "identities.status",
     "identity.meta.apply",
     "identity.rename",
+    "user.identity",
     "consumption.history",
     "extensions.uses",
 ];
@@ -249,6 +251,8 @@ pub enum Request {
         identity_id: String,
         changes: tmt_core::identity_metadata::MetadataChanges,
     },
+    /// The person's saved identity (#513); created and marked on first use.
+    UserIdentity,
     /// Read-only availability of an optional use of another extension.
     ExtensionUse {
         extension: String,
@@ -315,6 +319,11 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
             Request::ChangeCursor
+        }
+        "user.identity"
+            if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
+        {
+            Request::UserIdentity
         }
         op if op.starts_with("digest.") => digest::decode(op, input)?,
         "requests.list" => Request::History(requests::decode_list(input)?),
@@ -399,8 +408,9 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             crate::native_install::default_install_prefix().map_err(|_| Fault::unavailable())?;
         return extensions::uses(&prefix, &extension, &feature);
     }
-    // Delivery uses configured input delay; reads do not depend on unrelated config.
-    let settings = if matches!(request, Request::Dispatch { .. })
+    // Delivery uses configured input delay and the user identity the `user.name` setting; reads
+    // do not depend on unrelated config.
+    let settings = if matches!(request, Request::Dispatch { .. } | Request::UserIdentity)
         || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
     {
         Some(
@@ -465,6 +475,11 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             identity_id,
             changes,
         } => identities::apply_metadata(&mut storage, &identity_id, &changes),
+        Request::UserIdentity => user::identity(
+            &mut storage,
+            settings.as_ref().expect("user identity settings"),
+            crate::user::login_name().as_deref(),
+        ),
         Request::HookRegister(hook) => identity_hooks::register(&mut storage, hook),
         Request::HookPending { consumer, limit } => {
             identity_hooks::pending(&storage, consumer, limit)
