@@ -292,11 +292,9 @@ for (let run = 1; run <= 2; run++) {
       );
       const privatePage = await fetch(server.origin + mount);
       const privateHtml = await privatePage.text();
-      expect(privateHtml).toContain('This Colab space is private');
-      expect(privateHtml).toContain(
-        '<h2 class="tmt-ui-notice-heading">Pair this browser first</h2>',
-      );
-      expect(privateHtml).toContain('<code class="tmt-ui-command-text">tmt remote pair</code>');
+      expect(privateHtml).toContain('Your pairing is unchanged.');
+      expect(privateHtml).toContain('<h2 class="tmt-ui-notice-heading">Opening Colab</h2>');
+      expect(privateHtml).not.toContain('tmt remote pair');
       expect(privateHtml).toContain('<link rel="stylesheet" href="./assets/chrome.css">');
       expect(privateHtml).toContain('<main class="guidance-main">');
       expect(privatePage.headers.get('content-security-policy')).toContain("style-src 'self'");
@@ -307,14 +305,13 @@ for (let run = 1; run <= 2; run++) {
       await context.clearCookies();
       await page.goto(server.origin + mount);
       await expect(page.locator('#colab-guidance')).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Pair this browser first' })).toBeVisible();
-      await expect(page.locator('.guidance-mark path')).toHaveAttribute(
-        'd',
-        'M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z',
+      await expect(page.getByRole('heading', { name: 'Could not reconnect' })).toBeVisible();
+      await expect(page.locator('.guidance-mark circle')).toHaveAttribute('r', '10');
+      await expect(page.locator('.tmt-ui-notice-mark')).toContainText('not connected');
+      await expect(page.locator('#colab-guidance')).toContainText(
+        'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
       );
-      await expect(page.locator('.tmt-ui-command .tmt-ui-command-text')).toHaveText(
-        'tmt remote pair',
-      );
+      await expect(page.locator('.tmt-ui-command .tmt-ui-command-text')).toHaveCount(0);
       expect(
         await page
           .locator('.guidance-card')
