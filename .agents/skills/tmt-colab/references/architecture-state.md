@@ -825,6 +825,17 @@ controls, and the shared and hosted readers keep `ShellNotice`.
   Exact warning codes and forever semantics live in the contract.
   The link artifact is a transient ID/seed, not a new reader URL/import grammar.
 
+## The work band
+
+An ordinary page whose view carries `work` (`PageSnapshot.work`, then every live projection) draws
+`WorkBand` (`work-band.tsx`) in the page route between the link bar and the canvas, so it scrolls
+with the page and pushes it down when the list opens. It is read-only: `derivedWork` gives the
+stage, progress, workers and sign-off count; `work-list.tsx` lists the tasks and `work-detail.tsx`
+shows one, with an `actions` slot for the controls that write (#4051 slice 2) and an optional
+`parent` breadcrumb for a page that follows a task (#4118). A shell page never draws it. The browser
+has no stage resolver for linked pages yet, so a task that follows a page shows its own state.
+`work-people.tsx` is the one place an assignee is drawn (`AgentChip` for an agent).
+
 ## Short owner-page links
 
 - `short_links.rs` and `short-links.ts` derive UUID prefixes from the existing

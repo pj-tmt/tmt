@@ -1,4 +1,5 @@
 import { ShellPage } from './shell-page.js';
+import { WorkBand } from './work-band.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -628,9 +629,9 @@ function PageOpenFailure({
 const root = createRootRouteWithContext<AppContext>()({
   component: Shell,
   errorComponent: function RootError({ error }) {
-    const opening = useRouterState({ select: (state) => state.location.pathname }).startsWith(
-      '/pages/',
-    );
+    const opening = useRouterState({
+      select: (state) => state.location.pathname,
+    }).startsWith('/pages/');
     const failure =
       error instanceof Error && (opening || error.message === text.reconnectFailed)
         ? openFailure(error)
@@ -710,7 +711,10 @@ const home = createRoute({
       if (knownScope(remembered, space.projects) !== undefined)
         throw redirect({
           to: '/',
-          search: { ...(options.location.search as HomeSearch), scope: remembered },
+          search: {
+            ...(options.location.search as HomeSearch),
+            scope: remembered,
+          },
           replace: true,
         });
     }
@@ -731,7 +735,11 @@ const allPages = createRoute({
  * Timings of opening a page, for whoever profiles it: local performance entries only, no report.
  * The frame appears after `pendingMs` and stays `pendingMinMs`; a fast open never shows it.
  */
-const openMarks = { start: 'colab:page-open', frame: 'colab:page-frame', page: 'colab:page-shown' };
+const openMarks = {
+  start: 'colab:page-open',
+  frame: 'colab:page-frame',
+  page: 'colab:page-shown',
+};
 function markOpen(name: string, from?: string) {
   performance.mark(name);
   if (from) performance.measure(`${name} (from ${from})`, from, name);
@@ -933,7 +941,9 @@ function ThemeButton() {
 function Shell() {
   const { transport, space } = root.useRouteContext();
   const router = useRouter();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
   // The home list portals its project control into the header, where it keeps the list's data.
@@ -1016,7 +1026,10 @@ function Page() {
   const [panel, setPanel] = useState<PageHeaderAction | null>(null);
   const [chatOpened, setChatOpened] = useState(false);
   const floatingChat = useRef<HTMLButtonElement>(null);
-  const [chatActivation, setChatActivation] = useState<{ id: string; insertMention: boolean }>();
+  const [chatActivation, setChatActivation] = useState<{
+    id: string;
+    insertMention: boolean;
+  }>();
   const activateChat = useRef<() => boolean>(() => false);
   useEffect(() => {
     if (panel !== 'chat') setChatActivation(undefined);
@@ -1035,6 +1048,7 @@ function Page() {
     discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
     shell: snapshot.shell,
+    work: snapshot.work,
     archived: snapshot.archived,
     source: snapshot.source,
     title: snapshot.title,
@@ -1118,6 +1132,7 @@ function Page() {
       discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
       shell: snapshot.shell,
+      work: snapshot.work,
       archived: snapshot.archived,
       source: snapshot.source,
       title: snapshot.title,
@@ -1140,7 +1155,10 @@ function Page() {
         // itself is always a new object: a publication with the same data still renders the page,
         // because the binding (its Ask facade, its files) can change without the data changing.
         const next = {
-          ...shareView(latest.current, { ...value, ownData: value.ownData ?? false }),
+          ...shareView(latest.current, {
+            ...value,
+            ownData: value.ownData ?? false,
+          }),
         };
         if (firstView) {
           firstView = false;
@@ -1228,10 +1246,22 @@ function Page() {
       outcome.kind === 'failed'
         ? { message: text.pageSize.failed, unconfirmed: false, full: 'compact' }
         : outcome.kind === 'nothing'
-          ? { message: text.pageSize.nothingToCombine, unconfirmed: false, full: 'export' }
+          ? {
+              message: text.pageSize.nothingToCombine,
+              unconfirmed: false,
+              full: 'export',
+            }
           : outcome.kind === 'still-high'
-            ? { message: text.pageSize.saveFullBudget, unconfirmed: false, full: 'export' }
-            : { message: text.pageSize.compactedSaveAgain, unconfirmed: false, full: 'compacted' },
+            ? {
+                message: text.pageSize.saveFullBudget,
+                unconfirmed: false,
+                full: 'export',
+              }
+            : {
+                message: text.pageSize.compactedSaveAgain,
+                unconfirmed: false,
+                full: 'compacted',
+              },
     );
   }
   const refreshSize = size.refresh;
@@ -1457,8 +1487,14 @@ function Page() {
   const imageBinding = snapshot.binding?.files?.attachments;
   const imageScope = imageBinding?.scope?.();
   const imageDescriptors = JSON.stringify(view.attachments ?? []);
-  const imageInput = useRef({ binding: imageBinding, descriptors: view.attachments ?? [] });
-  imageInput.current = { binding: imageBinding, descriptors: view.attachments ?? [] };
+  const imageInput = useRef({
+    binding: imageBinding,
+    descriptors: view.attachments ?? [],
+  });
+  imageInput.current = {
+    binding: imageBinding,
+    descriptors: view.attachments ?? [],
+  };
   useEffect(() => {
     renderer.current?.images(imageInput.current);
   }, [imageBinding, imageScope, imageDescriptors]);
@@ -1733,7 +1769,11 @@ function Page() {
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
-      anchoredThreads as { id: string; selector: QuoteSelector; ordinal: number }[],
+      anchoredThreads as {
+        id: string;
+        selector: QuoteSelector;
+        ordinal: number;
+      }[],
       annotation?.selector ?? undefined,
       threadTotal,
     );
@@ -1755,7 +1795,9 @@ function Page() {
     snapshot.id,
     snapshot.binding?.discussion?.deviceId ?? '',
   ]);
-  const notificationClassification = { questionThreads: questionLayer.notificationThreads };
+  const notificationClassification = {
+    questionThreads: questionLayer.notificationThreads,
+  };
   const chatScope = snapshot.binding?.discussion?.scope;
   const notifications = useReplyNotifications({
     pageKey: notificationScope,
@@ -1978,6 +2020,19 @@ function Page() {
       </BrowserDrawer>
       <div className="workspace">
         {pageLinkBar}
+        {view.work && (
+          <WorkBand
+            work={view.work}
+            pageHref={(pageId) =>
+              router.history.createHref(
+                router.buildLocation({
+                  to: '/pages/$pageId',
+                  params: { pageId },
+                }).publicHref,
+              )
+            }
+          />
+        )}
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
@@ -2498,7 +2553,10 @@ export function createAppRouter(
             pathname: path,
             search,
             hash: '',
-            state: { ...window.history.state, __TSR_index: window.history.state?.__TSR_index ?? 0 },
+            state: {
+              ...window.history.state,
+              __TSR_index: window.history.state?.__TSR_index ?? 0,
+            },
           };
         },
         createHref: (path) => {
@@ -2530,7 +2588,11 @@ export function createAppRouter(
   const router = createRouter({
     routeTree: root.addChildren([home, allPages, page, shortPage, blocked]),
     history,
-    context: { transport, space, rememberPages: (pages) => (knownPages = pages) },
+    context: {
+      transport,
+      space,
+      rememberPages: (pages) => (knownPages = pages),
+    },
   });
   router.subscribe('onResolved', () => void buildWatch.check());
   return router;
