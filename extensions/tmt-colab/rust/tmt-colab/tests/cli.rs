@@ -8517,6 +8517,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             include_bytes!("../../../skills/tmt-colab/references/components.md").as_slice(),
         ),
         (
+            "shell",
+            include_bytes!("../../../skills/tmt-colab/references/shell.md").as_slice(),
+        ),
+        (
             "work",
             include_bytes!("../../../skills/tmt-colab/references/work.md").as_slice(),
         ),
@@ -8577,6 +8581,180 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     );
     // Only the copied executable exists: pure guidance neither discovers core nor initializes state.
     assert_eq!(fs::read_dir(&pilot.root).unwrap().count(), 1);
+}
+
+/// #3708: execute the shipped reference, not a second hand-copied command list.
+#[test]
+fn shell_skill_examples_publish_the_documented_data_without_changing_the_source() {
+    let pilot = Pilot::new(None);
+    let reading = "30000000-0000-4000-8000-000000000001";
+    let source = format!(
+        "<h1 id=\"plan\">Source</h1><tmt-read data-id=\"{reading}\" data-agent=\"ada\" data-why=\"Read first\"><h2 data-title>Plan</h2><p>Source text</p></tmt-read>"
+    );
+    fs::write(pilot.root.join("source.html"), &source).unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Source",
+        "--layout",
+        "column",
+        "--file",
+        "source.html",
+        "--no-open",
+        "--json",
+    ]);
+    let source_id = created["pageId"].as_str().unwrap();
+    let mut source_before = Value::Null;
+    let reference = include_str!("../../../skills/tmt-colab/references/shell.md");
+    let mut shell_id = String::new();
+    let mut commands = Vec::new();
+    let mut first_revision = String::new();
+    let first = "10000000-0000-4000-8000-000000000001";
+    let second = "10000000-0000-4000-8000-000000000002";
+    // Fences are deliberately literal single-line commands and JSON, without a shell interpreter.
+    for block in reference.split("```").skip(1).step_by(2) {
+        let (language, sample) = block.split_once('\n').unwrap();
+        if language == "json" {
+            let body = sample
+                .replace("SOURCE", source_id)
+                .replace("READING", reading);
+            let _: Value = serde_json::from_str(&body).unwrap();
+            fs::write(pilot.root.join("action.json"), body).unwrap();
+            continue;
+        }
+        assert_eq!(language, "sh");
+        for line in sample.lines().filter(|line| !line.is_empty()) {
+            let revision = if shell_id.is_empty() {
+                String::new()
+            } else {
+                pilot.call(&["shell", "read", &shell_id, "--json"])["revision"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            };
+            let line = line
+                .replace("SHELL", &shell_id)
+                .replace("REVISION", &revision);
+            let words: Vec<_> = line.split_whitespace().collect();
+            assert_eq!(&words[..3], &["tmt", "colab", "shell"]);
+            let command = words[3];
+            commands.push(command.to_owned());
+            let result = pilot.call(&words[2..]);
+            if command == "create" {
+                shell_id = result["pageId"].as_str().unwrap().to_owned();
+                assert_eq!(result["opened"], false);
+                // Creating a shell advances the space membership head used by source revisions.
+                source_before = pilot.call(&["page", "read", source_id, "--json"]);
+            }
+            let view = pilot.call(&["shell", "read", &shell_id, "--json"]);
+            assert_eq!(view["pageType"], "shell");
+            match command {
+                "read" => {
+                    first_revision = view["revision"].as_str().unwrap().to_owned();
+                    assert_eq!(view["shell"], json!({"version":1,"items":{},"order":[]}));
+                }
+                "item-add" => assert_eq!(
+                    view["shell"]["items"][first],
+                    json!({"kind":"page","pageId":source_id,"note":"Start here","audience":"Ben"})
+                ),
+                "reading-suggest" => assert_eq!(
+                    view["shell"]["items"][second],
+                    json!({"kind":"reading","pageId":source_id,"readingId":reading})
+                ),
+                "item-move" => assert_eq!(view["shell"]["order"], json!([second, first])),
+                "item-set" => assert_eq!(
+                    view["shell"]["items"][first],
+                    json!({"kind":"anchor","pageId":source_id,"anchor":"plan"})
+                ),
+                "summary-set" => {
+                    assert_eq!(view["shell"]["summary"]["line1"], "Release plan");
+                    assert_eq!(view["shell"]["summary"]["line2"], "Read before the release");
+                    assert!(
+                        view["shell"]["summary"]["attribution"]["timeMs"]
+                            .as_u64()
+                            .unwrap()
+                            > 0
+                    );
+                }
+                "summary-clear" => assert!(view["shell"].get("summary").is_none()),
+                "item-remove" => {
+                    assert!(view["shell"]["items"].get(first).is_none());
+                    assert_eq!(view["shell"]["order"], json!([second]));
+                }
+                "create" => (),
+                other => panic!("unverified documented command: {other}"),
+            }
+        }
+    }
+    assert_eq!(
+        commands,
+        [
+            "create",
+            "read",
+            "item-add",
+            "reading-suggest",
+            "item-move",
+            "item-set",
+            "summary-set",
+            "summary-clear",
+            "item-remove"
+        ]
+    );
+    let before = pilot.call(&["shell", "read", &shell_id, "--json"]);
+    let revision = before["revision"].as_str().unwrap();
+    fs::write(
+        pilot.root.join("action.json"),
+        json!({"itemId":second,"layout":"wide"}).to_string(),
+    )
+    .unwrap();
+    failure(
+        &pilot,
+        &[
+            "shell",
+            "item-remove",
+            &shell_id,
+            "--expected-revision",
+            revision,
+            "--file",
+            "action.json",
+            "--json",
+        ],
+        "COLAB_INPUT_INVALID",
+    );
+    fs::write(
+        pilot.root.join("action.json"),
+        json!({"itemId":second}).to_string(),
+    )
+    .unwrap();
+    failure(
+        &pilot,
+        &[
+            "shell",
+            "item-remove",
+            &shell_id,
+            "--expected-revision",
+            &first_revision,
+            "--file",
+            "action.json",
+            "--json",
+        ],
+        "COLAB_STALE_BASE",
+    );
+    assert_eq!(pilot.call(&["shell", "read", &shell_id, "--json"]), before);
+    let cleared = pilot.call(&[
+        "shell",
+        "summary-clear",
+        &shell_id,
+        "--expected-revision",
+        revision,
+        "--json",
+    ]);
+    assert_eq!(cleared["changed"], false);
+    let source_after = pilot.call(&["page", "read", source_id, "--json"]);
+    assert_eq!(source_after["source"], source);
+    assert_eq!(source_after["revision"], source_before["revision"]);
+    assert!(pilot.opened().is_empty());
 }
 
 /// #3927: a markup sample the layout and component references teach must be markup `page check`
