@@ -112,10 +112,14 @@ function observe(sandbox: Sandbox) {
            JOIN identities i ON i.id = m.identity_id ORDER BY room, identity`
         )
         .all(),
+      // Core's reserved `user` entry is left out: Ops writes it only for the recorded
+      // user (see "shows, records and clears who you are"), and every other entry
+      // a scenario compares must be the squad's own.
       metadata: db
         .prepare(
           `SELECT i.name AS identity, m.key, m.value FROM identity_metadata m
-           JOIN identities i ON i.id = m.identity_id ORDER BY identity, key`
+           JOIN identities i ON i.id = m.identity_id WHERE m.key <> 'user'
+           ORDER BY identity, key`
         )
         .all() as { identity: string; key: string; value: string }[],
     };
@@ -1565,11 +1569,27 @@ o = "run touch ${marker}"
         source: 'recorded',
       });
       expect((await runCli(sandbox, ['ops', 'sq', 'status'])).stdout).not.toContain('◆ needs');
+      // Core learns the recorded user is a person, so Digest never holds their messages.
+      const metadata = async () =>
+        JSON.parse(
+          (await runCli(sandbox, ['identity', 'meta', 'list', '--identity', ben, '--json'])).stdout
+        ).metadata;
+      expect(await metadata()).toEqual({ user: 'true' });
+      const sol = await identity(sandbox, 'Sol');
+      expect(
+        JSON.parse(
+          (await runCli(sandbox, ['identity', 'meta', 'list', '--identity', sol, '--json'])).stdout
+        ).metadata,
+        'only the recorded user is marked'
+      ).toEqual({});
       const missing = await squad(sandbox, ['me', 'Nobody']);
       expect(missing.body.error.code).toBe('NAME_NOT_FOUND');
 
       const cleared = await squad(sandbox, ['me', '--clear']);
       expect(cleared.body).toMatchObject({ action: 'clear', changed: true, me: null });
+      expect(await metadata(), 'clearing the record never removes the mark').toEqual({
+        user: 'true',
+      });
       expect(readFileSync(squadToml, 'utf8')).toBe('');
       const repeat = await runCli(sandbox, ['ops', 'sq', 'me', '--clear']);
       expect(repeat.stdout).toBe('No identity was recorded; nothing changed.\n');

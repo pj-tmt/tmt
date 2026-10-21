@@ -1290,6 +1290,13 @@ states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.
 
+Recording the user (`tmt ops squad me <name>`, `init --me`, and each board start)
+also gives that identity Core's reserved `user = true` metadata entry, so Digest
+never holds their messages or replies. Only an absent entry is written; an
+existing value, even `false`, is yours, and the entry is never removed. No other
+identity is marked. Without Ops, `tmt identity meta set user true --identity <name>`
+does the same.
+
 On first config/state use, Squad migrates `squad.toml` to `ops.toml` and its
 `<dataRoot>/squad/` state to `<dataRoot>/ops/` under a lock. Config comments and
 state bytes are preserved; originals become `.migrated-<timestamp>` backups and
