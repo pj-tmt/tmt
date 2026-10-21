@@ -73,8 +73,11 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   scene change keeps the frozen parity capture and compares the old and new renderers on
   literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, cron labels,
   annotation) before the old one goes.
-- Pinned selection/focus evidence uses the ignored `capture_selection_focus_packet`
-  test with explicit `TMT_SELECTION_PACKET` and `TMT_SELECTION_OUTPUT` paths.
+- Pinned conversation-selection evidence uses the ignored
+  `capture_selection_fallback_packet` test with an explicit
+  `TMT_SELECTION_FALLBACK_PACKET` output path. The
+  `capture_rendered_quote_chip_packet` test uses `TMT_RENDERED_QUOTES_PACKET`
+  for selected-text and quote-chip scenes. Neither records frozen fixtures.
   The existing `status::with_now_ms` test-only scoped override freezes integrated
   draws on that thread, restores nested/unwound scopes and leaves worker/production
   clocks unchanged. These buffers are deterministic renderer evidence, not a

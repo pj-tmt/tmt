@@ -5,6 +5,7 @@ import { createAppRouter } from '../src/router.js';
 import type { PageView } from '../src/transport.js';
 import { SaveRefused } from '../src/save.js';
 import { localTransport, type PageBinding } from '../src/transport.js';
+import { rememberPages } from '../src/quick-switcher-source.js';
 import type { Work } from '../src/work.js';
 import { applyWorkAction } from './work-apply.js';
 
@@ -38,16 +39,26 @@ declare global {
 let root: Root | undefined;
 const FOLLOWED = '20000000-0000-4000-8000-000000000002';
 const MADE = '20000000-0000-4000-8000-000000000009';
+const PARENT = '30000000-0000-4000-8000-000000000003';
 
 /** `withWork` false is a page that never had work; `owner` true is the owner device, whose
  * binding sends work actions and shows the serve's commit only when it is published back.
  * `scenario`: `linked-done` has T-2 follow a page whose list summary says done; `linked-missing`
- * follows one the list does not name; `summary-only` is a summary with no task; `external` has
- * T-2 tracked by an external issue. */
+ * follows one the list does not name; `summary-only` is a summary with no task; `empty` is a stored
+ * value with neither (every task removed); `external` has T-2 tracked by an external issue. `child` is
+ * this page's list row saying a task of `PARENT` ("Release plan") follows it; `child-orphan` says so
+ * while the list does not name that parent. */
 export function mountWorkPage(
   withWork = true,
   owner = false,
-  scenario?: 'linked-done' | 'linked-missing' | 'summary-only' | 'external',
+  scenario?:
+    | 'linked-done'
+    | 'linked-missing'
+    | 'summary-only'
+    | 'external'
+    | 'empty'
+    | 'child'
+    | 'child-orphan',
 ) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -60,7 +71,8 @@ export function mountWorkPage(
   root = createRoot(host);
   const base = { title: 'Release notes', source: '<h1>Full page</h1>' };
   let current = work(false, owner);
-  if (scenario === 'summary-only')
+  if (scenario === 'empty') current = { version: 1, next: 1, order: [], tasks: {} };
+  else if (scenario === 'summary-only')
     current = {
       version: 1,
       next: 1,
@@ -131,36 +143,48 @@ export function mountWorkPage(
     { id: 'notes', ...base, sharing: 'private', binding },
   ]);
   const listed = transport.spaceHome.bind(transport);
-  root.render(
-    <RouterProvider
-      router={createAppRouter({
-        ...transport,
-        // The owner list names the followed page, with the stage its summary says.
-        async spaceHome() {
-          const home = await listed();
-          return scenario === 'linked-done'
-            ? {
-                ...home,
-                pages: [
-                  ...home.pages,
-                  {
-                    id: FOLLOWED,
-                    title: 'Legal copy',
-                    sharing: 'private' as const,
-                    summary: {
-                      comments: 0,
-                      waiting: false,
-                      needsYou: 0,
-                      work: { stage: 'done' as const, done: 1, total: 1, signoff: 0, working: [] },
-                    },
-                  },
-                ],
-              }
-            : home;
-        },
-        backendName: 'Studio Mac',
-      })}
-    />,
-  );
+  const routed = {
+    ...transport,
+    // The owner list names the followed page, with the stage its summary says.
+    async spaceHome() {
+      const home = await listed();
+      return scenario === 'linked-done'
+        ? {
+            ...home,
+            pages: [
+              ...home.pages,
+              {
+                id: FOLLOWED,
+                title: 'Legal copy',
+                sharing: 'private' as const,
+                summary: {
+                  comments: 0,
+                  waiting: false,
+                  needsYou: 0,
+                  work: { stage: 'done' as const, done: 1, total: 1, signoff: 0, working: [] },
+                },
+              },
+            ],
+          }
+        : home;
+    },
+    backendName: 'Studio Mac',
+  };
+  if (scenario === 'child' || scenario === 'child-orphan') {
+    // Arriving from the list: the list this page was opened from names its parent task.
+    const parent = { page: PARENT, task: 'T-3' };
+    rememberPages(routed, undefined, [
+      {
+        id: 'notes',
+        ...base,
+        sharing: 'private',
+        summary: { comments: 0, waiting: false, needsYou: 0, parent },
+      },
+      ...(scenario === 'child'
+        ? [{ id: PARENT, title: 'Release plan', sharing: 'private' as const }]
+        : []),
+    ]);
+  }
+  root.render(<RouterProvider router={createAppRouter(routed)} />);
   location.hash = '/pages/notes';
 }

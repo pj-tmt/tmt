@@ -184,7 +184,9 @@ producing an effect; a matching name cannot authorize a replacement UUID.
 Retained row text alone grants no authority after its membership disappears.
 
 `board::conversation::source` selects the already rendered conversation and task
-text in place. Mouse-up copies the selected plain text through the configured
+text in place. Both painters use `Look::selection()` for the selection style,
+including its reverse-video fallback when no selection background is available.
+Mouse-up copies the selected plain text through the configured
 clipboard worker; a failed copy does not prevent quoting. Read-focus Shift+arrows
 extend the selection, `y` copies, and Esc or an outside press clears it. A task
 field is frozen as the cells it displayed. The transcript changes and scrolls under
