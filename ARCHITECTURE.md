@@ -465,9 +465,8 @@ each other nor tooling. Scenarios retain assertions; helpers own fixture
 mechanics. Frozen inputs and independent SQL/schema oracles must not derive
 expected results from the implementation under test.
 
-Tests select a task-owned native executable or the checkout build; missing
-builds fail without host or retired-runtime fallback. State, provider roots,
-prefixes, sockets and processes remain fixture-owned. Adapters' default-off
+State, provider roots, prefixes, sockets and processes remain fixture-owned.
+Adapters' default-off
 `test-isolation` feature admits private discovery paths in consumer test builds.
 `typescript/scripts/private-world.mjs` runs suite commands in a private HOME/XDG/TMPDIR world
 (under `/tmp` when the temporary directory is too long for sockets) and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
@@ -503,28 +502,16 @@ from the newest non-failed allocated ancestor cut, whether in flight or publishe
 Verification-failed drafts reserve numbers but allow replacement cuts, including
 at the same main commit; they stay unpublished and do not hold later cuts or merges.
 
-The release version is injected at build through the private `tmt-release-tool`:
-only the selected version declaration and implied Cargo lock entries may differ
-from the captured source. Build metadata and executable versions must agree;
-nothing is committed back to main. Main retains development versions. Workflow jobs
-own Node architecture selection; version injection preserves it.
+Build-time version injection belongs to the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#cut-and-source-tooling).
 
 Notes, migration comparison and breaking authorization share the newest published
 ancestor. Before own publication, a predecessor supplies history; both lines reserve versions.
 Retired identities stay historical. Drafts never advance published evidence. Tags become
 immutable after all gates pass; only the CLI converges latest to its highest publication.
 
-Automatic publication covers authorized existing alpha products only. Ben retains
-stable, breaking, version-line changes and manual publication authorization.
-Activating a new released product is a component-map change accepted by tmt-lead
-and the owning squad lead. Exact gates and owner recovery
-operations belong to the [release skill](.agents/skills/tmt-release/SKILL.md) and
-[main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
+The [release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns publication authorization and product activation; the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery) owns gates and recovery.
 
-Delivery and publication evidence are separate. Release reconciliation rules and
-procedures live in [tmt-release](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation);
-shared issue lifecycle definitions stay in
-[DEVELOPMENT](DEVELOPMENT.md#project-tracking).
+[Release reconciliation](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation) separates delivery from publication; [DEVELOPMENT](DEVELOPMENT.md#project-tracking) owns issue lifecycle.
 
 ## Maintenance contract
 
