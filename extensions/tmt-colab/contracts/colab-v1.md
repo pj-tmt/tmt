@@ -2586,12 +2586,16 @@ fallback follows a possibly published request.
 
 HTML-only source operations refuse a shell with `COLAB_INPUT_INVALID` rather
 than erase it. Export writes `shell.json` beside the usual metadata, never
-`page.html`. The owner app draws a shell as a wide grid of links to its source
-pages; the shared and hosted readers open it with a neutral notice explaining
-`tmt colab shell read`. The owner app shows a reading item's `Unread` or `Read` state from the
-source page's owner chapter details (the reading's own person Mark read, never shell data);
-page and anchor items carry no read state. List/search use its title and needs-you counts do not
-treat shell references as authored questions or pending readings. No Today
+`page.html`. The owner app draws a shell as a greeting, three counts and numbered chapters (one
+per distinct, available, non-archived source page) joined by hairlines, with older pages in a list;
+the shared and hosted readers open it with a neutral notice explaining
+`tmt colab shell read`. Everything shown is computed from the space list and the owner chapter
+details, never stored: the greeting and the first count are the sum of the pages' needs-you counts;
+a page not waiting and edited within seven days is in progress; waiting chapters come first, then
+in progress, each by update time with the shell's `order` as the tie-break; a chapter shows the
+passage that most needs the owner (a pending item an item names, else the first by rank, else the
+page's latest comment, else the item note). The page never marks a reading read. List/search use its
+title and needs-you counts do not treat shell references as authored questions or pending readings. No Today
 integration or migration of older collection data exists. Native and browser
 consume the shared `shell-v1.json` vectors.
 
@@ -5130,9 +5134,9 @@ uniqueness and states before rendering any descriptor as inert text. A malformed
 failed or stale result remains unknown, never an empty complete list. Discovery
 keeps its unchanged 1 MiB and 1,000-page bounds.
 
-The owner app's shell page is the one browser consumer: it reads this route for the source pages
-of a shell's reading items to show each reading as unread or read, without writing anything. The
-route never marks a reading read, and neither does opening an item from a shell.
+The owner app's shell page is the one browser consumer: it reads this route for its first 20
+chapters' pages to show each chapter's passage, without writing anything. The route never marks a
+reading read, and neither does opening a chapter from a shell.
 
 ## Root-local page creation
 

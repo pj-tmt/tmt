@@ -330,13 +330,25 @@ pub(in crate::board) enum ClockSurface {
     /// A painted activity age counts from this core time.
     ActivityAge(u64),
     OutgoingFeedback(crate::board::conversation::FeedbackClock),
-    /// The sending row changes at this core time (R1: 400 ms in, 400 ms visible).
-    SendingGate {
+    /// A delayed state (R1) changes at this core time: the sending row, or the
+    /// conversation's loading line.
+    DelayGate {
         until_ms: u64,
     },
 }
 
 impl ClockSurface {
+    /// Register the repaint wake for a delayed state, once per instant.
+    pub(in crate::board) fn admit_delay_gate(app: &App, until_ms: u64) {
+        let mut clocks = app.frame_clocks.borrow_mut();
+        if !clocks
+            .iter()
+            .any(|held| matches!(held, Self::DelayGate { until_ms: known } if *known == until_ms))
+        {
+            clocks.push(Self::DelayGate { until_ms });
+        }
+    }
+
     fn mark(&self, app: &App, now: u64) -> String {
         match self {
             Self::TopBar { width } => {
@@ -370,7 +382,7 @@ impl ClockSurface {
                 app, target, *width, *height, now,
             ),
             Self::OutgoingFeedback(clock) => clock.mark(now),
-            Self::SendingGate { until_ms } => (now >= *until_ms).to_string(),
+            Self::DelayGate { until_ms } => (now >= *until_ms).to_string(),
             Self::QuotaDetails => app
                 .quota_details
                 .as_ref()
