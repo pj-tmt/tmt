@@ -53,8 +53,9 @@ stayed in (`live`, `opening`, `stopped`, `reconnecting`, `archived`, `none` or `
 renderer frame existed, the tab's visibility and `ended`, the failure cause named by the terminal
 notice's `Code:` label (a `FailureCause` key, `none` without a notice or `other`). The harness maps
 the parent's status and reference labels to those closed sets and never reads frame text; the
-report drops any other value. Its cause list is its own copy, and its test retains every key of
-`text.failureReference`, so a cause the product adds fails there until the report lists it.
+report drops any other value. Its cause list is its own copy, and the app unit test
+`failure-reference-report.test.ts` requires every key of `text.failureReference` in it, so a cause
+the product adds fails there until the report lists it.
 Set `TMT_ACCEPTANCE_KEEP=1` to keep a world's root (counter rows, `*.stderr`) after a run.
 Use that setting only for diagnostics: the harness's injected-failure case requires root deletion,
 so a retained-root run cannot satisfy the complete suite's cleanup gate. A Colab PR handoff
