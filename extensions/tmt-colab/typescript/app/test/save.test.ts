@@ -4,6 +4,7 @@ import {
   saveMessage,
   saveResult,
   SaveConflict,
+  SaveNotApplied,
   SaveRefused,
   settledAgainst,
   workResult,
@@ -164,4 +165,39 @@ it('a work reply is a save reply plus the ID a committed task.add made', () => {
   ])
     expect(() => workResult(reply(broken), 'o'), JSON.stringify(broken)).toThrow();
   expect(() => workResult(reply({ state: 'committed', revision: 'v1:abc' }), 'other')).toThrow();
+});
+
+it('a convert names the page it made in every final outcome, and nowhere else', () => {
+  const page = '20000000-0000-4000-8000-000000000009';
+  const reply = (fields: Record<string, unknown>) => ({ ...frame(fields), type: 'workresult' });
+  expect(
+    workResult(reply({ state: 'committed', revision: 'v1:abc', childPage: page }), 'o'),
+  ).toMatchObject({ state: 'committed', childPage: page });
+  // A made page whose link did not land: rejected with the page, or absent with the page.
+  const refused = workResult(
+    reply({ state: 'rejected', code: 'COLAB_LINK_REFUSED', childPage: page }),
+    'o',
+  );
+  expect(() => settledAgainst(refused)).toThrow(SaveRefused);
+  try {
+    settledAgainst(refused);
+  } catch (error) {
+    expect((error as SaveRefused).childPage).toBe(page);
+  }
+  const absent = saveResult(frame({ state: 'absent', childPage: page }), 'o');
+  try {
+    settledAgainst(absent);
+    expect.unreachable();
+  } catch (error) {
+    expect(error).toBeInstanceOf(SaveNotApplied);
+    expect((error as SaveNotApplied).childPage).toBe(page);
+  }
+  for (const broken of [
+    { state: 'unchanged', revision: 'v1:abc', childPage: page },
+    { state: 'pending', childPage: page },
+    { state: 'committed', revision: 'v1:abc', childPage: 'not-an-id' },
+    { state: 'committed', revision: 'v1:abc', childPage: 7 },
+    { state: 'committed', revision: 'v1:abc', childPage: page.replace('-4000-', '-1000-') },
+  ])
+    expect(() => saveResult(frame(broken), 'o'), JSON.stringify(broken)).toThrow();
 });

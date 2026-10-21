@@ -2264,3 +2264,44 @@ it('a work action whose reply was lost asks for the operation status exactly onc
     live.close();
   }
 });
+
+it('a convert resolves with the page it made, and a refusal after the page was made still names it', async () => {
+  const live = openLive();
+  const page = '20000000-0000-4000-8000-000000000009';
+  try {
+    await live.snapshot();
+    saves.work.mockImplementationOnce(async (_connection, operationId) =>
+      worked(operationId, { childPage: page } as Partial<SaveResult>),
+    );
+    await expect(live.work('task.convert', { taskId: 'T-1' })).resolves.toEqual({
+      childPage: page,
+    });
+    saves.work.mockImplementationOnce(async (_connection, operationId) =>
+      worked(operationId, {
+        state: 'rejected',
+        revision: undefined,
+        code: 'COLAB_LINK_REFUSED',
+        message: 'That page already follows another task.',
+        childPage: page,
+      }),
+    );
+    const refused = await live.work('task.convert', { taskId: 'T-1' }).catch((error) => error);
+    expect(refused).toBeInstanceOf(SaveRefused);
+    expect(refused).toMatchObject({ code: 'COLAB_LINK_REFUSED', childPage: page });
+    // A lost reply is settled by one status, which names the page when only the page was made.
+    saves.work.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Sync disconnected'));
+      throw new Error('Sync disconnected');
+    });
+    saves.status.mockImplementation(async (_connection, operationId) => ({
+      operationId,
+      state: 'absent',
+      childPage: page,
+    }));
+    const unlinked = await live.work('task.convert', { taskId: 'T-1' }).catch((error) => error);
+    expect(unlinked).toMatchObject({ childPage: page });
+    expect(saves.status).toHaveBeenCalledOnce();
+  } finally {
+    live.close();
+  }
+});
