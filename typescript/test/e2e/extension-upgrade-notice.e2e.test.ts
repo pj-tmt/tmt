@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, symlinkSync } from
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vite-plus/test';
+import { syntheticAlphaVersion } from '../../scripts/release-versions.mjs';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 import { runCli, withSandbox } from '../support/cli-process.js';
 import { install as installCore } from '../support/native-installation.js';
@@ -20,11 +21,12 @@ describe('post-upgrade Remote restart', () => {
     await withSandbox(async (sandbox) => {
       const version = await runCli(sandbox, ['--version']);
       expect(version.status, version.stderr).toBe(0);
-      // Historical no-companion archive shape: the real Core payload is sufficient
-      // here, and Docker does not build the independently packaged Herdr driver.
+      // Synthetic alpha metadata admits this real debug payload to the install
+      // channel. Use the historical no-companion archive shape: Docker does not
+      // build the independently packaged Herdr driver.
       const core = await createArtifact(
         { ...sandbox, cli: { ...sandbox.cli, companions: null } },
-        version.stdout.trim()
+        syntheticAlphaVersion(version.stdout.trim())
       );
       const corePrefix = path.join(sandbox.root, 'Core prefix');
       const installed = await installCore(sandbox, core, corePrefix);
