@@ -67,26 +67,65 @@ test('a Source save under the pointer keeps the look and the place of its Save',
   await expect(save).not.toHaveAttribute('aria-busy', 'true');
 });
 
-test('the Files panel stays enabled while a Source save is in flight, and writes nothing', async ({
-  page,
-}) => {
+const note = (name: string) => ({
+  name,
+  mimeType: 'text/plain',
+  buffer: Buffer.from(`bytes of ${name}`),
+});
+const files = async (page: Page) =>
+  (await actions(page)).filter((value) => value.startsWith('files:'));
+const open = async (page: Page, panel: 'Files' | 'Source') =>
+  (await pageAction(page.locator('#ask-page-fixture'), panel)).click();
+
+/** A page with one file, a Source draft, and a Source save held in flight; the Files panel open. */
+async function savingWithAFile(page: Page) {
   const save = await openSource(page);
+  await open(page, 'Files');
+  const panel = page.getByTestId('files-panel');
+  const chooser = page.waitForEvent('filechooser');
+  await panel.getByRole('button', { name: text.attachFiles }).click();
+  await (await chooser).setFiles([note('first.txt')]);
+  await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
+  await expect(panel.getByRole('button', { name: text.attachRemove })).toBeVisible();
+  await open(page, 'Source');
+  await page.locator('#source-edit:visible').fill('<p id="selected">Edited while files change</p>');
   await run(page, 'holdEdit');
   await save.click();
   await expect(save).toHaveAttribute('aria-busy', 'true');
-  await (await pageAction(page.locator('#ask-page-fixture'), 'Files')).click();
-  const panel = page.getByTestId('files-panel');
-  const attach = panel.getByRole('button', { name: text.attachFiles });
-  await expect(attach).toBeEnabled();
+  await open(page, 'Files');
+  return panel;
+}
+async function attachSecond(page: Page, panel: Locator) {
   const chooser = page.waitForEvent('filechooser');
-  await attach.click();
-  await (
-    await chooser
-  ).setFiles([{ name: 'during-save.txt', mimeType: 'text/plain', buffer: Buffer.from('bytes') }]);
+  await panel.getByRole('button', { name: text.attachFiles }).click();
+  await (await chooser).setFiles([note('second.txt')]);
+}
+
+test('an Add and a Remove during a Source save wait for it, then apply once', async ({ page }) => {
+  const panel = await savingWithAFile(page);
+  await attachSecond(page, panel);
   const add = panel.getByRole('button', { name: text.filesAdd, exact: true });
   await expect(add).toBeEnabled();
+  await panel.getByRole('button', { name: text.attachRemove }).first().click();
   await add.click();
-  expect((await actions(page)).filter((value) => value.startsWith('files:'))).toEqual([]);
+  // Nothing is lost and nothing is written while the save is in flight.
+  expect(await files(page)).toEqual(['files:add:first.txt']);
   await run(page, 'releaseEdit');
-  await expect.poll(() => run(page, 'sourceSaveCount')).toBe(1);
+  // Each applies exactly once; the two were asked together, so their order is not asserted.
+  await expect
+    .poll(async () => (await files(page)).sort())
+    .toEqual(['files:add:first.txt', 'files:add:second.txt', 'files:remove:1']);
+});
+
+test('an Add and a Remove during a Source save that fails apply nothing', async ({ page }) => {
+  const panel = await savingWithAFile(page);
+  await attachSecond(page, panel);
+  await panel.getByRole('button', { name: text.attachRemove }).first().click();
+  await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
+  await run(page, 'releaseEdit', { fail: true });
+  // The save's error stays in the Source drawer; the staged file is kept to add again.
+  await expect(panel.getByRole('button', { name: text.filesAdd, exact: true })).toBeEnabled();
+  await open(page, 'Source');
+  await expect(page.getByText(text.saveNotSaved, { exact: true })).toBeVisible();
+  expect(await files(page)).toEqual(['files:add:first.txt']);
 });

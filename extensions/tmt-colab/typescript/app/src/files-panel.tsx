@@ -154,14 +154,14 @@ export function FilesPanel({
   descriptors,
   files,
   disabled,
-  fenced = false,
+  afterSave,
   readOnly = false,
 }: {
   descriptors: readonly attachment.AttachmentDescriptor[];
   files: DocumentFiles;
   disabled: boolean;
-  /** Another save is in flight: the controls keep their look, and nothing is written meanwhile. */
-  fenced?: boolean;
+  /** Settles once a Source save in flight has landed: true if it did, false if it failed. */
+  afterSave(): Promise<boolean>;
   readOnly?: boolean;
 }) {
   // A same-page reopen may replace the files owner; the draft keeps its picked bytes and reads
@@ -182,7 +182,7 @@ export function FilesPanel({
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string>();
   const add = async () => {
-    if (adding || disabled || fenced) return;
+    if (adding || disabled) return;
     setError(undefined);
     if (descriptors.length + staged.chips.length > PAGE_FILES) {
       setError(text.filesFull);
@@ -190,6 +190,8 @@ export function FilesPanel({
     }
     setAdding(true);
     try {
+      // A save in flight lands first; if it fails, nothing is added and the chips stay staged.
+      if (!(await afterSave())) return;
       const prepared = await draft.prepare();
       if (!prepared.ok) {
         setError(text.filesBlocked[prepared.why]);
@@ -212,7 +214,14 @@ export function FilesPanel({
       <FilesList
         descriptors={descriptors}
         binding={files.attachments}
-        remove={readOnly ? undefined : (id) => (fenced ? Promise.resolve() : files.remove([id]))}
+        remove={
+          readOnly
+            ? undefined
+            : async (id) => {
+                // The save lands first; if it fails, nothing is removed.
+                if (await afterSave()) await files.remove([id]);
+              }
+        }
         disabled={disabled || adding}
         readOnly={readOnly}
         epoch={files.epoch}

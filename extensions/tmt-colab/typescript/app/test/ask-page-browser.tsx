@@ -97,12 +97,15 @@ export function finishStatusNotice() {
 /** The next status action fails before it is published, like a lost connection. */
 let sourceSaves = 0;
 /** The next Source save waits for `releaseEdit`, as a slow Save does. */
-let editGate: { held?: Promise<void>; release?(): void } = {};
+let editGate: { held?: Promise<void>; release?(fail: boolean): void } = {};
 export function holdEdit() {
-  editGate.held = new Promise<void>((resolve) => (editGate.release = resolve));
+  editGate.held = new Promise<void>(
+    (resolve, reject) =>
+      (editGate.release = (fail) => (fail ? reject(new Error('Save failed')) : resolve())),
+  );
 }
-export function releaseEdit() {
-  editGate.release?.();
+export function releaseEdit(options: { fail?: boolean } = {}) {
+  editGate.release?.(!!options.fail);
   editGate = {};
 }
 let pageLoads = 0;
