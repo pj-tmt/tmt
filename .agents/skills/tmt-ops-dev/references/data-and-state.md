@@ -389,3 +389,13 @@ own these layers:
   preserves the existing board-owned or explicit foreground clock lifetime;
   closing the board starts no replacement clock or service.
   The same tick runs the [idle alert](board-cron.md#idle-alert-scan) scan.
+- The same minute admission independently invokes public `workspace.capture`
+  through Core after discovering the operation in `capabilities`. Successful
+  discovery is cached for the worker session, including an answer without the
+  operation; errors and timeouts retry at the next admitted minute, never within
+  the same minute. Discovery and capture share five seconds; an unfinished
+  workspace child suppresses another capture, without delaying Digest or cron.
+  Discovery and capture failures stay silent, including foreground run: no notice,
+  warning, stdout or stderr. Cancellation joins and reaps the child
+  before lease release. No new timer, setting, tmux access or paint/input I/O is
+  introduced; Core owns [capture and coalescing](../../../../contracts/workspace-v1.md#capture-triggers-and-public-backstop).

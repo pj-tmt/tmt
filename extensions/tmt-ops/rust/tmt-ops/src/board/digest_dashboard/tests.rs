@@ -251,6 +251,7 @@ fn quota_details_open_from_current_cells_and_menu_without_retargeting_or_replayi
     let mut app = quota_board();
     app.shell.tab = crate::board::shell::OpsTab::Agents;
     app.limits = Some(vec![crate::board::limits::Standing {
+        rates: Default::default(),
         provider: crate::board::limits::Provider::named("claude"),
         latest: None,
         burn: None,
@@ -330,6 +331,7 @@ fn quota_detail_scroll_uses_current_modal_viewport_and_resize_revokes_it() {
     app.limits = Some(
         (0..12)
             .map(|i| crate::board::limits::Standing {
+                rates: Default::default(),
                 provider: crate::board::limits::Provider::named(&format!("provider{i}")),
                 latest: None,
                 burn: None,
@@ -411,6 +413,7 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
                         .into_iter()
                         .enumerate()
                         .map(|(i, (left, short))| Standing {
+                            rates: Default::default(),
                             provider: Provider::named(match i {
                                 0 => "claude",
                                 1 => "codex",
@@ -1649,6 +1652,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
     });
 }
 
+mod allowance;
 mod layout;
 
 #[test]
