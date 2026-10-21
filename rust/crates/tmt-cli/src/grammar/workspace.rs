@@ -30,7 +30,7 @@ fn selection() -> Arg {
     Arg::new("name")
         .value_name("SNAPSHOT")
         .value_parser(clap::value_parser!(tmt_core::workspace::SnapshotSelector))
-        .help("Named snapshot or g:<generation>; omission selects protected recovery")
+        .help("Named snapshot or g:<generation>. Without it, restore picks the newest protected generation that has agents.")
 }
 
 fn name(required: bool) -> Arg {

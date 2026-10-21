@@ -45,6 +45,20 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
+        "No saved workspace records any agents. Nothing was restored. To restore only the layout, pick one from tmt workspace ls and run tmt workspace restore g:<generation> --layout-only.",
+        &[" and run ", "."],
+        &[(
+            "g:<generation>",
+            "g:0000000000000000000000000000000000000000000000000000000000000000",
+        )],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Restored, but tmt could not record this as the recovery choice: {error}. Check tmt workspace ls before restoring again.",
+        &[" before"],
+        // The first mention names the program in prose, not a command.
+        &[("tmt could", "it could")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         "Selected {selection} has {} panes and {} agents; protected {} has {} panes and {} agents. Nothing was restored. To choose the smaller workspace explicitly, run tmt workspace restore {selection} --expect {} --socket {socket_argument}{}.",
         &["."],
         &[
@@ -279,7 +293,7 @@ pub fn execute(
         {
             return Err(Failure::new(
                 "WORKSPACE_NO_AGENT_GENERATION",
-                "No retained workspace generation has agent annotations. Nothing was restored; preview and explicitly select a layout-only recovery.",
+                "No saved workspace records any agents. Nothing was restored. To restore only the layout, pick one from tmt workspace ls and run tmt workspace restore g:<generation> --layout-only.",
                 1,
             ));
         }
@@ -386,7 +400,7 @@ pub fn execute(
                 document.baseline.as_ref().map(|generation| &generation.id),
             )
         {
-            result.failures.push(format!("Restore effects completed, but the protected recovery choice may not have been saved: {error}. Inspect workspace ls before choosing again."));
+            result.failures.push(format!("Restored, but tmt could not record this as the recovery choice: {error}. Check tmt workspace ls before restoring again."));
         }
         Ok((socket, document.digest, generation, result, revival))
     })();

@@ -106,7 +106,7 @@ impl Catalogue {
         }
         let baseline = self.protected().or_else(|| self.latest());
         next.shrink = baseline.is_some_and(|previous| next.loses_half(previous));
-        if baseline.is_none_or(|previous| !next.smaller_than(previous)) {
+        if !next.shrink {
             self.protected = Some(next.id.clone());
         }
         let hour = next.captured_at_ms / HOUR_MS;
@@ -168,6 +168,33 @@ mod tests {
         history.append(entry(101, 20, 10));
         assert_eq!(history.protected(), history.latest());
         assert!(!history.latest().unwrap().shrink);
+    }
+    #[test]
+    fn ordinary_decline_keeps_the_latest_non_shrink_generation_protected() {
+        let mut history = Catalogue::default();
+        for (index, count) in [20, 18, 16, 14].into_iter().enumerate() {
+            let next = entry(index as u64 + 1, count, count);
+            history.append(next.clone());
+            assert_eq!(history.protected(), Some(&next));
+            assert!(!history.latest().unwrap().shrink);
+            assert!(history.is_valid());
+        }
+    }
+    #[test]
+    fn crash_after_gradual_decline_prefers_the_layout_immediately_before_it() {
+        let mut history = Catalogue::default();
+        for (index, count) in [20, 18, 16, 14].into_iter().enumerate() {
+            history.append(entry(index as u64 + 1, count, count));
+        }
+        history.append(entry(5, 1, 1));
+        assert!(history.latest().unwrap().shrink);
+        assert_eq!(history.preferred(), Some(&entry(4, 14, 14)));
+        for number in 6..=100 {
+            history.append(entry(number, 1, 1));
+            assert_eq!(history.protected(), Some(&entry(4, 14, 14)));
+            assert_eq!(history.preferred(), history.protected());
+            assert!(history.is_valid());
+        }
     }
     #[test]
     fn retention_combines_distinct_recent_hours_and_clock_rollback() {

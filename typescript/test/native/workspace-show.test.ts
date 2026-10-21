@@ -293,6 +293,46 @@ describe('named workspace snapshots', () => {
 });
 
 describe('retained workspace generation selection', () => {
+  it('gives a layout-only command when no saved generation records agents, without effects', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = installTmuxTripwire(sandbox);
+      const socket = path.join(sandbox.root, 'gone-socket');
+      const directory = path.join(
+        sandbox.globalDir,
+        'workspace',
+        createHash('sha256').update(socket).digest('hex')
+      );
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const bytes = JSON.stringify(snapshot(socket));
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      fs.writeFileSync(path.join(directory, `auto-${digest}.json`), bytes, { mode: 0o600 });
+      fs.writeFileSync(
+        path.join(directory, 'generations.json'),
+        JSON.stringify({
+          version: 1,
+          protected: `g:${digest}`,
+          entries: [{ id: `g:${digest}`, capturedAtMs: 1, panes: 1, agents: 0, shrink: false }],
+        }),
+        { mode: 0o600 }
+      );
+      const before = new Map(
+        fs.readdirSync(directory).map((name) => [name, fs.readFileSync(path.join(directory, name))])
+      );
+      const result = await runCli(sandbox, ['workspace', 'restore', '--socket', socket, '--json']);
+      expect(result.status).toBe(1);
+      expect(JSON.parse(result.stdout).error).toMatchObject({
+        code: 'WORKSPACE_NO_AGENT_GENERATION',
+        message:
+          'No saved workspace records any agents. Nothing was restored. To restore only the layout, pick one from tmt workspace ls and run tmt workspace restore g:<generation> --layout-only.',
+      });
+      expect(result.stderr).toBe('');
+      for (const [name, original] of before)
+        expect(fs.readFileSync(path.join(directory, name))).toEqual(original);
+      expect(fs.readdirSync(directory)).toEqual([...before.keys()]);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+      expect(fs.existsSync(tripwire)).toBe(false);
+    });
+  });
   it('selects the protected pre-crash input and refuses a smaller JSON choice before host or storage effects', async () => {
     await withSandbox(async (sandbox) => {
       const tripwire = installTmuxTripwire(sandbox);

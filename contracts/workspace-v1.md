@@ -93,8 +93,9 @@ Compare each capture with the protected baseline (or the preceding capture
 before a baseline exists). Losing at least half of either nonzero pane count or
 unique annotated identity count marks a shrink. The smaller capture is retained,
 while the baseline remains pinned across server restarts, repeated small
-captures and hourly expiry. An equally rich capture replaces the baseline. A
-completed explicit generation restore may accept a smaller baseline, only if
+captures and hourly expiry. The protected baseline is the latest generation that
+is not a shrink; ordinary declines advance it. A completed explicit generation
+restore may accept a smaller baseline, only if
 the baseline has not changed since acquisition; it never overwrites a newer
 concurrent recovery choice.
 
