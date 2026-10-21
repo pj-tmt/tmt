@@ -375,6 +375,16 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
         app.usage_chart.borrow_mut().focus = None;
         return None;
     }
+    // An inactive chart cannot own this event. Resolve selected-row binding
+    // provenance only when a chart control or pinned Escape can consume it.
+    if !app.usage_controls
+        && app.usage_chart.borrow().focus.is_none()
+        && app.usage_chart.borrow().hover.is_none()
+        && app.usage_chart.borrow().dropdown.is_none()
+        && !(key.code == KeyCode::Esc && app.usage_chart.borrow().pinned.is_some())
+    {
+        return None;
+    }
     if !app.usage_controls
         && crate::board::app::event_name(key)
             .as_deref()
