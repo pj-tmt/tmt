@@ -319,7 +319,11 @@ fn tool_completions_probe_only_when_storage_reports_waiting_and_never_write_the_
                 || Ok(paths.clone()),
             )
             .unwrap();
-            assert_eq!(output, "");
+            assert_eq!(output.context, "");
+            assert!(
+                output.workspace.is_none(),
+                "unadmitted/no-op tool events cannot request recovery probes"
+            );
             assert_eq!(probe.0.load(Ordering::Relaxed), probes, "{phase:?} {event}");
             assert_eq!(fs::read(&paths.database).unwrap(), before);
         }

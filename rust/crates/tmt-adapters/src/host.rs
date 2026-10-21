@@ -361,11 +361,17 @@ impl Host {
         Self::for_caller_with_drivers(environment, UnixCommandRunner, external::approved())
     }
 
+    /// A recorded or explicit recovery socket uses only the built-in reader,
+    /// without discovering caller environment, external approvals or state paths.
+    pub fn for_workspace_socket() -> Self {
+        Self::of(HostKind::Tmux, UnixCommandRunner)
+    }
+
     /// An explicit recovery socket selects the built-in host even outside its pane.
     /// Implicit recovery keeps the caller's ordinary host selection.
     pub fn for_workspace(environment: &CallerEnvironment, explicit_socket: bool) -> Self {
         if explicit_socket {
-            Self::of(HostKind::Tmux, UnixCommandRunner)
+            Self::for_workspace_socket()
         } else {
             Self::for_caller(environment)
         }

@@ -7,8 +7,11 @@ use tmt_core::workspace::{StoredIdentity, WorkspaceSnapshot, plan::restore_plan}
 
 pub struct WorkspacePlanInput {
     pub snapshot: WorkspaceSnapshot,
-    pub name: Option<tmt_core::workspace::SnapshotName>,
+    pub name: Option<tmt_core::workspace::SnapshotSelector>,
     pub digest: String,
+    pub generation: Option<String>,
+    pub protected: bool,
+    pub requires_confirmation: bool,
     pub identities: Vec<StoredIdentity>,
     pub current_sessions: Option<Vec<String>>,
 }
@@ -18,7 +21,7 @@ pub fn read_document<R: CommandRunner + Clone>(
     socket: &str,
     host: &Host<R>,
     deadline: Instant,
-    name: Option<tmt_core::workspace::SnapshotName>,
+    name: Option<tmt_core::workspace::SnapshotSelector>,
     document: super::saved::Document,
 ) -> io::Result<WorkspacePlanInput> {
     let snapshot = document.snapshot;
@@ -45,6 +48,11 @@ pub fn read_document<R: CommandRunner + Clone>(
         snapshot,
         name,
         digest: document.digest,
+        generation: document
+            .generation
+            .map(|generation| generation.id.as_str().to_owned()),
+        protected: document.protected,
+        requires_confirmation: document.requires_confirmation,
         identities,
         current_sessions,
     })
@@ -62,6 +70,7 @@ pub fn document(input: &WorkspacePlanInput) -> io::Result<Value> {
         serde_json::from_slice(&super::encode(&input.snapshot)?).map_err(io::Error::other)?;
     Ok(json!({
         "version": 1, "name": input.name.as_ref().map(|name| name.as_str()), "digest": input.digest, "snapshot": snapshot,
+        "generation": input.generation, "protected": input.protected, "requiresConfirmation": input.requires_confirmation,
         "sessions": plan.sessions.iter().map(|(id, action)| json!({"session": id, "action": action.as_str()})).collect::<Vec<_>>(),
         "panes": plan.panes.iter().map(|pane| json!({
             "pane": pane.pane, "action": pane.action.as_str(),

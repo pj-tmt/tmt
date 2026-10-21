@@ -5,9 +5,10 @@ use std::{io::Write, time::Instant};
 use tmt_adapters::{config::ConfigPaths, host::Host, workspace};
 use tmt_core::{endpoint::ServerEvidence, host::HostKind};
 
+#[derive(Default)]
 pub(crate) struct Observation {
     pub context: String,
-    /// Only an admitted SessionStart/SessionEnd sets this. It remains recovery
+    /// Only an admitted provider observation sets this. It remains recovery
     /// input and cannot bypass the capture adapter's fresh native server fence.
     pub workspace: Option<ServerEvidence>,
 }
@@ -46,7 +47,7 @@ pub(crate) fn publish(output: &mut impl Write, observation: Observation, deadlin
         {
             let host = Host::for_server(&server);
             let bound = deadline.min(Instant::now() + workspace::CAPTURE_BUDGET);
-            let _ = workspace::capture_event(&paths, &host, Some(&server), None, bound);
+            let _ = workspace::capture_hook(&paths, &host, &server, bound);
         }
     });
 }

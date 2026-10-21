@@ -50,7 +50,9 @@ pub fn failure(error: saved::Error, unavailable: &'static str, legacy_latest: bo
 }
 
 fn entry(entry: &saved::SnapshotEntry) -> serde_json::Value {
-    serde_json::json!({"name": entry.name.as_ref().map(|name| name.as_str()), "digest": entry.digest, "capturedAtMs": entry.captured_at_ms})
+    serde_json::json!({"name": entry.name.as_ref().map(|name| name.as_str()), "digest": entry.digest, "capturedAtMs": entry.captured_at_ms,
+        "generation": entry.generation.as_ref().map(|generation| generation.id.as_str()), "panes": entry.panes,
+        "agents": entry.agents, "protected": entry.protected, "shrink": entry.generation.as_ref().is_some_and(|generation| generation.shrink)})
 }
 
 pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
@@ -119,12 +121,33 @@ pub fn execute(invocation: &Invocation, mode: OutputMode) -> io::Result<u8> {
                 let mut lines = vec![format!("Workspace snapshots on {socket}:")];
                 for saved in entries {
                     lines.push(format!(
-                        "  {} (captured {})",
-                        saved.name.as_ref().map_or("latest", |name| name.as_str()),
+                        "  {} (captured {}; {} panes, {} agents{})",
+                        saved
+                            .name
+                            .as_ref()
+                            .map(|name| name.as_str())
+                            .or_else(|| saved
+                                .generation
+                                .as_ref()
+                                .map(|generation| generation.id.as_str()))
+                            .unwrap_or("latest"),
                         tmt_cli_style::value::relative_time(
                             tmt_adapters::request_runtime::wall_time_ms()
                                 .saturating_sub(saved.captured_at_ms)
-                        )
+                        ),
+                        saved.panes,
+                        saved.agents,
+                        if saved.protected {
+                            ", protected"
+                        } else if saved
+                            .generation
+                            .as_ref()
+                            .is_some_and(|generation| generation.shrink)
+                        {
+                            ", shrink"
+                        } else {
+                            ""
+                        }
                     ));
                 }
                 lines.join("\n")

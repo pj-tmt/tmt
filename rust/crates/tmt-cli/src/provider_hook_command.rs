@@ -1,5 +1,6 @@
 //! Hook composition with a hard supervised deadline and no provider veto output.
 
+use crate::workspace_hook::Observation;
 use std::{
     io::{self, Write},
     time::{Duration, Instant},
@@ -66,9 +67,7 @@ pub fn execute(
         .map_err(|_| ())?;
         turn_end = lifecycle.decode_turn(input.as_bytes()).is_some();
         if worker {
-            let mut workspace = None;
-            let context = observe(provider, &input, deadline, activity_only, &mut workspace)?;
-            return Ok(crate::workspace_hook::Observation { context, workspace });
+            return observe(provider, &input, deadline, activity_only);
         }
         lifecycle
             .wait_for_hook_admission(input.as_bytes(), deadline)
@@ -135,13 +134,13 @@ fn observe_turn(
     activity_only: bool,
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
     deadline: Instant,
-) -> Result<(), ()> {
+) -> Result<Observation, ()> {
     // An interrupted turn ends activity only: no usage, consumption source or
     // final answer is read or captured for it.
     let activity_only = activity_only || turn.interrupted;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return Ok(());
+        return Ok(Observation::default());
     }
     let Caller::Bound(bound) = verified_caller(
         provider,
@@ -153,7 +152,7 @@ fn observe_turn(
         SupervisedProbeRunner,
     )?
     else {
-        return Ok(());
+        return Ok(Observation::default());
     };
     let BoundCaller {
         paths,
@@ -166,7 +165,7 @@ fn observe_turn(
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, &turn.session, host, deadline)
     else {
-        return Ok(());
+        return Ok(Observation::default());
     };
     if !matches!(
         evaluate_binding(&stored.entry, &EndpointProbe::Live(snapshot)),
@@ -180,7 +179,7 @@ fn observe_turn(
     let Some(remembered) = stored.preferences.remembered.as_ref().filter(|remembered| {
         current && &remembered.harness == harness && remembered.provider_session == turn.session
     }) else {
-        return Ok(());
+        return Ok(Observation::default());
     };
     let environment = ProviderEnvironment::capture().map_err(|_| ())?;
     let now_ms = tmt_adapters::request_runtime::wall_time_ms();
@@ -246,15 +245,20 @@ fn observe_turn(
     if Instant::now() >= deadline {
         return Err(());
     }
-    commit_observation(
+    if commit_observation(
         &paths,
         &stored,
         next,
         (!activity_only).then_some(reading),
         response,
         deadline,
-    )
-    .map(|_| ())
+    )? {
+        return Ok(Observation {
+            context: String::new(),
+            workspace: Some(binding.server.clone()),
+        });
+    }
+    Ok(Observation::default())
 }
 
 /// The caller a hook event came from, verified the same way for every event.
@@ -486,8 +490,7 @@ fn observe(
     input: &str,
     deadline: Instant,
     activity_only: bool,
-    workspace: &mut Option<tmt_core::endpoint::ServerEvidence>,
-) -> Result<String, ()> {
+) -> Result<Observation, ()> {
     let registry = RuntimeRegistry::first_party();
     let harness = HarnessId::new(provider).map_err(|_| ())?;
     let lifecycle = registry.lifecycle(&harness).ok_or(())?;
@@ -499,7 +502,7 @@ fn observe(
         .and_then(|value| value["hook_event_name"].as_str().map(str::to_owned))
         .is_some_and(|event| lifecycle.activity_events().contains(&event.as_str()));
     if activity_only_event && activity.is_none() {
-        return Ok(String::new());
+        return Ok(Observation::default());
     }
     if let Some(turn) = lifecycle.decode_turn(input.as_bytes()) {
         return observe_turn(
@@ -510,8 +513,7 @@ fn observe(
             activity_only,
             activity.as_ref(),
             deadline,
-        )
-        .map(|()| String::new());
+        );
     }
     if let Some(session) = lifecycle.decode_prompt(input.as_bytes()) {
         return observe_main_event(
@@ -537,7 +539,7 @@ fn observe(
     let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return Ok(String::new());
+        return Ok(Observation::default());
     }
     let BoundCaller {
         host,
@@ -554,18 +556,21 @@ fn observe(
         deadline,
         SupervisedProbeRunner,
     )? {
-        Caller::Unobserved => return Ok(String::new()),
+        Caller::Unobserved => return Ok(Observation::default()),
         // With no stored identity, only emit the fixed naming hint. The
         // command-derived suggested_name (for example "claude") is not a
         // binding marker and supplies no identity or context to this branch.
         Caller::Unbound { marked: true } => return Err(()),
         Caller::Unbound { marked: false } => {
             return if event.starting() {
-                Ok(lifecycle
-                    .encode_context(&crate::context_command::unbound_text().map_err(|_| ())?)
-                    .unwrap_or_default())
+                Ok(Observation {
+                    context: lifecycle
+                        .encode_context(&crate::context_command::unbound_text().map_err(|_| ())?)
+                        .unwrap_or_default(),
+                    workspace: None,
+                })
             } else {
-                Ok(String::new())
+                Ok(Observation::default())
             };
         }
         Caller::Bound(bound) => *bound,
@@ -674,16 +679,14 @@ fn observe(
     if !changed || Instant::now() >= deadline {
         return Err(());
     }
-    // decode_turn and decode_prompt returned above; only documented session
-    // lifecycle boundaries reach this admitted branch (including clear/compact).
-    let capture_workspace = event.starting()
-        || event.transition() == Some(tmt_core::binding::session::SessionTransition::Ended);
+    // Only a committed, verified lifecycle observation reaches this branch.
+    // Recovery is advisory and still independently fences the native server.
     if !event.starting() {
-        if capture_workspace {
-            *workspace = Some(binding.server.clone());
-        }
         refresh_pane_badge(&paths, binding, deadline);
-        return Ok(String::new());
+        return Ok(Observation {
+            context: String::new(),
+            workspace: Some(binding.server.clone()),
+        });
     }
     // Re-read the bounded projection after acknowledgment. Do not inject a
     // different binding if a concurrent rebind occurred during the callback.
@@ -720,10 +723,10 @@ fn observe(
     .map_err(|_| ())?;
     let encoded = lifecycle.encode_context(&context).ok_or(())?;
     refresh_pane_badge(&paths, binding, deadline);
-    if capture_workspace {
-        *workspace = Some(binding.server.clone());
-    }
-    Ok(encoded)
+    Ok(Observation {
+        context: encoded,
+        workspace: Some(binding.server.clone()),
+    })
 }
 
 /// The badge is a tmux state projection. An external pane has only its
@@ -811,7 +814,7 @@ fn observe_activity_event(
     activity: &tmt_adapters::runtime::hook_protocol::ActivityObservation,
     deadline: Instant,
     paths: impl FnOnce() -> Result<ConfigPaths, ()>,
-) -> Result<String, ()> {
+) -> Result<Observation, ()> {
     use tmt_core::binding::session::activity::{ActivityPhase, EventKind};
     if activity.event.kind == EventKind::ToolFinished {
         // This is only a read-only no-op shortcut, never caller admission. A
@@ -835,7 +838,7 @@ fn observe_activity_event(
                 activity.session == *session && activity.phase == ActivityPhase::Waiting
             });
         if !waiting {
-            return Ok(String::new());
+            return Ok(Observation::default());
         }
     }
     observe_main_event(
@@ -859,10 +862,10 @@ fn observe_main_event(
     activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
     payload: Option<&[u8]>,
     deadline: Instant,
-) -> Result<String, ()> {
+) -> Result<Observation, ()> {
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
-        return Ok(String::new());
+        return Ok(Observation::default());
     }
     let Caller::Bound(bound) = verified_caller(
         provider,
@@ -874,7 +877,7 @@ fn observe_main_event(
         SupervisedProbeRunner,
     )?
     else {
-        return Ok(String::new());
+        return Ok(Observation::default());
     };
     let BoundCaller {
         paths,
@@ -887,7 +890,7 @@ fn observe_main_event(
     let Some(process) =
         lifecycle.activity_process(&binding.session, &process, session, host, deadline)
     else {
-        return Ok(String::new());
+        return Ok(Observation::default());
     };
     if binding.session.state != tmt_core::binding::session::RuntimeState::Running
         || !binding.session.key.as_ref().is_some_and(|key| {
@@ -905,7 +908,7 @@ fn observe_main_event(
             BindingEvidence::Active(_)
         )
     {
-        return Ok(String::new());
+        return Ok(Observation::default());
     }
     let context = if payload.is_some() {
         crate::context_command::render_prompt(
@@ -1001,10 +1004,15 @@ fn observe_main_event(
     {
         return Err(());
     }
-    if context.is_empty() {
-        return Ok(String::new());
-    }
-    lifecycle.encode_prompt_context(&context).ok_or(())
+    let context = if context.is_empty() {
+        context
+    } else {
+        lifecycle.encode_prompt_context(&context).ok_or(())?
+    };
+    Ok(Observation {
+        context,
+        workspace: Some(binding.server.clone()),
+    })
 }
 
 /// Shared publication boundary: a current binding/preferences snapshot and enough

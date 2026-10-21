@@ -24,6 +24,33 @@ impl SnapshotName {
     }
 }
 
+/// Recovery selections extend, but never widen, the manual-save namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotSelector {
+    Named(SnapshotName),
+    Generation(generations::GenerationId),
+}
+
+impl SnapshotSelector {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Named(name) => name.as_str(),
+            Self::Generation(id) => id.as_str(),
+        }
+    }
+}
+
+impl std::str::FromStr for SnapshotSelector {
+    type Err = &'static str;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.starts_with("g:") {
+            value.parse().map(Self::Generation)
+        } else {
+            value.parse().map(Self::Named)
+        }
+    }
+}
+
 impl std::str::FromStr for SnapshotName {
     type Err = &'static str;
 
@@ -124,6 +151,7 @@ pub struct StoredIdentity {
     pub preferences: SessionPreferences,
 }
 
+pub mod generations;
 pub mod layout;
 pub mod plan;
 
@@ -192,6 +220,13 @@ pub fn command_refresh_due(previous_ms: Option<u64>, now_ms: u64, interval_ms: u
 }
 
 impl WorkspaceSnapshot {
+    pub fn agent_count(&self) -> usize {
+        self.panes
+            .iter()
+            .filter_map(|pane| pane.identity.as_ref().map(|identity| &identity.id))
+            .collect::<HashSet<_>>()
+            .len()
+    }
     /// Check recovery structure without asserting any live identity authority.
     pub fn is_consistent(&self) -> bool {
         let snapshot = self;

@@ -219,6 +219,69 @@ pub(super) fn paths(directory: &Path) -> ConfigPaths {
 }
 
 #[test]
+fn unchanged_capture_preserves_every_published_file_and_timestamp() {
+    use std::os::unix::fs::MetadataExt;
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    let mut snapshot = sample();
+    let socket = snapshot.server.socket.clone();
+    assert!(publish_event(&paths, &socket, || Ok(snapshot.clone())).unwrap());
+    let published = || {
+        let mut files = fs::read_dir(paths.workspace_directory(&socket))
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                let metadata = entry.metadata().unwrap();
+                (
+                    entry.file_name(),
+                    fs::read(entry.path()).unwrap(),
+                    metadata.ino(),
+                    metadata.mtime(),
+                    metadata.mtime_nsec(),
+                )
+            })
+            .collect::<Vec<_>>();
+        files.sort_by(|left, right| left.0.cmp(&right.0));
+        files
+    };
+    let before = published();
+    snapshot.captured_at_ms = 60_001;
+    assert!(!publish_event(&paths, &socket, || Ok(snapshot)).unwrap());
+    assert_eq!(published(), before);
+}
+
+#[test]
+fn rich_generation_survives_restart_and_repeated_small_captures() {
+    let directory = crate::test_support::TestDirectory::new();
+    let paths = paths(&directory.path);
+    let mut rich = sample();
+    for index in 2..=4 {
+        let mut pane = rich.panes[0].clone();
+        pane.id = format!("%{index}");
+        pane.index = index - 1;
+        rich.panes.push(pane);
+    }
+    let socket = rich.server.socket.clone();
+    assert!(publish_event(&paths, &socket, || Ok(rich.clone())).unwrap());
+    let rich_bytes = encode(&rich).unwrap();
+    for generation in 2..=40 {
+        let mut small = sample();
+        small.captured_at_ms = generation * 3_600_000;
+        small.server.process = ProcessIncarnation::new(11, "restarted-server").unwrap();
+        small.windows[0].name = format!("restart-{generation}");
+        assert!(publish_event(&paths, &socket, || Ok(small)).unwrap());
+    }
+    let retained = fs::read_dir(paths.workspace_directory(&socket))
+        .unwrap()
+        .filter_map(|entry| fs::read(entry.unwrap().path()).ok())
+        .any(|bytes| bytes == rich_bytes);
+    assert!(
+        retained,
+        "automatic captures discarded the pre-crash layout"
+    );
+}
+
+#[test]
 fn disabled_capture_performs_no_host_work_and_preserves_opaque_config() {
     let directory = crate::test_support::TestDirectory::new();
     let paths = paths(&directory.path);
@@ -275,6 +338,7 @@ fn concurrent_event_coalesces_without_waiting_and_last_successful_writer_wins() 
                 gate.recv_timeout(Duration::from_secs(5)).unwrap();
                 let mut snapshot = snapshot.clone();
                 snapshot.captured_at_ms = 2;
+                snapshot.windows[0].name = "second layout".into();
                 Ok(snapshot)
             })
         });
@@ -293,6 +357,7 @@ fn concurrent_event_coalesces_without_waiting_and_last_successful_writer_wins() 
     );
     let mut final_snapshot = snapshot;
     final_snapshot.captured_at_ms = 3;
+    final_snapshot.windows[0].name = "third layout".into();
     assert!(publish_event(&paths, &socket, || Ok(final_snapshot.clone())).unwrap());
     assert_eq!(decode(&fs::read(&latest).unwrap()).unwrap(), final_snapshot);
 }
@@ -340,6 +405,7 @@ fn command_interval_skips_capture_until_due_and_failed_refresh_preserves_bytes()
         publish_refresh(&paths, socket, 60_002, || {
             let mut updated = snapshot.clone();
             updated.captured_at_ms = 60_002;
+            updated.windows[0].name = "changed layout".into();
             Ok(updated)
         })
         .unwrap()
@@ -363,7 +429,14 @@ fn command_interval_skips_capture_until_due_and_failed_refresh_preserves_bytes()
     )
     .unwrap();
     assert!(!publish_refresh(&paths, socket, u64::MAX, || panic!("event only")).unwrap());
-    assert!(publish_event(&paths, socket, || Ok(snapshot.clone())).unwrap());
+    assert!(
+        publish_event(&paths, socket, || {
+            let mut event = snapshot.clone();
+            event.windows[0].name = "event capture".into();
+            Ok(event)
+        })
+        .unwrap()
+    );
 }
 
 #[test]

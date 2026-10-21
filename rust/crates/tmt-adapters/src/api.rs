@@ -42,6 +42,7 @@ const OPS: &[&str] = &[
     "digest.checklist.settle",
     "capabilities",
     "storage.root",
+    "workspace.capture",
     "changes.cursor",
     "requests.list",
     "requests.show",
@@ -183,6 +184,8 @@ pub enum Request {
     },
     /// Read-only: the selected data directory, without opening storage.
     StorageRoot,
+    /// Advisory capture of recorded native server incarnations only.
+    WorkspaceCapture,
     /// Read-only: the durable change cursor.
     ChangeCursor,
     History(HistoryQuery),
@@ -303,6 +306,11 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         {
             Request::StorageRoot
         }
+        "workspace.capture"
+            if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
+        {
+            Request::WorkspaceCapture
+        }
         "changes.cursor"
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
@@ -368,6 +376,10 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         let root = root.to_str().ok_or_else(Fault::unavailable)?;
         return serde_json::to_vec(&json!({"dataRoot": root})).map_err(|_| Fault::unavailable());
     }
+    if matches!(request, Request::WorkspaceCapture) {
+        let report = crate::workspace::capture_recorded(paths).map_err(|_| Fault::unavailable())?;
+        return serde_json::to_vec(&report).map_err(|_| Fault::unavailable());
+    }
     if let Request::SkillsInstall {
         owner,
         skills,
@@ -407,6 +419,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     let pending = match request {
         Request::Capabilities
         | Request::StorageRoot
+        | Request::WorkspaceCapture
         | Request::Notes(_)
         | Request::ExtensionUse { .. }
         | Request::SkillsInstall { .. }
@@ -1375,5 +1388,67 @@ mod tests {
                 })
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod workspace_capture_tests {
+    use super::*;
+    #[test]
+    fn workspace_capture_accepts_only_empty_unattributed_input_and_creates_no_store() {
+        let root = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &root.path,
+            &root.path,
+            Some(&root.path.join("global")),
+            None,
+        );
+        let request = r#"{"version":1,"operation":"workspace.capture","input":{}}"#;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(
+                &execute(&paths, decode(request).unwrap()).unwrap()
+            )
+            .unwrap(),
+            json!({"attempted":0,"published":0,"skipped":0})
+        );
+        assert!(!paths.database.exists());
+        assert!(!paths.global_dir.join("workspace").exists());
+        assert!(
+            serde_json::from_slice::<serde_json::Value>(&capabilities()).unwrap()["operations"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("workspace.capture"))
+        );
+        for input in [
+            json!({"socket":"/tmp/foreign"}),
+            json!([]),
+            json!(null),
+            json!({"timeoutMs":10}),
+        ] {
+            assert_eq!(
+                decode(
+                    &json!({"version":1,"operation":"workspace.capture","input":input}).to_string()
+                )
+                .err()
+                .expect("invalid capture input must refuse")
+                .code(),
+                "API_INPUT_INVALID"
+            );
+        }
+        for key in ["identity", "originator"] {
+            let mut envelope = json!({"version":1,"operation":"workspace.capture","input":{}});
+            envelope[key] = json!("anonymous");
+            assert_eq!(
+                decode(&envelope.to_string())
+                    .err()
+                    .expect("invalid capture input must refuse")
+                    .code(),
+                "API_INPUT_INVALID"
+            );
+        }
+        assert!(
+            decode(r#"{"version":1,"operation":"workspace.capture","input":{},"input":{}}"#)
+                .is_err()
+        );
     }
 }

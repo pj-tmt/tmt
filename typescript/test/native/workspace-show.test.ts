@@ -160,6 +160,11 @@ describe('named workspace snapshots', () => {
         name: 'work',
         digest,
         capturedAtMs: 1,
+        generation: null,
+        panes: 1,
+        agents: 0,
+        protected: false,
+        shrink: false,
       });
       const named = path.join(directory, 'saved-work.json');
       expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
@@ -189,8 +194,22 @@ describe('named workspace snapshots', () => {
             name: null,
             digest: createHash('sha256').update(JSON.stringify(updated)).digest('hex'),
             capturedAtMs: 2,
+            generation: null,
+            panes: 1,
+            agents: 0,
+            protected: false,
+            shrink: false,
           },
-          { name: 'work', digest, capturedAtMs: 1 },
+          {
+            name: 'work',
+            digest,
+            capturedAtMs: 1,
+            generation: null,
+            panes: 1,
+            agents: 0,
+            protected: false,
+            shrink: false,
+          },
         ],
       });
       expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
@@ -268,6 +287,119 @@ describe('named workspace snapshots', () => {
         expect(result.status).toBe(1);
         expect(JSON.parse(result.stdout).error.code).toBe('USAGE_ERROR');
       }
+      expect(fs.existsSync(tripwire)).toBe(false);
+    });
+  });
+});
+
+describe('retained workspace generation selection', () => {
+  it('selects the protected pre-crash input and refuses a smaller JSON choice before host or storage effects', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = installTmuxTripwire(sandbox);
+      const socket = path.join(sandbox.root, 'gone-socket');
+      const directory = path.join(
+        sandbox.globalDir,
+        'workspace',
+        createHash('sha256').update(socket).digest('hex')
+      );
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const rich = {
+        ...snapshot(socket),
+        panes: Array.from({ length: 4 }, (_, index) => ({
+          ...snapshot(socket).panes[0],
+          id: `%${index + 1}`,
+          index,
+          identity: {
+            id: `f8c8b6c0-3adc-452c-9a69-${String(index + 1).padStart(12, '0')}`,
+            name: `worker-${index}`,
+            lifetime: 'saved',
+            binding: `binding-${index}`,
+            harness: null,
+            session: null,
+            mode: null,
+            channel: null,
+          },
+        })),
+      };
+      const small = {
+        ...rich,
+        capturedAtMs: 2,
+        server: { ...rich.server, process: { pid: 11, start: 'restarted' } },
+        panes: rich.panes.slice(0, 1),
+      };
+      const entries = [rich, small].map((snapshot, index) => {
+        const bytes = JSON.stringify(snapshot);
+        const digest = createHash('sha256').update(bytes).digest('hex');
+        fs.writeFileSync(path.join(directory, `auto-${digest}.json`), bytes, { mode: 0o600 });
+        return {
+          id: `g:${digest}`,
+          capturedAtMs: snapshot.capturedAtMs,
+          panes: snapshot.panes.length,
+          agents: snapshot.panes.length,
+          shrink: index === 1,
+        };
+      });
+      fs.writeFileSync(path.join(directory, 'latest.json'), JSON.stringify(small), { mode: 0o600 });
+      fs.writeFileSync(
+        path.join(directory, 'generations.json'),
+        JSON.stringify({ version: 1, protected: entries[0].id, entries }),
+        { mode: 0o600 }
+      );
+      const before = new Map(
+        fs.readdirSync(directory).map((name) => [name, fs.readFileSync(path.join(directory, name))])
+      );
+      const cli = (args: string[]) =>
+        runCli(sandbox, ['workspace', ...args, '--socket', socket, '--json']);
+      const preview = await cli(['show']);
+      expect(preview.status).toBe(0);
+      expect(JSON.parse(preview.stdout)).toMatchObject({
+        generation: entries[0].id,
+        protected: true,
+        requiresConfirmation: false,
+        snapshot: rich,
+      });
+      const listed = await cli(['ls']);
+      expect(listed.status).toBe(0);
+      expect(
+        JSON.parse(listed.stdout).snapshots.map(
+          (entry: {
+            generation: string;
+            panes: number;
+            agents: number;
+            protected: boolean;
+            shrink: boolean;
+          }) => ({
+            generation: entry.generation,
+            panes: entry.panes,
+            agents: entry.agents,
+            protected: entry.protected,
+            shrink: entry.shrink,
+          })
+        )
+      ).toEqual([
+        { generation: entries[1].id, panes: 1, agents: 1, protected: false, shrink: true },
+        { generation: entries[0].id, panes: 4, agents: 4, protected: true, shrink: false },
+      ]);
+      for (const flags of [[], ['--layout-only']]) {
+        const refusal = await cli(['restore', entries[1].id, ...flags]);
+        expect(refusal.status).toBe(1);
+        expect(JSON.parse(refusal.stdout).error).toMatchObject({
+          code: 'WORKSPACE_SMALLER_CONSENT_REQUIRED',
+        });
+        expect(JSON.parse(refusal.stdout).error.message).toContain(
+          `restore ${entries[1].id} --expect ${entries[1].id.slice(2)}`
+        );
+        expect(refusal.stderr).toBe('');
+      }
+      const changed = await cli(['restore', entries[1].id, '--expect', entries[0].id.slice(2)]);
+      expect(changed.status).toBe(5);
+      expect(JSON.parse(changed.stdout).error.code).toBe('WORKSPACE_SNAPSHOT_CHANGED');
+      const missing = await cli(['show', `g:${'0'.repeat(64)}`]);
+      expect(missing.status).toBe(3);
+      for (const [name, bytes] of before)
+        expect(fs.readFileSync(path.join(directory, name))).toEqual(bytes);
+      expect(fs.readdirSync(directory)).toEqual([...before.keys()]);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
       expect(fs.existsSync(tripwire)).toBe(false);
     });
   });

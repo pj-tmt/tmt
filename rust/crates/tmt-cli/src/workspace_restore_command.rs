@@ -38,12 +38,26 @@ fn identities(
 }
 
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
-    &[crate::cli_style_tests::HintSpec::core(
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
         "needs you (stale conversation; tmt resume --retry -- {name})",
         &[")"],
         &[],
-    )];
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Selected {selection} has {} panes and {} agents; protected {} has {} panes and {} agents. Nothing was restored. To choose the smaller workspace explicitly, run tmt workspace restore {selection} --expect {} --socket {socket_argument}{}.",
+        &["."],
+        &[
+            ("{selection}", "work"),
+            (
+                "--expect {}",
+                "--expect 0000000000000000000000000000000000000000000000000000000000000000",
+            ),
+            ("{socket_argument}", "/tmp/hint.sock"),
+            ("{}", ""),
+        ],
+    ),
+];
 
 struct Revival {
     recorded: String,
@@ -237,7 +251,7 @@ fn revive(
 
 pub fn execute(
     socket: Option<&str>,
-    name: Option<&tmt_core::workspace::SnapshotName>,
+    name: Option<&tmt_core::workspace::SnapshotSelector>,
     expect: Option<&str>,
     layout_only: bool,
     mode: OutputMode,
@@ -245,13 +259,80 @@ pub fn execute(
     let outcome: Result<_, Failure> = (|| {
         let (paths, socket, host) = crate::workspace_snapshot_command::context(socket)?;
         let document =
-            workspace::saved::acquire(&paths, &socket, name, expect).map_err(|error| {
+            workspace::saved::acquire_selected(&paths, &socket, name, expect).map_err(|error| {
                 crate::workspace_snapshot_command::failure(
                     error,
                     "WORKSPACE_RESTORE_UNAVAILABLE",
                     name.is_none(),
                 )
             })?;
+        let generation = document
+            .generation
+            .as_ref()
+            .map(|generation| generation.id.as_str().to_owned());
+        if name.is_none()
+            && !layout_only
+            && document
+                .generation
+                .as_ref()
+                .is_some_and(|generation| generation.agents == 0)
+        {
+            return Err(Failure::new(
+                "WORKSPACE_NO_AGENT_GENERATION",
+                "No retained workspace generation has agent annotations. Nothing was restored; preview and explicitly select a layout-only recovery.",
+                1,
+            ));
+        }
+        if document.requires_confirmation {
+            let selection = name
+                .map(|name| name.as_str())
+                .or(generation.as_deref())
+                .expect("selected recovery");
+            let socket_argument = format!("'{}'", socket.replace('\'', "'\\''"));
+            let baseline = document
+                .baseline
+                .as_ref()
+                .expect("smaller than protected generation");
+            let retry = format!(
+                "Selected {selection} has {} panes and {} agents; protected {} has {} panes and {} agents. Nothing was restored. To choose the smaller workspace explicitly, run tmt workspace restore {selection} --expect {} --socket {socket_argument}{}.",
+                document.snapshot.panes.len(),
+                document.snapshot.agent_count(),
+                baseline.id.as_str(),
+                baseline.panes,
+                baseline.agents,
+                document.digest,
+                if layout_only { " --layout-only" } else { "" }
+            );
+            let question = format!(
+                "Restore this smaller workspace ({} panes, {} agents)",
+                document.snapshot.panes.len(),
+                document.snapshot.agent_count()
+            );
+            let mut prompt = tmt_cli_style::stream::stderr();
+            if !crate::consent::ask(
+                &mut prompt,
+                false,
+                mode,
+                crate::consent::Consent {
+                    code: "WORKSPACE_SMALLER_CONSENT_REQUIRED",
+                    refusal: &retry,
+                    question: &question,
+                    declined: "Nothing was restored.",
+                },
+                |error| Failure::new("WORKSPACE_RESTORE_UNAVAILABLE", error.to_string(), 1),
+            )? {
+                return Err(Failure::new(
+                    "WORKSPACE_RESTORE_DECLINED",
+                    "Nothing was restored.",
+                    1,
+                ));
+            }
+        }
+        let accepted_generation = document
+            .generation
+            .as_ref()
+            .filter(|_| name.is_some())
+            .map(|generation| generation.id.clone());
         let snapshot = document.snapshot;
         let identities = if layout_only {
             Vec::new()
@@ -270,7 +351,7 @@ pub fn execute(
             .filter(|pane| pane.argv.is_some())
             .map(|pane| pane.recorded.clone())
             .collect::<Vec<_>>();
-        let result = host
+        let mut result = host
             .workspace_restore_layout(
                 &snapshot,
                 Instant::now() + Duration::from_secs(30),
@@ -295,16 +376,28 @@ pub fn execute(
         } else {
             revive(&paths, &snapshot, &host, &result, prepared)
         };
-        Ok((socket, document.digest, result, revival))
+        if !result.partial()
+            && !revival.iter().any(|pane| pane.failed)
+            && let Some(selected) = accepted_generation
+            && let Err(error) = workspace::saved::accept_generation(
+                &paths,
+                &socket,
+                &selected,
+                document.baseline.as_ref().map(|generation| &generation.id),
+            )
+        {
+            result.failures.push(format!("Restore effects completed, but the protected recovery choice may not have been saved: {error}. Inspect workspace ls before choosing again."));
+        }
+        Ok((socket, document.digest, generation, result, revival))
     })();
-    let (socket, digest, result, revival) = match outcome {
+    let (socket, digest, generation, result, revival) = match outcome {
         Ok(result) => result,
         Err(error) => return error.publish(mode),
     };
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     let partial = result.partial() || revival.iter().any(|pane| pane.failed);
     if mode.json {
-        let mut document = serde_json::json!({"version": 1, "socket": socket, "name": name.map(|name| name.as_str()), "digest": digest, "layoutOnly": layout_only,
+        let mut document = serde_json::json!({"version": 1, "socket": socket, "name": name.map(|name| name.as_str()), "generation": generation, "digest": digest, "layoutOnly": layout_only,
             "status": if partial { "partial" } else { "completed" }, "sessions": result.sessions,
             "windows": result.windows, "panes": result.panes, "failures": result.failures});
         if !layout_only {
