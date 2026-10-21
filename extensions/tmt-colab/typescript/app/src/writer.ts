@@ -405,7 +405,17 @@ export class Writer {
     state.pending = { id, entry };
     await this.record(this.key, state);
     requireValue(!this.#closed);
-    await this.#append(c, state, entry);
+    try {
+      await this.#append(c, state, entry);
+    } catch (error) {
+      if (!(error instanceof Error && error.message === 'CONFLICT')) throw error;
+      // The serve already holds a different checkpoint of this stream at its head (an owner fold
+      // of it, signed by the serve). Ours was never stored: it must not stay saved, or every
+      // later write would replay it first and be refused the same way.
+      state.pending = null;
+      await this.record(this.key, state);
+      return { outcome: 'not-combined' };
+    }
     state.pending = null;
     state.completed.push(id);
     state.completed = state.completed.slice(-64);
