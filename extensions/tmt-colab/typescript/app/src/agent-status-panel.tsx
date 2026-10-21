@@ -1,4 +1,4 @@
-import { BrowserAction, BusyMark, useBusyMark } from '@tmt/browser-ui/react';
+import { BrowserAction, BusyMark } from '@tmt/browser-ui/react';
 import { Circle, CircleDot, CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentChip } from './components/agent-chip.js';

@@ -140,6 +140,11 @@ test('an owner link to the old list lands on the home and keeps no stale route',
   await expect.poll(() => here(page)).toBe('/colab/');
 });
 
+test('an open key on a link survives to the page route', async ({ page }) => {
+  await open(page, `/colab/p/12345678#open=${page1}`);
+  await expect.poll(() => here(page)).toBe(`/colab/pages/${page1}?open=${page1}`);
+});
+
 test('the renderer is still a separate sandboxed frame with an opaque origin', async ({ page }) => {
   await open(page, `/colab/pages/${page1}`);
   const frame = page.locator('iframe');

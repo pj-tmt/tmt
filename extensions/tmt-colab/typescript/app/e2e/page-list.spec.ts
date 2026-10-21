@@ -1357,9 +1357,7 @@ async function insideViewport(page: Page) {
     const outside = [...document.querySelectorAll('#list-fixture *, [role="listbox"]')]
       // Tab strips (the list's views, the phone module menu) scroll inside; their tabs may pass the
       // edge.
-      .filter(
-        (node) => !node.parentElement?.closest('.tmt-ui-tab-list, .tmt-ui-module-menu'),
-      )
+      .filter((node) => !node.parentElement?.closest('.tmt-ui-tab-list, .tmt-ui-module-menu'))
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);
