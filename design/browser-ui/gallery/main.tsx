@@ -26,7 +26,6 @@ import {
 } from './components.js';
 import { NotificationsSection, OverlaysSection, ShellSection, frameFor } from './frames.js';
 import { UiLayerSection } from './ui-layer.js';
-import { SpinnerCandidates } from './spinner-candidates.js';
 
 document.querySelector<HTMLLinkElement>('#favicon')!.href = favicon;
 const params = new URLSearchParams(location.search);
@@ -53,7 +52,6 @@ function Gallery() {
         <ActionsSection />
         <IconActionsSection />
         <BusySection />
-        <SpinnerCandidates />
         <FieldsSection />
         <ToggleSection />
         <CheckboxSection />

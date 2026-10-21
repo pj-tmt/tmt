@@ -11,7 +11,6 @@ export const sections = [
   ['actions', 'Actions'],
   ['icon-actions', 'Icon actions'],
   ['busy', 'Busy mark'],
-  ['spinner-candidates', 'Spinner candidates'],
   ['fields', 'Fields'],
   ['toggle', 'Toggle'],
   ['checkbox', 'Checkbox'],

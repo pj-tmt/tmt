@@ -82,9 +82,6 @@ const SMALL = {
   prompt: 'M15 37 L28 50 L15 63',
 };
 
-/** The small form's paths in the 96 box, for marks drawn from the logo (the gallery's spinners). */
-export const brandMarkSmallShape = SMALL;
-
 /** The small form below this rendered size. */
 export const brandMarkSmallBelow = 28;
 export const brandMarkSmall = (size: number | undefined): boolean =>

@@ -295,15 +295,9 @@ code,
   min-width: 0;
   overflow-x: auto;
 }
-.gallery-candidate-large {
+.gallery-busy-size {
   display: inline-block;
-  font-size: 32px;
   line-height: 1;
-}
-.gallery-candidate-large > svg {
-  display: block;
-  width: 1em;
-  height: 1em;
 }
 .gallery-check {
   display: inline-flex;

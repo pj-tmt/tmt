@@ -224,6 +224,22 @@ export function BusySection() {
       >
         {() => <BusyDemo />}
       </Pair>
+      <Pair
+        title="BusyMark"
+        note="The one mark (a 2x3 braille snake), alone at 12, 16 and 32 px; the busy state of each action and icon action is in their sections. It steps once per --tmt-ui-spin-duration and holds its first frame under reduced motion."
+      >
+        {() => (
+          <Cells>
+            {[12, 16, 32].map((size) => (
+              <Cell key={size} label={`${size}px`}>
+                <span className="gallery-busy-size" style={{ fontSize: size }}>
+                  <BusyMark />
+                </span>
+              </Cell>
+            ))}
+          </Cells>
+        )}
+      </Pair>
     </Section>
   );
 }
