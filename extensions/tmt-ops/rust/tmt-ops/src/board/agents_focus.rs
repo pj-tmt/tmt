@@ -105,7 +105,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         && app.conversation_input_area().is_some()
     {
         let height =
-            super::view::waiting::input_lines(app, area).min(usize::from(area.height)) as u16;
+            super::view::waiting::input_lines(app, area, input_field::padded(frame.area().height))
+                .min(usize::from(area.height)) as u16;
         app.input_band.set(Some(Rect::new(
             area.x,
             area.bottom() - height,
@@ -228,7 +229,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             projection.key.is_some() && (projection.focused || app.composer_start().is_some())
         });
     let reserved = if admitted_input {
-        app.composer_rows(area.width.saturating_sub(input_field::GUTTER * 2)) + 3
+        app.composer_rows(
+            area.width.saturating_sub(input_field::GUTTER * 2),
+            input_field::padded(frame.area().height),
+        ) + 3
     } else {
         2
     };
@@ -294,8 +298,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     let available = area.bottom().saturating_sub(y);
     let input = if admitted_input {
-        app.composer_rows(area.width.saturating_sub(input_field::GUTTER * 2))
-            .min(available)
+        app.composer_rows(
+            area.width.saturating_sub(input_field::GUTTER * 2),
+            input_field::padded(frame.area().height),
+        )
+        .min(available)
     } else {
         0
     };
