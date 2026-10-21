@@ -343,46 +343,50 @@ fn task_field_fixture(look: crate::look::Look) -> App {
     app
 }
 
+fn task_field_start(app: &App, buffer: &ratatui::buffer::Buffer) -> (u16, u16) {
+    let area = app
+        .conversation
+        .borrow()
+        .source_surfaces
+        .iter()
+        .find(|surface| surface.text().contains("task proof"))
+        .expect("the actual task painter publishes its displayed cells")
+        .area;
+    for y in area.y..area.bottom() {
+        let line: String = (area.x..area.right())
+            .map(|x| buffer[(x, y)].symbol())
+            .collect();
+        if let Some(x) = line.find("task proof") {
+            return (area.x + x as u16, y);
+        }
+    }
+    panic!("the published task field contains its displayed text");
+}
+
 #[test]
 fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
     for look in selection_looks() {
         let mut app = task_field_fixture(look);
         let buffer = draw(&mut app, 100, 36);
-        let area = app
-            .conversation
-            .borrow()
-            .source_surfaces
-            .iter()
-            .find(|surface| surface.text().contains("task proof"))
-            .expect("the actual task painter publishes its displayed cells")
-            .area;
-        let line: String = (area.x..area.right())
-            .map(|x| buffer[(x, area.y)].symbol())
-            .collect();
-        let x = area.x + line.find("task proof").unwrap() as u16;
-        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, area.y);
-        mouse(
-            &mut app,
-            MouseEventKind::Drag(MouseButton::Left),
-            x + 10,
-            area.y,
-        );
+        let (x, y) = task_field_start(&app, &buffer);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
         let highlighted = draw(&mut app, 100, 36);
         assert!(matches!(
             app.conversation.borrow().selection,
             Some(Selection::Cells(_))
         ));
-        assert_ne!(highlighted[(x, area.y)], buffer[(x, area.y)], "{look:?}");
+        assert_ne!(highlighted[(x, y)], buffer[(x, y)], "{look:?}");
         if look.depth == tmt_cli_style::Depth::None {
             assert!(
-                highlighted[(x, area.y)]
+                highlighted[(x, y)]
                     .modifier
                     .contains(ratatui::style::Modifier::REVERSED)
             );
         }
         assert_eq!(selected(&app).as_deref(), Some("task proof"));
         assert!(
-            matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+10,area.y),
+            matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+10,y),
             Effect::Act(Request::Copy{text,..}) if text=="task proof")
         );
     }
@@ -995,9 +999,14 @@ fn capture_selection_fallback_packet() {
             }
             let mut app = task_field_fixture(look);
             let buffer = draw(&mut app, 100, 36);
-            let (x, y) = locate(&buffer, "task proof").expect("displayed task field");
+            let (x, y) = task_field_start(&app, &buffer);
             mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
             mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
+            assert!(matches!(
+                app.conversation.borrow().selection,
+                Some(Selection::Cells(_))
+            ));
+            assert_eq!(selected(&app).as_deref(), Some("task proof"));
             frames.push(selection_frame(
                 &mut app,
                 look,
@@ -1020,7 +1029,12 @@ fn selection_frame(
     needle: &str,
 ) -> serde_json::Value {
     let buffer = draw(app, width, height);
-    let highlighted: Vec<_> = locate(&buffer, needle)
+    let start = if scene == "task-field" {
+        Some(task_field_start(app, &buffer))
+    } else {
+        locate(&buffer, needle)
+    };
+    let highlighted: Vec<_> = start
         .into_iter()
         .flat_map(|(x, y)| (x..x + needle.len() as u16).map(move |x| (x, y)))
         .collect();
@@ -1088,7 +1102,7 @@ fn selection_private_terminal_evidence() {
         terminal.size().unwrap(),
         ratatui::layout::Size::new(width, 36)
     );
-    crate::status::with_now_ms(1_791_600_000_000, || {
+    let position = crate::status::with_now_ms(1_791_600_000_000, || {
         let mut app = if scene == "task-field" {
             task_field_fixture(look)
         } else {
@@ -1103,23 +1117,51 @@ fn selection_private_terminal_evidence() {
             }
             _ => "passage 078",
         };
-        select_at_width(&mut app, needle, width);
+        if scene == "task-field" {
+            let buffer = draw(&mut app, width, 36);
+            let (x, y) = task_field_start(&app, &buffer);
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+            mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
+            assert!(matches!(
+                app.conversation.borrow().selection,
+                Some(Selection::Cells(_))
+            ));
+        } else {
+            select_at_width(&mut app, needle, width);
+        }
+        assert_eq!(selected(&app).as_deref(), Some(needle));
         if scene == "input-grown" {
             app.perform(&crate::action::Action::parse("talk").unwrap());
             app.paste("a\nb\nc\nd\ne");
+            app.scroll_pane(Pane::Replies, Step::Bottom);
         }
         if scene == "help" {
             app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         }
+        let preview = draw(&mut app, width, 36);
+        let position = if scene == "help" {
+            (0, 0)
+        } else if scene == "task-field" {
+            task_field_start(&app, &preview)
+        } else {
+            locate(&preview, needle).expect("selected passage is visible")
+        };
         terminal
             .draw(|frame| {
                 crate::board::view::prepare(&mut app, frame.area());
                 crate::board::view::render(frame, &app);
             })
             .unwrap();
+        position
     });
     // The private-server window-renamed hook runs after all preceding frame bytes.
-    write!(std::io::stdout(), "\x1bk{ready}\x1b\\").unwrap();
+    write!(
+        std::io::stdout(),
+        "\x1bk{ready}-{}-{}\x1b\\",
+        position.0,
+        position.1
+    )
+    .unwrap();
     std::io::stdout().flush().unwrap();
     let mut quit = [0];
     std::io::stdin().read_exact(&mut quit).unwrap();
