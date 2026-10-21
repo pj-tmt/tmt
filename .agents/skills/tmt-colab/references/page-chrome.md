@@ -83,7 +83,11 @@ mark and the `Colab` wordmark, then `/`, the crumbs and title, then muted origin
 display-only `local · <backendName>` identity (`local` when absent) is not a visible element: it
 names the brand link (`Colab · local · <backendName>`) and is its tooltip; an unlinked brand is a
 named group with the same title. Below 480px every Colab header shows the mark only: the wordmark is
-visually hidden and stays in that name. Author hides below 900px; the title truncates without
+visually hidden and stays in that name. Inside the TMT web shell ([Shell](../../../../design/gui-style.md#shell))
+`ColabHeader` renders into the shell's header slot from whichever route draws it; the rail carries
+the mark, so the header shows the wordmark at every width. The shell's module menu holds All pages,
+each project with its counts, New project… and Manage projects…; the space home shows its scope as
+plain text after the title. Author hides below 900px; the title truncates without
 changing its DOM copy. The page header's status slot holds, in order, the needs-you entry
 (only while something waits) and the attention marks, each shown only while its state holds, as
 one mark plus a word: `△ Remote offline`, `◉ Shared` (a page readable by anyone but its owner must

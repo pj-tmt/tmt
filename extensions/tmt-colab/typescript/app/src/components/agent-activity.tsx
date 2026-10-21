@@ -1,5 +1,4 @@
-import { LoaderCircle } from 'lucide-react';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { BusyMark } from '@tmt/browser-ui/react';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { activityAt, type ActivityObservation } from '../agent-activity.js';
 import type { PageAsk } from '../ask-panel.js';
@@ -87,9 +86,7 @@ export function AgentActivityLine({ record }: { record: PageAsk }) {
           ✓{' '}
         </span>
       )}
-      {kind === 'working' && (
-        <LoaderCircle className={`${ui.spin} agent-activity-spinner`} aria-hidden />
-      )}
+      {kind === 'working' && <BusyMark className="agent-activity-spinner" />}
       {kind === 'sent' ? (
         text.agentSent
       ) : (

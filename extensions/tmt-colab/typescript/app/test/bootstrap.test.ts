@@ -400,6 +400,25 @@ it('retains an anonymous short-link target across authenticated discovery and mo
     `${mount.pathname}#space=${boot.space}&path=%2Fshort%2F12345678`,
   );
 });
+it('retains a native page deep link target and refuses a malformed page ID', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  await response([]);
+  const page = '10000000-0000-4000-8000-000000000001';
+  vi.stubGlobal('location', { hash: `#path=%2Fpages%2F${page}` });
+  const replaceState = vi.fn();
+  vi.stubGlobal('history', { state: null, replaceState });
+  const boot = await discover(mount);
+  expect(replaceState).toHaveBeenCalledWith(
+    null,
+    '',
+    `${mount.pathname}#space=${boot.space}&path=%2Fpages%2F${page}`,
+  );
+  await response([]);
+  vi.stubGlobal('location', { hash: '#path=%2Fpages%2F10000000' });
+  await expect(discover(mount)).rejects.toThrow();
+});
 it('rejects secret or malformed fragments instead of retaining them in a short-link recovery', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, run: () => unknown) => run() },

@@ -80,6 +80,13 @@ pub(crate) struct Description {
         deserialize_with = "present"
     )]
     home: Option<Vec<Home>>,
+    /// The module's lazy ES module for the one TMT app, a path under its own mount (#3937).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    entry: Option<String>,
 }
 fn label(s: &str, cap: usize) -> bool {
     (1..=cap).contains(&s.chars().count())
@@ -162,6 +169,11 @@ impl Description {
         {
             d.rail.icon = "box".into();
         }
+        // An entry outside the module's mount, or not a module script, is dropped: the app then
+        // falls back to the module's link. The rest of the description stands.
+        if d.entry.as_ref().is_some_and(|e| !path(e) || !e.ends_with(".js")) {
+            d.entry = None;
+        }
         Some(d)
     }
     fn module(mut self, extension: &str, base: &str) -> Value {
@@ -175,6 +187,9 @@ impl Description {
         }
         for h in self.home.iter_mut().flatten() {
             resolve(&mut h.path);
+        }
+        if let Some(entry) = &mut self.entry {
+            resolve(entry);
         }
         let mut v = serde_json::to_value(self).expect("bounded display fields");
         v["extension"] = json!(extension);

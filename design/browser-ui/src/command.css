@@ -62,8 +62,7 @@
 }
 .tmt-ui-command-copy:not(:disabled):hover,
 .tmt-ui-command-copy:not(:disabled):focus-visible {
-  color: var(--tmt-ui-color-selected-text);
-  background: var(--tmt-ui-surface-selection);
+  background: var(--tmt-ui-surface-hover);
   box-shadow: none;
 }
 .tmt-ui-command-copy:focus-visible {

@@ -1,0 +1,57 @@
+/**
+ * Every value export of `src/react.ts` and the gallery section that renders it. The type below
+ * fails `tsc` when an export is missing, and `test/gallery.test.ts` also checks that each one is
+ * really rendered or called in the gallery source.
+ */
+export const sections = [
+  ['tokens', 'Tokens'],
+  ['brand', 'Brand mark'],
+  ['shell', 'Shell'],
+  ['header', 'Header'],
+  ['actions', 'Actions'],
+  ['icon-actions', 'Icon actions'],
+  ['busy', 'Busy mark'],
+  ['spinner-candidates', 'Spinner candidates'],
+  ['fields', 'Fields'],
+  ['toggle', 'Toggle'],
+  ['checkbox', 'Checkbox'],
+  ['chips', 'Chips'],
+  ['menus', 'Menus'],
+  ['tabs', 'Tabs'],
+  ['list', 'List'],
+  ['command', 'Command'],
+  ['notice', 'Notice'],
+  ['overlays', 'Dialog and drawer'],
+  ['notifications', 'Notifications'],
+  ['ui-layer', 'UI layer'],
+] as const;
+export type SectionId = (typeof sections)[number][0];
+
+export const covered = {
+  BrandMark: 'brand',
+  BrandLockup: 'brand',
+  BrowserShell: 'shell',
+  HostedShell: 'shell',
+  useShellBar: 'shell',
+  BrowserHeader: 'header',
+  BrowserAction: 'actions',
+  BrowserIconAction: 'icon-actions',
+  busyMarkDelayMs: 'busy',
+  busyMarkHoldMs: 'busy',
+  useBusyMark: 'busy',
+  BrowserField: 'fields',
+  BrowserToggle: 'toggle',
+  BrowserCheckbox: 'checkbox',
+  BrowserChips: 'chips',
+  BrowserChip: 'chips',
+  BrowserMenu: 'menus',
+  BrowserTabs: 'tabs',
+  BrowserList: 'list',
+  BrowserListRow: 'list',
+  BrowserCommand: 'command',
+  BrowserNotice: 'notice',
+  BrowserDialog: 'overlays',
+  BrowserDrawer: 'overlays',
+  BusyMark: 'busy',
+  BrowserNotifications: 'notifications',
+} as const satisfies Record<keyof typeof import('../src/react.js'), SectionId>;

@@ -1,4 +1,4 @@
-import { publicEntry, entryMount } from './entry.js';
+import { entryMount, inShell, publicEntry } from './entry.js';
 import { useSyncExternalStore } from 'react';
 
 const ENTRY_SCRIPTS = /<script\b[^>]*\btype="module"[^>]*\bsrc="([^"]+)"/gi;
@@ -49,6 +49,8 @@ export function loadedEntry(root: Document = document): string | null {
 
 /** The build the server serves now: one uncached read of this app's root page. */
 async function servedEntry(): Promise<string | null> {
+  // Inside the TMT app the document is the app's, not Colab's; the app reloads it as a whole.
+  if (inShell()) return null;
   const root = publicEntry() ? entryMount() : new URL(location.href);
   root.hash = '';
   root.search = '';

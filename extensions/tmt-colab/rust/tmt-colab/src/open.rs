@@ -84,14 +84,15 @@ fn open_through_remote(
     }
 }
 
-/// The canonical short target of a Colab link: `/colab/` or `/p/<id>`. Anything else is never
-/// handed to Remote.
+/// The canonical short target of a Colab link: `/colab/`, `/colab/p/<id>` (printed since the one
+/// TMT app, #3937) or the older `/p/<id>`. Anything else is never handed to Remote.
 fn short_target(link: &str) -> Option<&str> {
     let (_, rest) = link.split_once("://")?;
     let path = &rest[rest.find('/')?..];
     (path == "/colab/"
         || path
-            .strip_prefix("/p/")
+            .strip_prefix("/colab/p/")
+            .or_else(|| path.strip_prefix("/p/"))
             .is_some_and(short_links::valid_prefix))
     .then_some(path)
 }

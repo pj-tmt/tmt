@@ -1,0 +1,348 @@
+/* The TMT web shell: global rail, optional module menu, then the host's one header (the bar)
+   over its main area. Square, flat, 1px rules; the window keeps the only scrollbar. */
+.tmt-ui-shell {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  min-height: 100dvh;
+}
+.tmt-ui-shell-content {
+  display: contents;
+}
+.tmt-ui-shell-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  grid-area: 1 / 3;
+  min-width: 0;
+}
+/* Hosts' fixed headers become the bar's sticky row; the rail carries the TMT mark. */
+.tmt-ui-shell-bar > .tmt-ui-header {
+  position: static;
+}
+.tmt-ui-shell-bar .tmt-ui-mark {
+  display: none;
+}
+.tmt-ui-shell-main {
+  grid-area: 2 / 3;
+  min-width: 0;
+}
+.tmt-ui-rail {
+  grid-area: 1 / 1 / 3;
+}
+.tmt-ui-module-menu {
+  grid-area: 1 / 2 / 3;
+}
+.tmt-ui-rail,
+.tmt-ui-module-menu {
+  position: sticky;
+  top: 0;
+  box-sizing: border-box;
+  height: 100dvh;
+  overflow: hidden;
+  border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font: var(--tmt-ui-command-size)/1.3 var(--tmt-ui-font-body);
+}
+.tmt-ui-rail {
+  display: flex;
+  flex-direction: column;
+  width: var(--tmt-ui-rail-width);
+  background: var(--tmt-ui-surface-sheet);
+}
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail {
+  width: var(--tmt-ui-rail-collapsed-width);
+}
+.tmt-ui-rail-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  height: var(--tmt-ui-header-height);
+  padding: 0 var(--tmt-ui-space-m) 0 var(--tmt-ui-space-l);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-rail-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+  color: var(--tmt-ui-color-selected-text);
+  font: var(--tmt-ui-header-wordmark-weight) var(--tmt-ui-header-wordmark-size) /
+    var(--tmt-ui-header-wordmark-line-height) var(--tmt-ui-font-display);
+}
+.tmt-ui-rail-brand > .tmt-brand-mark {
+  width: var(--tmt-ui-space-xl);
+  height: var(--tmt-ui-space-xl);
+}
+.tmt-ui-rail-toggle,
+.tmt-ui-shell-open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tmt-ui-control-size);
+  height: var(--tmt-ui-control-size);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--tmt-ui-color-secondary);
+  cursor: pointer;
+}
+.tmt-ui-rail-toggle:hover,
+.tmt-ui-shell-open:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-rail-toggle:focus-visible,
+.tmt-ui-shell-open:focus-visible,
+.tmt-ui-rail-item:focus-visible,
+.tmt-ui-module-menu-item:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.tmt-ui-shell-icon {
+  flex: none;
+  /* The header's wide icon size; the rail keeps it at every width. */
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--tmt-ui-header-icon-stroke);
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+.tmt-ui-rail-items,
+.tmt-ui-module-menu-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tmt-ui-rail-items {
+  padding-block: var(--tmt-ui-space-s);
+}
+.tmt-ui-rail-bottom {
+  margin-top: auto;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-rail-item,
+.tmt-ui-module-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--tmt-ui-color-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.tmt-ui-rail-item {
+  gap: var(--tmt-ui-space-m);
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-l);
+}
+/* Hover keeps the text colour and only lightly tints the row; selection is the stronger grey. */
+.tmt-ui-rail-item:hover,
+.tmt-ui-module-menu-item:hover {
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-rail-item[aria-current='page'],
+.tmt-ui-module-menu-item[aria-current='page'] {
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-selected-text);
+  font-weight: 600;
+}
+.tmt-ui-rail-item[aria-current='page']::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--tmt-ui-indicator-width);
+  background: var(--tmt-ui-color-selected-text);
+  content: '';
+}
+.tmt-ui-rail-label,
+.tmt-ui-module-menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tmt-ui-shell-count {
+  margin-left: auto;
+  padding-left: var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-caption-size)/1 var(--tmt-ui-font-mono);
+}
+.tmt-ui-shell-counts {
+  display: flex;
+  gap: var(--tmt-ui-space-s);
+  margin-left: auto;
+}
+.tmt-ui-shell-counts > .tmt-ui-shell-count {
+  margin-left: 0;
+}
+.tmt-ui-shell-count[data-kind='needs-you'] {
+  color: var(--tmt-ui-color-waiting);
+}
+/* Collapsed: icons only; the mark expands the rail again and counts become corner badges. */
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-label,
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-toggle > svg {
+  display: none;
+}
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-top {
+  justify-content: center;
+  padding: 0;
+}
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-toggle {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  background: none;
+}
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-item {
+  justify-content: center;
+  padding: var(--tmt-ui-space-m) 0;
+}
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-item .tmt-ui-shell-count {
+  position: absolute;
+  top: var(--tmt-ui-space-xs);
+  right: var(--tmt-ui-space-xs);
+  min-width: var(--tmt-ui-toggle-indicator-size);
+  padding: 0 var(--tmt-ui-indicator-width);
+  background: var(--tmt-ui-color-waiting);
+  color: var(--tmt-ui-surface-sheet);
+  /* A corner badge: one step under the caption size so "99+" fits the collapsed rail. */
+  font-size: 10px;
+  line-height: var(--tmt-ui-toggle-indicator-size);
+  text-align: center;
+}
+.tmt-ui-module-menu {
+  width: var(--tmt-ui-module-menu-width);
+  background: var(--tmt-ui-surface-paper);
+  overflow-y: auto;
+}
+.tmt-ui-shell[data-menu='none'] .tmt-ui-module-menu {
+  display: none;
+}
+.tmt-ui-module-menu-title {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--tmt-ui-header-height);
+  padding: 0 var(--tmt-ui-space-l);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-selected-text);
+  font: var(--tmt-ui-header-title-weight) var(--tmt-ui-header-title-size) /
+    var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
+}
+.tmt-ui-module-menu-group {
+  min-height: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-l) var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-eyebrow-weight) var(--tmt-ui-eyebrow-size) / var(--tmt-ui-caption-line-height)
+    var(--tmt-ui-font-body);
+  letter-spacing: var(--tmt-ui-eyebrow-tracking);
+  text-transform: uppercase;
+}
+.tmt-ui-module-menu-item {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-l);
+}
+.tmt-ui-rail-item[aria-disabled='true'],
+.tmt-ui-module-menu-item[aria-disabled='true'] {
+  color: var(--tmt-ui-color-disabled-text);
+  cursor: default;
+}
+/* An unavailable module keeps its place; it neither lights on hover nor looks pressable. */
+.tmt-ui-rail-item[aria-disabled='true']:hover,
+.tmt-ui-module-menu-item[aria-disabled='true']:hover {
+  color: var(--tmt-ui-color-disabled-text);
+  background: none;
+}
+.tmt-ui-shell-open {
+  display: none;
+}
+/* Phone (the shell's own breakpoint, under the rail plus module menu plus a readable column):
+   the rail becomes a top-left menu button that opens it as a drawer; the module menu
+   becomes tabs under the title bar. */
+@media (max-width: 900px) {
+  .tmt-ui-shell {
+    display: block;
+  }
+  .tmt-ui-shell-content {
+    display: block;
+  }
+  .tmt-ui-shell-open {
+    position: fixed;
+    top: calc((var(--tmt-ui-header-compact-height) - var(--tmt-ui-control-size)) / 2);
+    left: var(--tmt-ui-space-s);
+    z-index: 53;
+    display: flex;
+  }
+  .tmt-ui-shell-bar .tmt-ui-header {
+    padding-left: calc(var(--tmt-ui-control-size) + var(--tmt-ui-space-l));
+  }
+  .tmt-ui-rail {
+    display: none;
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 52;
+    display: flex;
+    width: min(calc(var(--tmt-ui-rail-width) + var(--tmt-ui-space-2xl) * 2), 100vw);
+    height: auto;
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-label {
+    display: inline;
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-toggle {
+    display: none;
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-item {
+    justify-content: flex-start;
+    padding: var(--tmt-ui-space-s) var(--tmt-ui-space-l);
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-item .tmt-ui-shell-count {
+    position: static;
+    background: none;
+    color: var(--tmt-ui-color-waiting);
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-top {
+    justify-content: flex-start;
+    padding: 0 var(--tmt-ui-space-l) 0 var(--tmt-ui-rail-collapsed-width);
+  }
+  .tmt-ui-module-menu {
+    position: static;
+    display: flex;
+    width: auto;
+    height: auto;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+    background: var(--tmt-ui-surface-sheet);
+    scrollbar-width: none;
+  }
+  .tmt-ui-module-menu-title,
+  .tmt-ui-module-menu-group:empty {
+    display: none;
+  }
+  .tmt-ui-module-menu-group {
+    align-self: center;
+    padding: 0 var(--tmt-ui-space-xs) 0 var(--tmt-ui-space-m);
+  }
+  .tmt-ui-module-menu-items {
+    display: flex;
+  }
+  .tmt-ui-module-menu-item {
+    /* Two thirds of the screen at most, so a long name ellipsizes and the next tab peeks in. */
+    max-width: 66vw;
+    padding: var(--tmt-ui-space-m);
+  }
+  .tmt-ui-module-menu-label {
+    min-width: 0;
+  }
+  .tmt-ui-module-menu-item[aria-current='page'] {
+    background: none;
+  }
+  .tmt-ui-module-menu-item[aria-current='page']::after {
+    position: absolute;
+    inset: auto 0 0;
+    height: var(--tmt-ui-tab-indicator-width);
+    background: var(--tmt-ui-color-selected-text);
+    content: '';
+  }
+}

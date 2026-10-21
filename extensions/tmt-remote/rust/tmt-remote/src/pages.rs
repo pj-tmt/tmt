@@ -1,5 +1,5 @@
-//! Static Home/settings navigation, Remote pages, public extension entries, page refusals and
-//! their stylesheet, outside the route prefix. `/sdk/mount` tells a page this
+//! The one TMT web app document (`shell.html`) at every TMT route, the pairing page, public
+//! extension entries, page refusals and their stylesheet, outside the route prefix. `/sdk/mount` tells a page this
 //! run's identity and which mounted extension its path belongs to. None of these
 //! routes carries authority.
 use crate::{
@@ -17,11 +17,11 @@ const SDK: &str = include_str!("../assets/remote-v1.js");
 const BOOTSTRAP: &str = include_str!("../assets/pair.js");
 const PAGE: &str = include_str!("../assets/pair.html");
 const ENTRY: &str = include_str!("../assets/landing.js");
-const LANDING: &str = include_str!("../assets/landing.html");
-const HOME: &str = include_str!("../assets/home.html");
-const TMT_SETTINGS: &str = include_str!("../assets/tmt-settings.html");
+const SHELL_ENTRY: &str = include_str!("../assets/shell.js");
+/// The one TMT web app (#3937): its routes are modules in the SDK (`shell-app.ts`), whose page
+/// markup is built in from the page files; Colab's module loads from Colab's own mount.
+const SHELL: &str = include_str!("../assets/shell.html");
 const ERROR: &str = include_str!("../assets/error.html");
-const SETTINGS: &str = include_str!("../assets/settings.html");
 const SETTINGS_SCRIPT: &str = include_str!("../assets/settings-v1.js");
 const SETTINGS_STYLE: &str = include_str!("../assets/settings.css");
 // Checked shared presentation plus Remote-owned layout; no Cargo-time generator.
@@ -29,10 +29,51 @@ const STYLE: &str = concat!(
     include_str!("../../../../../design/browser-ui/generated/static.css"),
     "\n",
     include_str!("../assets/pages.css"),
+    "\n",
+    include_str!("../assets/tmt-settings.css"),
 );
 /// The page runs only the same-origin SDK module and talks only to this door.
 const PAGE_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self'; \
     base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/// The app document also hosts Colab, so it carries Colab's own document policy
+/// (`tmt-colab` `browser_policy::POLICY`): same-origin scripts, styles, images, fonts, workers and
+/// frames (Colab's renderer stays its own sandboxed opaque frame with its own policy).
+pub(crate) const SHELL_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+/// The app's routes: an explicit list, never a catch-all. `/sdk`, `/x`, `/read` and `/pair`
+/// keep their own handling.
+pub(crate) fn app_route(path: &str) -> bool {
+    matches!(
+        path,
+        "/" | "/settings"
+            | "/settings/"
+            | "/remote"
+            | "/remote/"
+            | "/remote/settings"
+            | "/ops"
+            | "/ops/"
+            | "/digest"
+            | "/digest/"
+            | "/colab"
+            | "/colab/"
+    ) || path.strip_prefix("/colab/").is_some_and(|rest| {
+        rest.len() <= 160
+            && rest.split('/').all(|segment| {
+                !segment.is_empty()
+                    && segment
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+            })
+    })
+}
+/// The owner's short page links (`/p/<id>`) open that page in the app at `/colab/p/<id>`.
+pub(crate) fn short_page(path: &str) -> Option<&str> {
+    path.strip_prefix("/p/").filter(|id| {
+        (4..=64).contains(&id.len())
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+    })
+}
 /// Bound on a `/sdk/mount` body: one page path.
 const MOUNT_BODY_BYTES: usize = 2048;
 
@@ -59,10 +100,12 @@ impl Pages {
         self
     }
     pub fn serves(path: &str) -> bool {
-        matches!(
-            path,
-            "/" | "/settings" | "/settings/" | "/remote/" | "/remote/settings" | "/remote/pair"
-        ) || legacy_pair(path)
+        let path = path.split('?').next().unwrap_or(path);
+        app_route(path)
+            || path == "/remote/pair"
+            || path == "/p"
+            || path.starts_with("/p/")
+            || legacy_pair(path)
             || path.starts_with("/remote/pair/")
             || path.starts_with("/pair/")
             || Mounts::short_route(path)
@@ -85,17 +128,22 @@ impl Pages {
             }
             return Ok(0);
         }
+        let bare = head.path.split('?').next().unwrap_or(head.path);
         match (head.method, head.path) {
+            ("GET" | "HEAD", path) if app_route(bare) || short_page(bare).is_some() => {
+                // Navigation omits Origin; a cross-origin load is refused.
+                if head.origin.is_some_and(|o| o != self.origin) {
+                    return Err(page_refusal(path, 403));
+                }
+                Ok(0)
+            }
             ("GET", path)
                 if matches!(
                     path,
-                    "/" | "/settings"
-                        | "/settings/"
-                        | "/remote/"
-                        | "/remote/settings"
-                        | "/remote/pair"
+                    "/remote/pair"
                         | "/sdk/pair.js"
                         | "/sdk/landing.js"
+                        | "/sdk/shell.js"
                         | "/sdk/pair-offer"
                         | "/sdk/remote-v1.js"
                         | "/sdk/pages.css"
@@ -126,7 +174,9 @@ impl Pages {
                 }
                 Ok(MOUNT_BODY_BYTES)
             }
-            (_, path) if Mounts::short_route(path) => Err(page_refusal(path, 404)),
+            (_, path) if Mounts::short_route(path) || bare == "/p" || bare.starts_with("/p/") => {
+                Err(page_refusal(path, 404))
+            }
             _ => Err(Reply::empty(404)),
         }
     }
@@ -146,20 +196,36 @@ impl Pages {
                 .push(("location".into(), "/remote/pair".into()));
             return reply;
         }
+        let (path, query) = request
+            .path
+            .split_once('?')
+            .map_or((request.path.as_str(), ""), |(path, query)| (path, query));
+        if app_route(path) {
+            return asset("text/html; charset=utf-8", SHELL, Some(SHELL_POLICY));
+        }
+        if let Some(id) = short_page(path) {
+            // The fragment (a reading, anchor or thread) is the browser's and follows the redirect.
+            let mut reply = asset("text/html; charset=utf-8", "", Some(PAGE_POLICY));
+            reply.status = 308;
+            let location = if query.is_empty() {
+                format!("/colab/p/{id}")
+            } else {
+                format!("/colab/p/{id}?{query}")
+            };
+            reply.headers.push(("location".into(), location));
+            return reply;
+        }
         match request.path.as_str() {
             "/sdk/remote-v1.js" => {
                 // The path names the SDK interface version, not a build, so it
                 // is not cached across upgrades.
                 asset("text/javascript; charset=utf-8", SDK, None)
             }
-            "/settings" | "/settings/" => {
-                asset("text/html; charset=utf-8", TMT_SETTINGS, Some(PAGE_POLICY))
-            }
-            "/remote/settings" => asset("text/html; charset=utf-8", SETTINGS, Some(PAGE_POLICY)),
             "/sdk/settings-v1.js" => asset("text/javascript; charset=utf-8", SETTINGS_SCRIPT, None),
             "/sdk/settings.css" => asset("text/css; charset=utf-8", SETTINGS_STYLE, None),
             "/sdk/pair.js" => asset("text/javascript; charset=utf-8", BOOTSTRAP, None),
             "/sdk/landing.js" => asset("text/javascript; charset=utf-8", ENTRY, None),
+            "/sdk/shell.js" => asset("text/javascript; charset=utf-8", SHELL_ENTRY, None),
             "/sdk/pair-offer" => {
                 let Some(descriptor) = self
                     .pairing
@@ -171,8 +237,6 @@ impl Pages {
                 asset("application/json", &descriptor.to_string(), None)
             }
             "/sdk/pages.css" => asset("text/css; charset=utf-8", STYLE, None),
-            "/" => asset("text/html; charset=utf-8", HOME, Some(PAGE_POLICY)),
-            "/remote/" => asset("text/html; charset=utf-8", LANDING, Some(PAGE_POLICY)),
             "/sdk/mount" => self.mount(&request.body, mounts),
             _ => {
                 // The exact inline bytes erase the fragment before any subresource is parsed.
@@ -238,12 +302,9 @@ fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
 
 /// Only browser page routes receive HTML. SDK and protocol refusals stay JSON.
 pub(crate) fn page_refusal(path: &str, status: u16) -> Reply {
-    if path != "/"
-        && path != "/settings"
-        && path != "/settings/"
-        && path != "/remote/"
-        && path != "/remote/settings"
+    if !app_route(path)
         && path != "/remote/pair"
+        && !path.starts_with("/p/")
         && !path.starts_with("/remote/pair/")
         && !legacy_pair(path)
         && !path.starts_with("/pair/")

@@ -1,10 +1,10 @@
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { Circle, Info, LoaderCircle, X } from 'lucide-react';
+import { Circle, Info, X } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
 import { FilesList } from './files-panel.js';
-import { BrowserDrawer } from '@tmt/browser-ui/react';
+import { BrowserDrawer, BusyMark } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { ReaderSource, type ReaderEdit } from './reader-source.js';
@@ -135,7 +135,7 @@ export function ReaderApp({
                   {render === 'ready' ? (
                     <Circle className="status-dot" fill="currentColor" aria-hidden />
                   ) : render === 'loading' ? (
-                    <LoaderCircle className={ui.spin} aria-hidden />
+                    <BusyMark />
                   ) : (
                     <X aria-hidden />
                   )}{' '}

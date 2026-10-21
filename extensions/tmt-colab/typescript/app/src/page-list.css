@@ -156,12 +156,6 @@
     display: none;
   }
 }
-.page-select {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--tmt-ui-color-text);
-}
 .pages > li[data-selected] {
   background: var(--tmt-ui-surface-selection);
 }

@@ -460,10 +460,10 @@ is added.
   5 nullable checked server-observed content time on `pages`, 6 nullable original content
   publication scope on `owner_operations`, 7 page labels (replaced in 13), 8 bounded confirmed-publication metadata, 9 `link_admissions` (a live
   link's cloud admission token, dropped with the link), and 10 `link_publications` (links whose cloud
-  row may exist, until their removal completes). 11 and 12 cache cloud rows and edit decisions; 13 `projects` and `page_projects`, which replace `page_labels`. Migration leaves legacy times null and legacy
+  row may exist, until their removal completes). 11 and 12 cache cloud rows and edit decisions; 13 `projects` and `page_projects`, which replace `page_labels`; 14 a checkpoint's `signer`; 15 `last_activity_at_ms`; 16 `page_titles`, the local plaintext title projection, and its `page_titles_backfill` mark (`store/titles.rs`; written only by the serve's fold path, `summary::TitleWriter` from the summary worker and the one-time `summary::backfill`; reads select only; removed by archive and delete; contract: Local title projection). Migration leaves legacy times null and legacy
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
-- `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
+- `Store::open` creates and migrates; before migrating an existing store it writes `space.db.pre-v<N>.bak` (0600, synced) inside the writer lock, and a failed migration rolls back whole. `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
   `write_existing` requires the serve lifecycle lock and exactly the current schema.
   Both existing-state paths check the version derived from `MIGRATIONS`; a future
@@ -656,7 +656,7 @@ applies it, and a chip click or token removal applies at once. `stage:` is a thi
 is never a token (below). A row's `summary` (the contract's
 Page summary section; `bootstrap.ts` validates it, including the work row and parent, and holds
 `AUTHOR_BYTES` and the 2 MiB `DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
-`◆ Waiting for you` mark, and the `by:` filter and free text read the creator; a page without a
+`◆ Needs you` mark, and the `by:` filter and free text read the creator; a page without a
 summary shows only what the list already knows, with no placeholder. The `Needs you N` chip beside
 the project chips sets `needs=true` in that search and keeps the pages whose summary is `waiting`
 (`needsYou > 0`; an unknown summary is never counted); it combines with the project, creator and
@@ -690,7 +690,7 @@ assignees from `summary.work`, the rest counted); an empty stage tab names its s
 In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
 `Reading page details…` while `useSummaryFill` is still reading (at most 15 re-reads) and a page in
 the scope has not reported, so a cold start never claims a tab is empty. A page waiting on the viewer
-shows `◆ Waiting for you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
+shows `◆ Needs you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
 word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
 menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
 and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. Archive and
@@ -724,19 +724,20 @@ on an empty search it leaves the search. The keys fire only for a trusted unmodi
 target is the page or the list's own section: never in a text field, never above a menu or dialog,
 never in a hidden list.
 
-The header's `Project: <name>` crumb (the design system's `BrowserMenu variant="crumb"` in the
-`BrowserHeader` `headingSuffix` slot) scopes the whole list. `scope` in the route search is the base
+The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `BrowserShell`) scopes
+the whole list. `scope` in the route search is the base
 filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the chips, the Needs you
 chip and the free-text and creator filters, and a `project:` token narrows inside it
 (intersection). The menu lists All pages and every project of the space (empty ones too, with the
-pages shown and how many wait on the viewer) as radio rows, then `New project…` and
-`Manage projects…`; those two replace the gear's entry and the chips row's button. The default
-scope is device-local: `readScope`/`writeScope` keep it per space in `localStorage` (a refused
-access means All pages), the home loader redirects an unscoped `/` to it with `replace`, and
-choosing All pages removes it. A scope the space no longer has (a stale link or a remembered
-project that was deleted) shows All pages and is neither redirected to nor rewritten. `AppHeader`
-provides the heading's element through `HeaderSlot` (`header-slot.ts`) and `Home` portals the menu
-into it, so the menu keeps the list's data and dialogs while the header stays the shell's. A page
+pages shown and how many wait on the viewer), then `New project…` and `Manage projects…`, which
+`Home` offers through `ProjectMenuActionsSlot` (`project-menu-actions.ts`) while it can manage
+projects, so the dialogs keep the list's data. The menu reads the list through `spaceHome` when the
+list opens. The default scope is device-local: `readScope`/`writeScope` keep it per space in
+`localStorage` (a refused access means All pages), the home loader redirects an unscoped `/` to it
+with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
+a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.
+`AppHeader` provides the heading's element through `HeaderSlot` (`header-slot.ts`), where `Home`
+names the current scope as plain text after the title. A page
 opened from a scoped list carries the scope in history state only, and its own header shows
 `Colab / <project> / <title>` with the project linking back to `/?scope=<project>`; a copied or
 reloaded page link has no crumb. A heading narrower than 200px (a container query on it) leaves the crumb and

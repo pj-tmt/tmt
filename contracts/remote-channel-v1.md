@@ -105,10 +105,15 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 ### Public browser routes
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
-framing rules. `/` is navigation-only Home, linking to Colab and Remote. `/settings` and
-`/settings/` are navigation-only TMT settings, with a visible Remote-settings link. Dashboard data,
-Home preferences and the full shared shell remain separate consumers. Remote's existing landing,
-pairing and settings pages live at `/remote/`, `/remote/pair` and `/remote/settings` respectively.
+framing rules. Every page except the refusal page renders inside the shared web shell: a rail of
+Home, the described modules and TMT settings, which `/sdk/shell.js` (or the page's own script)
+fills from the [composed shell](#module-descriptions-and-composed-shell) when the browser holds
+an owner session, and otherwise shows Home and Remote only. `/` is Home: it lists, per module,
+the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
+described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, with
+a visible Remote-settings link. Home preferences remain a separate consumer. Remote's existing
+landing, pairing and settings pages live at `/remote/`, `/remote/pair` and `/remote/settings`
+respectively; their module menu lists each saved remote, Add remote and Remote settings.
 
 Only legacy `/pair` GET/HEAD requests return 308 with constant `Location: /remote/pair` and an
 empty body; the query is discarded without reflection. Host and Origin checks and cross-site
@@ -122,6 +127,8 @@ routes, `/sdk/*` and the `/x/` refusal keep their existing behavior.
 style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 The landing, pairing, settings and error pages share this policy and embed the shared TMT SVG favicon as data; images cannot make network requests.
 `GET /sdk/pair.js` serves the synchronous fragment-erasing bootstrap, which then loads the SDK.
+`GET /sdk/shell.js` is the same-origin entry that mounts the shell from the served SDK on Home and
+TMT settings, which have no page script of their own.
 `GET /sdk/pair-offer` returns only the current unconfirmed offer's
 `{profile, binding, machineId, windowId, offerId, address, serverChallenge}` descriptor with `no-store`; absent, expired, cancelled
 or confirmed offers return the generic JSON 404. Cross-origin loads refuse. The code remains
@@ -1735,9 +1742,12 @@ composition, not authority checks, which retain the blocking behavior of mounted
 answer remains usable for at most 30 seconds. Missing, unsafe, slow, malformed or
 unknown-version answers never renew it. There is at most one in-flight callback per
 extension; late results are cache-only, fenced to the socket incarnation. No retries,
-poller or persisted cache exist; serve stop joins the finite workers. Shell rendering,
-Home data and full shell rendering remain separate consumers; root navigation follows the
-[public browser routes](#public-browser-routes).
+poller or persisted cache exist; serve stop joins the finite workers. The browser shell renders
+labels as text and resolves nothing itself; root navigation follows the
+[public browser routes](#public-browser-routes). Remote displays extension-supplied card text,
+including local page titles, as opaque display strings. It never parses, derives, stores or
+forwards them beyond the owner-device shell answer. A module returns titles only for content its
+owner can already read, and omits the title otherwise.
 
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).

@@ -33,6 +33,16 @@ async function start() {
     root.render(<UnsupportedBrowserNotice />);
     return;
   }
+  // Colab's mounted document moved into the one TMT app at `/colab/` (#3937). An old link keeps
+  // its query and fragment (owner `path=`, reading, anchor), which the app maps; a session
+  // hand-off (`?tmt-session=`) still opens here.
+  if (
+    /^\/r\/[a-z2-7]{16}\/x\/colab\/$/.test(location.pathname) &&
+    !location.search.includes('tmt-session=')
+  ) {
+    location.replace(`/colab/${location.search}${location.hash}`);
+    return;
+  }
   if (!location.pathname.startsWith('/r/') && !publicEntry()) {
     root.render(
       <StrictMode>

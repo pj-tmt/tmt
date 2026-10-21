@@ -34,6 +34,10 @@ pub struct Summary {
     pub needs_you: u32,
     /// The page's creation label (`meta.originalAuthor`), when it has one.
     pub author: Option<String>,
+    /// The page's title as display text ([`display_title`]); `None` when it has none. It stays
+    /// out of `json()` (the browser reads titles from its own fold) and feeds only the local
+    /// title projection ([`TitleWriter`]).
+    pub title: Option<String>,
     /// The page's own work, before any page it follows is resolved; `None` without work. It stays
     /// out of `json()`: the list read resolves it across pages (`work_links::Graph`).
     pub work: Option<Box<crate::work_index::PageWork>>,
@@ -75,8 +79,40 @@ fn count(conversations: &Conversations, author: Option<&str>, needs_you: u32) ->
         author: author
             .filter(|label| decoder::valid_publisher_agent(label))
             .map(str::to_owned),
+        title: None,
         work: None,
     }
+}
+
+/// The longest title the local projection keeps, in Unicode scalars (Remote's display-label cap).
+pub const TITLE_SCALARS: usize = 40;
+
+/// A page title as one line of plain display text: control and bidirectional formatting
+/// characters become spaces, runs of whitespace collapse, and a title longer than
+/// [`TITLE_SCALARS`] ends with an ellipsis inside that bound. `None` when nothing is left.
+pub fn display_title(title: &str) -> Option<String> {
+    let cleaned: String = title
+        .chars()
+        .map(|c| {
+            if c.is_control()
+                || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+            {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    if words.is_empty() {
+        return None;
+    }
+    let line = words.join(" ");
+    if line.chars().count() <= TITLE_SCALARS {
+        return Some(line);
+    }
+    let kept: String = line.chars().take(TITLE_SCALARS - 1).collect();
+    Some(format!("{}\u{2026}", kept.trim_end()))
 }
 
 /// The count, reading descriptors and passages are one projection and share one cache fingerprint.
@@ -299,12 +335,93 @@ fn require_fingerprint(source: &Source, page: &str, expected: &str) -> Result<()
     Ok(())
 }
 
+/// Where the serve's owner folds record page titles (#4218): the local title projection in the
+/// serve's own store. Each call opens its own short writable connection (the serve holds the
+/// lifecycle lock), so the fold source stays read-only and no read request ever writes.
+pub struct TitleWriter {
+    root: std::path::PathBuf,
+    space: String,
+    owner: [u8; 32],
+}
+impl TitleWriter {
+    pub fn new(root: &std::path::Path, space: &str, owner: [u8; 32]) -> Self {
+        Self {
+            root: root.to_owned(),
+            space: space.to_owned(),
+            owner,
+        }
+    }
+    fn store(&self) -> Result<crate::store::Store> {
+        let layout = crate::keyring::Layout::existing(&self.root)?
+            .ok_or_else(|| std::io::Error::other("no Colab state"))?;
+        crate::store::Store::write_existing(&layout)
+    }
+    /// One fold's title for `page` at `fingerprint` (`store::Store::record_page_title`).
+    pub fn record(&self, page: &str, fingerprint: &str, title: Option<&str>) -> Result<bool> {
+        self.store()?
+            .record_page_title(&self.space, &self.owner, page, fingerprint, title)
+    }
+    pub fn backfill_pending(&self) -> Result<bool> {
+        Ok(self.store()?.title_backfill_pending()?)
+    }
+    fn finish_backfill(&self) -> Result<()> {
+        Ok(self.store()?.finish_title_backfill()?)
+    }
+}
+/// What a refresh run records: the writer and the pages whose title may be stored (the open,
+/// non-archived pages at scheduling time; any other page's row is removed). An archive moves the
+/// fingerprint, so a page archived after scheduling is never recorded at its old one.
+pub struct Titles {
+    pub writer: Arc<TitleWriter>,
+    pub open: std::collections::BTreeSet<String>,
+}
+
+/// The schema-16 backfill (#4218), once per store: one background worker folds every open page
+/// with its own read-only source and records its title, then clears the store's pending mark.
+/// A page it could not fold or record leaves the mark, so the next serve start tries again; until
+/// then the ordinary refresh records it on the next list read. Never runs on a request.
+pub fn backfill(open: &page::save::SourceOpener, writer: &Arc<TitleWriter>) {
+    let (open, writer) = (Arc::clone(open), Arc::clone(writer));
+    let spawned = std::thread::Builder::new()
+        .name("colab-title-backfill".into())
+        .spawn(move || {
+            let Ok(mut source) = open() else { return };
+            let Ok((catalog, fingerprints)) = source.store.owner_read(
+                &source.keyring.space_id,
+                &source.keyring.owner_public(),
+                |tx| Ok((tx.page_list()?, tx.page_fingerprints()?)),
+            ) else {
+                return;
+            };
+            let mut complete = true;
+            for page in catalog["pages"].as_array().into_iter().flatten() {
+                let (Some(id), false) = (page["pageId"].as_str(), page["archived"] == true) else {
+                    continue;
+                };
+                let Some(fingerprint) = fingerprints.get(id) else {
+                    continue;
+                };
+                complete &= summarize_details(&mut source, id).is_ok_and(|projection| {
+                    writer
+                        .record(id, fingerprint, projection.summary.title.as_deref())
+                        .unwrap_or(false)
+                });
+            }
+            if complete {
+                let _ = writer.finish_backfill();
+            }
+        });
+    drop(spawned);
+}
+
 /// Schedules `pages` for refresh on one background worker with its own read-only source, unless a
-/// worker is already running. Never blocks the caller.
+/// worker is already running. Never blocks the caller. With `titles`, each fresh fold also records
+/// its page's title on the worker, never on the caller's request.
 pub fn refresh(
     cache: &Arc<SummaryCache>,
     open: &page::save::SourceOpener,
     pages: Vec<(String, String)>,
+    titles: Option<Titles>,
 ) {
     if pages.is_empty() {
         return;
@@ -561,8 +678,26 @@ mod tests {
             .map(|(page, fp)| ((*page).to_owned(), (*fp).to_owned()))
             .collect()
     }
+    #[test]
+    fn display_titles_are_one_bounded_line_of_plain_text() {
+        assert_eq!(
+            display_title("  Launch\tplan\n"),
+            Some("Launch plan".into())
+        );
+        assert_eq!(
+            display_title("a\u{202e}b\u{1b}[31m"),
+            Some("a b [31m".into())
+        );
+        assert_eq!(display_title(" \u{200f}\n"), None);
+        assert_eq!(display_title(&"x".repeat(40)), Some("x".repeat(40)));
+        let long = display_title(&format!("{} tail", "\u{3c0}".repeat(45))).unwrap();
+        assert_eq!(long.chars().count(), TITLE_SCALARS);
+        assert!(long.ends_with('\u{2026}'));
+    }
+
     fn summary(comments: u32) -> Summary {
         Summary {
+            title: None,
             comments,
             waiting: false,
             needs_you: 0,

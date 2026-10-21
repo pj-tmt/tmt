@@ -132,7 +132,7 @@ describe('what the status line says', () => {
       1,
     );
     expect(single.text).toBe(
-      '“Plan”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.',
+      '“Plan”: your machine accepted the change, but it is not confirmed yet. Open Manage page to check again.',
     );
     expect(single.text).not.toMatch(/^Archived/);
     const many = operationStatus(
@@ -141,7 +141,7 @@ describe('what the status line says', () => {
       2,
     );
     expect(many.text).toBe(
-      'The owner accepted 1 of the changes, but it is not confirmed yet. Open Manage page to check it again.',
+      'Your machine accepted 1 of the changes, but it is not confirmed yet. Open Manage page to check it again.',
     );
     const several = operationStatus(
       done([page(1), page(2), page(3)], { awaiting: [page(2), page(3)] }),
@@ -149,7 +149,7 @@ describe('what the status line says', () => {
       3,
     );
     expect(several.text).toBe(
-      'The owner accepted 2 of the changes, but they are not confirmed yet. Open Manage page to check them again.',
+      'Your machine accepted 2 of the changes, but they are not confirmed yet. Open Manage page to check them again.',
     );
     for (const sentence of [single.text, many.text, several.text])
       expect(sentence).not.toMatch(/signed log|acknowledged|verif/i);
@@ -178,7 +178,7 @@ describe('what the status line says', () => {
       1,
     );
     expect(refused).toEqual({
-      text: 'The owner reached a capacity limit. Nothing was changed.',
+      text: 'Your machine reached a capacity limit. Nothing was changed.',
       failed: true,
     });
   });

@@ -33,7 +33,7 @@
 }
 .project-pages .checkbox-label {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
 }
 .project-pages li:last-child {

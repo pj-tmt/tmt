@@ -1,12 +1,12 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
-import { Check, ChevronUp, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { Check, ChevronUp, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
 import {
   BrowserAction,
   BrowserIconAction,
   BrowserToggle,
+  BusyMark,
   busyMarkDelayMs,
   busyMarkHoldMs,
   useBusyMark,
@@ -102,7 +102,7 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
           // The mark has no words and follows the shared busy-mark delay.
           <span className="comment-echo-mark" aria-hidden="true" data-shown={marked || undefined}>
             {' '}
-            <LoaderCircle className={ui.spin} />
+            <BusyMark />
           </span>
         )
       }
@@ -205,7 +205,7 @@ function Composer({
           variant="primary"
           label={label}
           busy={busy}
-          busyMark={<LoaderCircle />}
+          busyMark={<BusyMark />}
           disabled={blocked || !body.trim()}
           onActivate={() => {}}
         />
@@ -349,7 +349,7 @@ export function DiscussionComment({
                   variant="primary"
                   label={text.commentSave}
                   busy={busy}
-                  busyMark={<LoaderCircle />}
+                  busyMark={<BusyMark />}
                   disabled={blocked || !draft.trim()}
                   onActivate={() => {}}
                 />

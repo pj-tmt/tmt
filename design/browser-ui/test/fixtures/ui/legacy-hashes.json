@@ -1,34 +1,34 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "05e8156d25b6f861fa94b6afa04af43005b25f73df993af62f4c51ebc1ab997f",
-    "src/action.css": "057743dbac0d7e7afd21ab182a7f089c5ae771888a04e441f31c86b6a706c5d2",
+    "generated/static.css": "d6509d6ea53ddd014c77e077ef5cbc028dd873056ff789894504e0467b94520b",
+    "src/action.css": "5cacc5b10aadb6148dd28eba1e8c06ce3da05857d4fdd757b8af7f391dcf63c2",
     "src/action.tsx": "bb28278e920aabe3afd1179681ac90549a4a9dfe351076e4c80514c139182682",
-    "src/chips.css": "631f8d974b995d02b83545bec2cd9fec54c5bd732ff576a4a6d3a9561cec65d9",
+    "src/chips.css": "105bc5c3d98459473b9472d4d91905c7a900f2b6da1c1059b4c62c762bbc976d",
     "src/chips.tsx": "4bbffacef8e48f380ffc39fdda5055cd490bdd7cae59ae13e8c7003a9f3ef63c",
-    "src/command.css": "8e8da855c47c961947b3b9e5ea96899d5836fa8aace42dedeee3b45c66ada818",
+    "src/command.css": "2fa1e303e636d63a9b5001ad462ea06345d1fe506f01468185a5c42398d4692e",
     "src/command.tsx": "dcf4b1e0c6be2135aaff832eddb307a8519242240797d005a16a7f179f1d4b2b",
-    "src/dialog.css": "ade8a4703bbf057865819abbcd751ea1dc1d8c82899fc66bcede89cadeb2206e",
-    "src/dialog.tsx": "2d14b40589035094323a35a17140dfacfe037c3d3464b4c93f37da6ec7a93423",
-    "src/drawer.css": "cad6ec27195de1f28cf2908dc4f26a3c8a9540536ab1aceff6262d6652dbf8e3",
-    "src/drawer.tsx": "e7c6932ba5e0147955493a9e6c04a9be0f1489efe1f4c7aad7ab535e5da29a58",
-    "src/field.css": "952790723b16b822866da737272b76ddd66e409ffdca0f3ff114ced89b0aa46a",
+    "src/dialog.css": "4c8ed9ecdc411c3b5be0aa169e4c01fc8db6db7e1f15f3855bef057a9b99efc6",
+    "src/dialog.tsx": "79c5b95809f03b9312567fc7b0d9e2fc3a34756b3e0fc3bf83d38516dcf8ff86",
+    "src/drawer.css": "6db2a52b4b94dd02cf6145d4da2be4c2ac46acd874e816eb1921869a8b449d22",
+    "src/drawer.tsx": "c573d322b91faf00f1073f5ac3e883c632822d728d8f346c2ed9b1a33815fcfa",
+    "src/field.css": "09a0fa9267b80654f84fdc44284d63c1c2804038adfd1768b4b7565346c62054",
     "src/field.tsx": "c930047bc2f9070af9619fd9d1654336e2c4ecf4494dcb7900c695320e31c76c",
     "src/header.css": "40fdb78e8286aeb93e5ff8800f4db2d9e401d5c88e0099a5439a9479a0e8105a",
-    "src/header.tsx": "3109fb22daa77da75054f861b61218a07a36a9978436bca527d2e3a5e4691567",
+    "src/header.tsx": "8755f84d237c1318e7658a616990c4bd0897cbb31d7e6f2c4529556692198c0d",
     "src/icon-action-tooltip.ts": "9a48f4293d6006dc1e8e30875f68a8e0d17b87c135dbd1dbdf73c557d1d382b7",
-    "src/icon-action.css": "ca63340b43b63c18676cf9ae0a60c14742b7eec497a20d89c79575149fcbb65c",
+    "src/icon-action.css": "78405fdcc3e42e3e29eb44788731d4d1356e92ab162083a98adc7dc147c831f9",
     "src/icon-action.tsx": "388aa7669887b186cf822da08e45f012e7610aa55ca8a5e4fa5463a0e29ebaee",
     "src/list.css": "22221e19e0dafcfd3d1a5bd122a770fc042bb41a59d80ff386086c3cd91a775d",
     "src/list.tsx": "bf84c53748c7f08a0c31f481a11213ff75961bc436f0fcb265412cfdcb91829c",
     "src/menu-position.ts": "0d107000343afa7e087fbbc1ce2a6ebc62fd7a42fed823d1b8f7176b62fcc6a1",
-    "src/menu.css": "0f6b61634dd89b19f2d0a97ef25b97bf1d4668b5acd99d629c0141580504076f",
+    "src/menu.css": "6646545083b95d15f9d5ca04cb8f6111981539efef32aefa6b1baa93c3f84c90",
     "src/menu.tsx": "dc8ca4cce1b816e6f2911339754148e790bd0a4077a68434228c980cd0ea8ff9",
     "src/modal-dialog.ts": "7f98471272a0886870aed486c2d878c6ad5574c0669e3be92f45c9d5e9b6e9bb",
     "src/notice.css": "02052147418975ab4131522417c315939f685c72004f0a1e6af71b49cb57212b",
     "src/notice.tsx": "dd11ffed4586316239c1767ff1ddf4e247b144fe7412ce983fa81e88537c875b",
     "src/notification-queue.ts": "77e3ee5b9d052742852245b28e2a25eec579ba94f00a2ee7b30c20be055d174b",
-    "src/notifications.css": "131707107129a466ec31b1d58574f6cee6d697630c9692ceef0db8d7083477ad",
+    "src/notifications.css": "deb1450562d6aed9165941d755648d43ae76133987cf8f187a4074d8efa1f3c3",
     "src/notifications.tsx": "36cc4b9439e0f1f86ce1ef1b07fc133daf3955e806e15424ece89675977326de",
     "src/overlay.ts": "37c0a2bbd673dc15c1ca1efe5b4fe09bce7087b6bf73c70a377b5f513d129325",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
@@ -36,7 +36,7 @@
     "src/static.ts": "41fab20d7e2b30513ddd2346bde2af128a0aa1c08889dff65a97f9f30736f444",
     "src/tabs.css": "964e247b8e4840386744c6666a784bc8f03095e319a9fb4939d59776378003bf",
     "src/tabs.tsx": "7c8bf39073e629410ca607b2a94bf2c65a0d8a88fed936e3f62a636a11d8adcf",
-    "src/toggle.css": "a37695c236bf4ccdc9d5dc24941b79bc4c3d78f6dfe0f6be4eefcac482cb7aa5",
+    "src/toggle.css": "1934443962889b5493457194b856b24ea96f649ea7fedafab3b8c030c29178a8",
     "src/toggle.tsx": "edbed0378bcc502fca5c666665cd9bb64b594715336ea6f225b6d8001c90aac3"
   },
   "tokenProjection": {
@@ -115,7 +115,7 @@
         },
         "blocked": {
           "dark": "#F7768E",
-          "light": "#B62C3B"
+          "light": "#9C4242"
         },
         "link": {
           "dark": "#7DCFFF",
@@ -155,6 +155,10 @@
           "dark": "#2B2B2B",
           "light": "#E2E2E2"
         },
+        "hover": {
+          "dark": "#1E1E1E",
+          "light": "#EEEEEE"
+        },
         "disabled": {
           "dark": "#171717",
           "light": "#EAEAEA"
@@ -163,10 +167,6 @@
           "dark": "#303030",
           "light": "#D0D0D0"
         },
-        "annotation-action": {
-          "light": "#262626",
-          "dark": "#626262"
-        },
         "annotation-highlight": {
           "light": "#ECECEB",
           "dark": "#343434"
@@ -174,6 +174,10 @@
         "annotation-panel": {
           "light": "#F7F7F5",
           "dark": "#202020"
+        },
+        "annotation-action": {
+          "light": "#262626",
+          "dark": "#626262"
         },
         "mention-agent": {
           "light": "#ECECEB",
@@ -202,11 +206,24 @@
         "caption-size": "11px",
         "caption-line-height": "1.2",
         "action-border-width": "1px",
-        "focus-width": "2px",
+        "focus-width": "1px",
         "field-border-width": "1px",
         "toggle-gap": "8px",
         "toggle-indicator-size": "14px",
-        "toggle-indicator-border-width": "2px"
+        "toggle-indicator-border-width": "2px",
+        "space-xs": "4px",
+        "space-s": "8px",
+        "space-m": "12px",
+        "space-l": "16px",
+        "space-xl": "24px",
+        "space-2xl": "32px",
+        "control-size": "32px",
+        "indicator-width": "3px",
+        "tab-indicator-width": "2px",
+        "rail-width": "220px",
+        "rail-collapsed-width": "56px",
+        "module-menu-width": "230px",
+        "spin-duration": "0.9s"
       }
     }
   }

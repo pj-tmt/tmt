@@ -7,10 +7,12 @@ pub mod publication;
 mod schema;
 #[cfg(test)]
 mod tests;
+mod titles;
 /// The schema version this build writes. Migration tests read it instead of naming the latest.
 pub const SCHEMA_VERSION: u32 = schema::CURRENT_VERSION;
 use crate::{Result, keyring::Layout, limits};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+pub use schema::backup_path;
 use sha2::{Digest, Sha256};
 use std::{
     sync::Arc,
@@ -64,6 +66,8 @@ pub enum Fault {
     Sql(rusqlite::Error),
     /// Preserve clock provenance so domain admission never treats it as rejection.
     Clock(Box<Fault>),
+    /// The copy taken before a migration could not be written; nothing was migrated.
+    Backup(std::io::Error),
 }
 impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -72,6 +76,9 @@ impl std::fmt::Display for Fault {
                 f.write_str("This space was saved by an older Colab service.")
             }
             Self::UnsupportedSchema(_) => f.write_str("This space was saved by a newer Colab."),
+            Self::Backup(_) => f.write_str(
+                "The copy of this space taken before updating it could not be written; nothing changed.",
+            ),
             _ => write!(f, "{self:?}"),
         }
     }
@@ -114,6 +121,7 @@ impl std::error::Error for Fault {
         match self {
             Self::Clock(error) => Some(error.as_ref()),
             Self::Sql(error) => Some(error),
+            Self::Backup(error) => Some(error),
             _ => None,
         }
     }

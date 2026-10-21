@@ -1,0 +1,314 @@
+/* Gallery chrome only: square, flat, neutral grey, from the leaf's own roles. Component looks
+   come from generated/static.css and generated/ui.css. */
+
+/* The gallery is a host: it supplies the host metrics, using Colab's values (README table). */
+:root {
+  --tmt-ui-host-header-action-gap: 6px;
+  --tmt-ui-host-focus-offset: 3px;
+  --tmt-ui-host-toggle-focus-offset: 2px;
+  --tmt-ui-host-notice-mark-size: 18px;
+  --tmt-ui-host-eyebrow-line-height: 1.55;
+  --tmt-ui-host-notice-heading-size: clamp(26px, 4vw, 36px);
+  --tmt-ui-host-notice-heading-weight: 700;
+  --tmt-ui-host-notice-heading-tracking: -0.03em;
+  --tmt-ui-host-notice-body-size: 16px;
+  --tmt-ui-host-notice-body-line-height: 1.55;
+  --tmt-ui-host-notice-action-gap: 12px;
+  --tmt-ui-host-notice-action-margin: 24px;
+  --tmt-ui-host-action-padding: 7px 12px;
+  --tmt-ui-host-action-min-height: 24px;
+  --tmt-ui-host-action-size: 14px;
+  --tmt-ui-host-action-weight: 400;
+  --tmt-ui-host-action-line-height: 1.5;
+  --tmt-ui-host-action-font: var(--tmt-ui-font-body);
+  --tmt-ui-host-action-gap: 6px;
+  --tmt-ui-host-action-underline-offset: 4px;
+  --tmt-ui-host-icon-action-size: 34px;
+  --tmt-ui-host-field-padding: 8px;
+  --tmt-ui-host-field-size: 14px;
+  --tmt-ui-host-field-line-height: 1.5;
+  --tmt-ui-host-field-label-size: 12px;
+  --tmt-ui-host-field-label-weight: 400;
+  --tmt-ui-host-field-label-line-height: 1.5;
+  --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
+}
+
+body {
+  margin: 0;
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: 14px / 1.5 var(--tmt-ui-font-body);
+}
+code,
+.gallery-mono {
+  font-family: var(--tmt-ui-font-mono);
+  font-size: 12px;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  min-height: 100dvh;
+}
+.gallery-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-xs);
+  height: 100dvh;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: var(--tmt-ui-space-l);
+  background: var(--tmt-ui-surface-sheet);
+  border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.gallery-nav strong {
+  margin-bottom: var(--tmt-ui-space-s);
+  font: 600 16px / 1.2 var(--tmt-ui-font-display);
+}
+.gallery-nav a {
+  color: var(--tmt-ui-color-secondary);
+  text-decoration: none;
+}
+.gallery-nav a:hover {
+  color: var(--tmt-ui-color-selected-text);
+}
+.gallery-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tmt-ui-space-2xl);
+  min-width: 0;
+  padding: var(--tmt-ui-space-xl);
+}
+.gallery-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tmt-ui-space-xl);
+  min-width: 0;
+  scroll-margin-top: var(--tmt-ui-space-l);
+}
+.gallery-section h2 {
+  margin: 0;
+  padding-bottom: var(--tmt-ui-space-s);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font: 600 22px / 1.2 var(--tmt-ui-font-display);
+}
+.gallery-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+}
+.gallery-pair h3 {
+  margin: 0;
+  font: 600 13px / 1.3 var(--tmt-ui-font-mono);
+  color: var(--tmt-ui-color-secondary);
+}
+.gallery-note {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.gallery-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tmt-ui-space-m);
+}
+.gallery-columns[data-stacked] {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* Each column scopes a theme through the leaf's own [data-theme] roles. */
+.gallery-column {
+  position: relative;
+  min-width: 0;
+  padding: var(--tmt-ui-space-xl) var(--tmt-ui-space-l) var(--tmt-ui-space-l);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.gallery-frame-column {
+  overflow-x: auto;
+}
+.gallery-theme-label {
+  position: absolute;
+  top: var(--tmt-ui-space-xs);
+  right: var(--tmt-ui-space-s);
+  font: 600 10px / 1.2 var(--tmt-ui-font-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--tmt-ui-color-secondary);
+}
+.gallery-cells {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: var(--tmt-ui-space-l);
+}
+.gallery-cell {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  min-width: 0;
+}
+.gallery-cell-label {
+  font: 10px / 1.2 var(--tmt-ui-font-mono);
+  color: var(--tmt-ui-color-secondary);
+}
+.gallery-cell-body {
+  display: flex;
+  flex-wrap: wrap;
+  /* A disabled reason or a note sits on the control row's centre line. */
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.gallery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-l);
+}
+.gallery-row-end {
+  align-items: end;
+}
+.gallery-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--tmt-ui-space-m);
+  min-width: 0;
+}
+.gallery-panel {
+  margin: 0;
+  padding: var(--tmt-ui-space-m);
+}
+.gallery-frame {
+  display: block;
+  max-width: none;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+}
+
+.gallery-swatches {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gallery-swatches li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.gallery-swatch {
+  width: 28px;
+  height: 20px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.gallery-value {
+  font: 11px / 1.3 var(--tmt-ui-font-mono);
+  color: var(--tmt-ui-color-secondary);
+}
+.gallery-type {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+.gallery-type-sample {
+  overflow-wrap: anywhere;
+}
+.gallery-metrics {
+  border-collapse: collapse;
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.gallery-metrics td {
+  padding: 3px var(--tmt-ui-space-s);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  vertical-align: middle;
+}
+.gallery-bar {
+  display: block;
+  max-width: 100%;
+  height: 8px;
+  background: var(--tmt-ui-color-secondary);
+}
+.gallery-radius,
+.gallery-focus,
+.gallery-indicator {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 64px;
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  font-size: 12px;
+}
+.gallery-focus {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}
+.gallery-indicator {
+  border-left: var(--tmt-ui-indicator-width) solid var(--tmt-ui-color-selected-text);
+}
+
+/* Frame pages: one demo filling an iframe. */
+:root[data-frame] body {
+  min-height: 100dvh;
+}
+:root[data-frame]:not([data-frame='shell']) #root {
+  padding: var(--tmt-ui-space-l);
+}
+.gallery-frame-main {
+  padding: var(--tmt-ui-space-l);
+}
+.gallery-frame-menu {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .gallery {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .gallery-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    height: auto;
+    border-right: 0;
+    border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  }
+  .gallery-main {
+    padding: var(--tmt-ui-space-l);
+  }
+  .gallery-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.gallery-column[data-theme='light'] {
+  color-scheme: light;
+}
+.gallery-column[data-theme='dark'] {
+  color-scheme: dark;
+}
+.gallery-scroll {
+  min-width: 0;
+  overflow-x: auto;
+}
+.gallery-candidate-large {
+  display: inline-block;
+  font-size: 32px;
+  line-height: 1;
+}
+.gallery-candidate-large > svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+.gallery-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}

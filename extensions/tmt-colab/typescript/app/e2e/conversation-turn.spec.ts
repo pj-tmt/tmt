@@ -1012,12 +1012,12 @@ for (const surface of ['chat', 'thread'] as const)
           // The line's mark is the one animation of a working agent; no chip turns beside it.
           expect(await turning(window)).toBe(kind === 'working' ? 1 : 0);
           if (kind === 'working') {
-            await expect(status.locator('.agent-activity-spinner')).toHaveCSS(
+            await expect(status.locator('.agent-activity-spinner .tmt-ui-busy-frames')).toHaveCSS(
               'animation-name',
-              'tmt-ui-spin',
+              'tmt-ui-busy',
             );
             await page.emulateMedia({ reducedMotion: 'reduce' });
-            await expect(status.locator('.agent-activity-spinner')).toHaveCSS(
+            await expect(status.locator('.agent-activity-spinner .tmt-ui-busy-frames')).toHaveCSS(
               'animation-name',
               'none',
             );

@@ -7,13 +7,14 @@ import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PageProjects } from './page-projects.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
-import { entryMount, entryOpenTarget, publicEntry } from './entry.js';
+import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
   BrowserCommand,
   BrowserIconAction,
   BrowserNotifications,
+  BusyMark,
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { shortPageId, validPagePrefix } from './short-links.js';
@@ -25,15 +26,7 @@ import {
   splitPageHint,
   type PageHint,
 } from './reading-link.js';
-import {
-  ArrowUpRight,
-  LoaderCircle,
-  MessageCircle,
-  MessageSquare,
-  Moon,
-  MousePointer2,
-  Sun,
-} from 'lucide-react';
+import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
@@ -70,6 +63,8 @@ import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
+import { ColabShell } from './colab-shell.js';
+import { ColabSettings } from './colab-settings.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
 import { shareView } from './share-view.js';
@@ -733,7 +728,7 @@ async function loadSpaceHome({ context }: { context: AppContext }) {
     home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
   );
   // A quick switcher opened later shows this list at once and refreshes it.
-  rememberPages(context.transport, context.space, home.pages);
+  rememberPages(context.transport, context.space, home.pages, home.projects);
   return home;
 }
 const home = createRoute({
@@ -802,7 +797,7 @@ function PageFrame() {
       />
       <div className="page-opening">
         <span role="status" aria-label={text.openingPage} className="page-opening-mark">
-          <LoaderCircle className={ui.spin} aria-hidden />
+          <BusyMark />
         </span>
       </div>
     </div>
@@ -915,6 +910,11 @@ function ShortPageChoice() {
   );
 }
 
+const colabSettings = createRoute({
+  getParentRoute: () => root,
+  path: '/settings',
+  component: () => <ColabSettings />,
+});
 const blocked = createRoute({
   getParentRoute: () => root,
   path: '/blocked',
@@ -994,29 +994,33 @@ function Shell() {
           )
         }
       >
-        {!isPage && (
-          <AppHeader
-            remote={isHome ? { deviceName: transport.backendName } : undefined}
-            headingSuffix={
-              isHome ? <span ref={setHeaderSlot} className="header-project-slot" /> : undefined
-            }
-            title={
-              pathname.startsWith('/short/')
-                ? 'Open a page'
-                : pathname === '/'
-                  ? text.pages
-                  : text.error
-            }
-          />
-        )}
-        <main className={isPage ? 'page-main' : undefined}>
-          <HeaderSlot.Provider value={isHome ? headerSlot : null}>
-            <Outlet />
-          </HeaderSlot.Provider>
-        </main>
-        {!isPage && (
-          <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
-        )}
+        <ColabShell transport={transport} space={space}>
+          {!isPage && (
+            <AppHeader
+              remote={isHome ? { deviceName: transport.backendName } : undefined}
+              headingSuffix={
+                isHome ? <span ref={setHeaderSlot} className="header-project-slot" /> : undefined
+              }
+              title={
+                pathname.startsWith('/short/')
+                  ? 'Open a page'
+                  : pathname === '/'
+                    ? text.pages
+                    : pathname === '/settings'
+                      ? text.colabSettings.title
+                      : text.error
+              }
+            />
+          )}
+          <main className={isPage ? 'page-main' : undefined}>
+            <HeaderSlot.Provider value={isHome ? headerSlot : null}>
+              <Outlet />
+            </HeaderSlot.Provider>
+          </main>
+          {!isPage && (
+            <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
+          )}
+        </ColabShell>
       </QuickSwitcherHost>
     </RemotePresenceProvider>
   );
@@ -2270,7 +2274,7 @@ function Page() {
                 variant="text"
                 label={text.save}
                 busy={saving}
-                busyMark={<LoaderCircle />}
+                busyMark={<BusyMark />}
                 disabled={!!liveError || draft === base.current}
                 onActivate={() => void save()}
               />
@@ -2527,87 +2531,120 @@ function Page() {
     </CreatorDefaultProvider>
   );
 }
+/**
+ * Inside the TMT app Colab's routes are paths under `/colab/`. Links printed or saved before keep
+ * working: the preview's `#/pages/<id>` and an owner fragment's `path=` become the same path, with
+ * its reading or anchor hint as search keys.
+ */
+function shellLocation() {
+  const hash = location.hash.slice(1);
+  const fragment = new URLSearchParams(hash);
+  const short = /^\/colab\/p\/([A-Za-z0-9_-]{4,64})$/.exec(location.pathname)?.[1];
+  let path: string | undefined;
+  let keep = '';
+  if (hash.startsWith('/')) path = hash;
+  else if (fragment.get('path')) path = fragment.get('path')!;
+  else if (short) {
+    // The short link `/p/<id>` lands here; a thread (`#t=`) stays a fragment for the page.
+    path = `/short/${short}`;
+    if (fragment.has('t')) keep = location.hash;
+  }
+  if (!path) return;
+  const keys = new URLSearchParams(location.search);
+  for (const key of ['read', 'anchor', 'open'])
+    if (fragment.has(key)) keys.set(key, fragment.get(key)!);
+  const search = keys.size ? `?${keys}` : '';
+  if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
+    history.replaceState(history.state, '', `/colab${path}${search}${keep}`);
+}
 export function createAppRouter(
   transport: PageTransport,
   space?: string,
   pageIds: readonly { pageId: string; deleted: boolean }[] = [],
 ) {
   let knownPages = pageIds;
-  const history = space
-    ? createBrowserHistory({
-        parseLocation: () => {
-          const fragment = new URLSearchParams(location.hash.slice(1));
-          const prefix = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
-          let path: string;
-          let hint: PageHint | undefined;
-          if (publicEntry()) {
-            try {
-              const target = entryOpenTarget();
-              const matches = knownPages.filter((row) => row.pageId.startsWith(prefix));
-              path = !prefix
-                ? '/'
-                : matches.length === 1 && !matches[0].deleted
-                  ? `/pages/${matches[0].pageId}`
-                  : `/short/${prefix}`;
-              // A thread names a place inside the page; a reading or shell anchor is a page hint.
-              if (target && !('thread' in target) && path !== '/') hint = target;
-              if (hint && 'anchor' in hint && path === '/') hint = undefined;
-            } catch {
-              path = '/blocked';
+  if (inShell()) shellLocation();
+  const history = inShell()
+    ? createBrowserHistory()
+    : space
+      ? createBrowserHistory({
+          parseLocation: () => {
+            const fragment = new URLSearchParams(location.hash.slice(1));
+            const prefix = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
+            let path: string;
+            let hint: PageHint | undefined;
+            if (publicEntry()) {
+              try {
+                const target = entryOpenTarget();
+                const matches = knownPages.filter((row) => row.pageId.startsWith(prefix));
+                path = !prefix
+                  ? '/'
+                  : matches.length === 1 && !matches[0].deleted
+                    ? `/pages/${matches[0].pageId}`
+                    : `/short/${prefix}`;
+                // A thread names a place inside the page; a reading or shell anchor is a page hint.
+                if (target && !('thread' in target) && path !== '/') hint = target;
+                if (hint && 'anchor' in hint && path === '/') hint = undefined;
+              } catch {
+                path = '/blocked';
+              }
+            } else {
+              path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
+              hint = ownerPageHint(new URL(location.href), space);
             }
-          } else {
-            path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
-            hint = ownerPageHint(new URL(location.href), space);
-          }
-          if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
-            path = '/blocked';
-          const search = hint
-            ? 'read' in hint
-              ? `?read=${hint.read}`
-              : `?anchor=${hint.anchor}`
-            : path === '/'
-              ? storedListSearch(window.history.state)
-              : '';
-          return {
-            href: path + search,
-            pathname: path,
-            search,
-            hash: '',
-            state: { ...window.history.state, __TSR_index: window.history.state?.__TSR_index ?? 0 },
-          };
-        },
-        createHref: (routerPath) => {
-          // The list's search is never part of the address (see `keepListSearch`).
-          const path = isListPath(routerPath) ? '/' : routerPath;
-          if (!publicEntry()) return ownerReadingHref(path, location.pathname, space);
-          const { route, hint } = splitPageHint(path);
-          const id = route.replace(/^\/(?:pages|short)\//, '');
-          if (route === '/' || !validPagePrefix(id)) return '/colab/';
-          const current = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
-          const matches = knownPages.filter((row) => row.pageId.startsWith(current));
-          const target = route.startsWith('/pages/')
-            ? validPagePrefix(current) && matches.length === 1 && matches[0].pageId === id
-              ? current
-              : shortPageId(
-                  id,
-                  knownPages.map((row) => row.pageId),
-                )
-            : id;
-          const tail = hint
-            ? 'read' in hint
-              ? `#read=${hint.read}`
-              : `#anchor=${hint.anchor}`
-            : target === current && location.hash.startsWith('#t=')
-              ? location.hash
-              : '';
-          return `/p/${target}${tail}`;
-        },
-      })
-    : createHashHistory();
+            if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
+              path = '/blocked';
+            const search = hint
+              ? 'read' in hint
+                ? `?read=${hint.read}`
+                : `?anchor=${hint.anchor}`
+              : path === '/'
+                ? storedListSearch(window.history.state)
+                : '';
+            return {
+              href: path + search,
+              pathname: path,
+              search,
+              hash: '',
+              state: {
+                ...window.history.state,
+                __TSR_index: window.history.state?.__TSR_index ?? 0,
+              },
+            };
+          },
+          createHref: (routerPath) => {
+            // The list's search is never part of the address (see `keepListSearch`).
+            const path = isListPath(routerPath) ? '/' : routerPath;
+            if (!publicEntry()) return ownerReadingHref(path, location.pathname, space);
+            const { route, hint } = splitPageHint(path);
+            const id = route.replace(/^\/(?:pages|short)\//, '');
+            if (route === '/' || !validPagePrefix(id)) return '/colab/';
+            const current = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
+            const matches = knownPages.filter((row) => row.pageId.startsWith(current));
+            const target = route.startsWith('/pages/')
+              ? validPagePrefix(current) && matches.length === 1 && matches[0].pageId === id
+                ? current
+                : shortPageId(
+                    id,
+                    knownPages.map((row) => row.pageId),
+                  )
+              : id;
+            const tail = hint
+              ? 'read' in hint
+                ? `#read=${hint.read}`
+                : `#anchor=${hint.anchor}`
+              : target === current && location.hash.startsWith('#t=')
+                ? location.hash
+                : '';
+            return `/p/${target}${tail}`;
+          },
+        })
+      : createHashHistory();
   if (space) keepListSearch(history);
   const router = createRouter({
-    routeTree: root.addChildren([home, allPages, page, shortPage, blocked]),
+    routeTree: root.addChildren([home, allPages, page, shortPage, colabSettings, blocked]),
     history,
+    ...(inShell() ? { basepath: '/colab' } : {}),
     context: { transport, space, rememberPages: (pages) => (knownPages = pages) },
   });
   router.subscribe('onResolved', () => void buildWatch.check());

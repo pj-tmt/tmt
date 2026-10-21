@@ -1,0 +1,96 @@
+/* Gallery-only busy-mark candidates beside the shipped BusyMark (spinner.css). Each is a flat,
+   square 1em mark in currentColor on the shared --tmt-ui-spin-duration, and stands still under
+   reduced motion. */
+.candidate {
+  position: relative;
+  display: block;
+  width: 1em;
+  height: 1em;
+  overflow: hidden;
+  color: currentColor;
+}
+
+/* (b) A 2x2 grid; the cells light in clockwise order. */
+.candidate-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.12em;
+}
+.candidate-grid > span {
+  box-sizing: border-box;
+  border: var(--tmt-ui-rule-width) solid currentColor;
+  animation: candidate-grid var(--tmt-ui-spin-duration) steps(1) infinite;
+}
+.candidate-grid > span:nth-child(1) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0);
+}
+.candidate-grid > span:nth-child(2) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0.75);
+}
+.candidate-grid > span:nth-child(4) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0.5);
+}
+.candidate-grid > span:nth-child(3) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0.25);
+}
+@keyframes candidate-grid {
+  0% {
+    background: currentColor;
+  }
+  25% {
+    background: transparent;
+  }
+}
+
+/* (c) A square outline with a short segment travelling around it. */
+.candidate-square {
+  box-sizing: border-box;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  overflow: visible;
+}
+.candidate-square > span {
+  position: absolute;
+  top: calc(-1 * var(--tmt-ui-rule-width));
+  left: calc(-1 * var(--tmt-ui-rule-width));
+  width: 0.4em;
+  height: 0.4em;
+  box-sizing: border-box;
+  border-top: calc(var(--tmt-ui-rule-width) * 2) solid currentColor;
+  animation: candidate-square var(--tmt-ui-spin-duration) linear infinite;
+}
+@keyframes candidate-square {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate(0.6em, 0) rotate(0deg);
+  }
+  25.01% {
+    transform: translate(0.6em, 0) rotate(90deg);
+  }
+  50% {
+    transform: translate(0.6em, 0.6em) rotate(90deg);
+  }
+  50.01% {
+    transform: translate(0.6em, 0.6em) rotate(180deg);
+  }
+  75% {
+    transform: translate(0, 0.6em) rotate(180deg);
+  }
+  75.01% {
+    transform: translate(0, 0.6em) rotate(270deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(270deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .candidate-grid > span,
+  .candidate-square > span {
+    animation: none;
+  }
+  .candidate-grid > span:nth-child(1) {
+    background: currentColor;
+  }
+}

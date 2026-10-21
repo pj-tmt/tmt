@@ -1,7 +1,6 @@
-import { Circle, Diamond, LoaderCircle, X } from 'lucide-react';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { Circle, Diamond, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { BrowserNotice } from '@tmt/browser-ui/react';
+import { BrowserNotice, BusyMark } from '@tmt/browser-ui/react';
 import './notice-card.css';
 import { ColabHeader } from './colab-header.js';
 import { text } from './strings.js';
@@ -55,7 +54,7 @@ export function NoticeCard({
       title={title}
       mark={
         state === 'opening' ? (
-          <LoaderCircle className={ui.spin} />
+          <BusyMark />
         ) : state === 'waiting' ? (
           <Diamond fill="currentColor" />
         ) : muted ? (

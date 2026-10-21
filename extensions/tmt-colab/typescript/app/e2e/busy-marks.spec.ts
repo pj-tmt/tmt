@@ -16,11 +16,11 @@ const run = (page: Page, method: string, argument?: unknown) =>
     { fixture, method, argument },
   );
 
-/** The infinite animations on a mark: every shown LoaderCircle turns by the one shared rule (#3985). */
+/** The infinite animations on a mark: every shown BusyMark steps by the one shared rule (#3985). */
 const turns = (mark: Locator) =>
   mark.evaluate((node) => ({
-    name: getComputedStyle(node.querySelector('svg') ?? node).animationName,
-    running: (node.querySelector('svg') ?? node)
+    name: getComputedStyle(node.querySelector('.tmt-ui-busy-frames') ?? node).animationName,
+    running: (node.querySelector('.tmt-ui-busy-frames') ?? node)
       .getAnimations()
       .filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity).length,
   }));
@@ -49,8 +49,9 @@ async function mount(page: Page, setup: (page: Page) => Promise<void>) {
     const count = () => {
       seen.peakMarks = Math.max(
         seen.peakMarks,
-        document.querySelectorAll('[data-busy="true"] svg, .comment-echo-mark[data-shown] svg')
-          .length,
+        document.querySelectorAll(
+          '[data-busy="true"] .tmt-ui-busy-mark, .comment-echo-mark[data-shown] .tmt-ui-busy-mark',
+        ).length,
       );
     };
     new MutationObserver(count).observe(document.body, {
@@ -108,9 +109,9 @@ for (const kind of ['fast', 'slow'] as const) {
       expect(await peak(page)).toBe(0);
     } else {
       await expect(markOf(confirm)).toHaveAttribute('data-busy', 'true');
-      await expect(markOf(confirm).locator('svg')).toHaveCount(1);
+      await expect(markOf(confirm).locator('.tmt-ui-busy-mark')).toHaveCount(1);
       // The other actions reserve the same slot but draw nothing in it.
-      await expect(markOf(note).locator('svg')).toHaveCount(0);
+      await expect(markOf(note).locator('.tmt-ui-busy-mark')).toHaveCount(0);
       expect(await peak(page)).toBe(1);
       await capture(page, 'review');
       await settle(page, () => run(page, 'releaseStatus'));
@@ -199,7 +200,7 @@ test('a dispatching ask is a wordless mark that shows after 400 ms', async ({ pa
   await capture(page, 'dispatching');
 });
 
-test('a shown mark turns by the shared spinner and stands still under reduced motion', async ({
+test('a shown mark steps by the shared busy mark and holds one frame under reduced motion', async ({
   page,
 }) => {
   let card!: Locator;
@@ -215,15 +216,15 @@ test('a shown mark turns by the shared spinner and stands still under reduced mo
   await page.clock.runFor(400);
   const mark = markOf(confirm);
   await expect(mark).toHaveAttribute('data-busy', 'true');
-  expect(await turns(mark)).toEqual({ name: 'tmt-ui-spin', running: 1 });
+  expect(await turns(mark)).toEqual({ name: 'tmt-ui-busy', running: 1 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await turns(mark)).toEqual({ name: 'none', running: 0 });
-  // The mark stays on screen; only the turning stops.
-  await expect(mark.locator('svg')).toBeVisible();
+  // The mark stays on screen; only the stepping stops.
+  await expect(mark.locator('.tmt-ui-busy-mark')).toBeVisible();
   await settle(page, () => run(page, 'releaseStatus'));
 });
 
-test('a dispatching ask turns its mark by the shared spinner and stands still under reduced motion', async ({
+test('a dispatching ask steps its mark by the shared busy mark and holds one frame under reduced motion', async ({
   page,
 }) => {
   await mount(page, async () => {
@@ -239,8 +240,8 @@ test('a dispatching ask turns its mark by the shared spinner and stands still un
   await page.clock.runFor(399);
   await page.clock.runFor(1);
   await expect(mark).toHaveAttribute('data-shown', 'true');
-  expect(await turns(mark)).toEqual({ name: 'tmt-ui-spin', running: 1 });
+  expect(await turns(mark)).toEqual({ name: 'tmt-ui-busy', running: 1 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await turns(mark)).toEqual({ name: 'none', running: 0 });
-  await expect(mark.locator('svg')).toBeVisible();
+  await expect(mark.locator('.tmt-ui-busy-mark')).toBeVisible();
 });

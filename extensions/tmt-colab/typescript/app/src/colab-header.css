@@ -66,7 +66,9 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 }
-body {
+/* Outside the TMT web shell the header is fixed over the body's top padding; inside it, the
+   shell's bar keeps the header in flow. */
+body:not(:has(.tmt-ui-shell)) {
   padding-top: calc(var(--colab-header-height) + env(safe-area-inset-top, 0px));
 }
 .tmt-ui-header {
@@ -148,9 +150,10 @@ body {
   gap: var(--tmt-ui-header-brand-gap);
   color: var(--tmt-ui-color-text);
 }
-/* A phone shows the mark only: the wordmark stays for assistive technology and in the brand's name. */
+/* A phone shows the mark only: the wordmark stays for assistive technology and in the brand's name.
+   In the TMT web shell the rail carries the mark, so the wordmark stays as the crumb. */
 @media (max-width: 479px) {
-  .colab-brand-parts .tmt-ui-wordmark {
+  body:not(:has(.tmt-ui-shell)) .colab-brand-parts .tmt-ui-wordmark {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -162,6 +165,13 @@ body {
 .colab-title-divider {
   flex: none;
   color: var(--c-muted);
+}
+/* The list's scope after the divider: one line that ellipsizes, never widening the header. */
+.colab-scope-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tmt-ui-heading:has(> .colab-title-divider) .tmt-ui-caption {
   max-width: 22ch;

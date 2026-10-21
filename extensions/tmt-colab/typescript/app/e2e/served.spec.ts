@@ -162,7 +162,7 @@ async function responseStatus(url: string) {
 
 async function expectSharedFavicon(page: Page) {
   const canonical = await readFile(
-    new URL('../../../../../design/browser-ui/src/favicon.svg', import.meta.url),
+    new URL('../../../../../design/browser-ui/generated/favicon.svg', import.meta.url),
   );
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute(
     'href',

@@ -56,10 +56,14 @@ export default defineConfig(({ mode }) => ({
   ],
   // `reader` is the public read-only entry: one fixed-name script, stylesheet and decoder worker,
   // so the native server can allowlist exactly these files for unpaired browsers.
-  define: mode === 'reader' ? { 'process.env.NODE_ENV': '"production"' } : undefined,
+  define:
+    mode === 'reader' || mode === 'module' ? { 'process.env.NODE_ENV': '"production"' } : undefined,
   worker:
-    mode === 'reader'
-      ? { format: 'es', rollupOptions: { output: { entryFileNames: 'assets/reader-fold.js' } } }
+    mode === 'reader' || mode === 'module'
+      ? {
+          format: 'es',
+          rollupOptions: { output: { entryFileNames: `assets/${mode}-fold.js` } },
+        }
       : undefined,
   build:
     mode === 'recovery'
@@ -71,16 +75,29 @@ export default defineConfig(({ mode }) => ({
             fileName: () => 'assets/recovery.js',
           },
         }
-      : mode === 'reader'
+      : mode === 'module'
         ? {
+            // Colab as a route of the one TMT app: a fixed-name module the app imports from the
+            // owner's mount (`assets/colab-module.js`), with its own stylesheet.
             emptyOutDir: false,
             copyPublicDir: false,
             lib: {
-              entry: new URL('./src/reader-main.tsx', import.meta.url).pathname,
+              entry: new URL('./src/colab-module.tsx', import.meta.url).pathname,
               formats: ['es'],
-              fileName: () => 'assets/reader.js',
-              cssFileName: 'assets/reader',
+              fileName: () => 'assets/colab-module.js',
+              cssFileName: 'assets/colab-module',
             },
           }
-        : { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
+        : mode === 'reader'
+          ? {
+              emptyOutDir: false,
+              copyPublicDir: false,
+              lib: {
+                entry: new URL('./src/reader-main.tsx', import.meta.url).pathname,
+                formats: ['es'],
+                fileName: () => 'assets/reader.js',
+                cssFileName: 'assets/reader',
+              },
+            }
+          : { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
 }));

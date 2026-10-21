@@ -72,10 +72,12 @@ struct PublicEntrySet {
     homes: &'static [&'static str],
     ids: &'static [&'static str],
 }
+// `/colab/...` is a route of the one TMT app and `/p/<id>` redirects into it (pages.rs); only
+// the shell-free reader entry stays an extension-forwarded public entry.
 const PUBLIC_ENTRIES: &[PublicEntrySet] = &[PublicEntrySet {
     extension: "colab",
-    homes: &["/colab", "/colab/"],
-    ids: &["/p/", "/read/"],
+    homes: &[],
+    ids: &["/read/"],
 }];
 fn public_entry(path: &str) -> Option<(&'static str, &str)> {
     for entries in PUBLIC_ENTRIES {

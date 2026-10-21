@@ -8,6 +8,7 @@ import {
   BrowserListRow,
   BrowserMenu,
   BrowserTabs,
+  BrowserCheckbox,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import { Archive, ArchiveRestore, ExternalLink } from 'lucide-react';
@@ -42,8 +43,8 @@ import {
 } from './list-stage.js';
 import { AUTHOR_BYTES } from './bootstrap.js';
 import { HeaderSlot } from './header-slot.js';
-import { ProjectScopeMenu } from './project-scope-menu.js';
-import { inScope, knownScope, scopeRows, writeScope } from './project-scope.js';
+import { ProjectMenuActionsSlot } from './project-menu-actions.js';
+import { inScope, knownScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
 import { runPageOperations, type PageOperation } from './page-operations.js';
@@ -308,8 +309,9 @@ function StageEmpty({
 
 export function Home() {
   const space = homeRoute.useLoaderData();
-  const { transport, space: spaceId } = rootRoute.useRouteContext();
+  const { transport } = rootRoute.useRouteContext();
   const slot = useContext(HeaderSlot);
+  const offerProjectActions = useContext(ProjectMenuActionsSlot);
   const search = homeRoute.useSearch();
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
@@ -384,10 +386,15 @@ export function Home() {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
   }
   /** The choice is the default the next visit opens on; All pages removes it. */
-  function chooseScope(name: string | undefined) {
-    writeScope(spaceId, name);
-    setSearch({ scope: name });
-  }
+  // The shell's module menu offers the project dialogs while this list can manage them.
+  useEffect(() => {
+    if (!offerProjectActions || !port) return;
+    offerProjectActions({
+      newProject: () => setDialog({ kind: 'new', initial: [] }),
+      manage: () => setDialog({ kind: 'manage' }),
+    });
+    return () => offerProjectActions(undefined);
+  }, [offerProjectActions, port]);
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
   const lastApplied = useRef(applied);
@@ -617,9 +624,7 @@ export function Home() {
                 data-selected={selectedIds.has(p.id) ? '' : undefined}
                 leading={
                   port ? (
-                    <input
-                      type="checkbox"
-                      className="page-select"
+                    <BrowserCheckbox
                       aria-label={t.selectPage(pageTitle(p))}
                       checked={selectedIds.has(p.id)}
                       onChange={() => toggleSelected(p.id)}
@@ -841,23 +846,13 @@ export function Home() {
         </>
       )}
       {slot &&
-        (port || projectNames.length > 0) &&
+        scope !== undefined &&
         createPortal(
           <>
             <span className="colab-title-divider" aria-hidden="true">
               /
             </span>
-            <ProjectScopeMenu
-              rows={scopeRows(shown, projectNames)}
-              scope={scope}
-              onScope={chooseScope}
-              {...(port
-                ? {
-                    onNew: () => setDialog({ kind: 'new', initial: [] }),
-                    onManage: () => setDialog({ kind: 'manage' }),
-                  }
-                : {})}
-            />
+            <span className="colab-scope-title">{scope}</span>
           </>,
           slot,
         )}

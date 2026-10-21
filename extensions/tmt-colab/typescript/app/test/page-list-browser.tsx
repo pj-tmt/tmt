@@ -76,7 +76,9 @@ export async function mountPageList(
     /** Every page is in discussion: nothing in progress, nothing done. */
     | 'quiet'
     /** No page has reported its tasks yet, as after a cold start. */
-    | 'cold' = 'few',
+    | 'cold'
+    /** A dashboard (shell page), which the module menu lists under Dashboards. */
+    | 'shells' = 'few',
   hash = '/',
 ) {
   document.getElementById('root')!.style.display = 'none';
@@ -179,6 +181,9 @@ export async function mountPageList(
                           ),
                           page(8, 'Extra page', ['extra']),
                         ]
+                      : []),
+                    ...(size === 'shells'
+                      ? [page(9, 'Reading shell', [], { pageType: 'shell' })]
                       : []),
                     page(1, 'Alpha plan', ['design', 'q4 plan'], {
                       summary: { comments: 3, waiting: true, needsYou: 1, author: 'Studio agent' },

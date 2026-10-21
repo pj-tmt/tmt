@@ -15,7 +15,7 @@ Verified main source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205`.
   path change `4f76003de96c1d7b1c536860769f6cdb231509fe`.
   SHA-256 at the verified main commit:
   `78b3fa6af5145b568ef907948d25faea8d617f520f3900ec346d26c74e047619`.
-- `site/src/blog/mark.svg` copies `site/src/home/assets/v9-0.svg` at that main commit.
+- `site/src/blog/mark.svg` is a byte copy of `design/browser-ui/generated/favicon.svg`, the small 04D-1 mark on its dark tile.
 
 The landing loads canonical design tokens but overrides its neutral palette and
 uses its own layout CSS. The blog intentionally follows that marketing treatment.

@@ -30,7 +30,7 @@ function text(value) {
 	}
 	return encoder$2.encode(value);
 }
-function count(value) {
+function count$1(value) {
 	requireValue$1(Number.isInteger(value) && value >= 0 && value <= 4294967295, "u32 length");
 	const result = /* @__PURE__ */ new Uint8Array(4);
 	new DataView(result.buffer).setUint32(0, value, false);
@@ -48,7 +48,7 @@ function concat(parts) {
 	return result;
 }
 function lp(value) {
-	return concat([count(value.length), value]);
+	return concat([count$1(value.length), value]);
 }
 var lpText = (value) => lp(text(value));
 function uuid(value) {
@@ -901,7 +901,7 @@ var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
 function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function row(value, keys) {
+function row$2(value, keys) {
 	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
 	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
@@ -909,7 +909,7 @@ function row(value, keys) {
 }
 function parseSyncMapping(value) {
 	valid$4(typeof value === "object" && value !== null);
-	const r = row(value, [
+	const r = row$2(value, [
 		"fields",
 		"spaceField",
 		"uidField",
@@ -929,7 +929,7 @@ function parseSyncMapping(value) {
 	let query = null;
 	if (r.query !== null) {
 		valid$4(typeof r.query === "object" && r.query !== null);
-		const q = row(r.query, [
+		const q = row$2(r.query, [
 			"scopeFields",
 			"streamField",
 			"seqField",
@@ -942,7 +942,7 @@ function parseSyncMapping(value) {
 		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
-			const d = row(q.discovery, [
+			const d = row$2(q.discovery, [
 				"name",
 				"scopeFields",
 				"seqEquals"
@@ -1343,210 +1343,1191 @@ function currentRemote(entry, address, pageUrl) {
 	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/brand-mark-svg.ts
+/** A polygon whose corners are quadratic curves of the given radii (0 keeps a corner sharp). */
+function rounded(points, radii) {
+	const n = points.length;
+	const toward = ([ax, ay], [bx, by], k) => {
+		const length = Math.hypot(bx - ax, by - ay);
+		const t = Math.min(k, length / 2) / length;
+		return [ax + (bx - ax) * t, ay + (by - ay) * t];
+	};
+	let d = "";
+	for (let i = 0; i < n; i++) {
+		const corner = points[i];
+		const [sx, sy] = toward(corner, points[(i - 1 + n) % n], radii[i]);
+		const [ex, ey] = toward(corner, points[(i + 1) % n], radii[i]);
+		d += `${i ? "L" : "M"}${sx.toFixed(2)} ${sy.toFixed(2)}Q${corner[0]} ${corner[1]} `;
+		d += `${ex.toFixed(2)} ${ey.toFixed(2)}`;
+	}
+	return `${d}Z`;
+}
+var FULL = {
+	panel: rounded([
+		[6, 10],
+		[50, 24],
+		[50, 80],
+		[6, 88]
+	], [
+		8,
+		6.5,
+		6.5,
+		8
+	]),
+	beam: rounded([
+		[7, 10],
+		[74, 22],
+		[80, 28],
+		[80, 80],
+		[74, 86],
+		[50, 80],
+		[7, 70]
+	], [
+		0,
+		7,
+		7,
+		7,
+		7,
+		0,
+		0
+	]),
+	rim: "M49.4 29 L49.4 75",
+	prompt: "M15.5 34 L23.5 40.5 L15.5 47 M26.5 49.5 L34 51.2"
+};
+var SMALL = {
+	panel: rounded([
+		[5, 14],
+		[52, 24],
+		[52, 76],
+		[5, 86]
+	], [
+		7,
+		7,
+		7,
+		7
+	]),
+	beam: rounded([
+		[6, 14],
+		[86, 24],
+		[92, 29],
+		[92, 81],
+		[86, 86],
+		[52, 76],
+		[6, 70]
+	], [
+		0,
+		9,
+		9,
+		9,
+		9,
+		0,
+		0
+	]),
+	prompt: "M15 37 L28 50 L15 63"
+};
+var brandMarkSmall = (size) => size !== void 0 && size < 28;
+var stop = (name, offset, opacity) => `<stop class="tmt-brand-mark-${name}" offset="${offset}"${opacity === void 0 ? "" : ` stop-opacity="${opacity}"`}></stop>`;
+var light = (offset, opacity) => `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
+var box = "filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"96\" height=\"96\"";
+/** The mark's children; `id` prefixes its paint servers, unique per document. */
+function brandMarkInner(small, id) {
+	const shape = small ? SMALL : FULL;
+	const aurora = `<linearGradient id="${id}-aurora" x1="0.2" y1="0.05" x2="0.85" y2="1">${stop("cyan", 0)}${stop("green", .5)}${stop("gold", 1)}</linearGradient><linearGradient id="${id}-far" x1="0" y1="0" x2="1" y2="0">${stop("far", .45, 0)}${stop("far", 1, small ? .15 : .25)}</linearGradient><linearGradient id="${id}-panel" x1="0" y1="0" x2="0.6" y2="1">${stop("panel-top", 0)}${stop("panel-bottom", 1)}</linearGradient><linearGradient id="${id}-mono" x1="0" y1="0" x2="1" y2="0.35">${stop("mono-start", 0)}${stop("mono-end", 1)}</linearGradient>`;
+	const beam = `<path d="${shape.beam}" fill="url(#${id}-aurora)"></path><path d="${shape.beam}" fill="url(#${id}-far)"></path>`;
+	const print = `<path class="tmt-brand-mark-print" d="${shape.beam}" fill="url(#${id}-mono)"></path>`;
+	const panel = `<path class="tmt-brand-mark-panel" d="${shape.panel}" fill="url(#${id}-panel)"></path>`;
+	const prompt = `<path class="tmt-brand-mark-prompt" d="${shape.prompt}"></path>`;
+	if (small) return `<defs>${aurora}</defs><g class="tmt-brand-mark-beam">${beam}</g>${print}${panel}${prompt}`;
+	return `<defs>${aurora}<linearGradient id="${id}-halo-weight" x1="0" y1="0" x2="1" y2="1">${light(.3, .15)}${light(1, 1)}</linearGradient><mask id="${id}-halo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"><rect width="96" height="96" fill="url(#${id}-halo-weight)"></rect></mask><linearGradient id="${id}-feather" x1="0" y1="0" x2="1" y2="0">${light(.88, 1)}${light(1, .7)}</linearGradient><mask id="${id}-feather-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#${id}-feather)"></rect></mask><linearGradient id="${id}-spill" gradientUnits="userSpaceOnUse" x1="50" y1="0" x2="36" y2="0">${stop("glow", 0, .6)}${stop("cyan", .35, .22)}${stop("cyan", 1, 0)}</linearGradient><linearGradient id="${id}-sheen" x1="0" y1="0" x2="1" y2="1">${light(0, .1)}${light(.35, 0)}</linearGradient><linearGradient id="${id}-rim" x1="0" y1="0" x2="0" y2="1">${stop("cyan", 0, .9)}${stop("gold", 1, .9)}</linearGradient><clipPath id="${id}-panel-clip"><path d="${shape.panel}"></path></clipPath><filter id="${id}-halo" ${box}><feGaussianBlur stdDeviation="2.4"></feGaussianBlur></filter><filter id="${id}-soft" ${box}><feGaussianBlur stdDeviation="0.25"></feGaussianBlur></filter></defs><g transform="translate(6.5 3) scale(0.94)"><g class="tmt-brand-mark-beam"><g mask="url(#${id}-halo-mask)"><path d="${shape.beam}" fill="url(#${id}-aurora)" filter="url(#${id}-halo)" opacity="0.55" transform="translate(1 1.4)"></path></g><g mask="url(#${id}-feather-mask)" filter="url(#${id}-soft)">${beam}</g></g>` + print + panel + `<g class="tmt-brand-mark-beam" clip-path="url(#${id}-panel-clip)"><path d="${shape.panel}" fill="url(#${id}-spill)"></path><path class="tmt-brand-mark-rim" d="${FULL.rim}" stroke="url(#${id}-rim)"></path></g><path d="${shape.panel}" fill="url(#${id}-sheen)"></path>` + prompt + `</g>`;
+}
+/** The whole decorative `<svg>`, as static hosts embed it. */
+function brandMarkSvg({ size, className = "tmt-brand-mark", id }) {
+	const small = brandMarkSmall(size);
+	const dimensions = size === void 0 ? "" : ` width="${size}" height="${size}"`;
+	return `<svg class="${className}" data-form="${small ? "small" : "full"}" viewBox="0 0 96 96" aria-hidden="true"${dimensions}>${brandMarkInner(small, id)}</svg>`;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/shell-icons.ts
+/**
+* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
+* same icons without a React or Lucide runtime. The first eight are the module icon allow-list
+* of Remote's describe contract; an unknown name falls back to `box`.
+*/
+var shellIconNodes = {
+	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+	"file-text": [
+		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
+		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
+		["path", { d: "M10 9H8" }],
+		["path", { d: "M16 13H8" }],
+		["path", { d: "M16 17H8" }]
+	],
+	"monitor-smartphone": [
+		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
+		["path", { d: "M10 19v-3.96 3.15" }],
+		["path", { d: "M7 19h5" }],
+		["rect", {
+			width: "6",
+			height: "10",
+			x: "16",
+			y: "12",
+			rx: "2"
+		}]
+	],
+	users: [
+		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
+		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
+		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
+		["circle", {
+			cx: "9",
+			cy: "7",
+			r: "4"
+		}]
+	],
+	"chart-column": [
+		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
+		["path", { d: "M18 17V9" }],
+		["path", { d: "M13 17V5" }],
+		["path", { d: "M8 17v-3" }]
+	],
+	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
+		cx: "11",
+		cy: "11",
+		r: "8"
+	}]],
+	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
+		cx: "12",
+		cy: "12",
+		r: "3"
+	}]],
+	box: [
+		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
+		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
+		["path", { d: "M12 22V12" }]
+	],
+	"panel-left-close": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m16 15-3-3 3-3" }]
+	],
+	menu: [
+		["path", { d: "M4 5h16" }],
+		["path", { d: "M4 12h16" }],
+		["path", { d: "M4 19h16" }]
+	]
+};
+var moduleIcons = [
+	"house",
+	"file-text",
+	"monitor-smartphone",
+	"users",
+	"chart-column",
+	"search",
+	"settings",
+	"box"
+];
+var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
+//#endregion
+//#region ../../../../design/browser-ui/src/shell.ts
+/** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
+function shellCount(value, kind = "needs-you") {
+	return {
+		text: value > 99 ? "99+" : String(value),
+		needsYou: kind === "needs-you"
+	};
+}
+/** The answer this browser read last, shared by every page so each paints the same rail first. */
+var ANSWER_KEY = "tmt-shell-answer-v1";
+function rememberedShellAnswer() {
+	try {
+		const stored = JSON.parse(sessionStorage.getItem(ANSWER_KEY) ?? "null");
+		return stored?.version === 1 && Array.isArray(stored.modules) ? stored : void 0;
+	} catch {
+		return;
+	}
+}
+/**
+* Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
+* answer for its path (`POST /sdk/mount`). Undefined when neither answers.
+*/
+async function shellAddress() {
+	const mounted = /^\/r\/[a-z0-9]+(?=\/x\/)/.exec(location.pathname);
+	if (mounted) return `${location.origin}${mounted[0]}`;
+	try {
+		const response = await fetch("/sdk/mount", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ path: location.pathname })
+		});
+		if (response.status !== 200) return void 0;
+		const { address } = await response.json();
+		return typeof address === "string" ? address : void 0;
+	} catch {
+		return;
+	}
+}
+/** Fetch the owner's composed shell once per page; any failure leaves the remembered answer. */
+async function loadShellAnswer(address) {
+	try {
+		const response = await fetch(`${address}/x/-/shell`, {
+			credentials: "same-origin",
+			cache: "no-store"
+		});
+		if (!response.ok) return void 0;
+		const answer = await response.json();
+		if (answer?.version !== 1 || !Array.isArray(answer.modules)) return void 0;
+		try {
+			sessionStorage.setItem(ANSWER_KEY, JSON.stringify(answer));
+		} catch {}
+		return answer;
+	} catch {
+		return;
+	}
+}
+/**
+* The one rail (spec c5ccd17a): the same items in the same order on every page, whatever module
+* hosts it. A module the composed answer does not describe stays, dimmed, with the reason.
+*/
+var RAIL = [
+	{
+		id: "colab",
+		label: "Colab",
+		icon: "file-text",
+		path: "/colab/"
+	},
+	{
+		id: "remote",
+		label: "Remote",
+		icon: "monitor-smartphone",
+		path: "/remote/"
+	},
+	{
+		id: "ops",
+		label: "Ops",
+		icon: "users",
+		path: "/ops/"
+	},
+	{
+		id: "digest",
+		label: "Digest",
+		icon: "chart-column",
+		path: "/digest/"
+	}
+];
+/** Served by the TMT host itself, so always reachable from the rail. */
+var HOST_SERVED = /* @__PURE__ */ new Set([
+	"remote",
+	"ops",
+	"digest"
+]);
+/**
+* Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
+* order, Search, then TMT settings at the bottom. Colab is available when the answer describes it
+* or it hosts the page; without an answer (not paired) it is dimmed, as is Search, which is
+* Colab's quick switcher. The current item is the host's module, else the longest matching path.
+*/
+function shellRail(answer, place, host) {
+	const active = host?.extension;
+	const described = new Map((answer?.modules ?? []).map((module) => [module.extension, module]));
+	if (host && !described.has(host.extension)) described.set(host.extension, host);
+	const path = place.href.slice(place.origin.length);
+	const settings = path === "/settings" || path.startsWith("/settings/");
+	const unavailable = answer ? "Not installed on this machine" : "Pair this browser with Remote to open it";
+	const modules = [...RAIL.map((fixed) => {
+		const module = described.get(fixed.id);
+		return {
+			id: fixed.id,
+			label: module?.rail.label ?? fixed.label,
+			icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
+			href: module?.rail.path ?? `${place.origin}${fixed.path}`,
+			needsYou: module?.needsYou,
+			available: Boolean(module) || HOST_SERVED.has(fixed.id)
+		};
+	}), ...[...described.values()].filter((module) => !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
+		id: module.extension,
+		label: module.rail.label,
+		icon: moduleIcon(module.rail.icon),
+		href: module.rail.path,
+		needsYou: module.needsYou,
+		available: true
+	}))];
+	const matched = active ?? modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
+	const counts = [...described.values()].map((module) => module.needsYou);
+	const total = answer && counts.every((count) => count !== void 0) ? counts.reduce((sum, count) => sum + count, 0) : void 0;
+	const colab = modules[0];
+	return {
+		main: [
+			{
+				id: "home",
+				label: "Home",
+				icon: "house",
+				href: `${place.origin}/`,
+				count: total ? shellCount(total) : void 0,
+				current: path === "/" && !active
+			},
+			...modules.map((module) => ({
+				id: module.id,
+				label: module.label,
+				icon: module.icon,
+				href: module.href,
+				count: module.needsYou ? shellCount(module.needsYou) : void 0,
+				current: !settings && module.id === matched,
+				...module.available ? {} : {
+					disabled: true,
+					note: unavailable
+				}
+			})),
+			{
+				id: "search",
+				label: "Search",
+				icon: "search",
+				href: colab.href,
+				current: false,
+				...colab.available ? {} : {
+					disabled: true,
+					note: "Search opens Colab. " + unavailable
+				}
+			}
+		],
+		bottom: [{
+			id: "settings",
+			label: "TMT settings",
+			icon: "settings",
+			href: `${place.origin}/settings/`,
+			current: settings
+		}]
+	};
+}
+var RAIL_KEY = "tmt.shell.rail";
+var SVG = "http://www.w3.org/2000/svg";
+function railCollapsed() {
+	try {
+		return localStorage.getItem(RAIL_KEY) === "collapsed";
+	} catch {
+		return false;
+	}
+}
+function rememberRail(collapsed) {
+	try {
+		localStorage.setItem(RAIL_KEY, collapsed ? "collapsed" : "expanded");
+	} catch {}
+}
+function icon(document, name) {
+	const svg = document.createElementNS(SVG, "svg");
+	svg.setAttribute("class", "tmt-ui-shell-icon");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = document.createElementNS(SVG, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
+}
+function count(document, value) {
+	const badge = document.createElement("span");
+	badge.className = "tmt-ui-shell-count";
+	if (value.needsYou) badge.dataset.kind = "needs-you";
+	badge.textContent = value.needsYou ? `◆ ${value.text}` : value.text;
+	return badge;
+}
+/**
+* Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
+* `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
+* `.tmt-ui-shell-main`. The module menu goes between the bar and the main area: a column beside
+* them on wide screens, tabs under the title bar on phones. `select` may take over a plain click
+* on an item (an SPA route or Colab's search); it returns true when it handled the click.
+*/
+function mountShell(root, view, select) {
+	const document = root.ownerDocument;
+	root.classList.add("tmt-ui-shell");
+	const open = document.createElement("button");
+	open.type = "button";
+	open.className = "tmt-ui-shell-open";
+	open.setAttribute("aria-label", "Open navigation");
+	open.setAttribute("aria-expanded", "false");
+	open.append(icon(document, "menu"));
+	const rail = document.createElement("nav");
+	rail.className = "tmt-ui-rail";
+	rail.setAttribute("aria-label", "TMT");
+	const menu = document.createElement("nav");
+	menu.className = "tmt-ui-module-menu";
+	root.prepend(open, rail);
+	root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar").after(menu);
+	let collapsed = railCollapsed();
+	const setDrawer = (shown) => {
+		root.dataset.drawer = shown ? "open" : "closed";
+		open.setAttribute("aria-expanded", String(shown));
+	};
+	const paint = () => {
+		root.dataset.rail = collapsed ? "collapsed" : "expanded";
+		toggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+		toggle.setAttribute("aria-expanded", String(!collapsed));
+		toggle.title = toggle.getAttribute("aria-label");
+	};
+	const toggle = document.createElement("button");
+	toggle.type = "button";
+	toggle.className = "tmt-ui-rail-toggle";
+	toggle.append(icon(document, "panel-left-close"));
+	toggle.onclick = () => {
+		collapsed = !collapsed;
+		rememberRail(collapsed);
+		paint();
+	};
+	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
+	const close = (event) => {
+		if (event.key === "Escape" && root.dataset.drawer === "open") {
+			setDrawer(false);
+			open.focus();
+		}
+	};
+	document.addEventListener("keydown", close);
+	const outside = (event) => {
+		const target = event.target;
+		if (root.dataset.drawer === "open" && !rail.contains(target) && !open.contains(target)) setDrawer(false);
+	};
+	document.addEventListener("pointerdown", outside);
+	const link = (className, item) => {
+		const anchor = document.createElement("a");
+		anchor.className = className;
+		anchor.href = item.href;
+		anchor.dataset.id = item.id;
+		if (item.current) anchor.setAttribute("aria-current", "page");
+		const disabled = "disabled" in item && item.disabled;
+		if (disabled) anchor.setAttribute("aria-disabled", "true");
+		if ("note" in item && item.note) anchor.title = item.note;
+		anchor.onclick = (event) => {
+			if (disabled) return event.preventDefault();
+			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+			setDrawer(false);
+			if (select?.(item.id, item.href)) event.preventDefault();
+		};
+		return anchor;
+	};
+	const railList = (items, extra) => {
+		const list = document.createElement("ul");
+		list.className = extra ? `tmt-ui-rail-items ${extra}` : "tmt-ui-rail-items";
+		for (const item of items) {
+			const anchor = link("tmt-ui-rail-item", item);
+			anchor.title = item.note ? `${item.label}: ${item.note}` : item.label;
+			const label = document.createElement("span");
+			label.className = "tmt-ui-rail-label";
+			label.textContent = item.label;
+			anchor.append(icon(document, item.icon), label);
+			if (item.count) anchor.append(count(document, item.count));
+			const row = document.createElement("li");
+			row.append(anchor);
+			list.append(row);
+		}
+		return list;
+	};
+	let shown = "";
+	const render = (next) => {
+		const key = JSON.stringify(next);
+		if (key === shown) return;
+		shown = key;
+		const top = document.createElement("div");
+		top.className = "tmt-ui-rail-top";
+		const brand = document.createElement("span");
+		brand.className = "tmt-ui-rail-brand";
+		brand.innerHTML = brandMarkSvg({
+			size: 24,
+			id: "tmt-rail"
+		});
+		const word = document.createElement("span");
+		word.className = "tmt-ui-rail-label";
+		word.textContent = "TMT";
+		brand.append(word);
+		top.append(brand, toggle);
+		rail.replaceChildren(top, railList(next.rail.main), railList(next.rail.bottom, "tmt-ui-rail-bottom"));
+		root.dataset.menu = next.menu ? "shown" : "none";
+		if (!next.menu) {
+			menu.replaceChildren();
+			menu.removeAttribute("aria-label");
+			return;
+		}
+		menu.setAttribute("aria-label", next.menu.title);
+		const left = menu.scrollLeft;
+		const title = document.createElement("div");
+		title.className = "tmt-ui-module-menu-title";
+		title.textContent = next.menu.title;
+		menu.replaceChildren(title);
+		for (const group of next.menu.groups) {
+			if (group.label !== void 0 || menu.childElementCount > 1) {
+				const heading = document.createElement("div");
+				heading.className = "tmt-ui-module-menu-group";
+				heading.textContent = group.label ?? "";
+				menu.append(heading);
+			}
+			const list = document.createElement("ul");
+			list.className = "tmt-ui-module-menu-items";
+			for (const item of group.items) {
+				const anchor = link("tmt-ui-module-menu-item", item);
+				const label = document.createElement("span");
+				label.className = "tmt-ui-module-menu-label";
+				label.textContent = item.label;
+				if (!item.note) label.title = item.label;
+				anchor.append(label);
+				if (item.total !== void 0 || item.count) {
+					const counts = document.createElement("span");
+					counts.className = "tmt-ui-shell-counts";
+					if (item.total !== void 0) counts.append(count(document, shellCount(item.total, "plain")));
+					if (item.count) counts.append(count(document, item.count));
+					anchor.append(counts);
+				}
+				const row = document.createElement("li");
+				row.append(anchor);
+				list.append(row);
+			}
+			menu.append(list);
+		}
+		menu.scrollLeft = left;
+		const current = menu.querySelector("[aria-current=\"page\"]");
+		if (current && menu.scrollWidth > menu.clientWidth) {
+			const strip = menu.getBoundingClientRect();
+			const box = current.getBoundingClientRect();
+			if (box.left < strip.left) menu.scrollLeft -= strip.left - box.left;
+			else if (box.right > strip.right) menu.scrollLeft += box.right - strip.right;
+		}
+	};
+	paint();
+	setDrawer(false);
+	render(view);
+	return {
+		update: render,
+		dispose() {
+			document.removeEventListener("keydown", close);
+			document.removeEventListener("pointerdown", outside);
+			open.remove();
+			rail.remove();
+			menu.remove();
+		}
+	};
+}
+//#endregion
+//#region src/digest-source.ts
+/**
+* What the Digest web view (`/digest/`) reads: per-agent token use over one range. The page depends
+* only on `DigestSource`; the source below is a MOCK until Core exposes a read API for the
+* owner's usage (`tmt digest usage report --json` holds the same facts on the terminal side).
+*/
+var USAGE_RANGES = [
+	"5m",
+	"1h",
+	"6h",
+	"24h",
+	"7d",
+	"30d"
+];
+var SAMPLE = [
+	{
+		agent: "tmt-ux-lead",
+		tokens: 482e5,
+		turns: 312
+	},
+	{
+		agent: "ux-1",
+		tokens: 31e6,
+		turns: 205
+	},
+	{
+		agent: "feat-1",
+		tokens: 274e5,
+		turns: 188
+	},
+	{
+		agent: "remote-1",
+		tokens: 199e5,
+		turns: 141
+	},
+	{
+		agent: "night-1",
+		tokens: 63e5,
+		turns: 52
+	}
+];
+var SCALE = {
+	"5m": 1 / 2016,
+	"1h": 1 / 168,
+	"6h": 1 / 28,
+	"24h": 1 / 7,
+	"7d": 1,
+	"30d": 30 / 7
+};
+/** The source the page reads by default. */
+var digestSource = { async usage(range) {
+	const scale = SCALE[range];
+	return {
+		range,
+		sample: true,
+		agents: SAMPLE.map((row) => ({
+			agent: row.agent,
+			tokens: Math.round(row.tokens * scale),
+			turns: Math.round(row.turns * scale)
+		}))
+	};
+} };
+//#endregion
+//#region src/digest-page.ts
+/** The Digest web view: one range picker and the per-agent table (tokens, share, turns). */
+/** 1.9B, 48.2M, 310K, 940: compact token counts in the table. */
+function formatTokens(tokens) {
+	if (tokens >= 1e9) return `${(tokens / 1e9).toFixed(1)}B`;
+	if (tokens >= 1e6) return `${(tokens / 1e6).toFixed(1)}M`;
+	if (tokens >= 1e3) return `${Math.round(tokens / 1e3)}K`;
+	return String(tokens);
+}
+/** Each agent's share of the range's tokens, in whole percent, largest first. */
+function usageRows(report) {
+	const total = report.agents.reduce((sum, row) => sum + row.tokens, 0);
+	return [...report.agents].sort((a, b) => b.tokens - a.tokens || a.agent.localeCompare(b.agent)).map((row) => ({
+		...row,
+		share: total ? Math.round(row.tokens / total * 100) : 0
+	}));
+}
+function cell(tag, text) {
+	const node = document.createElement(tag);
+	node.textContent = text;
+	return node;
+}
+function digestPage(source = digestSource) {
+	const tabs = document.getElementById("usage-ranges");
+	const body = document.getElementById("usage-rows");
+	const note = document.getElementById("usage-note");
+	if (!tabs || !body || !note) return;
+	let current = "7d";
+	let generation = 0;
+	const buttons = USAGE_RANGES.map((range) => {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "tmt-ui-tab";
+		button.setAttribute("role", "tab");
+		button.setAttribute("aria-controls", "usage-panel");
+		button.dataset.range = range;
+		const label = document.createElement("span");
+		label.className = "tmt-ui-tab-label";
+		label.textContent = range;
+		button.append(label);
+		button.addEventListener("click", () => void show(range));
+		button.addEventListener("keydown", (event) => {
+			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+			if (!step) return;
+			event.preventDefault();
+			const range = USAGE_RANGES[(USAGE_RANGES.indexOf(current) + step + USAGE_RANGES.length) % USAGE_RANGES.length];
+			show(range).then(() => buttons[USAGE_RANGES.indexOf(range)].focus());
+		});
+		return button;
+	});
+	tabs.replaceChildren(...buttons);
+	async function show(range) {
+		current = range;
+		const mine = ++generation;
+		for (const button of buttons) {
+			const selected = button.dataset.range === range;
+			button.setAttribute("aria-selected", String(selected));
+			button.tabIndex = selected ? 0 : -1;
+		}
+		const report = await source.usage(range);
+		if (mine !== generation) return;
+		body.replaceChildren(...usageRows(report).map((row) => {
+			const line = document.createElement("tr");
+			line.append(cell("th", row.agent), cell("td", formatTokens(row.tokens)), cell("td", `${row.share}%`), cell("td", row.turns === void 0 ? "—" : String(row.turns)));
+			line.firstElementChild.setAttribute("scope", "row");
+			return line;
+		}));
+		note.textContent = report.unavailable ?? (report.sample ? "Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers." : report.agents.some((row) => row.turns === void 0) ? "Turns show — where Digest does not count them yet." : "");
+		note.hidden = !note.textContent;
+	}
+	show(current);
+}
+//#endregion
+//#region src/ops-source.ts
+var AGENT_STATES = {
+	working: {
+		mark: "●",
+		word: "Working",
+		tone: "working"
+	},
+	idle: {
+		mark: "◌",
+		word: "Idle",
+		tone: "neutral"
+	},
+	"needs-you": {
+		mark: "◆",
+		word: "Needs you",
+		tone: "waiting"
+	},
+	blocked: {
+		mark: "✗",
+		word: "Blocked",
+		tone: "blocked"
+	},
+	offline: {
+		mark: "○",
+		word: "Offline",
+		tone: "neutral"
+	},
+	"idle-alert": {
+		mark: "◷",
+		word: "Idle alert",
+		tone: "neutral"
+	},
+	unknown: {
+		mark: "?",
+		word: "Unknown",
+		tone: "neutral"
+	}
+};
+/** The source the page reads by default. */
+var opsSource = { async board() {
+	return {
+		sample: true,
+		squads: [
+			{
+				name: "tmt-ux",
+				lead: "tmt-ux-lead",
+				idleAlertMinutes: 30
+			},
+			{
+				name: "tmt-feat",
+				lead: "tmt-feat-lead",
+				idleAlertMinutes: 30
+			},
+			{
+				name: "tmt-remote",
+				lead: "tmt-remote-lead"
+			}
+		],
+		agents: [
+			{
+				name: "tmt-ux-lead",
+				squad: "tmt-ux",
+				role: "lead",
+				state: "working",
+				task: "Night shift: live review",
+				model: "opus"
+			},
+			{
+				name: "ux-1",
+				squad: "tmt-ux",
+				role: "member",
+				state: "working",
+				task: "#3931 input grows with content",
+				model: "sonnet"
+			},
+			{
+				name: "ux-2",
+				squad: "tmt-ux",
+				role: "member",
+				state: "needs-you",
+				task: "Asks: Shift+Enter behaviour",
+				model: "sol"
+			},
+			{
+				name: "tmt-feat-lead",
+				squad: "tmt-feat",
+				role: "lead",
+				state: "idle",
+				model: "opus"
+			},
+			{
+				name: "feat-1",
+				squad: "tmt-feat",
+				role: "member",
+				state: "idle-alert",
+				task: "Idle 32m",
+				model: "sonnet"
+			},
+			{
+				name: "tmt-remote-lead",
+				squad: "tmt-remote",
+				role: "lead",
+				state: "offline",
+				model: "opus"
+			},
+			{
+				name: "remote-1",
+				squad: "tmt-remote",
+				role: "member",
+				state: "blocked",
+				task: "Waiting on CI",
+				model: "sol"
+			}
+		],
+		schedules: [{
+			id: "c1",
+			squad: "tmt-infra",
+			when: "hourly :07",
+			what: "Release health tick"
+		}, {
+			id: "c2",
+			squad: "tmt-infra",
+			when: "Mon 10:00",
+			what: "Guidance hygiene pass"
+		}],
+		settings: [{
+			name: "Board refresh",
+			value: "5s",
+			description: "How often the board re-reads agent state"
+		}, {
+			name: "Idle alert default",
+			value: "30m",
+			description: "Used when a squad sets none"
+		}]
+	};
+} };
+//#endregion
+//#region src/ops-page.ts
+var SECTIONS = [
+	{
+		id: "agents",
+		label: "Agents"
+	},
+	{
+		id: "squads",
+		label: "Squads"
+	},
+	{
+		id: "schedules",
+		label: "Schedules"
+	},
+	{
+		id: "settings",
+		label: "Settings"
+	}
+];
+function row$1(mark, tone, title, detail, meta = "") {
+	const item = document.createElement("li");
+	item.className = "tmt-ui-list-row";
+	item.dataset.leading = "";
+	const sign = document.createElement("div");
+	sign.className = "tmt-ui-list-leading ops-mark";
+	sign.dataset.tone = tone;
+	sign.setAttribute("aria-hidden", "true");
+	sign.textContent = mark;
+	const name = document.createElement("div");
+	name.className = "tmt-ui-list-title";
+	name.textContent = title;
+	const info = document.createElement("div");
+	info.className = "tmt-ui-list-meta";
+	const more = document.createElement("div");
+	more.className = "tmt-ui-list-updated";
+	more.textContent = detail;
+	more.title = detail;
+	const state = document.createElement("div");
+	state.className = "tmt-ui-list-state";
+	state.textContent = meta;
+	info.append(more, state);
+	item.append(sign, name, info);
+	return item;
+}
+function list(rows) {
+	const node = document.createElement("ul");
+	node.className = "tmt-ui-list";
+	node.append(...rows);
+	return node;
+}
+function heading(text) {
+	const node = document.createElement("h2");
+	node.className = "home-heading";
+	node.textContent = text;
+	return node;
+}
+/** The section's content; agents group under their squad, the lead first. */
+function opsSection(board, section) {
+	if (section === "agents") return board.squads.flatMap((squad) => {
+		const agents = board.agents.filter((agent) => agent.squad === squad.name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
+		if (!agents.length) return [];
+		return [heading(`${squad.name} · lead ${squad.lead}`), list(agents.map((agent) => {
+			const state = AGENT_STATES[agent.state];
+			return row$1(state.mark, state.tone, agent.name, `${state.word}${agent.task ? ` · ${agent.task}` : ""}`, agent.model ?? "");
+		}))];
+	});
+	if (section === "squads") return [list(board.squads.map((squad) => {
+		const count = board.agents.filter((agent) => agent.squad === squad.name).length;
+		return row$1("●", "neutral", squad.name, `lead ${squad.lead} · ${count} agent${count === 1 ? "" : "s"}` + (squad.idleAlertMinutes ? ` · idle alert ${squad.idleAlertMinutes}m` : ""));
+	}))];
+	if (section === "schedules") return [list(board.schedules.map((schedule) => row$1("◷", "neutral", schedule.what, `${schedule.squad} · ${schedule.when}`, schedule.id)))];
+	return [list(board.settings.map((setting) => row$1("", "neutral", setting.name, setting.description, setting.value)))];
+}
+function opsPage(shell, source = opsSource) {
+	const main = document.getElementById("ops-section");
+	const title = document.querySelector(".tmt-ui-title");
+	const note = document.getElementById("ops-note");
+	if (!main || !note) return;
+	const href = (id) => `${location.pathname}#${id}`;
+	const current = () => SECTIONS.find((section) => `#${section.id}` === location.hash)?.id ?? "agents";
+	let board;
+	const paint = () => {
+		const section = current();
+		shell.setMenu({
+			title: "Ops",
+			groups: [{ items: SECTIONS.filter((item) => item.id !== "settings").map((item) => ({
+				id: item.id,
+				label: item.label,
+				href: href(item.id),
+				current: item.id === section
+			})) }, { items: [{
+				id: "settings",
+				label: "Settings",
+				href: href("settings"),
+				current: section === "settings"
+			}] }]
+		});
+		if (title) title.textContent = SECTIONS.find((item) => item.id === section).label;
+		if (board) main.replaceChildren(...opsSection(board, section));
+	};
+	window.addEventListener("hashchange", paint);
+	paint();
+	source.board().then((next) => {
+		board = next;
+		note.textContent = next.sample ? "Sample data: Ops has no web read of your board yet. `tmt ops ui` shows the real board." : "";
+		note.hidden = !next.sample;
+		paint();
+	});
+}
+//#endregion
+//#region src/remote-shell.ts
+/** Remote's static pages inside the one TMT web shell (design/browser-ui `shell.ts`). */
+var current;
+/**
+* Mount the shell once per page. The rail is the leaf's one fixed list, painted from the answer
+* this browser read last and refreshed from the owner's composed shell once the page asks
+* (`describe`) and this browser holds an owner session; any failure keeps what it shows.
+*/
+function remoteShell() {
+	if (current) return current;
+	const root = document.querySelector(".tmt-ui-shell");
+	if (!root) return void 0;
+	const place = () => ({
+		origin: location.origin,
+		href: location.href.split(/[?#]/)[0]
+	});
+	let answer = rememberedShellAnswer();
+	let menu;
+	let select;
+	let settled = false;
+	const listeners = [];
+	const settle = () => {
+		settled = true;
+		for (const listener of listeners.splice(0)) listener(answer);
+	};
+	const view = () => ({
+		rail: shellRail(answer, place()),
+		menu
+	});
+	const controls = mountShell(root, view(), (id, href) => Boolean(select?.(id, href)));
+	let asked = false;
+	current = {
+		describe(known) {
+			if (asked) return;
+			asked = true;
+			(async () => {
+				const address = known ?? await shellAddress();
+				const read = address === void 0 ? void 0 : await loadShellAnswer(address);
+				if (read) {
+					answer = read;
+					controls.update(view());
+				}
+				settle();
+			})();
+		},
+		setMenu(next, handler) {
+			menu = next;
+			select = handler;
+			controls.update(view());
+		},
+		described(listener) {
+			if (settled) listener(answer);
+			else listeners.push(listener);
+		}
+	};
+	return current;
+}
+/** Pages without a page script of their own (Home, TMT settings, Digest, Ops) mount the shell;
+* Home lists what needs you and the modules' recent pages, Digest and Ops render their views. */
+async function shellPage() {
+	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
+	const shell = remoteShell();
+	shell?.describe();
+	const page = document.documentElement.dataset.tmtPage;
+	if (shell && page === "home") home(shell);
+	if (page === "digest") digestPage();
+	if (shell && page === "ops") opsPage(shell);
+}
+/** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
+function row(href, mark, title, detail) {
+	const item = document.createElement("li");
+	item.className = "tmt-ui-list-row";
+	item.dataset.leading = "";
+	const sign = document.createElement("div");
+	sign.className = "tmt-ui-list-leading";
+	sign.setAttribute("aria-hidden", "true");
+	sign.textContent = mark;
+	if (mark === "◆") sign.dataset.tone = "waiting";
+	const name = document.createElement("div");
+	name.className = "tmt-ui-list-title";
+	const link = document.createElement("a");
+	link.href = href;
+	link.textContent = title;
+	name.append(link);
+	const meta = document.createElement("div");
+	meta.className = "tmt-ui-list-meta";
+	const more = document.createElement("div");
+	more.className = "tmt-ui-list-updated";
+	more.textContent = detail;
+	meta.append(more);
+	item.append(sign, name, meta);
+	return item;
+}
+/** One Needs-you row per module with a count and a waiting pairing offer; no per-item list until
+* modules publish items. Recent pages are the modules' described home cards. */
+function home(shell) {
+	const needs = document.getElementById("home-needs");
+	const note = document.getElementById("home-needs-note");
+	const recent = document.getElementById("home-recent");
+	const recentBlock = document.getElementById("home-recent-block");
+	if (!needs || !note || !recent || !recentBlock) return;
+	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
+	shell.described(async (answer) => {
+		const rows = [];
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row(module.rail.path, "◆", `${module.needsYou} in ${module.rail.label}`, "Waiting on you"));
+		if (await offer) rows.push(row(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
+		needs.replaceChildren(...rows);
+		note.textContent = answer ? rows.length ? "" : "Nothing needs you." : "Pair this browser in Remote to see what needs you.";
+		note.hidden = !note.textContent;
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row(card.path, "▤", card.title, module.rail.label)));
+		recent.replaceChildren(...cards);
+		recentBlock.hidden = cards.length === 0;
+	});
+}
+//#endregion
 //#region src/remote-menu.ts
 function remoteMenu(actions) {
-	const host = document.getElementById("remote-switcher");
-	if (!host) return () => {};
-	const trigger = document.createElement("button");
-	trigger.type = "button";
-	trigger.className = "tmt-ui-menu-trigger remote-chip";
-	trigger.setAttribute("aria-haspopup", "menu");
-	trigger.setAttribute("aria-controls", "remote-menu");
-	trigger.setAttribute("aria-expanded", "false");
-	const surface = document.createElement("div");
-	surface.id = "remote-menu";
-	surface.popover = "auto";
-	surface.className = "tmt-ui-menu-surface remote-menu";
-	surface.setAttribute("role", "menu");
-	surface.setAttribute("aria-label", "Remotes");
-	const status = document.createElement("p");
-	status.className = "tmt-ui-menu-reason";
-	host.append(trigger, surface);
+	const shell = remoteShell();
+	if (!shell) return () => {};
+	const page = document.documentElement.dataset.tmtPage;
+	const landing = new URL("/remote/", location.href).href;
+	const settings = new URL("/remote/settings", location.href).href;
 	let catalog = {
 		version: 1,
 		entries: []
 	};
 	let state = "Checking";
 	let address = "";
-	let search = "";
-	let searchAt = 0;
-	const buttons = /* @__PURE__ */ new Map();
-	const selected = () => catalog.entries.find((entry) => currentRemote(entry, address, location.href));
-	const enabled = () => [...surface.querySelectorAll("button:not(:disabled)")];
-	function close(refocus = false) {
-		if (surface.matches(":popover-open")) surface.hidePopover();
-		if (refocus) trigger.focus({ preventScroll: true });
-	}
-	function item(key, label, run) {
-		let button = buttons.get(key);
-		if (!button) {
-			button = document.createElement("button");
-			button.type = "button";
-			button.className = "tmt-ui-menu-item";
-			button.tabIndex = -1;
-			button.dataset.key = key;
-			buttons.set(key, button);
-		}
-		button.onclick = () => {
-			close();
-			run();
-		};
-		button.dataset.search = label;
-		button.textContent = label;
-		return button;
-	}
+	const run = /* @__PURE__ */ new Map();
 	function paint() {
+		run.clear();
 		const view = remoteState(state);
-		const alias = selected()?.name ?? "this machine";
-		trigger.textContent = `${view.mark} ${alias} ▾`;
-		trigger.title = `Remote: ${alias}, ${view.word}`;
-		trigger.setAttribute("aria-label", trigger.title);
-		trigger.dataset.tone = view.tone;
-		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
-		const keep = /* @__PURE__ */ new Set();
 		const reason = actions.blocked();
-		const append = (key, label, run, checked, disabled) => {
-			const button = item(key, label, run);
-			button.dataset.search = key.startsWith("remote:") ? key.slice(7) : "this machine";
-			button.setAttribute("role", "menuitemradio");
-			button.setAttribute("aria-checked", String(checked));
-			if (checked) {
-				const check = document.createElement("span");
-				check.textContent = "✓";
-				check.setAttribute("aria-hidden", "true");
-				button.append(check);
-			}
-			button.disabled = disabled;
-			button.dataset.tone = checked ? view.tone : "muted";
-			button.setAttribute("aria-describedby", "remote-menu-reason");
-			keep.add(key);
-			return button;
-		};
-		const rows = [];
-		if (!selected()) rows.push(append("current", `${view.mark} this machine · ${view.word}`, () => {}, true, !!view.action));
+		const selected = catalog.entries.find((entry) => currentRemote(entry, address, location.href));
+		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
+		const remotes = [];
+		const onLanding = page !== "settings";
+		if (!selected) remotes.push({
+			id: "current",
+			label: `${view.mark} this machine · ${view.word}`,
+			href: landing,
+			current: onLanding
+		});
 		for (const entry of entries) {
-			const here = currentRemote(entry, address, location.href), shown = remoteState(state, here);
-			rows.push(append(`remote:${entry.name}`, here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`, () => {
-				if (!here) actions.open(entry);
-			}, here, here ? !!shown.action : !!reason));
+			const here = currentRemote(entry, address, location.href);
+			const shown = remoteState(state, here);
+			const id = `remote:${entry.name}`;
+			if (!here) run.set(id, () => actions.open(entry));
+			remotes.push({
+				id,
+				label: here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
+				href: here ? landing : "#",
+				current: here && onLanding,
+				disabled: !here && !!reason,
+				note: !here && reason ? reason : void 0
+			});
 		}
 		if (view.action) {
-			const key = "recover";
-			keep.add(key);
-			const button = item(key, view.action, () => actions.recover(remoteState(state).action));
-			button.setAttribute("role", "menuitem");
-			rows.push(button);
+			run.set("recover", () => actions.recover(remoteState(state).action));
+			remotes.push({
+				id: "recover",
+				label: view.action,
+				href: "#",
+				current: false,
+				note: view.text
+			});
 		}
-		for (const [key, label, run] of [[
-			"add",
-			"Add remote…",
-			actions.add
-		], [
-			"manage",
-			"Manage remotes",
-			actions.manage
-		]]) {
-			keep.add(key);
-			const button = item(key, label, run);
-			button.setAttribute("role", "menuitem");
-			rows.push(button);
-		}
-		status.id = "remote-menu-reason";
-		status.textContent = reason || (view.action ? view.text : "");
-		status.hidden = !status.textContent;
-		for (const [key, button] of buttons) if (!keep.has(key)) {
-			button.remove();
-			buttons.delete(key);
-		}
-		rows.forEach((button, index) => {
-			if (surface.children[index] !== button) surface.insertBefore(button, surface.children[index] ?? null);
+		run.set("add", actions.add);
+		shell.setMenu({
+			title: "Remote",
+			groups: [
+				{
+					label: "Remotes",
+					items: remotes
+				},
+				{
+					label: "This machine",
+					items: [
+						{
+							id: "devices",
+							label: "Devices",
+							href: `${settings}#devices-title`,
+							current: false
+						},
+						{
+							id: "pair",
+							label: "Connect a device",
+							href: `${landing}#heading`,
+							current: false
+						},
+						{
+							id: "machine",
+							label: "This machine’s settings",
+							href: `${settings}#opening-title`,
+							current: false
+						}
+					]
+				},
+				{ items: [{
+					id: "add",
+					label: "Add remote…",
+					href: `${settings}#add-remote`,
+					current: false
+				}, {
+					id: "settings",
+					label: "Remote settings",
+					href: settings,
+					current: !onLanding
+				}] }
+			]
+		}, (id) => {
+			const action = run.get(id);
+			if (!action) return false;
+			if (!id.startsWith("remote:") || !actions.blocked()) action();
+			else paint();
+			return true;
 		});
-		surface.append(status);
-		const focused = enabled().find((button) => button === document.activeElement) ?? enabled()[0];
-		for (const button of buttons.values()) button.tabIndex = button === focused ? 0 : -1;
 	}
-	function place() {
-		const anchor = trigger.getBoundingClientRect();
-		const box = surface.getBoundingClientRect();
-		const width = document.documentElement.clientWidth;
-		surface.style.left = `${Math.max(8, Math.min(anchor.left, width - box.width - 8))}px`;
-		const below = innerHeight - anchor.bottom - 8;
-		const above = anchor.top - 8;
-		const up = box.height > below && above > below;
-		surface.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
-		surface.style.top = `${up ? Math.max(8, anchor.top - Math.min(box.height, above)) : anchor.bottom}px`;
-	}
-	async function open(end = false) {
-		await actions.refresh();
-		if (document.activeElement !== trigger) return;
+	paint();
+	const menu = document.querySelector(".tmt-ui-module-menu");
+	const refresh = () => {
 		paint();
-		if (!surface.matches(":popover-open")) surface.showPopover();
-		place();
-		search = "";
-		(end ? enabled().at(-1) : enabled()[0])?.focus();
-	}
-	let openAtPointerdown = false;
-	trigger.addEventListener("pointerdown", () => {
-		openAtPointerdown = surface.matches(":popover-open");
+		actions.refresh();
+	};
+	menu?.addEventListener("pointerenter", refresh);
+	menu?.addEventListener("focusin", (event) => {
+		if (!menu.contains(event.relatedTarget)) refresh();
 	});
-	trigger.addEventListener("click", (event) => {
-		const dismiss = event.detail > 0 && openAtPointerdown;
-		openAtPointerdown = false;
-		if (dismiss || surface.matches(":popover-open")) close();
-		else {
-			trigger.focus({ preventScroll: true });
-			open();
-		}
-	});
-	trigger.addEventListener("keydown", (event) => {
-		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-			event.preventDefault();
-			open(event.key === "ArrowUp");
-		}
-	});
-	surface.addEventListener("toggle", () => {
-		trigger.setAttribute("aria-expanded", String(surface.matches(":popover-open")));
-		if (surface.matches(":popover-open")) place();
-	});
-	surface.addEventListener("focusin", () => {
-		for (const button of buttons.values()) button.tabIndex = button === document.activeElement ? 0 : -1;
-	});
-	surface.addEventListener("keydown", (event) => {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			close(true);
-			return;
-		}
-		if (event.key === "Tab") {
-			close();
-			return;
-		}
-		if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
-		const items = enabled(), at = items.findIndex((item) => item === document.activeElement);
-		let next;
-		if (event.key === "ArrowDown") next = items[(at + 1) % items.length];
-		else if (event.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
-		else if (event.key === "Home") next = items[0];
-		else if (event.key === "End") next = items.at(-1);
-		else if (event.key.length === 1 && event.key !== " ") {
-			const now = performance.now();
-			search = (now - searchAt > 700 ? "" : search) + event.key.toLowerCase();
-			searchAt = now;
-			next = [...items.slice(at + 1), ...items.slice(0, at + 1)].find((item) => (item.dataset.search ?? "").toLowerCase().startsWith(search));
-		} else return;
-		event.preventDefault();
-		next?.focus();
-	});
-	window.addEventListener("resize", () => {
-		if (surface.matches(":popover-open")) place();
-	});
-	window.addEventListener("scroll", () => {
-		if (surface.matches(":popover-open")) place();
-	}, true);
+	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;
 		state = observed;
 		address = checkedAddress;
+		if (observed === "Connected" && checkedAddress) shell.describe(checkedAddress);
 		paint();
 	};
 }
@@ -1857,12 +2838,6 @@ function remoteRegistryPage(blocked = () => "") {
 		add: () => {
 			if (document.documentElement.dataset.tmtPage === "settings") add.click();
 			else location.assign(`${settings.href}#add-remote`);
-		},
-		manage: () => {
-			if (document.documentElement.dataset.tmtPage === "settings") {
-				root.scrollIntoView();
-				add.focus({ preventScroll: true });
-			} else location.assign(`${settings.href}#remotes`);
 		},
 		recover: (action) => {
 			if (action === "Retry") {
@@ -4559,4 +5534,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, remoteRegistry, reopenSession, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, remoteRegistry, reopenSession, shellPage, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

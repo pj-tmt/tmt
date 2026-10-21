@@ -11,6 +11,8 @@ export interface BrowserDialogProps extends Omit<
   open: boolean;
   title: string;
   children: ReactNode;
+  /** The actions row under the body (for example Move and Cancel), spaced by a token gap. */
+  actions?: ReactNode;
   keepMounted?: boolean;
   onDismiss(reason: BrowserDialogDismissReason, event: SyntheticEvent): void;
   initialFocus?(): HTMLElement | null;
@@ -24,6 +26,7 @@ export function BrowserDialog({
   open,
   title,
   children,
+  actions,
   keepMounted = false,
   onDismiss,
   initialFocus,
@@ -57,6 +60,7 @@ export function BrowserDialog({
         />
       </header>
       <div className="tmt-ui-dialog-body">{children}</div>
+      {actions !== undefined && <footer className="tmt-ui-dialog-actions">{actions}</footer>}
     </dialog>
   );
 }

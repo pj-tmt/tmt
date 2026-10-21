@@ -416,7 +416,8 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
             32
         );
         // The running process mounts colab once its owner-only socket appears.
-        let get = format!("GET /{prefix}/x/colab/ HTTP/1.1\r\nHost: {socket}\r\n\r\n");
+        // A mounted path below the root (the root document redirects into the app, #3937).
+        let get = format!("GET /{prefix}/x/colab/api/pages HTTP/1.1\r\nHost: {socket}\r\n\r\n");
         assert!(exchange(socket, &get).starts_with("HTTP/1.1 404"));
         let directory = pilot.root.join("state/colab");
         fs::create_dir_all(&directory).unwrap();
@@ -441,7 +442,7 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
             String::from_utf8(head).unwrap()
         });
         assert!(exchange(socket, &get).ends_with("\r\n\r\ncolab"));
-        assert!(extension.join().unwrap().starts_with("GET / HTTP/1.1\r\n"));
+        assert!(extension.join().unwrap().starts_with("GET /api/pages HTTP/1.1\r\n"));
         assert_eq!(
             fs::read_to_string(pilot.root.join("calls")).unwrap(),
             "api\napi\n",
@@ -1261,14 +1262,15 @@ fn human_serve_link_opens_home_while_protocol_address_stays_separate() {
     let page = exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"));
     assert!(page.starts_with("HTTP/1.1 200"));
     assert!(page.contains("text/html; charset=utf-8"));
-    assert!(page.contains("Open a TMT app."));
-    assert!(page.contains("href=\"/remote/\""));
+    // Every TMT route answers with the one app document (shell.html, #3937).
+    assert!(page.contains("class=\"tmt-ui-shell\""));
+    assert!(page.contains("src=\"/sdk/shell.js\""));
     let remote = exchange(
         socket,
         &format!("GET /remote/ HTTP/1.1\r\nHost: {socket}\r\n\r\n"),
     );
     assert!(remote.starts_with("HTTP/1.1 200"));
-    assert!(remote.contains("tmt remote pair"));
+    assert!(remote.contains("class=\"tmt-ui-shell\""));
     let protocol = exchange(
         socket,
         &format!("GET {prefix} HTTP/1.1\r\nHost: {socket}\r\n\r\n"),
@@ -2226,7 +2228,7 @@ fn restart_idle_background_keeps_endpoint_and_replaces_window() {
                         break;
                     }
                 }
-                if head.starts_with("GET / HTTP/1.1\r\n") {
+                if head.starts_with("GET /read/abcd1234 HTTP/1.1\r\n") {
                     let _ =
                         stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\nmounted");
                     let _ = sent.send(head);
@@ -2242,7 +2244,8 @@ fn restart_idle_background_keeps_endpoint_and_replaces_window() {
         .unwrap()
         .strip_prefix("http://")
         .unwrap();
-    let request = format!("GET /colab HTTP/1.1\r\nHost: {socket}\r\n\r\n");
+    // `/colab` is an app route now; the reader entry still forwards to the extension.
+    let request = format!("GET /read/abcd1234 HTTP/1.1\r\nHost: {socket}\r\n\r\n");
     assert!(exchange(socket, &request).ends_with("\r\n\r\nmounted"));
     let mounted_before = requests.recv_timeout(STARTUP).unwrap();
     let key = fs::read(pilot.root.join("state/remote/machine.key")).unwrap();

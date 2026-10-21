@@ -8,7 +8,8 @@ pub use tmt_invoke::open::{Flag, Outcome};
 
 /// Only public short entries on the selected running local door are open targets.
 pub(crate) fn valid_target(target: &str) -> bool {
-    matches!(target, "/remote/" | "/remote/settings")
+    crate::pages::app_route(target)
+        || crate::pages::short_page(target).is_some()
         || crate::mount::Mounts::valid_short_route(target)
 }
 

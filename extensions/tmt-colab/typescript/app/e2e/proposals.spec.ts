@@ -102,7 +102,7 @@ for (const width of [1440, 390])
       );
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-width',
-        '2px',
+        '1px',
       );
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       const threads = await run(page, 'discussionProof');
@@ -479,7 +479,7 @@ for (const width of [1440, 390])
     // mark on the pressed one, after the shared delay, is the only sign seen, and no line is added.
     const mark = approve.locator('.tmt-ui-action-mark');
     await expect(mark).toHaveAttribute('data-busy', 'true');
-    await expect(decline.locator('.tmt-ui-action-mark svg')).toBeHidden();
+    await expect(decline.locator('.tmt-ui-action-mark .tmt-ui-busy-mark')).toBeHidden();
     for (const button of [approve, decline]) {
       await expect(button).toHaveAttribute('aria-disabled', 'true');
       await expect(button).toHaveJSProperty('disabled', false);

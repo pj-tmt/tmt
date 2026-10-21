@@ -1,18 +1,36 @@
-/* The one spinner rule: a LoaderCircle turns once every 0.9 s, linear and infinite. A busy mark in an
-   Action or IconAction turns without a class; any other LoaderCircle opts in with `tmt-ui-spin`.
-   Under reduced motion it stays still and visible, and its words or aria text still name the state. */
-.tmt-ui-spin,
-.tmt-ui-action-mark[data-busy='true'] > svg {
-  animation: tmt-ui-spin 0.9s linear infinite;
+/* The one busy mark (Ben's pick, candidate a): the Ops TUI braille cycle. `BusyMark` renders ten
+   frames in a 1em mono window of currentColor that steps once per --tmt-ui-spin-duration (0.9 s).
+   A busy mark in an Action or IconAction shows it without a class. Under reduced motion it holds
+   its first frame, still visible, and the words or aria text still name the state. */
+.tmt-ui-busy-mark {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 1em;
+  height: 1em;
+  overflow: hidden;
+  color: currentColor;
+  font: 1em / 1 var(--tmt-ui-font-mono);
+  text-align: center;
+  vertical-align: middle;
 }
-@keyframes tmt-ui-spin {
+.tmt-ui-busy-frames {
+  display: block;
+  animation: tmt-ui-busy var(--tmt-ui-spin-duration) steps(10) infinite;
+}
+.tmt-ui-busy-frames > span {
+  display: block;
+  height: 1em;
+}
+.tmt-ui-busy-frames > span::before {
+  content: attr(data-frame);
+}
+@keyframes tmt-ui-busy {
   to {
-    transform: rotate(360deg);
+    transform: translateY(-10em);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tmt-ui-spin,
-  .tmt-ui-action-mark[data-busy='true'] > svg {
+  .tmt-ui-busy-frames {
     animation: none;
   }
 }

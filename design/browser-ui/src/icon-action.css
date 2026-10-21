@@ -42,7 +42,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: auto;
+  height: auto;
   background: inherit;
+}
+/* The busy mark takes the icon's square, not the label-sized 1em mark of a text action. */
+.tmt-ui-icon-action-control > .tmt-ui-action-mark > svg {
+  width: var(--tmt-ui-header-icon-size);
+  height: var(--tmt-ui-header-icon-size);
+}
+.tmt-ui-icon-action-control > .tmt-ui-action-mark > .tmt-ui-busy-mark {
+  font-size: var(--tmt-ui-header-icon-size);
 }
 /* The icon and the shown busy mark share one square; a transparent text action shows one. */
 .tmt-ui-icon-action-control:has(> .tmt-ui-action-mark[data-busy='true'])
@@ -84,6 +94,6 @@
 }
 
 .tmt-ui-icon-action-control:focus-visible {
-  outline: 1px solid var(--tmt-ui-color-focus);
-  outline-offset: -1px;
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }

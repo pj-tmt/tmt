@@ -760,7 +760,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   const close = dialog.getByRole('button', { name: 'Close', exact: true });
   await expect(close).toBeFocused();
   await expect(close).toHaveCSS('outline-style', 'solid');
-  await expect(close).toHaveCSS('outline-width', '2px');
+  await expect(close).toHaveCSS('outline-width', '1px');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(row(pageId).getByRole('button', { name: /^Actions for/ })).toBeFocused();
@@ -837,7 +837,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'The owner accepted the deletion, but it is not confirmed yet',
+    'Your machine accepted the deletion, but it is not confirmed yet',
   );
   await expect(dialog).not.toContainText('This device is not allowed to manage this page');
   expect(contexts.at(-1)).toBe(other);
@@ -857,12 +857,12 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'The owner accepted the deletion, but it is not confirmed yet',
+    'Your machine accepted the deletion, but it is not confirmed yet',
   );
   const sockets = contexts.length;
   await dialog.getByRole('button', { name: 'Check again' }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'The owner accepted the deletion, but it is not confirmed yet',
+    'Your machine accepted the deletion, but it is not confirmed yet',
   );
   expect(requests).toBe(5);
   expect(contexts).toHaveLength(sockets);

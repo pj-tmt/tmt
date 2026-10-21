@@ -161,13 +161,61 @@ pub(super) fn check_read_version(connection: &Connection) -> StoreResult<()> {
 
 pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
+    let path = connection.path().map(std::path::PathBuf::from);
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     // Recheck after acquiring the writer lock: another opener may have migrated.
     let version = check_version(&tx)?;
+    // An existing store is copied before any migration touches it. The writer lock is held and
+    // the journal mode is DELETE, so the file is a complete, consistent store at `version`. A
+    // fresh store (version 0) holds nothing to keep.
+    if version > 0
+        && version < CURRENT_VERSION
+        && let Some(path) = &path
+    {
+        backup(path, version)?;
+    }
     for (index, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", (index + 1) as u32)?;
     }
     tx.commit()?;
     Ok(())
+}
+
+/// Where the copy of a store taken before migrating it from `version` lives: next to the store,
+/// under the same private data root.
+pub fn backup_path(store: &std::path::Path, version: u32) -> std::path::PathBuf {
+    let mut name = store.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".pre-v{version}.bak"));
+    store.with_file_name(name)
+}
+
+/// Writes the pre-migration copy with owner-only permissions, durably, replacing an older copy
+/// at the same version (a failed migration leaves the store unchanged, so the newest copy is the
+/// complete one). A failed copy stops the migration before anything changed.
+fn backup(store: &std::path::Path, version: u32) -> StoreResult<()> {
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    let target = backup_path(store, version);
+    let partial = target.with_extension("bak.partial");
+    let bytes = std::fs::read(store).map_err(Fault::Backup)?;
+    let write = || -> std::io::Result<()> {
+        let _ = std::fs::remove_file(&partial);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits())
+            .open(&partial)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&partial, &target)?;
+        if let Some(directory) = target.parent() {
+            std::fs::File::open(directory)?.sync_all()?;
+        }
+        Ok(())
+    };
+    write().map_err(|error| {
+        let _ = std::fs::remove_file(&partial);
+        Fault::Backup(error)
+    })
 }

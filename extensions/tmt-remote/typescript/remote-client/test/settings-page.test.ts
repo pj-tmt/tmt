@@ -59,10 +59,10 @@ for (const code of [
       createTextNode: (textContent: string) => ({ textContent }),
     });
     try {
-      await import('../src/settings-page.js');
+      await (await import('../src/settings-page.js')).settingsPage();
       if (code === 'REMOTE_SESSION_LIMIT') {
         const copy =
-          "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.";
+          "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged.";
         assert.equal(nodes.get('access')!.textContent, copy);
         assert.equal(nodes.get('access-announcement')!.textContent, copy);
         assert.equal(nodes.get('controls-reason')!.textContent, copy);
@@ -168,10 +168,10 @@ test('settings refresh uses bounded admission and renders its verified capacity 
     createTextNode: (textContent: string) => ({ textContent }),
   });
   try {
-    await import('../src/settings-page.js');
+    await (await import('../src/settings-page.js')).settingsPage();
     assert.deepEqual(options, [undefined, { retry: 'bounded' }]);
     const copy =
-      "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.";
+      "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged.";
     for (const id of ['access', 'access-announcement', 'controls-reason'])
       assert.equal(nodes.get(id)!.textContent, copy);
     assert.equal(nodes.get('refresh')!.disabled, false);

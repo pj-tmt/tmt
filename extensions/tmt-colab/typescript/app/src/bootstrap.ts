@@ -302,7 +302,13 @@ export async function discover(
       requireValue(
         [...incoming.keys()].every((key) => key === 'path') && incoming.getAll('path').length <= 1,
       );
-      requireValue(path === null || (path.startsWith('/short/') && validPagePrefix(path.slice(7))));
+      // A short link's prefix, or a page's full ID from its native deep link (`<mount>/pages/<id>`).
+      requireValue(
+        path === null ||
+          (path.startsWith('/short/') && validPagePrefix(path.slice(7))) ||
+          path.startsWith('/pages/'),
+      );
+      if (path?.startsWith('/pages/')) generatedId(path.slice(7));
     }
     if (!pin) await record(`pin:${mount.href}`, { space: value.spaceId, owner });
     if (!fragment && !publicEntry()) {

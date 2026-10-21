@@ -47,6 +47,12 @@ export function $replaceRichInput(value: string, tokens: readonly RichInputToken
   root.selectEnd();
 }
 
+/** A fresh, empty input without a selection: attaching its root never takes focus on load. */
+export function $emptyRichInput() {
+  $replaceRichInput('');
+  $setSelection(null);
+}
+
 /** The caller's intact tokens with their spans; node identity keeps them through surrounding edits. */
 export function $richInputTokens<Node extends LexicalNode>(
   isToken: (node: LexicalNode) => node is Node,

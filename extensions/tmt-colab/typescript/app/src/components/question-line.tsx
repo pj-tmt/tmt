@@ -1,8 +1,8 @@
-import { useBusyMark } from '@tmt/browser-ui/react';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { ChevronDown, ChevronRight, LoaderCircle } from 'lucide-react';
+import { BusyMark, useBusyMark } from '@tmt/browser-ui/react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { forwardRef } from 'react';
 import { questionText, type Question } from '../questions.js';
+import { text } from '../strings.js';
 import './question-line.css';
 
 /** Viewer-only disclosure of an admitted question; opening never records an answer. */
@@ -23,7 +23,10 @@ export const QuestionLine = forwardRef<
   { question, answer, pending = false, expanded, panelId, onToggle, onMove },
   ref,
 ) {
-  const state = answer !== undefined ? `Answered: ${questionText(answer)}` : 'Waiting for you';
+  const state =
+    answer !== undefined
+      ? text.questionLine.answered(questionText(answer))
+      : text.questionLine.waiting;
   // The shared busy-mark delay: an answer verified within it never shows the mark.
   const marked = useBusyMark(pending);
   return (
@@ -58,7 +61,7 @@ export const QuestionLine = forwardRef<
       <span className="question-line-mark" aria-hidden="true">
         {pending && marked ? (
           <span className="comment-echo-mark" data-shown="true">
-            <LoaderCircle className={ui.spin} />
+            <BusyMark />
           </span>
         ) : answer !== undefined ? (
           '✓'

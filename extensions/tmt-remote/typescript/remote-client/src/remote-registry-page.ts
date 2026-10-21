@@ -67,12 +67,6 @@ export function remoteRegistryPage(
       if (document.documentElement.dataset.tmtPage === 'settings') add.click();
       else location.assign(`${settings.href}#add-remote`);
     },
-    manage: () => {
-      if (document.documentElement.dataset.tmtPage === 'settings') {
-        root.scrollIntoView();
-        add.focus({ preventScroll: true });
-      } else location.assign(`${settings.href}#remotes`);
-    },
     recover: (action) => {
       if (action === 'Retry') {
         const retry = (document.getElementById('check') ??
@@ -297,7 +291,7 @@ export function remoteRegistryPage(
   add.addEventListener('click', () => {
     const view = dialog('Add remote', add);
     const alias = field('Remote name', '');
-    const url = field('Door address or remote link', '');
+    const url = field('Remote address or link', '');
     view.body.append(alias.label, url.label);
     view.buttons.append(
       action('Continue', () => {

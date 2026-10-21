@@ -30,10 +30,13 @@ button {
   border-radius: 0;
   cursor: pointer;
 }
+/* The shell's rail and module menu, and list-row titles, keep the design system's neutral hover. */
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(.tmt-ui-tab):not(
     .question-line
-  ):not(.needs-filter-button):not(.work-row-button):not(:disabled):hover,
-a:not(.tmt-ui-action):hover {
+  ):not(.needs-filter-button):not(.work-row-button):not(.tmt-ui-rail *, .tmt-ui-shell-open):not(
+    :disabled
+  ):hover,
+a:not(.tmt-ui-action, .tmt-ui-rail *, .tmt-ui-module-menu *, .tmt-ui-list-title > a):hover {
   color: var(--c-accent);
 }
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
@@ -43,7 +46,7 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   background: var(--c-accent-soft);
 }
 :focus-visible {
-  outline: 2px solid var(--c-accent);
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: 3px;
 }
 .local,
@@ -65,6 +68,11 @@ footer {
   max-width: 1080px;
   margin: auto;
   padding: 56px 32px 80px;
+}
+/* Colab settings share the home's frame; the note says where the values change. */
+.colab-settings-note {
+  margin: 0 0 24px;
+  color: var(--c-muted);
 }
 .eyebrow {
   text-transform: uppercase;
@@ -279,7 +287,8 @@ body:has(.needs-you-header-menu) {
   border: 0;
   box-shadow: none;
   padding: 0;
-  margin: 20px 0;
+  /* The drawer body's token gap spaces these. */
+  margin: 0;
 }
 .tmt-ui-drawer-body .ask-panel > h2 {
   margin-top: 24px;
@@ -337,7 +346,7 @@ body:has(.needs-you-header-menu) {
   color-scheme: dark;
 }
 /* The pending page (#3976): the header holds, one spinner sits centred in the area a loaded page gets.
-   It is the LoaderCircle mark of the busy and echo marks, without words; it turns by the shared tmt-ui-spin rule. */
+   It is the BusyMark of the busy and echo marks, without words; it steps by the shared tmt-ui-busy rule. */
 .page-opening {
   display: grid;
   place-items: center;
@@ -353,6 +362,10 @@ body:has(.needs-you-header-menu) {
   display: block;
   width: 24px;
   height: 24px;
+}
+.page-opening-mark .tmt-ui-busy-mark {
+  display: block;
+  font-size: 24px;
 }
 /* About > Layout: the same stacked label-over-value row as the attribution rows above it, at every width. */
 .page-layout-info dl {
@@ -623,6 +636,10 @@ body:has(.needs-you-header-menu) {
   height: 12px;
   vertical-align: -1px;
 }
+.comment-echo-mark .tmt-ui-busy-mark {
+  font-size: 12px;
+  vertical-align: -1px;
+}
 .comment-echo-actions {
   width: var(--tmt-ui-host-icon-action-size, 34px);
   height: var(--tmt-ui-host-icon-action-size, 34px);
@@ -748,10 +765,6 @@ body:has(.needs-you-header-menu) {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-}
-.management-dialog input[type='checkbox'] {
-  width: auto;
-  margin: 0;
 }
 
 .selection-control,
@@ -899,7 +912,10 @@ body:has(.needs-you-header-menu) {
 }
 
 .tmt-ui-drawer[data-panel='chat'] .tmt-ui-drawer-body {
+  /* Chat fills the drawer edge to edge in one row, not the body's spaced stack. */
   display: flex;
+  flex-direction: row;
+  gap: 0;
   padding: 0;
   overflow: hidden;
 }
@@ -1986,6 +2002,8 @@ body:has(.needs-you-header-menu) {
 }
 .tmt-ui-drawer[data-panel='source'] .tmt-ui-drawer-body {
   display: flex;
+  flex-direction: row;
+  gap: 0;
   padding: 0;
 }
 
@@ -2050,7 +2068,7 @@ body:has(.needs-you-header-menu) {
 
 /* Pointer-activated Answer/Proposal arrivals reuse the shared focus indicator. */
 [data-arrived] {
-  outline: 2px solid var(--tmt-ui-color-focus);
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: 3px;
 }
 .page-anchor-missing {
@@ -2066,7 +2084,7 @@ body:has(.needs-you-header-menu) {
 .agent-activity[data-activity='finished'] > .agent-activity-mark {
   color: var(--tmt-ui-color-working);
 }
-/* The one animated mark of a working agent in a thread (#3978): the line's own LoaderCircle in the
+/* The one animated mark of a working agent in a thread (#3978): the line's own BusyMark in the
    working colour, ahead of the name. Agent chips never animate. */
 .agent-activity-spinner {
   display: inline-block;

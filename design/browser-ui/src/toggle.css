@@ -23,10 +23,12 @@
   border: var(--tmt-ui-toggle-indicator-border-width) solid var(--tmt-ui-color-edge);
   font-family: var(--tmt-ui-font-mono);
 }
-.tmt-ui-toggle:not(:disabled):hover,
 .tmt-ui-toggle[aria-pressed='true']:not(:disabled) {
   color: var(--tmt-ui-color-selected-text);
   background: var(--tmt-ui-surface-selection);
+}
+.tmt-ui-toggle:not(:disabled):not([aria-pressed='true']):hover {
+  background: var(--tmt-ui-surface-hover);
 }
 .tmt-ui-toggle:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);

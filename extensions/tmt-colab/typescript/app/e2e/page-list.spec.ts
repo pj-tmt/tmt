@@ -8,7 +8,7 @@ const onAll = (hash: string) =>
     : `${hash}${hash.includes('?') ? '&' : '?'}stage=all`;
 async function mount(
   page: Page,
-  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' = 'few',
+  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' | 'shells' = 'few',
   hash = '/',
   remembered?: string,
 ) {
@@ -33,19 +33,28 @@ const rows = (page: Page) => app(page).locator('.pages > li');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
-/** The header's project crumb: it names its value, and its menu holds the project actions. */
+/** The shell's module menu: All pages, each project with its counts, then the project actions. */
+const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-module-menu');
+/** The menu's current scope row, named by its value. */
 const scopeTrigger = (page: Page, value = 'All pages') =>
-  app(page).getByRole('button', { name: `Project: ${value}` });
-/** The crumb whatever its value, to open the menu from any scope. */
-const anyScopeTrigger = (page: Page) => app(page).getByRole('button', { name: /^Project: / });
+  moduleMenu(page)
+    .locator('a[aria-current="page"]')
+    .filter({
+      has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${value}$`) }),
+    });
+const scopeRows = (page: Page) =>
+  moduleMenu(page).locator('a[data-id="all"], a[data-id^="project:"]');
 async function fromScopeMenu(page: Page, name: string) {
-  await anyScopeTrigger(page).click();
-  await page.getByRole('menuitem', { name }).click();
+  await moduleMenu(page).getByRole('link', { name, exact: true }).click();
 }
-/** Scope the list to a project (or All pages) from the header menu. */
+/** Scope the list to a project (or All pages) from the module menu. */
 async function scopeTo(page: Page, name: string) {
-  await anyScopeTrigger(page).click();
-  await page.getByRole('menuitemradio', { name: new RegExp(`^${name}`) }).click();
+  await moduleMenu(page)
+    .locator('a')
+    .filter({
+      has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${name}$`) }),
+    })
+    .click();
 }
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
 /** A page's project crumb links to the scoped list, which opens on In progress like any bare link. */
@@ -67,6 +76,17 @@ test('a project button filters the list, adds a token and removes it again', asy
   // A page's own chip filters too.
   await rows(page).first().getByRole('button', { name: 'q4 plan' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan']);
+});
+
+test('nothing takes focus on load, so the search field idles on its rule border', async ({
+  page,
+}) => {
+  await mount(page);
+  await expect(titles(page)).toHaveCount(4);
+  await expect(search(page)).not.toBeFocused();
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await page.keyboard.press('/');
+  await expect(search(page)).toBeFocused();
 });
 
 for (const query of [
@@ -173,7 +193,7 @@ test('a row shows the creator, the comment count and a proposal waiting for you'
   // The mark is the word with the diamond; only the page with a proposal awaiting the owner has it.
   await expect(app(page).locator('[data-waiting]')).toHaveCount(1);
   await expect(rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]')).toHaveText(
-    '◆ Waiting for you · 1',
+    '◆ Needs you · 1',
   );
   // A page the owner has not summarized yet shows what the list already knows, with no placeholder.
   const gamma = metadata('Gamma notes');
@@ -374,7 +394,7 @@ test('a page waiting on the viewer shows the ◆ in the waiting colour with the 
 }) => {
   await mount(page);
   const waiting = rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]');
-  await expect(waiting).toHaveText('◆ Waiting for you · 1');
+  await expect(waiting).toHaveText('◆ Needs you · 1');
   const colours = await app(page).evaluate((root) => {
     const colour = (selector: string) => getComputedStyle(root.querySelector(selector)!).color;
     return {
@@ -493,7 +513,7 @@ test('an archived row offers Restore and Delete while keeping archive unavailabl
 
 for (const width of [1440, 390]) {
   for (const theme of ['light', 'dark'] as const) {
-    test(`a change the owner accepted but has not confirmed says so in plain words at ${width} ${theme}`, async ({
+    test(`a change your machine accepted but has not confirmed says so in plain words at ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -514,7 +534,7 @@ for (const width of [1440, 390]) {
         .getByRole('button', { name: 'Archive page' })
         .click();
       await expect(status(page)).toHaveText(
-        '“Gamma notes”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.',
+        '“Gamma notes”: your machine accepted the change, but it is not confirmed yet. Open Manage page to check again.',
       );
       expect(
         await page.evaluate(
@@ -554,7 +574,7 @@ test('a refused statement changes nothing and says why; an unverified one is not
     .getByRole('button', { name: 'Archive page' })
     .click();
   await expect(status(page)).toContainText(
-    'the owner accepted the change, but it is not confirmed yet',
+    'your machine accepted the change, but it is not confirmed yet',
   );
   await expect(status(page)).not.toHaveText(/^Archived/);
 });
@@ -714,8 +734,10 @@ test('list keys move, select, archive and open menus, and stay out of text field
 }) => {
   await mount(page);
   const link = (title: string) => rows(page).getByRole('link', { name: title, exact: true });
-  // The search starts focused: a key typed there writes to it, and Escape on an empty search
-  // hands the keys back to the list.
+  // Nothing takes focus on load; `/` focuses the search, a key typed there writes to it, and
+  // Escape on an empty search hands the keys back to the list.
+  await expect(search(page)).not.toBeFocused();
+  await page.keyboard.press('/');
   await expect(search(page)).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(search(page)).not.toBeFocused();
@@ -772,19 +794,17 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
   await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
   await expect(titles(page)).toHaveText(['Delta ops']);
-  await scopeTrigger(page).click();
-  await expect(page.getByRole('menuitemradio')).toHaveCount(4);
-  await expect(page.getByRole('menuitem', { name: 'New project…' })).toHaveCount(0);
-  await expect(page.getByRole('menuitem', { name: 'Manage projects…' })).toHaveCount(0);
+  await expect(scopeRows(page)).toHaveCount(4);
+  await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toHaveCount(0);
+  await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toHaveCount(0);
 });
 
-test('the header scope lists All pages and each project with its counts and needs-you', async ({
+test('the module menu lists All pages and each project with its counts and needs-you', async ({
   page,
 }) => {
   await mount(page);
   await expect(scopeTrigger(page)).toBeVisible();
-  await scopeTrigger(page).click();
-  const rows = page.getByRole('menuitemradio');
+  const rows = scopeRows(page);
   await expect(rows).toHaveCount(4);
   // Active pages shown: All 4; design 2 (Alpha waits on the viewer); ops 1; q4 plan 1 (also waits).
   await expect(rows.nth(0)).toContainText('All pages');
@@ -793,9 +813,47 @@ test('the header scope lists All pages and each project with its counts and need
   await expect(rows.nth(1)).toHaveText(/design\s*2\s*◆ 1/);
   await expect(rows.nth(2)).toHaveText(/ops\s*1\s*$/);
   await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*◆ 1/);
-  await expect(rows.nth(0)).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByRole('menuitem', { name: 'New project…' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Manage projects…' })).toBeVisible();
+  await expect(rows.nth(0)).toHaveAttribute('aria-current', 'page');
+  await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toBeVisible();
+  await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toBeVisible();
+});
+
+test('the module menu lists dashboards under Dashboards and opens Colab settings read-only', async ({
+  page,
+}) => {
+  await mount(page, 'shells');
+  // The one rail: the same items as on every other TMT page.
+  await expect(app(page).locator('.tmt-ui-rail .tmt-ui-rail-item')).toHaveCount(7);
+  expect(
+    await app(page)
+      .locator('.tmt-ui-rail .tmt-ui-rail-item')
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
+  ).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'search', 'settings']);
+  const shells = moduleMenu(page).locator('a[data-id^="shell:"]');
+  await expect(moduleMenu(page)).toContainText('Dashboards');
+  await expect(moduleMenu(page)).not.toContainText('Shells');
+  await expect(shells).toHaveCount(1);
+  await expect(shells).toHaveText('Reading shell');
+  await expect(shells).toHaveAttribute('href', /#\/pages\/[0-9a-f-]+$/);
+  await moduleMenu(page).getByRole('link', { name: 'Colab settings', exact: true }).click();
+  await expect(page).toHaveURL(/#\/settings$/);
+  const settings = page.getByRole('region', { name: 'Colab settings' }).first();
+  await expect(settings.getByRole('note')).toContainText('Sample values');
+  await expect(settings.locator('.tmt-ui-list-title')).toHaveText([
+    'Open in browser',
+    'Work in progress',
+    'GitHub repository',
+    'Page expiry',
+  ]);
+  await expect(settings.locator('.tmt-ui-list-state')).toHaveText([
+    'On',
+    '1',
+    'Not set',
+    '180 days',
+  ]);
+  await expect(
+    moduleMenu(page).locator('a[data-id="colab-settings"][aria-current="page"]'),
+  ).toBeVisible();
 });
 
 for (const theme of ['light', 'dark'] as const) {
@@ -807,8 +865,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;
     }, theme);
-    await scopeTrigger(page).click();
-    const row = page.getByRole('menuitemradio').nth(1);
+    const row = scopeRows(page).nth(1);
     await expect(row).toHaveText(/design\s*2\s*◆ 1/);
     // A token no CSS defines leaves the declaration invalid, so the count would inherit the name's
     // colour; the count must instead be the colour the secondary token has in this theme.
@@ -820,8 +877,8 @@ for (const theme of ['light', 'dark'] as const) {
       const secondary = color(probe);
       probe.remove();
       return {
-        count: color(element.querySelector('.scope-count')!),
-        name: color(element.querySelector('.scope-name')!),
+        count: color(element.querySelector('.tmt-ui-shell-count')!),
+        name: color(element.querySelector('.tmt-ui-module-menu-label')!),
         secondary,
       };
     });
@@ -1207,9 +1264,8 @@ for (const width of [1440, 390])
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3746-archived-tab-${width}-${theme}.png`) });
       await app(page).getByRole('tab', { name: 'All', exact: true }).click();
-      await scopeTrigger(page).click();
       await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
-      await page.getByRole('menuitem', { name: 'Manage projects…' }).click();
+      await fromScopeMenu(page, 'Manage projects…');
       await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-manage-${width}-${theme}.png`) });
       // Renaming onto an existing project says the two merge.
@@ -1299,7 +1355,11 @@ async function insideViewport(page: Page) {
       .querySelector('#list-fixture .page-list-controls')!
       .getBoundingClientRect();
     const outside = [...document.querySelectorAll('#list-fixture *, [role="listbox"]')]
-      .filter((node) => !node.parentElement?.closest('.tmt-ui-tab-list'))
+      // Tab strips (the list's views, the phone module menu) scroll inside; their tabs may pass the
+      // edge.
+      .filter(
+        (node) => !node.parentElement?.closest('.tmt-ui-tab-list, .tmt-ui-module-menu'),
+      )
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);
@@ -1361,7 +1421,7 @@ for (const width of [1440, 390, 320])
         page.evaluate(() => {
           const viewport = document.documentElement.clientWidth;
           const crumb = document
-            .querySelector('#list-fixture button[aria-haspopup="menu"][aria-label^="Project: "]')!
+            .querySelector('#list-fixture .tmt-ui-module-menu a[aria-current="page"]')!
             .getBoundingClientRect();
           return {
             scroll: document.documentElement.scrollWidth - viewport,
@@ -1369,13 +1429,16 @@ for (const width of [1440, 390, 320])
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
-        await anyScopeTrigger(page).click();
-        const row = page.getByRole('menuitemradio', { name: new RegExp(`^${long}`) });
+        const row = moduleMenu(page)
+          .locator('a')
+          .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: long }) });
         await expect(row).toBeVisible();
         if (long.startsWith('W'))
           await page.screenshot({
             path: await capturePath(`3747-scope-long-${width}-${theme}.png`),
           });
+        // On a phone the module menu is a scrolling tab strip; a long tab ellipsizes within it.
+        await row.scrollIntoViewIfNeeded();
         const box = await row.boundingBox();
         expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
         await row.click();

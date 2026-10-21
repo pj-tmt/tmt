@@ -134,14 +134,16 @@ test('the spinner turns unless the reader prefers reduced motion', async ({ page
   await expect(spinner(page)).toBeVisible();
   const names = await spinner(page).evaluate((mark) =>
     mark
-      .querySelector('svg')!
+      .querySelector('.tmt-ui-busy-frames')!
       .getAnimations()
       .map((animation) => (animation as CSSAnimation).animationName),
   );
-  expect(names).toEqual(['tmt-ui-spin']);
+  expect(names).toEqual(['tmt-ui-busy']);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(
-    await spinner(page).evaluate((mark) => mark.querySelector('svg')!.getAnimations().length),
+    await spinner(page).evaluate(
+      (mark) => mark.querySelector('.tmt-ui-busy-frames')!.getAnimations().length,
+    ),
   ).toBe(0);
 });
 

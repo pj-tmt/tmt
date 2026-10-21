@@ -41,9 +41,12 @@ body {
   min-height: 100svh;
   background: var(--tmt-ui-surface-paper);
   color: var(--tmt-ui-color-text);
-  padding-top: calc(var(--tmt-ui-header-height) + env(safe-area-inset-top, 0px));
   font: 400 14px/1.5 var(--tmt-ui-font-body);
   -webkit-text-size-adjust: 100%;
+}
+/* Only a page outside the TMT web shell (the error page) keeps the fixed header's top padding. */
+body:not(:has(.tmt-ui-shell)) {
+  padding-top: calc(var(--tmt-ui-header-height) + env(safe-area-inset-top, 0px));
 }
 .header {
   position: fixed;
@@ -177,12 +180,9 @@ input {
   font-size: 14px;
 }
 
-/* Programmatic ceremony focus shares the host's existing focus tokens. */
+/* Programmatic ceremony focus recolours the words' 1px rule, as a field's focus does. */
 #comparison:focus-visible #words {
   border-color: var(--tmt-ui-color-focus);
-  outline: calc(var(--tmt-ui-focus-width) - var(--tmt-ui-rule-width)) solid
-    var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 #status:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
@@ -256,30 +256,8 @@ input {
   margin-right: 8px;
 }
 
-.remote-state[data-tone='working'],
-.remote-menu [data-tone='working'],
-.remote-chip[data-tone='working'] {
+.remote-state[data-tone='working'] {
   color: var(--tmt-ui-color-working);
-}
-.remote-chip[data-tone='waiting'] {
-  color: var(--tmt-ui-color-waiting);
-}
-.remote-chip[data-tone='blocked'] {
-  color: var(--tmt-ui-color-blocked);
-}
-.remote-chip {
-  max-width: 180px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-}
-.remote-menu {
-  max-width: min(420px, calc(100vw - 16px));
-}
-.remote-menu .tmt-ui-menu-item {
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 [data-tmt-auto='true'] #pair {
   display: none;
@@ -294,4 +272,77 @@ input {
   display: inline-block;
   min-height: 44px;
   padding: 12px 0;
+}
+
+/* Home: what needs you across modules, then recent pages, as shared list rows. */
+.home {
+  display: grid;
+  gap: 32px;
+}
+.home-heading {
+  margin: 0 0 8px;
+  color: var(--tmt-ui-color-secondary);
+  font: 600 12px/1.2 var(--tmt-ui-font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.home .tmt-ui-list-leading[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.home-note {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.home-note {
+  margin: 8px 0 0;
+}
+
+/* Digest and Ops web views: sample-data note, the usage table and the board's state marks. */
+.usage-note {
+  margin: 0 0 var(--tmt-ui-space-l);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+}
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.usage-table th,
+.usage-table td {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  text-align: right;
+}
+.usage-table th:first-child {
+  text-align: left;
+}
+.usage-table thead th {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 600;
+}
+.usage-table td {
+  font-family: var(--tmt-ui-font-mono);
+}
+.ops-section {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+}
+.ops-section > .tmt-ui-list + .home-heading {
+  margin-top: var(--tmt-ui-space-l);
+}
+.ops-section .tmt-ui-list-updated {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.ops-mark[data-tone='working'] {
+  color: var(--tmt-ui-color-working);
+}
+.ops-mark[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.ops-mark[data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
 }

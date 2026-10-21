@@ -47,8 +47,8 @@ impl Status<'_> {
         let id =
             tmt_colab::short_links::shortest_id(page, self.all_pages.as_deref().unwrap_or(&[]));
         Some(match self.door() {
-            Some(door) => format!("{}/p/{id}", door.origin()),
-            None => format!("/p/{id}"),
+            Some(door) => format!("{}/colab/p/{id}", door.origin()),
+            None => format!("/colab/p/{id}"),
         })
     }
     /// What a person reads beside a page link: the link, or, without a door, the relative path
@@ -79,7 +79,7 @@ impl Status<'_> {
     pub fn open_link(&self) -> Option<String> {
         self.door().map(|door| match self.pages.as_deref() {
             Some([only]) => format!(
-                "{}/p/{}",
+                "{}/colab/p/{}",
                 door.origin(),
                 tmt_colab::short_links::shortest_id(only, self.all_pages.as_deref().unwrap_or(&[]))
             ),

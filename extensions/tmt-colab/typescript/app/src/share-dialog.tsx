@@ -1,3 +1,4 @@
+import { BrowserCheckbox } from '@tmt/browser-ui/react';
 import { readerUrl } from './reader-link.js';
 import { BearerArtifact } from './bearer-artifact.js';
 import { localTime } from './expiry.js';
@@ -162,7 +163,7 @@ export function ShareDialog({
     } catch {
       if (lifetime.current?.signal.aborted) return;
       setError(
-        `The owner accepted the ${p.operation === 'page.delete' ? 'deletion' : 'change'}, but it is not confirmed yet. Check again before relying on it.`,
+        `Your machine accepted the ${p.operation === 'page.delete' ? 'deletion' : 'change'}, but it is not confirmed yet. Check again before relying on it.`,
       );
       setPhase('verify');
     }
@@ -332,8 +333,7 @@ export function ShareDialog({
                 }}
               >
                 <label className="checkbox-label">
-                  <input
-                    type="checkbox"
+                  <BrowserCheckbox
                     checked={forever}
                     onChange={(e) => setForever(e.target.checked)}
                   />

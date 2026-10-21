@@ -1,5 +1,4 @@
-import { BrowserAction } from '@tmt/browser-ui/react';
-import { LoaderCircle } from 'lucide-react';
+import { BrowserAction, BusyMark } from '@tmt/browser-ui/react';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { Review } from '../questions.js';
 import type { ReviewOutcome } from '../review-actions.js';
@@ -67,7 +66,7 @@ export function ReviewCard({
       variant="text"
       label={label}
       busy={working}
-      busyMark={pressed === label ? <LoaderCircle /> : <span />}
+      busyMark={pressed === label ? <BusyMark /> : <span />}
       disabled={options.disabled ?? disabled}
       onActivate={(event) => {
         if (!event.isTrusted) return;

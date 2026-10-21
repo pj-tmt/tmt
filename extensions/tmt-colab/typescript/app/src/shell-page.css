@@ -94,7 +94,7 @@
   text-underline-offset: 4px;
 }
 .shell-counts button:focus-visible {
-  outline: 2px solid var(--c-accent);
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: 2px;
 }
 .shell-count-number {
@@ -190,7 +190,7 @@ button.shell-open {
 }
 .shell-chapter a:focus-visible,
 .shell-earlier a:focus-visible {
-  outline: 2px solid var(--c-accent);
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: 2px;
 }
 /* The title's line box is tight, so its ring sits further out and clears the eyebrow above and the

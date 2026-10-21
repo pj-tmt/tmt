@@ -38,8 +38,7 @@
   padding: 4px;
   gap: 4px;
   background: var(--c-sheet);
-  border: 1px solid var(--c-text);
-  box-shadow: 4px 4px 0 var(--c-accent);
+  border: 1px solid var(--c-rule);
   font-family: var(--f-mono);
 }
 #tmt-colab-embed .ce-on {
@@ -67,11 +66,9 @@
   padding: 4px;
   border: 1px solid var(--c-accent);
   background: var(--c-sheet);
-  box-shadow: 4px 4px 0 var(--c-accent);
 }
 #tmt-colab-embed .ce-resolved {
   color: var(--c-muted);
-  box-shadow: 4px 4px 0 var(--c-rule);
 }
 #tmt-colab-embed .ce-panel {
   position: fixed;
@@ -81,8 +78,7 @@
   overflow: auto;
   padding: 16px;
   background: var(--c-sheet);
-  border: 1px solid var(--c-text);
-  box-shadow: 4px 4px 0 var(--c-accent);
+  border: 1px solid var(--c-rule);
 }
 #tmt-colab-embed .ce-setup {
   right: 24px;
@@ -192,7 +188,6 @@
   background: var(--c-sheet);
   border: 1px solid var(--c-blocked);
   padding: 12px;
-  box-shadow: 4px 4px 0 var(--c-blocked);
 }
 @media (max-width: 479px) {
   #tmt-colab-embed .ce-setup {

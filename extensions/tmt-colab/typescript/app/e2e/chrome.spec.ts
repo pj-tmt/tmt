@@ -293,7 +293,7 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   });
   // Only a row's own selection box is a checkbox; the Archived filter is a tab.
   await expect(
-    page.locator('#chrome-fixture input[type="checkbox"]:not(.page-select)'),
+    page.locator('#chrome-fixture input[type="checkbox"]:not(.tmt-ui-list-leading > input)'),
   ).toHaveCount(0);
   const rows = page.locator('#chrome-fixture ul.pages li');
   await expect(rows.first()).toContainText('Release notes');

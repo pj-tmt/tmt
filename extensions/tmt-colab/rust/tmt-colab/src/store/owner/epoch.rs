@@ -147,6 +147,37 @@ impl OwnerTransaction<'_> {
         }
         Ok(())
     }
+    /// An archived page leaves the local title projection with the archive; unarchiving refills
+    /// it from the next fold.
+    pub(crate) fn forget_page_title(&mut self, page: &str) -> Result<()> {
+        self.tx
+            .execute("DELETE FROM page_titles WHERE page=?", [page])?;
+        Ok(())
+    }
+    /// [`crate::store::Store::record_page_title`]'s write, inside its transaction.
+    pub(crate) fn record_page_title(
+        &mut self,
+        page: &str,
+        fingerprint: &str,
+        title: Option<&str>,
+    ) -> Result<bool> {
+        if self.page_fingerprint(page)?.as_deref() != Some(fingerprint) {
+            return Ok(false);
+        }
+        match title {
+            Some(title) => self.tx.execute(
+                "INSERT INTO page_titles(page,title)
+                 SELECT ?1,?2 WHERE EXISTS(SELECT 1 FROM epoch_secrets WHERE page=?1)
+                 ON CONFLICT(page) DO UPDATE SET title=excluded.title
+                 WHERE page_titles.title IS NOT excluded.title",
+                params![page, title],
+            )?,
+            None => self
+                .tx
+                .execute("DELETE FROM page_titles WHERE page=?", [page])?,
+        };
+        Ok(true)
+    }
     pub(crate) fn pages(&self) -> Result<Vec<String>> {
         let mut query = self.tx.prepare("SELECT page FROM pages ORDER BY page")?;
         Ok(query

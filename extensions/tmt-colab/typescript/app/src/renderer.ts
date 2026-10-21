@@ -1,4 +1,4 @@
-import { entryMount, publicEntry } from './entry.js';
+import { entryMount, inShell, publicEntry } from './entry.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
@@ -1074,7 +1074,14 @@ export async function mountRenderer(
       [channel.port2],
     );
   };
-  frame.src = rendererUrl(publicEntry() ? entryMount().href : document.baseURI);
+  // Inside the TMT app the document sits at /colab/<route>; the preview renderer is beside /colab/.
+  frame.src = rendererUrl(
+    publicEntry()
+      ? entryMount().href
+      : inShell()
+        ? new URL('/colab/', location.href).href
+        : document.baseURI,
+  );
   // Preserve the current offset through replacement, without replaying an older
   // offset when a later height report arrives after the person has scrolled.
   const scroll =

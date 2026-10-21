@@ -43,6 +43,7 @@ export type {
 import { deviceObjects as store, request } from './browser-store.js';
 import { remoteRegistryPage } from './remote-registry-page.js';
 export { remoteRegistry, RemoteRegistryError } from './remote-registry.js';
+export { shellApp } from './shell-app.js';
 export type {
   RemoteReference,
   RemoteCatalog,
@@ -172,7 +173,7 @@ function pairingRecovery(error: unknown): string {
   if (error instanceof ReopenSessionError && error.detail === 'pairing-unavailable')
     return 'Your saved pairing could not be read. Check browser storage and try again.';
   if (error instanceof ReopenSessionError && error.reason === 'capacity')
-    return "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.";
+    return "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged.";
   return "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged.";
 }
 
@@ -447,54 +448,50 @@ export async function landingPage(): Promise<void> {
       refusalCode ?? '',
     );
     const copy = {
-      missing: ['○', 'Not paired', 'Pair this browser with your machine', ''],
+      missing: ['', 'Not paired', 'Pair this browser with your machine', ''],
       checking: [
-        '◌',
+        '',
         'Checking',
         'Checking the connection…',
         'This browser is paired. Nothing is sent while checking.',
       ],
       connected: [
-        '●',
+        '',
         'Connected',
         'This browser can use Remote',
         'Open your app from its link in this browser.',
       ],
       different: [
-        '△',
+        '',
         'Different machine',
         'This browser is paired with another machine',
         "This Remote runs on a machine this browser isn't paired with. Your existing pairing is kept.",
       ],
       refused: [
-        '×',
+        '',
         'Not accepted',
         "Remote didn't accept this browser",
         refusalCode === 'REMOTE_SESSION_LIMIT'
-          ? "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged."
+          ? "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged."
           : authorityEnded
             ? 'This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.'
             : "This page's connection ended. Try again. Your pairing is unchanged.",
       ],
       unconfirmed: [
-        '×',
+        '',
         "Can't reach Remote",
         "Couldn't confirm the connection",
         "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged.",
       ],
       unreadable: [
-        '×',
+        '',
         'Pairing unreadable',
         "This browser's pairing can't be read",
         'Your saved pairing could not be read. Check browser storage and try again.',
       ],
     }[state];
-    element('notice').dataset.tone =
-      state === 'connected'
-        ? 'working'
-        : ['missing', 'checking', 'different'].includes(state)
-          ? 'waiting'
-          : 'blocked';
+    // A connection state is words only; the agent marks and their tones stay for agents.
+    element('notice').dataset.tone = 'neutral';
     element('notice').dataset.state = state;
     registryState(
       authorityEnded ? 'Access ended' : copy[1]!,

@@ -472,7 +472,7 @@ fn pages_consume_shared_presentation_without_a_second_projection() {
         if page != include_str!("../assets/landing.html") {
             assert!(classes.contains(&"tmt-ui-notice-eyebrow"));
         }
-        let mark = page.find("header-mark tmt-ui-mark").unwrap();
+        let mark = page.find("header-mark tmt-brand-mark tmt-ui-mark").unwrap();
         let product = page.find("header-wordmark tmt-ui-wordmark").unwrap();
         let title = page.find("header-title tmt-ui-title").unwrap();
         assert!(mark < product && product < title);
@@ -658,10 +658,10 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
         3
     );
     assert!(page.body.contains("No changes to save."));
-    assert!(page.body.contains("Check original result"));
+    assert!(page.body.contains("Check the saved value"));
 
     assert!(page.body.contains(
-        "<p>“This device” identifies a pairing. It does not grant settings authority.</p>"
+        "<p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>"
     ));
     assert_eq!(
         page.header("content-type"),
@@ -680,7 +680,7 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     assert!(
         script
             .body
-            .contains("Another change is still unconfirmed. Check its original result first.")
+            .contains("Another change is still unconfirmed. Check the saved value first.")
     );
     assert!(
         !script
@@ -755,12 +755,14 @@ fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
 }
 
 #[test]
-fn remote_static_headers_pin_the_approved_aperture_mark() {
-    // Approved static-host projection of design/browser-ui/src/header.tsx (#2608).
-    // This literal adds no native input dependency on the leaf's source module.
-    const MARK: &str = r#"<svg class="header-mark tmt-ui-mark" viewBox="0 0 96 96" aria-hidden="true" fill="currentColor">
-          <path fill-rule="evenodd" d="M20 0H76C87.05 0 96 8.95 96 20V76C96 87.05 87.05 96 76 96H20C8.95 96 0 87.05 0 76V20C0 8.95 8.95 0 20 0ZM58.84 33.59C58.79 33.69 58.73 33.8 58.68 33.89C57.54 33.12 56.48 32.2 55.25 31.56C46.86 27.14 37.03 27.23 28.91 32.34C23.71 35.61 21.76 38.08 17.37 42.47C16.62 41.79 13 39.01 13.32 38.11C13.7 37.06 14.61 36.29 15.35 35.45C18.89 31.49 23.35 28.11 28.44 26.41C37.06 23.55 46.41 23.82 54.01 29.23C55.77 30.48 57.23 32.14 58.84 33.59ZM19.87 45.28C23.1 41.07 23.78 39.67 28.6 36.24C39.52 28.46 53 30.15 62.58 39.04C60.76 39.95 62.99 38.95 58.06 36.71C55.69 35.63 52.11 34.82 49.49 34.68C38.21 34.06 31.29 41.34 23.92 48.71C20.8 46.56 22.11 47.74 19.87 45.28ZM26.73 49.96C28.44 48.14 30.07 46.23 31.87 44.49C38.49 38.13 48.26 35.69 56.97 38.89C58.46 39.43 59.77 40.34 61.17 41.07C59.72 41.55 61.43 41.09 58.06 40.29C56.98 40.03 55.89 39.87 54.79 39.83C51.29 39.68 47.84 40.21 44.65 41.69C43.37 42.29 42.08 42.92 40.91 43.72C38.41 45.43 32.68 51.65 28.44 50.89C27.8 50.77 27.3 50.27 26.73 49.96ZM34.84 52.29C41.1 54.64 48.12 54.44 53.85 50.57C57.98 47.8 61.25 42.94 66.16 42.16C66.68 42.08 67.23 42 67.72 42.16C68.93 42.53 70.01 43.2 71.15 43.72C69.91 45.02 68.78 46.45 67.41 47.61C60.76 53.33 52.48 57.88 43.41 56.19C40.15 55.58 37.3 54.45 34.84 52.29ZM44.81 45.59C47.1 40.44 53.13 42.19 52.45 47.61C50.85 51.33 45.61 51.64 44.81 47.46C44.69 46.85 44.81 46.21 44.81 45.59ZM34.21 54.79C35.56 55.56 36.86 56.46 38.27 57.12C48.99 62.18 59.4 57.68 67.88 50.57C69.85 48.93 71.63 47.05 73.49 45.28C76.04 46.41 74.51 45.57 77.7 48.4C68.28 62.53 46.56 68.68 34.21 54.79ZM38.11 60.4C42.39 62.97 42.53 63.47 47.15 64.76C56.3 67.32 66.34 63.41 73.49 57.75C75.88 55.85 78.06 53.69 80.35 51.67C81.23 52.6 82.12 53.54 83 54.48C75.91 65.11 61 72.45 48.4 67.72C46.11 66.87 42.48 65.01 40.44 63.05C39.6 62.23 38.89 61.28 38.11 60.4Z" />
-        </svg>"#;
+fn remote_static_headers_carry_the_shared_static_mark() {
+    // The browser leaf's static-host copy of its header mark, with the header-mark class.
+    let shared = include_str!("../../../../../design/browser-ui/generated/brand-mark-static.svg");
+    let mark = shared.trim().replacen(
+        r#"class="tmt-brand-mark tmt-ui-mark""#,
+        r#"class="header-mark tmt-brand-mark tmt-ui-mark""#,
+        1,
+    );
     let normalize = |markup: &str| {
         markup
             .split_whitespace()
@@ -769,7 +771,7 @@ fn remote_static_headers_pin_the_approved_aperture_mark() {
             .replace(" >", ">")
             .replace("> <", "><")
     };
-    let expected = normalize(MARK);
+    let expected = normalize(&mark);
     for page in [
         include_str!("../assets/landing.html"),
         include_str!("../assets/pair.html"),
@@ -780,7 +782,7 @@ fn remote_static_headers_pin_the_approved_aperture_mark() {
     ] {
         let normalized = normalize(page);
         assert!(normalized.contains(&expected));
-        assert_eq!(page.matches("class=\"header-mark tmt-ui-mark\"").count(), 1);
+        assert_eq!(page.matches("class=\"header-mark ").count(), 1);
         let brand = if page.contains("data-tmt-page=\"home\"")
             || page.contains("data-tmt-page=\"tmt-settings\"")
         {
@@ -843,7 +845,7 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
             .unwrap();
         assert_eq!(
             bytes,
-            include_bytes!("../../../../../design/browser-ui/src/favicon.svg"),
+            include_bytes!("../../../../../design/browser-ui/generated/favicon.svg"),
             "{path}"
         );
     }
@@ -898,14 +900,13 @@ fn door_routes_legacy_pair_redirect_is_fixed_and_admitted_before_location() {
 }
 
 #[test]
-fn door_routes_home_and_tmt_settings_are_navigation_only_and_remote_pages_move() {
+fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move() {
     let h = Harness::new(FAST);
     let home = get(&h, "/", "");
     assert_eq!(home.status, 200);
-    assert!(home.body.contains("Open a TMT app."));
-    for path in ["/colab/", "/remote/", "/settings/"] {
-        assert!(home.body.contains(&format!("href=\"{path}\"")), "{path}");
-    }
+    // The rail and Home's rows come from the shell script; the page itself names no data.
+    assert!(home.body.contains("id=\"home-needs\""));
+    assert!(home.body.contains("class=\"tmt-ui-shell\""));
     let settings = get(&h, "/settings", "");
     assert_eq!(settings.status, 200);
     assert_eq!(settings.body, get(&h, "/settings/", "").body);
@@ -918,9 +919,25 @@ fn door_routes_home_and_tmt_settings_are_navigation_only_and_remote_pages_move()
     for page in [&home, &settings] {
         assert_eq!(page.header("content-security-policy"), Some(PAGE_CSP));
         assert_eq!(page.header("set-cookie"), None);
-        assert!(!page.body.contains("<script"));
+        assert_eq!(page.body.matches("<script").count(), 1);
+        assert!(
+            page.body
+                .contains("<script type=\"module\" src=\"/sdk/shell.js\"></script>")
+        );
         assert!(!page.body.contains(&h.prefix));
     }
+    let entry = get(&h, "/sdk/shell.js", "");
+    assert_eq!(entry.status, 200);
+    assert_eq!(entry.body, include_str!("../assets/shell.js"));
+    assert_eq!(entry.header("cache-control"), Some("no-store"));
+    assert_eq!(
+        entry.header("content-type"),
+        Some("text/javascript; charset=utf-8")
+    );
+    assert_eq!(
+        get(&h, "/sdk/shell.js", "Origin: https://example.com\r\n").status,
+        403
+    );
     for (path, marker) in [
         ("/remote/", "Remote connection"),
         ("/remote/settings", "Browser opening"),
