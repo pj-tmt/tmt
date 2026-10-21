@@ -447,7 +447,7 @@ fn session_open_returns_a_signed_response_and_a_door_cookie() {
     // The public short entry adds no cookie; session.open retains the mount path.
     let alias = exchange(
         &h,
-        &format!("GET /p/abcd HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
+        &format!("GET /read/abcd HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
     );
     assert_eq!(alias.status, 200);
     assert!(alias.cookie().is_none());

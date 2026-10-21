@@ -113,11 +113,8 @@ impl Pages {
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         if head.upgrade {
-            return Err(if Mounts::short_route(head.path) {
-                page_refusal(head.path, 404)
-            } else {
-                Reply::empty(404)
-            });
+            // Page paths get the HTML refusal; everything else stays JSON.
+            return Err(page_refusal(head.path, 404));
         }
         if legacy_pair(head.path) {
             if !matches!(head.method, "GET" | "HEAD") {
@@ -302,8 +299,10 @@ fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
 
 /// Only browser page routes receive HTML. SDK and protocol refusals stay JSON.
 pub(crate) fn page_refusal(path: &str, status: u16) -> Reply {
-    if !app_route(path)
+    let bare = path.split('?').next().unwrap_or(path);
+    if !app_route(bare)
         && path != "/remote/pair"
+        && bare != "/p"
         && !path.starts_with("/p/")
         && !path.starts_with("/remote/pair/")
         && !legacy_pair(path)

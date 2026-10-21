@@ -442,7 +442,12 @@ fn startup_reads_capabilities_and_root_mounts_without_core_calls_and_sigterm_rea
             String::from_utf8(head).unwrap()
         });
         assert!(exchange(socket, &get).ends_with("\r\n\r\ncolab"));
-        assert!(extension.join().unwrap().starts_with("GET /api/pages HTTP/1.1\r\n"));
+        assert!(
+            extension
+                .join()
+                .unwrap()
+                .starts_with("GET /api/pages HTTP/1.1\r\n")
+        );
         assert_eq!(
             fs::read_to_string(pilot.root.join("calls")).unwrap(),
             "api\napi\n",

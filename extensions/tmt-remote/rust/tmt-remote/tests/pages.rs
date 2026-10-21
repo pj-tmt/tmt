@@ -70,6 +70,22 @@ fn get(h: &Harness, path: &str, headers: &str) -> Reply {
         &format!("GET {path} HTTP/1.1\r\nHost: {}\r\n{headers}\r\n", h.addr),
     )
 }
+/// The one TMT web app document every app route serves, and its policy.
+const SHELL_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+/// An app route: the door answers the shell document; the route's markup is the page asset the
+/// app adopts, so the markup checks below read that asset.
+fn app_page(h: &Harness, path: &str, page: &str) -> Reply {
+    let mut reply = get(h, path, "");
+    assert_eq!(reply.status, 200, "{path}");
+    assert_eq!(reply.body, include_str!("../assets/shell.html"), "{path}");
+    assert_eq!(
+        reply.header("content-security-policy"),
+        Some(SHELL_CSP),
+        "{path}"
+    );
+    reply.body = page.to_owned();
+    reply
+}
 fn mount(h: &Harness, body: &str, origin: Option<&str>) -> Reply {
     let origin = origin
         .map(|o| format!("Origin: {o}\r\n"))
@@ -224,7 +240,8 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
             "mount": colab,
         })
     );
-    for path in ["/colab", "/colab/", "/p/aB_0", "/read/Z9_-"] {
+    // `/colab` and `/p/<id>` are app routes now; the reader is the remaining public entry.
+    for path in ["/read/Z9_-", "/read/aB_0"] {
         let answer: Value =
             serde_json::from_str(&mount(&h, &json!({"path":path}).to_string(), origin).body)
                 .unwrap();
@@ -272,9 +289,7 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
 #[test]
 fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     let h = Harness::new(FAST);
-    let landing = get(&h, "/remote/", "");
-    assert_eq!(landing.status, 200);
-    assert_eq!(landing.body, include_str!("../assets/landing.html"));
+    let landing = app_page(&h, "/remote/", include_str!("../assets/landing.html"));
     assert!(
         landing
             .body
@@ -380,8 +395,8 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         landing.header("content-type"),
         Some("text/html; charset=utf-8")
     );
-    let policy = landing.header("content-security-policy").unwrap();
-    assert!(policy.contains("style-src 'self'"));
+    assert!(SHELL_CSP.contains("style-src 'self'"));
+    let policy = PAGE_CSP;
     let css = get(&h, "/sdk/pages.css", "");
     assert_eq!(css.status, 200);
     assert_eq!(
@@ -390,6 +405,8 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
             include_str!("../../../../../design/browser-ui/generated/static.css"),
             "\n",
             include_str!("../assets/pages.css"),
+            "\n",
+            include_str!("../assets/tmt-settings.css"),
         )
     );
     assert!(!css.body.contains("@import"));
@@ -540,13 +557,17 @@ fn short_public_entry_without_colab_returns_a_generic_page_without_cookies() {
             format!("Origin: {}\r\n", h.origin),
             "Cookie: tmt_door=untrusted\r\n".to_owned(),
         ] {
+            // A short page link redirects into the app without reaching Colab.
             let reply = get(&h, &format!("/p/{id}"), &headers);
-            assert_eq!(reply.status, 404, "{id}");
-            assert_eq!(reply.header("location"), None);
+            assert_eq!(reply.status, 308, "{id}");
+            assert_eq!(
+                reply.header("location"),
+                Some(format!("/colab/p/{id}").as_str())
+            );
             assert_eq!(reply.header("cache-control"), Some("no-store"));
             assert_eq!(reply.header("referrer-policy"), Some("no-referrer"));
             assert_eq!(reply.header("set-cookie"), None);
-            assert_eq!(reply.body, include_str!("../assets/error.html"));
+            assert_eq!(reply.body, "");
         }
     }
     assert_eq!(h.grants(), 0);
@@ -570,7 +591,8 @@ fn malformed_short_page_aliases_return_the_generic_page_404() {
         assert_eq!(reply.status, 404, "{path}");
         assert_eq!(
             reply.header("content-type"),
-            Some("text/html; charset=utf-8")
+            Some("text/html; charset=utf-8"),
+            "{path}"
         );
         assert_eq!(reply.body, include_str!("../assets/error.html"));
         assert_eq!(reply.header("location"), None);
@@ -586,19 +608,19 @@ fn malformed_short_page_aliases_return_the_generic_page_404() {
     assert_eq!(upgrade.body, include_str!("../assets/error.html"));
     assert_eq!(upgrade.header("location"), None);
     // Invalid HTTP targets still fail at the shared framing boundary.
-    for path in [
-        "/p/ab%63d",
-        "/p/abcd?next=other",
-        "/p/abcd#fragment",
-        "/p/../abcd",
-        "/p//abcd",
-    ] {
+    for path in ["/p/ab%63d", "/p/abcd#fragment", "/p/../abcd", "/p//abcd"] {
         let reply = get(&h, path, "");
         assert_eq!(reply.status, 400, "{path}");
         assert_eq!(reply.body, "{}");
         assert_eq!(reply.header("location"), None);
     }
-    for method in ["POST", "HEAD"] {
+    // HEAD redirects like GET; other methods refuse.
+    let head = exchange(
+        &h,
+        &format!("HEAD /p/abcd HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
+    );
+    assert_eq!(head.status, 308);
+    for method in ["POST", "PUT"] {
         let reply = exchange(
             &h,
             &format!("{method} /p/abcd HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
@@ -630,9 +652,11 @@ fn short_public_entry_refuses_cross_origin_requests_before_forwarding() {
 #[test]
 fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     let h = Harness::new(FAST);
-    let page = get(&h, "/remote/settings", "");
-    assert_eq!(page.status, 200);
-    assert_eq!(page.body, include_str!("../assets/settings.html"));
+    let page = app_page(
+        &h,
+        "/remote/settings",
+        include_str!("../assets/settings.html"),
+    );
     assert!(
         page.body
             .contains("Recorded setup, not a live Firebase check.")
@@ -714,7 +738,12 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
 #[test]
 fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
     let h = Harness::new(FAST);
-    let html = get(&h, "/remote/settings", "").body;
+    let html = app_page(
+        &h,
+        "/remote/settings",
+        include_str!("../assets/settings.html"),
+    )
+    .body;
     for class in [
         "tmt-ui-header",
         "tmt-ui-brand",
@@ -824,6 +853,8 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
         assert_eq!(links.len(), 1, "{path}");
         let policy = if path == "/remote/pair" {
             pairing_policy(&reply.body)
+        } else if status == 200 {
+            SHELL_CSP.to_owned()
         } else {
             PAGE_CSP.to_owned()
         };
@@ -902,30 +933,36 @@ fn door_routes_legacy_pair_redirect_is_fixed_and_admitted_before_location() {
 #[test]
 fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move() {
     let h = Harness::new(FAST);
-    let home = get(&h, "/", "");
-    assert_eq!(home.status, 200);
-    // The rail and Home's rows come from the shell script; the page itself names no data.
-    assert!(home.body.contains("id=\"home-needs\""));
-    assert!(home.body.contains("class=\"tmt-ui-shell\""));
-    let settings = get(&h, "/settings", "");
-    assert_eq!(settings.status, 200);
-    assert_eq!(settings.body, get(&h, "/settings/", "").body);
-    assert!(
-        settings
-            .body
-            .contains("Choose an app to open its settings.")
-    );
-    assert!(settings.body.contains("href=\"/remote/settings\""));
-    for page in [&home, &settings] {
-        assert_eq!(page.header("content-security-policy"), Some(PAGE_CSP));
-        assert_eq!(page.header("set-cookie"), None);
-        assert_eq!(page.body.matches("<script").count(), 1);
+    // Every app route is the same shell document; the rail and Home's rows come from its script.
+    for path in [
+        "/",
+        "/settings",
+        "/settings/",
+        "/remote",
+        "/remote/",
+        "/ops",
+        "/digest/",
+        "/colab/pages/x",
+    ] {
+        let shell = app_page(&h, path, include_str!("../assets/shell.html"));
+        assert_eq!(shell.header("set-cookie"), None, "{path}");
+        assert_eq!(shell.body.matches("<script").count(), 1);
         assert!(
-            page.body
+            shell
+                .body
                 .contains("<script type=\"module\" src=\"/sdk/shell.js\"></script>")
         );
-        assert!(!page.body.contains(&h.prefix));
+        assert!(shell.body.contains("class=\"tmt-ui-shell\""));
+        assert!(!shell.body.contains(&h.prefix));
     }
+    // The explicit list never becomes a catch-all.
+    for path in ["/home", "/ops/x", "/colab/a.b", "/remote/other"] {
+        assert_eq!(get(&h, path, "").status, 404, "{path}");
+    }
+    let home = app_page(&h, "/", include_str!("../assets/home.html"));
+    assert!(home.body.contains("id=\"home-needs\""));
+    let settings = app_page(&h, "/settings", include_str!("../assets/tmt-settings.html"));
+    assert!(settings.body.contains(">TMT settings</h1>"));
     let entry = get(&h, "/sdk/shell.js", "");
     assert_eq!(entry.status, 200);
     assert_eq!(entry.body, include_str!("../assets/shell.js"));
@@ -938,18 +975,10 @@ fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move()
         get(&h, "/sdk/shell.js", "Origin: https://example.com\r\n").status,
         403
     );
-    for (path, marker) in [
-        ("/remote/", "Remote connection"),
-        ("/remote/settings", "Browser opening"),
-        ("/remote/pair", "__TMT_PAIR_BOOTSTRAP__"),
-    ] {
-        let reply = get(&h, path, "");
-        assert_eq!(reply.status, 200, "{path}");
-        if path == "/remote/pair" {
-            assert!(!reply.body.contains(marker));
-            assert!(reply.body.contains("history.replaceState"));
-        } else {
-            assert!(reply.body.contains(marker));
-        }
-    }
+    let pair = get(&h, "/remote/pair", "");
+    assert_eq!(pair.status, 200);
+    assert!(!pair.body.contains("__TMT_PAIR_BOOTSTRAP__"));
+    assert!(pair.body.contains("history.replaceState"));
+    assert!(include_str!("../assets/landing.html").contains("Remote connection"));
+    assert!(include_str!("../assets/settings.html").contains("Browser opening"));
 }

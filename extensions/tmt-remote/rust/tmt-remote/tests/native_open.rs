@@ -45,10 +45,17 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
         );
         assert!(h.pairing.descriptor(&h.origin).is_none());
     }
-    for old in ["/", "/settings"] {
+    // Every route of the one web app is a target; a path outside it is not.
+    for target in ["/", "/settings", "/colab/", "/p/abcd"] {
         assert!(
-            !call(&["open", old, "--no-open"]).status.success(),
-            "no old-target alias: {old}"
+            call(&["open", target, "--no-open"]).status.success(),
+            "app target: {target}"
+        );
+    }
+    for refused in ["/home", "/colab/a.b", "/x/colab/"] {
+        assert!(
+            !call(&["open", refused, "--no-open"]).status.success(),
+            "not an app target: {refused}"
         );
     }
     let output = call(&["open", "--no-open"]);

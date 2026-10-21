@@ -171,7 +171,10 @@ impl Description {
         }
         // An entry outside the module's mount, or not a module script, is dropped: the app then
         // falls back to the module's link. The rest of the description stands.
-        if d.entry.as_ref().is_some_and(|e| !path(e) || !e.ends_with(".js")) {
+        if d.entry
+            .as_ref()
+            .is_some_and(|e| !path(e) || !e.ends_with(".js"))
+        {
             d.entry = None;
         }
         Some(d)

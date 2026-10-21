@@ -1134,12 +1134,7 @@ fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect
     }
     // `/colab/<segments>` is an app route now (pages.rs): it serves the one shell document.
     assert_eq!(door.status(&door.get("/colab/other", "")), 200);
-    for path in [
-        "/.tmt/colab",
-        "/x/colab/",
-        "/r/abcd",
-        "/other/abcd",
-    ] {
+    for path in ["/.tmt/colab", "/x/colab/", "/r/abcd", "/other/abcd"] {
         assert_eq!(door.status(&door.get(path, "")), 404, "{path}");
     }
     for path in ["/read/abcd"] {
