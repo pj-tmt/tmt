@@ -1,4 +1,5 @@
 import { ShellPage } from './shell-page.js';
+import { WorkBand } from './work-band.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -1035,6 +1036,7 @@ function Page() {
     discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
     shell: snapshot.shell,
+    work: snapshot.work,
     archived: snapshot.archived,
     source: snapshot.source,
     title: snapshot.title,
@@ -1118,6 +1120,7 @@ function Page() {
       discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
       shell: snapshot.shell,
+      work: snapshot.work,
       archived: snapshot.archived,
       source: snapshot.source,
       title: snapshot.title,
@@ -1978,6 +1981,16 @@ function Page() {
       </BrowserDrawer>
       <div className="workspace">
         {pageLinkBar}
+        {view.work && (
+          <WorkBand
+            work={view.work}
+            pageHref={(pageId) =>
+              router.history.createHref(
+                router.buildLocation({ to: '/pages/$pageId', params: { pageId } }).publicHref,
+              )
+            }
+          />
+        )}
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">

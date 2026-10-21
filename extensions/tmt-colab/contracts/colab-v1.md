@@ -2680,7 +2680,10 @@ Derived values are computed from the tasks and never stored or edited. The stage
 `discussion` with no task, `done` when every task is done, and `in-progress` otherwise. Progress
 is the done count over the total. Who is working is the assignees of `in-progress` tasks, each
 once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser
-folds the value and validates it and shows nothing new. Page export includes it as `work.json`
+folds the value and validates it, and the page route draws it as a status band under the header
+(read-only): the two summary lines, the stage, progress, who works and the sign-off count, with the
+task list and a task's detail opening in place and pushing the page down. The band scrolls with the
+page, and a page with no summary and no task draws none. Page export includes it as `work.json`
 (see [Plaintext page export](#plaintext-page-export-1309)). Native and browser consume the shared
 `work-v1.json` vectors.
 
