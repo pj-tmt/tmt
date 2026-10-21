@@ -1403,7 +1403,7 @@ var browserUiClasses = Object.freeze({
 	actionLabel: "tmt-ui-action-label",
 	actionMark: "tmt-ui-action-mark",
 	busyMark: "tmt-ui-busy-mark",
-	busyFrames: "tmt-ui-busy-frames",
+	busyDot: "tmt-ui-busy-dot",
 	checkbox: "tmt-ui-checkbox",
 	iconAction: "tmt-ui-icon-action",
 	iconActionControl: "tmt-ui-icon-action-control",
@@ -1430,22 +1430,34 @@ var browserUiClasses = Object.freeze({
 	tabPanel: "tmt-ui-tab-panel"
 });
 /**
-* The busy mark's frames (Ben's pick a2): a 2x3 braille cell whose three lit dots go round its
-* six-dot ring, clockwise from the top left, one step per frame.
+* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
+* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
 */
-var busyFrames = [
-	"⠙",
-	"⠸",
-	"⠴",
-	"⠦",
-	"⠇",
-	"⠋"
+var busyDots = [
+	[5, 3],
+	[11, 3],
+	[11, 8],
+	[11, 13],
+	[5, 13],
+	[5, 8]
 ];
-/**
-* The reserved busy-mark slot of a static Action: a leading span holding the leaf busy mark (the
-* braille snake `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
-* to `true` from `createBusyMarkGate`. Non-React pages use this instead of copying the markup.
-*/
+/** The radius of each busy-mark dot on the 16x16 viewBox. */
+var busyDotRadius = 1.6;
+var SVG = "http://www.w3.org/2000/svg";
+/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
+function busySvg(doc) {
+	const svg = doc.createElementNS(SVG, "svg");
+	svg.setAttribute("viewBox", "0 0 16 16");
+	for (const [cx, cy] of busyDots) {
+		const dot = doc.createElementNS(SVG, "circle");
+		dot.setAttribute("class", browserUiClasses.busyDot);
+		dot.setAttribute("cx", String(cx));
+		dot.setAttribute("cy", String(cy));
+		dot.setAttribute("r", String(busyDotRadius));
+		svg.append(dot);
+	}
+	return svg;
+}
 function createActionMark(doc = document) {
 	const mark = doc.createElement("span");
 	mark.className = browserUiClasses.actionMark;
@@ -1453,14 +1465,7 @@ function createActionMark(doc = document) {
 	mark.dataset.busy = "false";
 	const busy = doc.createElement("span");
 	busy.className = browserUiClasses.busyMark;
-	const frames = doc.createElement("span");
-	frames.className = browserUiClasses.busyFrames;
-	for (const value of busyFrames) {
-		const frame = doc.createElement("span");
-		frame.dataset.frame = value;
-		frames.append(frame);
-	}
-	busy.append(frames);
+	busy.append(busySvg(doc));
 	mark.append(busy);
 	return mark;
 }

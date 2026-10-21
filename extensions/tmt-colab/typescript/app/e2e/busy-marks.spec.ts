@@ -19,9 +19,10 @@ const run = (page: Page, method: string, argument?: unknown) =>
 /** The infinite animations on a mark: every shown BusyMark steps by the one shared rule (#3985). */
 const turns = (mark: Locator) =>
   mark.evaluate((node) => ({
-    name: getComputedStyle(node.querySelector('.tmt-ui-busy-frames') ?? node).animationName,
-    running: (node.querySelector('.tmt-ui-busy-frames') ?? node)
-      .getAnimations()
+    name: getComputedStyle(node.querySelector('.tmt-ui-busy-dot') ?? node).animationName,
+    // The a2 mark's six dots each run the one shared rule, offset round the ring.
+    running: [...node.querySelectorAll('.tmt-ui-busy-dot')]
+      .flatMap((dot) => dot.getAnimations())
       .filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity).length,
   }));
 
@@ -216,7 +217,7 @@ test('a shown mark steps by the shared busy mark and holds one frame under reduc
   await page.clock.runFor(400);
   const mark = markOf(confirm);
   await expect(mark).toHaveAttribute('data-busy', 'true');
-  expect(await turns(mark)).toEqual({ name: 'tmt-ui-busy', running: 1 });
+  expect(await turns(mark)).toEqual({ name: 'tmt-ui-busy', running: 6 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await turns(mark)).toEqual({ name: 'none', running: 0 });
   // The mark stays on screen; only the stepping stops.
@@ -240,7 +241,7 @@ test('a dispatching ask steps its mark by the shared busy mark and holds one fra
   await page.clock.runFor(399);
   await page.clock.runFor(1);
   await expect(mark).toHaveAttribute('data-shown', 'true');
-  expect(await turns(mark)).toEqual({ name: 'tmt-ui-busy', running: 1 });
+  expect(await turns(mark)).toEqual({ name: 'tmt-ui-busy', running: 6 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await turns(mark)).toEqual({ name: 'none', running: 0 });
   await expect(mark.locator('.tmt-ui-busy-mark')).toBeVisible();

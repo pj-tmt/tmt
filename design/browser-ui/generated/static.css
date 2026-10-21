@@ -2095,39 +2095,67 @@ svg.tmt-ui-mark {
   min-width: 0;
 }
 
-/* The one busy mark (Ben's pick a2): a 2x3 braille snake. `BusyMark` renders six frames in a 1em
-   mono window of currentColor that steps through them once per --tmt-ui-spin-duration (0.9 s).
-   A busy mark in an Action or IconAction shows it without a class. Under reduced motion it holds
-   its first frame, still visible, and the words or aria text still name the state. */
+/* The one busy mark (Ben's pick a2): six dots of a 2x3 cell in currentColor. Each dot is lit for
+   about half a lap with eased fades, offset by its place in the ring, so three lit dots go round
+   once per --tmt-ui-spin-duration (0.9 s). A busy mark in an Action or IconAction shows it without
+   a class. Under reduced motion it holds one still frame (the top-left three), still visible, and
+   the words or aria text still name the state. */
 .tmt-ui-busy-mark {
   display: inline-block;
   box-sizing: border-box;
   width: 1em;
   height: 1em;
-  overflow: hidden;
   color: currentColor;
-  font: 1em / 1 var(--tmt-ui-font-mono);
-  text-align: center;
   vertical-align: middle;
 }
-.tmt-ui-busy-frames {
+.tmt-ui-busy-mark > svg {
   display: block;
-  animation: tmt-ui-busy var(--tmt-ui-spin-duration) steps(6) infinite;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
 }
-.tmt-ui-busy-frames > span {
-  display: block;
-  height: 1em;
+.tmt-ui-busy-dot {
+  opacity: 0.2;
+  animation: tmt-ui-busy var(--tmt-ui-spin-duration) ease-in-out infinite;
 }
-.tmt-ui-busy-frames > span::before {
-  content: attr(data-frame);
+.tmt-ui-busy-dot:nth-child(1) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -1);
+}
+.tmt-ui-busy-dot:nth-child(2) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0.8333);
+}
+.tmt-ui-busy-dot:nth-child(3) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0.6667);
+}
+.tmt-ui-busy-dot:nth-child(4) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0.5);
+}
+.tmt-ui-busy-dot:nth-child(5) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0.3333);
+}
+.tmt-ui-busy-dot:nth-child(6) {
+  animation-delay: calc(var(--tmt-ui-spin-duration) * -0.1667);
 }
 @keyframes tmt-ui-busy {
-  to {
-    transform: translateY(-6em);
+  0%,
+  40% {
+    opacity: 1;
+  }
+  60%,
+  90% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 1;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tmt-ui-busy-frames {
+  .tmt-ui-busy-dot {
     animation: none;
+  }
+  .tmt-ui-busy-dot:nth-child(1),
+  .tmt-ui-busy-dot:nth-child(5),
+  .tmt-ui-busy-dot:nth-child(6) {
+    opacity: 1;
   }
 }

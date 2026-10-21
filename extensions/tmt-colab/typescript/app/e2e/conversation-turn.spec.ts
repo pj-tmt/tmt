@@ -14,13 +14,19 @@ async function run(page: Page, method: string, argument?: unknown) {
   );
 }
 /** Infinite animations running in a thread: the marks that turn while an agent works (#3978). */
+/** The marks that turn in `thread`: one busy mark counts once, though each of its dots animates. */
 const turning = (thread: Locator) =>
   thread.evaluate(
     (node) =>
-      node
-        .getAnimations({ subtree: true })
-        .filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity)
-        .length,
+      new Set(
+        node
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity)
+          .map((animation) => {
+            const target = (animation.effect as KeyframeEffect).target as Element;
+            return target.closest('.tmt-ui-busy-mark') ?? target;
+          }),
+      ).size,
   );
 async function mount(page: Page, surface: 'thread' | 'chat', state = 'waiting') {
   await page.goto('/');
@@ -1012,15 +1018,13 @@ for (const surface of ['chat', 'thread'] as const)
           // The line's mark is the one animation of a working agent; no chip turns beside it.
           expect(await turning(window)).toBe(kind === 'working' ? 1 : 0);
           if (kind === 'working') {
-            await expect(status.locator('.agent-activity-spinner .tmt-ui-busy-frames')).toHaveCSS(
-              'animation-name',
-              'tmt-ui-busy',
-            );
+            await expect(
+              status.locator('.agent-activity-spinner .tmt-ui-busy-dot').first(),
+            ).toHaveCSS('animation-name', 'tmt-ui-busy');
             await page.emulateMedia({ reducedMotion: 'reduce' });
-            await expect(status.locator('.agent-activity-spinner .tmt-ui-busy-frames')).toHaveCSS(
-              'animation-name',
-              'none',
-            );
+            await expect(
+              status.locator('.agent-activity-spinner .tmt-ui-busy-dot').first(),
+            ).toHaveCSS('animation-name', 'none');
             expect(await turning(window)).toBe(0);
             await expect(status).toContainText('Atlas is working');
             await page.emulateMedia({ reducedMotion: 'no-preference' });
