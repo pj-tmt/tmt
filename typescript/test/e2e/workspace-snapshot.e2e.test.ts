@@ -228,7 +228,7 @@ describe('event-driven workspace recovery snapshots', () => {
       fs.writeFileSync(
         script,
         `
-import json, os, pathlib, resource, subprocess, time
+import json, os, pathlib, resource, subprocess, sys, time
 root=pathlib.Path(${JSON.stringify(directory)})
 result=pathlib.Path(${JSON.stringify(result)})
 env=dict(os.environ)
@@ -236,6 +236,14 @@ env.pop('TMUX',None);env.pop('TMUX_PANE',None)
 env['TMT_HOME']=${JSON.stringify(fixture.globalDir)}
 command=${JSON.stringify([fixture.executables.cli.executable, ...fixture.executables.cli.args, 'api'])}
 request=json.dumps({'version':1,'operation':'workspace.capture','input':{}})
+if len(sys.argv)>1 and sys.argv[1]=='changed':
+    completed=subprocess.run(command,input=request,text=True,capture_output=True,env=env,timeout=3)
+    assert completed.returncode==0,(completed.returncode,completed.stdout,completed.stderr)
+    assert completed.stderr=='',completed.stderr
+    assert json.loads(completed.stdout)=={'attempted':1,'published':1,'skipped':0},completed.stdout
+    positive=pathlib.Path(str(result)+'.positive')
+    stage=pathlib.Path(str(positive)+'.tmp');stage.write_text(completed.stdout);stage.replace(positive)
+    raise SystemExit(0)
 samples=[]
 for index in range(${samples}):
     stamp=root/'capture-attempt.json'
@@ -297,6 +305,43 @@ stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage
       expect(trace.commands().filter((command) => command === 'list-panes')).toHaveLength(samples);
       expect(fs.existsSync(psLog) ? fs.readFileSync(psLog, 'utf8') : '').toBe('');
       expect(recovery()).toEqual(before);
+      // An attempted callback can fail silently. A changed-layout positive
+      // control proves this same real API path can acquire and publish content.
+      fixture.tmux(['rename-window', '-t', meter, 'capture-publish-control']);
+      const stamp = path.join(directory, 'capture-attempt.json');
+      const attempt = JSON.parse(fs.readFileSync(stamp, 'utf8'));
+      fs.writeFileSync(stamp, JSON.stringify({ ...attempt, attemptedAtMs: 0 }));
+      const changedCommand = ['env', `TMT_HOME=${fixture.globalDir}`, 'python3', script, 'changed']
+        .map(quote)
+        .join(' ');
+      fixture.tmux(['send-keys', '-t', meter, '-l', changedCommand]);
+      fixture.tmux(['send-keys', '-t', meter, 'Enter']);
+      expect(
+        JSON.parse(
+          await waitForFileContent(`${result}.positive`, {
+            timeoutMs: 20_000,
+            description: 'changed capture publishes through the real API',
+          })
+        )
+      ).toEqual({ attempted: 1, published: 1, skipped: 0 });
+      const changedBytes = fs.readFileSync(snapshotPath(fixture));
+      expect(changedBytes).not.toEqual(
+        Buffer.from(before.find((entry) => entry.name === 'latest.json')!.bytes, 'base64')
+      );
+      expect(
+        readSnapshot(fixture).windows.some((window) => window.name === 'capture-publish-control')
+      ).toBe(true);
+      const changedDigest = createHash('sha256').update(changedBytes).digest('hex');
+      expect(fs.readFileSync(path.join(directory, `auto-${changedDigest}.json`))).toEqual(
+        changedBytes
+      );
+      const catalogue = JSON.parse(
+        fs.readFileSync(path.join(directory, 'generations.json'), 'utf8')
+      );
+      expect(catalogue.entries.at(-1).id).toBe(`g:${changedDigest}`);
+      expect(trace.commands().filter((command) => command === 'list-panes')).toHaveLength(
+        samples + 1
+      );
     });
   });
 
