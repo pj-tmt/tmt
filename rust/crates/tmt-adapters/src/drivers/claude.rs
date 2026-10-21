@@ -133,6 +133,9 @@ struct Payload {
     transcript_path: Option<String>,
     /// Documented for a resumed start; any other shape is ignored.
     context_tokens: Option<serde_json::Value>,
+    /// A Stop's own copy of the turn's final text: the transcript receives that
+    /// record slightly after the hook fires. Any non-string shape is ignored.
+    last_assistant_message: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,7 +199,11 @@ pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
     Some(crate::runtime::lifecycle::TurnEnd {
         session: ProviderSessionId::new(&payload.session_id).ok()?,
         transcript: payload.transcript_path.map(Into::into),
-        final_text: None,
+        final_text: payload
+            .last_assistant_message
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .and_then(tmt_core::responses::FinalText::new),
         interrupted: false,
     })
 }
@@ -565,7 +572,10 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
     ) -> crate::runtime::lifecycle::TurnObservation {
         let root = config_root(environment).join("projects");
         let Some(path) = turn.transcript.as_deref() else {
-            return Default::default();
+            return crate::runtime::lifecycle::TurnObservation {
+                state: None,
+                final_text: turn.final_text.clone(),
+            };
         };
         let (usage, final_text) =
             crate::runtime::transcript::latest_pair(&root, path, transcript_usage, |line| {
@@ -586,7 +596,8 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         );
         crate::runtime::lifecycle::TurnObservation {
             state: crate::runtime::driver_state::after_observation(usage, consumption, previous),
-            final_text: final_text.flatten(),
+            // The hook's own text wins; the transcript may not hold the record yet.
+            final_text: turn.final_text.clone().or(final_text.flatten()),
         }
     }
 
