@@ -135,24 +135,30 @@ function row(item: SettingsRow): HTMLLIElement {
   sign.setAttribute('aria-hidden', 'true');
   sign.textContent = item.mark;
   if (item.waiting) sign.dataset.tone = 'waiting';
+  // The label and its description stack on the left; the state, the value, sits on the right.
   const name = document.createElement('div');
   name.className = 'tmt-ui-list-title';
+  const label = document.createElement('span');
+  label.className = 'tmt-settings-label';
   if (item.href) {
     const link = document.createElement('a');
     link.href = item.href;
     link.textContent = item.title;
-    name.append(link);
-  } else name.textContent = item.title;
+    label.append(link);
+  } else label.textContent = item.title;
+  name.append(label);
+  if (item.detail) {
+    const detail = document.createElement('span');
+    detail.className = 'tmt-settings-detail';
+    detail.textContent = item.detail;
+    name.append(detail);
+  }
   const info = document.createElement('div');
   info.className = 'tmt-ui-list-meta';
-  const more = document.createElement('div');
-  more.className = 'tmt-ui-list-updated';
-  more.textContent = item.detail;
-  more.title = item.detail;
   const state = document.createElement('div');
   state.className = 'tmt-ui-list-state';
   state.textContent = item.state;
-  info.append(more, state);
+  info.append(state);
   node.append(sign, name, info);
   return node;
 }

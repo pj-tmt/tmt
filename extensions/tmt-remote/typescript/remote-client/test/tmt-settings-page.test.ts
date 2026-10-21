@@ -116,7 +116,7 @@ const section = () => ids.get('tmt-settings-section')!;
 const note = () => ids.get('tmt-settings-note')!;
 const rowTitles = () =>
   section()
-    .all((node) => node.className === 'tmt-ui-list-title')
+    .all((node) => node.className === 'tmt-settings-label')
     .map((node) => node.textContent);
 
 const sample: TmtSettings = {
@@ -222,6 +222,14 @@ it('renders General with the theme choice, stores a pick and applies it to the r
   expect(stored.has('tmt-ui-theme')).toBe(false);
   expect(tabs[0]!.focused).toBe(true);
   expect(rowTitles()).toEqual(['Upgrade channel']);
+  // The description sits under the label and the value in the state cell.
+  const detail = section().all((node) => node.className === 'tmt-settings-detail');
+  expect(detail.map((node) => node.textContent)).toEqual(['Where upgrades look']);
+  expect(
+    section()
+      .all((node) => node.className === 'tmt-ui-list-state')
+      .map((node) => node.textContent),
+  ).toEqual(['alpha']);
   expect(note().hidden).toBe(true);
   expect(typeof stop).toBe('function');
 });

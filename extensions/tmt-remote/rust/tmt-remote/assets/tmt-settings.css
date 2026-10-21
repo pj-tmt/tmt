@@ -13,3 +13,32 @@
 .tmt-settings .tmt-ui-list-leading[data-tone='waiting'] {
   color: var(--tmt-ui-color-waiting);
 }
+/* A row stacks its label and description on the left; the value (state) sits at the right edge.
+   At phone width the shared list already stacks the value under them, so only the wide layout
+   changes. */
+.tmt-settings .tmt-ui-list-title {
+  overflow: visible;
+  white-space: normal;
+}
+.tmt-settings-label {
+  display: block;
+}
+@media (min-width: 480px) {
+  .tmt-settings .tmt-ui-list-meta {
+    grid-template-columns: auto;
+    justify-content: end;
+    text-align: right;
+  }
+}
+.tmt-settings-detail {
+  display: block;
+  margin-top: var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+  line-height: 1.4;
+}
+/* The brand, a divider, then the title, as in Colab's header. */
+[data-tmt-page='tmt-settings'] .header-divider {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+}
