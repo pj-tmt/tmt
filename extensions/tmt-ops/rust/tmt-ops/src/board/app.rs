@@ -2102,6 +2102,20 @@ impl App {
         }
     }
 
+    /// A strip control keeps the focus with the pane that paints it: Talk and Measure sit in the
+    /// conversation pane's title rule, every other strip belongs to the list.
+    fn focus_strip(&mut self, column: u16, row: u16) {
+        let pane = match self.pointer_pane(column, row) {
+            Some(Pane::Replies) => Pane::Replies,
+            _ => Pane::Rows,
+        };
+        self.focus = self
+            .focus_panes()
+            .iter()
+            .position(|p| *p == pane)
+            .unwrap_or(0);
+    }
+
     /// A hidden focus returns to rows; boards without visible rows use the next pane.
     fn restore_focus(&mut self) {
         if self.workspace_snapshot().is_some() {
@@ -4250,7 +4264,7 @@ impl App {
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {
-                    self.focus = 0;
+                    self.focus_strip(event.column, event.row);
                     return self.choose(choice);
                 }
                 return Effect::None;

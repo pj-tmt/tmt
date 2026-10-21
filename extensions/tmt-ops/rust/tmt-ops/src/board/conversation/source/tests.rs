@@ -713,3 +713,187 @@ fn a_selection_ends_when_its_lines_are_gone() {
     draw(&mut app, 100, TALL);
     assert!(app.conversation.borrow().selection.is_none());
 }
+
+mod click_focus {
+    use super::*;
+    use crate::board::shell::RightTab;
+    use crate::config::Pane;
+
+    const WIDE: u16 = 100;
+    const HIGH: u16 = 36;
+
+    fn click(app: &mut App, column: u16, row: u16) -> Effect {
+        mouse(app, MouseEventKind::Down(MouseButton::Left), column, row);
+        mouse(app, MouseEventKind::Up(MouseButton::Left), column, row)
+    }
+    fn press(app: &mut App, code: KeyCode) {
+        app.key(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+    /// The painted footer: the key hints that follow the focused pane.
+    fn footer(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+        (buffer.area.height - 3..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+    fn long_history() -> String {
+        (0..120).map(|n| format!("line {n:03}\n\n")).collect()
+    }
+    fn offset(app: &App) -> usize {
+        app.scrolls.offset(Pane::Replies)
+    }
+
+    #[test]
+    fn a_click_on_the_history_gives_the_reader_focus_as_tab_does() {
+        let mut tabbed = fixture(&long_history());
+        draw(&mut tabbed, WIDE, HIGH);
+        press(&mut tabbed, KeyCode::Tab);
+        let mut clicked = fixture(&long_history());
+        let buffer = draw(&mut clicked, WIDE, HIGH);
+        assert_eq!(clicked.focused(), Pane::Rows);
+        let (x, y) = locate(&buffer, "line 11").expect("history text is painted");
+        let selected = clicked.selected;
+        assert_eq!(click(&mut clicked, x, y), Effect::None);
+        assert_eq!(clicked.focused(), Pane::Replies);
+        assert!(clicked.input.is_none(), "reading mode, not the input");
+        assert_eq!(clicked.selected, selected, "the row selection is unchanged");
+        // The same footer hints, and the same keys scroll it.
+        assert_eq!(
+            footer(&draw(&mut clicked, WIDE, HIGH)),
+            footer(&draw(&mut tabbed, WIDE, HIGH))
+        );
+        let start = offset(&clicked);
+        for code in [KeyCode::PageUp, KeyCode::Up] {
+            press(&mut clicked, code);
+            press(&mut tabbed, code);
+            draw(&mut clicked, WIDE, HIGH);
+            draw(&mut tabbed, WIDE, HIGH);
+        }
+        assert!(offset(&clicked) < start, "the arrows and PgUp scroll it");
+        assert_eq!(offset(&clicked), offset(&tabbed));
+    }
+
+    #[test]
+    fn a_click_on_blank_history_or_the_pane_title_focuses_the_conversation() {
+        for (what, x, y) in [("blank history", 98, 27), ("pane title", 98, 15)] {
+            let mut app = fixture("first passage");
+            draw(&mut app, WIDE, HIGH);
+            assert_eq!(app.focused(), Pane::Rows);
+            assert_eq!(click(&mut app, x, y), Effect::None, "{what}");
+            assert_eq!(app.focused(), Pane::Replies, "{what}");
+            assert!(app.input.is_none(), "{what}");
+        }
+        // A Talk or Measure chip is part of the pane's title rule: it switches the view and the
+        // pane keeps the focus.
+        let mut app = fixture("first passage");
+        draw(&mut app, WIDE, HIGH);
+        let chip = app
+            .workspace_strip_hits
+            .borrow()
+            .iter()
+            .find_map(|(area, choice)| {
+                (*choice == crate::board::app::Choice::RightTab(RightTab::Measure)).then_some(*area)
+            })
+            .expect("painted Measure chip");
+        click(&mut app, chip.x, chip.y);
+        assert_eq!(app.right_tab, RightTab::Measure);
+        assert_eq!(app.focused(), Pane::Replies);
+    }
+
+    #[test]
+    fn a_click_in_the_input_focuses_it_and_places_the_caret_keeping_the_draft() {
+        let mut app = fixture("first passage");
+        draw(&mut app, WIDE, HIGH);
+        app.focus_composer();
+        for letter in "hello world".chars() {
+            press(&mut app, KeyCode::Char(letter));
+        }
+        draw(&mut app, WIDE, HIGH);
+        let (area, _) = app.input_viewport.get().expect("painted input viewport");
+        // The caret goes to the clicked cell.
+        assert_eq!(click(&mut app, area.x + 5, area.y), Effect::None);
+        assert_eq!(app.focused(), Pane::Replies);
+        let input = app.input.as_ref().expect("the input keeps the focus");
+        assert_eq!(input.text.as_str(), "hello world");
+        assert_eq!(input.text.cursor(), 5);
+        // A click past the end of the text puts it at the end.
+        draw(&mut app, WIDE, HIGH);
+        click(&mut app, area.x + area.width - 1, area.y);
+        assert_eq!(
+            app.input.as_ref().unwrap().text.cursor(),
+            "hello world".len()
+        );
+        // Leaving for the list and clicking the input again keeps the draft.
+        let (list_x, list_y) = locate(&draw(&mut app, WIDE, HIGH), "worker").unwrap();
+        click(&mut app, list_x, list_y);
+        assert_eq!(app.focused(), Pane::Rows);
+        assert!(app.input.is_none());
+        draw(&mut app, WIDE, HIGH);
+        let band = app.input_band.get().expect("painted input band");
+        click(&mut app, band.x + 2, band.y);
+        assert_eq!(app.focused(), Pane::Replies);
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "hello world");
+    }
+
+    #[test]
+    fn a_drag_still_selects_and_copies_and_leaves_the_reader_focused() {
+        let mut app = fixture("first styled passage");
+        let buffer = draw(&mut app, WIDE, HIGH);
+        let (x, y) = locate(&buffer, "first styled").expect("history text is painted");
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 12, y);
+        let copied = mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 12, y);
+        assert!(
+            matches!(copied, Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "first styled")
+        );
+        assert_eq!(app.focused(), Pane::Replies);
+    }
+
+    #[test]
+    fn a_click_on_the_list_focuses_the_list_and_esc_steps_back() {
+        let mut app = fixture("first passage");
+        let buffer = draw(&mut app, WIDE, HIGH);
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.focused(), Pane::Replies);
+        draw(&mut app, WIDE, HIGH);
+        let (x, y) = locate(&buffer, "worker").expect("the member row is painted");
+        let target = app.conversation_target();
+        assert_eq!(click(&mut app, x, y), Effect::None);
+        assert_eq!(app.focused(), Pane::Rows);
+        assert_eq!(
+            app.conversation_target(),
+            target,
+            "the clicked row is the member"
+        );
+        // Esc still steps back one level: from the reader to the list.
+        draw(&mut app, WIDE, HIGH);
+        click(&mut app, 98, 27);
+        assert_eq!(app.focused(), Pane::Replies);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.focused(), Pane::Rows);
+    }
+
+    #[test]
+    fn a_click_never_sends_or_changes_the_recipient() {
+        let mut app = fixture("first passage");
+        let buffer = draw(&mut app, WIDE, HIGH);
+        let target = app.conversation_target();
+        app.focus_composer();
+        for letter in "keep me".chars() {
+            press(&mut app, KeyCode::Char(letter));
+        }
+        draw(&mut app, WIDE, HIGH);
+        let (x, y) = locate(&buffer, "first passage").expect("history text is painted");
+        for (column, row) in [(x, y), (98, 27), (98, 15), (2, 12)] {
+            let effect = click(&mut app, column, row);
+            assert_eq!(effect, Effect::None, "click at {column},{row}");
+            assert_eq!(app.conversation_target(), target, "click at {column},{row}");
+            draw(&mut app, WIDE, HIGH);
+        }
+    }
+}
