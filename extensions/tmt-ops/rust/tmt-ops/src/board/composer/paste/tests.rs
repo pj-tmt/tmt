@@ -123,7 +123,6 @@ fn preview_is_read_only_scrollable_and_outside_close_can_remove_the_chip() {
     let before = app.input.as_ref().unwrap().text.clone();
     key(&mut app, KeyCode::Char('z'));
     key(&mut app, KeyCode::Backspace);
-    app.paste("must not enter the draft");
     key(&mut app, KeyCode::Enter);
     assert_eq!(app.input.as_ref().unwrap().text, before);
     key(&mut app, KeyCode::PageDown);
@@ -150,6 +149,84 @@ fn preview_is_read_only_scrollable_and_outside_close_can_remove_the_chip() {
         app.input.as_ref().unwrap().text.is_empty(),
         "outside press also reaches the chip remove control"
     );
+}
+
+#[test]
+fn terminal_breaks_do_not_add_content_lines_or_change_pasted_bytes() {
+    for separator in ["\n", "\r\n", "\r"] {
+        for lines in [10, 11] {
+            for terminal in [false, true] {
+                let mut raw = vec!["漢"; lines].join(separator);
+                if terminal {
+                    raw.push_str(separator);
+                }
+                let mut app = crate::board::app::workspace::tests::board();
+                key(&mut app, KeyCode::Enter);
+                app.paste(&raw);
+                let text = &app.input.as_ref().unwrap().text;
+                assert_eq!(text.as_str(), raw);
+                assert_eq!(
+                    text.folds().len(),
+                    usize::from(lines > 10),
+                    "{separator:?}, {lines} content lines, terminal={terminal}"
+                );
+                assert_eq!(counts(&raw), (raw.chars().count(), lines));
+            }
+        }
+        for (raw, lines) in [
+            (String::new(), 0),
+            (separator.to_owned(), 1),
+            (separator.repeat(2), 2),
+            (format!("first{separator}{separator}last{separator}"), 3),
+        ] {
+            assert_eq!(counts(&raw), (raw.chars().count(), lines), "{raw:?}");
+        }
+    }
+}
+
+#[test]
+fn paste_closes_preview_and_inserts_once_at_the_kept_caret() {
+    let mut app = crate::board::app::workspace::tests::board();
+    key(&mut app, KeyCode::Enter);
+    app.paste("before ");
+    let raw = "x".repeat(501);
+    app.paste(&raw);
+    app.paste(" after");
+    draw(&mut app, 100, 36);
+    for _ in 0..6 {
+        key(&mut app, KeyCode::Left);
+    }
+    let caret = app.input.as_ref().unwrap().text.cursor();
+    assert_eq!(caret, 7 + raw.len());
+    app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    assert!(app.paste_preview_shown());
+    let incoming = "new 漢字\r\n";
+    assert_eq!(app.paste(incoming), Effect::None);
+    assert!(!app.paste_preview_shown());
+    let text = &app.input.as_ref().unwrap().text;
+    assert_eq!(text.as_str(), format!("before {raw}{incoming} after"));
+    assert_eq!(text.cursor(), caret + incoming.len());
+    assert_eq!(text.folds().len(), 1);
+}
+
+#[test]
+fn draftless_messages_use_the_same_content_line_threshold() {
+    for lines in [10, 11] {
+        let raw = vec!["line"; lines].join("\r\n") + "\r\n";
+        let mut app = crate::board::app::workspace::tests::board();
+        app.ask(
+            "message form".into(),
+            crate::board::app::Compose::Talk {
+                to: "worker".into(),
+            },
+            "product".into(),
+        );
+        assert!(app.input.as_ref().unwrap().draft_key.is_none());
+        app.paste(&raw);
+        let text = &app.input.as_ref().unwrap().text;
+        assert_eq!(text.as_str(), raw);
+        assert_eq!(text.folds().len(), usize::from(lines > 10));
+    }
 }
 
 #[test]
