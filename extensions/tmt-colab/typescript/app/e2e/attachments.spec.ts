@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator } from '@playwright/test';
 import { text } from '../src/strings.js';
 import {
@@ -297,6 +298,87 @@ test('a file that cannot be opened is reported on its own row without touching o
   await expect(entries.nth(0).getByRole('alert')).toHaveText(`✗ ${text.attachmentUnavailable}`);
   await expect(entries.nth(1).getByRole('alert')).toHaveCount(0);
 });
+
+// #4032: shared sent-image geometry, independently of the answer's styles.
+for (const surface of ['thread', 'chat'] as const)
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const)
+      test(`sent image tiles stay level at ${surface} ${width} ${theme}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await mount(page);
+        const { panel, input } = await (async () => {
+          if (surface === 'chat') return openChat(page);
+          const quote = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+          await quote.evaluate((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const selection = getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+          });
+          await page.getByTestId('selection-ask').click();
+          return {
+            panel: page.locator('.comment-thread'),
+            input: page.getByRole('combobox', { name: 'Message', exact: true }),
+          };
+        })();
+        await input.fill('Review these two images.');
+        const names = ['tradeoffs.png', 'second-screenshot.png'];
+        await attach(
+          page,
+          names.map((name) => ({ name, mimeType: 'image/png', buffer: PNG })),
+        );
+        await send(page).click();
+        const images = panel.locator('.message-image');
+        await expect(images).toHaveCount(2);
+        for (const [index, name] of names.entries()) {
+          await expect(images.nth(index).locator('img')).toBeVisible();
+          await expect(images.nth(index).locator('.attachment-name')).toHaveAttribute(
+            'title',
+            name,
+          );
+          await expect(
+            images.nth(index).getByRole('button', { name: `Preview ${name}`, exact: true }),
+          ).toBeVisible();
+        }
+        const geometry = await images.evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const image = node.querySelector('.attachment-thumbnail')!.getBoundingClientRect();
+            const labels = [...node.querySelectorAll('.attachment-name, .attachment-size')].map(
+              (label) => {
+                const style = getComputedStyle(label);
+                return {
+                  lines: label.getBoundingClientRect().height / parseFloat(style.lineHeight),
+                  overflow: style.textOverflow,
+                  whitespace: style.whiteSpace,
+                };
+              },
+            );
+            return { top: image.top, width: image.width, height: image.height, labels };
+          }),
+        );
+        expect(Math.abs(geometry[0].top - geometry[1].top)).toBeLessThanOrEqual(1);
+        expect(Math.abs(geometry[0].width - geometry[1].width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(geometry[0].height - geometry[1].height)).toBeLessThanOrEqual(1);
+        expect(geometry[0].width).toBeGreaterThan(0);
+        for (const tile of geometry) {
+          expect(tile.labels).toHaveLength(2);
+          for (const label of tile.labels) {
+            expect(label.lines).toBeLessThan(1.1);
+            expect(label.overflow).toBe('ellipsis');
+            expect(label.whitespace).toBe('nowrap');
+          }
+        }
+        const captures = process.env.COLAB_SENT_FILES_CAPTURE_DIR;
+        if (captures) {
+          mkdirSync(captures, { recursive: true });
+          await page.screenshot({
+            fullPage: true,
+            path: `${captures}/${surface}-${width}-${theme}.png`,
+          });
+        }
+      });
 
 const captures = process.env.COLAB_1854_CAPTURE_DIR;
 for (const surface of ['chat', 'thread'] as const)
