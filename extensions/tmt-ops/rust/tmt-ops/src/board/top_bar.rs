@@ -50,7 +50,11 @@ impl Attention {
                 }),
             ),
             Span::styled(
-                format!(" {}{}  ", self.waiting, if words { " need you" } else { "" }),
+                format!(
+                    " {}{}  ",
+                    self.waiting,
+                    if words { " need you" } else { "" }
+                ),
                 look.role(Role::Muted),
             ),
             Span::styled(

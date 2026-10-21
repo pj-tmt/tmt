@@ -3873,7 +3873,7 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                 };
                 let shown = line(&popup);
                 assert!(shown.contains(if width == 60 {
-                    "OPS / UI · p…"
+                    "OPS / UI · …"
                 } else {
                     "OPS / UI · popup"
                 }));
@@ -3890,7 +3890,9 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                 named.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap();
                 let long = line(&draw(&named));
                 assert!(
-                    long.contains("online") && long.contains("waiting") && long.contains("blocked")
+                    long.contains("online")
+                        && long.contains("need you")
+                        && long.contains("blocked")
                 );
                 if width >= 160 {
                     assert!(long.contains(&"x".repeat(32)));
@@ -5647,7 +5649,7 @@ fn collapsed_squad_lead_focus_and_status_share_stale_activity_without_global_wai
     let screen = paint(&app, 160, 44).join("\n");
     assert!(screen.contains("stale"), "{screen}");
     assert!(
-        !screen.contains("◆ waiting"),
+        !screen.contains("◆ need you"),
         "global waiting cannot become room attention: {screen}"
     );
     let header = painted_conversation_header(&app);
@@ -5655,7 +5657,7 @@ fn collapsed_squad_lead_focus_and_status_share_stale_activity_without_global_wai
         header.contains("stale") && header.contains("product"),
         "{header}"
     );
-    assert!(!header.contains("waiting"), "{header}");
+    assert!(!header.contains("need you"), "{header}");
 }
 
 #[test]

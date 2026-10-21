@@ -200,7 +200,7 @@ scrolling data rows; there is still only one list scroll/selection owner.
 The wide right column uses `digest_matrix` directly: all scoped identities,
 then highest observed HOUR-usage identities, one row per agent limited by section
 height. Muted metric headers and right-aligned whole values share one table; the
-all row is bold. Its fixed 24h estimate columns consume matching held supplier
+all row is bold. Its fixed 1d estimate columns consume matching held supplier
 evidence; another acquired window
 stays unavailable under those captions. Ratios and price-version conflicts keep
 the supplier's existing aggregation policy. There is no wide key/value copy.
@@ -443,7 +443,7 @@ Sent-message feedback shares that acquired activity; the [conversation owner](bo
 
 One identity-total series uses the existing Rate owner. Its header reads
 `Usage · last <range> · <total> tok`, with independent right-aligned Range and Each
-dropdowns. Range offers 1h, 6h, 24h, 7d and 30d; Each offers Auto, 5m, 15m, 30m,
+dropdowns. Range offers 1h, 6h, 1d, 7d and 30d; Each offers Auto, 5m, 15m, 30m,
 1h, 2h, 6h, 12h and 1d, omitting intervals longer than the range. Choices exceeding
 720 buckets remain visible but disabled, with their minimum interval in the menu
 footer. Auto selects the finest interval fitting both the plot width and 720;
