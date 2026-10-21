@@ -4889,6 +4889,7 @@ describe('composer terminal input', () => {
             JSON.stringify({
               cli: [sandbox.cli.executable, ...sandbox.cli.args],
               sender,
+              senderName: 'Ben',
               recipient,
               ...scenario,
             }),

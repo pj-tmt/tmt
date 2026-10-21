@@ -180,7 +180,7 @@ def core_json(arguments):
 
 def incoming_question(message):
     return core_json(["talk", "--identity", spec["recipient"], "--detach",
-                      "--json", "--", spec["sender"], message])["requestId"]
+                      "--json", "--", spec["senderName"], message])["requestId"]
 
 
 def received():

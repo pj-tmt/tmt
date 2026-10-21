@@ -126,6 +126,12 @@ describe(
             await fixture.runJsonCli<Bound>(['add', client.pane, 'Alice', '-s'])
           );
           expect(host.id).not.toBe(alice.id);
+          const receiver = expectJsonResult(
+            await fixture.runJsonCli<{ identity: { id: string } }>(
+              ['identity', 'create', 'Receiver'],
+              { withoutTmux: true }
+            )
+          ).identity;
           const before = durableState(fixture);
           const metadata = fixture.paneMetadata();
           const context = await fixture.runJsonCli(['whoami', '--context']);
@@ -190,7 +196,7 @@ describe(
           const explicit = expectJsonResult(
             await fixture.runJsonCli<Queued>([
               'talk',
-              'Host',
+              'Receiver',
               'Explicit Alice from shared host',
               '--detach',
               '--identity',
@@ -203,7 +209,7 @@ describe(
           expect(attempts.find((row) => row.request_id === explicit.requestId)).toMatchObject({
             originator_kind: 'explicit',
             originator_identity_id: alice.id,
-            recipient_identity_id: host.id,
+            recipient_identity_id: receiver.id,
             message_text: 'Explicit Alice from shared host',
           });
           expect(attempts.some((row) => row.originator_identity_id === host.id)).toBe(false);

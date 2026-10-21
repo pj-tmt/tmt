@@ -33,10 +33,11 @@ describe('identity context request summaries', { concurrent: false }, () => {
         expectJsonResult(
           await fixture.runJsonCli(['identity', 'create', 'Peer'], { withoutTmux: true })
         );
-        const queue = async (sender: string, recipient: string, body: string) =>
+        // A bound recipient is notified through tmux; only an identity without a pane queues.
+        const queue = async (sender: string, recipient: string, body: string, bound = false) =>
           expectJsonResult<{ requestId: string }>(
             await fixture.runJsonCli(['talk', recipient, body, '--identity', sender, '--detach'], {
-              withoutTmux: true,
+              withoutTmux: !bound,
             })
           ).requestId;
         const pending = await queue('Reader', 'Peer', 'private pending body');
@@ -62,7 +63,7 @@ describe('identity context request summaries', { concurrent: false }, () => {
             { withoutTmux: true }
           )
         );
-        const incoming = await queue('Peer', 'Reader', 'private incoming body');
+        const incoming = await queue('Peer', 'Reader', 'private incoming body', true);
         const before = {
           identities: durableState(fixture),
           attempts: requestAttempts(fixture),
@@ -167,7 +168,7 @@ it.each(['claude', 'codex'] as const)(
         await fixture.waitFor(() => fs.existsSync(beforePrompt), 15000, 'before verified prompt');
         const before = state();
         const pending = before.attempts.find((row) => row.message_text === 'private queued body')!;
-        expect(pending).toMatchObject({ status: 'queued', wake_state: 'not_attempted' });
+        expect(pending).toMatchObject({ status: 'queued', wake_state: 'sent' });
         fs.writeFileSync(beforePrompt, 'continue');
         await fixture.waitFor(() => fs.existsSync(afterPrompt), 5000, 'after verified prompt');
         // Observe independently: no service read, retention cleanup or acknowledgement.
