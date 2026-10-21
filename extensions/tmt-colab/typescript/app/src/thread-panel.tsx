@@ -611,7 +611,7 @@ export function ThreadWindow({
         summary={
           <div className="resolved-summary">
             <p>
-              {messageIds.length} {messageIds.length === 1 ? 'message' : 'messages'} ·{' '}
+              {text.threadMessageCount(messageIds.length)} ·{' '}
               {thread?.comments
                 .filter((comment) => !comment.deleted)
                 .reduce((count, comment) => count + (comment.attachments?.length ?? 0), 0) ??

@@ -337,6 +337,7 @@ export const text = {
   threadResolve: 'Resolve',
   threadReopen: 'Reopen',
   threadResolvedBy: (name: string) => `Resolved by ${name}`,
+  threadMessageCount: (count: number) => `${count} ${count === 1 ? 'message' : 'messages'}`,
   threadUnseen: 'New',
   threadNotNotified: 'Not notified:',
   threadClose: 'Close thread',
