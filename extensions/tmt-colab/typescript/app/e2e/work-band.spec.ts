@@ -186,7 +186,7 @@ test('a child page names its parent page and task in the band header, with or wi
   await mountRoute(page, false, false, 'child');
   const bare = page.getByRole('region', { name: 'Work on this page' });
   await expect(bare.locator('.work-parent a')).toHaveText('Release plan › T-3');
-  await expect(bare.locator('.work-line1')).toHaveText('Discussion');
+  await expect(bare.locator('.work-head')).toHaveCount(0);
   await expect(bare.getByRole('button')).toHaveCount(0);
 });
 

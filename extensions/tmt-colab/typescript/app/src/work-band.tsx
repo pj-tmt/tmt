@@ -52,50 +52,52 @@ export function WorkBand({
           </a>
         </p>
       )}
-      <div className="work-head">
-        <div className="work-lines">
-          {summary ? (
-            <>
-              <p className="work-line1">{summary.line1}</p>
-              <p className="work-line2">{summary.line2}</p>
-            </>
-          ) : (
-            <p className="work-line1">{text.workBand.stage[derived.stage]}</p>
-          )}
-        </div>
-        {derived.total > 0 && (
-          <div className="work-facts">
-            <span className="work-stage" data-stage={derived.stage}>
-              {text.workBand.stage[derived.stage]}
-            </span>
-            <span className="work-progress">
-              {text.workBand.progress(derived.done, derived.total)}
-            </span>
-            {derived.working.length > 0 && (
-              <span className="work-working">
-                <Assignees people={derived.working} />
-              </span>
-            )}
-            {derived.signoff > 0 && (
-              <span className="work-signoff">{text.workBand.signoff(derived.signoff)}</span>
+      {(summary || derived.total > 0 || listActions) && (
+        <div className="work-head">
+          <div className="work-lines">
+            {summary ? (
+              <>
+                <p className="work-line1">{summary.line1}</p>
+                <p className="work-line2">{summary.line2}</p>
+              </>
+            ) : (
+              <p className="work-line1">{text.workBand.stage[derived.stage]}</p>
             )}
           </div>
-        )}
-        {derived.total > 0 && (
-          <button
-            type="button"
-            className="work-toggle"
-            aria-expanded={open}
-            aria-controls={listId}
-            onClick={() => {
-              setOpen(!open);
-              if (open) setSelected(undefined);
-            }}
-          >
-            {open ? text.workBand.hideTasks : text.workBand.showTasks(derived.total)}
-          </button>
-        )}
-      </div>
+          {derived.total > 0 && (
+            <div className="work-facts">
+              <span className="work-stage" data-stage={derived.stage}>
+                {text.workBand.stage[derived.stage]}
+              </span>
+              <span className="work-progress">
+                {text.workBand.progress(derived.done, derived.total)}
+              </span>
+              {derived.working.length > 0 && (
+                <span className="work-working">
+                  <Assignees people={derived.working} />
+                </span>
+              )}
+              {derived.signoff > 0 && (
+                <span className="work-signoff">{text.workBand.signoff(derived.signoff)}</span>
+              )}
+            </div>
+          )}
+          {derived.total > 0 && (
+            <button
+              type="button"
+              className="work-toggle"
+              aria-expanded={open}
+              aria-controls={listId}
+              onClick={() => {
+                setOpen(!open);
+                if (open) setSelected(undefined);
+              }}
+            >
+              {open ? text.workBand.hideTasks : text.workBand.showTasks(derived.total)}
+            </button>
+          )}
+        </div>
+      )}
       {derived.total === 0 && listActions && <div className="work-body">{listActions}</div>}
       {open && (
         <div className="work-body" id={listId}>
