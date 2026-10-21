@@ -270,6 +270,8 @@ function SelectionAnnotation({
   noticeVisible,
   toggleVisible,
   open,
+  thread,
+  arrivals,
   children,
 }: {
   host: HTMLDivElement | null;
@@ -278,10 +280,29 @@ function SelectionAnnotation({
   noticeVisible: boolean;
   toggleVisible: boolean;
   open(): void;
+  /** The thread the window shows, so a different thread starts from its own place. */
+  thread?: string;
+  /** The records in the window's thread; an arrival after the first grows it upward, not downward. */
+  arrivals: number;
   children?: React.ReactNode;
 }) {
   const expanded = children !== undefined;
   const element = useRef<HTMLDivElement>(null);
+  // The lower edge a thread window keeps once a record arrives in it, relative to its anchor, and
+  // the height and arrivals seen by the last placement.
+  const rise = useRef<number | null>(null);
+  const placed = useRef({ height: 0, arrivals });
+  useLayoutEffect(() => {
+    rise.current = null;
+    placed.current.arrivals = arrivals;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a different thread resets
+  }, [thread]);
+  useLayoutEffect(() => {
+    if (arrivals > placed.current.arrivals && placed.current.arrivals > 0)
+      rise.current ??= placed.current.height;
+    if (arrivals === 0) rise.current = null;
+    placed.current.arrivals = arrivals;
+  }, [arrivals]);
   const [position, setPosition] = useState<{
     left: number;
     top?: number;
@@ -376,13 +397,20 @@ function SelectionAnnotation({
       // height. CSS fits the shell; first Send grows away from the same anchor edge.
       const above =
         expanded && !beside && !besideLeft && !below && top - placementHeight - 6 >= inset + 4;
-      const windowTop = Math.max(
+      const anchoredTop = Math.max(
         inset + 4,
         Math.min(
           edge - placementHeight,
           beside || besideLeft ? top : below ? bottom + 6 : top - placementHeight - 6,
         ),
       );
+      // A reply arriving in a thread grows the window upward: the composer keeps its viewport
+      // position and the new message appears above it. The window scrolls inside once it is tall.
+      const height = element.current?.getBoundingClientRect().height ?? 0;
+      placed.current.height = height;
+      const settledBottom = rise.current === null || above ? null : anchoredTop + rise.current;
+      const windowTop =
+        settledBottom === null ? anchoredTop : Math.max(inset + 4, settledBottom - height);
       setPosition({
         left: Math.max(
           8,
@@ -403,7 +431,14 @@ function SelectionAnnotation({
           : {}),
         ...(above
           ? { bottom: innerHeight - top + 6, maxHeight: top - 6 - inset - 4 }
-          : { top: windowTop, maxHeight: Math.max(0, edge - windowTop) }),
+          : {
+              top: windowTop,
+              // The window never reaches below where its thread first settled: longer history scrolls inside.
+              maxHeight: Math.max(
+                0,
+                settledBottom === null ? edge - windowTop : settledBottom - (inset + 4),
+              ),
+            }),
       });
     };
     place();
@@ -2063,6 +2098,15 @@ function Page() {
             noticeVisible={state === 'navigation' || state === 'failed'}
             toggleVisible={canSelect}
             open={annotate}
+            thread={annotationThread?.threadId}
+            arrivals={
+              annotationThread
+                ? annotationThread.comments.length +
+                  (view.asks ?? []).filter(
+                    (ask) => ask.thread === annotationThread.threadId && ask.reply !== undefined,
+                  ).length
+                : 0
+            }
           >
             {annotation && (
               <section
