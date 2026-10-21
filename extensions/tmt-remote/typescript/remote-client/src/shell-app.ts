@@ -33,8 +33,10 @@ import { applyStoredTheme } from '../../../../../design/browser-ui/src/theme.js'
  * area, its title and page name onto the document. The page files stay the one source of each
  * page's markup; the door no longer serves them as documents.
  */
-function adopt(slot: ShellSlot, html: string): void {
+async function adopt(slot: ShellSlot, html: string): Promise<() => void> {
   const page = new DOMParser().parseFromString(html, 'text/html');
+  // A page's own stylesheet loads before its markup shows, and goes with the route.
+  const release = await pageStyles(page);
   const bar = page.querySelector('.tmt-ui-shell-bar');
   const main = page.querySelector('.tmt-ui-shell-main');
   slot.bar.replaceChildren(
@@ -45,6 +47,38 @@ function adopt(slot: ShellSlot, html: string): void {
   );
   document.documentElement.dataset.tmtPage = page.documentElement.dataset.tmtPage ?? '';
   slot.setTitle(page.title.replace(/ · TMT$/, ''));
+  return release;
+}
+
+/**
+ * The door's own stylesheets a page names beyond the shell's `/sdk/pages.css` (Remote settings has
+ * `/sdk/settings.css`): linked once the route mounts, removed when it unmounts. Resolves when each
+ * has loaded or failed, so the markup never shows unstyled.
+ */
+async function pageStyles(page: Document): Promise<() => void> {
+  const added: HTMLLinkElement[] = [];
+  const loading: Promise<void>[] = [];
+  for (const source of page.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) {
+    const href = source.getAttribute('href');
+    if (
+      !href?.startsWith('/sdk/') ||
+      href === '/sdk/pages.css' ||
+      [...document.head.querySelectorAll('link')].some((link) => link.getAttribute('href') === href)
+    )
+      continue;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    loading.push(
+      new Promise((resolve) => {
+        link.onload = link.onerror = () => resolve();
+      }),
+    );
+    document.head.append(link);
+    added.push(link);
+  }
+  await Promise.all(loading);
+  return () => added.forEach((link) => link.remove());
 }
 
 /** A Remote page as a route module: its markup, then its page code, released on unmount. */
@@ -54,11 +88,12 @@ function remotePage(
 ): ShellRouteModule {
   return {
     async mount(slot) {
-      adopt(slot, html);
+      const unstyle = await adopt(slot, html);
       hostRemote(slot);
       const release = await run(slot);
       return () => {
         release?.();
+        unstyle();
         hostRemote(undefined);
         // Page code ends its sessions and checks on pagehide, as when the document unloads.
         window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));

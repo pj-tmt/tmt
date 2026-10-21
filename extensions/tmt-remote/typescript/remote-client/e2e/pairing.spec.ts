@@ -4813,13 +4813,16 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
       ['light', 'dark'],
     );
     await rail.getByRole('link', { name: 'TMT settings', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('TMT settings');
-    await expect(
-      page.getByText('Choose an app to open its settings.', { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Remote settings', exact: true })).toHaveAttribute(
-      'href',
-      '/remote/settings',
+    // The settings page is sectioned: the module menu lists the sections and the title names
+    // the current one.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('General');
+    const sections = page.locator('.tmt-ui-module-menu');
+    await expect(sections).toContainText('TMT settings');
+    for (const label of ['General', 'Identities', 'Modules', 'Drivers & hooks'])
+      await expect(sections.getByRole('link', { name: label, exact: true })).toBeVisible();
+    await expect(sections.getByRole('link', { name: 'General', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
     );
     await expect(rail.getByRole('link', { name: 'TMT settings', exact: true })).toHaveAttribute(
       'aria-current',
@@ -4828,9 +4831,18 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     await captureState(
       page,
       'tmt-settings-shell',
-      'Visible Remote-settings link and no unsupplied setting',
+      'Sectioned TMT settings: theme choice and marked sample data',
       [1440, 390],
       ['light', 'dark'],
+    // The theme is a per-browser choice that applies at once and can return to the device.
+    const themes = page.getByRole('tablist', { name: 'Theme' });
+    await expect(themes.getByRole('tab', { selected: true })).toHaveText('System');
+    await themes.getByRole('tab', { name: 'Dark', exact: true }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await themes.getByRole('tab', { name: 'System', exact: true }).click();
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+    // Without a Core read the sections show marked sample data, never invented as real.
+    await expect(page.locator('#tmt-settings-note')).toContainText('Sample data');
     );
     // The only route-prefixed read is the owner's composed shell (display data).
     expect(

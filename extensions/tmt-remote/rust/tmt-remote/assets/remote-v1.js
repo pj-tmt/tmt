@@ -3613,23 +3613,49 @@ function tmtSettingsPage(source = settingsSource) {
 * area, its title and page name onto the document. The page files stay the one source of each
 * page's markup; the door no longer serves them as documents.
 */
-function adopt(slot, html) {
+async function adopt(slot, html) {
 	const page = new DOMParser().parseFromString(html, "text/html");
+	const release = await pageStyles(page);
 	const bar = page.querySelector(".tmt-ui-shell-bar");
 	const main = page.querySelector(".tmt-ui-shell-main");
 	slot.bar.replaceChildren(...bar ? [...bar.childNodes].map((node) => document.adoptNode(node)) : []);
 	slot.main.replaceChildren(...main ? [...main.childNodes].map((node) => document.adoptNode(node)) : []);
 	document.documentElement.dataset.tmtPage = page.documentElement.dataset.tmtPage ?? "";
 	slot.setTitle(page.title.replace(/ · TMT$/, ""));
+	return release;
+}
+/**
+* The door's own stylesheets a page names beyond the shell's `/sdk/pages.css` (Remote settings has
+* `/sdk/settings.css`): linked once the route mounts, removed when it unmounts. Resolves when each
+* has loaded or failed, so the markup never shows unstyled.
+*/
+async function pageStyles(page) {
+	const added = [];
+	const loading = [];
+	for (const source of page.querySelectorAll("link[rel=\"stylesheet\"]")) {
+		const href = source.getAttribute("href");
+		if (!href?.startsWith("/sdk/") || href === "/sdk/pages.css" || [...document.head.querySelectorAll("link")].some((link) => link.getAttribute("href") === href)) continue;
+		const link = document.createElement("link");
+		link.rel = "stylesheet";
+		link.href = href;
+		loading.push(new Promise((resolve) => {
+			link.onload = link.onerror = () => resolve();
+		}));
+		document.head.append(link);
+		added.push(link);
+	}
+	await Promise.all(loading);
+	return () => added.forEach((link) => link.remove());
 }
 /** A Remote page as a route module: its markup, then its page code, released on unmount. */
 function remotePage(html, run) {
 	return { async mount(slot) {
-		adopt(slot, html);
+		const unstyle = await adopt(slot, html);
 		hostRemote(slot);
 		const release = await run(slot);
 		return () => {
 			release?.();
+			unstyle();
 			hostRemote(void 0);
 			window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
 		};

@@ -311,6 +311,27 @@ test.describe('the app in a browser', () => {
     }
   });
 
+  test("loads a page's own stylesheet with its route and drops it on leaving", async () => {
+    const { page } = await openApp('/remote/settings');
+    const sheet = page.locator('head link[rel="stylesheet"][href="/sdk/settings.css"]');
+    await expect(sheet).toHaveCount(1);
+    // Its rules apply before the markup shows: the page's choice control keeps its arrow room.
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute(
+      'data-route',
+      'remote-settings',
+    );
+    await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
+    await expect(sheet).toHaveCount(0);
+    await page.goBack();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute(
+      'data-route',
+      'remote-settings',
+    );
+    await expect(sheet).toHaveCount(1);
+    await page.close();
+  });
+
   test('shows the identical rail on every route with one document load', async () => {
     const { page, requests } = await openApp('/');
     await page.evaluate(() => ((window as unknown as { __spa: number }).__spa = 1));
