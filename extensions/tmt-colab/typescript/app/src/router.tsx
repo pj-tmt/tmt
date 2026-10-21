@@ -269,6 +269,7 @@ function SelectionAnnotation({
   noticeVisible,
   toggleVisible,
   open,
+  thread,
   arrivals,
   children,
 }: {
@@ -278,6 +279,8 @@ function SelectionAnnotation({
   noticeVisible: boolean;
   toggleVisible: boolean;
   open(): void;
+  /** The thread the window shows, so a different thread starts from its own place. */
+  thread?: string;
   /** The records in the window's thread; an arrival after the first grows it upward, not downward. */
   arrivals: number;
   children?: React.ReactNode;
@@ -288,6 +291,11 @@ function SelectionAnnotation({
   // the height and arrivals seen by the last placement.
   const rise = useRef<number | null>(null);
   const placed = useRef({ height: 0, arrivals });
+  useLayoutEffect(() => {
+    rise.current = null;
+    placed.current.arrivals = arrivals;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a different thread resets
+  }, [thread]);
   useLayoutEffect(() => {
     if (arrivals > placed.current.arrivals && placed.current.arrivals > 0)
       rise.current ??= placed.current.height;
@@ -2077,6 +2085,7 @@ function Page() {
             noticeVisible={state === 'navigation' || state === 'failed'}
             toggleVisible={canSelect}
             open={annotate}
+            thread={annotationThread?.threadId}
             arrivals={
               annotationThread
                 ? annotationThread.comments.length +

@@ -74,3 +74,83 @@ test('a reply that arrives grows the thread above a composer that stays where it
   await expect(input).toBeFocused();
   await expect(input).toHaveText('A draft', { useInnerText: true });
 });
+
+const marker = (page: Page, index: number) =>
+  page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').nth(index);
+async function twoThreads(page: Page) {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'largePage', { paragraphs: 3, threads: 2 });
+  // The second thread is taller than the first one was when its reply lifted the window.
+  await run(page, 'largePageReply', 1);
+  await expect(marker(page, 1)).toBeVisible();
+}
+
+test('a window switched to another thread starts from that thread’s own place', async ({
+  page,
+}) => {
+  // The control: the second thread opened with nothing before it.
+  await twoThreads(page);
+  await marker(page, 1).click();
+  const control = await place(page.getByTestId('comment-thread'));
+  // A reply lifted the first thread's window; the switch must not carry that over.
+  await twoThreads(page);
+  await marker(page, 0).click();
+  const first = page.getByTestId('comment-thread');
+  await expect(first.getByTestId('comment-entry')).toHaveCount(1);
+  await run(page, 'largePageReply', 0);
+  await expect(first.getByTestId('comment-entry')).toHaveCount(2);
+  await marker(page, 1).click();
+  await expect(page.getByTestId('comment-thread')).toHaveAttribute(
+    'data-thread-id',
+    await marker(page, 1).evaluate((node) =>
+      (node.getAttribute('data-colab-thread') ?? '').split(':').at(-1)!,
+    ),
+  );
+  const switched = await place(page.getByTestId('comment-thread'));
+  expect(Math.abs(switched.y - control.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(switched.height - control.height)).toBeLessThanOrEqual(1);
+});
+
+async function history(page: Page) {
+  await page.goto('/');
+  await run(page, 'mount', { history: 'thread' });
+  await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
+  const thread = page.getByTestId('comment-thread');
+  await expect(thread).toBeVisible();
+  return thread;
+}
+const distance = (messages: Locator) =>
+  messages.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop);
+
+test('in a long thread a reader at the bottom stays pinned and the composer holds', async ({
+  page,
+}) => {
+  const thread = await history(page);
+  const messages = thread.locator('.thread-messages');
+  const composer = thread.locator('.conversation-composer');
+  await expect.poll(() => distance(messages)).toBeLessThanOrEqual(1);
+  const before = await place(composer);
+  await run(page, 'scrollArrival');
+  await expect(thread.getByTestId('comment-entry')).toHaveCount(41);
+  await expect.poll(() => distance(messages)).toBeLessThanOrEqual(1);
+  expect(await place(composer)).toEqual(before);
+});
+
+test('in a long thread a reader scrolled up is held and the composer holds', async ({ page }) => {
+  const thread = await history(page);
+  const messages = thread.locator('.thread-messages');
+  const composer = thread.locator('.conversation-composer');
+  await messages.evaluate((node) => {
+    node.scrollTop = 150;
+  });
+  await messages.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  );
+  const top = await messages.evaluate((node) => node.scrollTop);
+  const before = await place(composer);
+  await run(page, 'scrollArrival');
+  await expect(thread.getByTestId('comment-entry')).toHaveCount(41);
+  await expect.poll(() => messages.evaluate((node) => node.scrollTop)).toBe(top);
+  expect(await place(composer)).toEqual(before);
+});
