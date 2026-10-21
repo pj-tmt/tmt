@@ -261,7 +261,13 @@ test('paired writers retain anchored annotation conversations, direct exact send
     const over = `@${agent.name} ${'é'.repeat(8193)}`;
     await input.fill(over);
     await input.press('Enter');
-    await expect(compose.getByRole('alert')).toContainText(text.messageNotSent);
+    // The failed row holds the exact draft until Edit restores it to the composer.
+    const unsent = compose.locator('[data-testid=comment-echo][data-echo=failed]');
+    await expect(unsent.getByRole('alert')).toContainText(text.messageUnsent);
+    await expect(unsent).toContainText(over);
+    await expect(unsent.getByRole('button', { name: text.chatRetry, exact: true })).toBeEnabled();
+    await unsent.getByRole('button', { name: text.commentEdit, exact: true }).click();
+    await expect(unsent).toHaveCount(0);
     await expect(input).toHaveText(over, { useInnerText: true });
     expect(agent.received()).toHaveLength(0);
     const opening = `@${agent.name} <script>plain discussion</script>\nPlease explain this.`;

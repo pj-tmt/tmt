@@ -252,6 +252,10 @@ export async function sendChat(page: Page, composed: ComposedChat) {
   const earlier = await panel
     .getByTestId('ask-entry')
     .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.operationId));
+  // Echoing keeps the next draft editable while the previous send is still settling.
+  await expect(
+    panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeEnabled();
   await panel.getByRole('combobox', { name: 'Message' }).press('Enter');
   const entries = panel.getByTestId('ask-entry');
   await expect

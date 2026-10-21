@@ -17,22 +17,25 @@ test.describe('idle tab keeps its sync tunnel (#2170)', () => {
       const browser = await pairBrowser(world, 'idle-browser');
       const created = createPage(world, 'Idle tab', '<h1>Idle tab</h1>');
       const page = await openPage(door, browser, created);
-      const sockets: { opened: number; closed: number } = { opened: 0, closed: 0 };
+      const sockets: { closed: boolean }[] = [];
       page.on('websocket', (socket) => {
         if (!new URL(socket.url()).pathname.endsWith('/sync')) return;
-        sockets.opened++;
-        socket.on('close', () => sockets.closed++);
+        const observed = { closed: false };
+        sockets.push(observed);
+        socket.on('close', () => (observed.closed = true));
       });
       await expect(page.locator('.status.live .status-label')).toHaveText('Live');
       // The tab was already connected before the listener existed: count only changes from here.
       await page.reload();
       await expect(page.locator('.status.live .status-label')).toHaveText('Live');
-      const opened = sockets.opened;
-      expect(opened).toBeGreaterThanOrEqual(1);
+      // Admission has a bounded /sync membership read as well as the page connection.
+      await expect.poll(() => sockets.filter((socket) => !socket.closed).length).toBe(1);
+      const live = sockets.find((socket) => !socket.closed)!;
+      const opened = sockets.length;
       await page.waitForTimeout(150_000);
       await expect(page.locator('.status.live .status-label')).toHaveText('Live');
-      expect(sockets.closed).toBe(0);
-      expect(sockets.opened).toBe(opened);
+      expect(live.closed).toBe(false);
+      expect(sockets).toHaveLength(opened);
     });
   });
 });
