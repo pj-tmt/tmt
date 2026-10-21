@@ -6,10 +6,11 @@ import { Assignees } from './work-people.js';
 import { WorkList } from './work-list.js';
 import './work-band.css';
 
-/** The task a page follows from another page; drawn above the summary as a way back. */
+/** The task of another page that follows this page; drawn above the summary as a way back. */
 export interface WorkParent {
   pageId: string;
   taskId: string;
+  /** The parent page's title. */
   title: string;
 }
 export interface WorkBandProps extends TaskDetailSlots {
@@ -47,54 +48,56 @@ export function WorkBand({
       {parent && (
         <p className="work-parent">
           <a href={pageHref?.(parent.pageId)}>
-            {text.workBand.followsParent(parent.taskId, parent.title)}
+            {text.workBand.parentTask(parent.title, parent.taskId)}
           </a>
         </p>
       )}
-      <div className="work-head">
-        <div className="work-lines">
-          {summary ? (
-            <>
-              <p className="work-line1">{summary.line1}</p>
-              <p className="work-line2">{summary.line2}</p>
-            </>
-          ) : (
-            <p className="work-line1">{text.workBand.stage[derived.stage]}</p>
-          )}
-        </div>
-        {derived.total > 0 && (
-          <div className="work-facts">
-            <span className="work-stage" data-stage={derived.stage}>
-              {text.workBand.stage[derived.stage]}
-            </span>
-            <span className="work-progress">
-              {text.workBand.progress(derived.done, derived.total)}
-            </span>
-            {derived.working.length > 0 && (
-              <span className="work-working">
-                <Assignees people={derived.working} />
-              </span>
-            )}
-            {derived.signoff > 0 && (
-              <span className="work-signoff">{text.workBand.signoff(derived.signoff)}</span>
+      {(summary || derived.total > 0 || listActions) && (
+        <div className="work-head">
+          <div className="work-lines">
+            {summary ? (
+              <>
+                <p className="work-line1">{summary.line1}</p>
+                <p className="work-line2">{summary.line2}</p>
+              </>
+            ) : (
+              <p className="work-line1">{text.workBand.stage[derived.stage]}</p>
             )}
           </div>
-        )}
-        {derived.total > 0 && (
-          <button
-            type="button"
-            className="work-toggle"
-            aria-expanded={open}
-            aria-controls={listId}
-            onClick={() => {
-              setOpen(!open);
-              if (open) setSelected(undefined);
-            }}
-          >
-            {open ? text.workBand.hideTasks : text.workBand.showTasks(derived.total)}
-          </button>
-        )}
-      </div>
+          {derived.total > 0 && (
+            <div className="work-facts">
+              <span className="work-stage" data-stage={derived.stage}>
+                {text.workBand.stage[derived.stage]}
+              </span>
+              <span className="work-progress">
+                {text.workBand.progress(derived.done, derived.total)}
+              </span>
+              {derived.working.length > 0 && (
+                <span className="work-working">
+                  <Assignees people={derived.working} />
+                </span>
+              )}
+              {derived.signoff > 0 && (
+                <span className="work-signoff">{text.workBand.signoff(derived.signoff)}</span>
+              )}
+            </div>
+          )}
+          {derived.total > 0 && (
+            <button
+              type="button"
+              className="work-toggle"
+              aria-expanded={open}
+              aria-controls={listId}
+              onClick={() => {
+                setOpen(!open);
+                if (open) setSelected(undefined);
+              }}
+            >
+              {open ? text.workBand.hideTasks : text.workBand.showTasks(derived.total)}
+            </button>
+          )}
+        </div>
+      )}
       {derived.total === 0 && listActions && <div className="work-body">{listActions}</div>}
       {open && (
         <div className="work-body" id={listId}>

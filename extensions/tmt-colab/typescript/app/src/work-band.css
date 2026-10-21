@@ -17,6 +17,9 @@
   margin-bottom: 8px;
   color: var(--c-muted);
 }
+.work-parent:last-child {
+  margin-bottom: 0;
+}
 .work-head {
   display: flex;
   flex-wrap: wrap;
