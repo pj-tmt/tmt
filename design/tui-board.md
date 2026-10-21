@@ -126,7 +126,10 @@ One `OPS / UI` shell contains `1 Agents` and `2 Digest`. The same acquired roste
 feeds both sections. Agents owns usage and provider limits (a full-width band), the
 squad workspace and the selected target as Talk (conversation) or Measure (summary
 cells, soonest timers, Digest table, who talks to whom);
-Digest keeps the same exact identity context and Core policy controls. A section
+Digest keeps the same exact identity context and Core policy controls, and shows an Allowance
+block under its summary: each sampled provider's weekly window with the even burn that lasts to the
+reset and what the last 3 h, 6 h, 24 h and since-reset rates leave there, `✗ <weekday hh:mm>` where
+a rate empties the window first. A section
 label never creates membership or a send audience. Both use the selected
 squad's appearance.
 The shared top bar projects held provider limits (`5h`/`7d`) and the selected

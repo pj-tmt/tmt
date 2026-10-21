@@ -1,5 +1,6 @@
 //! Existing-data Digest view. Acquisition, effects, scrolls and terminal diffing
 //! remain with their existing owners; this module projects already-held values.
+mod allowance;
 mod metrics;
 mod model;
 mod render;

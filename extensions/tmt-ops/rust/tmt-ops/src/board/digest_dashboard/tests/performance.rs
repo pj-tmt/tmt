@@ -79,6 +79,7 @@ fn digest_frame_timing() {
                 [("claude", 44.0, Some(97.0)), ("codex", 78.0, None)]
                     .into_iter()
                     .map(|(provider, left, short)| crate::board::limits::Standing {
+                        rates: Default::default(),
                         provider: crate::board::limits::Provider::named(provider),
                         latest: Some(crate::board::limits::Reading {
                             observed_at_ms: 1_791_599_940_000,

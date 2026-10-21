@@ -14,6 +14,7 @@ fn window(left: f64, resets_in_ms: u64) -> Window {
 
 fn standing(provider: Provider, reading: Option<Reading>, burn: Option<f64>) -> Standing {
     Standing {
+        rates: Default::default(),
         provider,
         latest: reading,
         burn,

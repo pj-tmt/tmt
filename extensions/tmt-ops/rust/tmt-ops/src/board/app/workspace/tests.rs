@@ -2539,6 +2539,42 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             home.workspace.roster.observation = OpsObservation::Partial;
         }
         "digest" => app.shell.tab = OpsTab::Digest,
+        "digest-allowance" => {
+            use crate::board::limits::{Provider, Rates, Reading, Standing, Window};
+            const NOW: u64 = 1_791_600_000_000;
+            const HOUR: u64 = 3_600_000;
+            let sampled = |driver: &str, left: f64, resets_in: u64, rates: Rates| Standing {
+                provider: Provider::named(driver),
+                latest: Some(Reading {
+                    observed_at_ms: NOW - 600_000,
+                    weekly: Window {
+                        left,
+                        resets_at_ms: NOW + resets_in * HOUR,
+                    },
+                    short: None,
+                }),
+                burn: None,
+                trend: None,
+                rates,
+            };
+            app.shell.tab = OpsTab::Digest;
+            app.local_zone = Some(jiff::tz::TimeZone::UTC);
+            app.limits = Some(vec![
+                sampled(
+                    "claude",
+                    26.0,
+                    40,
+                    Rates::measured(Some(1.0), Some(0.5), Some(0.2), Some(0.0)),
+                ),
+                sampled(
+                    "codex",
+                    55.0,
+                    100,
+                    Rates::measured(Some(0.3), Some(0.3), None, Some(0.3)),
+                ),
+                sampled("muse", 81.0, 100, Rates::default()),
+            ]);
+        }
         "empty" => {
             home.summary = Default::default();
             home.workspace.roster.members.clear();

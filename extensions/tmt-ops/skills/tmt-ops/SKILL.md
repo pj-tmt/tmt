@@ -376,7 +376,15 @@ on explicit message focus; Escape returns to rows and retains the draft.
 Retired Digest status/usage/report switches and ordering are reported without
 rewriting authored config.
 
-Digest has a range summary, Agents by TOK, Exchanges and selection details.
+Digest has a range summary, an Allowance block, Agents by TOK, Exchanges and selection details.
+Allowance shows one row per provider whose weekly window the board has sampled: LEFT, NEED/h (the
+even burn, in percent per hour, that lasts exactly until the reset), what each of four rates leaves
+at the reset if it holds (the last 3 h, 6 h and 24 h, and the average since the window last reset)
+and RESETS. A rate the history does not cover is `—`; a line that empties the window first shows
+`✗ <weekday hh:mm>` in the attention colour. At 80 columns a row is one line with the worst
+projection. It is hidden when no provider has been sampled or the table would be left too short.
+A reading older than two hours is not quoted; the percent is whole-number sampling, an unsampled
+reset is assumed, and usage on other machines is not seen.
 The shared `workspace.tok_range` is `1h` (default), `3h`, `6h`, `1d` or `7d`;
 Workspace settings selects it, and clicking the window word of an Agents `TOK 1h`
 heading, clicking the Digest Range control or an explicit `cycle-tok-range`
