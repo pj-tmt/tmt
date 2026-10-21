@@ -3,6 +3,11 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  assertPrivateSocket,
+  privateTmux,
+  type PrivateTmux,
+} from '../../../../../../typescript/test/support/private-tmux.js';
 import { alive, OwnedProcess, until } from './process.js';
 import { serveLockOwners, signalServeLockOwner } from './serve-lock.js';
 
@@ -99,7 +104,7 @@ export interface Agent {
 /**
  * One isolated Colab acceptance world: a short root under /tmp (Unix socket paths are
  * limited to about 100 bytes), private HOME/XDG roots, a private tmux server
- * reached only through a `-L` wrapper, and the real tmt, tmt-remote and
+ * reached only through an asserted `-S` socket, and the real tmt, tmt-remote and
  * tmt-colab binaries. Every child lives in its own process group and dispose()
  * proves each of them, the tmux server and the sockets are gone.
  */
@@ -109,7 +114,7 @@ export class AcceptanceWorld {
   readonly dataRoot = path.join(this.root, 'state');
   readonly workspace = path.join(this.root, 'workspace');
   readonly barrierDirectory = path.join(this.root, 'barrier');
-  readonly tmuxName = `acc-${path.basename(this.root).slice(-6)}`;
+  readonly socketPath: string;
   readonly binaries: Binaries;
   private readonly wrapperDirectory = path.join(this.root, 'wrap');
   /** One line per call of a host browser opener; a world must never write here. */
@@ -120,8 +125,11 @@ export class AcceptanceWorld {
   private readonly closers: Closer[] = [];
   private readonly failureObservers: Array<() => Promise<void>> = [];
   private failureObservation?: Promise<void>;
-  private tmuxPath = '';
-  private socketPath = '';
+  private readonly server: PrivateTmux;
+  private readonly ambient = {
+    TMUX: process.env.TMUX,
+    TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+  };
   private serverPid = 0;
   private sessionId = '';
   private hostPane = '';
@@ -132,7 +140,11 @@ export class AcceptanceWorld {
 
   constructor(
     binaries = resolveBinaries(),
-    options: { closerBoundMs?: number; caseIdentity?: { case: string; worker: number } } = {},
+    options: {
+      closerBoundMs?: number;
+      caseIdentity?: { case: string; worker: number };
+      tmuxExecutable?: string;
+    } = {},
   ) {
     this.binaries = binaries;
     this.caseIdentity = options.caseIdentity ?? { case: 'direct world', worker: -1 };
@@ -147,6 +159,27 @@ export class AcceptanceWorld {
       fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     for (const name of ['config', 'data', 'state', 'cache'])
       fs.mkdirSync(path.join(this.home, name), { mode: 0o700 });
+    try {
+      this.server = privateTmux({
+        root: this.root,
+        name: 'tmux',
+        env: this.env(),
+        executable: options.tmuxExecutable,
+        ambient: this.ambient,
+      });
+      this.socketPath = this.server.socket;
+    } catch (error) {
+      fs.rmSync(this.root, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  /** Emergency cleanup uses only the recorded world's fixed, asserted socket. */
+  static stopServer(root: string, socket: string): void {
+    const checked = assertPrivateSocket(socket, root);
+    if (checked !== path.join(root, 'tmux.sock'))
+      throw new Error('The recorded socket is not the acceptance world socket');
+    privateTmux({ root, name: 'tmux', env: process.env }).stop();
   }
 
   /** Environment for every real child; a pane is added only for tmux callers. */
@@ -182,13 +215,20 @@ export class AcceptanceWorld {
 
   /** Start the private tmux server and the executables every child resolves. */
   async start(): Promise<void> {
-    const pathDirs = (process.env.PATH ?? '').split(path.delimiter);
-    this.tmuxPath =
-      pathDirs.map((dir) => path.join(dir, 'tmux')).find((file) => fs.existsSync(file)) ?? '';
-    if (!this.tmuxPath) throw new Error('tmux is required for the acceptance');
     fs.writeFileSync(
       path.join(this.wrapperDirectory, 'tmux'),
-      `#!/bin/sh\nexec ${quote(this.tmuxPath)} -f /dev/null -L ${quote(this.tmuxName)} "$@"\n`,
+      // Preserve the host socket exclusions, not the caller pane's private TMUX value.
+      // Put the real executable ahead of this wrapper to avoid recursion in the shell guard.
+      // Core names its selected socket explicitly; accept only this world, then let the guard
+      // supply -S itself. All other global options remain subject to the shared guard.
+      `#!/bin/sh\nflags=\nwhile [ "$#" -gt 0 ]; do\n` +
+        `  case "$1" in\n` +
+        `    -u|-2) flags="$flags $1"; shift ;;\n` +
+        `    -S) [ "$#" -ge 2 ] && [ "$2" = ${quote(this.socketPath)} ] || { echo 'Refusing a different acceptance socket' >&2; exit 2; }; shift 2 ;;\n` +
+        `    *) break ;;\n  esac\ndone\n` +
+        `export PATH=${quote(path.dirname(this.server.executable))}:"$PATH"\n` +
+        `export TMUX=${quote(this.ambient.TMUX ?? '')} TMUX_TMPDIR=${quote(this.ambient.TMUX_TMPDIR ?? '')}\n` +
+        `exec ${quote(path.join(repository, 'scripts/private-tmux.sh'))} ${quote(this.root)} $flags "$@"\n`,
       { mode: 0o700 },
     );
     // Stand-ins for every host opener the policy can find on PATH. They record the call and do
@@ -218,8 +258,9 @@ export class AcceptanceWorld {
       this.workspace,
       `${quote(process.execPath)} -e ${quote('setInterval(() => {}, 1e6)')}`,
     ]);
-    this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
     this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
+    if (this.tmux(['display-message', '-p', '#{socket_path}']).trim() !== this.socketPath)
+      throw new Error('tmux reported a different acceptance socket');
     this.lifecycle('started');
     // TMUX carries the session number without the `$` prefix of #{session_id}.
     this.sessionId = this.tmux(['display-message', '-p', '-t', 'acceptance', '#{session_id}'])
@@ -261,17 +302,14 @@ export class AcceptanceWorld {
 
   tmux(args: string[]): string {
     this.live('run tmux');
-    return this.tmuxUnguarded(args);
+    return this.runTmux(args);
   }
 
-  private tmuxUnguarded(args: string[]): string {
-    return execFileSync(path.join(this.wrapperDirectory, 'tmux'), args, {
-      env: this.env(),
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 10_000,
-      killSignal: 'SIGKILL',
-    });
+  private runTmux(args: string[]): string {
+    const result = this.server.run(args, { timeout: 10_000 });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
+    return result.stdout;
   }
 
   /** Run the real tmt as a caller in `pane` (default: the host pane). */
@@ -547,7 +585,7 @@ export class AcceptanceWorld {
     for (const pane of this.agentPanes) {
       await attempt(`agent pane ${pane}`, async () => {
         const state = () =>
-          this.tmuxUnguarded(['list-panes', '-a', '-F', '#{pane_id} #{pane_dead} #{pane_pid}'])
+          this.runTmux(['list-panes', '-a', '-F', '#{pane_id} #{pane_dead} #{pane_pid}'])
             .split('\n')
             .find((line) => line.startsWith(`${pane} `))
             ?.split(' ');
@@ -587,11 +625,7 @@ export class AcceptanceWorld {
     }
     if (this.serverPid) {
       await attempt('tmux server', async () => {
-        try {
-          this.tmuxUnguarded(['kill-server']);
-        } catch {
-          // The server may already be gone; absence is checked below.
-        }
+        this.server.stop();
         await until(() => !alive(this.serverPid), 'private tmux server exit', 5_000);
         // tmux leaves its socket file behind; what matters is that nothing listens on it.
         if (await listening(this.socketPath)) throw new Error('private tmux socket still accepts');
@@ -613,11 +647,7 @@ export class AcceptanceWorld {
     const listing = execFileSync('/bin/ps', ['-axo', 'pid=,command='], { encoding: 'utf8' });
     return listing
       .split('\n')
-      .filter(
-        (line) =>
-          (line.includes(this.root) || line.includes(` -L ${this.tmuxName}`)) &&
-          !line.includes('/bin/ps -axo'),
-      )
+      .filter((line) => line.includes(this.root) && !line.includes('/bin/ps -axo'))
       .map((line) => line.trim());
   }
 

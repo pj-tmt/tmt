@@ -359,7 +359,7 @@ export async function composerTrace(
         workerPid: process.pid,
         root: world.root,
         profile: browser.profile,
-        tmuxName: world.tmuxName,
+        tmuxSocket: world.socketPath,
         sockets: world.sockets(),
         origin: new URL(origin).origin,
         expectedHead: head,

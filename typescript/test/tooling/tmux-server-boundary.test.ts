@@ -25,7 +25,6 @@ const SKIPPED = new Set([
 
 const GUARD = 'the private-tmux guard itself';
 const FIXTURE = "the e2e fixture's tmux wrapper (unsets TMUX, refuses a foreign socket)";
-const COLAB = 'the Colab acceptance harness (private -L name); owned by the Colab squad';
 
 /** Every file allowed to name the verbs, with the reason; each must still do so. */
 const ALLOWED: Record<string, string> = {
@@ -39,8 +38,6 @@ const ALLOWED: Record<string, string> = {
   'typescript/test/e2e/harness/fixture.ts': FIXTURE,
   'typescript/test/e2e/multi-server.e2e.test.ts': FIXTURE,
   'typescript/test/e2e/workspace-snapshot.e2e.test.ts': FIXTURE,
-  'extensions/tmt-colab/typescript/app/acceptance/harness.spec.ts': COLAB,
-  'extensions/tmt-colab/typescript/app/acceptance/harness/world.ts': COLAB,
 };
 
 function files(directory: string): string[] {

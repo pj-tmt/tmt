@@ -85,9 +85,12 @@ with two receipts and the hosted stream with five, none frozen. Selection and la
 Each scenario gets one world (`harness/world.ts`) under a short `/tmp` root, because Unix
 socket paths are limited to about 100 bytes:
 
-- private HOME and XDG roots, and a private tmux server reached only through a `-L` wrapper
-  on `PATH` (the tmux `TMUX` session value has no `$` prefix, or `tmt name` cannot find its
-  pane);
+- private HOME and XDG roots, and a fixed `<world>/tmux.sock` selected with `-S`.
+  The shared `privateTmux` helper asserts the socket private at construction and before
+  world commands; the native-child `PATH` wrapper uses `scripts/private-tmux.sh` for the
+  same check, accepting Core's explicit `-S` only when it matches the world socket.
+  Both remove inherited `TMUX` and `TMUX_PANE` before invoking tmux. The tmux
+  `TMUX` session value passed to agent callers has no `$` prefix;
 - an agent environment (`TMT_AGENT=1`, `BROWSER`) with stand-in `open`, `xdg-open` and `wslview`
   first on `PATH` that only append to `opener.log`; `dispose()` fails the run if that log
   exists, so no command in a world can reach the host browser;
