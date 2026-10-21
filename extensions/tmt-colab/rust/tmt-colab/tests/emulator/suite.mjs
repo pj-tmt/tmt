@@ -27,15 +27,30 @@ const as = (uid) => ({
 const NOBODY = { "content-type": "application/json" };
 const typed = (value) =>
   value === null ? { nullValue: null }
-  : value instanceof Date ? { timestampValue: value.toISOString() }
+  : value instanceof Date ? { timestampValue: value.toISOString().replace(/\.000Z$/, "Z") }
   : typeof value === "boolean" ? { booleanValue: value }
   : typeof value === "number" ? { integerValue: String(value) }
   : { stringValue: String(value) };
 const fields = (data) => Object.fromEntries(Object.entries(data).map(([k, v]) => [k, typed(v)]));
 const DAY = 86_400_000;
-const future = new Date(Date.now() + 30 * DAY);
-const sooner = new Date(Date.now() + 10 * DAY);
-const past = new Date(Date.now() - DAY);
+// A whole-second fixture clock exercises Firestore's omitted zero fraction on every run.
+const clockMs = Math.floor(Date.now() / 1000) * 1000;
+const future = new Date(clockMs + 30 * DAY);
+const sooner = new Date(clockMs + 10 * DAY);
+const past = new Date(clockMs - DAY);
+
+test("timestamp fixtures omit a zero fraction and preserve nonzero millisecond precision", () => {
+  for (const [input, expected] of [
+    ["2030-01-02T03:04:05.000Z", "2030-01-02T03:04:05Z"],
+    ["2030-01-02T03:04:05.001Z", "2030-01-02T03:04:05.001Z"],
+    ["2030-01-02T03:04:05.120Z", "2030-01-02T03:04:05.120Z"],
+    ["2030-01-02T03:04:05.123Z", "2030-01-02T03:04:05.123Z"],
+    ["2030-01-02T03:04:05.999Z", "2030-01-02T03:04:05.999Z"],
+  ]) {
+    assert.deepEqual(fields({ expiresAt: new Date(input) }), { expiresAt: { timestampValue: expected } });
+  }
+  assert.equal(sooner.getUTCMilliseconds(), 0, "read-back regressions always exercise a zero fraction");
+});
 
 async function loadRules(content) {
   const response = await fetch(`http://${host}/emulator/v1/projects/${PROJECT}:securityRules`, {
