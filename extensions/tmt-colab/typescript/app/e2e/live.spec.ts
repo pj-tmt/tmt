@@ -2723,8 +2723,10 @@ test('failed export preparation requests no files and closing clears pending pre
   await page.goto(mount);
   await showAllPages(page);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
+  // Inside the shell the page's title heading sits in the shell bar, outside section.page; the
+  // rendered body shows the page is open.
   await expect(
-    page.locator('section.page').getByRole('heading', { name: 'Live fixture', exact: true }),
+    page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
   ).toBeVisible();
   let downloads = 0;
   page.on('download', () => downloads++);
