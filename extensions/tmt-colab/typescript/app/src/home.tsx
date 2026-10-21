@@ -25,10 +25,13 @@ import {
   authorCounts,
   waitingCount,
   filterPages,
+  pageStage,
   projectCounts,
   projectNameError,
+  stageCounts,
   withProject,
   type PageSort,
+  type PageStage,
   type ProjectChange,
 } from './projects.js';
 import { AUTHOR_BYTES } from './bootstrap.js';
@@ -44,12 +47,17 @@ import { BulkBar } from './bulk-bar.js';
 import { pageTitle, pageUpdate } from './page-index.js';
 import {
   editFromSearch,
+  HOME_STAGES,
   PageListSearch,
   searchFromEdit,
+  takeStage,
   toggleProject,
+  type HomeStage,
   type SearchEdit,
 } from './page-list-search.js';
+import { PageWork } from './page-work.js';
 import { RetentionHint } from './retention-hint.js';
+import { useScrollEdges } from './scroll-edges.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
 import './page-list.css';
@@ -57,6 +65,8 @@ import './page-list.css';
 const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
 const homeRoute = getRouteApi('/');
+/** The tab a bare list URL opens on; the route search keeps any other. */
+export const DEFAULT_VIEW: HomeStage = 'all';
 /** The query that may filter and order the list (and a copied URL), bounded and validated. */
 export interface HomeSearch {
   q?: string;
@@ -65,6 +75,8 @@ export interface HomeSearch {
   scope?: string;
   by?: string[];
   sort?: 'title';
+  /** The tab: absent is `DEFAULT_VIEW`; `archived` takes precedence. */
+  stage?: HomeStage;
   archived?: true;
   /** Only the pages with an item waiting on the viewer. */
   needs?: true;
@@ -78,6 +90,7 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
     scope: undefined,
     by: undefined,
     sort: undefined,
+    stage: undefined,
     archived: undefined,
     needs: undefined,
   };
@@ -110,6 +123,9 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
     if (names.length) out.by = names;
   }
   if (search.sort === 'title') out.sort = 'title';
+  // The default is the absence of the key, so only another stage is a value worth keeping.
+  const stage = HOME_STAGES.find((name) => name === search.stage);
+  if (stage && stage !== DEFAULT_VIEW) out.stage = stage;
   if (search.archived === true || search.archived === 'true') out.archived = true;
   if (search.needs === true || search.needs === 'true') out.needs = true;
   return out;
@@ -246,6 +262,49 @@ function PageMetadata({
   return <span className="page-metadata">{parts}</span>;
 }
 
+/**
+ * A stage tab with no page. While some pages have not reported their tasks it says so instead of
+ * claiming the tab is empty; an empty In progress names where pages without tasks are and offers
+ * the way out, and never opens another tab by itself.
+ */
+function StageEmpty({
+  stage,
+  scope,
+  unreported,
+  choose,
+}: {
+  stage: PageStage;
+  scope: string | undefined;
+  unreported: number;
+  choose(view: HomeStage): void;
+}) {
+  if (unreported > 0) return <p>{t.readingDetails}</p>;
+  if (scope !== undefined) return <p>{t.noStageInProject[stage](scope)}</p>;
+  if (stage === 'discussion') return <p>{t.noDiscussion}</p>;
+  if (stage === 'done') return <p>{t.noDone}</p>;
+  const empty = t.noInProgress;
+  const link = (label: string, view: HomeStage) => (
+    <button
+      type="button"
+      className="page-empty-link"
+      onClick={(event) => {
+        if (event.isTrusted) choose(view);
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <p>
+      {empty.before}
+      {link(empty.discussion, 'discussion')}
+      {empty.between}
+      {link(empty.all, 'all')}
+      {empty.after}
+    </p>
+  );
+}
+
 export function Home() {
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
@@ -260,37 +319,60 @@ export function Home() {
     router.invalidate(),
   );
   const archived = !!port && search.archived === true;
+  // Only the owner app has tabs; a list without them is every active page, as All is.
+  const view: HomeStage | 'archived' = archived
+    ? 'archived'
+    : port
+      ? (search.stage ?? DEFAULT_VIEW)
+      : 'all';
   const sort: PageSort = search.sort ?? 'updated';
   const filter = {
     projects: search.project ?? [],
     authors: search.by ?? [],
     text: search.q ?? '',
     needsYou: search.needs === true,
+    ...(view === 'in-progress' || view === 'discussion' || view === 'done' ? { stage: view } : {}),
   };
   const shown = homePages.filter((p) => Boolean(p.archived) === archived);
+  // The pages the tab holds: a stage tab keeps the pages at that stage, so one that has not
+  // reported its tasks yet is in none of them.
+  const staged = filter.stage ? shown.filter((p) => pageStage(p) === filter.stage) : shown;
   const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
   // The scope is the base: filters, counts and the needs-you chip see only the pages in it.
   const scope = knownScope(search.scope, projectNames);
-  const scoped = inScope(shown, scope);
-  // The tabs count what the scope holds: the Archived tab says how many archived pages wait there.
+  const scoped = inScope(staged, scope);
+  // The tabs count what the scope holds: an archived page counts only under Archived, and a page
+  // that has not reported its tasks yet under no stage.
   const archivedInScope = inScope(
     homePages.filter((p) => p.archived),
     scope,
   ).length;
+  const activeInScope = inScope(
+    homePages.filter((p) => !p.archived),
+    scope,
+  );
+  const stages = stageCounts(activeInScope);
+  const unreported = activeInScope.filter((p) => pageStage(p) === undefined).length;
+  const tab = (id: HomeStage | 'archived', label: string) => ({
+    id,
+    tabId: `page-list-tab-${id}`,
+    panelId: `page-list-panel-${id}`,
+    label,
+  });
   const viewTabs = [
-    { id: 'all', tabId: 'page-list-tab-all', panelId: 'page-list-panel-all', label: t.tabAll },
-    {
-      id: 'archived',
-      tabId: 'page-list-tab-archived',
-      panelId: 'page-list-panel-archived',
-      label: t.tabArchived(archivedInScope),
-    },
+    tab('in-progress', t.tabInProgress(stages['in-progress'])),
+    tab('discussion', t.tabDiscussion(stages.discussion)),
+    tab('done', t.tabDone(stages.done)),
+    tab('archived', t.tabArchived(archivedInScope)),
+    tab('all', t.tabAll),
   ];
+  const tabsHost = useRef<HTMLDivElement>(null);
+  useScrollEdges(tabsHost, `${Boolean(port)}|${viewTabs.map((item) => item.label).join('|')}`);
   const pages = filterPages(scoped, filter, sort);
   const counts = projectCounts(scoped);
   const waiting = waitingCount(scoped);
   const showNeeds = waiting > 0 || filter.needsYou;
-  const authors = authorCounts(shown);
+  const authors = authorCounts(staged);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages, archived]);
   useSpaceTitle(space.title, text.product);
@@ -319,13 +401,39 @@ export function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applied]);
   function apply(next: SearchEdit) {
-    const { projects, authors, q } = searchFromEdit(next);
+    const typed = searchFromEdit(next);
+    // A typed `stage:name` selects the tab and leaves the search, as a tab click does.
+    const { q, stage } = takeStage(typed.q);
+    const { projects, authors } = typed;
     lastApplied.current = JSON.stringify([projects, authors, q]);
     setSearch({
       project: projects.length ? projects : undefined,
       by: authors.length ? authors : undefined,
       q: q || undefined,
+      ...(stage ? stageSearch(stage) : {}),
     });
+    if (stage) {
+      setEdit(editFromSearch(projects, q, authors));
+      setResetKey((key) => key + 1);
+    }
+  }
+  /** The route search of a tab: the default is the absence of both, and a stage leaves Archived. */
+  function stageSearch(stage: HomeStage | 'archived'): Partial<HomeSearch> {
+    return {
+      stage: stage === 'archived' || stage === DEFAULT_VIEW ? undefined : stage,
+      archived: stage === 'archived' ? true : undefined,
+    };
+  }
+  /** A tab click rewrites the stage: a `stage:name` still typed in the draft goes, so there is one. */
+  function chooseView(id: HomeStage | 'archived') {
+    const typed = searchFromEdit(edit);
+    const { q, stage } = takeStage(typed.q);
+    if (stage) {
+      lastApplied.current = JSON.stringify([typed.projects, typed.authors, q]);
+      setEdit(editFromSearch(typed.projects, q, typed.authors));
+      setResetKey((key) => key + 1);
+    }
+    setSearch({ ...stageSearch(id), ...(stage ? { q: q || undefined } : {}) });
   }
   function replaceDraft(next: SearchEdit) {
     setEdit(next);
@@ -518,6 +626,7 @@ export function Home() {
                 title={
                   <>
                     <HomeTitleLink page={p} hints={titleHints} scope={scope} />
+                    {p.summary?.work ? <PageWork work={p.summary.work} /> : null}
                     {p.summary?.waiting ? (
                       <span className="page-waiting" data-waiting>
                         <span className="page-waiting-mark" aria-hidden="true">
@@ -592,7 +701,14 @@ export function Home() {
         </BrowserList>
       ) : (
         <div className="page-list-empty">
-          {scope !== undefined && scoped.length === 0 ? (
+          {filter.stage && scoped.length === 0 && space.pages.length ? (
+            <StageEmpty
+              stage={filter.stage}
+              scope={scope}
+              unreported={unreported}
+              choose={chooseView}
+            />
+          ) : scope !== undefined && scoped.length === 0 ? (
             <p>{archived ? t.noArchivedInProject(scope) : t.noPagesInProject(scope)}</p>
           ) : filtered && scoped.length ? (
             <>
@@ -650,6 +766,11 @@ export function Home() {
               resetKey={resetKey}
               projects={counts}
               authors={authors}
+              stages={HOME_STAGES.map((name) => ({
+                name,
+                count: name === 'all' ? activeInScope.length : stages[name],
+              }))}
+              onStage={(stage) => chooseView(stage as HomeStage)}
               onApply={apply}
               onClear={() => {
                 // Escape on an empty search leaves it, so the list's keys work from the page again.
@@ -676,15 +797,17 @@ export function Home() {
         </div>
       )}
       {port ? (
-        <BrowserTabs
-          label={t.views}
-          variant="flush"
-          tabs={viewTabs}
-          selected={archived ? 'archived' : 'all'}
-          onSelect={(id) => setSearch({ archived: id === 'archived' ? true : undefined })}
-        >
-          {(tab) => (tab.id === (archived ? 'archived' : 'all') ? content : null)}
-        </BrowserTabs>
+        <div className="page-stage-tabs" ref={tabsHost}>
+          <BrowserTabs
+            label={t.views}
+            variant="flush"
+            tabs={viewTabs}
+            selected={view}
+            onSelect={(id) => chooseView(id as HomeStage | 'archived')}
+          >
+            {(current) => (current.id === view ? content : null)}
+          </BrowserTabs>
+        </div>
       ) : (
         content
       )}

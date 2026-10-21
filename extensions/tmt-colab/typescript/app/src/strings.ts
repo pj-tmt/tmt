@@ -680,12 +680,42 @@ export const text = {
   archived: 'Archived',
   pageList: {
     searchLabel: 'Search pages',
-    searchPlaceholder: 'Search pages · project:name · by:author',
+    searchPlaceholder: 'Search pages · project: · by: · stage:',
     sort: 'Sort',
     sortOptions: { updated: 'Recently updated', title: 'Title' },
     views: 'Page views',
+    tabInProgress: (count: number) => `In progress ${count}`,
+    tabDiscussion: (count: number) => `Discussion ${count}`,
+    tabDone: (count: number) => `Done ${count}`,
     tabAll: 'All',
     tabArchived: (count: number) => `Archived ${count}`,
+    /** The stage names the `stage:` search token takes, with their tab labels. */
+    stageNames: {
+      'in-progress': 'In progress',
+      discussion: 'Discussion',
+      done: 'Done',
+      all: 'All',
+    },
+    /** An empty In progress tab says why and offers the way out in one line; no tab opens by itself. */
+    noInProgress: {
+      before: 'Nothing in progress. Pages without tasks are under ',
+      discussion: 'Discussion',
+      between: '; ',
+      all: 'All',
+      after: ' lists every page.',
+    },
+    noDiscussion: 'No pages in discussion.',
+    noDone: 'Nothing done yet.',
+    noStageInProject: {
+      'in-progress': (name: string) => `Nothing in progress in ${name}.`,
+      discussion: (name: string) => `No pages in discussion in ${name}.`,
+      done: (name: string) => `Nothing done in ${name}.`,
+    },
+    /** A stage tab with no page while some pages have not reported their tasks yet. */
+    readingDetails: 'Reading page details…',
+    tasksDone: (done: number, total: number) => `${done} of ${total} tasks done`,
+    working: 'Working',
+    moreWorking: (count: number) => `+${count}`,
     manageProjects: 'Manage projects',
     projects: 'Projects',
     scopeLabel: 'Project',
