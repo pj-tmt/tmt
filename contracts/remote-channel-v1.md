@@ -85,7 +85,7 @@ envelopes. No unauthenticated GET inventory.
 
 The Remote-owned short-entry table forwards exactly `GET /read/<id>` in place to Colab's public
 mount entry, without a Remote redirect. `/colab/…` is a route of the
-[TMT web app](#public-browser-routes) and `/p/<id>` redirects into it; neither is forwarded. IDs contain exactly 4–64 ASCII `[0-9A-Za-z_-]` characters; query,
+[TMT web app](#public-browser-routes) and `/p/<id>` redirects into it; neither is forwarded. IDs contain exactly 4–64 ASCII `[0-9A-Za-z_-]` characters; on `/read/<id>`, query,
 `tmt-session`, extra segments and upgrades refuse. Thread targets and reader capabilities
 stay in browser fragments, never server paths. Navigation permits absent Origin or the
 exact door Origin; cross-origin Origin and cross-site fetch metadata receive generic HTML 403.
@@ -114,7 +114,9 @@ and the document reads no cookie or session. Its policy is the pairing page poli
 what the Colab route needs in the same document, `img-src 'self' data:`, `worker-src 'self'` and
 `frame-src 'self'`, with `object-src 'none'`; it is no wider than Colab's mounted document policy.
 `GET /p/<id>` answers 308 with `Location: /colab/p/<id>` (its query kept) and an empty body; a
-malformed `/p` path receives the generic HTML 404 page. The client router switches routes in that
+malformed `/p` path receives the generic HTML 404 page. An app route and `/p/<id>` accept only a
+plain query: unreserved bytes, `=` and `&`, with no escape and no `tmt-session`; the app writes
+its own keys (`open`, `read`, `anchor`) there. Any other query is a malformed target (400). The client router switches routes in that
 one document: each route is a module mounted into the shared web shell, and Colab's module is
 loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
 always the same fixed list, Home, Colab, Remote, Ops, Digest, other described modules, Search and
