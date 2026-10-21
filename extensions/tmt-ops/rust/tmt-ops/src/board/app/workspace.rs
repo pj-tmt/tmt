@@ -766,11 +766,19 @@ impl App {
     }
     pub(super) fn workspace_select(&mut self, index: usize) {
         let rows = self.workspace_rows();
-        let Some(row) = rows.get(index.min(rows.len().saturating_sub(1))) else {
+        let index = index.min(rows.len().saturating_sub(1));
+        let Some(row) = rows.get(index) else {
             return;
         };
         self.workspace.selected = Some(row.target.clone());
-        self.workspace_reconcile();
+        if self.shell.tab == OpsTab::Digest {
+            // These rows already carry current admission and ordering. Cursor
+            // movement changes an anchor, not the acquired workspace/query.
+            self.selected = index;
+            self.last_click = None;
+        } else {
+            self.workspace_reconcile();
+        }
         self.follow = true;
         self.invalidate_frame_geometry();
     }

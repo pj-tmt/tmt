@@ -9,20 +9,28 @@ pub struct Who {
     pub retired: bool,
 }
 
-/// One supplier interval, preserving its clock boundaries and coverage.
+/// One admitted hourly observation. Its clock is owned once by HourlySeries;
+/// cached/input/output are validated at acquisition, then reduced to visible TOK.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Point {
-    pub from_ms: u64,
-    pub to_ms: u64,
-    pub input: u64,
-    pub output: u64,
-    pub cached: u64,
+    pub tokens: u64,
     pub complete: bool,
 }
-
 impl Point {
     pub fn total(&self) -> u64 {
-        self.input.saturating_add(self.output)
+        self.tokens
+    }
+}
+/// A validated 24-hour window, never a collection of independent clocks.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HourlySeries {
+    pub from_ms: u64,
+    pub points: Vec<Point>,
+}
+impl std::ops::Deref for HourlySeries {
+    type Target = [Point];
+    fn deref(&self) -> &Self::Target {
+        &self.points
     }
 }
 
@@ -35,7 +43,7 @@ pub struct Seat {
     pub output: u64,
     pub cached: u64,
     /// Input plus output per bucket, oldest first.
-    pub series: Vec<Point>,
+    pub series: HourlySeries,
     pub covered_ms: u64,
     pub window_ms: u64,
     pub from_ms: u64,

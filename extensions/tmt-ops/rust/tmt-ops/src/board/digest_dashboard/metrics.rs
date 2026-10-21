@@ -1,7 +1,7 @@
 //! Values projected from held evidence. No display total grants action authority.
 use crate::board::{
     app::App,
-    usage_report::{Report, View, model::Point},
+    usage_report::{Report, View},
     workspace::{OpsTarget, OpsTreeRow},
 };
 use crate::{
@@ -82,16 +82,11 @@ pub(super) fn activity(report: Option<&Report>, ids: &[&str]) -> Vec<Option<u64>
             unknown.fill(true);
             continue;
         }
-        let clock: Vec<_> = seat
-            .series
-            .iter()
-            .map(|point| (point.from_ms, point.to_ms))
-            .collect();
-        if boundaries.as_ref().is_some_and(|old| old != &clock) {
+        if boundaries.is_some_and(|old| old != seat.series.from_ms) {
             return vec![None; 24];
         }
-        boundaries = Some(clock);
-        for ((sum, missing), point) in values.iter_mut().zip(&mut unknown).zip(&seat.series) {
+        boundaries = Some(seat.series.from_ms);
+        for ((sum, missing), point) in values.iter_mut().zip(&mut unknown).zip(seat.series.iter()) {
             *missing |= !point.complete;
             if point.complete || point.total() > 0 {
                 let Some(total) = sum.unwrap_or(0u64).checked_add(point.total()) else {
@@ -108,13 +103,26 @@ pub(super) fn activity(report: Option<&Report>, ids: &[&str]) -> Vec<Option<u64>
     }
     values
 }
-pub(super) fn busiest<'a>(report: &'a Report, id: &str) -> Option<&'a Point> {
-    report
-        .seat(id)?
-        .series
+pub(super) struct BusiestHour {
+    pub from_ms: u64,
+    pub to_ms: u64,
+    pub tokens: u64,
+    pub complete: bool,
+}
+pub(super) fn busiest(report: &Report, id: &str) -> Option<BusiestHour> {
+    let series = &report.seat(id)?.series;
+    let (index, point) = series
         .iter()
-        .filter(|point| point.complete || point.total() > 0)
-        .max_by_key(|point| point.total())
+        .enumerate()
+        .filter(|(_, point)| point.complete || point.total() > 0)
+        .max_by_key(|(_, point)| point.total())?;
+    let from_ms = series.from_ms + index as u64 * 3_600_000;
+    Some(BusiestHour {
+        from_ms,
+        to_ms: from_ms + 3_600_000,
+        tokens: point.tokens,
+        complete: point.complete,
+    })
 }
 pub(super) fn input_price(app: &App, report: Option<&Report>, ids: &[&str]) -> Option<u64> {
     let report = report?;

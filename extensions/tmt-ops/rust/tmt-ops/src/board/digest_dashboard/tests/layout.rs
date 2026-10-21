@@ -6,7 +6,7 @@ use crate::{
         shell::{OpsTab, RightTab},
         usage_report::{
             Delivery, Report,
-            model::{Pair, Point, Seat, Traffic, Who},
+            model::{HourlySeries, Pair, Point, Seat, Traffic, Who},
         },
     },
     config::TokRange,
@@ -58,16 +58,15 @@ fn fixture() -> App {
             observed_at_ms: 186_400_000,
             starts_at_ms: Some(100_000_000),
             complete: true,
-            series: (0..24)
-                .map(|hour| Point {
-                    from_ms: 100_000_000 + hour * 3_600_000,
-                    to_ms: 100_000_000 + (hour + 1) * 3_600_000,
-                    input: hour * (i as u64 + 1),
-                    output: 0,
-                    cached: 0,
-                    complete: true,
-                })
-                .collect(),
+            series: HourlySeries {
+                from_ms: 100_000_000,
+                points: (0..24)
+                    .map(|hour| Point {
+                        tokens: hour * (i as u64 + 1),
+                        complete: true,
+                    })
+                    .collect(),
+            },
         })
         .collect();
     let flow = Traffic::from_pairs(
@@ -371,6 +370,15 @@ fn mixed_batch_windows_and_missing_agents_cannot_manufacture_an_aggregate_or_zer
         None
     );
     assert!(super::super::metrics::activity(Some(&report), &[&ids[0], "unavailable"])[1].is_some());
+    let busiest = super::super::metrics::busiest(&report, &ids[0]).unwrap();
+    assert_eq!(busiest.from_ms, 100_000_000 + 23 * 3_600_000);
+    assert_eq!(busiest.to_ms, 100_000_000 + 24 * 3_600_000);
+    report.seats[1].series.from_ms += 3_600_000;
+    assert!(
+        super::super::metrics::activity(Some(&report), &refs)
+            .iter()
+            .all(Option::is_none)
+    );
 }
 
 #[test]

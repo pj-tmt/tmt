@@ -1,6 +1,8 @@
 //! Public Core observations for the shared TOK window. The admitted roster is
 //! passed in; neither a provider scan nor a second roster read belongs here.
-use super::model::{Pair, Point, Report, Seat, Since, Traffic, Unavailable, Warning, Who};
+use super::model::{
+    HourlySeries, Pair, Point, Report, Seat, Since, Traffic, Unavailable, Warning, Who,
+};
 use crate::{config::TokRange, core::Core};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -93,7 +95,7 @@ fn seat(
         .and_then(|series| hourly(series, id))
     {
         Ok(points) => (points, None),
-        Err(message) => (Vec::new(), Some(message)),
+        Err(message) => (HourlySeries::default(), Some(message)),
     };
     let covered_ms = number(&bucket["coveredMs"])?;
     if covered_ms > range.milliseconds()
@@ -155,7 +157,7 @@ fn model_inputs(bucket: &Value) -> Option<Vec<(String, u64)>> {
     .then_some(models)
 }
 
-fn hourly(series: &Value, id: &str) -> Result<Vec<Point>, String> {
+fn hourly(series: &Value, id: &str) -> Result<HourlySeries, String> {
     let (_, day) = window(series, id, 86_400_000)?;
     let from = number(&day["fromMs"])?;
     if day["bucketMs"] != 3_600_000 {
@@ -181,17 +183,16 @@ fn hourly(series: &Value, id: &str) -> Result<Vec<Point>, String> {
             return Err("Invalid hourly coverage.".into());
         }
         points.push(Point {
-            from_ms: expected,
-            to_ms: expected + 3_600_000,
-            input: number(&point["inputTokens"])?,
-            output: number(&point["outputTokens"])?,
-            cached: number(&point["cachedInputTokens"])?,
+            tokens: number(&point["inputTokens"])? + number(&point["outputTokens"])?,
             complete: point["complete"]
                 .as_bool()
                 .ok_or("Missing hourly coverage.")?,
         });
     }
-    Ok(points)
+    Ok(HourlySeries {
+        from_ms: from,
+        points,
+    })
 }
 fn traffic(document: &Value) -> Result<Traffic, String> {
     let since_ms = number(&document["sinceMs"])?;

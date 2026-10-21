@@ -406,7 +406,7 @@ fn detail_lines(
                 clock(point.from_ms),
                 clock(point.to_ms),
                 if point.complete { "" } else { "≥" },
-                crate::source::tokens(u128::from(point.total()))
+                crate::source::tokens(u128::from(point.tokens))
             ));
         }
     }
