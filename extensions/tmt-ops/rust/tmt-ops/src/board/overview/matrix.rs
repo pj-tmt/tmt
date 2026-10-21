@@ -2,8 +2,8 @@
 use crate::{
     board::{
         app::App,
-        digest_dashboard,
         digest_matrix::{self, Row},
+        savings::{percent_text, usd_text},
     },
     config::DigestWindow,
     labels::digest::{Mode, SavingsSummary},
@@ -30,15 +30,14 @@ fn estimate(savings: &SavingsSummary, complete: bool) -> [Option<String>; 3] {
             savings.included,
         ),
         amount(
-            savings.percent.value.map(digest_dashboard::percent_text),
+            savings.percent.value.map(percent_text),
             savings.percent.included,
         ),
         amount(
-            savings.cost.value.map(|n| {
-                digest_dashboard::usd_text(n)
-                    .trim_start_matches("≈ ")
-                    .to_owned()
-            }),
+            savings
+                .cost
+                .value
+                .map(|n| usd_text(n).trim_start_matches("≈ ").to_owned()),
             savings.cost.included,
         ),
     ]
