@@ -115,6 +115,39 @@ fn activity_uses_only_main_turn_events_and_codex_requires_a_turn_id() {
     }
 }
 
+/// A Stop reported while the provider continues after a Stop hook blocked an
+/// earlier one (#4159) is the end of that continuation; any other Stop, and a
+/// malformed or absent flag, is an ordinary end.
+#[test]
+fn a_stop_during_a_hook_continuation_is_a_continuation_end_for_both_providers() {
+    use tmt_core::binding::session::activity::EventKind;
+    let registry = RuntimeRegistry::first_party();
+    for name in ["claude", "codex"] {
+        let driver = registry.lifecycle(&HarnessId::new(name).unwrap()).unwrap();
+        for (flag, kind) in [
+            (Some(json!(true)), EventKind::ContinuationEnded),
+            (Some(json!(false)), EventKind::TurnEnded),
+            (None, EventKind::TurnEnded),
+        ] {
+            let mut payload =
+                json!({"hook_event_name":"Stop","session_id":"session","turn_id":"turn"});
+            if let Some(flag) = flag {
+                payload["stop_hook_active"] = flag;
+            }
+            let decoded = driver
+                .decode_activity(payload.to_string().as_bytes())
+                .unwrap();
+            assert_eq!(decoded.event.kind, kind, "{name} {payload}");
+        }
+        // Only a Stop continues: the flag changes no other event.
+        let prompt = json!({"hook_event_name":"UserPromptSubmit","session_id":"s","turn_id":"t","stop_hook_active":true});
+        let decoded = driver
+            .decode_activity(prompt.to_string().as_bytes())
+            .unwrap();
+        assert_eq!(decoded.event.kind, EventKind::TurnStarted, "{name}");
+    }
+}
+
 /// Codex `Interrupt` (#3207) ends its own turn as idle. Without a turn ID, for
 /// a subagent, or for Claude (which names no turn), it is no activity event.
 #[test]

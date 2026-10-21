@@ -2367,6 +2367,69 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
     assert_eq!(captured(&fixture), 1);
 }
 
+/// A Digest checklist blocks a Stop and the provider continues the same turn
+/// without a new prompt (#4159). The blocked Stop already ended the turn, so
+/// the continuation's own Stop (`stop_hook_active`) is the only event that
+/// ends its work: it is an admitted end and keeps its answer, while an
+/// ordinary repeated Stop still changes nothing.
+#[test]
+fn a_stop_that_ends_a_digest_continuation_is_admitted_and_keeps_its_response() {
+    register();
+    let fixture = Fixture::new("codex-continued-stop");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    fs::create_dir_all(fixture.root.join("home/.codex")).unwrap();
+    let observer = tmt_adapters::runtime::hook_protocol::command_entry("codex", "/stable/tmt");
+    fs::write(
+        fixture.root.join("home/.codex/hooks.json"),
+        serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
+    )
+    .unwrap();
+    let mut codex = SteppedProvider::start(&fixture, "codex", "codex-steps");
+    let answers = |fixture: &Fixture| {
+        stored_rows(fixture)
+            .into_iter()
+            .filter(|row| row.starts_with("recent_responses:"))
+            .collect::<Vec<_>>()
+    };
+    let stop = |turn: &str, text: &str, continued: bool| {
+        let mut payload = codex_event("Stop", Some(turn));
+        payload["last_assistant_message"] = text.into();
+        payload["stop_hook_active"] = continued.into();
+        payload
+    };
+    let ok = |(status, _, err): (i32, String, String)| assert_eq!((status, err.as_str()), (0, ""));
+
+    ok(codex.hook(codex_event("SessionStart", None)));
+    ok(codex.hook(codex_event("UserPromptSubmit", Some("a"))));
+    assert_eq!(activity(&fixture)["state"], "working");
+
+    // The Stop a checklist blocks ends the turn like any other.
+    ok(codex.hook(stop("a", "answer before the checklist", false)));
+    assert_eq!(activity(&fixture)["state"], "idle");
+    assert_eq!(answers(&fixture).len(), 1, "{:#?}", answers(&fixture));
+
+    // The provider continues the turn; its Stop is the continuation's end.
+    ok(codex.hook(stop("a", "answer after the checklist", true)));
+    let kept = answers(&fixture);
+    assert_eq!(kept.len(), 2, "{kept:#?}");
+    assert!(
+        kept.iter()
+            .any(|row| row.contains("answer after the checklist")),
+        "{kept:#?}"
+    );
+    assert_eq!(activity(&fixture)["state"], "idle");
+
+    // A repeated plain Stop and a continuation of another turn change no
+    // activity and capture nothing (a refused Stop may still read usage, as in
+    // the interrupt scenario).
+    let (idle, kept) = (activity(&fixture), answers(&fixture));
+    ok(codex.hook(stop("a", "answer before the checklist", false)));
+    ok(codex.hook(stop("b", "another turn's stop", true)));
+    assert_eq!(activity(&fixture), idle);
+    assert_eq!(answers(&fixture), kept);
+}
+
 fn observed_model(fixture: &Fixture) -> Value {
     worker(&fixture.json(&["ls", "--json"]))["resume"]["observedModel"].clone()
 }

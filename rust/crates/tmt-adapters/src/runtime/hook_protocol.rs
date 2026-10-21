@@ -106,6 +106,10 @@ pub fn decode_activity(bytes: &[u8], correlated: bool) -> Option<ActivityObserva
         /// Any JSON value: a malformed model is no model, never a rejected event.
         #[serde(default)]
         model: Option<serde_json::Value>,
+        /// A `Stop` the provider reports while it continues because a Stop
+        /// hook blocked an earlier one.
+        #[serde(default)]
+        stop_hook_active: bool,
     }
     if bytes.len() > HOOK_INPUT_LIMIT {
         return None;
@@ -114,6 +118,7 @@ pub fn decode_activity(bytes: &[u8], correlated: bool) -> Option<ActivityObserva
     ProviderSessionId::new(&payload.session_id).ok()?;
     let kind = match payload.hook_event_name.as_str() {
         "UserPromptSubmit" => EventKind::TurnStarted,
+        "Stop" if payload.stop_hook_active => EventKind::ContinuationEnded,
         "Stop" => EventKind::TurnEnded,
         "Notification"
             if !correlated
