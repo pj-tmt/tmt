@@ -21,7 +21,7 @@ pub enum View<'a> {
 /// The range itself is saved by workspace preferences, never in this cache.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct State {
-    report: Option<Report>,
+    report: Option<std::sync::Arc<Report>>,
     failure: Option<(Since, String)>,
 }
 
@@ -32,7 +32,7 @@ impl State {
         match delivery.result {
             Ok(report) => {
                 self.failure = None;
-                self.report = Some(report);
+                self.report = Some(std::sync::Arc::new(report));
             }
             Err(message) => self.failure = Some((delivery.since, message)),
         }
@@ -43,6 +43,14 @@ impl State {
             .as_ref()
             .filter(|(range, _)| *range == since)
             .map(|(_, message)| message.as_str())
+    }
+
+    /// Immutable acquisition identity, shared without copying retained history.
+    pub(super) fn retained_report(&self, since: Since) -> Option<std::sync::Arc<Report>> {
+        self.report
+            .as_ref()
+            .filter(|report| report.since == since)
+            .cloned()
     }
 
     pub fn view_for(&self, since: Since) -> View<'_> {

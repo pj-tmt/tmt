@@ -86,7 +86,10 @@
   aggregate for the selected range and 24 hourly buckets for activity. The first
   successful history response supplies `throughMs`; every later aggregate and
   activity request of that refresh pins the same echoed cut, while `asOfMs`
-  remains the actual admission time. All calls share one 45 s deadline (within
+  remains the actual admission time. Core's echoed window bounds own closed-window
+  placement; Ops validates intervals and coverage without re-deriving Core's bucket
+  resolution. The retained report is immutable and shared with display projections
+  rather than copied. All calls share one 45 s deadline (within
   Core's 60 s pin age limit). A changed range or inventory cancels the in-flight
   process and starts the latest coalesced demand; identical demand leaves it
   running. Late changed-demand results are dropped. Reads repeat every 60 s,

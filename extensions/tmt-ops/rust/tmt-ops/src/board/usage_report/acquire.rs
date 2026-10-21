@@ -61,15 +61,9 @@ fn window<'a>(
     }
     let from = number(&window["fromMs"])?;
     let to = number(&window["toMs"])?;
-    let resolution = if duration <= 3_600_000 {
-        5_000
-    } else {
-        300_000
-    };
-    if through > observed
-        || to != through / resolution * resolution
-        || to.checked_sub(from) != Some(duration)
-    {
+    // Core owns resolution and closed-window placement. The echoed bounds are
+    // authoritative; Ops only checks their shape and relation to the read cut.
+    if through > observed || to > through || to.checked_sub(from) != Some(duration) {
         return Err("Mismatched consumption window.".into());
     }
     Ok((row, window))
@@ -289,10 +283,7 @@ pub(super) fn read(core: &Core, request: &Request, budget: Duration) -> Result<R
                 .map_err(|e| e.message)?;
             let cut = number(&document["throughMs"])?;
             let observed = number(&document["asOfMs"])?;
-            if !cut.is_multiple_of(5_000)
-                || cut > observed
-                || through.is_some_and(|previous| previous != cut)
-            {
+            if cut > observed || through.is_some_and(|previous| previous != cut) {
                 return Err("Mismatched consumption cut.".into());
             }
             through = Some(cut);

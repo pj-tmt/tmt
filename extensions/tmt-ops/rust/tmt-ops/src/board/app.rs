@@ -674,6 +674,7 @@ pub struct App {
     /// Talk or Measure in the Agents tab's right column (`t`).
     pub(in crate::board) right_tab: super::shell::RightTab,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
+    pub(in crate::board) digest_rows: RefCell<super::digest_dashboard::Cache>,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
     pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
     pub(in crate::board) workspace_state_cells: RefCell<Vec<ratatui::layout::Rect>>,
@@ -1523,6 +1524,7 @@ impl App {
     }
 
     pub fn apply(&mut self, mut snapshot: Snapshot) {
+        self.digest_rows.get_mut().clear();
         self.overview_rows.borrow_mut().clear();
         self.conversation.borrow_mut().refresh_pane_output();
         if let Some(timing) = &mut self.timing {

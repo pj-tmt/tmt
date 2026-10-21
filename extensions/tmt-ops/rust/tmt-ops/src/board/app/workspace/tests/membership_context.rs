@@ -462,7 +462,9 @@ fn unknown_membership_absence_is_not_reported_as_a_known_empty_pool() {
             .workspace
             .roster
             .membership_complete = false;
+        // Publish the changed roster through the normal projection owner.
         app.overview_rows.borrow_mut().clear();
+        app.workspace_reconcile();
         assert_eq!(
             app.workspace_selection_state(),
             crate::board::workspace::SelectionState::Unknown
