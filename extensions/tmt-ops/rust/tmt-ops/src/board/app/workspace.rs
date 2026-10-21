@@ -207,7 +207,7 @@ impl App {
         summary: &crate::labels::digest::SavingsSummary,
         width: usize,
     ) -> String {
-        crate::board::digest_dashboard::savings_caption(
+        crate::board::savings::savings_caption(
             summary,
             self.digest_window(),
             self.savings_unit(),
@@ -220,7 +220,7 @@ impl App {
         summary: &crate::labels::digest::SavingsSummary,
         width: usize,
     ) -> Option<String> {
-        crate::board::digest_dashboard::compact_savings_caption(
+        crate::board::savings::compact_savings_caption(
             summary,
             self.digest_window(),
             self.savings_unit(),
@@ -232,7 +232,7 @@ impl App {
         summary: &crate::labels::digest::SavingsSummary,
         width: usize,
     ) -> Option<String> {
-        crate::board::digest_dashboard::savings_start(
+        crate::board::savings::savings_start(
             summary,
             self.digest_window(),
             self.local_zone.as_ref().unwrap_or(&jiff::tz::TimeZone::UTC),
