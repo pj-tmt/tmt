@@ -5145,20 +5145,45 @@ fn a_browser_work_action_meets_the_same_admission_as_the_write_command() {
 }
 
 #[test]
-fn a_public_reader_cannot_send_a_work_action() {
+fn no_reader_and_no_link_can_send_a_work_action() {
+    let work = |server: &Running, session: &_| {
+        server.reader_frame(
+            session,
+            "work",
+            json!({"operationId":WORK_ONE,"action":"task.add","body":{"task":{"title":"x"}}}),
+        )
+    };
+    // A public reader has no write access.
     let server = Running::start(Tunnels::PRODUCT);
     server.publish();
     let session = server.reader_session();
     let mut reader = server.reader_peer(&session);
-    send(
-        &mut reader,
-        server.reader_frame(
-            &session,
-            "work",
-            json!({"operationId":WORK_ONE,"action":"task.add","body":{"task":{"title":"x"}}}),
-        ),
-    );
-    assert_eq!(receive_until(&mut reader, "error").0["type"], "error");
+    send(&mut reader, work(&server, &session));
+    let (error, before) = receive_until(&mut reader, "error");
+    assert_eq!(error["type"], "error");
+    assert!(before.iter().all(|frame| frame["type"] != "workresult"));
+    // Nor does any link: a work action is the owner device's alone, and nothing is written.
+    for role in ["viewer", "commenter", "editor"] {
+        let server = Running::start(Tunnels::PRODUCT);
+        let session = server.link_session(role);
+        let mut link = server.reader_peer(&session);
+        send(&mut link, work(&server, &session));
+        let (error, before) = receive_until(&mut link, "error");
+        assert_eq!(error["type"], "error", "{role}");
+        assert!(
+            before.iter().all(|frame| frame["type"] != "workresult"),
+            "{role}"
+        );
+        let layout = Layout::existing(&server.root).unwrap().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let tasks = native_work(&layout, &key);
+        assert!(
+            tasks["order"]
+                .as_array()
+                .is_none_or(|order| order.is_empty()),
+            "{role}: the refused action wrote a task: {tasks}"
+        );
+    }
 }
 
 #[test]
