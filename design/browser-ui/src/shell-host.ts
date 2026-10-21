@@ -190,9 +190,37 @@ export function startShellHost(
     },
   });
 
+  /** The path a full load was last asked for, so a route the door serves but this app does not
+   * know reloads once, then lands on Home instead of reloading forever. */
+  const RELOADED = 'tmt-shell-reloaded';
+  const remember = (path: string | undefined): boolean => {
+    try {
+      if (path === undefined) window.sessionStorage.removeItem(RELOADED);
+      else window.sessionStorage.setItem(RELOADED, path);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  let reloaded: string | null = null;
+  try {
+    reloaded = window.sessionStorage.getItem(RELOADED);
+  } catch {
+    reloaded = null;
+  }
+  function elsewhere() {
+    const path = window.location.pathname;
+    // Without storage there is no way to tell a second load, so it goes Home at once.
+    if (reloaded !== path && remember(path)) return window.location.reload();
+    remember(undefined);
+    window.history.replaceState(null, '', '/');
+    return void show();
+  }
+
   async function show() {
     const route = matchRoute(routes, window.location.pathname);
-    if (!route) return window.location.reload();
+    if (!route) return elsewhere();
+    remember(undefined);
     if (current?.route === route) return paint();
     current?.release?.();
     const mine = ++generation;

@@ -1281,6 +1281,68 @@ async function writeRegistry(expected, text) {
 	}).finally(() => transaction.db.close());
 }
 //#endregion
+//#region src/remote-shell.ts
+var current;
+/** The mounted route's part of the one shell, or undefined outside the app (unit tests). */
+function remoteShell() {
+	return current;
+}
+/** Give Remote's page code the mounted route's slot and lifetime; `undefined` when it unmounts. */
+function hostRemote(slot, signal) {
+	current = slot && signal && {
+		setMenu: (menu, select) => slot.setMenu(menu, select),
+		describe: (address) => slot.describe(address),
+		described: (listener) => slot.described(listener),
+		signal
+	};
+}
+/** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
+function row$2(href, mark, title, detail) {
+	const item = document.createElement("li");
+	item.className = "tmt-ui-list-row";
+	item.dataset.leading = "";
+	const sign = document.createElement("div");
+	sign.className = "tmt-ui-list-leading";
+	sign.setAttribute("aria-hidden", "true");
+	sign.textContent = mark;
+	if (mark === "◆") sign.dataset.tone = "waiting";
+	const name = document.createElement("div");
+	name.className = "tmt-ui-list-title";
+	const link = document.createElement("a");
+	link.href = href;
+	link.textContent = title;
+	name.append(link);
+	const meta = document.createElement("div");
+	meta.className = "tmt-ui-list-meta";
+	const more = document.createElement("div");
+	more.className = "tmt-ui-list-updated";
+	more.textContent = detail;
+	meta.append(more);
+	item.append(sign, name, meta);
+	return item;
+}
+/** One Needs-you row per module with a count and a waiting pairing offer; no per-item list until
+* modules publish items. Recent pages are the modules' described home cards. */
+function homePage(shell) {
+	const needs = document.getElementById("home-needs");
+	const note = document.getElementById("home-needs-note");
+	const recent = document.getElementById("home-recent");
+	const recentBlock = document.getElementById("home-recent-block");
+	if (!needs || !note || !recent || !recentBlock) return;
+	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
+	shell.described(async (answer) => {
+		const rows = [];
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(module.rail.path, "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
+		if (await offer) rows.push(row$2(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
+		needs.replaceChildren(...rows);
+		note.textContent = answer ? rows.length ? "" : "Nothing needs you." : "Pair this browser in Remote to see what needs you.";
+		note.hidden = !note.textContent;
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(card.path, "▤", card.title, module.rail.label)));
+		recent.replaceChildren(...cards);
+		recentBlock.hidden = cards.length === 0;
+	});
+}
+//#endregion
 //#region src/remote-state.ts
 /** Current-origin observation only. A foreign entry has no mark or live-access claim. A connection
 * state is words only, in the neutral tone: the shared agent marks mean agent states, not these. */
@@ -1332,67 +1394,6 @@ function currentRemote(entry, address, pageUrl) {
 	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
 }
 //#endregion
-//#region src/remote-shell.ts
-var current;
-/** The mounted route's part of the one shell, or undefined outside the app (unit tests). */
-function remoteShell() {
-	return current;
-}
-/** Give Remote's page code the mounted route's slot; `undefined` when the route unmounts. */
-function hostRemote(slot) {
-	current = slot && {
-		setMenu: (menu, select) => slot.setMenu(menu, select),
-		describe: (address) => slot.describe(address),
-		described: (listener) => slot.described(listener)
-	};
-}
-/** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
-function row$2(href, mark, title, detail) {
-	const item = document.createElement("li");
-	item.className = "tmt-ui-list-row";
-	item.dataset.leading = "";
-	const sign = document.createElement("div");
-	sign.className = "tmt-ui-list-leading";
-	sign.setAttribute("aria-hidden", "true");
-	sign.textContent = mark;
-	if (mark === "◆") sign.dataset.tone = "waiting";
-	const name = document.createElement("div");
-	name.className = "tmt-ui-list-title";
-	const link = document.createElement("a");
-	link.href = href;
-	link.textContent = title;
-	name.append(link);
-	const meta = document.createElement("div");
-	meta.className = "tmt-ui-list-meta";
-	const more = document.createElement("div");
-	more.className = "tmt-ui-list-updated";
-	more.textContent = detail;
-	meta.append(more);
-	item.append(sign, name, meta);
-	return item;
-}
-/** One Needs-you row per module with a count and a waiting pairing offer; no per-item list until
-* modules publish items. Recent pages are the modules' described home cards. */
-function homePage(shell) {
-	const needs = document.getElementById("home-needs");
-	const note = document.getElementById("home-needs-note");
-	const recent = document.getElementById("home-recent");
-	const recentBlock = document.getElementById("home-recent-block");
-	if (!needs || !note || !recent || !recentBlock) return;
-	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
-	shell.described(async (answer) => {
-		const rows = [];
-		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(module.rail.path, "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
-		if (await offer) rows.push(row$2(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
-		needs.replaceChildren(...rows);
-		note.textContent = answer ? rows.length ? "" : "Nothing needs you." : "Pair this browser in Remote to see what needs you.";
-		note.hidden = !note.textContent;
-		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(card.path, "▤", card.title, module.rail.label)));
-		recent.replaceChildren(...cards);
-		recentBlock.hidden = cards.length === 0;
-	});
-}
-//#endregion
 //#region src/remote-menu.ts
 /** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
 function remoteMenu(actions, shell = remoteShell()) {
@@ -1417,7 +1418,7 @@ function remoteMenu(actions, shell = remoteShell()) {
 		const onLanding = page !== "settings";
 		if (!selected) remotes.push({
 			id: "current",
-			label: [view.mark, `this machine · ${view.word}`].filter(Boolean).join(" "),
+			label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(" "),
 			href: landing,
 			current: onLanding
 		});
@@ -1501,14 +1502,12 @@ function remoteMenu(actions, shell = remoteShell()) {
 		paint();
 		actions.refresh();
 	};
-	const lifetime = new AbortController();
-	addEventListener("pagehide", () => lifetime.abort(), { once: true });
 	const entered = (event) => {
 		const menu = event.target?.closest?.(".tmt-ui-module-menu");
 		if (menu && !menu.contains(event.relatedTarget)) refresh();
 	};
-	document.addEventListener("pointerover", entered, { signal: lifetime.signal });
-	document.addEventListener("focusin", entered, { signal: lifetime.signal });
+	document.addEventListener("pointerover", entered, { signal: shell.signal });
+	document.addEventListener("focusin", entered, { signal: shell.signal });
 	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;
@@ -2040,7 +2039,7 @@ function remoteRegistryPage(blocked = () => "", shell) {
 		if (!value || ["#remotes", "#add-remote"].includes(value)) return;
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
-	});
+	}, { signal: (shell ?? remoteShell())?.signal });
 	return (state, checkedAddress) => {
 		observed = state;
 		if (checkedAddress) address = checkedAddress;
@@ -2270,6 +2269,13 @@ function rememberedShellAnswer() {
 	} catch {
 		return;
 	}
+}
+/** The door's mount of one module: `/r/<prefix>/x/<module>/`, the prefix being the machine's 16
+* lowercase base32 letters. The one definition of that shape for every product. */
+var MODULE_MOUNT = /^(\/r\/[a-z2-7]{16})\/x\/([a-z0-9][a-z0-9-]{0,31})\/$/;
+/** The module a mount path names, or undefined when `pathname` is not exactly a module mount. */
+function moduleMount(pathname) {
+	return MODULE_MOUNT.exec(pathname)?.[2];
 }
 /**
 * Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
@@ -2725,9 +2731,35 @@ function startShellHost(root, routes, options = {}) {
 			else listeners.push(listener);
 		}
 	});
+	/** The path a full load was last asked for, so a route the door serves but this app does not
+	* know reloads once, then lands on Home instead of reloading forever. */
+	const RELOADED = "tmt-shell-reloaded";
+	const remember = (path) => {
+		try {
+			if (path === void 0) window.sessionStorage.removeItem(RELOADED);
+			else window.sessionStorage.setItem(RELOADED, path);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+	let reloaded = null;
+	try {
+		reloaded = window.sessionStorage.getItem(RELOADED);
+	} catch {
+		reloaded = null;
+	}
+	function elsewhere() {
+		const path = window.location.pathname;
+		if (reloaded !== path && remember(path)) return window.location.reload();
+		remember(void 0);
+		window.history.replaceState(null, "", "/");
+		show();
+	}
 	async function show() {
 		const route = matchRoute(routes, window.location.pathname);
-		if (!route) return window.location.reload();
+		if (!route) return elsewhere();
+		remember(void 0);
 		if (current?.route === route) return paint();
 		current?.release?.();
 		const mine = ++generation;
@@ -2965,8 +2997,6 @@ function digestPage(source = digestSource) {
 * (`.js`). Anything else is
 * refused, and the module's own link is the fallback.
 */
-/** `/r/<prefix>/x/<module>`, the door's mount for one module, with or without a trailing slash. */
-var MOUNT = /^\/r\/[a-z0-9]+\/x\/[a-z0-9][a-z0-9-]*\/?$/;
 /** An entry has no escapes, backslashes, query, fragment, control characters or dot segments. */
 function plain(entry) {
 	if (/[\\%?#\u0000-\u001f\u007f]/.test(entry)) return false;
@@ -2986,8 +3016,8 @@ function moduleLoad(rail, entry, here, fallback) {
 	} catch {
 		return {};
 	}
-	if (mount.origin !== page.origin || mount.search || mount.hash || !MOUNT.test(mount.pathname)) return {};
 	const link = mount.pathname.endsWith("/") ? mount.pathname : `${mount.pathname}/`;
+	if (mount.origin !== page.origin || mount.search || mount.hash || !moduleMount(link)) return {};
 	const wanted = entry ?? fallback;
 	if (wanted === void 0) return { link };
 	if (!plain(wanted)) return { link };
@@ -3240,7 +3270,7 @@ function opsPage(shell, source = opsSource) {
 		if (title) title.textContent = SECTIONS$1.find((item) => item.id === section).label;
 		if (board) main.replaceChildren(...opsSection(board, section));
 	};
-	window.addEventListener("hashchange", paint);
+	window.addEventListener("hashchange", paint, { signal: shell.signal });
 	paint();
 	source.board().then((next) => {
 		board = next;
@@ -3660,13 +3690,14 @@ async function pageStyles(page) {
 function remotePage(html, run) {
 	return { async mount(slot) {
 		const unstyle = await adopt(slot, html);
-		hostRemote(slot);
+		const lifetime = new AbortController();
+		hostRemote(slot, lifetime.signal);
 		const release = await run(slot);
 		return () => {
+			lifetime.abort();
 			release?.();
 			unstyle();
 			hostRemote(void 0);
-			window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
 		};
 	} };
 }
@@ -3679,7 +3710,7 @@ function colabLoad(answer) {
 	return moduleLoad(colab.rail.path, colab.entry, location.href, COLAB_ENTRY);
 }
 function message(slot, title, text, link) {
-	const main = document.createElement("main");
+	const main = document.createElement("section");
 	main.className = "page";
 	const heading = document.createElement("h2");
 	heading.textContent = title;
@@ -3711,7 +3742,7 @@ var routes = [
 		quiet: true,
 		load: async () => remotePage(landing_default, async () => {
 			const { landingPage } = await import("./remote-v1.js");
-			await landingPage();
+			await landingPage(remoteShell().signal);
 		})
 	},
 	{
@@ -3753,7 +3784,7 @@ var routes = [
 			if (!answer && await reopened()) answer = await started?.redescribe();
 			const load = colabLoad(answer);
 			const entry = load?.entry;
-			if (!entry) return { mount: (slot) => load ? message(slot, "Colab", "This page will not load Colab from the address its description gives.", load.link ? {
+			if (!entry) return { mount: (slot) => load ? message(slot, "Colab", "Colab could not be opened here.", load.link ? {
 				href: load.link,
 				label: "Open Colab"
 			} : void 0) : answer ? message(slot, "Colab", "Colab is not running on your machine. Run tmt colab serve there, then reload.") : message(slot, "Colab", "Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.") };
@@ -5784,7 +5815,8 @@ async function entryPairing() {
 	}
 }
 /** Landing-page observation uses the verified Session lane; it never dispatches work. */
-async function landingPage() {
+/** `lifetime` is the route's: once it aborts the page paints nothing and starts nothing more. */
+async function landingPage(lifetime) {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	const registryState = remoteRegistryPage();
 	const button = element("check");
@@ -5793,7 +5825,7 @@ async function landingPage() {
 	let session;
 	let opaque = false;
 	const pageAlive = () => !departed && button.isConnected;
-	window.addEventListener("pagehide", () => {
+	lifetime?.addEventListener("abort", () => {
 		departed = true;
 		attempt++;
 	}, { once: true });

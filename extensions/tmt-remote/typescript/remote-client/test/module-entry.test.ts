@@ -2,7 +2,7 @@ import { expect, it } from 'vite-plus/test';
 import { moduleLoad } from '../src/module-entry.js';
 
 const HERE = 'http://127.0.0.1:4000/colab/';
-const MOUNT = '/r/abcdefgh/x/colab/';
+const MOUNT = '/r/abcdefghijklmnop/x/colab/';
 const ENTRY = `http://127.0.0.1:4000${MOUNT}assets/colab-module.js`;
 const DEFAULT = 'assets/colab-module.js';
 
@@ -13,7 +13,7 @@ it('loads the default entry, or a named file, under the module mount', () => {
   );
   expect(moduleLoad(MOUNT, `${MOUNT}assets/colab-module.js`, HERE).entry).toBe(ENTRY);
   // A mount written without its trailing slash is the same mount.
-  expect(moduleLoad('/r/abcdefgh/x/colab', undefined, HERE, DEFAULT)).toEqual({
+  expect(moduleLoad('/r/abcdefghijklmnop/x/colab', undefined, HERE, DEFAULT)).toEqual({
     link: MOUNT,
     entry: ENTRY,
   });
@@ -22,9 +22,11 @@ it('loads the default entry, or a named file, under the module mount', () => {
 
 it('gives a module that names no entry and has no fallback only its link', () => {
   // The Colab-named script is for Colab alone; another module's mount is never asked for it.
-  expect(moduleLoad('/r/abcdefgh/x/ops/', undefined, HERE)).toEqual({ link: '/r/abcdefgh/x/ops/' });
-  expect(moduleLoad('/r/abcdefgh/x/ops/', 'app.js', HERE).entry).toBe(
-    'http://127.0.0.1:4000/r/abcdefgh/x/ops/app.js',
+  expect(moduleLoad('/r/abcdefghijklmnop/x/ops/', undefined, HERE)).toEqual({
+    link: '/r/abcdefghijklmnop/x/ops/',
+  });
+  expect(moduleLoad('/r/abcdefghijklmnop/x/ops/', 'app.js', HERE).entry).toBe(
+    'http://127.0.0.1:4000/r/abcdefghijklmnop/x/ops/app.js',
   );
 });
 
@@ -37,9 +39,9 @@ it('refuses an entry outside the mount and keeps the module link', () => {
     '../colab/assets/x.js',
     './assets/x.js',
     'assets/../x.js',
-    '/r/abcdefgh/x/other/colab.js',
-    '/r/abcdefgh/x/colab-evil/colab.js',
-    '/r/zzzzzzzz/x/colab/colab.js',
+    '/r/abcdefghijklmnop/x/other/colab.js',
+    '/r/abcdefghijklmnop/x/colab-evil/colab.js',
+    '/r/zzzzzzzzzzzzzzzz/x/colab/colab.js',
     'assets//x.js',
     'assets/colab.css',
     'assets/colab-module',
@@ -67,12 +69,12 @@ it('refuses escapes, backslashes, queries, fragments and control characters', ()
 
 it('offers no link or entry for a mount that is not a module mount on this origin', () => {
   for (const rail of [
-    'https://evil.example/r/abcdefgh/x/colab/',
+    'https://evil.example/r/abcdefghijklmnop/x/colab/',
     '/evil/',
-    '/r/abcdefgh/x/',
-    '/r/abcdefgh/x/colab/extra/',
-    '/r/abcdefgh/x/colab/?q=1',
-    '/r/abcdefgh/x/colab/#a',
+    '/r/abcdefghijklmnop/x/',
+    '/r/abcdefghijklmnop/x/colab/extra/',
+    '/r/abcdefghijklmnop/x/colab/?q=1',
+    '/r/abcdefghijklmnop/x/colab/#a',
     '/r/ABC/x/colab/',
     '',
   ])

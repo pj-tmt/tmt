@@ -14,6 +14,8 @@ export interface RemoteShell {
   describe(address?: string): void;
   /** Called once the composed shell is read: the answer, or undefined without an owner session. */
   described(listener: (answer: ShellAnswer | undefined) => void): void;
+  /** Aborted when the route unmounts: page code ends its listeners, checks and sessions on it. */
+  readonly signal: AbortSignal;
 }
 
 let current: RemoteShell | undefined;
@@ -23,13 +25,15 @@ export function remoteShell(): RemoteShell | undefined {
   return current;
 }
 
-/** Give Remote's page code the mounted route's slot; `undefined` when the route unmounts. */
-export function hostRemote(slot: ShellSlot | undefined): void {
-  current = slot && {
-    setMenu: (menu, select) => slot.setMenu(menu, select),
-    describe: (address) => slot.describe(address),
-    described: (listener) => slot.described(listener),
-  };
+/** Give Remote's page code the mounted route's slot and lifetime; `undefined` when it unmounts. */
+export function hostRemote(slot: ShellSlot | undefined, signal?: AbortSignal): void {
+  current = slot &&
+    signal && {
+      setMenu: (menu, select) => slot.setMenu(menu, select),
+      describe: (address) => slot.describe(address),
+      described: (listener) => slot.described(listener),
+      signal,
+    };
 }
 
 /** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */

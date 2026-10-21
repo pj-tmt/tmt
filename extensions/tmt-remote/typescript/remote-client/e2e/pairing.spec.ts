@@ -4645,7 +4645,7 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     await expect(page.locator('#state-label')).toHaveText('Connected');
     const first = await identity();
     const menu = page.locator('.tmt-ui-module-menu');
-    await expect(menu.getByRole('link', { name: 'this machine · connected' })).toHaveAttribute(
+    await expect(menu.getByRole('link', { name: 'This machine · connected' })).toHaveAttribute(
       'aria-current',
       'page',
     );

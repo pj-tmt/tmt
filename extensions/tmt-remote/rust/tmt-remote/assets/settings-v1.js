@@ -108,7 +108,8 @@ function settingsChoice(trigger, surface) {
 }
 //#endregion
 //#region src/remote-state.ts
-/** Current-origin observation only. A foreign entry has no mark or live-access claim. */
+/** Current-origin observation only. A foreign entry has no mark or live-access claim. A connection
+* state is words only, in the neutral tone: the shared agent marks mean agent states, not these. */
 function remoteState(state, current = true) {
 	if (!current) return {
 		text: "not checked",
@@ -117,48 +118,36 @@ function remoteState(state, current = true) {
 		tone: "muted",
 		action: ""
 	};
-	const [text, word, mark, tone, action] = state === "Connected" ? [
+	const [text, word, action] = state === "Connected" ? [
 		"Connected",
 		"connected",
-		"●",
-		"working",
 		""
 	] : state === "Checking" ? [
-		"Checking",
+		"Checking…",
 		"connecting",
-		"◌",
-		"waiting",
 		""
 	] : state === "Access ended" ? [
 		"Access ended",
 		"access ended",
-		"✗",
-		"blocked",
 		"Pair again"
 	] : state === "Different machine" ? [
 		"Different machine",
 		"different machine",
-		"△",
-		"waiting",
 		"Pair again"
 	] : state === "Not paired" || state === "Pairing unreadable" ? [
 		state,
 		"not paired",
-		"○",
-		"waiting",
 		"Pair again"
 	] : [
 		"Unconfirmed",
 		"unreachable",
-		"○",
-		"blocked",
 		"Retry"
 	];
 	return {
-		text: `${mark} ${text}`,
+		text,
 		word,
-		mark,
-		tone,
+		mark: "",
+		tone: "neutral",
 		action
 	};
 }
@@ -169,635 +158,9 @@ function currentRemote(entry, address, pageUrl) {
 	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
 }
 //#endregion
-//#region ../../../../design/browser-ui/src/brand-mark-svg.ts
-/** A polygon whose corners are quadratic curves of the given radii (0 keeps a corner sharp). */
-function rounded(points, radii) {
-	const n = points.length;
-	const toward = ([ax, ay], [bx, by], k) => {
-		const length = Math.hypot(bx - ax, by - ay);
-		const t = Math.min(k, length / 2) / length;
-		return [ax + (bx - ax) * t, ay + (by - ay) * t];
-	};
-	let d = "";
-	for (let i = 0; i < n; i++) {
-		const corner = points[i];
-		const [sx, sy] = toward(corner, points[(i - 1 + n) % n], radii[i]);
-		const [ex, ey] = toward(corner, points[(i + 1) % n], radii[i]);
-		d += `${i ? "L" : "M"}${sx.toFixed(2)} ${sy.toFixed(2)}Q${corner[0]} ${corner[1]} `;
-		d += `${ex.toFixed(2)} ${ey.toFixed(2)}`;
-	}
-	return `${d}Z`;
-}
-var FULL = {
-	panel: rounded([
-		[6, 10],
-		[50, 24],
-		[50, 80],
-		[6, 88]
-	], [
-		8,
-		6.5,
-		6.5,
-		8
-	]),
-	beam: rounded([
-		[7, 10],
-		[74, 22],
-		[80, 28],
-		[80, 80],
-		[74, 86],
-		[50, 80],
-		[7, 70]
-	], [
-		0,
-		7,
-		7,
-		7,
-		7,
-		0,
-		0
-	]),
-	rim: "M49.4 29 L49.4 75",
-	prompt: "M15.5 34 L23.5 40.5 L15.5 47 M26.5 49.5 L34 51.2"
-};
-var SMALL = {
-	panel: rounded([
-		[5, 14],
-		[52, 24],
-		[52, 76],
-		[5, 86]
-	], [
-		7,
-		7,
-		7,
-		7
-	]),
-	beam: rounded([
-		[6, 14],
-		[86, 24],
-		[92, 29],
-		[92, 81],
-		[86, 86],
-		[52, 76],
-		[6, 70]
-	], [
-		0,
-		9,
-		9,
-		9,
-		9,
-		0,
-		0
-	]),
-	prompt: "M15 37 L28 50 L15 63"
-};
-var brandMarkSmall = (size) => size !== void 0 && size < 28;
-var stop = (name, offset, opacity) => `<stop class="tmt-brand-mark-${name}" offset="${offset}"${opacity === void 0 ? "" : ` stop-opacity="${opacity}"`}></stop>`;
-var light = (offset, opacity) => `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
-var box = "filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"96\" height=\"96\"";
-/** The mark's children; `id` prefixes its paint servers, unique per document. */
-function brandMarkInner(small, id) {
-	const shape = small ? SMALL : FULL;
-	const aurora = `<linearGradient id="${id}-aurora" x1="0.2" y1="0.05" x2="0.85" y2="1">${stop("cyan", 0)}${stop("green", .5)}${stop("gold", 1)}</linearGradient><linearGradient id="${id}-far" x1="0" y1="0" x2="1" y2="0">${stop("far", .45, 0)}${stop("far", 1, small ? .15 : .25)}</linearGradient><linearGradient id="${id}-panel" x1="0" y1="0" x2="0.6" y2="1">${stop("panel-top", 0)}${stop("panel-bottom", 1)}</linearGradient><linearGradient id="${id}-mono" x1="0" y1="0" x2="1" y2="0.35">${stop("mono-start", 0)}${stop("mono-end", 1)}</linearGradient>`;
-	const beam = `<path d="${shape.beam}" fill="url(#${id}-aurora)"></path><path d="${shape.beam}" fill="url(#${id}-far)"></path>`;
-	const print = `<path class="tmt-brand-mark-print" d="${shape.beam}" fill="url(#${id}-mono)"></path>`;
-	const panel = `<path class="tmt-brand-mark-panel" d="${shape.panel}" fill="url(#${id}-panel)"></path>`;
-	const prompt = `<path class="tmt-brand-mark-prompt" d="${shape.prompt}"></path>`;
-	if (small) return `<defs>${aurora}</defs><g class="tmt-brand-mark-beam">${beam}</g>${print}${panel}${prompt}`;
-	return `<defs>${aurora}<linearGradient id="${id}-halo-weight" x1="0" y1="0" x2="1" y2="1">${light(.3, .15)}${light(1, 1)}</linearGradient><mask id="${id}-halo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"><rect width="96" height="96" fill="url(#${id}-halo-weight)"></rect></mask><linearGradient id="${id}-feather" x1="0" y1="0" x2="1" y2="0">${light(.88, 1)}${light(1, .7)}</linearGradient><mask id="${id}-feather-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#${id}-feather)"></rect></mask><linearGradient id="${id}-spill" gradientUnits="userSpaceOnUse" x1="50" y1="0" x2="36" y2="0">${stop("glow", 0, .6)}${stop("cyan", .35, .22)}${stop("cyan", 1, 0)}</linearGradient><linearGradient id="${id}-sheen" x1="0" y1="0" x2="1" y2="1">${light(0, .1)}${light(.35, 0)}</linearGradient><linearGradient id="${id}-rim" x1="0" y1="0" x2="0" y2="1">${stop("cyan", 0, .9)}${stop("gold", 1, .9)}</linearGradient><clipPath id="${id}-panel-clip"><path d="${shape.panel}"></path></clipPath><filter id="${id}-halo" ${box}><feGaussianBlur stdDeviation="2.4"></feGaussianBlur></filter><filter id="${id}-soft" ${box}><feGaussianBlur stdDeviation="0.25"></feGaussianBlur></filter></defs><g transform="translate(6.5 3) scale(0.94)"><g class="tmt-brand-mark-beam"><g mask="url(#${id}-halo-mask)"><path d="${shape.beam}" fill="url(#${id}-aurora)" filter="url(#${id}-halo)" opacity="0.55" transform="translate(1 1.4)"></path></g><g mask="url(#${id}-feather-mask)" filter="url(#${id}-soft)">${beam}</g></g>` + print + panel + `<g class="tmt-brand-mark-beam" clip-path="url(#${id}-panel-clip)"><path d="${shape.panel}" fill="url(#${id}-spill)"></path><path class="tmt-brand-mark-rim" d="${FULL.rim}" stroke="url(#${id}-rim)"></path></g><path d="${shape.panel}" fill="url(#${id}-sheen)"></path>` + prompt + `</g>`;
-}
-/** The whole decorative `<svg>`, as static hosts embed it. */
-function brandMarkSvg({ size, className = "tmt-brand-mark", id }) {
-	const small = brandMarkSmall(size);
-	const dimensions = size === void 0 ? "" : ` width="${size}" height="${size}"`;
-	return `<svg class="${className}" data-form="${small ? "small" : "full"}" viewBox="0 0 96 96" aria-hidden="true"${dimensions}>${brandMarkInner(small, id)}</svg>`;
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/shell-icons.ts
-/**
-* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
-* same icons without a React or Lucide runtime. The first eight are the module icon allow-list
-* of Remote's describe contract; an unknown name falls back to `box`.
-*/
-var shellIconNodes = {
-	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
-	"file-text": [
-		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
-		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
-		["path", { d: "M10 9H8" }],
-		["path", { d: "M16 13H8" }],
-		["path", { d: "M16 17H8" }]
-	],
-	"monitor-smartphone": [
-		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
-		["path", { d: "M10 19v-3.96 3.15" }],
-		["path", { d: "M7 19h5" }],
-		["rect", {
-			width: "6",
-			height: "10",
-			x: "16",
-			y: "12",
-			rx: "2"
-		}]
-	],
-	users: [
-		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
-		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
-		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
-		["circle", {
-			cx: "9",
-			cy: "7",
-			r: "4"
-		}]
-	],
-	"chart-column": [
-		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
-		["path", { d: "M18 17V9" }],
-		["path", { d: "M13 17V5" }],
-		["path", { d: "M8 17v-3" }]
-	],
-	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
-		cx: "11",
-		cy: "11",
-		r: "8"
-	}]],
-	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
-		cx: "12",
-		cy: "12",
-		r: "3"
-	}]],
-	box: [
-		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
-		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
-		["path", { d: "M12 22V12" }]
-	],
-	"panel-left-close": [
-		["rect", {
-			width: "18",
-			height: "18",
-			x: "3",
-			y: "3",
-			rx: "2"
-		}],
-		["path", { d: "M9 3v18" }],
-		["path", { d: "m16 15-3-3 3-3" }]
-	],
-	menu: [
-		["path", { d: "M4 5h16" }],
-		["path", { d: "M4 12h16" }],
-		["path", { d: "M4 19h16" }]
-	]
-};
-var moduleIcons = [
-	"house",
-	"file-text",
-	"monitor-smartphone",
-	"users",
-	"chart-column",
-	"search",
-	"settings",
-	"box"
-];
-var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
-//#endregion
-//#region ../../../../design/browser-ui/src/shell.ts
-/** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
-function shellCount(value, kind = "needs-you") {
-	return {
-		text: value > 99 ? "99+" : String(value),
-		needsYou: kind === "needs-you"
-	};
-}
-/** The answer this browser read last, shared by every page so each paints the same rail first. */
-var ANSWER_KEY = "tmt-shell-answer-v1";
-function rememberedShellAnswer() {
-	try {
-		const stored = JSON.parse(sessionStorage.getItem(ANSWER_KEY) ?? "null");
-		return stored?.version === 1 && Array.isArray(stored.modules) ? stored : void 0;
-	} catch {
-		return;
-	}
-}
-/**
-* Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
-* answer for its path (`POST /sdk/mount`). Undefined when neither answers.
-*/
-async function shellAddress() {
-	const mounted = /^\/r\/[a-z0-9]+(?=\/x\/)/.exec(location.pathname);
-	if (mounted) return `${location.origin}${mounted[0]}`;
-	try {
-		const response = await fetch("/sdk/mount", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ path: location.pathname })
-		});
-		if (response.status !== 200) return void 0;
-		const { address } = await response.json();
-		return typeof address === "string" ? address : void 0;
-	} catch {
-		return;
-	}
-}
-/** Fetch the owner's composed shell once per page; any failure leaves the remembered answer. */
-async function loadShellAnswer(address) {
-	try {
-		const response = await fetch(`${address}/x/-/shell`, {
-			credentials: "same-origin",
-			cache: "no-store"
-		});
-		if (!response.ok) return void 0;
-		const answer = await response.json();
-		if (answer?.version !== 1 || !Array.isArray(answer.modules)) return void 0;
-		try {
-			sessionStorage.setItem(ANSWER_KEY, JSON.stringify(answer));
-		} catch {}
-		return answer;
-	} catch {
-		return;
-	}
-}
-/**
-* The one rail (spec c5ccd17a): the same items in the same order on every page, whatever module
-* hosts it. A module the composed answer does not describe stays, dimmed, with the reason.
-*/
-var RAIL = [
-	{
-		id: "colab",
-		label: "Colab",
-		icon: "file-text",
-		path: "/colab/"
-	},
-	{
-		id: "remote",
-		label: "Remote",
-		icon: "monitor-smartphone",
-		path: "/remote/"
-	},
-	{
-		id: "ops",
-		label: "Ops",
-		icon: "users",
-		path: "/ops/"
-	},
-	{
-		id: "digest",
-		label: "Digest",
-		icon: "chart-column",
-		path: "/digest/"
-	}
-];
-/** Served by the TMT host itself, so always reachable from the rail. */
-var HOST_SERVED = /* @__PURE__ */ new Set([
-	"remote",
-	"ops",
-	"digest"
-]);
-/**
-* Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
-* order, Search, then TMT settings at the bottom. Colab is available when the answer describes it
-* or it hosts the page; without an answer (not paired) it is dimmed, as is Search, which is
-* Colab's quick switcher. The current item is the host's module, else the longest matching path.
-*/
-function shellRail(answer, place, host) {
-	const active = host?.extension;
-	const described = new Map((answer?.modules ?? []).map((module) => [module.extension, module]));
-	if (host && !described.has(host.extension)) described.set(host.extension, host);
-	const path = place.href.slice(place.origin.length);
-	const settings = path === "/settings" || path.startsWith("/settings/");
-	const unavailable = answer ? "Not installed on this machine" : "Pair this browser with Remote to open it";
-	const modules = [...RAIL.map((fixed) => {
-		const module = described.get(fixed.id);
-		return {
-			id: fixed.id,
-			label: module?.rail.label ?? fixed.label,
-			icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
-			href: module?.rail.path ?? `${place.origin}${fixed.path}`,
-			needsYou: module?.needsYou,
-			available: Boolean(module) || HOST_SERVED.has(fixed.id)
-		};
-	}), ...[...described.values()].filter((module) => !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
-		id: module.extension,
-		label: module.rail.label,
-		icon: moduleIcon(module.rail.icon),
-		href: module.rail.path,
-		needsYou: module.needsYou,
-		available: true
-	}))];
-	const matched = active ?? modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
-	const counts = [...described.values()].map((module) => module.needsYou);
-	const total = answer && counts.every((count) => count !== void 0) ? counts.reduce((sum, count) => sum + count, 0) : void 0;
-	const colab = modules[0];
-	return {
-		main: [
-			{
-				id: "home",
-				label: "Home",
-				icon: "house",
-				href: `${place.origin}/`,
-				count: total ? shellCount(total) : void 0,
-				current: path === "/" && !active
-			},
-			...modules.map((module) => ({
-				id: module.id,
-				label: module.label,
-				icon: module.icon,
-				href: module.href,
-				count: module.needsYou ? shellCount(module.needsYou) : void 0,
-				current: !settings && module.id === matched,
-				...module.available ? {} : {
-					disabled: true,
-					note: unavailable
-				}
-			})),
-			{
-				id: "search",
-				label: "Search",
-				icon: "search",
-				href: colab.href,
-				current: false,
-				...colab.available ? {} : {
-					disabled: true,
-					note: "Search opens Colab. " + unavailable
-				}
-			}
-		],
-		bottom: [{
-			id: "settings",
-			label: "TMT settings",
-			icon: "settings",
-			href: `${place.origin}/settings/`,
-			current: settings
-		}]
-	};
-}
-var RAIL_KEY = "tmt.shell.rail";
-var SVG = "http://www.w3.org/2000/svg";
-function railCollapsed() {
-	try {
-		return localStorage.getItem(RAIL_KEY) === "collapsed";
-	} catch {
-		return false;
-	}
-}
-function rememberRail(collapsed) {
-	try {
-		localStorage.setItem(RAIL_KEY, collapsed ? "collapsed" : "expanded");
-	} catch {}
-}
-function icon(document, name) {
-	const svg = document.createElementNS(SVG, "svg");
-	svg.setAttribute("class", "tmt-ui-shell-icon");
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("aria-hidden", "true");
-	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = document.createElementNS(SVG, tag);
-		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-		svg.append(node);
-	}
-	return svg;
-}
-function count(document, value) {
-	const badge = document.createElement("span");
-	badge.className = "tmt-ui-shell-count";
-	if (value.needsYou) badge.dataset.kind = "needs-you";
-	badge.textContent = value.needsYou ? `◆ ${value.text}` : value.text;
-	return badge;
-}
-/**
-* Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
-* `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
-* `.tmt-ui-shell-main`. The module menu goes between the bar and the main area: a column beside
-* them on wide screens, tabs under the title bar on phones. `select` may take over a plain click
-* on an item (an SPA route or Colab's search); it returns true when it handled the click.
-*/
-function mountShell(root, view, select) {
-	const document = root.ownerDocument;
-	root.classList.add("tmt-ui-shell");
-	const open = document.createElement("button");
-	open.type = "button";
-	open.className = "tmt-ui-shell-open";
-	open.setAttribute("aria-label", "Open navigation");
-	open.setAttribute("aria-expanded", "false");
-	open.append(icon(document, "menu"));
-	const rail = document.createElement("nav");
-	rail.className = "tmt-ui-rail";
-	rail.setAttribute("aria-label", "TMT");
-	const menu = document.createElement("nav");
-	menu.className = "tmt-ui-module-menu";
-	root.prepend(open, rail);
-	root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar").after(menu);
-	let collapsed = railCollapsed();
-	const setDrawer = (shown) => {
-		root.dataset.drawer = shown ? "open" : "closed";
-		open.setAttribute("aria-expanded", String(shown));
-	};
-	const paint = () => {
-		root.dataset.rail = collapsed ? "collapsed" : "expanded";
-		toggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
-		toggle.setAttribute("aria-expanded", String(!collapsed));
-		toggle.title = toggle.getAttribute("aria-label");
-	};
-	const toggle = document.createElement("button");
-	toggle.type = "button";
-	toggle.className = "tmt-ui-rail-toggle";
-	toggle.append(icon(document, "panel-left-close"));
-	toggle.onclick = () => {
-		collapsed = !collapsed;
-		rememberRail(collapsed);
-		paint();
-	};
-	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
-	const close = (event) => {
-		if (event.key === "Escape" && root.dataset.drawer === "open") {
-			setDrawer(false);
-			open.focus();
-		}
-	};
-	document.addEventListener("keydown", close);
-	const outside = (event) => {
-		const target = event.target;
-		if (root.dataset.drawer === "open" && !rail.contains(target) && !open.contains(target)) setDrawer(false);
-	};
-	document.addEventListener("pointerdown", outside);
-	const link = (className, item) => {
-		const anchor = document.createElement("a");
-		anchor.className = className;
-		anchor.href = item.href;
-		anchor.dataset.id = item.id;
-		if (item.current) anchor.setAttribute("aria-current", "page");
-		const disabled = "disabled" in item && item.disabled;
-		if (disabled) anchor.setAttribute("aria-disabled", "true");
-		if ("note" in item && item.note) anchor.title = item.note;
-		anchor.onclick = (event) => {
-			if (disabled) return event.preventDefault();
-			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-			setDrawer(false);
-			if (select?.(item.id, item.href)) event.preventDefault();
-		};
-		return anchor;
-	};
-	const railList = (items, extra) => {
-		const list = document.createElement("ul");
-		list.className = extra ? `tmt-ui-rail-items ${extra}` : "tmt-ui-rail-items";
-		for (const item of items) {
-			const anchor = link("tmt-ui-rail-item", item);
-			anchor.title = item.note ? `${item.label}: ${item.note}` : item.label;
-			const label = document.createElement("span");
-			label.className = "tmt-ui-rail-label";
-			label.textContent = item.label;
-			anchor.append(icon(document, item.icon), label);
-			if (item.count) anchor.append(count(document, item.count));
-			const row = document.createElement("li");
-			row.append(anchor);
-			list.append(row);
-		}
-		return list;
-	};
-	let shown = "";
-	const render = (next) => {
-		const key = JSON.stringify(next);
-		if (key === shown) return;
-		shown = key;
-		const top = document.createElement("div");
-		top.className = "tmt-ui-rail-top";
-		const brand = document.createElement("span");
-		brand.className = "tmt-ui-rail-brand";
-		brand.innerHTML = brandMarkSvg({
-			size: 24,
-			id: "tmt-rail"
-		});
-		const word = document.createElement("span");
-		word.className = "tmt-ui-rail-label";
-		word.textContent = "TMT";
-		brand.append(word);
-		top.append(brand, toggle);
-		rail.replaceChildren(top, railList(next.rail.main), railList(next.rail.bottom, "tmt-ui-rail-bottom"));
-		root.dataset.menu = next.menu ? "shown" : "none";
-		if (!next.menu) {
-			menu.replaceChildren();
-			menu.removeAttribute("aria-label");
-			return;
-		}
-		menu.setAttribute("aria-label", next.menu.title);
-		const left = menu.scrollLeft;
-		const title = document.createElement("div");
-		title.className = "tmt-ui-module-menu-title";
-		title.textContent = next.menu.title;
-		menu.replaceChildren(title);
-		for (const group of next.menu.groups) {
-			if (group.label !== void 0 || menu.childElementCount > 1) {
-				const heading = document.createElement("div");
-				heading.className = "tmt-ui-module-menu-group";
-				heading.textContent = group.label ?? "";
-				menu.append(heading);
-			}
-			const list = document.createElement("ul");
-			list.className = "tmt-ui-module-menu-items";
-			for (const item of group.items) {
-				const anchor = link("tmt-ui-module-menu-item", item);
-				const label = document.createElement("span");
-				label.className = "tmt-ui-module-menu-label";
-				label.textContent = item.label;
-				if (!item.note) label.title = item.label;
-				anchor.append(label);
-				if (item.total !== void 0 || item.count) {
-					const counts = document.createElement("span");
-					counts.className = "tmt-ui-shell-counts";
-					if (item.total !== void 0) counts.append(count(document, shellCount(item.total, "plain")));
-					if (item.count) counts.append(count(document, item.count));
-					anchor.append(counts);
-				}
-				const row = document.createElement("li");
-				row.append(anchor);
-				list.append(row);
-			}
-			menu.append(list);
-		}
-		menu.scrollLeft = left;
-		const current = menu.querySelector("[aria-current=\"page\"]");
-		if (current && menu.scrollWidth > menu.clientWidth) {
-			const strip = menu.getBoundingClientRect();
-			const box = current.getBoundingClientRect();
-			if (box.left < strip.left) menu.scrollLeft -= strip.left - box.left;
-			else if (box.right > strip.right) menu.scrollLeft += box.right - strip.right;
-		}
-	};
-	paint();
-	setDrawer(false);
-	render(view);
-	return {
-		update: render,
-		dispose() {
-			document.removeEventListener("keydown", close);
-			document.removeEventListener("pointerdown", outside);
-			open.remove();
-			rail.remove();
-			menu.remove();
-		}
-	};
-}
-//#endregion
-//#region src/remote-shell.ts
-/** Remote's static pages inside the one TMT web shell (design/browser-ui `shell.ts`). */
-var current;
-/**
-* Mount the shell once per page. The rail is the leaf's one fixed list, painted from the answer
-* this browser read last and refreshed from the owner's composed shell once the page asks
-* (`describe`) and this browser holds an owner session; any failure keeps what it shows.
-*/
-function remoteShell() {
-	if (current) return current;
-	const root = document.querySelector(".tmt-ui-shell");
-	if (!root) return void 0;
-	const place = () => ({
-		origin: location.origin,
-		href: location.href.split(/[?#]/)[0]
-	});
-	let answer = rememberedShellAnswer();
-	let menu;
-	let select;
-	let settled = false;
-	const listeners = [];
-	const settle = () => {
-		settled = true;
-		for (const listener of listeners.splice(0)) listener(answer);
-	};
-	const view = () => ({
-		rail: shellRail(answer, place()),
-		menu
-	});
-	const controls = mountShell(root, view(), (id, href) => Boolean(select?.(id, href)));
-	let asked = false;
-	current = {
-		describe(known) {
-			if (asked) return;
-			asked = true;
-			(async () => {
-				const address = known ?? await shellAddress();
-				const read = address === void 0 ? void 0 : await loadShellAnswer(address);
-				if (read) {
-					answer = read;
-					controls.update(view());
-				}
-				settle();
-			})();
-		},
-		setMenu(next, handler) {
-			menu = next;
-			select = handler;
-			controls.update(view());
-		},
-		described(listener) {
-			if (settled) listener(answer);
-			else listeners.push(listener);
-		}
-	};
-	return current;
-}
-//#endregion
 //#region src/remote-menu.ts
-function remoteMenu(actions) {
-	const shell = remoteShell();
+/** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
+function remoteMenu(actions, shell = void 0) {
 	if (!shell) return () => {};
 	const page = document.documentElement.dataset.tmtPage;
 	const landing = new URL("/remote/", location.href).href;
@@ -819,7 +182,7 @@ function remoteMenu(actions) {
 		const onLanding = page !== "settings";
 		if (!selected) remotes.push({
 			id: "current",
-			label: `${view.mark} this machine · ${view.word}`,
+			label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(" "),
 			href: landing,
 			current: onLanding
 		});
@@ -830,7 +193,7 @@ function remoteMenu(actions) {
 			if (!here) run.set(id, () => actions.open(entry));
 			remotes.push({
 				id,
-				label: here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
+				label: here ? [shown.mark, `${entry.name} · ${shown.word}`].filter(Boolean).join(" ") : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
 				href: here ? landing : "#",
 				current: here && onLanding,
 				disabled: !here && !!reason,
@@ -903,14 +266,12 @@ function remoteMenu(actions) {
 		paint();
 		actions.refresh();
 	};
-	const lifetime = new AbortController();
-	addEventListener("pagehide", () => lifetime.abort(), { once: true });
 	const entered = (event) => {
 		const menu = event.target?.closest?.(".tmt-ui-module-menu");
 		if (menu && !menu.contains(event.relatedTarget)) refresh();
 	};
-	document.addEventListener("pointerover", entered, { signal: lifetime.signal });
-	document.addEventListener("focusin", entered, { signal: lifetime.signal });
+	document.addEventListener("pointerover", entered, { signal: shell.signal });
+	document.addEventListener("focusin", entered, { signal: shell.signal });
 	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;
@@ -1344,7 +705,7 @@ function field(label, value) {
 function kindLabel(entry) {
 	return entry.kind === "local" ? "Local" : "Firebase";
 }
-function remoteRegistryPage(blocked = () => "") {
+function remoteRegistryPage(blocked = () => "", shell) {
 	const root = document.getElementById("remotes");
 	if (!root) return () => {};
 	const fragment = location.hash;
@@ -1388,7 +749,7 @@ function remoteRegistryPage(blocked = () => "") {
 			}
 		},
 		blocked
-	});
+	}, shell);
 	const showError = (error, slot) => {
 		slot.textContent = error instanceof RemoteRegistryError ? error.message : "The remotes could not be read";
 	};
@@ -1554,7 +915,7 @@ function remoteRegistryPage(blocked = () => "") {
 	add.addEventListener("click", () => {
 		const view = dialog("Add remote", add);
 		const alias = field("Remote name", "");
-		const url = field("Door address or remote link", "");
+		const url = field("Remote address or link", "");
 		view.body.append(alias.label, url.label);
 		view.buttons.append(action("Continue", () => {
 			reference(alias.input.value, url.input.value).then((entry) => {
@@ -1584,7 +945,7 @@ function remoteRegistryPage(blocked = () => "") {
 		if (!value || ["#remotes", "#add-remote"].includes(value)) return;
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
-	});
+	}, { signal: (shell ?? void 0)?.signal });
 	return (state, checkedAddress) => {
 		observed = state;
 		if (checkedAddress) address = checkedAddress;
@@ -1975,7 +1336,7 @@ var ManagementPage = class {
 			const intent = this.intent;
 			this.notice = intent?.kind === "setting" ? intent.input.setting === "open" ? "Browser opening saved." : "Session limit saved. Applies to new sessions." : intent?.kind === "rename" ? "Device renamed." : intent?.kind === "talk" ? intent.input.enabled ? "Sending enabled for this device." : "Sending disabled for this device." : intent?.kind === "remove-others" ? "The other devices were removed. This browser stays connected." : "Device removed.";
 			if (this.outcome.sessionEnded) this.notice += " This session ended. Use the local CLI to continue.";
-		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check its original result before making another change.";
+		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The saved value is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check the saved value before making another change.";
 		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_DEVICE_LIST_CHANGED" ? "The device list changed. Review it, then confirm again." : this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI to make changes." : "Change refused. Check the current values or use the local CLI.";
 	}
 };
@@ -2041,7 +1402,9 @@ var browserUiClasses = Object.freeze({
 	action: "tmt-ui-action",
 	actionLabel: "tmt-ui-action-label",
 	actionMark: "tmt-ui-action-mark",
-	spin: "tmt-ui-spin",
+	busyMark: "tmt-ui-busy-mark",
+	busyFrames: "tmt-ui-busy-frames",
+	checkbox: "tmt-ui-checkbox",
 	iconAction: "tmt-ui-icon-action",
 	iconActionControl: "tmt-ui-icon-action-control",
 	iconActionIcon: "tmt-ui-icon-action-icon",
@@ -2066,31 +1429,40 @@ var browserUiClasses = Object.freeze({
 	tabsStatus: "tmt-ui-tabs-status",
 	tabPanel: "tmt-ui-tab-panel"
 });
+/** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
+var busyFrames = [
+	"⠋",
+	"⠙",
+	"⠹",
+	"⠸",
+	"⠼",
+	"⠴",
+	"⠦",
+	"⠧",
+	"⠇",
+	"⠏"
+];
 /**
-* The reserved busy-mark slot of a static Action: a leading span holding the shared LoaderCircle
-* arc, hidden while `data-busy` is `false`. Set `data-busy` to `true` from `createBusyMarkGate`;
-* the shared spinner rule turns it. Non-React pages use this instead of copying the markup.
+* The reserved busy-mark slot of a static Action: a leading span holding the leaf busy mark (the
+* braille cycle `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
+* to `true` from `createBusyMarkGate`. Non-React pages use this instead of copying the markup.
 */
 function createActionMark(doc = document) {
 	const mark = doc.createElement("span");
 	mark.className = browserUiClasses.actionMark;
 	mark.setAttribute("aria-hidden", "true");
 	mark.dataset.busy = "false";
-	const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-	for (const [name, value] of Object.entries({
-		width: "1em",
-		height: "1em",
-		viewBox: "0 0 24 24",
-		fill: "none",
-		stroke: "currentColor",
-		"stroke-width": "2",
-		"stroke-linecap": "round",
-		"stroke-linejoin": "round"
-	})) svg.setAttribute(name, value);
-	const arc = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-	arc.setAttribute("d", "M21 12a9 9 0 1 1-6.219-8.56");
-	svg.append(arc);
-	mark.append(svg);
+	const busy = doc.createElement("span");
+	busy.className = browserUiClasses.busyMark;
+	const frames = doc.createElement("span");
+	frames.className = browserUiClasses.busyFrames;
+	for (const value of busyFrames) {
+		const frame = doc.createElement("span");
+		frame.dataset.frame = value;
+		frames.append(frame);
+	}
+	busy.append(frames);
+	mark.append(busy);
 	return mark;
 }
 /**
@@ -2135,594 +1507,599 @@ function createBusyMarkGate(onChange) {
 }
 //#endregion
 //#region src/settings-page.ts
-function element(id) {
-	const found = document.getElementById(id);
-	if (!found) throw new Error(`Settings page lacks #${id}.`);
-	return found;
-}
-var opening = element("opening");
-var mode = element("limit-mode");
-var custom = element("limit-custom");
-var devices = element("devices");
-var refresh = element("refresh");
-var removeOthers = element("remove-others");
-var more = element("more");
-var first = element("first");
-var rows = /* @__PURE__ */ new Map();
-var initialized = false;
-var choices;
-var confirmation;
-function targetSignature(target) {
-	return JSON.stringify([
-		target.name,
-		target.revoked,
-		target.talkEnabled,
-		target.thisBrowser
-	]);
-}
-function cancelConfirmation(refocus = false) {
-	if (!confirmation) return;
-	const { button, clientId } = confirmation;
-	const panel = rows.get(clientId)?.querySelector("[data-confirmation]");
-	if (panel) panel.hidden = true;
-	button.removeAttribute("aria-describedby");
-	button.setAttribute("aria-expanded", "false");
-	confirmation = void 0;
-	if (refocus && button.isConnected && !button.disabled) button.focus({ preventScroll: true });
-}
-/** A second deliberate press confirms only the same currently admitted presentation. */
-function confirmDevice(button, target, kind) {
-	page.removalPreview = void 0;
-	const signature = targetSignature(target);
-	if (confirmation?.button === button && confirmation.signature === signature) {
+/** The Remote settings page (`/remote/settings`): run once per mount of its markup. This bundle
+* is loaded apart from the SDK, so the app hands it its part of the shell. */
+async function settingsPage(shell) {
+	function element(id) {
+		const found = document.getElementById(id);
+		if (!found) throw new Error(`Settings page lacks #${id}.`);
+		return found;
+	}
+	const opening = element("opening");
+	const mode = element("limit-mode");
+	const custom = element("limit-custom");
+	const devices = element("devices");
+	const refresh = element("refresh");
+	const removeOthers = element("remove-others");
+	const more = element("more");
+	const first = element("first");
+	const rows = /* @__PURE__ */ new Map();
+	let initialized = false;
+	let choices;
+	let confirmation;
+	function targetSignature(target) {
+		return JSON.stringify([
+			target.name,
+			target.revoked,
+			target.talkEnabled,
+			target.thisBrowser
+		]);
+	}
+	function cancelConfirmation(refocus = false) {
+		if (!confirmation) return;
+		const { button, clientId } = confirmation;
+		const panel = rows.get(clientId)?.querySelector("[data-confirmation]");
+		if (panel) panel.hidden = true;
+		button.removeAttribute("aria-describedby");
+		button.setAttribute("aria-expanded", "false");
+		confirmation = void 0;
+		if (refocus && button.isConnected && !button.disabled) button.focus({ preventScroll: true });
+	}
+	/** A second deliberate press confirms only the same currently admitted presentation. */
+	function confirmDevice(button, target, kind) {
+		page.removalPreview = void 0;
+		const signature = targetSignature(target);
+		if (confirmation?.button === button && confirmation.signature === signature) {
+			cancelConfirmation();
+			return true;
+		}
 		cancelConfirmation();
-		return true;
+		const panel = rows.get(target.clientId).querySelector("[data-confirmation]");
+		const consequence = panel.querySelector("p");
+		consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.` : target.thisBrowser ? `This ends Remote access for this browser (${target.name}). Press Remove again to confirm.` : `This ends Remote access for ${target.name}. Press Remove again to confirm.`;
+		panel.hidden = false;
+		button.setAttribute("aria-describedby", consequence.id);
+		button.setAttribute("aria-expanded", "true");
+		confirmation = {
+			button,
+			clientId: target.clientId,
+			signature
+		};
+		return false;
 	}
-	cancelConfirmation();
-	const panel = rows.get(target.clientId).querySelector("[data-confirmation]");
-	const consequence = panel.querySelector("p");
-	consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.` : target.thisBrowser ? `This ends Remote access for this browser (${target.name}). Press Remove again to confirm.` : `This ends Remote access for ${target.name}. Press Remove again to confirm.`;
-	panel.hidden = false;
-	button.setAttribute("aria-describedby", consequence.id);
-	button.setAttribute("aria-expanded", "true");
-	confirmation = {
-		button,
-		clientId: target.clientId,
-		signature
-	};
-	return false;
-}
-var page;
-var registryState = remoteRegistryPage(() => {
-	if (!page) return "";
-	if (page.busy) return "A request is in progress. Wait for its outcome.";
-	if (page.outcome?.state === "unknown") return "Another change is still unconfirmed. Check its original result first.";
-	for (const device of page.devices?.devices ?? []) {
-		const name = rows.get(device.clientId)?.querySelector("input");
-		if (name && name.value !== device.name) return "Save or restore the unsent device name before changing pages.";
+	let page;
+	const registryState = remoteRegistryPage(() => {
+		if (!page) return "";
+		if (page.busy) return "A request is in progress. Wait for its outcome.";
+		if (page.outcome?.state === "unknown") return "Another change is still unconfirmed. Check the saved value first.";
+		for (const device of page.devices?.devices ?? []) {
+			const name = rows.get(device.clientId)?.querySelector("input");
+			if (name && name.value !== device.name) return "Save or restore the unsent device name before changing pages.";
+		}
+		return "";
+	}, shell);
+	/** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
+	function commandNotice(target, text) {
+		target.replaceChildren();
+		for (const part of text.split(/(tmt remote (?:pair|devices|settings))/g)) if (/^tmt remote (?:pair|devices|settings)$/.test(part)) {
+			const code = document.createElement("code");
+			code.className = "tmt-ui-code";
+			code.textContent = part;
+			target.append(code);
+		} else target.append(document.createTextNode(part));
 	}
-	return "";
-});
-/** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
-function commandNotice(target, text) {
-	target.replaceChildren();
-	for (const part of text.split(/(tmt remote (?:pair|devices|settings))/g)) if (/^tmt remote (?:pair|devices|settings)$/.test(part)) {
-		const code = document.createElement("code");
-		code.className = "tmt-ui-code";
-		code.textContent = part;
-		target.append(code);
-	} else target.append(document.createTextNode(part));
-}
-function capacityCopy(refusal) {
-	return refusal?.code === "REMOTE_SESSION_LIMIT" ? "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged." : void 0;
-}
-function openingChanged() {
-	return !!page.settings && opening.value === "on" !== page.settings.settings.open;
-}
-function limitChanged() {
-	if (!page.settings || mode.value === "default") return false;
-	const admitted = page.settings.settings;
-	const value = mode.value === "off" ? null : custom.value;
-	return admitted.sessionsPerDeviceSource !== "settings.json" || value !== admitted.sessionsPerDevice;
-}
-/** Busy is not disabled: only an unavailable control is disabled. A busy one keeps its look and
-* focus and is fenced by aria-disabled; every activation handler already refuses while busy. */
-function fence(button, unavailable) {
-	button.disabled = unavailable;
-	if (page.busy && !unavailable) button.setAttribute("aria-disabled", "true");
-	else button.removeAttribute("aria-disabled");
-}
-/** The action that carries the busy mark: the one the current write started from. */
-var markOwner;
-function markSlot(button) {
-	let slot = button.querySelector(":scope > .tmt-ui-action-mark");
-	if (!slot) {
-		slot = createActionMark();
-		button.prepend(slot);
+	function capacityCopy(refusal) {
+		return refusal?.code === "REMOTE_SESSION_LIMIT" ? "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged." : void 0;
 	}
-	return slot;
-}
-/** The shared delay and hold: nothing shows for the first 400 ms, then the mark stays 400 ms. */
-var busyMark = createBusyMarkGate((shown) => {
-	if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
-});
-function syncBusyMark() {
-	for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-switcher")) markSlot(button);
-	busyMark.set(page.busy);
-}
-function saveState(form, hint, changed, valid) {
-	const button = element(form).querySelector("button[type=submit]");
-	fence(button, !page.writableWhenIdle || !changed || !valid);
-	element(hint).hidden = !page.writable || changed;
-	const described = button.getAttribute("aria-describedby");
-	if (!element(hint).hidden) button.setAttribute("aria-describedby", [described, hint].filter(Boolean).join(" "));
-}
-function recoverOriginal(event) {
-	if (page.busy) return;
-	run(async () => {
-		await page.recover();
-		if (page.access === "live") await refreshView();
-	}, event.currentTarget);
-}
-/** Mount an empty live region before a device can originate a change. Never move it. */
-function deviceFeedback(clientId) {
-	const feedback = document.createElement("div");
-	feedback.className = "change-feedback";
-	feedback.dataset.feedback = clientId;
-	const status = document.createElement("p");
-	status.dataset.outcomeSlot = "";
-	status.setAttribute("role", "status");
-	status.setAttribute("aria-live", "polite");
-	status.setAttribute("aria-atomic", "true");
-	const original = document.createElement("p");
-	original.dataset.original = "";
-	original.hidden = true;
-	const recover = document.createElement("button");
-	recover.type = "button";
-	recover.className = "tmt-ui-action";
-	recover.dataset.recover = "";
-	recover.hidden = true;
-	const label = document.createElement("span");
-	label.className = "tmt-ui-action-label";
-	label.textContent = "Check original result";
-	recover.append(label);
-	recover.addEventListener("click", recoverOriginal);
-	feedback.append(status, original, recover);
-	return feedback;
-}
-function renderOutcome() {
-	const origin = page.intent?.kind === "setting" ? page.intent.input.setting : page.intent?.kind === "remove-others" ? void 0 : page.intent?.input.clientId;
-	const active = origin && [...document.querySelectorAll("[data-feedback]")].find((slot) => slot.dataset.feedback === origin) || document.querySelector("[data-feedback=\"shared\"]");
-	for (const slot of document.querySelectorAll("[data-feedback]")) if (slot !== active) {
-		const status = slot.querySelector("[data-outcome-slot]");
-		if (status.textContent) commandNotice(status, "");
+	function openingChanged() {
+		return !!page.settings && opening.value === "on" !== page.settings.settings.open;
 	}
-	for (const slot of document.querySelectorAll("[data-feedback]")) {
-		const status = slot.querySelector("[data-outcome-slot]");
-		const original = slot.querySelector("[data-original]");
-		const recover = slot.querySelector("[data-recover]");
-		const selected = slot === active;
-		status.id = selected ? "outcome" : "";
-		original.id = selected ? "original" : "";
-		recover.id = selected ? "recover" : "";
-		const text = selected ? page.notice : "";
-		if (status.textContent !== text) commandNotice(status, text);
-		status.dataset.state = selected ? page.outcome?.state ?? "pending" : "";
-		slot.dataset.tone = page.busy ? "waiting" : page.outcome?.state === "committed" ? "working" : "blocked";
-		original.textContent = selected && page.intent && (page.outcome?.state === "unknown" || page.outcome?.state === "refused") ? `Original operation ${page.intent.input.operationId}` : "";
-		original.hidden = !original.textContent;
-		recover.hidden = !selected || !page.canRecover;
-		fence(recover, false);
-		recover.setAttribute("aria-busy", String(page.busy));
+	function limitChanged() {
+		if (!page.settings || mode.value === "default") return false;
+		const admitted = page.settings.settings;
+		const value = mode.value === "off" ? null : custom.value;
+		return admitted.sessionsPerDeviceSource !== "settings.json" || value !== admitted.sessionsPerDevice;
 	}
-}
-function render() {
-	registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed");
-	if (confirmation) {
-		const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
-		if (!page.writable || !target || targetSignature(target) !== confirmation.signature) cancelConfirmation();
+	/** Busy is not disabled: only an unavailable control is disabled. A busy one keeps its look and
+	* focus and is fenced by aria-disabled; every activation handler already refuses while busy. */
+	function fence(button, unavailable) {
+		button.disabled = unavailable;
+		if (page.busy && !unavailable) button.setAttribute("aria-disabled", "true");
+		else button.removeAttribute("aria-disabled");
 	}
-	renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
-	const capacity = capacityCopy(page.accessRefusal);
-	const access = capacity ?? {
-		checking: "Checking current access…",
-		live: "Current browser access confirmed.",
-		lost: "Current browser access refused.",
-		unconfirmed: "Current browser access unconfirmed."
-	}[page.access];
-	if (element("access").textContent !== access) element("access").textContent = access;
-	const announcement = capacity ?? {
-		checking: "",
-		live: "Browser access confirmed",
-		lost: "Access ended",
-		unconfirmed: "Access unconfirmed"
-	}[page.access];
-	if (announcement && element("access-announcement").textContent !== announcement) element("access-announcement").textContent = announcement;
-	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
-	element("read-only").hidden = editable || page.access !== "live";
-	const designation = element("designation-command");
-	designation.hidden = editable || page.access !== "live";
-	if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
-	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
-	const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
-	element("controls-reason").textContent = reason;
-	element("controls-reason").hidden = !reason;
-	for (const button of document.querySelectorAll("button")) {
-		if (button.closest("#remotes, #remote-switcher")) continue;
-		if (reason) button.setAttribute("aria-describedby", "controls-reason");
-		else button.removeAttribute("aria-describedby");
-		button.setAttribute("aria-busy", String(page.busy));
+	/** The action that carries the busy mark: the one the current write started from. */
+	let markOwner;
+	function markSlot(button) {
+		let slot = button.querySelector(":scope > .tmt-ui-action-mark");
+		if (!slot) {
+			slot = createActionMark();
+			button.prepend(slot);
+		}
+		return slot;
 	}
-	const openingForm = element("opening-form");
-	if (editable) openingForm.removeAttribute("aria-describedby");
-	else openingForm.setAttribute("aria-describedby", "read-only");
-	element("limit-form").setAttribute("aria-describedby", editable ? "limit-help" : "limit-help read-only");
-	if (page.settings) {
-		const value = page.settings.settings;
-		element("opening-value").textContent = `${value.open ? "On" : "Off"} · ${value.source}`;
-		element("limit-value").textContent = `${value.sessionsPerDevice ?? "Off (unlimited)"} · ${value.sessionsPerDeviceSource}`;
-		const warning = element("warning");
-		warning.textContent = value.warning ?? "";
-		warning.hidden = value.warning === null;
-		if (!initialized) {
-			opening.value = value.open ? "on" : "off";
-			mode.value = value.sessionsPerDeviceSource === "default" ? "default" : value.sessionsPerDevice === null ? "off" : "custom";
-			custom.value = value.sessionsPerDevice ?? "";
-			initialized = true;
+	/** The shared delay and hold: nothing shows for the first 400 ms, then the mark stays 400 ms. */
+	const busyMark = createBusyMarkGate((shown) => {
+		if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
+	});
+	function syncBusyMark() {
+		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-switcher")) markSlot(button);
+		busyMark.set(page.busy);
+	}
+	function saveState(form, hint, changed, valid) {
+		const button = element(form).querySelector("button[type=submit]");
+		fence(button, !page.writableWhenIdle || !changed || !valid);
+		element(hint).hidden = !page.writable || changed;
+		const described = button.getAttribute("aria-describedby");
+		if (!element(hint).hidden) button.setAttribute("aria-describedby", [described, hint].filter(Boolean).join(" "));
+	}
+	function recoverOriginal(event) {
+		if (page.busy) return;
+		run(async () => {
+			await page.recover();
+			if (page.access === "live") await refreshView();
+		}, event.currentTarget);
+	}
+	/** Mount an empty live region before a device can originate a change. Never move it. */
+	function deviceFeedback(clientId) {
+		const feedback = document.createElement("div");
+		feedback.className = "change-feedback";
+		feedback.dataset.feedback = clientId;
+		const status = document.createElement("p");
+		status.dataset.outcomeSlot = "";
+		status.setAttribute("role", "status");
+		status.setAttribute("aria-live", "polite");
+		status.setAttribute("aria-atomic", "true");
+		const original = document.createElement("p");
+		original.dataset.original = "";
+		original.hidden = true;
+		const recover = document.createElement("button");
+		recover.type = "button";
+		recover.className = "tmt-ui-action";
+		recover.dataset.recover = "";
+		recover.hidden = true;
+		const label = document.createElement("span");
+		label.className = "tmt-ui-action-label";
+		label.textContent = "Check the saved value";
+		recover.append(label);
+		recover.addEventListener("click", recoverOriginal);
+		feedback.append(status, original, recover);
+		return feedback;
+	}
+	function renderOutcome() {
+		const origin = page.intent?.kind === "setting" ? page.intent.input.setting : page.intent?.kind === "remove-others" ? void 0 : page.intent?.input.clientId;
+		const active = origin && [...document.querySelectorAll("[data-feedback]")].find((slot) => slot.dataset.feedback === origin) || document.querySelector("[data-feedback=\"shared\"]");
+		for (const slot of document.querySelectorAll("[data-feedback]")) if (slot !== active) {
+			const status = slot.querySelector("[data-outcome-slot]");
+			if (status.textContent) commandNotice(status, "");
+		}
+		for (const slot of document.querySelectorAll("[data-feedback]")) {
+			const status = slot.querySelector("[data-outcome-slot]");
+			const original = slot.querySelector("[data-original]");
+			const recover = slot.querySelector("[data-recover]");
+			const selected = slot === active;
+			status.id = selected ? "outcome" : "";
+			original.id = selected ? "original" : "";
+			recover.id = selected ? "recover" : "";
+			const text = selected ? page.notice : "";
+			if (status.textContent !== text) commandNotice(status, text);
+			status.dataset.state = selected ? page.outcome?.state ?? "pending" : "";
+			slot.dataset.tone = page.busy ? "waiting" : page.outcome?.state === "committed" ? "working" : "blocked";
+			original.textContent = selected && page.intent && (page.outcome?.state === "unknown" || page.outcome?.state === "refused") ? `Original change ${page.intent.input.operationId}` : "";
+			original.hidden = !original.textContent;
+			recover.hidden = !selected || !page.canRecover;
+			fence(recover, false);
+			recover.setAttribute("aria-busy", String(page.busy));
 		}
 	}
-	custom.required = mode.value === "custom";
+	function render() {
+		registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed");
+		if (confirmation) {
+			const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
+			if (!page.writable || !target || targetSignature(target) !== confirmation.signature) cancelConfirmation();
+		}
+		renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
+		const capacity = capacityCopy(page.accessRefusal);
+		const access = capacity ?? {
+			checking: "Checking current access…",
+			live: "Current browser access confirmed.",
+			lost: "Current browser access refused.",
+			unconfirmed: "Current browser access unconfirmed."
+		}[page.access];
+		if (element("access").textContent !== access) element("access").textContent = access;
+		const announcement = capacity ?? {
+			checking: "",
+			live: "Browser access confirmed",
+			lost: "Access ended",
+			unconfirmed: "Access unconfirmed"
+		}[page.access];
+		if (announcement && element("access-announcement").textContent !== announcement) element("access-announcement").textContent = announcement;
+		const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
+		element("read-only").hidden = editable || page.access !== "live";
+		const designation = element("designation-command");
+		designation.hidden = editable || page.access !== "live";
+		if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
+		element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
+		const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check the saved value first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
+		element("controls-reason").textContent = reason;
+		element("controls-reason").hidden = !reason;
+		for (const button of document.querySelectorAll("button")) {
+			if (button.closest("#remotes, #remote-switcher")) continue;
+			if (reason) button.setAttribute("aria-describedby", "controls-reason");
+			else button.removeAttribute("aria-describedby");
+			button.setAttribute("aria-busy", String(page.busy));
+		}
+		const openingForm = element("opening-form");
+		if (editable) openingForm.removeAttribute("aria-describedby");
+		else openingForm.setAttribute("aria-describedby", "read-only");
+		element("limit-form").setAttribute("aria-describedby", editable ? "limit-help" : "limit-help read-only");
+		if (page.settings) {
+			const value = page.settings.settings;
+			element("opening-value").textContent = `${value.open ? "On" : "Off"} · ${value.source}`;
+			element("limit-value").textContent = `${value.sessionsPerDevice ?? "Off (unlimited)"} · ${value.sessionsPerDeviceSource}`;
+			const warning = element("warning");
+			warning.textContent = value.warning ?? "";
+			warning.hidden = value.warning === null;
+			if (!initialized) {
+				opening.value = value.open ? "on" : "off";
+				mode.value = value.sessionsPerDeviceSource === "default" ? "default" : value.sessionsPerDevice === null ? "off" : "custom";
+				custom.value = value.sessionsPerDevice ?? "";
+				initialized = true;
+			}
+		}
+		custom.required = mode.value === "custom";
+		for (const field of [
+			opening,
+			mode,
+			custom
+		]) field.disabled = !editable || field === custom && mode.value !== "custom";
+		for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
+		if (page.settings) {
+			choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
+			for (const update of choices) update();
+		}
+		saveState("opening-form", "opening-unchanged", openingChanged(), opening.checkValidity());
+		saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
+		removeOthers.hidden = page.removalPreview?.count === 0 || page.onFirstPage && page.devices?.nextCursor === null && page.devices.devices.every((device) => device.clientId === page.clientId);
+		fence(removeOthers, !page.writableWhenIdle || page.removalPreview?.count === 0);
+		const preview = page.removalPreview;
+		const panel = element("remove-others-confirmation");
+		panel.hidden = !preview || preview.count === 0 || !page.writable;
+		removeOthers.setAttribute("aria-expanded", String(!panel.hidden));
+		if (!panel.hidden && preview) {
+			element("remove-others-consequence").textContent = `This ends Remote access for ${preview.count} other ${preview.count === 1 ? "device" : "devices"}. This browser stays connected. Press Remove the others again to confirm.`;
+			removeOthers.setAttribute("aria-describedby", "remove-others-consequence");
+		}
+		fence(refresh, false);
+		more.hidden = !page.devices?.nextCursor;
+		fence(more, false);
+		first.hidden = page.onFirstPage;
+		fence(first, false);
+		if (page.devices) {
+			const current = new Set(page.devices.devices.map((device) => device.clientId));
+			for (const [id, row] of rows) if (!current.has(id)) {
+				row.remove();
+				rows.delete(id);
+			}
+			for (const device of page.devices.devices) {
+				let row = rows.get(device.clientId);
+				if (!row) {
+					row = document.createElement("div");
+					row.className = "device";
+					const summary = document.createElement("p");
+					summary.className = "device-summary";
+					const form = document.createElement("form");
+					const label = document.createElement("label");
+					const name = document.createElement("input");
+					name.id = `name-${device.clientId}`;
+					name.className = "tmt-ui-field-control";
+					label.id = `${name.id}-label`;
+					label.className = "tmt-ui-field-label";
+					name.setAttribute("aria-labelledby", label.id);
+					name.value = device.name;
+					name.required = true;
+					name.maxLength = 64;
+					label.htmlFor = name.id;
+					label.textContent = "Device name";
+					const save = document.createElement("button");
+					save.type = "submit";
+					save.className = "tmt-ui-action";
+					const saveLabel = document.createElement("span");
+					saveLabel.className = "tmt-ui-action-label";
+					saveLabel.textContent = "Rename";
+					save.append(saveLabel);
+					const revoke = document.createElement("button");
+					revoke.type = "button";
+					revoke.dataset.action = "revoke";
+					revoke.className = "tmt-ui-action";
+					revoke.dataset.variant = "destructive";
+					const revokeLabel = document.createElement("span");
+					revokeLabel.className = "tmt-ui-action-label";
+					revokeLabel.textContent = "Remove";
+					revoke.append(revokeLabel);
+					revoke.addEventListener("click", (event) => {
+						if (event.detail > 1 || !page.writable) return;
+						const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
+						if (!target || target.revoked) return;
+						if (!confirmDevice(revoke, target, "revoke")) return;
+						change({
+							kind: "revoke",
+							input: {
+								operationId: crypto.randomUUID(),
+								clientId: device.clientId
+							}
+						}, revoke);
+					});
+					form.addEventListener("submit", (event) => {
+						event.preventDefault();
+						if (!page.writable) return;
+						change({
+							kind: "rename",
+							input: {
+								operationId: crypto.randomUUID(),
+								clientId: device.clientId,
+								name: name.value
+							}
+						}, save);
+					});
+					const field = document.createElement("div");
+					field.className = "tmt-ui-field";
+					field.append(label, name);
+					const talk = document.createElement("button");
+					talk.type = "button";
+					talk.className = "tmt-ui-action";
+					talk.dataset.action = "talk";
+					const talkLabel = document.createElement("span");
+					talkLabel.className = "tmt-ui-action-label";
+					talk.append(talkLabel);
+					talk.addEventListener("click", (event) => {
+						if (event.detail > 1 || !page.writable) return;
+						const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
+						if (!target || target.revoked) return;
+						if (!target.talkEnabled && !confirmDevice(talk, target, "talk")) return;
+						change({
+							kind: "talk",
+							input: {
+								operationId: crypto.randomUUID(),
+								clientId: target.clientId,
+								enabled: !target.talkEnabled
+							}
+						}, talk);
+					});
+					form.append(field, save, talk, revoke);
+					const panel = document.createElement("div");
+					panel.className = "device-confirmation";
+					panel.dataset.confirmation = "";
+					panel.id = `confirm-${device.clientId}`;
+					panel.hidden = true;
+					const consequence = document.createElement("p");
+					consequence.id = `${panel.id}-consequence`;
+					consequence.setAttribute("role", "status");
+					const cancel = document.createElement("button");
+					cancel.type = "button";
+					cancel.className = "tmt-ui-action";
+					const cancelLabel = document.createElement("span");
+					cancelLabel.className = "tmt-ui-action-label";
+					cancelLabel.textContent = "Cancel";
+					cancel.append(cancelLabel);
+					cancel.addEventListener("click", () => cancelConfirmation(true));
+					panel.append(consequence, cancel);
+					for (const button of [talk, revoke]) {
+						button.setAttribute("aria-controls", panel.id);
+						button.setAttribute("aria-expanded", "false");
+						button.addEventListener("keydown", (event) => {
+							if ((event.repeat || event.isComposing) && ["Enter", " "].includes(event.key)) event.preventDefault();
+						});
+					}
+					row.addEventListener("keydown", (event) => {
+						if (event.key === "Escape" && confirmation?.clientId === device.clientId) {
+							event.preventDefault();
+							cancelConfirmation(true);
+						}
+					});
+					const disabledReason = document.createElement("p");
+					disabledReason.id = `device-reason-${device.clientId}`;
+					disabledReason.className = "tmt-ui-field-description";
+					row.append(summary, form, panel, deviceFeedback(device.clientId), disabledReason);
+					rows.set(device.clientId, row);
+					devices.append(row);
+				}
+				row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last used ${device.lastUsedAtMs === null ? "Not recorded" : new Date(device.lastUsedAtMs).toLocaleString()}`;
+				row.querySelector("[data-action=\"talk\"] .tmt-ui-action-label").textContent = device.talkEnabled ? "Disable sending" : "Enable sending";
+				row.querySelector("form").setAttribute("aria-label", `Device ${device.name}`);
+				const name = row.querySelector("input");
+				name.removeAttribute("aria-labelledby");
+				name.setAttribute("aria-label", `Device name for ${device.name}`);
+				row.querySelector("button[type=submit]").setAttribute("aria-label", device.thisBrowser ? `Rename this device (${device.name})` : `Rename ${device.name}`);
+				row.querySelector("[data-action=\"talk\"]").setAttribute("aria-label", `${device.talkEnabled ? "Disable" : "Enable"} sending for ${device.name}`);
+				row.querySelector("button[data-action=\"revoke\"]").setAttribute("aria-label", `Remove ${device.name}`);
+				name.disabled = !editable || device.revoked;
+				if (editable) name.removeAttribute("aria-describedby");
+				else name.setAttribute("aria-describedby", "read-only");
+				const disabledReason = element(`device-reason-${device.clientId}`);
+				disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.kind !== "remove-others" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
+				disabledReason.hidden = !disabledReason.textContent;
+				for (const button of row.querySelectorAll("form button")) {
+					fence(button, !page.writableWhenIdle || device.revoked);
+					if (disabledReason.textContent) button.setAttribute("aria-describedby", disabledReason.id);
+					else if (confirmation?.button === button) button.setAttribute("aria-describedby", `confirm-${device.clientId}-consequence`);
+					else button.removeAttribute("aria-describedby");
+					button.setAttribute("aria-busy", String(page.busy));
+				}
+			}
+		}
+		renderOutcome();
+		syncBusyMark();
+	}
+	async function run(action, owner = refresh) {
+		cancelConfirmation();
+		if (!busyMark.shown()) markOwner = owner;
+		const pending = action();
+		render();
+		try {
+			await pending;
+		} catch (error) {
+			page.notice = error instanceof Error ? error.message : "Action unavailable.";
+		}
+		render();
+	}
+	/** Paint management first; only the optional section changes when its read completes. */
+	async function refreshView(cursor) {
+		await page.refresh(cursor);
+		render();
+		if (page.access === "live") page.observeFirestore().then(() => renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore));
+	}
+	async function change(intent, owner) {
+		await run(() => page.submit(intent), owner);
+		if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => refreshView(), owner);
+	}
+	function submitButton(form) {
+		return form.querySelector("button[type=submit]");
+	}
+	element("opening-form").addEventListener("submit", (event) => {
+		event.preventDefault();
+		if (!page.writable) return;
+		if (!openingChanged()) {
+			render();
+			return;
+		}
+		change({
+			kind: "setting",
+			input: {
+				operationId: crypto.randomUUID(),
+				setting: "open",
+				value: opening.value === "on"
+			}
+		}, submitButton(element("opening-form")));
+	});
+	element("limit-form").addEventListener("submit", (event) => {
+		event.preventDefault();
+		if (!page.writable) return;
+		if (!limitChanged()) {
+			render();
+			return;
+		}
+		if (mode.value === "custom" && !custom.checkValidity()) return;
+		const value = mode.value === "off" ? null : custom.value;
+		change({
+			kind: "setting",
+			input: {
+				operationId: crypto.randomUUID(),
+				setting: "sessions-per-device",
+				value
+			}
+		}, submitButton(element("limit-form")));
+	});
 	for (const field of [
 		opening,
 		mode,
 		custom
-	]) field.disabled = !editable || field === custom && mode.value !== "custom";
-	for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
-	if (page.settings) {
-		choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
-		for (const update of choices) update();
+	]) {
+		field.addEventListener("input", render);
+		field.addEventListener("change", render);
 	}
-	saveState("opening-form", "opening-unchanged", openingChanged(), opening.checkValidity());
-	saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
-	removeOthers.hidden = page.removalPreview?.count === 0 || page.onFirstPage && page.devices?.nextCursor === null && page.devices.devices.every((device) => device.clientId === page.clientId);
-	fence(removeOthers, !page.writableWhenIdle || page.removalPreview?.count === 0);
-	const preview = page.removalPreview;
-	const panel = element("remove-others-confirmation");
-	panel.hidden = !preview || preview.count === 0 || !page.writable;
-	removeOthers.setAttribute("aria-expanded", String(!panel.hidden));
-	if (!panel.hidden && preview) {
-		element("remove-others-consequence").textContent = `This ends Remote access for ${preview.count} other ${preview.count === 1 ? "device" : "devices"}. This browser stays connected. Press Remove the others again to confirm.`;
-		removeOthers.setAttribute("aria-describedby", "remove-others-consequence");
-	}
-	fence(refresh, false);
-	more.hidden = !page.devices?.nextCursor;
-	fence(more, false);
-	first.hidden = page.onFirstPage;
-	fence(first, false);
-	if (page.devices) {
-		const current = new Set(page.devices.devices.map((device) => device.clientId));
-		for (const [id, row] of rows) if (!current.has(id)) {
-			row.remove();
-			rows.delete(id);
+	refresh.addEventListener("click", () => {
+		if (page.busy) return;
+		const ownedFocus = document.activeElement === refresh;
+		let moved = false;
+		const trackFocus = (event) => {
+			if (event.target !== refresh && event.target !== document.body) moved = true;
+		};
+		const trackPointer = (event) => {
+			if (!refresh.contains(event.target)) moved = true;
+		};
+		document.addEventListener("focusin", trackFocus);
+		document.addEventListener("pointerdown", trackPointer);
+		run(() => refreshView()).finally(() => {
+			document.removeEventListener("focusin", trackFocus);
+			document.removeEventListener("pointerdown", trackPointer);
+			if (ownedFocus && !moved && refresh.isConnected && !refresh.disabled && (document.activeElement === document.body || document.activeElement === refresh)) refresh.focus({ preventScroll: true });
+		});
+	});
+	function navigate(cursor, owner) {
+		if (page.busy) return;
+		for (const device of page.devices?.devices ?? []) {
+			const name = rows.get(device.clientId)?.querySelector("input");
+			if (name && name.value !== device.name) {
+				page.notice = "Save or restore the unsent device name before changing pages.";
+				render();
+				name.focus();
+				return;
+			}
 		}
-		for (const device of page.devices.devices) {
-			let row = rows.get(device.clientId);
-			if (!row) {
-				row = document.createElement("div");
-				row.className = "device";
-				const summary = document.createElement("p");
-				summary.className = "device-summary";
-				const form = document.createElement("form");
-				const label = document.createElement("label");
-				const name = document.createElement("input");
-				name.id = `name-${device.clientId}`;
-				name.className = "tmt-ui-field-control";
-				label.id = `${name.id}-label`;
-				label.className = "tmt-ui-field-label";
-				name.setAttribute("aria-labelledby", label.id);
-				name.value = device.name;
-				name.required = true;
-				name.maxLength = 64;
-				label.htmlFor = name.id;
-				label.textContent = "Device name";
-				const save = document.createElement("button");
-				save.type = "submit";
-				save.className = "tmt-ui-action";
-				const saveLabel = document.createElement("span");
-				saveLabel.className = "tmt-ui-action-label";
-				saveLabel.textContent = "Rename";
-				save.append(saveLabel);
-				const revoke = document.createElement("button");
-				revoke.type = "button";
-				revoke.dataset.action = "revoke";
-				revoke.className = "tmt-ui-action";
-				revoke.dataset.variant = "destructive";
-				const revokeLabel = document.createElement("span");
-				revokeLabel.className = "tmt-ui-action-label";
-				revokeLabel.textContent = "Remove";
-				revoke.append(revokeLabel);
-				revoke.addEventListener("click", (event) => {
-					if (event.detail > 1 || !page.writable) return;
-					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
-					if (!target || target.revoked) return;
-					if (!confirmDevice(revoke, target, "revoke")) return;
-					change({
-						kind: "revoke",
-						input: {
-							operationId: crypto.randomUUID(),
-							clientId: device.clientId
-						}
-					}, revoke);
-				});
-				form.addEventListener("submit", (event) => {
-					event.preventDefault();
-					if (!page.writable) return;
-					change({
-						kind: "rename",
-						input: {
-							operationId: crypto.randomUUID(),
-							clientId: device.clientId,
-							name: name.value
-						}
-					}, save);
-				});
-				const field = document.createElement("div");
-				field.className = "tmt-ui-field";
-				field.append(label, name);
-				const talk = document.createElement("button");
-				talk.type = "button";
-				talk.className = "tmt-ui-action";
-				talk.dataset.action = "talk";
-				const talkLabel = document.createElement("span");
-				talkLabel.className = "tmt-ui-action-label";
-				talk.append(talkLabel);
-				talk.addEventListener("click", (event) => {
-					if (event.detail > 1 || !page.writable) return;
-					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
-					if (!target || target.revoked) return;
-					if (!target.talkEnabled && !confirmDevice(talk, target, "talk")) return;
-					change({
-						kind: "talk",
-						input: {
-							operationId: crypto.randomUUID(),
-							clientId: target.clientId,
-							enabled: !target.talkEnabled
-						}
-					}, talk);
-				});
-				form.append(field, save, talk, revoke);
-				const panel = document.createElement("div");
-				panel.className = "device-confirmation";
-				panel.dataset.confirmation = "";
-				panel.id = `confirm-${device.clientId}`;
-				panel.hidden = true;
-				const consequence = document.createElement("p");
-				consequence.id = `${panel.id}-consequence`;
-				consequence.setAttribute("role", "status");
-				const cancel = document.createElement("button");
-				cancel.type = "button";
-				cancel.className = "tmt-ui-action";
-				const cancelLabel = document.createElement("span");
-				cancelLabel.className = "tmt-ui-action-label";
-				cancelLabel.textContent = "Cancel";
-				cancel.append(cancelLabel);
-				cancel.addEventListener("click", () => cancelConfirmation(true));
-				panel.append(consequence, cancel);
-				for (const button of [talk, revoke]) {
-					button.setAttribute("aria-controls", panel.id);
-					button.setAttribute("aria-expanded", "false");
-					button.addEventListener("keydown", (event) => {
-						if ((event.repeat || event.isComposing) && ["Enter", " "].includes(event.key)) event.preventDefault();
-					});
+		run(() => refreshView(cursor), owner);
+	}
+	element("copy-designation").addEventListener("click", () => {
+		if (page.access !== "live") return;
+		navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(() => {
+			element("designation-copy-feedback").textContent = "Copied.";
+		}, () => {
+			element("designation-copy-feedback").textContent = "Copy failed. Select the command and copy it manually.";
+		});
+	});
+	element("remove-others").addEventListener("click", (event) => {
+		if (event.detail > 1 || !page.writable) return;
+		for (const device of page.devices?.devices ?? []) {
+			const draft = rows.get(device.clientId)?.querySelector("input");
+			if (draft && draft.value !== device.name) {
+				page.notice = "Save or restore the unsent device name before changing pages.";
+				render();
+				draft.focus();
+				return;
+			}
+		}
+		if (page.removalPreview && page.removalPreview.count > 0) {
+			const fingerprint = page.removalPreview.fingerprint;
+			page.removalPreview = void 0;
+			change({
+				kind: "remove-others",
+				input: {
+					operationId: crypto.randomUUID(),
+					fingerprint
 				}
-				row.addEventListener("keydown", (event) => {
-					if (event.key === "Escape" && confirmation?.clientId === device.clientId) {
-						event.preventDefault();
-						cancelConfirmation(true);
-					}
-				});
-				const disabledReason = document.createElement("p");
-				disabledReason.id = `device-reason-${device.clientId}`;
-				disabledReason.className = "tmt-ui-field-description";
-				row.append(summary, form, panel, deviceFeedback(device.clientId), disabledReason);
-				rows.set(device.clientId, row);
-				devices.append(row);
-			}
-			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last used ${device.lastUsedAtMs === null ? "Not recorded" : new Date(device.lastUsedAtMs).toLocaleString()}`;
-			row.querySelector("[data-action=\"talk\"] .tmt-ui-action-label").textContent = device.talkEnabled ? "Disable sending" : "Enable sending";
-			row.querySelector("form").setAttribute("aria-label", `Device ${device.name}`);
-			const name = row.querySelector("input");
-			name.removeAttribute("aria-labelledby");
-			name.setAttribute("aria-label", `Device name for ${device.name}`);
-			row.querySelector("button[type=submit]").setAttribute("aria-label", device.thisBrowser ? `Rename this device (${device.name})` : `Rename ${device.name}`);
-			row.querySelector("[data-action=\"talk\"]").setAttribute("aria-label", `${device.talkEnabled ? "Disable" : "Enable"} sending for ${device.name}`);
-			row.querySelector("button[data-action=\"revoke\"]").setAttribute("aria-label", `Remove ${device.name}`);
-			name.disabled = !editable || device.revoked;
-			if (editable) name.removeAttribute("aria-describedby");
-			else name.setAttribute("aria-describedby", "read-only");
-			const disabledReason = element(`device-reason-${device.clientId}`);
-			disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.kind !== "remove-others" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
-			disabledReason.hidden = !disabledReason.textContent;
-			for (const button of row.querySelectorAll("form button")) {
-				fence(button, !page.writableWhenIdle || device.revoked);
-				if (disabledReason.textContent) button.setAttribute("aria-describedby", disabledReason.id);
-				else if (confirmation?.button === button) button.setAttribute("aria-describedby", `confirm-${device.clientId}-consequence`);
-				else button.removeAttribute("aria-describedby");
-				button.setAttribute("aria-busy", String(page.busy));
-			}
+			}, removeOthers);
+		} else {
+			cancelConfirmation();
+			run(() => page.previewRemoval(), removeOthers);
 		}
-	}
-	renderOutcome();
-	syncBusyMark();
-}
-async function run(action, owner = refresh) {
-	cancelConfirmation();
-	if (!busyMark.shown()) markOwner = owner;
-	const pending = action();
-	render();
+	});
+	element("cancel-remove-others").addEventListener("click", () => {
+		page.removalPreview = void 0;
+		render();
+		element("remove-others").focus();
+	});
+	element("remove-others").addEventListener("keydown", (event) => {
+		const key = event;
+		if ((key.repeat || key.isComposing) && ["Enter", " "].includes(key.key)) event.preventDefault();
+		if (key.key === "Escape") {
+			page.removalPreview = void 0;
+			render();
+		}
+	});
+	more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null, more));
+	first.addEventListener("click", () => navigate(null, first));
+	for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
 	try {
-		await pending;
+		let session = await reopenSession();
+		page = new ManagementPage(management(session), async () => {
+			session = await reopenSession(session, { retry: "bounded" });
+			return management(session);
+		});
+		await run(() => refreshView());
 	} catch (error) {
-		page.notice = error instanceof Error ? error.message : "Action unavailable.";
+		const capacity = capacityCopy(error instanceof RefusalError ? error : void 0);
+		const ended = error instanceof RefusalError && [
+			"REMOTE_DEVICE_REVOKED",
+			"REMOTE_GRANT_EXPIRED",
+			"REMOTE_SESSION_ENDED",
+			"REMOTE_SESSION_EVICTED"
+		].includes(error.code);
+		commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."));
+		element("access-announcement").textContent = capacity ?? (ended ? "Access ended" : "Access unconfirmed");
+		registryState(error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code) ? "Access ended" : "Unconfirmed");
+		refresh.disabled = true;
+		element("access-notice").dataset.tone = "blocked";
+		element("controls-reason").textContent = capacity ?? "Current access is unavailable. Use the local CLI.";
 	}
-	render();
-}
-/** Paint management first; only the optional section changes when its read completes. */
-async function refreshView(cursor) {
-	await page.refresh(cursor);
-	render();
-	if (page.access === "live") page.observeFirestore().then(() => renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore));
-}
-async function change(intent, owner) {
-	await run(() => page.submit(intent), owner);
-	if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => refreshView(), owner);
-}
-function submitButton(form) {
-	return form.querySelector("button[type=submit]");
-}
-element("opening-form").addEventListener("submit", (event) => {
-	event.preventDefault();
-	if (!page.writable) return;
-	if (!openingChanged()) {
-		render();
-		return;
-	}
-	change({
-		kind: "setting",
-		input: {
-			operationId: crypto.randomUUID(),
-			setting: "open",
-			value: opening.value === "on"
-		}
-	}, submitButton(element("opening-form")));
-});
-element("limit-form").addEventListener("submit", (event) => {
-	event.preventDefault();
-	if (!page.writable) return;
-	if (!limitChanged()) {
-		render();
-		return;
-	}
-	if (mode.value === "custom" && !custom.checkValidity()) return;
-	const value = mode.value === "off" ? null : custom.value;
-	change({
-		kind: "setting",
-		input: {
-			operationId: crypto.randomUUID(),
-			setting: "sessions-per-device",
-			value
-		}
-	}, submitButton(element("limit-form")));
-});
-for (const field of [
-	opening,
-	mode,
-	custom
-]) {
-	field.addEventListener("input", render);
-	field.addEventListener("change", render);
-}
-refresh.addEventListener("click", () => {
-	if (page.busy) return;
-	const ownedFocus = document.activeElement === refresh;
-	let moved = false;
-	const trackFocus = (event) => {
-		if (event.target !== refresh && event.target !== document.body) moved = true;
-	};
-	const trackPointer = (event) => {
-		if (!refresh.contains(event.target)) moved = true;
-	};
-	document.addEventListener("focusin", trackFocus);
-	document.addEventListener("pointerdown", trackPointer);
-	run(() => refreshView()).finally(() => {
-		document.removeEventListener("focusin", trackFocus);
-		document.removeEventListener("pointerdown", trackPointer);
-		if (ownedFocus && !moved && refresh.isConnected && !refresh.disabled && (document.activeElement === document.body || document.activeElement === refresh)) refresh.focus({ preventScroll: true });
-	});
-});
-function navigate(cursor, owner) {
-	if (page.busy) return;
-	for (const device of page.devices?.devices ?? []) {
-		const name = rows.get(device.clientId)?.querySelector("input");
-		if (name && name.value !== device.name) {
-			page.notice = "Save or restore the unsent device name before changing pages.";
-			render();
-			name.focus();
-			return;
-		}
-	}
-	run(() => refreshView(cursor), owner);
-}
-element("copy-designation").addEventListener("click", () => {
-	if (page.access !== "live") return;
-	navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(() => {
-		element("designation-copy-feedback").textContent = "Copied.";
-	}, () => {
-		element("designation-copy-feedback").textContent = "Copy failed. Select the command and copy it manually.";
-	});
-});
-element("remove-others").addEventListener("click", (event) => {
-	if (event.detail > 1 || !page.writable) return;
-	for (const device of page.devices?.devices ?? []) {
-		const draft = rows.get(device.clientId)?.querySelector("input");
-		if (draft && draft.value !== device.name) {
-			page.notice = "Save or restore the unsent device name before changing pages.";
-			render();
-			draft.focus();
-			return;
-		}
-	}
-	if (page.removalPreview && page.removalPreview.count > 0) {
-		const fingerprint = page.removalPreview.fingerprint;
-		page.removalPreview = void 0;
-		change({
-			kind: "remove-others",
-			input: {
-				operationId: crypto.randomUUID(),
-				fingerprint
-			}
-		}, removeOthers);
-	} else {
-		cancelConfirmation();
-		run(() => page.previewRemoval(), removeOthers);
-	}
-});
-element("cancel-remove-others").addEventListener("click", () => {
-	page.removalPreview = void 0;
-	render();
-	element("remove-others").focus();
-});
-element("remove-others").addEventListener("keydown", (event) => {
-	const key = event;
-	if ((key.repeat || key.isComposing) && ["Enter", " "].includes(key.key)) event.preventDefault();
-	if (key.key === "Escape") {
-		page.removalPreview = void 0;
-		render();
-	}
-});
-more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null, more));
-first.addEventListener("click", () => navigate(null, first));
-for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
-try {
-	let session = await reopenSession();
-	page = new ManagementPage(management(session), async () => {
-		session = await reopenSession(session, { retry: "bounded" });
-		return management(session);
-	});
-	await run(() => refreshView());
-} catch (error) {
-	const capacity = capacityCopy(error instanceof RefusalError ? error : void 0);
-	const ended = error instanceof RefusalError && [
-		"REMOTE_DEVICE_REVOKED",
-		"REMOTE_GRANT_EXPIRED",
-		"REMOTE_SESSION_ENDED",
-		"REMOTE_SESSION_EVICTED"
-	].includes(error.code);
-	commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."));
-	element("access-announcement").textContent = capacity ?? (ended ? "Access ended" : "Access unconfirmed");
-	registryState(error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code) ? "Access ended" : "Unconfirmed");
-	refresh.disabled = true;
-	element("access-notice").dataset.tone = "blocked";
-	element("controls-reason").textContent = capacity ?? "Current access is unavailable. Use the local CLI.";
 }
 //#endregion
+export { settingsPage };

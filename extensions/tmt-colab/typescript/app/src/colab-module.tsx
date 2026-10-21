@@ -8,6 +8,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { probeCapabilities } from '@tmt/colab-client';
+import { moduleMount } from '@tmt/browser-ui/shell';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 import '@tmt/browser-ui/static.css';
 import './style.css';
@@ -23,9 +24,7 @@ function pairedMount(slot: ShellSlot): URL | null {
   const colab = slot.answer()?.modules.find((module) => module.extension === 'colab');
   if (!colab) return null;
   const mount = new URL(colab.rail.path, location.href);
-  return mount.origin === location.origin && /^\/r\/[a-z2-7]{16}\/x\/colab\/$/.test(mount.pathname)
-    ? mount
-    : null;
+  return mount.origin === location.origin && moduleMount(mount.pathname) === 'colab' ? mount : null;
 }
 
 /** The built module's stylesheet, beside it under the mount (the dev server injects styles). */

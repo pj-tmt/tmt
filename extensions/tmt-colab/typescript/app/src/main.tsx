@@ -1,3 +1,4 @@
+import { moduleMount } from '@tmt/browser-ui/shell';
 import { publicEntry } from './entry.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -36,10 +37,7 @@ async function start() {
   // Colab's mounted document moved into the one TMT app at `/colab/` (#3937). An old link keeps
   // its query and fragment (owner `path=`, reading, anchor), which the app maps; a session
   // hand-off (`?tmt-session=`) still opens here.
-  if (
-    /^\/r\/[a-z2-7]{16}\/x\/colab\/$/.test(location.pathname) &&
-    !location.search.includes('tmt-session=')
-  ) {
+  if (moduleMount(location.pathname) === 'colab' && !location.search.includes('tmt-session=')) {
     location.replace(`/colab/${location.search}${location.hash}`);
     return;
   }

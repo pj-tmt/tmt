@@ -2535,6 +2535,8 @@ function Page() {
     </CreatorDefaultProvider>
   );
 }
+/** The `space` an owner link named, kept by `shellLocation` until the router knows its space. */
+let linkSpace: string | undefined;
 /**
  * Inside the TMT app Colab's routes are paths under `/colab/`. Links printed or saved before keep
  * working: the preview's `#/pages/<id>` and an owner fragment's `path=` become the same path, with
@@ -2544,6 +2546,8 @@ function Page() {
 export function shellLocation() {
   const hash = location.hash.slice(1);
   const fragment = new URLSearchParams(hash);
+  // An owner link names its space; the router checks it once it knows this space.
+  linkSpace = fragment.get('space') ?? undefined;
   const short = /^\/colab\/p\/([A-Za-z0-9_-]{4,64})$/.exec(location.pathname)?.[1];
   let path: string | undefined;
   let keep = '';
@@ -2568,6 +2572,10 @@ export function createAppRouter(
   pageIds: readonly { pageId: string; deleted: boolean }[] = [],
 ) {
   let knownPages = pageIds;
+  // An owner link to another space opens the blocked view, never a page of this one.
+  if (inShell() && space && linkSpace !== undefined && linkSpace !== space)
+    window.history.replaceState(window.history.state, '', '/colab/blocked');
+  linkSpace = undefined;
   const history = inShell()
     ? createBrowserHistory()
     : space

@@ -1,7 +1,6 @@
-import { browserUiClasses as c } from './static';
+import { busyFrames, browserUiClasses as c } from './static';
 
-/** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
-export const busyFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+export { busyFrames };
 
 /**
  * The one leaf busy mark: the braille cycle the Ops TUI shows, a 1em mono square in the current

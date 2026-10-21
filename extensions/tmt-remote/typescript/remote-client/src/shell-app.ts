@@ -89,14 +89,15 @@ function remotePage(
   return {
     async mount(slot) {
       const unstyle = await adopt(slot, html);
-      hostRemote(slot);
+      const lifetime = new AbortController();
+      hostRemote(slot, lifetime.signal);
       const release = await run(slot);
       return () => {
+        // The page's own code ends on its route's signal; nothing else in the document hears it.
+        lifetime.abort();
         release?.();
         unstyle();
         hostRemote(undefined);
-        // Page code ends its sessions and checks on pagehide, as when the document unloads.
-        window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
       };
     },
   };
@@ -123,7 +124,8 @@ function message(
   text: string,
   link?: { href: string; label: string },
 ): void {
-  const main = document.createElement('main');
+  // The shell's main area is the one main landmark; a message is a section inside it.
+  const main = document.createElement('section');
   main.className = 'page';
   const heading = document.createElement('h2');
   heading.textContent = title;
@@ -158,7 +160,7 @@ export const routes: readonly ShellRoute[] = [
     load: async () =>
       remotePage(landing, async () => {
         const { landingPage } = await import('./browser.js');
-        await landingPage();
+        await landingPage(remoteShell()!.signal);
       }),
   },
   {
@@ -209,7 +211,7 @@ export const routes: readonly ShellRoute[] = [
                 message(
                   slot,
                   'Colab',
-                  'This page will not load Colab from the address its description gives.',
+                  'Colab could not be opened here.',
                   load.link ? { href: load.link, label: 'Open Colab' } : undefined,
                 )
               : answer

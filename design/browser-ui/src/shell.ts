@@ -83,6 +83,15 @@ export function rememberedShellAnswer(): ShellAnswer | undefined {
   }
 }
 
+/** The door's mount of one module: `/r/<prefix>/x/<module>/`, the prefix being the machine's 16
+ * lowercase base32 letters. The one definition of that shape for every product. */
+const MODULE_MOUNT = /^(\/r\/[a-z2-7]{16})\/x\/([a-z0-9][a-z0-9-]{0,31})\/$/;
+
+/** The module a mount path names, or undefined when `pathname` is not exactly a module mount. */
+export function moduleMount(pathname: string): string | undefined {
+  return MODULE_MOUNT.exec(pathname)?.[2];
+}
+
 /**
  * Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
  * answer for its path (`POST /sdk/mount`). Undefined when neither answers.

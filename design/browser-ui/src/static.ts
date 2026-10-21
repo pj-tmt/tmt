@@ -114,31 +114,29 @@ export interface BrowserChipOption {
   disabled?: boolean;
 }
 
+/** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
+export const busyFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+
 /**
- * The reserved busy-mark slot of a static Action: a leading span holding the shared LoaderCircle
- * arc, hidden while `data-busy` is `false`. Set `data-busy` to `true` from `createBusyMarkGate`;
- * the shared spinner rule turns it. Non-React pages use this instead of copying the markup.
+ * The reserved busy-mark slot of a static Action: a leading span holding the leaf busy mark (the
+ * braille cycle `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
+ * to `true` from `createBusyMarkGate`. Non-React pages use this instead of copying the markup.
  */
 export function createActionMark(doc: Document = document): HTMLElement {
   const mark = doc.createElement('span');
   mark.className = browserUiClasses.actionMark;
   mark.setAttribute('aria-hidden', 'true');
   mark.dataset.busy = 'false';
-  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  for (const [name, value] of Object.entries({
-    width: '1em',
-    height: '1em',
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    'stroke-width': '2',
-    'stroke-linecap': 'round',
-    'stroke-linejoin': 'round',
-  }))
-    svg.setAttribute(name, value);
-  const arc = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-  arc.setAttribute('d', 'M21 12a9 9 0 1 1-6.219-8.56');
-  svg.append(arc);
-  mark.append(svg);
+  const busy = doc.createElement('span');
+  busy.className = browserUiClasses.busyMark;
+  const frames = doc.createElement('span');
+  frames.className = browserUiClasses.busyFrames;
+  for (const value of busyFrames) {
+    const frame = doc.createElement('span');
+    frame.dataset.frame = value;
+    frames.append(frame);
+  }
+  busy.append(frames);
+  mark.append(busy);
   return mark;
 }

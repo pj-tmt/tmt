@@ -36,7 +36,7 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
     if (!selected)
       remotes.push({
         id: 'current',
-        label: [view.mark, `this machine · ${view.word}`].filter(Boolean).join(' '),
+        label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(' '),
         href: landing,
         current: onLanding,
       });
@@ -114,19 +114,17 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
   // The registry and the blocked reason change outside this menu: refresh when the pointer or
   // keyboard reaches it, as the old switcher did on opening.
   // The shell renders the menu element and may replace it, so the page listens on the document
-  // until it unmounts (pagehide).
+  // until its route unmounts.
   const refresh = () => {
     paint();
     void actions.refresh();
   };
-  const lifetime = new AbortController();
-  addEventListener('pagehide', () => lifetime.abort(), { once: true });
   const entered = (event: PointerEvent | FocusEvent) => {
     const menu = (event.target as Element | null)?.closest?.('.tmt-ui-module-menu');
     if (menu && !menu.contains(event.relatedTarget as Node | null)) refresh();
   };
-  document.addEventListener('pointerover', entered, { signal: lifetime.signal });
-  document.addEventListener('focusin', entered, { signal: lifetime.signal });
+  document.addEventListener('pointerover', entered, { signal: shell.signal });
+  document.addEventListener('focusin', entered, { signal: shell.signal });
   // The rail fills from the owner's composed shell only once this page may send work: settings
   // always talks to the door; the native entry waits until its own check connects, so an
   // unpaired entry sends nothing.

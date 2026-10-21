@@ -277,6 +277,17 @@ test.describe('the door serving the TMT app', () => {
       await expect(page.locator('.colab-route')).toBeVisible();
     });
 
+    test('an owner link to another space lands on the blocked view', async ({ page }) => {
+      const id = await door!.createPage('Foreign page', '<h1>Foreign content</h1>');
+      await door!.pair(page);
+      const other = 'a'.repeat(32);
+      await page.goto(
+        `${door!.mount}#space=${other}&path=${encodeURIComponent(`/pages/${id}`)}&read=${reading}`,
+      );
+      await expect.poll(() => here(page)).toBe('/colab/blocked');
+      await expect(page.frameLocator('iframe').getByText('Foreign content')).toHaveCount(0);
+    });
+
     test('a reload of a page route opens the same page in the TMT app', async ({ page }) => {
       const id = await door!.createPage('Reload page', '<h1>Reload content</h1>');
       await door!.pair(page);

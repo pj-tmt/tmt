@@ -1,4 +1,4 @@
-import type { RemoteShell } from './remote-shell.js';
+import { remoteShell, type RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
 import { remoteState, currentRemote } from './remote-state.js';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
@@ -331,12 +331,16 @@ export function remoteRegistryPage(
       .catch((error: unknown) => showError(error, status));
   };
   if (fragment && !['#remotes', '#add-remote'].includes(fragment)) receive(fragment);
-  window.addEventListener('hashchange', () => {
-    const value = location.hash;
-    if (!value || ['#remotes', '#add-remote'].includes(value)) return;
-    history.replaceState(null, '', location.pathname + location.search);
-    receive(value);
-  });
+  window.addEventListener(
+    'hashchange',
+    () => {
+      const value = location.hash;
+      if (!value || ['#remotes', '#add-remote'].includes(value)) return;
+      history.replaceState(null, '', location.pathname + location.search);
+      receive(value);
+    },
+    { signal: (shell ?? remoteShell())?.signal },
+  );
   return (state, checkedAddress) => {
     observed = state;
     if (checkedAddress) address = checkedAddress;

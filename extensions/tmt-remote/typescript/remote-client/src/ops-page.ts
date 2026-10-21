@@ -144,7 +144,7 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
     if (title) title.textContent = SECTIONS.find((item) => item.id === section)!.label;
     if (board) main.replaceChildren(...opsSection(board, section));
   };
-  window.addEventListener('hashchange', paint);
+  window.addEventListener('hashchange', paint, { signal: shell.signal });
   paint();
   void source.board().then((next) => {
     board = next;

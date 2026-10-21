@@ -414,7 +414,8 @@ type EntryState =
   | 'unreadable';
 
 /** Landing-page observation uses the verified Session lane; it never dispatches work. */
-export async function landingPage(): Promise<void> {
+/** `lifetime` is the route's: once it aborts the page paints nothing and starts nothing more. */
+export async function landingPage(lifetime?: AbortSignal): Promise<void> {
   if (document.readyState === 'loading') {
     await new Promise<void>((resolve) =>
       document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }),
@@ -427,8 +428,8 @@ export async function landingPage(): Promise<void> {
   let session: Session | undefined;
   let opaque = false;
   const pageAlive = (): boolean => !departed && button.isConnected;
-  window.addEventListener(
-    'pagehide',
+  lifetime?.addEventListener(
+    'abort',
     () => {
       departed = true;
       attempt++;

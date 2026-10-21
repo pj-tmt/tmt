@@ -1,5 +1,5 @@
 import { expect, it } from 'vite-plus/test';
-import { createActionMark } from '../src/static';
+import { busyFrames, createActionMark } from '../src/static';
 
 class Node {
   className = '';
@@ -19,14 +19,16 @@ const doc = {
   createElementNS: (_space: string, tag: string) => new Node(tag),
 } as unknown as Document;
 
-it('builds the reserved, hidden busy-mark slot with the shared arc', () => {
+it('builds the reserved, hidden busy-mark slot with the leaf braille mark', () => {
   const mark = createActionMark(doc) as unknown as Node;
   expect(mark.tag).toBe('span');
   expect(mark.className).toBe('tmt-ui-action-mark');
   expect(mark.attributes.get('aria-hidden')).toBe('true');
   expect(mark.dataset.busy).toBe('false');
-  const svg = mark.children[0]!;
-  expect(svg.tag).toBe('svg');
-  expect(svg.attributes.get('stroke')).toBe('currentColor');
-  expect(svg.children[0]!.attributes.get('d')).toBe('M21 12a9 9 0 1 1-6.219-8.56');
+  // The same markup BusyMark renders: busy mark > frames > one span per braille frame.
+  const busy = mark.children[0]!;
+  expect(busy.className).toBe('tmt-ui-busy-mark');
+  const frames = busy.children[0]!;
+  expect(frames.className).toBe('tmt-ui-busy-frames');
+  expect(frames.children.map((frame) => frame.dataset.frame)).toEqual([...busyFrames]);
 });

@@ -5,9 +5,8 @@
  * (`.js`). Anything else is
  * refused, and the module's own link is the fallback.
  */
+import { moduleMount } from '../../../../../design/browser-ui/src/shell.js';
 
-/** `/r/<prefix>/x/<module>`, the door's mount for one module, with or without a trailing slash. */
-const MOUNT = /^\/r\/[a-z0-9]+\/x\/[a-z0-9][a-z0-9-]*\/?$/;
 export interface ModuleLoad {
   /** The module's own mount path, ending in `/`, when the answer's `rail.path` is a valid mount. */
   link?: string;
@@ -41,9 +40,9 @@ export function moduleLoad(
   } catch {
     return {};
   }
-  if (mount.origin !== page.origin || mount.search || mount.hash || !MOUNT.test(mount.pathname))
-    return {};
+  // The rail path may omit the mount's trailing slash.
   const link = mount.pathname.endsWith('/') ? mount.pathname : `${mount.pathname}/`;
+  if (mount.origin !== page.origin || mount.search || mount.hash || !moduleMount(link)) return {};
   const wanted = entry ?? fallback;
   if (wanted === undefined) return { link };
   if (!plain(wanted)) return { link };

@@ -405,7 +405,7 @@ function composed(rail: string, entry?: string) {
     ],
   };
 }
-const PREFIX = '/r/abcdefgh';
+const PREFIX = '/r/abcdefghijklmnop';
 const MOUNT = `${PREFIX}/x/colab/`;
 
 /** Open /colab/ as a paired browser would, with the door's mount and shell answers faked. */
@@ -450,7 +450,7 @@ test.describe('a module entry', () => {
     ['a same-origin path outside the prefix', MOUNT, '/evil/colab.js'],
     ['a relative path that climbs out of its mount', MOUNT, '../../colab.js'],
     ['another module under the same prefix', MOUNT, `${PREFIX}/x/other/colab.js`],
-    ['the same module under another machine prefix', MOUNT, '/r/zzzzzzzz/x/colab/colab.js'],
+    ['the same module under another machine prefix', MOUNT, '/r/zzzzzzzzzzzzzzzz/x/colab/colab.js'],
     ['an encoded slash', MOUNT, 'assets%2f..%2fcolab.js'],
     ['a dot segment', MOUNT, 'assets/../colab.js'],
   ] as const)
@@ -459,7 +459,7 @@ test.describe('a module entry', () => {
       await expect(page.locator('.tmt-ui-shell-main')).toContainText('Colab');
       await page.waitForTimeout(500);
       expect(requests.map((request) => request.url()).join('\n')).not.toMatch(
-        /evil|colab\.js|\/zzzzzzzz\//,
+        /evil|colab\.js|\/zzzzzzzzzzzzzzzz\//,
       );
       await expect(page.locator('.tmt-ui-shell-main')).not.toContainText('colab stub mounted');
       await page.close();
