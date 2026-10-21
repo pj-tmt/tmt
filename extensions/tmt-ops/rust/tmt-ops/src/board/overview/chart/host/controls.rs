@@ -30,8 +30,8 @@ pub(super) fn header(
     use tmt_tui::components::strip;
     let interval = super::super::format::interval(selection.each_minutes);
     let each = match each {
-        Each::Auto => format!("Auto ({interval})"),
-        Each::Fixed(_) => interval,
+        Each::Auto => format!("{interval} per bar (auto)"),
+        Each::Fixed(_) => format!("{interval} per bar"),
     };
     let group = ChipGroup {
         label: String::new(),
@@ -44,7 +44,7 @@ pub(super) fn header(
                 ),
                 Focus::Range,
             ),
-            ("each", format!(" Each {each} ▾ "), Focus::Each),
+            ("each", format!(" {each} ▾ "), Focus::Each),
         ]
         .into_iter()
         .map(|(id, text, field)| Choice {

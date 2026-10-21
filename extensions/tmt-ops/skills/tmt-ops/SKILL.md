@@ -337,13 +337,14 @@ anchors. `e` opens full observed member values. Authored sort changes the curren
 layer within unread/waiting/other groups. Retired summaries, Recent exchanges and
 the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows
-the selected window and total. Independent Range and Each dropdowns use Enter to
+the selected window and total. Independent Range and Time per bar dropdowns use Enter to
 open/pick, arrows to navigate and Esc to close; the current choice is checked.
-Range offers 1h, 6h, 24h, 7d and 30d. Each offers Auto, 5m, 15m, 30m, 1h, 2h,
-6h, 12h and 1d, hiding intervals longer than the range. Choices exceeding 720 bars
-stay visible but disabled, with the minimum interval explained in the menu footer.
-Auto picks the finest interval fitting the plot width and 720; fixed choices
-survive resize. Range changes keep a valid fixed interval or choose the closest
+Range offers 1h, 6h, 24h, 7d and 30d. Time per bar offers Automatic, 5m, 15m,
+30m, 1h, 2h, 6h, 12h and 1d, hiding intervals longer than the range. The button
+shows the time represented by one bar, such as `2h per bar (auto)`. Choices exceeding
+720 bars stay visible but disabled, with the minimum time per bar explained in the
+menu footer. Automatic picks the finest interval fitting the plot width and 720;
+fixed choices survive resize. Range changes keep a valid fixed interval or choose the closest
 admitted one. These authored choices are saved per view layer, separately from
 configured token-meter windows. Long ranges use retained Core observations;
 history before collection is unknown, and gaps are never filled with zero.
@@ -381,7 +382,7 @@ Workspace settings selects it, and clicking the window word of an Agents `TOK 1h
 heading, clicking the Digest Range control or an explicit `cycle-tok-range`
 binding (unbound by default) cycles the same setting 1h, 3h, 6h, 1d, 7d, 1h. The
 window word is its own hit area, apart from the TOK word. Agents TOK headings
-and values follow it. Chart Each/Range controls remain their independent viewport.
+and values follow it. Chart Time per bar/Range controls keep their independent viewport.
 `all` sums the admitted visible identities and never sends a message or changes a
 member's mode. Real members keep UUID selection as usage sorting changes.
 Activity shows 24 hourly cells, scaled to each row's busiest hour; unknown is `?`,
@@ -1400,7 +1401,7 @@ Usage row. Click 7d/5h in its heading, or use the existing `u` controls (arrows,
 Enter and Tab fields); changing quota never changes the token chart or rereads
 Core. Bars and percentages are neutral. The rate uses the last 2h of observed
 quota changes, divided by actual source elapsed time; its arrow compares with
-the preceding 2h. Token Each/Range controls do not affect either horizon. A reset
+the preceding 2h. Chart Time per bar/Range controls do not affect either horizon. A reset
 or percentage drop starts a new suffix. Fewer than two observations or less than
 30 minutes of spacing means `—`; an unknown prior rate shows no arrow.
 Only a positive known rate projects depletion. ◆ marks a projected runout before
