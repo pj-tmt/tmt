@@ -282,10 +282,11 @@ fn exchanges(
         app.focused() == crate::config::Pane::Replies,
         look,
     );
+    // Rows sit one column in, like every other pane row; only the rule spans the width.
     let body = Rect::new(
-        area.x,
+        area.x + 1,
         area.y + 1,
-        area.width,
+        area.width.saturating_sub(1),
         area.height.saturating_sub(1).min(EXCHANGE_LIMIT as u16 + 1),
     );
     if ranked.is_empty() {

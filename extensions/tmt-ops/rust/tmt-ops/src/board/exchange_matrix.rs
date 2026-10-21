@@ -135,7 +135,7 @@ pub(in crate::board) fn paint(
     )
 }
 
-/// Missing traffic is `—`, observed zero is `·`, and self is always `─`.
+/// Missing traffic is `—`, observed zero is `·`, and self is a blank cell.
 pub(in crate::board) fn paint_with(
     buffer: &mut Buffer,
     area: Rect,
@@ -220,7 +220,7 @@ pub(in crate::board) fn paint_with(
             });
             let same = sender.id == recipient.id;
             let text = if same {
-                "─".into()
+                String::new()
             } else {
                 match count {
                     None => "—".into(),

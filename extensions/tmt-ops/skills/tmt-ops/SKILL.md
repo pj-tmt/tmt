@@ -389,7 +389,7 @@ Activity shows 24 hourly cells, scaled to each row's busiest hour; unknown is `?
 known zero is `·`. Whole optional columns yield on narrow terminals; details carry
 the hourly strip at 60 columns. Tab exposes Exchanges in the lower pane.
 Exchanges counts only talk and reply messages, with sender rows and recipient
-columns; `─` is self, `·` observed none and `—` unavailable.
+columns; self is blank, `·` observed none and `—` unavailable.
 Enter opens the selected member's Agents conversation. D uses the existing
 Digest chooser; e toggles details, u opens usage controls and w stays Snapshots.
 Hints follow configured bindings. The `≈ $ in` column requires full input-model
