@@ -18,6 +18,10 @@
 //   MOCK_DB                the TMT database, for MOCK_RESULT_ON_HINT and MOCK_REQUEST_ON_WAKE
 //   MOCK_TURN_TRANSCRIPT   private telemetry fixture; prompt follows SessionStart,
 //                          then `<log>.stop-turn` explicitly releases one Stop
+// Digest steps (`<log>.digest-step`, MOCK_LAUNCH_HOOKS=1) emit one installed-hook Stop:
+//   message / continuationMessage  the Stop's and the continuation Stop's last_assistant_message
+//   transcript                     the Stop's transcript_path
+//   prompt: true                   a UserPromptSubmit instead (starts the next turn)
 // Control files next to the log: `<log>.kill-server` kills the channel server
 // (a crash while the session lives), `<log>.quit` ends the mock cleanly.
 
@@ -127,7 +131,8 @@ async function emitInstalledHooks(
   payload,
   event,
   rejectDigestOutput = false,
-  partialOutput = false
+  partialOutput = false,
+  continuationMessage = undefined
 ) {
   const index = args.indexOf('--settings');
   if (index < 0) throw new Error('tmt run did not install launch settings');
@@ -198,7 +203,16 @@ async function emitInstalledHooks(
     log({ event: 'digest-continuation', reason: continuation.reason });
     // The provider's causal continuation invokes Stop again with its loop guard.
     // That second event must not claim a later arrival or repeat the batch.
-    await emitInstalledHooks({ ...payload, stop_hook_active: true }, 'recursive-stop');
+    await emitInstalledHooks(
+      {
+        ...payload,
+        stop_hook_active: true,
+        ...(continuationMessage === undefined
+          ? {}
+          : { last_assistant_message: continuationMessage }),
+      },
+      'recursive-stop'
+    );
   }
 }
 
@@ -347,14 +361,23 @@ const control = setInterval(() => {
     fs.rmSync(`${logPath}.digest-step`);
     digestStepRunning = true;
     void emitInstalledHooks(
-      {
-        hook_event_name: 'Stop',
-        session_id: step.session ?? process.env.MOCK_SESSION_ID,
-        stop_hook_active: step.active ?? false,
-      },
+      step.prompt === true
+        ? {
+            hook_event_name: 'UserPromptSubmit',
+            session_id: step.session ?? process.env.MOCK_SESSION_ID,
+            transcript_path: step.transcript,
+          }
+        : {
+            hook_event_name: 'Stop',
+            session_id: step.session ?? process.env.MOCK_SESSION_ID,
+            stop_hook_active: step.active ?? false,
+            ...(step.transcript === undefined ? {} : { transcript_path: step.transcript }),
+            ...(step.message === undefined ? {} : { last_assistant_message: step.message }),
+          },
       step.event,
       step.rejectDigestOutput === true,
-      step.partialDigestOutput === true
+      step.partialDigestOutput === true,
+      step.continuationMessage
     )
       .catch((error) => {
         log({ event: 'hook-error', message: error.message });
