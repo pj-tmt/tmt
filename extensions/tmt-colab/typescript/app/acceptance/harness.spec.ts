@@ -527,11 +527,41 @@ test('harness: a failed Live check attaches the closed header state and keeps it
   await page.setContent(`${header('Secret label')}`);
   await expect(expectLive(page, 300)).rejects.toThrow();
   expect(attached()).toEqual([
-    { state: 'opening', frame: true, visibility: 'visible' },
-    { state: 'stopped', frame: false, visibility: 'visible' },
-    { state: 'none', frame: false, visibility: 'visible' },
-    { state: 'other', frame: false, visibility: 'visible' },
+    { state: 'opening', frame: true, visibility: 'visible', ended: 'none' },
+    { state: 'stopped', frame: false, visibility: 'visible', ended: 'none' },
+    { state: 'none', frame: false, visibility: 'visible', ended: 'none' },
+    { state: 'other', frame: false, visibility: 'visible', ended: 'none' },
   ]);
+});
+
+// #3083: an ended connection stops the preview without a renderer notice; the diagnostic names its
+// cause from the closed reference label, and nothing else the page shows.
+test('harness: a stopped preview names the closed cause its terminal notice shows', async ({
+  page,
+}) => {
+  const attached = () =>
+    test
+      .info()
+      .attachments.filter((attachment) => attachment.name === 'colab-live-state')
+      .map((attachment) => JSON.parse(attachment.body!.toString('utf8')).ended);
+  const ended = (reference: string) =>
+    `<span class="status page-connection"><span class="status-label">${text.blocked}</span></span>` +
+    `<p>Authored sentence the diagnostic must not copy.</p>` +
+    `<small><code data-failure-reference>${reference}</code></small>`;
+  const causes = Object.entries(text.failureReference);
+  expect(causes.length).toBeGreaterThan(0);
+  for (const [, label] of causes) {
+    await page.setContent(ended(label));
+    await expect(expectLive(page, 300)).rejects.toThrow();
+  }
+  await page.setContent(ended('Authored label outside the set'));
+  await expect(expectLive(page, 300)).rejects.toThrow();
+  await page.setContent(
+    `<span class="status page-connection"><span class="status-label">${text.blocked}</span></span>`,
+  );
+  await expect(expectLive(page, 300)).rejects.toThrow();
+  expect(attached()).toEqual([...causes.map(([cause]) => cause), 'other', 'none']);
+  expect(JSON.stringify(attached())).not.toContain('Authored');
 });
 
 // A stopped preview names its renderer notice without inferring an unobserved cause.

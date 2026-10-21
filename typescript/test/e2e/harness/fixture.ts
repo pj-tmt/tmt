@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TMUX_COMMAND_INSPECTION } from '../tmux-command-inspection.js';
 import { resolveCliExecutables, type CliExecutables } from '../../support/cli-executable.mjs';
+import { assertPrivateSocket } from '../../support/private-tmux.js';
 
 import type {
   CliResult,
@@ -107,6 +108,14 @@ export class E2EFixture {
         `E2E fixture requires tmux: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
       );
+    }
+    // The wrapper selects this socket with -L; prove it is private before any server command.
+    try {
+      assertPrivateSocket(this.expectedSocketPath, this.socketRoot);
+    } catch (error) {
+      fs.rmSync(this.root, { recursive: true, force: true });
+      fs.rmSync(this.socketRoot, { recursive: true, force: true });
+      throw error;
     }
   }
 

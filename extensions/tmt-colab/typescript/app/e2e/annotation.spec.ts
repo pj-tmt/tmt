@@ -50,20 +50,20 @@ test('the shared window awaits one admitted status action without replacing its 
   await window.getByRole('button', { name: 'Resolve', exact: true }).click();
   await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toBeDisabled();
   await expect(window.getByRole('button', { name: 'Close thread', exact: true })).toBeDisabled();
-  await input.focus();
-  await input.press('End');
-  await input.pressSequentially(' continues');
-  await expect(input).toBeFocused();
-  await expect(input).toHaveText('Unsent draft continues', { useInnerText: true });
-  await expect(input).toHaveAttribute('data-retained', 'yes');
+  // The resolved thread shows in the click frame: the draft is folded away but stays mounted.
+  await expect(window.locator('.resolved-summary')).toBeVisible();
+  await expect(window.locator('[data-retained="yes"]')).toBeHidden();
+  await expect(window.locator('[data-retained="yes"]')).toHaveCount(1);
   await expect(window.locator('.thread-state')).toHaveAttribute('title', 'Frozen original quote');
   expect(await run(page, 'windowProof')).toEqual({ statusCalls: 1, closes: 0 });
   await run(page, 'finishWindowStatus');
   await expect(window.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
-  await expect(input).toBeHidden();
+  await expect(window.locator('[data-retained="yes"]')).toBeHidden();
   await window.getByRole('button', { name: 'Show conversation', exact: true }).click();
   await input.focus();
   await expect(input).toBeFocused();
+  await input.press('End');
+  await input.pressSequentially(' continues');
   await expect(input).toHaveText('Unsent draft continues', { useInnerText: true });
   await window.getByRole('button', { name: 'Reopen', exact: true }).click();
   await run(page, 'finishWindowStatus', 'failed');

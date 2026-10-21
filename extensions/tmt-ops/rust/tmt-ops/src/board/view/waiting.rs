@@ -125,12 +125,14 @@ pub(super) fn prompt(
 pub(in crate::board) fn input_lines(
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,
+    padded: bool,
 ) -> usize {
     if app.composer_projection().is_some() {
         return usize::from(
             app.composer_rows(
                 area.width
                     .saturating_sub(crate::board::input_field::GUTTER * 2),
+                padded,
             ),
         );
     }
@@ -368,7 +370,8 @@ fn final_input(
     let key = start
         .as_ref()
         .map_or("click", |(key, _)| super::footer::key_label(key));
-    let field_rows = field::rows(projection.text, band.width);
+    let padded = field::padded(frame.area().height);
+    let field_rows = field::rows(projection.text, band.width, padded);
     let exact_rows = u16::from(!projection.quotes.is_empty() && band.height > field_rows);
     let chat_rows =
         u16::from(!projection.chat_quotes.is_empty() && band.height > field_rows + exact_rows);
@@ -385,10 +388,13 @@ fn final_input(
         composer_caption(app, &projection),
         key,
         projection.focused,
-        projection
-            .text
-            .is_some_and(|text| !text.is_empty())
-            .then(|| field::box_rows(projection.text, band.width)),
+        field::Shape {
+            draft_rows: projection
+                .text
+                .is_some_and(|text| !text.is_empty())
+                .then(|| field::box_rows(projection.text, band.width, padded)),
+            padded,
+        },
         look,
     );
     let (editor_area, overflow) = projection.text.map_or((content_area, None), |text| {

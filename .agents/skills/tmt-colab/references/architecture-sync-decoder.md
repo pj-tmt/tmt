@@ -138,12 +138,13 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   source write keep it. `page::read_work` and `page::prepare_structured_publication` are the page
   owner's read and write. `wip.rs` owns the work-in-progress limit, the write owner's admission
   rule and never a property of the value, so no published state is invalid for it;
-  `work_index.rs` reads every page's work for it and for the list through one derived file keyed
+  `work_index.rs` reads every page's work for it and for the CLI list through one derived file keyed
   by the page's own progress (`work-index.json`, rebuildable, never signed or synced), and
   `settings.rs` stores the limits. A task may follow a page (`child`): `work_links.rs` is pure over
   that index and resolves a page's derived values through the pages its tasks follow (a page's
   stage is its tasks' states, bounded in depth and cycle-safe) and decides whether `task.link` is
-  admitted (one parent, no loop, a page that exists), since one page's value cannot see another's.
+  admitted (one parent, no loop, a page that exists), since one page's value cannot see another's;
+  the owner list resolves its rows and parents through the same `Graph` (`registration.rs`).
   `cli_work.rs` runs the `task` and `summary` commands: it checks the limit and the link before it
   prepares a change, so the decoder and the browser never see them, `task convert` makes the page
   through `cli_management::commit_creation` and then links it, and `ls` adds each page's derived

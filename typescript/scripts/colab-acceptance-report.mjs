@@ -34,21 +34,37 @@ function attachedRow(attachment, name) {
 }
 
 // An independent boundary check of the harness's closed Live-status diagnostic: which state a page
-// stayed in, whether its renderer frame existed and the tab's visibility. Never page text.
+// stayed in, whether its renderer frame existed, the tab's visibility and the cause its terminal
+// notice names. Never page text.
 function liveState(attachment) {
   const row = attachedRow(attachment, 'colab-live-state');
   const states = ['live', 'opening', 'stopped', 'reconnecting', 'archived', 'none', 'other'];
+  const causes = [
+    'access',
+    'revoked',
+    'expired',
+    'mismatch',
+    'unpaired',
+    'gone',
+    'session',
+    'large',
+    'capacity',
+    'generic',
+    'none',
+    'other',
+  ];
   if (
     !row ||
     typeof row !== 'object' ||
     Array.isArray(row) ||
-    Object.keys(row).length !== 3 ||
+    Object.keys(row).length !== 4 ||
     !states.includes(row.state) ||
     typeof row.frame !== 'boolean' ||
-    !['visible', 'hidden'].includes(row.visibility)
+    !['visible', 'hidden'].includes(row.visibility) ||
+    !causes.includes(row.ended)
   )
     return;
-  return { state: row.state, frame: row.frame, visibility: row.visibility };
+  return { state: row.state, frame: row.frame, visibility: row.visibility, ended: row.ended };
 }
 
 // This is an independent boundary check of the app's closed own-publication diagnostic.

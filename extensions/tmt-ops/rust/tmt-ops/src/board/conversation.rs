@@ -587,7 +587,12 @@ fn render_target(
         .then(|| app.conversation_input_area())
         .flatten()
         .map_or(0, |pane| {
-            super::view::waiting::input_lines(app, pane).min(usize::from(area.height)) as u16
+            super::view::waiting::input_lines(
+                app,
+                pane,
+                crate::board::input_field::padded(frame.area().height),
+            )
+            .min(usize::from(area.height)) as u16
         });
     let area = if input_height > 0 {
         app.input_band.set(Some(Rect::new(
