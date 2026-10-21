@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { binariesBuilt, startIsolatedDoor, type IsolatedDoor } from './isolated-door.js';
 
 /**
  * Conditions for Colab as a route of the one TMT web app at `/colab/...` (#3937; feat-lead's and
@@ -8,17 +9,17 @@ import { readFileSync } from 'node:fs';
  * the renderer stays a separate sandboxed opaque frame, and unmounting releases what Colab started.
  *
  * The router and module tests run over the local transports (test/spa-links-browser.tsx). The
- * door tests need the real door serving the TMT app; until ux-4's door and build work lands they
- * run as expected failures against the dev server. To flip them, point TMT_SPA_DOOR_ORIGIN at a
- * running door that serves the built app: they then run normally and must pass.
+ * door tests run against a private door: the real tmt-remote and tmt-colab binaries in a throwaway
+ * HOME (e2e/isolated-door.ts; build them with `cargo build -p tmt-remote -p tmt-colab`, or set
+ * TMT_REMOTE_BINARY and TMT_COLAB_BINARY). TMT_SPA_DOOR_ORIGIN instead points the unpaired checks at
+ * a door that is already running. The tests that need a paired browser are expected failures until
+ * the pairing page works in the one TMT app (TODO below).
  */
 const fixture = '/test/spa-links-browser.tsx';
 const space = '10000000-0000-4000-8000-000000000001';
 const page1 = '12345678-0000-4000-8000-000000000001';
 const reading = '10000000-0000-4000-8000-000000000401';
-const doorOrigin = process.env.TMT_SPA_DOOR_ORIGIN;
-const needsDoor = (title: string) =>
-  `TODO(ux-4 door/build): ${title}. Set TMT_SPA_DOOR_ORIGIN to a door serving the built TMT app and remove this marker.`;
+const externalDoor = process.env.TMT_SPA_DOOR_ORIGIN;
 
 const policySource = readFileSync(
   new URL('../../../rust/tmt-colab/src/browser_policy.rs', import.meta.url),
@@ -189,54 +190,145 @@ test('the policy comparison accepts a stricter document and names every loosenin
 });
 
 test.describe('the door serving the TMT app', () => {
-  const origin = (baseURL: string | undefined) => doorOrigin ?? baseURL!;
+  let door: IsolatedDoor | undefined;
+  let origin: string;
+  test.beforeAll(async () => {
+    // TMT_SPA_DOOR_ORIGIN points the unpaired checks at a door that is already running; it cannot
+    // pair a browser, so the paired checks need the isolated door below.
+    if (externalDoor) {
+      origin = externalDoor;
+      return;
+    }
+    if (!binariesBuilt()) return;
+    door = await startIsolatedDoor();
+    origin = door.origin;
+  });
+  test.afterAll(async () => {
+    await door?.stop();
+  });
   test.beforeEach(() => {
-    test.fail(!doorOrigin, needsDoor('the door serves /colab/... as a route of the TMT app'));
+    test.skip(
+      !externalDoor && !door,
+      'Needs the native binaries: cargo build -p tmt-remote -p tmt-colab (or TMT_REMOTE_BINARY and TMT_COLAB_BINARY)',
+    );
   });
 
   test('the app document of a short link has a policy no looser than today’s app document', async ({
-    baseURL,
     request,
   }) => {
-    const response = await request.get(`${origin(baseURL)}/colab/p/12345678`);
+    const response = await request.get(`${origin}/colab/p/12345678`);
     expect(response.ok()).toBe(true);
     const policy = response.headers()['content-security-policy'];
     expect(policy, 'the document carries a Content-Security-Policy').toBeTruthy();
     expect(atLeastAsStrict(policy!, APP_POLICY)).toEqual([]);
   });
 
-  test('the renderer document keeps the renderer policy and is not the app document', async ({
-    baseURL,
-    request,
-  }) => {
-    const response = await request.get(`${origin(baseURL)}/colab/renderer.html`);
-    expect(response.ok()).toBe(true);
-    expect(response.headers()['content-security-policy']).toBe(RENDERER_POLICY);
-    expect(await response.text()).toContain('Colab page renderer');
+  test('every Colab route serves that same app document, unpaired', async ({ request }) => {
+    const policies = new Set<string>();
+    for (const path of [
+      '/colab/',
+      '/colab/p/12345678',
+      `/colab/pages/${page1}`,
+      '/colab/settings',
+    ]) {
+      const response = await request.get(`${origin}${path}`);
+      expect(response.status(), path).toBe(200);
+      policies.add(response.headers()['content-security-policy'] ?? '');
+    }
+    expect(policies.size).toBe(1);
   });
 
-  test('a reload of a page route opens the same page in the TMT app', async ({ page, baseURL }) => {
-    await page.goto(`${origin(baseURL)}/colab/pages/${page1}`);
-    await expect(page.getByRole('navigation', { name: 'TMT', exact: true })).toBeVisible();
+  test('the renderer is served by the Colab mount with its own policy, not by the app', async ({
+    request,
+  }) => {
+    test.skip(!door, 'The mount path needs the isolated door’s machine address');
+    const renderer = await request.get(`${door!.mount}renderer.html`);
+    expect(renderer.ok()).toBe(true);
+    expect(renderer.headers()['content-security-policy']).toBe(RENDERER_POLICY);
+    expect(await renderer.text()).toContain('Colab page renderer');
+    // The app origin has no renderer of its own: the frame never loads from the app document's path.
+    expect((await request.get(`${origin}/colab/renderer.html`)).status()).toBe(404);
+  });
+
+  test('the old short entry redirects into /colab/ and keeps its path', async ({ request }) => {
+    const short = await request.get(`${origin}/p/12345678`, { maxRedirects: 0 });
+    expect(short.status()).toBe(308);
+    expect(short.headers().location).toBe('/colab/p/12345678');
+  });
+
+  test('a reload of a page route serves the TMT app, unpaired', async ({ page }) => {
+    await page.goto(`${origin}/colab/pages/${page1}`);
+    const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+    await expect(rail).toBeVisible();
     await page.reload();
-    await expect(page.getByRole('navigation', { name: 'TMT', exact: true })).toBeVisible();
-    await expect(page.locator('.colab-route')).toBeVisible();
+    await expect(rail).toBeVisible();
     expect(new URL(page.url()).pathname).toBe(`/colab/pages/${page1}`);
   });
 
-  test('the moved mount and the old short entry redirect into /colab/ and keep their query', async ({
-    baseURL,
-    request,
-  }) => {
-    const base = origin(baseURL);
-    const moved = await request.get(`${base}/r/abcdefghijklmnop/x/colab/?read=${reading}`, {
-      maxRedirects: 0,
+  test.describe('with a paired browser', () => {
+    // TODO(ux-4 shell): the isolated door's pair() helper drives the pairing page at
+    // /remote/pair#<code> (field #name, then the four words). In the one TMT app that URL shows the
+    // Remote connection page and no pairing form yet, so pairing never completes. Remove the marker
+    // when the pairing form is back; the helper is in e2e/isolated-door.ts.
+    test.beforeEach(() => {
+      test.fail(
+        true,
+        'TODO(ux-4 shell): /remote/pair#<code> shows no pairing form in the one TMT app',
+      );
     });
-    expect(moved.status()).toBe(308);
-    expect(moved.headers().location).toBe(`/colab/?read=${reading}`);
-    const short = await request.get(`${base}/p/12345678`, { maxRedirects: 0 });
-    expect([301, 302, 307, 308]).toContain(short.status());
-    expect(short.headers().location).toBe('/colab/p/12345678');
+
+    test('the moved Colab mount redirects into /colab/ and keeps its query', async ({ page }) => {
+      await door!.pair(page);
+      const moved = await page.request.get(`${door!.mount}?read=${reading}`, { maxRedirects: 0 });
+      expect(moved.status()).toBe(308);
+      expect(moved.headers().location).toBe(`/colab/?read=${reading}`);
+    });
+
+    test('a reload of a page route opens the same page in the TMT app', async ({ page }) => {
+      const id = await door!.createPage('Reload page', '<h1>Reload content</h1>');
+      await door!.pair(page);
+      await page.goto(`${door!.origin}/colab/pages/${id}`);
+      await expect(page.locator('.colab-route')).toBeVisible();
+      await page.reload();
+      await expect(page.locator('.colab-route')).toBeVisible();
+      expect(new URL(page.url()).pathname).toBe(`/colab/pages/${id}`);
+      await expect(
+        page.frameLocator('iframe').getByRole('heading', { name: 'Reload content' }),
+      ).toBeVisible();
+    });
+
+    test('a paired Colab closes its Remote session and page bindings on unmount', async ({
+      page,
+    }) => {
+      await page.addInitScript(() => {
+        const opened: WebSocket[] = [];
+        const Native = window.WebSocket;
+        window.WebSocket = class extends Native {
+          constructor(...args: ConstructorParameters<typeof WebSocket>) {
+            super(...args);
+            opened.push(this);
+          }
+        };
+        (window as unknown as { __opened: WebSocket[] }).__opened = opened;
+      });
+      const id = await door!.createPage('Unmount page', '<h1>Unmount content</h1>');
+      await door!.pair(page);
+      await page.goto(`${door!.origin}/colab/pages/${id}`);
+      const live = () =>
+        page.evaluate(
+          () =>
+            (window as unknown as { __opened: WebSocket[] }).__opened.filter(
+              (socket) => socket.readyState < WebSocket.CLOSING,
+            ).length,
+        );
+      // An open page holds its binding; leaving the route through the TMT rail must close it.
+      await expect.poll(live).toBeGreaterThan(0);
+      await page
+        .getByRole('navigation', { name: 'TMT', exact: true })
+        .getByRole('link', { name: 'Home' })
+        .click();
+      await expect.poll(live).toBe(0);
+    });
   });
 });
 
@@ -262,34 +354,4 @@ test('unmounting Colab closes what it started', async ({ page }) => {
       channels: 0,
       mountedChildren: 0,
     });
-});
-
-test('a paired Colab closes its Remote session and page bindings on unmount', async ({ page }) => {
-  test.fail(!doorOrigin, needsDoor('a paired Colab needs the door’s mount API and a real session'));
-  await page.addInitScript(() => {
-    const opened: WebSocket[] = [];
-    const Native = window.WebSocket;
-    window.WebSocket = class extends Native {
-      constructor(...args: ConstructorParameters<typeof WebSocket>) {
-        super(...args);
-        opened.push(this);
-      }
-    };
-    (window as unknown as { __opened: WebSocket[] }).__opened = opened;
-  });
-  await page.goto(`${doorOrigin ?? ''}/colab/pages/${page1}`);
-  const live = () =>
-    page.evaluate(
-      () =>
-        (window as unknown as { __opened: WebSocket[] }).__opened.filter(
-          (socket) => socket.readyState < WebSocket.CLOSING,
-        ).length,
-    );
-  // Open page: Colab holds its session. Leaving the route through the TMT rail must close it.
-  await expect.poll(live).toBeGreaterThan(0);
-  await page
-    .getByRole('navigation', { name: 'TMT', exact: true })
-    .getByRole('link', { name: 'Home' })
-    .click();
-  await expect.poll(live).toBe(0);
 });
