@@ -490,6 +490,12 @@ export type ThreadWindowProps = {
   status?: ThreadPresentation['status'];
   /** The parent owns recipient freezing and notification; the window only asks. */
   onStatusChange?(resolved: boolean): Promise<ThreadStatusOutcome>;
+  /**
+   * The status a change shows before its record lands. A parent that also renders the thread's
+   * row owns it, so the row and the window agree; without one the window keeps its own.
+   */
+  pendingResolved?: boolean;
+  onPendingResolved?(pending: boolean | undefined): void;
 };
 
 export function ThreadWindow({
@@ -516,19 +522,29 @@ export function ThreadWindow({
   onBusy,
   status,
   onStatusChange,
+  pendingResolved: parentPending,
+  onPendingResolved,
 }: ThreadWindowProps) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
   const [showResolved, setShowResolved] = useState(false);
+  // A status change shows in the click frame; the verified record replaces it, or a failure undoes it.
+  const [ownPending, setOwnPending] = useState<boolean>();
+  const pendingResolved = onPendingResolved ? parentPending : ownPending;
+  const setPendingResolved = onPendingResolved ?? setOwnPending;
   const [echoes, echoHost, held] = useMessageEcho(thread?.comments ?? []);
+  const shownResolved = pendingResolved ?? thread?.resolved;
   useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
-  const collapsed = !!thread?.resolved && !showResolved;
+  useEffect(() => {
+    if (pendingResolved === thread?.resolved) setPendingResolved(undefined);
+  }, [pendingResolved, thread?.resolved, setPendingResolved]);
+  const collapsed = !!thread && !!shownResolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
   // A resolved thread leaves the page's marker set, so its attachment is not
   // observed until Reopen restores the marker.
-  const tracked = !!anchor && !thread?.resolved;
+  const tracked = !!anchor && !shownResolved;
   const messageIds = [
     ...(thread?.comments.map((comment) =>
       conversationRecordKey('comment', comment.ref.writer, comment.messageId),
@@ -560,6 +576,7 @@ export function ThreadWindow({
     onBusy?.(true);
     setError(false);
     setNotNotified([]);
+    setPendingResolved(resolved);
     let closeAfter = false;
     void Promise.resolve()
       .then(() => onStatusChange(resolved))
@@ -568,10 +585,15 @@ export function ThreadWindow({
           const names = (result.warnings ?? []).map((warning) => warning.name);
           setReattach(null);
           setNotNotified(names);
+          // The record that follows replaces the display; nothing changed means nothing follows.
+          if (!result.changed) setPendingResolved(undefined);
           // Keep the window open while it still has something to tell the person.
           closeAfter = result.changed && resolved && layout === 'anchored' && !names.length;
         },
-        () => setError(true),
+        () => {
+          setPendingResolved(undefined);
+          setError(true);
+        },
       )
       .finally(() => {
         setBusy(false);
@@ -586,7 +608,7 @@ export function ThreadWindow({
         summary={
           <div className="resolved-summary">
             <p>
-              {messageIds.length} messages ·{' '}
+              {messageIds.length} {messageIds.length === 1 ? 'message' : 'messages'} ·{' '}
               {thread?.comments
                 .filter((comment) => !comment.deleted)
                 .reduce((count, comment) => count + (comment.attachments?.length ?? 0), 0) ??
@@ -614,7 +636,7 @@ export function ThreadWindow({
         data-anchor={
           thread?.deleted || !anchor
             ? 'page'
-            : thread?.resolved
+            : shownResolved
               ? 'resolved'
               : attached
                 ? 'attached'
@@ -624,14 +646,16 @@ export function ThreadWindow({
           <span className="thread-state" title={anchor?.exact}>
             {number !== undefined && <span className="annotation-number">{number}</span>}
             {thread && <span className="annotation-heading">THREAD</span>}
-            {thread && (thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
+            {thread && (shownResolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
             <span>
               {!thread
                 ? 'ANNOTATE THE SELECTION'
                 : thread.deleted
                   ? text.threadDeleted
-                  : thread.resolved
-                    ? resolvedLabel(status)
+                  : shownResolved
+                    ? pendingResolved
+                      ? text.threadResolved
+                      : resolvedLabel(status)
                     : text.threadOpen}
             </span>
           </span>
@@ -860,6 +884,7 @@ export function ThreadPanel({
   const numbers = suppliedNumbers ?? threadNumbers(threads);
   const [compose, setCompose] = useState(false);
   const [proposalsOnly, setProposalsOnly] = useState(false);
+  const [pending, setPending] = useState<Record<string, boolean>>({});
   const visibleThreads = threads.filter((thread) => !proposalsOnly || !!thread.proposal);
   const [now, setNow] = useState(0);
   useEffect(() => setNow(Date.now()), [threads, asks]);
@@ -926,10 +951,13 @@ export function ThreadPanel({
           ];
           const at = Number(thread.comments.at(-1)?.at ?? thread.at);
           const status = presentationOf(presentations, thread.ref)?.status;
+          // A status change shows in the row in the same frame as in its window.
+          const isPending = pending[id] !== undefined;
+          const shownResolved = pending[id] ?? thread.resolved;
           return (
             <section
               className="annotation-list-item"
-              data-resolved={thread.resolved || undefined}
+              data-resolved={shownResolved || undefined}
               key={id}
             >
               <div className="annotation-row-controls">
@@ -937,7 +965,7 @@ export function ThreadPanel({
                   className="annotation-row"
                   data-testid="annotation-row"
                   data-thread-id={thread.threadId}
-                  data-resolved={thread.resolved || undefined}
+                  data-resolved={shownResolved || undefined}
                   title={Array.from(
                     (
                       thread.comments.find(
@@ -971,7 +999,7 @@ export function ThreadPanel({
                     · <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
                   </span>
                   <span data-testid="thread-row-status" data-unseen={status?.unseen || undefined}>
-                    {thread.resolved ? (
+                    {shownResolved ? (
                       <CircleCheck aria-hidden />
                     ) : thread.proposal && thread.decision ? (
                       thread.decision.decision === 'approved' ? (
@@ -983,15 +1011,17 @@ export function ThreadPanel({
                       <CircleDot aria-hidden />
                     )}
                     {thread.proposal ? `${text.proposalOpen} · ` : ''}
-                    {thread.resolved
-                      ? resolvedLabel(status)
+                    {shownResolved
+                      ? isPending
+                        ? text.threadResolved
+                        : resolvedLabel(status)
                       : thread.proposal && thread.decision
                         ? thread.decision.decision === 'approved'
                           ? text.proposalApproved
                           : text.proposalDeclined
                         : text.threadOpen}
                     {status?.unseen ? ` · ${text.threadUnseen}` : ''}
-                    {thread.anchor && !thread.resolved && !resolved.includes(id)
+                    {thread.anchor && !shownResolved && !resolved.includes(id)
                       ? ` · ${text.commentDetached}`
                       : ''}
                   </span>
@@ -1039,6 +1069,13 @@ export function ThreadPanel({
                     status={status}
                     onStatusChange={
                       onStatusChange && ((resolved) => onStatusChange(thread, resolved))
+                    }
+                    pendingResolved={pending[id]}
+                    onPendingResolved={(value) =>
+                      setPending((previous) => {
+                        const { [id]: _, ...rest } = previous;
+                        return value === undefined ? rest : { ...rest, [id]: value };
+                      })
                     }
                   />
                 ))}
