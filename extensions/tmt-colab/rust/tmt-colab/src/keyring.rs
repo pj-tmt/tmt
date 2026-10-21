@@ -11,7 +11,6 @@ const FILES: &[&str] = &[
     "keyring.lock",
     "space.db",
     "settings.json",
-    "settings.lock",
     "work-index.json",
     "work-index.lock",
     "serve-error.json",

@@ -35,7 +35,7 @@ and `limits.rs`; do not restate them.
 - Overflow, an unknown or pruned cursor and any abnormal close end in `RESYNC_REQUIRED`:
   clients reconstruct from a fresh verified catchup. Bytes already written cannot be
   recalled, so a stalled write drops the stream instead of flushing ciphertext.
-- An admission read that fails because the store stays busy or locked past its 2 s timeout also
+- An admission read that fails because the store stays busy or locked past its 5 s wait (`store::BUSY`) also
   ends in `RESYNC_REQUIRED` (`sync_fault` in `registration.rs`, `store::contended`), so the page
   resyncs instead of reading `DENIED` as a lost grant (#2956). Other refusals keep their code.
 - ACK resolves exact scoped receipt/checkpoint identities even after compaction prunes their
