@@ -92,6 +92,7 @@ export const text = {
   proposalApproved: 'Approved',
   proposalDeclined: 'Declined',
   proposalApprove: 'Approve',
+  proposalSaving: 'Saving decision…',
   proposalDecline: 'Decline',
   proposalFollowUp: 'Follow up',
   proposalNotifyFailed:

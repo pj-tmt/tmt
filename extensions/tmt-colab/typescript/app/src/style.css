@@ -1509,6 +1509,16 @@ body:has(.needs-you-header-menu) {
 .proposal-actions .tmt-ui-action[data-variant='text'] {
   border: var(--tmt-ui-action-border-width) solid transparent;
 }
+/* A live line heard, not seen: it takes no room in the card. */
+.proposal-announce {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 /* The busy mark of the decision not being saved keeps the button's width without showing. */
 .proposal-unpressed {
   visibility: hidden;

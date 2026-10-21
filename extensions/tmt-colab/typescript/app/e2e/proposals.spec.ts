@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
+import { text } from '../src/strings.js';
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -471,10 +472,11 @@ for (const width of [1440, 390])
       page.evaluate((name) => {
         (window as unknown as { step: string }).step = name;
       }, name);
+    const live = card.locator('.proposal-announce');
     await run(page, 'holdDecision');
     await approve.click();
     // Saving: both buttons stay where they were, inert but neither greyed nor relabelled; the busy
-    // mark on the pressed one, after the shared delay, is the only sign, and no line is added.
+    // mark on the pressed one, after the shared delay, is the only sign seen, and no line is added.
     const mark = approve.locator('.tmt-ui-action-mark');
     await expect(mark).toHaveAttribute('data-busy', 'true');
     await expect(decline.locator('.tmt-ui-action-mark svg')).toBeHidden();
@@ -484,21 +486,31 @@ for (const width of [1440, 390])
     }
     await expect(approve).toHaveText('Approve');
     await expect(decline).toHaveText('Decline');
-    await expect(card.getByRole('status')).toHaveCount(0);
+    // Heard, not seen: a polite line with the same delay, taking no room.
+    await expect(live).toHaveText('Saving decision…');
+    expect((await live.boundingBox())!.height).toBeLessThanOrEqual(1);
     expect(await box()).toEqual(idle);
     await decline.click({ force: true });
     expect((await run(page, 'proof')).sends).toHaveLength(0);
     await step('decided');
+    await run(page, 'holdReply');
     await run(page, 'pausePrepare');
     await run(page, 'releaseDecision');
     await expect(card.locator('.proposal-state')).toContainText('Approved');
     await expect(approve).toHaveCount(0);
-    // The decided row stands where the buttons were, at their height.
+    await expect(live).toHaveText('');
+    // The decided row stands where the buttons were, at their height, until the reply turn lands.
     const decided = await box();
     expect(Math.abs(decided.actions!.height - idle.actions!.height)).toBeLessThanOrEqual(1);
     expect(decided.actions!.y).toBeCloseTo(idle.actions!.y, 0);
-    await expect(card.getByRole('status')).toHaveCount(0);
     await page.waitForTimeout(400);
+    await step('reply');
+    await run(page, 'releaseReply');
+    await expect(card.locator('.conversation-turn')).toHaveCount(1);
+    await page.waitForTimeout(400);
+    // The row is released in the frame the turn arrives: no blank gap stays under the actions.
+    const replied = await box();
+    expect(replied.actions!.height).toBeLessThanOrEqual(37);
     await step('settled');
     await run(page, 'resumePrepare');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
@@ -506,13 +518,26 @@ for (const width of [1440, 390])
     const steps = await page.evaluate(
       () => (window as unknown as { steps: { step: string; height: number }[] }).steps,
     );
-    // The reply's turn is the one thing added, when the decision lands; nothing moves around it.
+    // The page moves once, when the reply's turn lands; the decision's own landing moves nothing.
     expect(
       steps.map(({ step }) => step),
       JSON.stringify(steps),
-    ).toEqual(['decided']);
+    ).toEqual(['reply']);
     expect(steps[0].height).toBeGreaterThan(0);
   });
+
+test('a refused decision clears the saving line and shows its note at once', async ({ page }) => {
+  await mount(page);
+  const card = page.locator('[data-inline-proposal] .proposal-card');
+  const live = card.locator('.proposal-announce');
+  await run(page, 'holdDecision');
+  await run(page, 'failDecision');
+  await card.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(live).toHaveText('Saving decision…');
+  await run(page, 'releaseDecision');
+  await expect(live).toHaveText('');
+  await expect(card.getByText(text.proposalDecisionUnconfirmed)).toBeVisible();
+});
 
 test('decision completion does not reclaim focus after the reader moves away', async ({ page }) => {
   await mount(page);

@@ -636,6 +636,10 @@ export async function mount(
     },
     async decideProposal(ref, decision) {
       await decisionGate.held;
+      if (decisionGate.fail) {
+        decisionGate.fail = false;
+        throw new Error('Decision refused');
+      }
       const thread = find(ref);
       if (!ownerDevice || !thread.proposal || thread.deleted || thread.decision)
         throw new Error('Decision unavailable');
@@ -1111,14 +1115,18 @@ export function replaceFilesOwner() {
 }
 /** Holds or refuses the next reply or Chat write, as a slow or refused Remote append would. */
 let replyGate: { held?: Promise<void>; release?(): void; fail?: boolean } = {};
-let decisionGate: { held?: Promise<void>; release?(): void } = {};
+let decisionGate: { held?: Promise<void>; release?(): void; fail?: boolean } = {};
 /** The next proposal decisions wait for `releaseDecision`. */
 export function holdDecision() {
   decisionGate.held = new Promise<void>((resolve) => (decisionGate.release = resolve));
 }
+/** The held decision is refused when released. */
+export function failDecision() {
+  decisionGate.fail = true;
+}
 export function releaseDecision() {
   decisionGate.release?.();
-  decisionGate = {};
+  decisionGate = { fail: decisionGate.fail };
 }
 export function holdReply() {
   replyGate.held = new Promise<void>((resolve) => (replyGate.release = resolve));
