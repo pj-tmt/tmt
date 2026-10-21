@@ -12,7 +12,7 @@ fn capture_top_bar() {
         let _no_commands = crate::runner::forbid_commands();
         let mut frames = Vec::new();
         for case in ["known", "used-only-zero", "unknown", "unselected"] {
-            for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+            for tab in [OpsTab::Agents, OpsTab::Digest] {
                 for width in [148, 100, 60] {
                     for (base, theme) in [
                         ("tmt", tmt_cli_style::Base::Tmt),

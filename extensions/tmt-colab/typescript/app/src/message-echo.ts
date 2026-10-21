@@ -1,6 +1,15 @@
 import { createContext } from 'react';
 import type { CommentView, DiscussionRef } from './thread-records.js';
 
+export type EchoAttachment = {
+  id: string;
+  filename: string;
+  mediaType: string;
+  size: number;
+  /** Bounded picked bytes for display only; never used by the admitted read owner. */
+  preview: Promise<string | undefined>;
+};
+
 /**
  * A sent message shown at once in its final position, before its verified record exists.
  * Display only: never counted, exported or treated as verified. The composer that sent it
@@ -10,6 +19,7 @@ export type MessageEcho = {
   local: string;
   body: string;
   at: number;
+  attachments: readonly EchoAttachment[];
   /** The recorded message, once the write returned; its verified record replaces the echo. */
   message?: DiscussionRef;
   /** Present when the send failed before it was recorded: the row then holds the draft. */
@@ -27,8 +37,11 @@ export type MessageEchoHost = {
 export const MessageEchoContext = createContext<MessageEchoHost | undefined>(undefined);
 
 /** A new echo for a message the composer is sending now. */
-export function messageEcho(body: string): MessageEcho {
-  return { local: crypto.randomUUID(), body, at: Date.now() };
+export function messageEcho(
+  body: string,
+  attachments: readonly EchoAttachment[] = [],
+): MessageEcho {
+  return { local: crypto.randomUUID(), body, at: Date.now(), attachments };
 }
 
 export function echoLanded(echo: MessageEcho, comments: readonly CommentView[]) {

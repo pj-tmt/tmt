@@ -1,5 +1,6 @@
 import {
   binary,
+  checkAnchor,
   digest,
   encodeBinary,
   frame,
@@ -10,6 +11,7 @@ import {
   Envelope,
   equal,
   exactKeys,
+  FOLD,
   generatedId,
   MAX_ENVELOPE_JSON,
   requireValue,
@@ -58,6 +60,9 @@ export class Objects {
     { streamId: string; namespace: Namespace; seq: string; envelopeHash: string }
   >();
   #prefixes = new Map<string, { head: Head; checkpoints: Map<Namespace, Uint8Array> }>();
+  /** The covered stream's update envelope at n that a fold is checked against (colab-v1, "Planned
+   * owner fold"): admitted as an anchor, applied to nothing, and used only to verify a fold. */
+  #anchors = new Map<string, { seq: bigint; envelope: Envelope }>();
   ownData = false;
   constructor(
     readonly admission: Admission,
@@ -224,20 +229,38 @@ export class Objects {
     const env = Envelope.fromJson(
       binary(entry.envelope, kind === 'checkpoint' ? MAX_ENVELOPE_JSON : UPDATE_ENVELOPE_BYTES),
     );
-    const c = decodeHeader(env.header()).context,
+    const { context: c, coveredDevice } = decodeHeader(env.header()),
       a = this.admission;
+    // A checkpoint slot holds a checkpoint of the stream's own device, or an owner fold of it,
+    // which another owner device signs and which names the stream as its covered device.
+    const fold = kind === 'checkpoint' && c.kind === FOLD;
     requireValue(
       c.space === a.space &&
         c.page === a.page &&
         c.epoch === this.epoch &&
-        c.authorDevice === stream &&
+        (fold ? coveredDevice === stream : c.authorDevice === stream && c.kind === kind) &&
         c.streamSeq === entry.seq &&
-        c.kind === kind &&
         (namespace === undefined || c.namespace === namespace) &&
         equal(await env.hash(), hash),
     );
-    const author = a.readAuthor(c, hash),
+    let key: Uint8Array,
+      coveredKey: Uint8Array | undefined,
+      ownerDevice = false;
+    if (fold) {
+      // The anchor is the covered device's own update at n: a fold names a head that device
+      // signed, never one its signer asserts. Without it the fold is refused and applies nothing.
+      const anchor = this.#anchors.get(stream);
+      requireValue(anchor !== undefined && anchor.seq === seq);
+      const keys = a.readFold(c, stream, hash);
+      await checkAnchor(env, anchor.envelope, keys.covered);
+      key = keys.signer;
+      coveredKey = keys.covered;
+      ownerDevice = true;
+    } else {
+      const author = a.readAuthor(c, hash);
       key = author.key;
+      ownerDevice = author.ownerDevice;
+    }
     requireValue(
       await strictVerify(
         key,
@@ -282,7 +305,7 @@ export class Objects {
       return null;
     }
     requireValue(this.#positions.has(`${stream}:${ns}`) || this.#positions.size < 256);
-    const plaintext = await env.open(c, a.readRoot(this.epoch), key);
+    const plaintext = await env.open(c, a.readRoot(this.epoch), key, fold ? stream : undefined);
     if (plaintext.length > (kind === 'checkpoint' ? STATE_BYTES : UPDATE_BYTES)) {
       plaintext.fill(0);
       throw new Error('Checkpoint decoder capacity');
@@ -308,13 +331,45 @@ export class Objects {
     });
     if (ns === 'own') {
       this.ownData = true;
-      this.#ownSigningKeys.set(stream, key.slice());
-      this.#ownerWriters.set(
-        stream,
-        (this.#ownerWriters.get(stream) ?? true) && author.ownerDevice,
-      );
+      // The writer of an own record is the covered device, so its key is the one that vouches.
+      this.#ownSigningKeys.set(stream, (coveredKey ?? key).slice());
+      this.#ownerWriters.set(stream, (this.#ownerWriters.get(stream) ?? true) && ownerDevice);
     }
     return { namespace: ns, writer: stream, update: plaintext };
+  }
+  /** An anchor frame: the covered stream's update envelope at n, which a fold that follows is
+   * checked against. It is signed by an owner-member device within what its revoke cut allows,
+   * and applies to nothing: it moves no head, cut or cursor. */
+  async #admitAnchor(stream: string, entry: ObjectEntry, namespace: Namespace) {
+    exactKeys(entry, ['seq', 'envelopeHash', 'envelope']);
+    const seq = decimal(entry.seq),
+      hash = binary(entry.envelopeHash, 32, 32),
+      env = Envelope.fromJson(binary(entry.envelope, UPDATE_ENVELOPE_BYTES));
+    const { context: c, coveredDevice } = decodeHeader(env.header()),
+      a = this.admission;
+    requireValue(
+      seq > 0n &&
+        c.space === a.space &&
+        c.page === a.page &&
+        c.epoch === this.epoch &&
+        c.kind === 'update' &&
+        coveredDevice === undefined &&
+        c.authorDevice === stream &&
+        c.streamSeq === entry.seq &&
+        c.namespace === namespace &&
+        equal(await env.hash(), hash) &&
+        (this.#anchors.has(stream) || this.#anchors.size < 256),
+    );
+    const author = a.readAuthor(c, hash);
+    requireValue(
+      author.ownerDevice &&
+        (await strictVerify(
+          author.key,
+          env.signature(),
+          await signatureInput(env.header(), env.ciphertext()),
+        )),
+    );
+    this.#anchors.set(stream, { seq, envelope: env });
   }
   async streams(
     value: unknown,
@@ -324,15 +379,32 @@ export class Objects {
       checkpoints: AdmittedUpdate[] = [];
     let count = 0;
     for (const stream of value) {
-      exactKeys(stream, ['streamId', 'namespace', 'checkpoint', 'tail']);
+      // An anchor frame carries one more key, so a reader that does not know folds refuses it.
+      const anchored =
+        typeof stream === 'object' && stream !== null && Object.hasOwn(stream, 'anchor');
+      exactKeys(
+        stream,
+        anchored
+          ? ['streamId', 'namespace', 'checkpoint', 'anchor', 'tail']
+          : ['streamId', 'namespace', 'checkpoint', 'tail'],
+      );
       requireValue(
         typeof stream.streamId === 'string' &&
           ['content', 'own'].includes(stream.namespace as string),
       );
       generatedId(stream.streamId);
       requireValue(Array.isArray(stream.tail) && stream.tail.length <= 256);
-      count += stream.tail.length + (stream.checkpoint === null ? 0 : 1);
+      count += stream.tail.length + (stream.checkpoint === null && !anchored ? 0 : 1);
       requireValue(count <= 1);
+      if (anchored) {
+        requireValue(stream.checkpoint === null && stream.tail.length === 0);
+        await this.#admitAnchor(
+          stream.streamId,
+          stream.anchor as ObjectEntry,
+          stream.namespace as Namespace,
+        );
+        continue;
+      }
       if (stream.checkpoint !== null) {
         const update = await this.admit(
           stream.streamId,

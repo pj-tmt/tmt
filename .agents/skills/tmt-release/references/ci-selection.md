@@ -65,8 +65,9 @@ layouts are logged and unchanged.
 Native-process contracts retain a 20-minute job limit and unchanged test deadlines.
 
 `Docker E2E` gates shards from `typescript/scripts/e2e-shards.mjs` and committed
-`test/e2e/shard-weights.json`: full scope requires both (shard 1 also runs adapters),
-component scope requires shard 1, and no native selection requires neither.
+`test/e2e/shard-weights.json`: full scope requires both (shard 1 also runs the pinned
+adapter environment slice), component scope requires shard 1, and no native
+selection requires neither.
 Vitest and the splitter discover identical retained files; the guard rejects zero
 or double membership. Pinned Node runs the built-in-only wrapper on the host;
 pnpm activation/frozen install belong to the image. Only the hosted `ubuntu-latest`
@@ -352,8 +353,10 @@ and multiple failed hosts count as one release.
 Health counts use `per_page=1` for 24-hour/tick windows, including >1,000 totals.
 Details enumerate created-window failure/timed-out/action-required/stale slices,
 refusing at 1,000 matches before exceeding searchable evidence. Queued/in-progress
-searches have no created filter, tracking older reruns; other active states stay
-within the window. Unobserved older reruns starting/finishing between ticks and
+searches track older reruns without a created filter; count/row mismatch gets up to two
+same-page re-reads in the shared budget, then refuses with status/count/rows; created-window
+queries stay strict and other active states stay within the window. Unobserved older reruns
+starting/finishing between ticks and
 workflow `startup_failure` are outside detail coverage, explicitly stated in reports.
 Only unseen failed attempts incur job/log reads; observed tokens remain for 24-hour recurrence.
 Reviews cover open PRs updated since `since` plus PRs merged in the interval.

@@ -8,11 +8,23 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod last;
 mod process;
+
+/// The start time of the last admitted tick, if one was recorded ([`last`]).
+pub fn last_tick_ms(root: &std::path::Path) -> Option<u64> {
+    last::read(&root.join("digest"))
+}
 
 const MINUTE_MS: u64 = 60_000;
 // Refresh arrivals and settings between deadlines; this is not a delivery retry lease.
 const OBSERVATION_MS: u64 = 1000;
+/// A hold lasts this long after its renewal at least, so one missed minute releases nothing.
+pub const HOLD_FLOOR_MS: u64 = 120_000;
+/// An `auto` member reaches its cap with this many messages held...
+pub const AUTO_CAP_COUNT: u64 = 5;
+/// ...or when the oldest has waited this long. Constants, not settings.
+pub const AUTO_CAP_MS: u64 = 300_000;
 
 pub fn now_ms() -> Result<u64, Error> {
     let value = SystemTime::now()
@@ -72,6 +84,7 @@ pub fn execute() -> Result<(), Error> {
     if Instant::now() >= boundary || now_ms()? >= boundary_ms {
         return Ok(());
     }
+    last::record(&directory, entered);
     let core = core.until(boundary + Duration::from_secs(15));
     let path = core.settings_path()?;
     let history = crate::history::Store::open(&root, true).and_then(|mut history| {
@@ -123,7 +136,18 @@ impl TickObservation {
             return None;
         }
         match self.mode {
-            Mode::Auto => Some(Rule::AutoIdlePoint),
+            Mode::Auto => {
+                let waited = self
+                    .oldest_held_at_ms
+                    .map_or(0, |oldest| now.saturating_sub(oldest));
+                Some(
+                    if self.held_count >= AUTO_CAP_COUNT || waited >= AUTO_CAP_MS {
+                        Rule::AutoCap
+                    } else {
+                        Rule::AutoHold
+                    },
+                )
+            }
             Mode::Off => Some(Rule::Off),
             Mode::Interval { .. } => {
                 let deadline = self.deadline(now)?;

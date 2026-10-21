@@ -36,6 +36,27 @@ export interface ReaderSeat {
   expiresAt: number;
 }
 
+/** The page's state at a verified owner-log cut. Restore never clears a deletion. */
+export function pageLifecycle(
+  log: readonly statement.Verified[],
+  page: string,
+  through?: bigint,
+): { archived: boolean; deleted: boolean } {
+  let archived = false,
+    deleted = false;
+  for (const { payload: p, head } of log) {
+    if (through !== undefined && head.revision > through) break;
+    if (!('pageId' in p.value) || p.value.pageId !== page) continue;
+    if (p.operation === 'page.archive') archived = true;
+    else if (p.operation === 'page.delete') deleted = true;
+    else if (p.operation === 'page.unarchive') {
+      requireValue(archived && !deleted);
+      archived = false;
+    }
+  }
+  return { archived, deleted };
+}
+
 /** Content subset for the owner browser or a link reader. A transport head/hash is never log authority. */
 export class Admission {
   head: statement.Head | null = null;
@@ -73,6 +94,7 @@ export class Admission {
       log.push(entry.verified);
       head = entry.verified.head;
     }
+    pageLifecycle(log, this.page);
     this.head = head;
     this.#log = log;
     this.#raw = stored;
@@ -137,6 +159,7 @@ export class Admission {
         : head.revision === target.revision && equal(head.hash, target.hash),
     );
     this.#budget(raw);
+    pageLifecycle(log, this.page);
     if (!this.reader)
       await navigator.locks.request(`colab-log:${this.space}`, async () => {
         const previous = await record<string[]>(`log:${this.space}`);
@@ -228,21 +251,18 @@ export class Admission {
         (namespace !== 'content' || add.value.role === 'editor'),
     );
     let epoch = 1n,
-      linkMode = false,
-      writable = true;
+      linkMode = false;
     for (const { payload: p, head } of this.#log) {
       if (head.revision > revision) break;
       if (p.operation === 'epoch.advance' && p.value.pageId === this.page)
         epoch = decimal(p.value.epoch);
       else if (p.operation === 'page.share' && p.value.pageId === this.page)
         linkMode = p.value.mode === 'link';
-      else if (
-        (p.operation === 'page.archive' || p.operation === 'page.delete') &&
-        p.value.pageId === this.page
-      )
-        writable = false;
     }
-    requireValue(linkMode && writable && epoch === decimal(envelopeEpoch));
+    const lifecycle = pageLifecycle(this.#log, this.page, revision);
+    requireValue(
+      linkMode && !lifecycle.archived && !lifecycle.deleted && epoch === decimal(envelopeEpoch),
+    );
   }
   async wraps(values: unknown) {
     requireValue(Array.isArray(values) && values.length <= 512 && this.head !== null);
@@ -313,6 +333,39 @@ export class Admission {
         );
     });
   }
+  /** The cut a reduction signed for `stream` in this page's `epoch` and `namespace`: its own, or
+   * else the one a verified owner advance that sealed this exact epoch signed after `after` and
+   * before the reduction. Missing both bounds is a refusal, never a default. */
+  #signedCut(
+    statement: statement.Verified,
+    after: bigint,
+    epoch: string,
+    namespace: string,
+    stream: string,
+  ): payload.Cut | undefined {
+    const p = statement.payload;
+    if (p.operation !== 'device.revoke' && p.operation !== 'link.remove') return undefined;
+    const matches = (cut: payload.Cut) =>
+      cut.pageId === this.page &&
+      cut.epoch === epoch &&
+      cut.namespace === namespace &&
+      streamCut.decode(binary(cut.cut, 1024)).streamId === stream;
+    return (
+      p.value.cuts.find(matches) ??
+      this.#log
+        .filter(
+          (seal) => seal.head.revision > after && seal.head.revision < statement.head.revision,
+        )
+        .flatMap((seal) =>
+          seal.payload.operation === 'epoch.advance' &&
+          seal.payload.value.pageId === this.page &&
+          decimal(seal.payload.value.epoch) === decimal(epoch) + 1n
+            ? seal.payload.value.cuts
+            : [],
+        )
+        .find(matches)
+    );
+  }
   /** Owner-member provenance: the device chain was issued by the owner member
    * and verified at its membership revision, and the device is not revoked.
    * A bridge's own envelopes are admitted (`readAuthor`) but never have it, so a
@@ -357,6 +410,8 @@ export class Admission {
     const revision = decimal(context.membershipRevision);
     if (!this.head || revision > this.head.revision)
       throw new Error('Fresh membership catchup required');
+    const lifecycle = pageLifecycle(this.#log, this.page, revision);
+    requireValue(!lifecycle.archived && !lifecycle.deleted);
     const bridge = this.#bridge(context.authorDevice, revision),
       c = bridge ? undefined : this.#authors.get(context.authorDevice);
     if (!bridge && !c) throw new Error('Fresh membership catchup required');
@@ -389,27 +444,13 @@ export class Admission {
       )
         continue;
       requireValue(revision < statement.head.revision);
-      const matches = (cut: payload.Cut) =>
-        cut.pageId === this.page &&
-        cut.epoch === context.epoch &&
-        cut.namespace === context.namespace &&
-        streamCut.decode(binary(cut.cut, 1024)).streamId === context.authorDevice;
-      // Only a verified owner advance that sealed this exact epoch before the
-      // reduction can substitute its cut. Missing both bounds remains a refusal.
-      const wrapped =
-        p.value.cuts.find(matches) ??
-        this.#log
-          .filter(
-            (seal) => seal.head.revision > revision && seal.head.revision < statement.head.revision,
-          )
-          .flatMap((seal) =>
-            seal.payload.operation === 'epoch.advance' &&
-            seal.payload.value.pageId === this.page &&
-            decimal(seal.payload.value.epoch) === decimal(context.epoch) + 1n
-              ? seal.payload.value.cuts
-              : [],
-          )
-          .find(matches);
+      const wrapped = this.#signedCut(
+        statement,
+        revision,
+        context.epoch,
+        context.namespace,
+        context.authorDevice,
+      );
       requireValue(wrapped !== undefined);
       const cut = streamCut.decode(binary(wrapped.cut, 1024)),
         seq = decimal(context.streamSeq);
@@ -426,6 +467,63 @@ export class Admission {
     return bridge
       ? { key: bridge.signKey.slice(), ownerDevice: false }
       : { key: c!.signingKey.slice(), ownerDevice: c!.issuerKind === 'member' };
+  }
+  /** The pinned keys of an owner fold's signer and of the device whose stream it covers, once both
+   * are owner-member devices and the fold is bound by what the owner signed (colab-v1, "Planned
+   * owner fold"). It decides authority only; the anchor and the object's bytes are checked by the
+   * caller.
+   * - Both chains were issued by the owner member at or before the fold's revision. A bridge,
+   *   a link-issued device or a device with no chain is refused.
+   * - A signer that was ever revoked folds only what its `device.revoke` lists: an unlisted fold
+   *   is refused whatever revision it cites, because a stolen key can backdate that revision and
+   *   a pruned prefix cannot be rechecked. A listed one must still predate the revoke.
+   * - A covered device that was revoked is folded only up to the `tailHeadSeq` of the cut its
+   *   revoke signed, or of the one an owner advance sealed after the fold's revision, never past
+   *   it (the bound `readAuthor` applies to an object at its revision). */
+  readFold(
+    context: Context,
+    covered: string,
+    envelopeHash: Uint8Array,
+  ): { signer: Uint8Array; covered: Uint8Array } {
+    const revision = decimal(context.membershipRevision);
+    if (!this.head || revision > this.head.revision)
+      throw new Error('Fresh membership catchup required');
+    const lifecycle = pageLifecycle(this.#log, this.page, revision);
+    requireValue(!lifecycle.archived && !lifecycle.deleted);
+    requireValue(
+      context.kind === 'fold' &&
+        !this.#bridge(context.authorDevice, revision) &&
+        !this.#bridge(covered, revision),
+    );
+    const signer = this.#authors.get(context.authorDevice),
+      target = this.#authors.get(covered);
+    if (!signer || !target) throw new Error('Fresh membership catchup required');
+    for (const c of [signer, target])
+      requireValue(
+        c.issuerKind === 'member' &&
+          c.issuerId === this.head.ownerMember.id &&
+          decimal(c.membershipRevision) <= revision &&
+          c.issuedAt <= Date.now(),
+      );
+    const seq = decimal(context.streamSeq);
+    for (const statement of this.#log) {
+      const p = statement.payload;
+      if (p.operation !== 'device.revoke') continue;
+      if (p.value.deviceId === context.authorDevice)
+        requireValue(
+          revision < statement.head.revision && payload.listsFold(p.value, envelopeHash),
+        );
+      if (p.value.deviceId === covered) {
+        // The same lower bound as `readAuthor`: an owner advance at or before the fold's own
+        // revision sealed the epoch before the fold and cannot supply the cut.
+        const cut = this.#signedCut(statement, revision, context.epoch, context.namespace, covered);
+        requireValue(
+          cut !== undefined &&
+            seq <= decimal(streamCut.decode(binary(cut.cut, 1024)).tailHeadSeq, true),
+        );
+      }
+    }
+    return { signer: signer.signingKey.slice(), covered: target.signingKey.slice() };
   }
   author(device: string, revision: string): Uint8Array {
     const c = this.#authors.get(device);
@@ -513,20 +611,16 @@ export class Admission {
       if (p.operation === 'epoch.advance' && p.value.pageId === this.page) epoch = p.value.epoch;
       if (p.operation === 'device.revoke' && p.value.deviceId === d.authorDevice)
         throw new Error('Attachment creator was revoked');
-      if (
-        (p.operation === 'page.delete' || p.operation === 'page.archive') &&
-        p.value.pageId === this.page
-      )
-        throw new Error('Attachment creation was unavailable');
     }
+    const lifecycle = pageLifecycle(this.#log, this.page, revision);
+    if (lifecycle.archived || lifecycle.deleted)
+      throw new Error('Attachment creation was unavailable');
     requireValue(epoch === d.epoch);
     return c.signingKey.slice();
   }
   /** Read-only presentation comes only from the verified owner log. */
   get archived(): boolean {
-    return this.#log.some(
-      ({ payload: p }) => p.operation === 'page.archive' && p.value.pageId === this.page,
-    );
+    return pageLifecycle(this.#log, this.page).archived;
   }
   /** Current read policy, including the actual link seat. Writes still use
    * validatePage's writable default and author(), never this read purpose. */
@@ -561,12 +655,9 @@ export class Admission {
         mode = p.value.mode;
       }
       if (p.operation === 'epoch.advance' && p.value.pageId === this.page) epoch = p.value.epoch;
-      if (
-        (p.operation === 'page.delete' || (!reading && p.operation === 'page.archive')) &&
-        p.value.pageId === this.page
-      )
-        throw new Error('Page unavailable');
     }
+    const lifecycle = pageLifecycle(this.#log, this.page);
+    if (lifecycle.deleted || (!reading && lifecycle.archived)) throw new Error('Page unavailable');
     requireValue(epoch === this.epoch && [sharing].flat().includes(mode));
   }
 }

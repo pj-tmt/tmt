@@ -158,6 +158,17 @@ impl Look {
         }
     }
 
+    /// The row of the agent whose conversation has focus: its own faint tint, or reverse video where
+    /// the terminal has no background colours. The name is bold on top of this (see `tree_row`).
+    pub fn conversation(&self) -> Style {
+        let style = self.role(Role::Text).patch(self.role(Role::Conversation));
+        if style.bg.is_none() {
+            style.add_modifier(Modifier::REVERSED)
+        } else {
+            style
+        }
+    }
+
     /// A selected reverse row has one foreground; its semantic spans use bold.
     /// Real selection backgrounds and unselected spans keep their exact style.
     pub fn row_span(&self, selected: bool, style: Style, emphasize: bool) -> Style {
@@ -179,16 +190,25 @@ impl Look {
     /// background, lets every surface follow the same rule. Bold, underline
     /// and the background stay. Without a selection background (reverse
     /// fallback), `row_span` has already decided.
-    pub fn selected_words(&self, buffer: &mut Buffer) {
-        self.selected_words_except(buffer, &[]);
-    }
-
-    /// Table state words keep their foreground under background-only selection.
-    /// The frame owner supplies only current, unobscured state-cell rectangles.
-    pub fn selected_words_except(&self, buffer: &mut Buffer, states: &[ratatui::layout::Rect]) {
+    /// Table state words keep their foreground under background-only selection: the frame owner
+    /// supplies only current, unobscured state-cell rectangles.
+    /// `tinted` says the frame drew a row in conversation, whose tint follows the selection's word
+    /// policy; a frame without one skips that background entirely.
+    pub fn selected_words(
+        &self,
+        buffer: &mut Buffer,
+        states: &[ratatui::layout::Rect],
+        tinted: bool,
+    ) {
         let Some(selection) = self.role(Role::Selection).bg else {
             return;
         };
+        // Without a tinted row the tint is the selection itself, so the second test never differs.
+        let tint = self
+            .role(Role::Conversation)
+            .bg
+            .filter(|_| tinted)
+            .unwrap_or(selection);
         let Some(text) = self.role(Role::Text).fg else {
             return;
         };
@@ -207,7 +227,7 @@ impl Look {
         let origin = buffer.area;
         for (index, cell) in buffer.content.iter_mut().enumerate() {
             // A reversed cell shows its foreground as the background: not a word.
-            if cell.bg != selection
+            if (cell.bg != selection && cell.bg != tint)
                 || cell.fg == Color::Reset
                 || cell.modifier.contains(Modifier::REVERSED)
             {
@@ -361,7 +381,7 @@ mod tests {
                     .set_style(look.selection().patch(look.role(Role::Waiting)));
             }
             let state = ratatui::layout::Rect::new(6, 4, 3, 1);
-            look.selected_words_except(&mut buffer, &[state]);
+            look.selected_words(&mut buffer, &[state], true);
             for x in 3..11 {
                 assert_eq!(
                     buffer[(x, 4)].fg,
@@ -375,7 +395,7 @@ mod tests {
                 );
                 assert_eq!(buffer[(x, 4)].bg, look.selection().bg.unwrap());
             }
-            look.selected_words(&mut buffer);
+            look.selected_words(&mut buffer, &[], true);
             assert!((3..11).all(|x| buffer[(x, 4)].fg == look.role(Role::Text).fg.unwrap()));
         }
     }
@@ -390,7 +410,7 @@ mod tests {
             };
             buffer[(x as u16, 0)].set_symbol(symbol).set_style(style);
         }
-        look.selected_words(&mut buffer);
+        look.selected_words(&mut buffer, &[], true);
         buffer
     }
 
@@ -467,7 +487,7 @@ mod tests {
                 .patch(look.role(Role::Accent))
                 .add_modifier(Modifier::REVERSED),
         );
-        look.selected_words(&mut buffer);
+        look.selected_words(&mut buffer, &[], true);
         assert_eq!(buffer[(0, 0)].fg, look.role(Role::Accent).fg.unwrap());
     }
 
@@ -480,7 +500,7 @@ mod tests {
                 .patch(look.selection())
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
         );
-        look.selected_words(&mut buffer);
+        look.selected_words(&mut buffer, &[], true);
         assert_eq!(buffer[(0, 0)].fg, look.role(Role::Text).fg.unwrap());
         assert!(
             buffer[(0, 0)]
@@ -502,7 +522,7 @@ mod tests {
                 .set_symbol("x")
                 .set_style(look.selection().patch(look.role(Role::Blocked)));
             let before = buffer.clone();
-            look.selected_words(&mut buffer);
+            look.selected_words(&mut buffer, &[], true);
             assert_eq!(buffer, before);
         }
     }

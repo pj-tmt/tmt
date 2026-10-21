@@ -3,6 +3,7 @@ pub mod compact;
 pub mod compact_ipc;
 pub mod ipc;
 pub mod lines;
+pub mod owner_fold;
 pub mod patch;
 pub mod save;
 use crate::{
@@ -485,6 +486,50 @@ pub fn read_shell(
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
     })
 }
+/// A page's work, read without its HTML source: the value (an empty one while the page has none),
+/// what is derived from it, and the revision a write must name. A shell has no work.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkPage {
+    pub space_id: String,
+    pub page_id: String,
+    pub title: String,
+    pub work: serde_json::Value,
+    pub derived: serde_json::Value,
+    pub epoch: String,
+    pub membership_head: Head,
+    pub revision: String,
+}
+pub fn read_work(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<WorkPage> {
+    let s = snapshot(store, key, page, false)?;
+    let view = s.materialize(key, page, decoder)?;
+    if view.meta["pageType"].as_str() == Some("shell") {
+        return Err(Fault::Invalid.into());
+    }
+    let work = view
+        .meta
+        .get("work")
+        .cloned()
+        .unwrap_or_else(crate::work::empty);
+    let derived = crate::work::derived(&work)
+        .map_err(|_| Fault::Invalid)?
+        .to_value();
+    Ok(WorkPage {
+        space_id: key.space_id.clone(),
+        page_id: page.into(),
+        title: view.title,
+        work,
+        derived,
+        epoch: s.epoch.to_string(),
+        membership_head: Head::from(&s.authority.head),
+        revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
+    })
+}
 /// NOOP carries no original operation or certificate; it reports the captured base.
 pub enum PublicationPreparation {
     Noop {
@@ -616,24 +661,26 @@ pub fn prepare_publication_with_clock<'a>(
     )?;
     Ok(PublicationPreparation::Write(frozen))
 }
-/// One explicit shell action against the revision the caller read. Agent metadata is display
-/// only; the writer and time below come from the authenticated write owner.
-pub struct ShellAction<'a> {
+/// One explicit structured action (a shell's, or the work of an ordinary page) against the
+/// revision the caller read. Agent metadata is display only; the writer and time below come from
+/// the authenticated write owner.
+pub struct StructuredAction<'a> {
+    pub kind: crate::decoder::StructuredKind,
     pub action: &'a str,
     pub body: &'a serde_json::Value,
     pub expected_revision: &'a str,
     pub display_agent: Option<serde_json::Value>,
 }
-pub fn prepare_shell_publication(
+pub fn prepare_structured_publication(
     store: &Store,
     key: &Keyring,
     page: &str,
-    action: ShellAction<'_>,
+    action: StructuredAction<'_>,
     decoder: &mut Decoder,
     clock: &dyn Fn() -> Result<u64>,
 ) -> Result<PublicationPreparation> {
     use crate::{
-        decoder::{ContentBatch, ShellEdit},
+        decoder::{ContentBatch, StructuredEdit},
         publication::PublicationKind,
     };
     values::generated_id(page)?;
@@ -649,13 +696,14 @@ pub fn prepare_shell_publication(
     if let Some(agent) = action.display_agent {
         attribution["displayAgent"] = agent;
     }
-    crate::shell::validate_attribution(&attribution).map_err(|_| Fault::Invalid)?;
-    let edit = ShellEdit {
+    crate::summary_lines::validate_attribution(&attribution).map_err(|_| Fault::Invalid)?;
+    let edit = StructuredEdit {
+        kind: action.kind,
         action: action.action.into(),
         body: action.body.clone(),
         attribution,
     };
-    let prepared = s.prepare_shell_batch(key, page, &edit, decoder)?;
+    let prepared = s.prepare_structured_batch(key, page, &edit, decoder)?;
     let ContentBatch::Updates(updates) = prepared.batch else {
         return Ok(PublicationPreparation::Noop {
             epoch: s.epoch.to_string(),
@@ -673,7 +721,8 @@ pub fn prepare_shell_publication(
             kind: PublicationKind::Content,
             updates: &updates,
             revision,
-            source: "",
+            // The page's own source: an action never changes it (a shell's is empty).
+            source: prepared.projection["html"].as_str().unwrap_or_default(),
             memory_limit: prepared.memory_limit,
             operation_id: None,
         },

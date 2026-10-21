@@ -23,9 +23,25 @@ function where(excerpt: string, line: number): string {
   return excerpt === '' ? `at line ${line}` : `near \u201c${excerpt}\u201d (line ${line})`;
 }
 
-const reconnectCommand = 'tmt remote pair';
+const pairCommand = 'tmt remote pair';
+const frameLimit =
+  'A page’s scripts can open another address inside the page’s own frame, which can pass along what the page can read. Colab cannot fully prevent that.';
 
 export const text = {
+  pageLink: {
+    close: 'Close',
+    external: 'Open this link in a new tab?',
+    internal: 'Open another Colab page?',
+    externalLabel: 'Outside Colab',
+    internalLabel: 'This page asked to switch pages.',
+    refused: 'Pages can open https links and other Colab pages only.',
+    open: 'Open',
+    cancel: 'Cancel',
+    copy: 'Copy link',
+    copied: 'Copied',
+    copyHint: 'If no tab opens, copy the link instead.',
+    copyFailed: 'Could not copy. Select the link and copy it.',
+  },
   quickSwitcher: {
     title: 'Search pages',
     placeholder: 'Search pages, projects or authors…',
@@ -78,9 +94,9 @@ export const text = {
   proposalApproved: 'Approved',
   proposalDeclined: 'Declined',
   proposalApprove: 'Approve',
+  proposalSaving: 'Saving decision…',
   proposalDecline: 'Decline',
   proposalFollowUp: 'Follow up',
-  proposalSaving: 'Saving decision…',
   proposalNotifyFailed:
     'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
   proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
@@ -127,7 +143,6 @@ export const text = {
   needsYouWord: 'Needs you',
   needsYouLabel: (count: number) => `Needs you: ${count}`,
   needsYouNothing: '✓ Nothing waits',
-  needsYouNothingWord: 'Nothing waits',
   needsYouGroup: (kind: 'proposal' | 'reading' | 'answer' | 'review', count: number) =>
     `${kind === 'proposal' ? 'Please decide' : kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
 
@@ -256,6 +271,9 @@ export const text = {
       'Your message was not sent. The page changed while attaching; send again to upload the files.',
   },
   files: 'Files',
+  /** The More menu's entry for the page's sharing, with its state as secondary text. */
+  shareItem: 'Share…',
+  projectsItem: 'Projects…',
   filesEmpty: 'No files yet.',
   filesListLabel: 'Page files',
   filesAdd: 'Add to page',
@@ -329,15 +347,16 @@ export const text = {
   agentWorking: 'working',
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
+  notConnected: 'not connected',
   sendOnHold: 'Send is on hold until the connection is back.',
-  reconnectCommand,
-  reconnectFailed: `Could not reconnect. Open this page from a paired browser, or pair for page access with ${reconnectCommand}.`,
+  pairCommand,
+  reconnectFailed: 'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
   sessionEvicted: (limit: number) =>
-    `This tab was disconnected when your paired device reached its limit of ${limit} Remote sessions.`,
+    `This tab was disconnected when this browser reached its limit of ${limit} Remote sessions. Your pairing is unchanged.`,
   sessionLimitTitle: 'Remote session limit reached',
-  sessionLimitClose: 'Close another page to open this one.',
+  sessionLimitClose: 'Close another tab to open this one. Your pairing is unchanged.',
   sessionLimitReached: (limit: number) =>
-    `Your paired device is at its limit of ${limit} Remote sessions.`,
+    `This browser has reached its limit of ${limit} Remote sessions.`,
   sessionLimitCommand: 'To allow another tab, run:',
   remoteSettings: 'Open Remote settings',
   remoteCount: (count: number) => `Remote · ${count}`,
@@ -345,7 +364,9 @@ export const text = {
     count === 0
       ? 'Remote: no live sessions'
       : `Remote: ${count} live ${count === 1 ? 'session' : 'sessions'}`,
-  remoteUnconfirmed: 'Remote · ?',
+  remoteUnconfirmed: 'Remote · offline',
+  /** The attention mark's word while the Remote door is down or unreadable. */
+  remoteOffline: 'Remote offline',
   remoteUnconfirmedLabel: 'Remote: session count unconfirmed',
   remoteThisBrowser: 'This browser',
   remoteAddon: 'Browser add-on',
@@ -498,24 +519,76 @@ export const text = {
   product: 'Colab',
   shellPageNotice: 'This is a shell page. Open it from the terminal:',
   anchorMissing: 'That passage is not on this page.',
+  workBand: {
+    label: 'Work on this page',
+    stage: {
+      discussion: 'Discussion',
+      'in-progress': 'In progress',
+      done: 'Done',
+    },
+    taskState: {
+      todo: 'To do',
+      'in-progress': 'In progress',
+      blocked: 'Blocked',
+      'in-review': 'In review',
+      done: 'Done',
+    },
+    progress: (done: number, total: number) => `${done} of ${total} done`,
+    signoff: (count: number) =>
+      count === 1 ? '1 waiting for sign-off' : `${count} waiting for sign-off`,
+    showTasks: (count: number) => (count === 1 ? 'Show 1 task' : `Show ${count} tasks`),
+    hideTasks: 'Hide tasks',
+    followsParent: (taskId: string, title: string) => `Follows ${taskId} · ${title}`,
+    followsPage: 'Follows its own page →',
+    detailLabel: (id: string) => `Task ${id}`,
+    close: 'Close',
+    signoffMark: 'sign-off',
+    acceptance: 'Acceptance',
+    criterionTest: (name: string) => `Test: ${name}`,
+    criterionChecked: (command: string, result: string) => `${command} → ${result}`,
+    criterionPerson: (who: string) => `Confirmed by ${who}`,
+    external: (id: string) => `Tracked as ${id}`,
+  },
   shellPage: {
     summary: 'Summary',
     loading: 'Loading pages…',
     pagesUnavailable: 'The page list is unavailable, so titles are not shown.',
     empty: 'Nothing is here yet.',
-    items: 'Items',
-    unavailable: 'Unavailable',
     notShown: 'This shell page has no content that can be shown.',
-    kind: { page: 'Page', anchor: 'Passage', reading: 'Suggested reading' },
+    /** The greeting names the local time of day and the number waiting, with one to nine spelled out. */
+    greeting: (part: 'morning' | 'afternoon' | 'evening', waiting: number, spelled: string) =>
+      `Good ${part}. ${
+        waiting === 0
+          ? 'Nothing is waiting for you.'
+          : waiting === 1
+            ? 'One thing is waiting for you.'
+            : `${spelled[0].toUpperCase()}${spelled.slice(1)} things are waiting for you.`
+      }`,
+    noSummary: 'Nothing has changed since the last update.',
+    counts: 'Overview',
+    waitingCount: 'Waiting for you',
+    progressCount: 'In progress',
+    todayCount: 'Updated today',
+    chapters: 'Pages',
+    stage: { waiting: 'Waiting', 'in-progress': 'In progress' },
     audience: (audience: string) => `For ${audience}`,
-    needsYou: (count: number) => `Needs you ${count}`,
-    unread: 'Unread',
-    read: 'Read',
-    readingMissing: 'No longer on the page',
-    inPage: (title: string) => `In ${title}`,
+    needKind: {
+      review: 'To confirm',
+      question: 'Question for you',
+      reading: 'To read',
+      proposal: 'To decide',
+    },
+    moreWaiting: (count: number) => `${count} more waiting`,
+    openToDecide: 'Open to decide →',
+    openFullPage: 'Open the full page →',
+    openPassage: 'Open the passage →',
+    loadingPassage: 'Loading…',
+    latest: 'Latest',
+    earlier: (count: number) => `Earlier · ${count} ${count === 1 ? 'page' : 'pages'}`,
+    cannotShow: (count: number) =>
+      count === 1 ? "1 page can't be shown" : `${count} pages can't be shown`,
     changedSince: (count: number) =>
       `${count} ${count === 1 ? 'page' : 'pages'} changed since this summary`,
-    archived: 'Archived',
   },
   shellCommandCopied: 'Copied.',
   shellCommandCopyFailed: 'Clipboard unavailable. Select and copy the displayed command.',
@@ -678,14 +751,18 @@ export const text = {
     confirmArchiveMany: (count: number) => `Archive ${count} pages?`,
     confirmDeleteMany: (count: number) => `Delete ${count} pages?`,
     confirmArchiveManyBody:
-      'Archived pages stay readable, but nobody can edit them. Archiving cannot be undone yet.',
+      'Archived pages stay readable, but nobody can edit them. You can restore them from Archived.',
+    confirmRestoreMany: (count: number) => `Restore ${count} pages?`,
+    confirmRestoreManyBody:
+      'These pages return to your active list and can be edited again. Their expiry starts over from today.',
     confirmDeleteManyBody:
       'The pages, their comments and their attachments are deleted. This cannot be undone.',
     moreTitles: (count: number) => `and ${count} more`,
     archivedMany: (count: number) => `Archived ${count} pages.`,
+    restoredMany: (count: number) => `Restored ${count} pages.`,
     deletedMany: (count: number) => `Deleted ${count} pages.`,
     awaitingMany: (count: number) =>
-      `The owner acknowledged ${count} of the changes; their signed logs are not verified yet.`,
+      `The owner accepted ${count} of the changes, but ${count === 1 ? 'it is' : 'they are'} not confirmed yet. Open Manage page to check ${count === 1 ? 'it' : 'them'} again.`,
     partial: (done: number, total: number, title: string, reason: string) =>
       `Updated ${done} of ${total} pages. “${title}” was not changed: ${reason}`,
     addedToProject: (name: string, count: number) =>
@@ -698,20 +775,28 @@ export const text = {
       } skipped.`,
     nothingToChange: 'Nothing to change.',
     archiveItem: 'Archive…',
+    restoreItem: 'Restore…',
     deleteItem: 'Delete…',
     confirmArchiveTitle: (title: string) => `Archive “${title}”?`,
     confirmArchive:
-      'An archived page stays readable, but nobody can edit it. Archiving cannot be undone yet.',
+      'An archived page stays readable, but nobody can edit it. You can restore it from Archived.',
+    restorePage: (title: string) => `Restore “${title}”`,
+    confirmRestoreTitle: (title: string) => `Restore “${title}”?`,
+    confirmRestore:
+      'This page returns to your active list and can be edited again. Its expiry starts over from today.',
     confirmDeleteTitle: (title: string) => `Delete “${title}”?`,
     confirmDelete: 'The page, its comments and its attachments are deleted. This cannot be undone.',
     archiveButton: 'Archive page',
     archiveButtonMany: 'Archive pages',
+    restoreButton: 'Restore page',
+    restoreButtonMany: 'Restore pages',
     deleteButtonMany: 'Delete pages',
     deleteButton: 'Delete page',
     archived: (title: string) => `Archived “${title}”.`,
+    restored: (title: string) => `Restored “${title}”.`,
     deleted: (title: string) => `Deleted “${title}”.`,
     awaiting: (title: string) =>
-      `“${title}”: the owner acknowledged the change; its signed log is not verified yet. Open Manage page to verify it.`,
+      `“${title}”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.`,
     operationFailures: {
       INVALID: 'The owner refused the change.',
       DENIED: 'This device is not allowed to manage pages. Reopen your paired session.',
@@ -781,6 +866,8 @@ export const text = {
   preview: 'Preview',
   loading: 'Opening page…',
   openingPage: 'Opening page',
+  /** Where comments and chat will be until the page's threads are verified. */
+  discussionPending: 'Loading comments…',
   loaded: 'Live preview',
   live: 'Live',
   boundary: 'Page content',
@@ -797,19 +884,35 @@ export const text = {
   openTooLargeLabel: 'Page too large',
   blocked: 'Preview stopped',
   failureAccessEnded: 'Your access to this page ended. Open it again to continue.',
+  failurePairingRemoved: "This browser's pairing was removed.",
+  failurePairingExpired: "This browser's pairing expired.",
   failureUnpaired: 'This browser is not paired with Remote for this page.',
   pairAgain: 'Pair again with:',
-  failurePageGone: 'This page is no longer available. It may have been deleted.',
-  failureSessionEnded: 'The Remote session for this page ended. Reopen the page to continue.',
+  failurePageGone:
+    'This page is unavailable. Open it again from the machine. Your pairing is unchanged.',
+  failureSessionEnded: "This page's connection ended. Try again. Your pairing is unchanged.",
   failureTooLarge: 'This change is too large to sync. Reopen the page and make a smaller change.',
   failureGeneric: 'This page stopped syncing. Reopen it to try again.',
-  failureSessionLimit: 'Your paired device is at its Remote session limit.',
+  failureSessionLimit:
+    "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.",
   failureCodeLabel: 'Code:',
+  failureReference: {
+    access: 'Access denied',
+    revoked: 'Pairing removed',
+    expired: 'Pairing expired',
+    mismatch: 'Reconnect mismatch',
+    unpaired: 'Not paired',
+    gone: 'Page unavailable',
+    session: 'Session ended',
+    capacity: 'Session limit',
+    large: 'Page too large',
+    generic: 'Connection unavailable',
+  },
   navigation: 'The page navigated. Reopen it to continue.',
   failed: 'The renderer could not start. Reopen the page to try again.',
   limit: 'This preview accepts pages up to 2 MiB of HTML.',
-  warning:
-    'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
+  frameLimit,
+  warning: `Page scripts run inside an isolated frame. ${frameLimit}`,
   adapter: 'This preview uses local sample pages. It is not connected to a remote space.',
   readerOnly: 'Read-only',
   readerCanEdit: 'Can edit',

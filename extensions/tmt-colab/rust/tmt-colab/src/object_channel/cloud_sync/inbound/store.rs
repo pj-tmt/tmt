@@ -6,8 +6,8 @@ use crate::{
     fold::Snapshot,
     keyring::{Keyring, Layout},
     object_channel::cloud_sync::{PageRef, publisher::Fault},
-    store::{self, Store, StreamScope, owner::Device},
-    sync::{Admission, Code, Server, SyncScope},
+    store::{self, Namespace, Store, StreamScope, owner::Device},
+    sync::{Admission, Bootstrapped, Code, Server, SyncScope},
 };
 use std::collections::{HashMap, HashSet};
 use tmt_colab_model::{certificate, object, statement};
@@ -64,7 +64,91 @@ fn read_fault(error: &(dyn std::error::Error + 'static)) -> Fault {
         Fault::Stuck("Local page state could not be read for cloud sync.")
     }
 }
+/// One checkpoint or fold of a bootstrap, read from its header and not yet admitted.
+struct Checkpoint<'a> {
+    namespace: Namespace,
+    name: &'static str,
+    seq: u64,
+    previous: [u8; 32],
+    hash: [u8; 32],
+    /// The device that signed it: the covered stream's own, or the signer of a fold.
+    author: String,
+    fold: bool,
+    bytes: &'a [u8],
+}
+fn namespace_of(name: &str) -> Result<(Namespace, &'static str), Reject> {
+    match name {
+        "content" => Ok((Namespace::Content, "content")),
+        "own" => Ok((Namespace::Own, "own")),
+        _ => Err(Reject::Refused),
+    }
+}
 impl<A: Admission> StoreInbound<A> {
+    fn checkpoint_of<'a>(
+        &self,
+        page: &PageRef,
+        stream: &str,
+        bytes: &'a [u8],
+    ) -> Result<Checkpoint<'a>, Reject> {
+        let envelope = object::Envelope::from_json(bytes).map_err(|_| Reject::Refused)?;
+        let header = object::Header::decode(envelope.header()).map_err(|_| Reject::Refused)?;
+        let c = &header.context;
+        let (namespace, name) = namespace_of(&c.namespace)?;
+        let seq: u64 = c.stream_seq.parse().map_err(|_| Reject::Refused)?;
+        let covered = header.covered_device.as_deref().unwrap_or(&c.author_device);
+        if c.space != self.space
+            || c.page != page.page
+            || c.epoch != page.epoch.to_string()
+            || covered != stream
+            || !matches!(c.kind.as_str(), "checkpoint" | "fold")
+            || seq == 0
+        {
+            return Err(Reject::Refused);
+        }
+        Ok(Checkpoint {
+            namespace,
+            name,
+            seq,
+            previous: c.prev_hash,
+            hash: envelope.hash().map_err(|_| Reject::Refused)?,
+            author: c.author_device.clone(),
+            fold: header.covered_device.is_some(),
+            bytes,
+        })
+    }
+    /// The update a fold binds: of the covered stream, at the fold's sequence, and the one the fold
+    /// names. Whether the covered device itself signed it is the fold's own check.
+    fn anchor_of(
+        &self,
+        page: &PageRef,
+        stream: &str,
+        seq: u64,
+        bound: [u8; 32],
+        bytes: &[u8],
+    ) -> Result<Bootstrapped, Reject> {
+        let envelope = object::Envelope::from_json(bytes).map_err(|_| Reject::Refused)?;
+        let header = object::Header::decode(envelope.header()).map_err(|_| Reject::Refused)?;
+        let c = &header.context;
+        let (namespace, _) = namespace_of(&c.namespace)?;
+        let hash = envelope.hash().map_err(|_| Reject::Refused)?;
+        if c.space != self.space
+            || c.page != page.page
+            || c.epoch != page.epoch.to_string()
+            || c.kind != "update"
+            || c.author_device != stream
+            || c.stream_seq != seq.to_string()
+            || hash != bound
+        {
+            return Err(Reject::Refused);
+        }
+        Ok(Bootstrapped {
+            namespace,
+            hash,
+            previous: c.prev_hash,
+            bytes: bytes.to_vec(),
+            signer: None,
+        })
+    }
     pub(crate) fn new(layout: &Layout, server: Server<A>, space: String) -> crate::Result<Self> {
         Ok(Self {
             store: Store::open(layout)?,
@@ -246,6 +330,88 @@ impl<A: Admission> Inbound for StoreInbound<A> {
             Err(_) => Err(Fault::Stuck(
                 "Local page state could not be read for cloud sync.",
             )),
+        }
+    }
+    fn bootstrap(
+        &mut self,
+        page: &PageRef,
+        stream: &str,
+        anchor: Option<&[u8]>,
+        pair: &[Vec<u8>],
+    ) -> Result<Applied, Reject> {
+        // The shape of the pair: one stream, one sequence, a namespace each, one head.
+        let objects = pair
+            .iter()
+            .map(|bytes| self.checkpoint_of(page, stream, bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+        let Some(first) = objects.first() else {
+            return Err(Reject::Refused);
+        };
+        let (seq, previous) = (first.seq, first.previous);
+        let folds = objects.iter().any(|object| object.fold);
+        if objects.len() != 2
+            || objects[0].namespace == objects[1].namespace
+            || objects
+                .iter()
+                .any(|object| object.seq != seq || object.previous != previous)
+            || folds != anchor.is_some()
+        {
+            return Err(Reject::Refused);
+        }
+        let anchor = anchor
+            .map(|bytes| self.anchor_of(page, stream, seq, previous, bytes))
+            .transpose()?;
+        // The same admission that reads a stored checkpoint or fold: signature, role, epoch, the
+        // signed cut of a revoked device and, for a fold, its signer's list and its anchor.
+        {
+            let admission = self.admission.as_mut().ok_or(Reject::Retry)?;
+            if let Some(anchor) = &anchor {
+                admission.with_anchor(stream, seq, anchor.bytes.clone());
+            }
+            for object in &objects {
+                let stored = store::owner::epoch::StoredObject {
+                    seq,
+                    hash: object.hash,
+                    previous,
+                    checkpoint: true,
+                    bytes: object.bytes.to_vec(),
+                };
+                admission
+                    .open_stream_object(&self.keyring, &page.page, stream, object.name, &stored)
+                    .map_err(|_| Reject::Refused)?;
+            }
+        }
+        for object in &objects {
+            self.retain(&object.author)?;
+            if object.fold {
+                self.retain(stream)?;
+            }
+        }
+        let installed: Vec<Bootstrapped> = objects
+            .iter()
+            .map(|object| Bootstrapped {
+                namespace: object.namespace,
+                hash: object.hash,
+                previous,
+                bytes: object.bytes.to_vec(),
+                signer: object.fold.then(|| object.author.clone()),
+            })
+            .collect();
+        let scope = SyncScope {
+            space: self.space.clone(),
+            page: page.page.clone(),
+            epoch: page.epoch.to_string(),
+        };
+        match self
+            .server
+            .ingest_bootstrap(&scope, stream, seq, anchor.as_ref(), &installed)
+        {
+            Ok(store::Accepted::New) => Ok(Applied::New),
+            Ok(store::Accepted::Replay) => Ok(Applied::Replay),
+            Err(Code::StaleEpoch) => Err(Reject::Moved),
+            Err(Code::Capacity) => Err(Reject::Full),
+            Err(Code::Gap | Code::ResyncRequired) => Err(Reject::Retry),
+            Err(_) => Err(Reject::Refused),
         }
     }
     fn admit(&mut self, page: &PageRef, original: &[u8]) -> Result<Applied, Reject> {

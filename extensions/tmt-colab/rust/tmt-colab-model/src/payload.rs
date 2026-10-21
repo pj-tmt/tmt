@@ -66,6 +66,20 @@ pub struct LinkRemove {
 pub struct DeviceRevoke {
     pub device_id: String,
     pub cuts: List<Cut, 512>,
+    /// Envelope hashes of the retained folds the owner accepts from this device as signer (a
+    /// sorted, unique list of 32-byte values); absent means none. A fold signed by a revoked
+    /// device is admitted only when its hash is listed (colab-v1, "Owner fold (#3983)").
+    #[serde(default)]
+    pub folds: List<String, 512>,
+}
+impl DeviceRevoke {
+    /// Whether this revoke lists the fold with this envelope hash.
+    pub fn lists_fold(&self, hash: &[u8; 32]) -> bool {
+        self.folds
+            .as_slice()
+            .iter()
+            .any(|listed| key(listed).is_ok_and(|listed| &listed == hash))
+    }
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -149,7 +163,29 @@ pub enum Payload {
     PageHistory(PageHistory),
     RetentionSet(RetentionSet),
     Archive(Page),
+    Unarchive(Page),
     Delete(Page),
+}
+impl Payload {
+    /// The one page a statement is scoped to, or `None` for a statement that is not page-scoped
+    /// (member, link, device and bridge changes). These are exactly the payloads the page policy
+    /// reducer applies only to the page they name.
+    pub fn page(&self) -> Option<&str> {
+        match self {
+            Self::EpochAdvance(p) => Some(&p.page_id),
+            Self::PageShare(p) => Some(&p.page_id),
+            Self::PageHistory(p) => Some(&p.page_id),
+            Self::RetentionSet(p) => Some(&p.page_id),
+            Self::Archive(p) | Self::Unarchive(p) | Self::Delete(p) => Some(&p.page_id),
+            Self::MemberAdd(_)
+            | Self::MemberRemove(_)
+            | Self::MemberRole(_)
+            | Self::LinkAdd(_)
+            | Self::LinkRemove(_)
+            | Self::DeviceRevoke(_)
+            | Self::BridgeAdd(_) => None,
+        }
+    }
 }
 fn key(value: &str) -> Result<[u8; 32]> {
     values::binary(value, 32)?.try_into().map_err(|_| Invalid)
@@ -180,6 +216,15 @@ fn cuts(v: &List<Cut, 512>) -> Result<()> {
         );
         require(previous.as_ref().is_none_or(|p| p < &order))?;
         previous = Some(order);
+    }
+    Ok(())
+}
+fn fold_hashes(v: &List<String, 512>) -> Result<()> {
+    let mut previous: Option<[u8; 32]> = None;
+    for item in v.as_slice() {
+        let hash = key(item)?;
+        require(previous.is_none_or(|p| p < hash))?;
+        previous = Some(hash);
     }
     Ok(())
 }
@@ -227,6 +272,7 @@ pub fn decode(operation: &str, bytes: &[u8]) -> Result<Payload> {
             let v: DeviceRevoke = parse(bytes)?;
             values::generated_id(&v.device_id)?;
             cuts(&v.cuts)?;
+            fold_hashes(&v.folds)?;
             Payload::DeviceRevoke(v)
         }
         "bridge.add" => {
@@ -300,6 +346,11 @@ pub fn decode(operation: &str, bytes: &[u8]) -> Result<Payload> {
             let v: Page = parse(bytes)?;
             values::generated_id(&v.page_id)?;
             Payload::Archive(v)
+        }
+        "page.unarchive" => {
+            let v: Page = parse(bytes)?;
+            values::generated_id(&v.page_id)?;
+            Payload::Unarchive(v)
         }
         "page.delete" => {
             let v: Page = parse(bytes)?;

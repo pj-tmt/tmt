@@ -3,14 +3,32 @@ import { activity, type PageActivity } from './bootstrap.js';
 import { validReadingId } from './reading-link.js';
 import { jsonResponse } from './registration.js';
 
-export const READING_DETAILS_BYTES = 128 * 1024;
+export const READING_DETAILS_BYTES = 192 * 1024;
 export const READING_DETAILS_PAGES = 20;
+export const NEEDS_PASSAGES = 20;
+export const LATEST_POINTS = 160;
 export interface ReadingDescriptor {
   id: string;
   title: string;
   agent: string;
   why: string;
   state: 'unread' | 'read';
+}
+export type NeedKind = 'review' | 'question' | 'reading' | 'proposal';
+/** One pending item the page's count includes: `id` is the pending-target ID (a question's is its
+ * group's). `why` is a reading's reason only. */
+export interface NeedDescriptor {
+  kind: NeedKind;
+  id: string;
+  title: string;
+  agent?: string;
+  why?: string;
+}
+/** The page's newest comment as an excerpt; `who` is a display-only device label. */
+export interface LatestComment {
+  who?: string;
+  atMs: number;
+  text: string;
 }
 export type ReadingDetails =
   | {
@@ -19,6 +37,9 @@ export type ReadingDetails =
       fingerprint: string;
       summary: PageActivity;
       readings: ReadingDescriptor[];
+      /** The first pending items by rank (review, question, reading, proposal); the count stays `summary.needsYou`. */
+      needs: NeedDescriptor[];
+      latest?: LatestComment;
     }
   | { pageId: string; state: 'pending' | 'unavailable' };
 
@@ -45,8 +66,53 @@ export function readingDetails(value: unknown, pageId: string): ReadingDetails {
   return completeDetails(value, pageId);
 }
 
+const NEED_KINDS: readonly NeedKind[] = ['review', 'question', 'reading', 'proposal'];
+
+function need(item: unknown): NeedDescriptor {
+  requireValue(item !== null && typeof item === 'object' && !Array.isArray(item));
+  const optional = ['agent', 'why'].filter((key) => key in item);
+  exactKeys(item, ['kind', 'id', 'title', ...optional]);
+  requireValue(NEED_KINDS.includes(item.kind as NeedKind));
+  requireValue(typeof item.id === 'string' && validReadingId(item.id));
+  text(item.title, 200);
+  if ('agent' in item) text(item.agent, 64);
+  if ('why' in item) {
+    requireValue(item.kind === 'reading');
+    text(item.why, 200);
+  }
+  return {
+    kind: item.kind as NeedKind,
+    id: item.id,
+    title: item.title,
+    ...('agent' in item ? { agent: item.agent as string } : {}),
+    ...('why' in item ? { why: item.why as string } : {}),
+  };
+}
+
+function latestComment(value: unknown): LatestComment {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  exactKeys(value, ['atMs', 'text', ...('who' in value ? ['who'] : [])]);
+  if ('who' in value) text(value.who, 64);
+  text(value.text, LATEST_POINTS);
+  requireValue(Number.isSafeInteger(value.atMs) && (value.atMs as number) >= 0);
+  return {
+    ...('who' in value ? { who: value.who as string } : {}),
+    atMs: value.atMs as number,
+    text: value.text as string,
+  };
+}
+
 function completeDetails(value: unknown, pageId: string): ReadingDetails {
-  exactKeys(value, ['pageId', 'state', 'fingerprint', 'summary', 'readings']);
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  exactKeys(value, [
+    'pageId',
+    'state',
+    'fingerprint',
+    'summary',
+    'readings',
+    'needs',
+    ...('latest' in value ? ['latest'] : []),
+  ]);
   requireValue(typeof value.fingerprint === 'string' && /^[0-9a-f]{64}$/.test(value.fingerprint));
   activity(value.summary);
   requireValue(Array.isArray(value.readings) && value.readings.length <= 50);
@@ -68,12 +134,17 @@ function completeDetails(value: unknown, pageId: string): ReadingDetails {
       state: item.state,
     });
   }
+  requireValue(Array.isArray(value.needs) && value.needs.length <= NEEDS_PASSAGES);
+  const needs = value.needs.map(need);
+  requireValue(new Set(needs.map((item) => item.id)).size === needs.length);
   return {
     pageId,
     state: 'ready',
     fingerprint: value.fingerprint,
     summary: value.summary,
     readings,
+    needs,
+    ...('latest' in value ? { latest: latestComment(value.latest) } : {}),
   };
 }
 
@@ -130,7 +201,9 @@ export class ReadingDetailsQueue {
         const details = await this.read(id, this.#lifetime.signal);
         if (!this.#lifetime.signal.aborted) this.publish(id, details);
       } catch {
-        // Optional details stay unknown. A failed attempt still consumes this generation's cap.
+        // Optional details: a failed attempt says the page's details are unavailable (never a
+        // guess) and still consumes this generation's cap. A canceled one says nothing.
+        if (!this.#lifetime.signal.aborted) this.publish(id, { pageId: id, state: 'unavailable' });
       }
     }
   }

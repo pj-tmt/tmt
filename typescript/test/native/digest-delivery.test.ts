@@ -53,9 +53,9 @@ describe('native Digest held delivery and checklist seam', () => {
   it('offers a pinned flush without claiming offline work or retargeting a retired UUID', async () => {
     await withSandbox(async (sandbox) => {
       const tripwire = await calibrateTmuxTripwire(sandbox);
-      const flush = async (identityId: string) => {
+      const flush = async (identityId: string, options: Record<string, unknown> = {}) => {
         const before = readFileSync(tripwire, 'utf8');
-        const result = await api(sandbox, 'digest.checklist.flush', { identityId });
+        const result = await api(sandbox, 'digest.checklist.flush', { identityId, ...options });
         expect(readFileSync(tripwire, 'utf8')).toBe(before);
         return result;
       };
@@ -93,6 +93,19 @@ describe('native Digest held delivery and checklist seam', () => {
       ).toBe(1);
       for (let i = 0; i < 2; i++) {
         expect((await flush(target)).body).toEqual({ identityId: target, state: 'not_idle' });
+      }
+      // The cap's option skips only the idle evidence: a member with no live session is
+      // still not offered anything, and the option is a boolean and nothing else.
+      for (const whenBusy of [true, false]) {
+        expect((await flush(target, { whenBusy })).body).toEqual({
+          identityId: target,
+          state: 'not_idle',
+        });
+      }
+      for (const whenBusy of ['true', 1, null]) {
+        const refused = await flush(target, { whenBusy });
+        expect(refused.status).toBe(1);
+        expect(refused.body.error.code).toBe('API_INPUT_INVALID');
       }
       expect(
         (await api(sandbox, 'digest.stats.show', { identities: [target] })).body.stats[0]
@@ -579,6 +592,59 @@ describe('native Digest held delivery and checklist seam', () => {
         (await api(sandbox, 'digest.policy.show', { identities: [target] })).body.policies[0]
           .heldCount
       ).toBe(1);
+    });
+  });
+
+  it('never holds a message from a person marked with the reserved user entry, in any mode', async () => {
+    await withSandbox(async (sandbox) => {
+      const target = await identity(sandbox, 'Worker');
+      const owner = await identity(sandbox, 'Owner');
+      await identity(sandbox, 'Ben');
+      expect(
+        (
+          await api(sandbox, 'digest.policy.set', {
+            identityId: target,
+            ownerIdentityId: owner,
+            setterIdentityId: owner,
+            expectedRevision: 0,
+            untilMs: Date.now() + 600_000,
+          })
+        ).status
+      ).toBe(0);
+      const talk = async (text: string) => {
+        const sent = await runCli(sandbox, [
+          'talk',
+          'Worker',
+          text,
+          '--detach',
+          '--json',
+          '--identity',
+          'Ben',
+        ]);
+        expect(sent.status).toBe(0);
+        return JSON.parse(sent.stdout);
+      };
+      const mark = async (value: string) =>
+        expect(
+          (await runCli(sandbox, ['identity', 'meta', 'set', 'user', value, '--identity', 'Ben']))
+            .status
+        ).toBe(0);
+      const held = async () =>
+        (await api(sandbox, 'digest.policy.show', { identities: [target] })).body.policies[0]
+          .heldCount;
+      // Unmarked, Ben is an identity like any other.
+      expect(await talk('before marking')).toMatchObject({ digest: true, status: 'queued' });
+      await mark('true');
+      const person = await talk('from a person');
+      expect(person.digest).toBeUndefined();
+      expect(person.status).toBe('queued');
+      // Only the exact entry counts.
+      await mark('yes');
+      expect(await talk('wrong value')).toMatchObject({ digest: true });
+      await mark('true');
+      expect((await talk('marked again')).digest).toBeUndefined();
+      // The person's messages are not in the held set.
+      expect(await held()).toBe(2);
     });
   });
 });

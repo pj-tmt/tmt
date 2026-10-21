@@ -68,7 +68,9 @@ test('confirmed and waiting-for-agent sections leave the count; zero is a stable
   const zero = page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true });
   await expect(zero).toBeVisible();
   await expect(zero.getByRole('button')).toHaveCount(0);
-  expect((await zero.boundingBox())!.width).toBe(before!.width);
+  // Nothing shows at zero (#4116): the element that stays is a one-pixel anchor, not the slot's width.
+  expect((await zero.boundingBox())!.width).toBeLessThanOrEqual(1);
+  expect(before!.width).toBeGreaterThan(1);
 });
 
 for (const via of ['keyboard', 'pointer'] as const)
@@ -123,7 +125,9 @@ test('the header opens the next unanswered question without changing its retaine
   await panel.getByRole('button', { name: /^Send/ }).click();
   await expect(panel.locator('.question-line').first()).toContainText('Answered: One column');
   await expect(trigger).toBeVisible();
-  // Group Send includes every prepared answer: start the retained draft only after Q1 is stored.
+  // Answer text arrives before the Send footer and disclosure settle; wait for collapse before
+  // clicking Q2. Group Send includes every prepared answer, so only now start its retained draft.
+  await expect(panel.locator('.question-line').first()).toHaveAttribute('aria-expanded', 'false');
   await panel.locator('.question-line').nth(1).click();
   await panel.getByLabel('Your answer', { exact: true }).fill('Keep this unsent draft.');
   await panel.locator('.question-line').first().click();
@@ -274,7 +278,9 @@ for (const width of [1440, 390])
       const zero = root.getByLabel('✓ Nothing waits', { exact: true });
       await expect(zero).toBeVisible();
       await expect(zero.getByRole('button')).toHaveCount(0);
-      expect((await zero.boundingBox())!.width).toBe(initialWidth);
+      // The entry's slot is its own width while something waits; at zero only a one-pixel anchor stays.
+      expect(initialWidth).toBe(width === 390 ? 48 : 148);
+      expect((await zero.boundingBox())!.width).toBeLessThanOrEqual(1);
       expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'status:resolve']);
       expect(await run(page, 'discussionProof')).toHaveLength(3);
       await capture(page, `needs-you-0-${width}-${theme}`);
@@ -358,7 +364,6 @@ test('archived readings keep cosmetic focus without Mark read or a notification'
 
 test('Needs-you entries are links and modified activation leaves this page unchanged', async ({
   page,
-  context,
 }) => {
   await mount(page, { sections: 2, group: true });
   const before = await run(page, 'proof');
@@ -369,29 +374,56 @@ test('Needs-you entries are links and modified activation leaves this page uncha
   await expect(link).toHaveJSProperty('tagName', 'A');
   const href = await link.getAttribute('href');
   expect(href).toContain('/pages/');
-  const target = new URL(href!, page.url()).href;
+  // Opening a tab is the browser's job, and a headless tab opens, or reports its URL, unreliably.
+  // What this page owns is leaving a modified click alone and, for the keyboard, the window.open
+  // call, so those are what the test observes.
+  await page.evaluate(() => {
+    const seen = window as unknown as { clicks: MouseEvent[]; opened: unknown[][] };
+    seen.clicks = [];
+    seen.opened = [];
+    // The events are kept and read after the click, so `defaultPrevented` is the final answer of
+    // every handler, not what a capture-phase listener sees before the app's.
+    for (const type of ['click', 'auxclick'])
+      window.addEventListener(type, (event) => seen.clicks.push(event as MouseEvent), true);
+    window.open = (...args: unknown[]) => {
+      seen.opened.push(args);
+      return null;
+    };
+  });
   for (const options of [
     { modifiers: ['ControlOrMeta'] },
     { modifiers: ['Shift'] },
     { button: 'middle' as const },
   ] satisfies NonNullable<Parameters<typeof link.click>[0]>[]) {
-    const opened = context.waitForEvent('page');
     await link.click(options);
-    const destination = await opened;
-    await expect(destination).toHaveURL(target);
     await expect(menu).toBeVisible();
-    await destination.close();
     await page.bringToFront();
   }
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { clicks: MouseEvent[] }).clicks.map((event) => ({
+        type: event.type,
+        button: event.button,
+        modified: event.ctrlKey || event.metaKey || event.shiftKey,
+        defaultPrevented: event.defaultPrevented,
+      })),
+    ),
+  ).toEqual([
+    { type: 'click', button: 0, modified: true, defaultPrevented: false },
+    { type: 'click', button: 0, modified: true, defaultPrevented: false },
+    { type: 'auxclick', button: 1, modified: false, defaultPrevented: false },
+  ]);
   for (const key of ['Control+Enter', 'Meta+Enter', 'Shift+Enter']) {
-    const opened = context.waitForEvent('page');
     await link.press(key);
-    const destination = await opened;
-    await expect(destination).toHaveURL(target);
     await expect(menu).toBeVisible();
-    await destination.close();
-    await page.bringToFront();
   }
+  expect(await page.evaluate(() => (window as unknown as { opened: unknown[][] }).opened)).toEqual(
+    [href, href, href].map((url, index) => [
+      url,
+      '_blank',
+      index === 2 ? 'noopener,popup' : 'noopener',
+    ]),
+  );
   expect(await run(page, 'proof')).toEqual(before);
   expect(await run(page, 'discussionProof')).toEqual(threads);
   await link.press('Enter');

@@ -32,6 +32,9 @@ pub struct Summary {
     pub needs_you: u32,
     /// The page's creation label (`meta.originalAuthor`), when it has one.
     pub author: Option<String>,
+    /// The page's own work, before any page it follows is resolved; `None` without work. It stays
+    /// out of `json()`: the list read resolves it across pages (`work_links::Graph`).
+    pub work: Option<Box<crate::work_index::PageWork>>,
 }
 impl Summary {
     pub fn json(&self) -> Value {
@@ -70,14 +73,19 @@ fn count(conversations: &Conversations, author: Option<&str>, needs_you: u32) ->
         author: author
             .filter(|label| decoder::valid_publisher_agent(label))
             .map(str::to_owned),
+        work: None,
     }
 }
 
-/// The count and reading descriptors are one projection and share one cache fingerprint.
+/// The count, reading descriptors and passages are one projection and share one cache fingerprint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SummaryProjection {
     pub summary: Summary,
     pub readings: Vec<crate::summary_readings::ReadingDescriptor>,
+    /// The pending items by rank, at most [`crate::limits::NEEDS_PASSAGES`].
+    pub needs: Vec<crate::summary_passages::Need>,
+    /// The page's newest comment, when it has one.
+    pub latest: Option<crate::summary_passages::Latest>,
 }
 
 #[cfg(test)]
@@ -86,6 +94,8 @@ impl From<Summary> for SummaryProjection {
         Self {
             summary,
             readings: Vec::new(),
+            needs: Vec::new(),
+            latest: None,
         }
     }
 }
@@ -117,13 +127,17 @@ pub fn summarize_details(source: &mut Source, page: &str) -> Result<SummaryProje
     if readings.len() > crate::limits::READING_PAGE {
         return Err(std::io::Error::other("summary reading budget").into());
     }
+    let mut summary = count(
+        &conversations,
+        folded.original_author.as_deref(),
+        u32::try_from(pending.len())?,
+    );
+    summary.work = crate::work_index::page_work(page, &folded.meta).map(Box::new);
     Ok(SummaryProjection {
-        summary: count(
-            &conversations,
-            folded.original_author.as_deref(),
-            u32::try_from(pending.len())?,
-        ),
+        summary,
         readings,
+        needs: crate::summary_passages::needs(&report, &conversations, &pending),
+        latest: crate::summary_passages::latest(&conversations),
     })
 }
 
@@ -445,6 +459,7 @@ mod tests {
             waiting: false,
             needs_you: 0,
             author: None,
+            work: None,
         }
     }
 

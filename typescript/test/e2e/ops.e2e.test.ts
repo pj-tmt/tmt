@@ -99,10 +99,7 @@ function hostPaneSlots(fixture: E2EFixture): Record<string, string> {
 async function selectHostWorker(fixture: E2EFixture, board: string) {
   await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board);
   fixture.tmux(['send-keys', '-t', board, '/', 'worker', 'Enter']);
-  await fixture.waitForCapture(
-    (screen) => /\/[ \t]+worker/.test(screen) && screen.includes('1 of 2 agents'),
-    board
-  );
+  await fixture.waitForCapture((screen) => /\/[ \t]+worker[ \t]+1 of 2[ \t]+×/.test(screen), board);
   fixture.tmux(['send-keys', '-t', board, 'End']);
   await fixture.waitForCapture((screen) => screen.includes('⏎ to message worker'), board);
 }
@@ -141,10 +138,9 @@ async function hostActionBoard(fixture: E2EFixture, action: string, task: string
     'Enter',
   ]);
   await fixture.waitForCapture(
-    (screen) => screen.includes('OPS / UI') && /2\s+Agents/.test(screen),
+    (screen) => screen.includes('OPS / UI') && /1\s+Agents/.test(screen),
     board.pane
   );
-  fixture.tmux(['send-keys', '-t', board.pane, '2']);
   await fixture.waitForCapture(
     (screen) => screen.includes('lead left-agent') && screen.includes('2 members'),
     board.pane
@@ -308,8 +304,8 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['select-window', '-t', shell.pane]);
       fixture.tmux(['send-keys', '-t', shell.pane, 'tmt ops ui; echo IDLE_BOARD_EXIT=$?', 'Enter']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
-      // Agents tab, first row (Common pool), then the squad row below it.
-      fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Home', 'Down']);
+      // Agents tab opens on the Squads tree: first row (Common pool), then the squad row below it.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Down']);
       await fixture.waitForCapture((screen) => screen.includes('SQUAD / AGENT'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, ',']);
       await fixture.waitForCapture(
@@ -372,31 +368,32 @@ renameSync(output+'.tmp',output);
         'Enter',
       ]);
       await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
-      // Select Overview explicitly; startup-tab preferences do not own this scenario.
-      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      // Select the flat Agents list explicitly; startup-tab preferences do not own this scenario.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'f']);
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('OPS / UI') &&
           /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODEL\b/m.test(screen) &&
           /^   Ben[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
           /^   worker[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
-          /Agents[ \t]+Squads[ \t]+\/[ \t]+Search/.test(screen),
+          /f[ \t]+Squads[ \t]+Agents[ \t]+Pinned[ \t─━]+\/[ \t]+Search/.test(screen),
         shell.pane
       );
-      // Overview selects an agent; select the visible Common pool before expanding it.
-      fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Home', 'Right']);
+      // The flat list selects an agent; return to the Squads tree (f cycles through Pinned),
+      // then select the visible Common pool before expanding it.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'f', 'f', 'Home', 'Right']);
       await fixture.waitForCapture((screen) => {
         const header = screen.split('\n').find((line) => line.includes('SQUAD / AGENT'));
-        const rule = screen.split('\n').find((line) => line.startsWith('── Squads '));
-        // The 160-cell frame gives the list 75 cells. Its section rule shares
-        // the focus title with a one-cell divider; columns stay one row below.
+        const rule = screen.split('\n').find((line) => line.includes('f  Squads '));
+        // The 160-cell frame gives the list 75 cells. Its controls rule shares
+        // the Talk/Measure title with a one-cell divider; columns stay one row below.
         return (
           header !== undefined &&
           rule !== undefined &&
-          /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL[ \t]*$/.test(
+          /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL \/ NOW[ \t]*$/.test(
             header.slice(0, 75)
           ) &&
-          rule.slice(76).startsWith('── Common pool ') &&
+          /Talk[ \t]+Measure[ \t]+[─━]{2} Common pool /.test(rule.slice(75)) &&
           /^[ \t]+├ Ben[ \t]+\?[ \t]/m.test(screen) &&
           /^[ \t]+└ worker[ \t]+\?[ \t]/m.test(screen)
         );
@@ -404,7 +401,7 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
       await fixture.waitForCapture((screen) => screen.includes('Squad name'), shell.pane);
       fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'product1']);
-      // Digits are authored field input, never navigation to Overview/Agents.
+      // Digits are authored field input, never navigation to the Agents or Digest tab.
       await fixture.waitForCapture(
         (screen) => screen.includes('product1') && screen.includes('Squad name'),
         shell.pane
@@ -477,8 +474,8 @@ renameSync(output+'.tmp',output);
         (screen) => !/Cancel[ \t]+Create squad/.test(screen) && screen.includes('product'),
         shell.pane
       );
-      fixture.tmux(['send-keys', '-t', shell.pane, '2']);
-      await fixture.waitForCapture((screen) => /2\s+Agents/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      await fixture.waitForCapture((screen) => /1\s+Agents/.test(screen), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture(
         (screen) => screen.includes('WORKSPACE_BOARD_EXIT=0'),
@@ -646,7 +643,7 @@ renameSync(output+'.tmp',output);
         }
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
-          (screen) => !screen.includes('effective scoped bindings') && /2\s+Agents/.test(screen),
+          (screen) => !screen.includes('effective scoped bindings') && /1\s+Agents/.test(screen),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, '0']);
@@ -656,7 +653,7 @@ renameSync(output+'.tmp',output);
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
-          (screen) => !screen.includes('effective scoped bindings') && /2\s+Agents/.test(screen),
+          (screen) => !screen.includes('effective scoped bindings') && /1\s+Agents/.test(screen),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
@@ -979,8 +976,16 @@ renameSync(output+'.tmp',output);
           shell.pane
         );
         // Down saturates on the final entry (the selected squad's settings link); Up steps over the
-        // rule to Actions, which precedes it. Preceding preference choices may grow.
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Up', 'Enter']);
+        // rule and Panels to Actions, which precedes them. Preceding preference choices may grow.
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          shell.pane,
+          ...Array(40).fill('Down'),
+          'Up',
+          'Up',
+          'Enter',
+        ]);
         await fixture.waitForCapture(
           (screen) =>
             !screen.includes('Workspace settings') && screen.includes('Enter runs · Esc closes'),

@@ -412,7 +412,7 @@ fn first_enter_focuses_retained_uuid_draft_and_only_a_new_active_press_submits()
     for width in [160, 100, 60] {
         let mut app = crate::board::app::workspace::tests::board();
         draw(&mut app, width, 18);
-        assert!(!app.bindings().contains_key("t"));
+        assert_eq!(app.bindings()["t"].text, "talk-measure");
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)),
             Effect::None
@@ -497,22 +497,14 @@ fn enter_shift_enter_and_paste_keep_open_edit_and_submit_distinct() {
 fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
     use crate::{board::app::Effect, config::OpsKeyScope};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    for scope in [
-        OpsKeyScope::Member,
-        OpsKeyScope::Overview,
-        OpsKeyScope::Reader,
-        OpsKeyScope::OverviewReader,
-    ] {
+    for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
         let keys = crate::config::workspace_defaults(scope);
+        assert_eq!(keys["enter"].verb, crate::action::Verb::Talk);
         assert_eq!(
-            keys["enter"].verb,
-            if matches!(scope, OpsKeyScope::Overview | OpsKeyScope::OverviewReader) {
-                crate::action::Verb::Reply
-            } else {
-                crate::action::Verb::Talk
-            }
+            keys.contains_key("t"),
+            !scope.is_reader(),
+            "t switches Talk and Measure outside readers"
         );
-        assert!(!keys.contains_key("t"));
         assert_eq!(
             keys.get("double-click").map(|action| action.text.as_str()),
             if scope.is_reader() {
@@ -820,7 +812,7 @@ fn degraded_layout_explains_the_painted_fallback_without_losing_the_editor_row()
 }
 
 #[test]
-fn paste_preview_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts() {
+fn paste_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts() {
     use crate::board::app::{Effect, Request};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     for kib in [1, 10, 100] {
@@ -835,10 +827,11 @@ fn paste_preview_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts
         let exact = format!("before {payload}");
         assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
         assert!(app.input.as_ref().unwrap().text.layout(80).lines.len() < 4);
+        // This row-only fixture has no painted conversation chip. Ctrl-P
+        // cannot expand source inline; popup routing is covered in paste::tests.
         app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
-        assert!(app.input.as_ref().unwrap().text.layout(80).lines.len() > 8);
+        assert!(app.input.as_ref().unwrap().text.layout(80).lines.len() < 4);
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), exact);
-        app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
         app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "before ");
         assert!(app.input.as_ref().unwrap().text.folds().is_empty());
@@ -1140,6 +1133,13 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                         Effect::None,
                         "{owner}"
                     );
+                    if owner == "menu" && app.menu.is_none() {
+                        // A menu is a peek: a press outside its sheet closes it and lands on the
+                        // restored base, so there is no stale cell left to compare. A press on
+                        // the sheet itself, between entries, is swallowed and checked below.
+                        assert!(!app.modal_open(), "{owner}");
+                        continue;
+                    }
                     if app.modal_open() {
                         assert_eq!(
                             app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),

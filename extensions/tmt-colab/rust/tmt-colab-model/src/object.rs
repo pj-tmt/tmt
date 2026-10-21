@@ -34,7 +34,15 @@ pub struct Context {
 pub struct Header {
     pub context: Context,
     pub object_id: String,
+    /// The device whose stream a `fold` covers (`stream_seq` and `prev_hash` name its update head
+    /// at n); the signer is `context.author_device`. Present exactly for kind `fold`, as one extra
+    /// trailing field, so every other kind keeps its thirteen and a reader that does not know the
+    /// kind refuses the header by its field count.
+    pub covered_device: Option<String>,
 }
+/// The kind of an owner fold: a checkpoint an owner-member device signs for another owner-member
+/// device's stream (colab-v1, "Owner fold (#3983)").
+pub const FOLD: &str = "fold";
 impl Header {
     pub fn encode(&self) -> Result<Vec<u8>> {
         let v = &self.context;
@@ -46,8 +54,12 @@ impl Header {
         values::decimal(&v.epoch, false)?;
         values::decimal(&v.membership_revision, false)?;
         let seq = values::decimal(&v.stream_seq, true)?;
+        require((v.kind == FOLD) == self.covered_device.is_some())?;
+        if let Some(covered) = &self.covered_device {
+            values::generated_id(covered)?;
+        }
         require(match v.kind.as_str() {
-            "update" | "checkpoint" => seq > 0,
+            "update" | "checkpoint" | FOLD => seq > 0,
             "html" => seq == 0 && v.prev_hash == [0; 32] && v.namespace == "content",
             "asset" => seq == 0 && v.prev_hash == [0; 32],
             _ => false,
@@ -55,7 +67,7 @@ impl Header {
         if v.kind == "update" && seq == 1 {
             require(v.prev_hash == [0; 32])?;
         }
-        let bytes = frame(&[
+        let mut parts: Vec<&[u8]> = vec![
             b"tmt-colab-object-v1",
             b"1",
             SUITE.as_bytes(),
@@ -69,12 +81,17 @@ impl Header {
             v.membership_revision.as_bytes(),
             v.stream_seq.as_bytes(),
             &v.prev_hash,
-        ])?;
+        ];
+        if let Some(covered) = &self.covered_device {
+            parts.push(covered.as_bytes());
+        }
+        let bytes = frame(&parts)?;
         require(bytes.len() <= 1024)?;
         Ok(bytes)
     }
     pub fn decode(input: &[u8]) -> Result<Self> {
-        let f = fields(input, 13, 1024)?;
+        // Thirteen fields, or fourteen for a fold: the encoding check below ties the count to the kind.
+        let f = fields(input, 14, 1024).or_else(|_| fields(input, 13, 1024))?;
         require(f[0] == b"tmt-colab-object-v1" && f[1] == b"1" && f[2] == SUITE.as_bytes())?;
         let value = Self {
             context: Context {
@@ -89,6 +106,11 @@ impl Header {
                 prev_hash: f[12].try_into().map_err(|_| Invalid)?,
             },
             object_id: text(f[8])?.into(),
+            covered_device: f
+                .get(13)
+                .map(|bytes| text(bytes))
+                .transpose()?
+                .map(Into::into),
         };
         require(value.encode()? == input)?;
         Ok(value)
@@ -190,6 +212,26 @@ pub fn seal(
     signer: &SigningKey,
     plaintext: &[u8],
 ) -> Result<Envelope> {
+    seal_covering(context, None, secret, signer, plaintext)
+}
+/// Seals a `fold`: `context.author_device` is the signer and `covered` the device whose stream it
+/// covers (its own included). Policy (who may sign for whom) is the caller's, as for `seal`.
+pub fn seal_fold(
+    context: &Context,
+    covered: &str,
+    secret: &[u8; 32],
+    signer: &SigningKey,
+    plaintext: &[u8],
+) -> Result<Envelope> {
+    seal_covering(context, Some(covered.into()), secret, signer, plaintext)
+}
+fn seal_covering(
+    context: &Context,
+    covered_device: Option<String>,
+    secret: &[u8; 32],
+    signer: &SigningKey,
+    plaintext: &[u8],
+) -> Result<Envelope> {
     require(plaintext.len() <= plaintext_limit(&context.kind))?;
     let mut id = [0; 32];
     getrandom::fill(&mut id).map_err(|_| Invalid)?;
@@ -197,6 +239,7 @@ pub fn seal(
     let header = Header {
         context: context.clone(),
         object_id,
+        covered_device,
     }
     .encode()?;
     let nonce: &Nonce<aes_gcm::aead::consts::U12> =
@@ -227,6 +270,30 @@ pub fn open(
     author_key: &[u8; 32],
 ) -> Result<Vec<u8>> {
     let header = Header::decode(&envelope.header)?;
+    // A fold names a covered stream, so only `open_fold` may open one.
+    require(header.covered_device.is_none())?;
+    open_header(envelope, &header, expected, secret, author_key)
+}
+/// Opens a `fold` for the covered device the caller admitted. Neither this check nor a valid
+/// signature establishes that the signer may fold that stream or that its anchor is present.
+pub fn open_fold(
+    envelope: &Envelope,
+    expected: &Context,
+    covered: &str,
+    secret: &[u8; 32],
+    signer_key: &[u8; 32],
+) -> Result<Vec<u8>> {
+    let header = Header::decode(&envelope.header)?;
+    require(expected.kind == FOLD && header.covered_device.as_deref() == Some(covered))?;
+    open_header(envelope, &header, expected, secret, signer_key)
+}
+fn open_header(
+    envelope: &Envelope,
+    header: &Header,
+    expected: &Context,
+    secret: &[u8; 32],
+    author_key: &[u8; 32],
+) -> Result<Vec<u8>> {
     require(
         &header.context == expected
             && envelope.ciphertext.len() >= 16
@@ -248,4 +315,25 @@ pub fn open(
             },
         )
         .map_err(|_| Invalid)
+}
+/// The anchor of a fold: the covered stream's `update` envelope at the fold's sequence, whose
+/// hash is the fold's `prev_hash` and which the covered device itself signed, so the fold names a
+/// head that device really wrote and not one its signer asserts. It checks the anchor against the
+/// fold and the covered device's pinned key; it admits neither device.
+pub fn check_anchor(fold: &Header, anchor: &Envelope, covered_key: &[u8; 32]) -> Result<()> {
+    let covered = fold.covered_device.as_deref().ok_or(Invalid)?;
+    let head = Header::decode(&anchor.header)?;
+    let (f, a) = (&fold.context, &head.context);
+    require(
+        f.kind == FOLD
+            && a.kind == "update"
+            && head.covered_device.is_none()
+            && a.author_device == covered
+            && a.space == f.space
+            && a.page == f.page
+            && a.epoch == f.epoch
+            && a.stream_seq == f.stream_seq
+            && anchor.hash()? == f.prev_hash,
+    )?;
+    crypto::verify_signature(covered_key, &anchor.signature_input()?, &anchor.signature)
 }

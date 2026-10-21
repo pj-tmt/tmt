@@ -197,6 +197,8 @@ pub struct ClearResponse {
 pub struct CaptureRequest {
     pub socket: String,
     pub pane_id: String,
+    /// 0 is the visible screen; 1 or more is the tail of the pane's text,
+    /// with at least the last `lines` lines.
     pub lines: u32,
 }
 

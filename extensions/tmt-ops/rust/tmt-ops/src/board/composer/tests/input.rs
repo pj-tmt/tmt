@@ -21,7 +21,10 @@ fn the_box_grows_upward_with_its_content_and_keeps_the_info_line_and_footer_fixe
         let band = app.input_band.get().expect("an admitted idle composer");
         let idle_view = app.input_viewport.get().unwrap().0;
         assert_eq!(idle_view.height, 1);
-        assert_eq!(band.height, 2, "one box row plus the info line");
+        assert_eq!(
+            band.height, 4,
+            "padding, one text row, padding and the info line"
+        );
         let info = Rect::new(band.x, band.bottom() - 1, band.width, 1);
         let info_before = band_text(&idle, info);
         assert!(info_before.contains("worker"));
@@ -47,7 +50,11 @@ fn the_box_grows_upward_with_its_content_and_keeps_the_info_line_and_footer_fixe
             let typed = draw(&mut app, width, 36);
             let grown = app.input_band.get().unwrap();
             assert_eq!(grown.bottom(), band.bottom(), "the box grows upward");
-            assert_eq!(grown.height, rows + 1, "{rows} rows plus the info line");
+            assert_eq!(
+                grown.height,
+                rows + 3,
+                "{rows} rows, their padding and the info line"
+            );
             let viewport = app.input_viewport.get().unwrap().0;
             assert_eq!(viewport.height, rows);
             assert_eq!(viewport.bottom(), idle_view.bottom());
@@ -71,6 +78,16 @@ fn the_box_grows_upward_with_its_content_and_keeps_the_info_line_and_footer_fixe
         assert!(
             app.input_viewport.get().unwrap().0.right() < editor.right(),
             "overflow has its own cells, not cells stolen from typed text"
+        );
+        // At the cap the box stops growing and keeps its padding rows above and below the text.
+        let capped = app.input_band.get().unwrap();
+        assert_eq!(capped.height, 6 + 3);
+        let view = app.input_viewport.get().unwrap().0;
+        let row = |y: u16| band_text(&typed, Rect::new(capped.x, y, capped.width, 1));
+        assert!(row(view.y - 1).trim().is_empty() && row(view.bottom()).trim().is_empty());
+        assert_eq!(
+            (view.y - capped.y, capped.bottom() - 1 - view.bottom()),
+            (1, 1)
         );
         assert_eq!(
             app.input.as_ref().unwrap().text.as_str(),
@@ -178,5 +195,16 @@ fn the_info_line_and_footer_name_the_same_new_line_key() {
                 "the footer caption is the same key"
             );
         }
+    }
+}
+
+#[test]
+fn the_padding_follows_the_height_of_the_frame_being_drawn_with_no_stale_frame() {
+    let _no_io = crate::runner::forbid_commands();
+    let mut app = crate::board::app::workspace::tests::board();
+    // Shrinking in place drops the padding in the very next frame, growing restores it.
+    for (height, rows) in [(36, 4), (24, 2), (36, 4), (27, 2), (28, 4)] {
+        draw(&mut app, 160, height);
+        assert_eq!(app.input_band.get().unwrap().height, rows, "{height}");
     }
 }

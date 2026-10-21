@@ -80,11 +80,11 @@ describe('HTTP admission reopens', () => {
     const { controller, reopen, opened } = fixture();
     controller.report(await httpRefusal('REMOTE_DEVICE_REVOKED'));
     await settled();
-    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'access', action: 'pair' });
+    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'revoked', action: 'pair' });
     expect(reopen).not.toHaveBeenCalled();
     expect(opened).not.toHaveBeenCalled();
     if (controller.state.phase !== 'ended') throw new Error('Expected named ending');
-    expect(terminalFailure(controller.state.error).sentence).toBe(text.failureAccessEnded);
+    expect(terminalFailure(controller.state.error).sentence).toBe(text.failurePairingRemoved);
   });
 
   it('repeated unclassified 403 stops after the existing five attempts with reconnect failure copy', async () => {
@@ -96,7 +96,7 @@ describe('HTTP admission reopens', () => {
     controller.report(await httpRefusal());
     await settled();
     expect(reopen).toHaveBeenCalledTimes(5);
-    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'generic', action: 'none' });
+    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'generic', action: 'reload' });
     expect(opened).not.toHaveBeenCalled();
     expect(binding.reconnect).not.toHaveBeenCalled();
     if (controller.state.phase !== 'ended') throw new Error('Expected bounded ending');
@@ -138,8 +138,8 @@ describe('connection controller: a lost transport', () => {
   });
 
   it.each([
-    ['REMOTE_DEVICE_REVOKED', 'access', 'pair'],
-    ['REMOTE_CLOSED', 'access', 'pair'],
+    ['REMOTE_DEVICE_REVOKED', 'revoked', 'pair'],
+    ['REMOTE_CLOSED', 'access', 'reload'],
     ['Page unavailable', 'gone', 'pages'],
   ] as const)(
     'ends with a named reason when the fresh open is refused (%s)',
@@ -199,7 +199,7 @@ describe('connection controller: a lost transport', () => {
     const seen: string[] = [];
     controller.subscribe(() => seen.push(controller.state.phase));
     controller.report(lost());
-    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'generic', action: 'none' });
+    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'generic', action: 'reload' });
     expect(seen).toEqual(['ended']);
     expect(failed).toHaveBeenCalledOnce();
     await settled();
@@ -213,7 +213,7 @@ describe('connection controller: a lost transport', () => {
     expect(controller.state.phase).toBe('reconnecting');
     await settled();
     expect(binding.reconnect).toHaveBeenCalledOnce();
-    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'generic', action: 'none' });
+    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'generic', action: 'reload' });
     controller.report(lost());
     await settled();
     expect(binding.reconnect).toHaveBeenCalledOnce();
@@ -297,7 +297,7 @@ describe('connection controller: an epoch advance', () => {
     controller.report(refusal('DENIED'));
     await settled();
     expect(opened).not.toHaveBeenCalled();
-    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'access', action: 'pair' });
+    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'revoked', action: 'pair' });
   });
 
   it('stops reopening a page that keeps failing', async () => {
@@ -309,7 +309,7 @@ describe('connection controller: an epoch advance', () => {
       await settled();
     }
     expect(reopen).toHaveBeenCalledTimes(2);
-    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'access', action: 'pair' });
+    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'access', action: 'reload' });
   });
 });
 

@@ -113,6 +113,132 @@ impl Drop for TestChild {
     }
 }
 
+/// Where the host's tmux server keeps its sockets, from the ambient environment.
+///
+/// A test process inherits `TMUX` and `TMUX_PANE` from the pane it runs in, and `$TMUX`
+/// outranks `TMUX_TMPDIR`, so a bare tmux reaches the host's server. `PrivateServer` and
+/// every other fixture that starts one therefore proves its socket private first; the
+/// TypeScript helper and `scripts/private-tmux.sh` hold the same rule, which
+/// the tmt-dev skill's focused-checks reference states once.
+pub(crate) struct HostTmux {
+    uid: u32,
+    tmux_tmpdir: Option<PathBuf>,
+    tmux: Option<String>,
+}
+
+impl HostTmux {
+    pub(crate) fn from_process() -> Self {
+        Self {
+            uid: nix::unistd::getuid().as_raw(),
+            tmux_tmpdir: std::env::var_os("TMUX_TMPDIR").map(PathBuf::from),
+            tmux: std::env::var("TMUX").ok(),
+        }
+    }
+
+    /// The server socket `$TMUX` names, if any.
+    fn named_socket(&self) -> Option<PathBuf> {
+        let named = self.tmux.as_deref()?.split(',').next()?;
+        (!named.is_empty()).then(|| PathBuf::from(named))
+    }
+
+    fn socket_directories(&self) -> Vec<PathBuf> {
+        let uid = self.uid;
+        let mut directories = vec![
+            PathBuf::from(format!("/tmp/tmux-{uid}")),
+            PathBuf::from(format!("/private/tmp/tmux-{uid}")),
+        ];
+        if let Some(root) = &self.tmux_tmpdir {
+            directories.push(root.join(format!("tmux-{uid}")));
+        }
+        if let Some(parent) = self.named_socket().as_deref().and_then(Path::parent) {
+            directories.push(parent.to_path_buf());
+        }
+        directories
+            .into_iter()
+            .filter(|directory| directory.is_absolute())
+            .map(|directory| resolve_loosely(&directory))
+            .collect()
+    }
+}
+
+/// The path tmux binds is limited to 104 bytes on macOS, NUL included.
+const SOCKET_PATH_LIMIT: usize = 103;
+
+/// The physical form of `path`, even when its tail does not exist yet.
+fn resolve_loosely(path: &Path) -> PathBuf {
+    let mut existing = path.to_path_buf();
+    let mut tail = Vec::new();
+    while !existing.exists() {
+        let Some(name) = existing.file_name() else {
+            break;
+        };
+        tail.push(name.to_owned());
+        if !existing.pop() {
+            break;
+        }
+    }
+    let mut resolved = fs::canonicalize(&existing).unwrap_or(existing);
+    resolved.extend(tail.iter().rev());
+    resolved
+}
+
+/// Why `socket` is not a private socket inside `root`, or `None` when it is. `root` is the
+/// directory the test owns; the socket must be a new or existing file strictly inside it.
+pub(crate) fn private_socket_refusal(
+    socket: &Path,
+    root: &Path,
+    host: &HostTmux,
+) -> Option<String> {
+    if !socket.is_absolute() {
+        return Some(format!("{} is not absolute", socket.display()));
+    }
+    // A missing component followed by `..` would be created and then climbed out of.
+    if socket
+        .components()
+        .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Some(format!("{} has a .. component", socket.display()));
+    }
+    let Ok(root) = fs::canonicalize(root) else {
+        return Some(format!("the test root {} does not exist", root.display()));
+    };
+    if fs::symlink_metadata(socket).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Some(format!("{} is a symlink", socket.display()));
+    }
+    let physical = resolve_loosely(socket);
+    if !physical.starts_with(&root) || physical == root {
+        return Some(format!(
+            "{} is outside the test root {}",
+            physical.display(),
+            root.display()
+        ));
+    }
+    if let Some(directory) = host
+        .socket_directories()
+        .into_iter()
+        .find(|directory| physical.starts_with(directory))
+    {
+        return Some(format!(
+            "{} lies inside the host tmux socket directory {}",
+            physical.display(),
+            directory.display()
+        ));
+    }
+    // The kernel measures the string tmux binds, not its resolved form.
+    (socket.as_os_str().len() > SOCKET_PATH_LIMIT)
+        .then(|| format!("{} is too long for a Unix socket path", socket.display()))
+}
+
+/// Panics, before any tmux command runs, unless `socket` is private to `root`.
+pub(crate) fn assert_private_socket(socket: &Path, root: &Path) {
+    if let Some(reason) = private_socket_refusal(socket, root, &HostTmux::from_process()) {
+        panic!("private tmux refused: {reason}");
+    }
+}
+
+#[cfg(test)]
+mod private_socket_tests;
+
 #[cfg(test)]
 #[cfg(unix)]
 mod tests {

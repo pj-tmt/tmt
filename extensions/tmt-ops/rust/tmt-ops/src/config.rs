@@ -62,7 +62,6 @@ fn split_value(split: &Split) -> Value {
 pub enum StartupTab {
     #[default]
     Last,
-    Overview,
     Agents,
     Digest,
 }
@@ -70,21 +69,22 @@ impl StartupTab {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "last" => Some(Self::Last),
-            "overview" | "1" => Some(Self::Overview),
-            "agents" | "2" => Some(Self::Agents),
-            "digest" | "3" => Some(Self::Digest),
+            // Overview was merged into Agents: its name and saved value open Agents.
+            "overview" | "agents" | "1" => Some(Self::Agents),
+            "digest" | "2" => Some(Self::Digest),
             _ => None,
         }
     }
     pub fn flag(value: &str) -> Result<Self, String> {
         Self::parse(value)
             .filter(|tab| *tab != Self::Last)
-            .ok_or_else(|| "Tab must be overview, agents or digest (also 1, 2 or 3).".into())
+            .ok_or_else(|| {
+                "Tab must be agents or digest (also 1 or 2; overview opens agents).".into()
+            })
     }
     pub fn name(self) -> &'static str {
         match self {
             Self::Last => "last",
-            Self::Overview => "overview",
             Self::Agents => "agents",
             Self::Digest => "digest",
         }
@@ -1909,7 +1909,7 @@ impl Config {
             Some(tab) => (tab, None),
             None => (
                 StartupTab::Last,
-                Some("Ignored board.startup_tab: use last, overview, agents or digest.".into()),
+                Some("Ignored board.startup_tab: use last, agents or digest (overview opens agents).".into()),
             ),
         }
     }

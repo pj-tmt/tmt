@@ -49,6 +49,7 @@ fn editor_with_style(
         base,
         base.add_modifier(Modifier::REVERSED),
     ) && input.chat_quote_focus.is_none()
+        && !app.paste_preview_shown()
     {
         frame.set_cursor_position(caret);
     }
@@ -124,12 +125,14 @@ pub(super) fn prompt(
 pub(in crate::board) fn input_lines(
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,
+    padded: bool,
 ) -> usize {
     if app.composer_projection().is_some() {
         return usize::from(
             app.composer_rows(
                 area.width
                     .saturating_sub(crate::board::input_field::GUTTER * 2),
+                padded,
             ),
         );
     }
@@ -356,6 +359,7 @@ fn final_input(
         return;
     };
     if app.modal_open()
+        && !app.paste_preview_shown()
         && (app.shell.tab != crate::board::shell::OpsTab::Agents || !projection.focused)
     {
         return;
@@ -366,7 +370,8 @@ fn final_input(
     let key = start
         .as_ref()
         .map_or("click", |(key, _)| super::footer::key_label(key));
-    let field_rows = field::rows(projection.text, band.width);
+    let padded = field::padded(frame.area().height);
+    let field_rows = field::rows(projection.text, band.width, padded);
     let exact_rows = u16::from(!projection.quotes.is_empty() && band.height > field_rows);
     let chat_rows =
         u16::from(!projection.chat_quotes.is_empty() && band.height > field_rows + exact_rows);
@@ -383,10 +388,13 @@ fn final_input(
         composer_caption(app, &projection),
         key,
         projection.focused,
-        projection
-            .text
-            .is_some_and(|text| !text.is_empty())
-            .then(|| field::box_rows(projection.text, band.width)),
+        field::Shape {
+            draft_rows: projection
+                .text
+                .is_some_and(|text| !text.is_empty())
+                .then(|| field::box_rows(projection.text, band.width, padded)),
+            padded,
+        },
         look,
     );
     let (editor_area, overflow) = projection.text.map_or((content_area, None), |text| {
@@ -395,13 +403,15 @@ fn final_input(
     if projection.focused {
         editor_with_style(frame, app, editor_area, base);
     } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
-        if super::super::member_links::paint_preview(
-            frame,
-            app,
-            editor_area,
-            text.as_str(),
-            Role::Text,
-        ) {
+        if text.folds().is_empty()
+            && super::super::member_links::paint_preview(
+                frame,
+                app,
+                editor_area,
+                text.as_str(),
+                Role::Text,
+            )
+        {
             app.input_viewport.set(None);
             for y in editor_area.y..editor_area.bottom() {
                 for x in editor_area.x..editor_area.right() {
@@ -417,6 +427,7 @@ fn final_input(
     } else {
         app.input_viewport.set(Some((editor_area, 0)));
     }
+    app.paint_paste_chips(frame, &projection, editor_area);
     let send = app
         .composer_info(&projection)
         .paint(frame.buffer_mut(), field_band, look);

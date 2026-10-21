@@ -199,9 +199,9 @@ Tabs share the paired device key in IndexedDB and one HttpOnly door cookie. Each
 serialized request lane. The cookie authenticates device context; it does not select a
 tab's signed request lane. While a same-device, current-revision session survives, the latest
 cookie follows its deterministic live carrier; a new cookie retires a superseded alias.
-Revocation, grant expiry/revision change, stop and restart still invalidate it. Sessions default
-to a limit of 8. The owner may set `tmt remote settings sessions-per-device <n>|off`;
-changes apply at the next open. Unset means 8; `off` means unlimited. With a limit, opening
+Revocation, grant expiry/revision change, stop and restart still invalidate it. Sessions are unlimited
+by default. The owner may set `tmt remote settings sessions-per-device <n>|off`;
+changes apply at the next open. Unset and explicit `off` mean unlimited. With a limit, opening
 evicts only the device's most idle session without a live transport. Attached sessions are never
 evicted for capacity; a fresh open that cannot make room throws a verified `RefusalError` with
 code `REMOTE_SESSION_LIMIT`, its positive `limit` and same-origin `settingsUrl`. Close another
@@ -260,10 +260,10 @@ same-origin `settingsUrl`; recipient allowlist refusals do not claim talk is mis
 ## Remote management
 
 `management(session)` uses the same verified serialized Session channel as `operations(session)`.
-It exposes `settings()` (unchanged) or `settings({firestore:true})`, `devices({cursor,limit})`, `set`, `rename`, `talk`, `revoke` and
+It exposes `settings()` (unchanged) or `settings({firestore:true})`, `devices({cursor,limit})`, `previewRemoveOthers`, `removeOthers`, `set`, `rename`, `talk`, `revoke` and
 `operation(originalOperationId)`. Every read and effect retains live-grant admission. The [owning protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
 specifies exact shapes and bounds. Session caps are positive decimal **strings** or null, preserving
-native values beyond JavaScript safe integers; default reads as `"8"` and null means unlimited.
+native values beyond JavaScript safe integers; default reads as null (unlimited).
 Values/sources, malformed/default warning and management capabilities come from server admission.
 
 The explicit Firestore read adds `firestoreLayers` and `firestoreBudget` with the optional
@@ -278,6 +278,14 @@ per-device estimated counters remain unchanged. Ready sharing includes the fixed
 itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still
 refuse requests." The CLI follows the shared style's final-period omission; the page retains the period.
 This adds no wire member or quota probe.
+
+Device pages omit revoked rows and add nullable durable `lastUsedAtMs`; null means not recorded,
+not never used. `clientId` on the management helper is the admitted caller, also used for the
+local designation command. `previewRemoveOthers()` returns the full bounded inventory count
+and fingerprint; a second deliberate action submits `removeOthers({operationId,fingerprint})`.
+The server derives the keeper from the caller and atomically refuses a changed inventory.
+The [protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol) owns the
+1,000-target bound and original-result recovery. No page loop or automatic mutation retry.
 
 Freeze a UUIDv4 and input before a mutation. A verified refusal, committed result and unknown
 outcome are distinct. `ClientError` after publication retains the original operationId; no helper
@@ -314,8 +322,8 @@ the database or invent a replacement ID to bypass the limit. Compaction is defer
 The Remote-owned `/remote/settings` page uses the shared browser presentation with three sections and
 server-admitted values/sources/warnings/capabilities. Its separately built `settings-v1.js`
 imports the served SDK; no second channel or public page export is introduced. Checked shared CSS
-owns presentation, while Remote owns layout, native selects and control state. An untouched default
-cap is not saved as explicit 8; there is no invented reset setter. Draft text and original
+owns presentation, while Remote owns layout, native selects and control state. The untouched
+unlimited default is not saved as an explicit setting; there is no invented reset setter. Draft text and original
 intent remain separate, including after unknown outcome or refreshed reads.
 
 The settings page uses [bounded browser re-admission](#bounded-browser-re-admission) once

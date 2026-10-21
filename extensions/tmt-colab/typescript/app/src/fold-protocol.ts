@@ -1,5 +1,7 @@
 import { validateDiscussionRecord } from './thread-records.js';
 import { validateShell, type Shell } from './shell.js';
+import { canonical } from './closed.js';
+import { validateWork, type Work } from './work.js';
 import {
   attachment,
   coreId,
@@ -64,6 +66,8 @@ export interface Projection {
   /** Structured content retains an empty wire text container; never render it as HTML. */
   pageType?: 'shell';
   shell?: Shell;
+  /** An ordinary page's summary and task list (`meta.work`); never on a shell page. */
+  work?: Work;
   attachments?: attachment.AttachmentDescriptor[];
   creationRecipient?: CreationRecipient;
   source: string;
@@ -215,6 +219,10 @@ export function validateProjection(value: unknown): asserts value is Projection 
     );
     validateShell(structured.shell);
   }
+  if (Object.hasOwn(value, 'work')) {
+    requireValue(!Object.hasOwn(value, 'pageType'));
+    validateWork((value as Projection).work);
+  }
   if (Object.hasOwn(value, 'attachments'))
     attachment.attachmentList((value as Projection).attachments, attachment.DOCUMENT_ATTACHMENTS);
   // A reason belongs to a canvas and to nothing else; a shell page has no layout.
@@ -285,6 +293,8 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&
     a.creationRecipient?.machineId === b.creationRecipient?.machineId &&
     a.creationRecipient?.agentId === b.creationRecipient?.agentId &&
+    Object.hasOwn(a, 'work') === Object.hasOwn(b, 'work') &&
+    canonical(a.work) === canonical(b.work) &&
     Object.hasOwn(a, 'attachments') === Object.hasOwn(b, 'attachments') &&
     JSON.stringify(a.attachments?.map(attachment.attachmentDescriptor)) ===
       JSON.stringify(b.attachments?.map(attachment.attachmentDescriptor)) &&

@@ -31,7 +31,7 @@ export function listE2eFiles(directory = E2E_DIRECTORY) {
 /**
  * Splits whole files over `count` shards, largest first onto the currently lightest
  * shard (ties go to the lowest index), so the result is deterministic. Shard 1 also
- * runs the Rust adapter tests, which count as its starting load. Each shard's files
+ * runs the pinned adapter environment slice; its compile and execution count as starting load. Each shard's files
  * are sorted by name. Every file lands in exactly one shard, whatever the weights.
  */
 export function splitE2eFiles(files, count, weights = loadShardWeights()) {

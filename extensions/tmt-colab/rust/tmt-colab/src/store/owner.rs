@@ -4,7 +4,7 @@ mod bootstrap;
 pub(crate) mod epoch;
 pub use epoch::{Cut, StoredBaseline};
 
-use super::{Store, sequence};
+use super::{Store, hash_at, sequence};
 use crate::Result;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,8 @@ pub enum OwnerFault {
     Capacity,
     /// One page's state is past a read limit; names the page, what was measured and the limit.
     PageCapacity(PageCapacity),
+    /// A device signed more retained owner folds than one `device.revoke` can list.
+    FoldList,
 }
 /// A page whose size stops an operation. `detail` finishes the sentence with the measured value
 /// and the limit; `edit` is set when only a write is refused and the page still reads, and
@@ -118,6 +120,9 @@ impl std::fmt::Display for OwnerFault {
                 "Page {page} is too large to open: {detail}. Nothing was deleted. Colab cannot open a page this large yet.",
                 page = c.page,
                 detail = c.detail
+            ),
+            Self::FoldList => f.write_str(
+                "This device signed more owner folds than a revoke can list (512), so it was not revoked. Fold those streams again from another owner device, then revoke it.",
             ),
             _ => write!(f, "Owner store: {self:?}"),
         }
@@ -496,6 +501,12 @@ impl OwnerTransaction<'_> {
             .tx
             .query_row("SELECT epoch FROM pages WHERE page=?", [page], |r| r.get(0))
             .optional()?)
+    }
+    /// Restore is activity, committed atomically with its signed statement and receipt.
+    pub(crate) fn touch_activity(&mut self, page: &str) -> Result<()> {
+        values::generated_id(page)?;
+        super::touch_activity(self.tx, page, self.clock)?;
+        Ok(())
     }
     pub(crate) fn append_update(
         &mut self,

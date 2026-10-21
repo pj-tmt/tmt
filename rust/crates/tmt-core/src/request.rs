@@ -477,6 +477,8 @@ pub trait RequestRecords {
         now_ms: u64,
     ) -> Result<Vec<attention::AttentionRecord>, Self::Error>;
     fn identity_is_active(&self, identity_id: &str) -> Result<bool, Self::Error>;
+    /// An active identity marked as a person by the reserved `user` metadata entry.
+    fn identity_is_user(&self, identity_id: &str) -> Result<bool, Self::Error>;
     fn find_recipient_attention(
         &self,
         identity_id: &str,

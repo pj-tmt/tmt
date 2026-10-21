@@ -22,10 +22,13 @@ import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { Projection } from '../src/fold-protocol.js';
 import type { PageView, PageBinding, PageTransport } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
+import { rememberPages } from '../src/quick-switcher-source.js';
+import { RemotePresence } from '../src/remote-presence.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import type { AgentDestination } from '../src/live-ask.js';
-import type { ManagementPort } from '../src/management.js';
+import { ManagementError, type ManagementPort } from '../src/management.js';
+import type { ProjectChange } from '../src/projects.js';
 import { commentsForAnswerBatch } from '../src/answer-batch.js';
 import { inspectQuestions } from '../src/questions.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
@@ -38,6 +41,11 @@ let root: Root | undefined;
 let sends: RemoteDouble;
 let dispatched: RemoteDouble[];
 let actions: string[];
+let projectRequests: ProjectChange[];
+let spaceHomeReads: number;
+let spaceHomeRunning: number;
+let spaceHomeAborted: number;
+let releaseSpaceHome: (() => void) | undefined;
 let answerAttempts: {
   input: Parameters<AskBinding['prepare']>[0];
   selection: ReturnType<typeof selection>;
@@ -54,8 +62,20 @@ let pageEpoch = '1';
 let openGate: (() => void) | undefined;
 let ownerDevice = true;
 let hooks: { seed(): void; agentResolves(): void } | undefined;
+/** What a viewer is given while the discussion is unverified: the document, without its threads and asks. */
+function shown(): PageView {
+  if (!current.discussionPending) return current;
+  const {
+    threads: _threads,
+    asks: _asks,
+    threadPresentations: _presentations,
+    ...document
+  } = current;
+  return document;
+}
 /** Parent-computed presentation inputs, as Live publishes them. */
 function emit() {
+  if (current.discussionPending) return publish?.(shown());
   current = {
     ...current,
     threadPresentations: (current.threads ?? []).map((thread) =>
@@ -77,12 +97,15 @@ export function finishStatusNotice() {
 /** The next status action fails before it is published, like a lost connection. */
 let sourceSaves = 0;
 /** The next Source save waits for `releaseEdit`, as a slow Save does. */
-let editGate: { held?: Promise<void>; release?(): void } = {};
+let editGate: { held?: Promise<void>; release?(fail: boolean): void } = {};
 export function holdEdit() {
-  editGate.held = new Promise<void>((resolve) => (editGate.release = resolve));
+  editGate.held = new Promise<void>(
+    (resolve, reject) =>
+      (editGate.release = (fail) => (fail ? reject(new Error('Save failed')) : resolve())),
+  );
 }
-export function releaseEdit() {
-  editGate.release?.();
+export function releaseEdit(options: { fail?: boolean } = {}) {
+  editGate.release?.(!!options.fail);
   editGate = {};
 }
 let pageLoads = 0;
@@ -214,11 +237,27 @@ export async function mount(
     /** Presentation-only test port for the real Manage dialog. */
     management?: ManagementPort;
     strict?: boolean;
+    /** The viewer writes projects: the space's names and the ones this page is in. */
+    /** `deepLink`: the page was opened by a link, so no list was loaded before it. */
+    projects?: {
+      names: string[];
+      current: string[];
+      fail?: boolean;
+      deepLink?: boolean;
+      /** The first owner-list read waits until it is aborted or `releaseSpaceHome()`. */
+      slowRead?: boolean;
+    };
+    /** The page is readable by anyone who holds its link. */
+    shared?: boolean;
+    /** The Remote door cannot be read, so the header shows its attention mark. */
+    remoteOffline?: boolean;
     /** Historical turns are part of the initial load, not a live arrival batch. */
     history?: 'thread' | 'chat';
     /** The page's layout and, for a canvas, its reason; absent is `freeform`. */
     layout?: Projection['layout'];
     layoutReason?: string;
+    /** The page opens with its document only; `verifyDiscussion` brings the threads and asks. */
+    discussionPending?: boolean;
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -234,6 +273,11 @@ export async function mount(
   sends = new RemoteDouble();
   dispatched = [];
   actions = [];
+  projectRequests = [];
+  spaceHomeReads = 0;
+  spaceHomeRunning = 0;
+  spaceHomeAborted = 0;
+  releaseSpaceHome = undefined;
   answerAttempts = [];
   readRefusal = undefined;
   records = options.pastReplies
@@ -258,8 +302,7 @@ export async function mount(
     source: '<p id="selected">Exact selected text</p>',
     title: 'Live shared page',
     own: {},
-    asks: records,
-    threads: [],
+    ...(options.discussionPending ? { discussionPending: true } : { asks: records, threads: [] }),
     publisherAgent: 'Agent 1',
     ...(options.layout ? { layout: options.layout } : {}),
     ...(options.layoutReason ? { layoutReason: options.layoutReason } : {}),
@@ -595,6 +638,11 @@ export async function mount(
       };
     },
     async decideProposal(ref, decision) {
+      await decisionGate.held;
+      if (decisionGate.fail) {
+        decisionGate.fail = false;
+        throw new Error('Decision refused');
+      }
       const thread = find(ref);
       if (!ownerDevice || !thread.proposal || thread.deleted || thread.decision)
         throw new Error('Decision unavailable');
@@ -655,6 +703,11 @@ export async function mount(
       );
     },
     async create(body, anchor, attach) {
+      await replyGate.held;
+      if (replyGate.fail) {
+        replyGate.fail = false;
+        throw new Error('Comment refused');
+      }
       return publishAnswer(body, () => createThread(body, anchor, crypto.randomUUID(), attach));
     },
     async edit() {
@@ -775,7 +828,7 @@ export async function mount(
     subscribe(next, failed) {
       publish = next;
       fail = failed;
-      next(current);
+      next(shown());
       emit();
       return () => {
         if (publish === next) publish = undefined;
@@ -862,13 +915,55 @@ export async function mount(
     ...Object.getOwnPropertyDescriptors(binding),
     files: { value: replacementFiles },
   });
+  const remoteGeneration = {};
+  const projectState = options.projects && {
+    names: new Set(options.projects.names),
+    current: [...options.projects.current],
+  };
+  const projectPort = projectState
+    ? ({
+        async setProjects(changes: readonly ProjectChange[]) {
+          if (options.projects?.fail) throw new ManagementError('UNKNOWN');
+          for (const change of changes) {
+            projectRequests.push(change);
+            projectState.current = [...change.projects];
+            for (const name of change.projects) projectState.names.add(name);
+          }
+        },
+        async manageProject() {},
+      } as unknown as ManagementPort)
+    : undefined;
+  const projectPages = () => [
+    {
+      id: id(1),
+      title: 'Live shared page',
+      sharing: 'private' as const,
+      projects: [...projectState!.current],
+    },
+  ];
   const transport: PageTransport = {
-    management: options.management,
+    management: options.management ?? projectPort,
     drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
-    async spaceHome() {
+    async spaceHome(signal) {
+      spaceHomeReads++;
+      if (options.projects?.slowRead && spaceHomeReads === 1) {
+        spaceHomeRunning++;
+        try {
+          await new Promise<void>((resolve, reject) => {
+            releaseSpaceHome = resolve;
+            signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+          });
+        } catch (error) {
+          spaceHomeAborted++;
+          throw error;
+        } finally {
+          spaceHomeRunning--;
+        }
+      }
       return {
         title: 'Fixture space',
-        pages: [],
+        ...(projectState ? { projects: [...projectState.names] } : {}),
+        pages: projectState ? projectPages() : [],
       };
     },
     async page(pageId) {
@@ -902,12 +997,29 @@ export async function mount(
         };
       return {
         id: id(1),
-        sharing: 'private',
-        ...current,
+        sharing: options.shared ? 'link' : 'private',
+        ...shown(),
         binding: replacedFiles ? replacedBinding : binding,
       };
     },
+    ...(options.remoteOffline
+      ? {
+          remotePresence: new RemotePresence(
+            () => ({
+              generation: remoteGeneration,
+              devices: async () => {
+                throw new Error('Refused');
+              },
+            }),
+            new URL('/settings', location.href).href,
+            () => Date.now(),
+          ),
+        }
+      : {}),
   };
+  // Arriving from the list: the space home has loaded, which the page's chips read.
+  if (projectState && !options.projects?.deepLink)
+    rememberPages(transport, undefined, projectPages());
   const app = <RouterProvider router={createAppRouter(transport)} />;
   root.render(options.strict ? <StrictMode>{app}</StrictMode> : app);
 }
@@ -932,6 +1044,13 @@ export function rotateEpoch() {
   pageEpoch = String(Number(pageEpoch) + 1);
   emit();
 }
+/** The threads and asks are verified: what the fixture holds is now published with the document. */
+export async function verifyDiscussion() {
+  const { discussionPending: _pending, ...verified } = current;
+  current = { ...verified, asks: records, threads: verified.threads ?? [] };
+  emit();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
 /** Lets a read of a file whose name contains `slow` finish. */
 export function releaseOpen() {
   openGate?.();
@@ -949,6 +1068,19 @@ export function seenProof() {
 }
 export function proof() {
   return { sends: dispatched.flatMap((remote) => remote.sends), actions };
+}
+/** What the page's own project picker wrote and how often it read the owner list. */
+export function projectProof() {
+  return {
+    requests: structuredClone(projectRequests),
+    spaceHomeReads,
+    spaceHomeRunning,
+    spaceHomeAborted,
+  };
+}
+/** Lets the waiting first owner-list read finish. */
+export function releaseProjectRead() {
+  releaseSpaceHome?.();
 }
 export function answerBatchProof() {
   return structuredClone(answerAttempts);
@@ -991,6 +1123,19 @@ export function replaceFilesOwner() {
 }
 /** Holds or refuses the next reply or Chat write, as a slow or refused Remote append would. */
 let replyGate: { held?: Promise<void>; release?(): void; fail?: boolean } = {};
+let decisionGate: { held?: Promise<void>; release?(): void; fail?: boolean } = {};
+/** The next proposal decisions wait for `releaseDecision`. */
+export function holdDecision() {
+  decisionGate.held = new Promise<void>((resolve) => (decisionGate.release = resolve));
+}
+/** The held decision is refused when released. */
+export function failDecision() {
+  decisionGate.fail = true;
+}
+export function releaseDecision() {
+  decisionGate.release?.();
+  decisionGate = { fail: decisionGate.fail };
+}
 export function holdReply() {
   replyGate.held = new Promise<void>((resolve) => (replyGate.release = resolve));
 }
@@ -1924,6 +2069,12 @@ export function questionSibling(options: {
 /** A verified sync publication after an archive commit. */
 export function archive() {
   current = { ...current, archived: true };
+  emit();
+}
+
+/** A fresh connection publishes verified writable policy after a restore resync. */
+export function restore() {
+  current = { ...current, archived: false };
   emit();
 }
 

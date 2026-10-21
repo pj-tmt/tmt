@@ -43,7 +43,7 @@ it('leaves unrelated internal navigation byte-for-byte unchanged', () => {
   );
 });
 
-it('carries one exact shell anchor as the other cosmetic page hint, never with a reading or on a short link', () => {
+it('carries one exact element anchor through a full or short page route, never with a reading', () => {
   expect(pageSearch({ anchor: 'decisions' })).toEqual({ anchor: 'decisions' });
   expect(pageSearch({ read, anchor: 'decisions' })).toEqual({});
   for (const anchor of ['', '-start', 'a b', 'a/b', 'x'.repeat(129), 7, undefined])
@@ -55,8 +55,12 @@ it('carries one exact shell anchor as the other cosmetic page hint, never with a
   // The reading hint never reports an anchor, so ask-intent's reading checks are unchanged.
   expect(ownerReadingHint(url, space, page)).toBeUndefined();
   expect(ownerPageHint(url, space, space)).toBeUndefined();
-  // A short link or a bad anchor keeps its query inside the opaque path, uninterpreted.
-  for (const path of [`/short/10000000?anchor=decisions`, `/pages/${page}?anchor=a b`]) {
+  const short = ownerReadingHref('/short/10000000?anchor=decisions', '/ext/colab/', space);
+  expect(ownerPageHint(new URL(`https://example.test${short}`), space)).toEqual({
+    anchor: 'decisions',
+  });
+  // A bad anchor keeps its query inside the opaque path, uninterpreted.
+  for (const path of [`/pages/${page}?anchor=a b`]) {
     expect(
       ownerPageHint(
         new URL(`https://example.test${ownerReadingHref(path, '/ext/colab/', space)}`),

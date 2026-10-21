@@ -481,6 +481,61 @@ it('slow Ask verification keeps one latest view while source export reads the co
   }
 });
 
+it('the first snapshot shows the document at once; threads and asks follow once verified', async () => {
+  asks.project.mockClear();
+  let release!: () => void;
+  asks.project.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve([]);
+      }),
+  );
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000003', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  try {
+    // The Ask verification is held, and the snapshot must not wait for it.
+    const first = await Promise.race([
+      live.snapshot(),
+      new Promise<never>((_, fail) =>
+        setTimeout(() => fail(new Error('The snapshot waited for verification')), 1000),
+      ),
+    ]);
+    expect(first.source).toBe('verified');
+    expect(first.discussionPending).toBe(true);
+    // Absent, never empty: nothing unverified can read as "no threads".
+    expect(first.threads).toBeUndefined();
+    expect(first.asks).toBeUndefined();
+    expect(first.threadPresentations).toBeUndefined();
+    const seen: PageView[] = [];
+    live.subscribe(
+      (value) => seen.push(value),
+      () => {},
+    );
+    expect(seen.map((value) => value.discussionPending)).toEqual([true]);
+    release();
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1].discussionPending).toBeUndefined();
+    expect(seen[1].threads).toEqual([]);
+    expect(seen[1].asks).toEqual([]);
+    const verified = await live.snapshot();
+    expect(verified.discussionPending).toBeUndefined();
+    expect(verified.threads).toEqual([]);
+  } finally {
+    live.close();
+  }
+});
+
 it('page observer stops on hidden/close and resumes visible without another controller or send', async () => {
   const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
   vi.stubGlobal('document', document);
@@ -2085,6 +2140,47 @@ it('refusals and an over-limit source surface unchanged on a connection that sta
     await expect(live.edit('<p>new</p>', 'verified')).rejects.toBeInstanceOf(SaveTooLarge);
     expect(saves.status).not.toHaveBeenCalled();
     expect(connections).toHaveLength(1);
+  } finally {
+    live.close();
+  }
+});
+
+it('restore resync replaces archived admission before publishing writable policy and ignores stale publications', async () => {
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    {
+      pageId: '10000000-0000-4000-8000-000000000001',
+      epoch: '1',
+      sharing: 'private',
+      archived: true,
+    } as PageInfo,
+  );
+  try {
+    await live.snapshot();
+    const archived = connections.at(-1)!;
+    archived.publish({ source: 'retained', title: 'Page', archived: true });
+    expect((await live.snapshot()).archived).toBe(true);
+    archived.failed(new Error('RESYNC_REQUIRED'));
+    await live.snapshot();
+    const restored = connections.at(-1)!;
+    expect(restored).not.toBe(archived);
+    expect(restored.admission).not.toBe(archived.admission);
+    expect(archived.close).toHaveBeenCalledOnce();
+    restored.publish({ source: 'retained', title: 'Page', archived: false });
+    expect((await live.snapshot()).archived).toBe(false);
+    archived.publish({ source: 'stale', title: 'Page', archived: true });
+    expect(await live.snapshot()).toMatchObject({ source: 'retained', archived: false });
+    // Catch-up sends subscription frames; it must never publish an old draft.
+    expect(restored.send.mock.calls.map(([type]) => type)).toEqual(['subscribe']);
   } finally {
     live.close();
   }

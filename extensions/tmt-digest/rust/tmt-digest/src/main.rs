@@ -153,11 +153,16 @@ fn main() -> ExitCode {
                     Err(error) => report_error(error),
                 };
             }
-            let Some(member) = matches.get_one::<String>("member") else {
-                return print_help(&grammar::command().render_help());
+            let outcome = if let Some(selected) = matches.subcommand_matches("global") {
+                save_default(selected.get_one::<String>("value").expect("required value"))
+            } else {
+                let Some(member) = matches.get_one::<String>("member") else {
+                    return print_help(&grammar::command().render_help());
+                };
+                let value = matches.get_one::<String>("value").expect("paired operands");
+                save(member, value)
             };
-            let value = matches.get_one::<String>("value").expect("paired operands");
-            match save(member, value) {
+            match outcome {
                 Ok(message) => {
                     let mut output = tmt_cli_style::stream::stdout(false);
                     let terminal = output.terminal();
@@ -204,17 +209,9 @@ fn save(member: &str, value: &str) -> Result<String, core::Error> {
     let (id, name) = core.member(member)?;
     let setter = core.setter()?;
     let path = core.settings_path()?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|error| core::Error::new("DIGEST_CLOCK_INVALID", error.to_string()))?
-        .as_millis();
-    let now = i64::try_from(now)
-        .map_err(|_| core::Error::new("DIGEST_CLOCK_INVALID", "Write timestamp overflow"))?;
+    let now = write_time()?;
     let (effective, flush_count) = settings::set(&path, &id, &setting, setter.as_deref(), now)?;
-    let value = match &effective {
-        settings::Mode::Interval { text, .. } => format!("every {text}"),
-        _ => effective.text().to_owned(),
-    };
+    let value = shown(&effective);
     let mut message = if setting == settings::MemberSetting::Default {
         format!("{name} now uses the default digest: {value}")
     } else {
@@ -226,4 +223,35 @@ fn save(member: &str, value: &str) -> Result<String, core::Error> {
         ));
     }
     Ok(message)
+}
+
+fn save_default(value: &str) -> Result<String, core::Error> {
+    let mode = settings::Mode::parse(value)?;
+    let core = core::Core::discover()?;
+    let setter = core.setter()?;
+    let path = core.settings_path()?;
+    settings::set_default(&path, &mode, setter.as_deref(), write_time()?)?;
+    let mut message = format!("Saved the global digest default: {}", shown(&mode));
+    if setter.is_none() {
+        message.push_str(
+            ". No caller identity was found, so no one is recorded as the setter; only --urgent and a person marked with tmt identity meta set user true pass the hold. Run it from the pane of the person who should reach members directly.",
+        );
+    }
+    Ok(message)
+}
+
+fn write_time() -> Result<i64, core::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| core::Error::new("DIGEST_CLOCK_INVALID", error.to_string()))?
+        .as_millis();
+    i64::try_from(now)
+        .map_err(|_| core::Error::new("DIGEST_CLOCK_INVALID", "Write timestamp overflow"))
+}
+
+fn shown(mode: &settings::Mode) -> String {
+    match mode {
+        settings::Mode::Interval { text, .. } => format!("every {text}"),
+        _ => mode.text().to_owned(),
+    }
 }

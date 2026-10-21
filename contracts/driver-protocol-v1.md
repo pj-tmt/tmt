@@ -259,6 +259,9 @@ unchanged in `snapshot` and `probe`. It never interprets the marker.
   would deliver before core's delay. Core has already applied its delivery
   policy (`!` protection, staging, size), so the driver adds and interprets
   nothing.
+- **`capture`:** `lines: 0` asks for the visible screen, as tmux reads it.
+  `lines` of 1 or more asks for the tail of the pane's text, with at least the
+  last `lines` lines. A driver must not refuse `lines: 0` as `bad_request`.
 - **Missing pane:** each of these answers `not_found`.
 
 **Core directional focus.** `tmt focus <target> --into <left|right|up|down>` is a

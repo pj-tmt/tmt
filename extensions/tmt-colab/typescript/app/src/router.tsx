@@ -1,10 +1,13 @@
 import { ShellPage } from './shell-page.js';
+import { WorkBand } from './work-band.js';
+import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
-import { RemotePresenceProvider } from './remote-header.js';
+import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
+import { PageProjects } from './page-projects.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
-import { entryOpenTarget, publicEntry } from './entry.js';
+import { entryMount, entryOpenTarget, publicEntry } from './entry.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -18,7 +21,6 @@ import {
   ownerPageHint,
   ownerReadingHref,
   pageSearch,
-  readingSearch,
   splitPageHint,
   type PageHint,
 } from './reading-link.js';
@@ -31,7 +33,7 @@ import {
   MousePointer2,
   Sun,
 } from 'lucide-react';
-import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
+import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
@@ -83,7 +85,7 @@ import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
-import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
+import type { AnchorPosition, PageScheme, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
@@ -123,6 +125,7 @@ function PageFloatingActions({
   chatButton,
   toggleChat,
   canSelect,
+  selectPending,
   slots,
 }: {
   slots: readonly AnchorPosition[];
@@ -135,6 +138,8 @@ function PageFloatingActions({
   chatButton: Ref<HTMLButtonElement>;
   toggleChat(): void;
   canSelect: boolean;
+  /** The button's place while the threads are unverified: fenced, not greyed. */
+  selectPending: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<{
@@ -229,10 +234,11 @@ function PageFloatingActions({
             }}
           />
         )}
-        {canSelect && (
+        {(canSelect || selectPending) && (
           <BrowserIconAction
             type="button"
             variant="primary"
+            busy={selectPending}
             label={text.selectionMode}
             ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
             pressed={enabled}
@@ -264,6 +270,8 @@ function SelectionAnnotation({
   noticeVisible,
   toggleVisible,
   open,
+  thread,
+  arrivals,
   children,
 }: {
   host: HTMLDivElement | null;
@@ -272,10 +280,29 @@ function SelectionAnnotation({
   noticeVisible: boolean;
   toggleVisible: boolean;
   open(): void;
+  /** The thread the window shows, so a different thread starts from its own place. */
+  thread?: string;
+  /** The records in the window's thread; an arrival after the first grows it upward, not downward. */
+  arrivals: number;
   children?: React.ReactNode;
 }) {
   const expanded = children !== undefined;
   const element = useRef<HTMLDivElement>(null);
+  // The lower edge a thread window keeps once a record arrives in it, relative to its anchor, and
+  // the height and arrivals seen by the last placement.
+  const rise = useRef<number | null>(null);
+  const placed = useRef({ height: 0, arrivals });
+  useLayoutEffect(() => {
+    rise.current = null;
+    placed.current.arrivals = arrivals;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a different thread resets
+  }, [thread]);
+  useLayoutEffect(() => {
+    if (arrivals > placed.current.arrivals && placed.current.arrivals > 0)
+      rise.current ??= placed.current.height;
+    if (arrivals === 0) rise.current = null;
+    placed.current.arrivals = arrivals;
+  }, [arrivals]);
   const [position, setPosition] = useState<{
     left: number;
     top?: number;
@@ -370,13 +397,20 @@ function SelectionAnnotation({
       // height. CSS fits the shell; first Send grows away from the same anchor edge.
       const above =
         expanded && !beside && !besideLeft && !below && top - placementHeight - 6 >= inset + 4;
-      const windowTop = Math.max(
+      const anchoredTop = Math.max(
         inset + 4,
         Math.min(
           edge - placementHeight,
           beside || besideLeft ? top : below ? bottom + 6 : top - placementHeight - 6,
         ),
       );
+      // A reply arriving in a thread grows the window upward: the composer keeps its viewport
+      // position and the new message appears above it. The window scrolls inside once it is tall.
+      const height = element.current?.getBoundingClientRect().height ?? 0;
+      placed.current.height = height;
+      const settledBottom = rise.current === null || above ? null : anchoredTop + rise.current;
+      const windowTop =
+        settledBottom === null ? anchoredTop : Math.max(inset + 4, settledBottom - height);
       setPosition({
         left: Math.max(
           8,
@@ -397,7 +431,14 @@ function SelectionAnnotation({
           : {}),
         ...(above
           ? { bottom: innerHeight - top + 6, maxHeight: top - 6 - inset - 4 }
-          : { top: windowTop, maxHeight: Math.max(0, edge - windowTop) }),
+          : {
+              top: windowTop,
+              // The window never reaches below where its thread first settled: longer history scrolls inside.
+              maxHeight: Math.max(
+                0,
+                settledBottom === null ? edge - windowTop : settledBottom - (inset + 4),
+              ),
+            }),
       });
     };
     place();
@@ -451,18 +492,6 @@ function SelectionAnnotation({
 }
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
 
-/** Style the command in the same complete sentence used by live errors. */
-function ReconnectFailure() {
-  const [before, after] = text.reconnectFailed.split(text.reconnectCommand);
-  return (
-    <>
-      {before}
-      <code className="tmt-ui-code">{text.reconnectCommand}</code>
-      {after}
-    </>
-  );
-}
-
 /** A terminal refusal as a sentence; its raw code stays as a small reference. */
 function TerminalFailure({
   error,
@@ -472,10 +501,10 @@ function TerminalFailure({
   reference?: boolean;
 }) {
   if (error.message === managementChanged) return <p>{managementChanged}</p>;
-  const { sentence, reference } = terminalFailure(error);
+  const { sentence, reference, referenceLabel } = terminalFailure(error);
   return (
     <>
-      <p>{sentence === text.reconnectFailed ? <ReconnectFailure /> : sentence}</p>
+      <p>{sentence}</p>
       {showReference && reference && (
         <p>
           <small className="failure-reference">
@@ -483,13 +512,14 @@ function TerminalFailure({
             <code
               className="tmt-ui-code"
               data-failure-reference
+              title={reference}
               data-own-publication={
                 error instanceof OwnPublicationTimeout && error.diagnostic
                   ? JSON.stringify(error.diagnostic)
                   : undefined
               }
             >
-              {reference}
+              {referenceLabel}
             </code>
           </small>
         </p>
@@ -518,28 +548,29 @@ function EndedBody({
       {action === 'pair' && (
         <>
           <p>{text.pairAgain}</p>
-          <BrowserCommand text={text.reconnectCommand} />
+          <BrowserCommand text={text.pairCommand} />
         </>
       )}
     </>
   );
 }
 
-function EndedLink({ action }: { action: EndedAction }) {
-  if (action === 'reload')
-    return (
-      <BrowserAction
-        type="button"
-        variant="text"
-        label={text.reload}
-        onActivate={() => location.reload()}
-      />
-    );
-  return action === 'pages' ? (
-    <Link className={ui.action} data-variant="text" to="/">
-      {text.retry}
-    </Link>
-  ) : null;
+function EndedLink({ action, primary = false }: { action: EndedAction; primary?: boolean }) {
+  return (
+    <>
+      {action === 'reload' && (
+        <BrowserAction
+          type="button"
+          variant={primary ? 'primary' : 'text'}
+          label={text.reload}
+          onActivate={() => location.reload()}
+        />
+      )}
+      <Link className={ui.action} data-variant="text" to="/">
+        {text.retry}
+      </Link>
+    </>
+  );
 }
 
 /** The page owner projects C1 once; composers do not classify transport errors. */
@@ -636,7 +667,10 @@ const root = createRootRouteWithContext<AppContext>()({
     const opening = useRouterState({ select: (state) => state.location.pathname }).startsWith(
       '/pages/',
     );
-    const failure = opening && error instanceof Error ? openFailure(error) : undefined;
+    const failure =
+      error instanceof Error && (opening || error.message === text.reconnectFailed)
+        ? openFailure(error)
+        : undefined;
     const header = useRef<HTMLElement>(null);
     useLayoutEffect(() => {
       const title = header.current?.querySelector('h1');
@@ -668,17 +702,7 @@ const root = createRootRouteWithContext<AppContext>()({
               {failure ? (
                 <TerminalFailure error={error as Error} />
               ) : (
-                <p>
-                  {error instanceof Error ? (
-                    error.message === text.reconnectFailed ? (
-                      <ReconnectFailure />
-                    ) : (
-                      error.message
-                    )
-                  ) : (
-                    text.blocked
-                  )}
-                </p>
+                <p>{error instanceof Error ? error.message : text.blocked}</p>
               )}
             </NoticeCard>
           )}
@@ -776,7 +800,7 @@ function PageFrame() {
       />
       <div className="page-opening">
         <span role="status" aria-label={text.openingPage} className="page-opening-mark">
-          <LoaderCircle aria-hidden />
+          <LoaderCircle className={ui.spin} aria-hidden />
         </span>
       </div>
     </div>
@@ -806,7 +830,7 @@ const page = createRoute({
 const shortPage = createRoute({
   getParentRoute: () => root,
   path: '/short/$prefix',
-  validateSearch: readingSearch,
+  validateSearch: pageSearch,
   loader: async ({ context, params, location }) => {
     if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
     const home = await context.transport.spaceHome();
@@ -827,7 +851,7 @@ const shortPage = createRoute({
       throw redirect({
         to: '/pages/$pageId',
         params: { pageId: pages[0].id },
-        search: readingSearch(location.search),
+        search: pageSearch(location.search),
         replace: true,
       });
     return { pages, prefix: params.prefix };
@@ -1007,6 +1031,18 @@ function Page() {
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
+  const {
+    reset: resetPageLinks,
+    request: requestPageLink,
+    bar: pageLinkBar,
+  } = usePageLinks({
+    base: () => (publicEntry() ? entryMount().href : location.href),
+    space,
+    inset: () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
+    navigate: (route, anchor) => {
+      void router.navigate({ to: route, search: anchor ? { anchor } : {} });
+    },
+  });
   const needsYouMenuFocus = useRef(false);
   // The list the reader came from, when it was scoped to a project: history state, not the address.
   const fromScope = useRouterState({
@@ -1023,13 +1059,19 @@ function Page() {
   }, [panel]);
   useEffect(() => setChatActivation(undefined), [snapshot.binding]);
 
+  // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
+  const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
+  const openProjects = (from?: DOMRect) =>
+    setProjects((previous) => ({ request: previous.request + 1, from }));
   const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
   };
   const [view, setView] = useState<PageView>({
+    discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
     shell: snapshot.shell,
+    work: snapshot.work,
     archived: snapshot.archived,
     source: snapshot.source,
     title: snapshot.title,
@@ -1042,6 +1084,9 @@ function Page() {
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  // The document shows before its threads and asks are verified; until they follow, nothing that
+  // reads them speaks (#3894): no count, no band, no Needs you, and the discussion stays shut.
+  const discussionPending = !!view.discussionPending;
   useEffect(() => {
     document.title = `${view.title || snapshot.title} · ${text.product}`;
     return () => {
@@ -1078,6 +1123,7 @@ function Page() {
   // Anything not connected holds writes; only an ended connection replaces the page with a card.
   const liveError = connection.phase === 'connected' ? null : connection.error;
   const endedError = connection.phase === 'ended' ? connection.error : null;
+  const endedPresentation = endedError ? terminalFailure(endedError) : undefined;
   const recoveryRequired = connection.phase === 'reconnecting';
   const connectionPresentation = composerConnection(connection);
   const endedAction = connection.phase === 'ended' ? connection.action : 'none';
@@ -1106,8 +1152,10 @@ function Page() {
     }
     draftPage.current = snapshot.id;
     setView({
+      discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
       shell: snapshot.shell,
+      work: snapshot.work,
       archived: snapshot.archived,
       source: snapshot.source,
       title: snapshot.title,
@@ -1149,8 +1197,13 @@ function Page() {
       unsubscribe?.();
     };
   }, [snapshot, loaded, transport, connectionOwner, replyObserver]);
+  // Settles when the Save in flight has landed (true) or failed (false); true when none is.
+  const saveSettled = useRef<Promise<boolean> | null>(null);
   async function save() {
     if (!snapshot.binding || saving) return;
+    let landed = false;
+    let settle!: (landed: boolean) => void;
+    saveSettled.current = new Promise<boolean>((resolve) => (settle = resolve));
     setSaving(true);
     setEditError(null);
     setMerged(false);
@@ -1169,6 +1222,7 @@ function Page() {
       setDraft(latest.current.source);
       setMerged(outcome.merged);
       void size.refresh();
+      landed = true;
     } catch (error) {
       const problem: SaveProblem = {
         message: saveMessage(error),
@@ -1191,6 +1245,8 @@ function Page() {
       setEditError(problem);
     } finally {
       setSaving(false);
+      saveSettled.current = null;
+      settle(landed);
     }
   }
   // A merged Save replaces the text with the merged page; the caret and scroll stay where the new
@@ -1352,7 +1408,7 @@ function Page() {
       )
     : undefined;
   const numbers = useMemo(() => threadNumbers(view.threads ?? []), [view.threads]);
-  const openThreads = openThreadCount(view.threads ?? []);
+  const openThreads = discussionPending ? undefined : openThreadCount(view.threads ?? []);
   const fileCount = view.attachments?.length ?? 0;
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
   const statusCoordinator =
@@ -1453,6 +1509,8 @@ function Page() {
     renderer.current?.images(imageInput.current);
   }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // Until the frame reports what its page paints, the cards keep the app theme.
+  const [pageScheme, setPageScheme] = useState<PageScheme>();
   const accessLabel = archived
     ? text.archiveReadOnly
     : recoveryRequired
@@ -1476,12 +1534,13 @@ function Page() {
   }, [state, snapshot.id, view.threads]);
 
   // Author loading does not block discussion: sends use the captured quote.
-  const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
-  const canSelect =
-    view.pageType !== 'shell' &&
-    !!snapshot.binding?.discussion &&
-    !discussionBlocked &&
-    state === 'ready';
+  const discussionBlocked =
+    archived || !!liveError || state === 'failed' || state === 'navigation' || discussionPending;
+  const selectable =
+    view.pageType !== 'shell' && !!snapshot.binding?.discussion && state === 'ready';
+  const canSelect = selectable && !discussionBlocked;
+  // Selecting is offered once the threads are verified; until then its button holds its place.
+  const selectPending = selectable && discussionPending && !archived && !liveError;
   activateChat.current = () => {
     if (
       archived ||
@@ -1615,14 +1674,21 @@ function Page() {
       return () => controller.abort();
     }
     setState('loading');
+    resetPageLinks();
     // Source revisions replace only author content. Parent selection and composer
     // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
     setAnchorsChecked(false);
+    setPageScheme(undefined);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       layout: view.layout,
-      onState: setState,
+      onState: (next) => {
+        if (next !== 'ready') resetPageLinks();
+        setState(next);
+      },
+      onScheme: setPageScheme,
+      onLink: requestPageLink,
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
       onReadings: onReadingAnchors,
@@ -1672,10 +1738,12 @@ function Page() {
       // Retire messages before replacing the frame, retaining its layout and the
       // parent's frozen selection. Unmount removes the host itself.
       renderer.current?.release();
+      resetPageLinks();
       controller.abort();
       renderer.current = null;
     };
   }, [
+    snapshot.id,
     view.source,
     view.layout,
     view.pageType,
@@ -1683,6 +1751,8 @@ function Page() {
     inlineSlots.onSlots,
     onQuestionAnchors,
     onReadingAnchors,
+    resetPageLinks,
+    requestPageLink,
   ]);
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
   // A reply or a status change elsewhere leaves this list as it was, so the document is not told
@@ -1717,9 +1787,9 @@ function Page() {
   // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
   // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
   const endedNotice = endedError && (
-    <div className="drawer-recovery" role="status">
+    <div className="drawer-recovery" role="status" data-tone={endedPresentation?.state}>
       <span className="drawer-recovery-state">
-        <span aria-hidden="true">✗ </span>
+        <span aria-hidden="true">{endedPresentation?.state === 'inactive' ? '○ ' : '✗ '}</span>
         {text.blocked}
       </span>
       <EndedBody error={endedError} action={endedAction} compact />
@@ -1794,6 +1864,18 @@ function Page() {
       />
       <ColabHeader
         remoteMenu={false}
+        remoteChip={false}
+        headingSuffix={
+          <PageProjects
+            transport={transport}
+            space={space}
+            pageId={snapshot.id}
+            title={view.title || snapshot.title}
+            request={projects.request}
+            from={projects.from}
+            open={() => openProjects()}
+          />
+        }
         crumb={
           scope === undefined ? undefined : (
             <Link to="/" search={{ scope }} className="colab-scope-crumb" title={scope}>
@@ -1814,61 +1896,71 @@ function Page() {
         )}
         status={
           <div className="page-header-meta">
-            {questionLayer.ready && reviewLayer.ready && readingLayer.ready && (
-              <NeedsYouHeader
-                menuFocus={needsYouMenuFocus}
-                href={(item) =>
-                  router.history.createHref(
-                    router.buildLocation({
-                      to: '/pages/$pageId',
-                      params: { pageId: snapshot.id },
-                      ...(item.kind === 'reading' ? { search: { read: item.id } } : {}),
-                    }).publicHref,
-                  )
-                }
-                items={pendingNeedsYou([
-                  ...proposalLayer.navigation,
-                  ...readingLayer.items
-                    .filter((item) => inlineSlots.readingIds.has(item.id))
-                    .map((item) => ({
-                      ...item,
-                      kind: 'reading' as const,
-                      agents: [
-                        readings.find((reading) => reading.id === item.id)?.agent ?? '',
-                      ].filter(Boolean),
-                    })),
-                  ...questionLayer.navigation,
-                  ...reviewLayer.navigation,
-                ])}
-                onPick={(item) => {
-                  if (item.kind === 'proposal') {
-                    if (!proposalLayer.jump(item.id)) {
-                      const ref = proposalLayer.reference(item.id);
-                      if (ref) openThread(ref);
-                    }
-                  } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
-                  else if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
-                  else if (item.kind === 'review') reviewLayer.jump(item.id);
-                }}
-              />
-            )}
-            <span
-              className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
-              title={
-                archived
-                  ? text.archiveReadOnlyHint
-                  : recoveryRequired
-                    ? text.reconnecting
-                    : state === 'ready'
-                      ? text.loaded
-                      : state === 'loading'
-                        ? text.loading
-                        : text.blocked
-              }
-            >
+            {!discussionPending &&
+              questionLayer.ready &&
+              reviewLayer.ready &&
+              readingLayer.ready && (
+                <NeedsYouHeader
+                  menuFocus={needsYouMenuFocus}
+                  href={(item) =>
+                    router.history.createHref(
+                      router.buildLocation({
+                        to: '/pages/$pageId',
+                        params: { pageId: snapshot.id },
+                        ...(item.kind === 'reading' ? { search: { read: item.id } } : {}),
+                      }).publicHref,
+                    )
+                  }
+                  items={pendingNeedsYou([
+                    ...proposalLayer.navigation,
+                    ...readingLayer.items
+                      .filter((item) => inlineSlots.readingIds.has(item.id))
+                      .map((item) => ({
+                        ...item,
+                        kind: 'reading' as const,
+                        agents: [
+                          readings.find((reading) => reading.id === item.id)?.agent ?? '',
+                        ].filter(Boolean),
+                      })),
+                    ...questionLayer.navigation,
+                    ...reviewLayer.navigation,
+                  ])}
+                  onPick={(item) => {
+                    if (item.kind === 'proposal') {
+                      if (!proposalLayer.jump(item.id)) {
+                        const ref = proposalLayer.reference(item.id);
+                        if (ref) openThread(ref);
+                      }
+                    } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                    else if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
+                    else if (item.kind === 'review') reviewLayer.jump(item.id);
+                  }}
+                />
+              )}
+            {/* The connection state is not shown (a notice below the header carries trouble); its words
+                stay in the document for assistive technology and as the page's readiness signal. */}
+            <span className={`status page-connection ${state === 'ready' ? 'live' : ''}`}>
               {archived ? '○ ' : `${text[snapshot.sharing]} · `}
               <span className="status-label">{accessLabel}</span>
             </span>
+            <RemoteAttention />
+            {archived ? (
+              <span
+                className="page-attention"
+                data-attention="archived"
+                title={text.archiveReadOnlyHint}
+              >
+                <span aria-hidden="true">○</span>
+                <span className="page-attention-word">{text.archived}</span>
+              </span>
+            ) : (
+              snapshot.sharing !== 'private' && (
+                <span className="page-attention" data-attention="shared">
+                  <span aria-hidden="true">◉</span>
+                  <span className="page-attention-word">{text.shared}</span>
+                </span>
+              )
+            )}
           </div>
         }
         actions={
@@ -1883,7 +1975,10 @@ function Page() {
             canExport={!!snapshot.binding && !liveError && !archived}
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
-            onSelect={toggle}
+            canProjects={!!transport.management}
+            onSelect={(action) =>
+              action === 'projects' ? openProjects(moreButtonRect()) : toggle(action)
+            }
           />
         }
       />
@@ -1928,6 +2023,17 @@ function Page() {
         <p>{text.warning}</p>
       </BrowserDrawer>
       <div className="workspace">
+        {pageLinkBar}
+        {view.work && (
+          <WorkBand
+            work={view.work}
+            pageHref={(pageId) =>
+              router.history.createHref(
+                router.buildLocation({ to: '/pages/$pageId', params: { pageId } }).publicHref,
+              )
+            }
+          />
+        )}
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
@@ -1935,16 +2041,29 @@ function Page() {
             </p>
           )}
           <div className="frame-host" ref={host} />
-          {proposalLayer.inline}
-          {reviewLayer.inline}
-          {readingLayer.inline}
-          {questionLayer.inline}
+          {!discussionPending && (
+            <>
+              {/* The proposal and question cards sit on the author's page, so they take the scheme it
+                  paints; the review and reading bands sit on the app's paper and keep the app's. */}
+              <div className="page-cards" data-theme={pageScheme}>
+                {proposalLayer.inline}
+              </div>
+              {reviewLayer.inline}
+              {readingLayer.inline}
+              <div className="page-cards" data-theme={pageScheme}>
+                {questionLayer.inline}
+              </div>
+            </>
+          )}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
-              state="blocked"
+              state={endedPresentation?.state ?? 'blocked'}
+              stateLabel={endedPresentation?.state === 'inactive' ? text.notConnected : undefined}
               eyebrow={text.product}
               title={text.blocked}
-              actions={<EndedLink action={endedAction} />}
+              actions={
+                <EndedLink action={endedAction} primary={endedPresentation?.state === 'inactive'} />
+              }
             >
               {endedError ? (
                 <EndedBody error={endedError} action={endedAction} />
@@ -1973,6 +2092,7 @@ function Page() {
           chatButton={floatingChat}
           toggleChat={() => toggle('chat')}
           canSelect={canSelect}
+          selectPending={selectPending}
         />
       )}
       {snapshot.binding?.discussion &&
@@ -1986,6 +2106,15 @@ function Page() {
             noticeVisible={state === 'navigation' || state === 'failed'}
             toggleVisible={canSelect}
             open={annotate}
+            thread={annotationThread?.threadId}
+            arrivals={
+              annotationThread
+                ? annotationThread.comments.length +
+                  (view.asks ?? []).filter(
+                    (ask) => ask.thread === annotationThread.threadId && ask.reply !== undefined,
+                  ).length
+                : 0
+            }
           >
             {annotation && (
               <section
@@ -2111,7 +2240,8 @@ function Page() {
             descriptors={view.attachments ?? []}
             files={snapshot.binding.files}
             readOnly={archived}
-            disabled={!!liveError || saving}
+            disabled={!!liveError}
+            afterSave={() => saveSettled.current ?? Promise.resolve(true)}
           />
         </BrowserDrawer>
       )}
@@ -2208,9 +2338,14 @@ function Page() {
         panel="comments"
         onDismiss={() => setPanel(null)}
       >
+        {discussionPending && !liveError && (
+          <p role="status" className="discussion-pending">
+            {text.discussionPending}
+          </p>
+        )}
         <SavedDrafts
           archived={archived}
-          drafts={savedDrafts(drafts.current, view.threads)}
+          drafts={discussionPending ? [] : savedDrafts(drafts.current, view.threads)}
           discard={(key) => keepDraft(key, null)}
         />
         {draftsUnsaved && (
@@ -2218,41 +2353,43 @@ function Page() {
             {text.draftsNotSaved}
           </p>
         )}
-        <ThreadPanel
-          connectionPresentation={connectionPresentation}
-          archived={archived}
-          reopenProposal={proposalLayer.reopenProposal}
-          creationRecipient={view.creationRecipient}
-          hideHeader
-          numbers={numbers}
-          renderProposal={proposalLayer.renderProposal}
-          key={`discussion:${snapshot.id}:${draftsReady}`}
-          threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
-          resolved={resolved}
-          anchorsChecked={anchorsChecked}
-          selection={selector}
-          binding={
-            liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
-          }
-          ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
-          title={view.title || snapshot.title}
-          asks={view.asks ?? []}
-          active={activeThread}
-          select={openThread}
-          presentations={view.threadPresentations}
-          onStatusChange={
-            statusCoordinator
-              ? (thread, resolved) => statusCoordinator.change(thread, resolved)
-              : undefined
-          }
-          onBusy={(busy) => {
-            statusBusy.current = busy;
-            setChangingStatus(busy);
-          }}
-          draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
-          onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
-          blocked={discussionBlocked}
-        />
+        {!discussionPending && (
+          <ThreadPanel
+            connectionPresentation={connectionPresentation}
+            archived={archived}
+            reopenProposal={proposalLayer.reopenProposal}
+            creationRecipient={view.creationRecipient}
+            hideHeader
+            numbers={numbers}
+            renderProposal={proposalLayer.renderProposal}
+            key={`discussion:${snapshot.id}:${draftsReady}`}
+            threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
+            resolved={resolved}
+            anchorsChecked={anchorsChecked}
+            selection={selector}
+            binding={
+              liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
+            }
+            ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+            title={view.title || snapshot.title}
+            asks={view.asks ?? []}
+            active={activeThread}
+            select={openThread}
+            presentations={view.threadPresentations}
+            onStatusChange={
+              statusCoordinator
+                ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+                : undefined
+            }
+            onBusy={(busy) => {
+              statusBusy.current = busy;
+              setChangingStatus(busy);
+            }}
+            draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
+            onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
+            blocked={discussionBlocked}
+          />
+        )}
       </BrowserDrawer>
       <BrowserDrawer
         notice={endedNotice}
@@ -2285,7 +2422,12 @@ function Page() {
             else escapeAnnotation.current();
           }}
         >
-          {chatOpened && (
+          {chatOpened && discussionPending && !liveError && (
+            <p role="status" className="discussion-pending">
+              {text.discussionPending}
+            </p>
+          )}
+          {chatOpened && !discussionPending && (
             <ChatPanel
               connectionPresentation={connectionPresentation}
               archived={archived}
@@ -2402,7 +2544,7 @@ export function createAppRouter(
                   : `/short/${prefix}`;
               // A thread names a place inside the page; a reading or shell anchor is a page hint.
               if (target && !('thread' in target) && path !== '/') hint = target;
-              if (hint && 'anchor' in hint && !path.startsWith('/pages/')) hint = undefined;
+              if (hint && 'anchor' in hint && path === '/') hint = undefined;
             } catch {
               path = '/blocked';
             }

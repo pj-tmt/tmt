@@ -38,8 +38,8 @@ pub enum Verb {
     ViewReply,
     HomeWrite,
     HomePick,
-    /// Retained only to report an authored binding migration.
-    OverviewFilter,
+    /// A retired action name, retained only to report an authored binding migration.
+    Retired(&'static str),
     Reply,
     Annotate,
     UpdateStatus,
@@ -73,7 +73,9 @@ impl Verb {
             "view-reply" => Self::ViewReply,
             "home-write" => Self::HomeWrite,
             "home-pick" => Self::HomePick,
-            "overview-filter" => Self::OverviewFilter,
+            "overview-filter" => Self::Retired("overview-filter"),
+            "overview-view" => Self::Retired("overview-view"),
+            "overview" => Self::Retired("overview"),
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
             "update-status" => Self::UpdateStatus,
@@ -128,7 +130,7 @@ impl Verb {
             Self::ViewReply => "view-reply",
             Self::HomeWrite => "home-write",
             Self::HomePick => "home-pick",
-            Self::OverviewFilter => "overview-filter",
+            Self::Retired(name) => name,
             Self::Reply => "reply",
             Self::Annotate => "annotate",
             Self::UpdateStatus => "update-status",
@@ -214,7 +216,7 @@ impl Action {
             | Verb::ViewReply
             | Verb::HomeWrite
             | Verb::HomePick
-            | Verb::OverviewFilter => 10,
+            | Verb::Retired(_) => 10,
             Verb::Jump => 11,
             Verb::View => 12,
             Verb::Theme => 13,
@@ -233,9 +235,7 @@ impl Action {
         let target = self.args.first().and_then(Template::literal);
         match self.verb {
             Verb::Ui(action) => action.spec().description.into(),
-            Verb::OverviewFilter => {
-                "retired Overview filter; choose overview-view explicitly".into()
-            }
+            Verb::Retired(name) => format!("retired action `{name}`"),
             Verb::Jump if target == Some("lead") => "go to the squad lead's pane".into(),
             Verb::Jump => "go to the member's pane".into(),
             Verb::Swap => format!(

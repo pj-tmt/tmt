@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useBusyMark } from '@tmt/browser-ui/react';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { ChevronDown, ChevronRight, LoaderCircle } from 'lucide-react';
 import { forwardRef } from 'react';
-import { answerOf, questionText, type Question } from '../questions.js';
-import type { CommentView } from '../thread-records.js';
+import { questionText, type Question } from '../questions.js';
 import './question-line.css';
 
 /** Viewer-only disclosure of an admitted question; opening never records an answer. */
@@ -9,27 +10,34 @@ export const QuestionLine = forwardRef<
   HTMLButtonElement,
   {
     question: Question;
-    answer?: CommentView;
+    /** The answer the line shows: the verified one, or the one being sent while `pending`. */
+    answer?: string;
+    /** The answer is sent but no verified record backs it yet: the line is folded and inert. */
+    pending?: boolean;
     expanded: boolean;
     panelId: string;
     onToggle(): void;
     onMove?(direction: -1 | 1): void;
   }
->(function QuestionLine({ question, answer, expanded, panelId, onToggle, onMove }, ref) {
-  const state = answer
-    ? `Answered: ${questionText(answerOf(question, answer.body) ?? '')}`
-    : 'Waiting for you';
+>(function QuestionLine(
+  { question, answer, pending = false, expanded, panelId, onToggle, onMove },
+  ref,
+) {
+  const state = answer !== undefined ? `Answered: ${questionText(answer)}` : 'Waiting for you';
+  // The shared busy-mark delay: an answer verified within it never shows the mark.
+  const marked = useBusyMark(pending);
   return (
     <button
       type="button"
       ref={ref}
       className="question-line"
-      data-state={answer ? 'answered' : 'waiting'}
+      data-state={answer !== undefined ? 'answered' : 'waiting'}
       aria-label={`${question.title}, ${state}`}
       aria-expanded={expanded}
       aria-controls={panelId}
+      aria-disabled={pending || undefined}
       onClick={(event) => {
-        if (event.isTrusted) onToggle();
+        if (event.isTrusted && !pending) onToggle();
       }}
       onKeyDown={(event) => {
         if (
@@ -48,7 +56,15 @@ export const QuestionLine = forwardRef<
       }}
     >
       <span className="question-line-mark" aria-hidden="true">
-        {answer ? '✓' : '◆'}
+        {pending && marked ? (
+          <span className="comment-echo-mark" data-shown="true">
+            <LoaderCircle className={ui.spin} />
+          </span>
+        ) : answer !== undefined ? (
+          '✓'
+        ) : (
+          '◆'
+        )}
       </span>
       <span className="question-line-title">{question.title}</span>
       <span className="question-line-state">{state}</span>

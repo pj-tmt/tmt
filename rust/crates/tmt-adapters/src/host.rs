@@ -41,7 +41,6 @@ use tmt_core::{
     request::RequestEndpoint,
 };
 
-pub use crate::tmux::DiscoveryObservation;
 pub use crate::tmux::{
     ClientView, FocusError, Invoker, OperationOptions, PaneCosmetics, PaneRefresh,
 };
@@ -49,6 +48,7 @@ pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
 pub use driver::PaneSwap;
 pub use driver::{AgentNameRefusal, AgentNaming};
+pub use tmt_core::discovery::DiscoveryObservation;
 pub use tmt_core::host::SwapDirection;
 
 /// Recovery topology and evidence returned by the optional host capture port.
@@ -484,9 +484,10 @@ impl<R: CommandRunner + Clone> Host<R> {
     }
 
     pub fn for_server_with(server: &ServerEvidence, runner: R) -> Self {
-        let host = Self::of(server.host, runner);
-        if let HostKind::External(_) = server.host {
-            host.external.set_resolved(server.clone());
+        let mut host = Self::of(server.host, runner);
+        match server.host {
+            HostKind::Tmux => host.tmux = host.tmux.on_socket(&server.socket_path),
+            HostKind::External(_) => host.external.set_resolved(server.clone()),
         }
         host
     }

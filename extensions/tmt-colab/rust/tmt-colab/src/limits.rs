@@ -151,7 +151,7 @@ pub const PAGE_PROPOSALS: usize = 200;
 /// Projects (contract: Projects): display-only names in the owner store. `PROJECT_POINTS` bounds one
 /// name, `PAGE_PROJECTS` the names on one page, `SPACE_PROJECTS` the names in the space and
 /// `SPACE_PROJECT_PAGES` every page-in-project assignment, so the `/api/pages` reply stays under its
-/// 1 MiB cap with 1,000 pages.
+/// 2 MiB cap with 1,000 pages.
 pub const PROJECT_POINTS: usize = 32;
 pub const PAGE_PROJECTS: usize = 8;
 pub const SPACE_PROJECTS: usize = 256;
@@ -164,8 +164,24 @@ pub const SHELL_ITEMS: usize = 256;
 pub const SHELL_BYTES: usize = 128 * 1024;
 pub const SHELL_NOTE_BYTES: usize = 512;
 pub const SHELL_AUDIENCE_BYTES: usize = 128;
-pub const SHELL_SUMMARY_LINE1_POINTS: usize = 24;
-pub const SHELL_SUMMARY_LINE2_POINTS: usize = 60;
+/// The two-line summary of a structured page value (`shell`, `work`): line 1 says where it is,
+/// line 2 what comes next.
+pub const SUMMARY_LINE1_POINTS: usize = 24;
+pub const SUMMARY_LINE2_POINTS: usize = 60;
+/// Structured work value and task bounds (contract: Work). The whole value is one `meta.work`
+/// replacement, so it stays within the shell's single-update size.
+pub const WORK_TASKS: usize = 256;
+pub const WORK_BYTES: usize = 128 * 1024;
+/// The highest task number; `next` may reach one past it, and a task is never numbered twice.
+pub const WORK_ID_MAX: u64 = 9_999_999;
+pub const WORK_TITLE_POINTS: usize = 120;
+pub const WORK_DETAIL_BYTES: usize = 4096;
+pub const WORK_REASON_BYTES: usize = 256;
+pub const WORK_NAME_BYTES: usize = 128;
+pub const WORK_EXTERNAL_ID_BYTES: usize = 128;
+pub const WORK_ACCEPTANCE: usize = 8;
+pub const WORK_CRITERION_BYTES: usize = 256;
+pub const WORK_RESULT_BYTES: usize = 512;
 /// Page markup the browser admits (`questions.ts` holds the same numbers; the shared vectors in
 /// `contracts/vectors/page-markup-v1.json` fail when they differ).
 /// Elements a page may nest. A browser's parser stops nesting at the same depth (512), and the
@@ -175,8 +191,14 @@ pub const QUESTION_PAGE: usize = 50;
 /// `tmt-review` sections a page may hold (`REVIEW_LIMIT` in the app's `questions.ts`).
 pub const REVIEW_PAGE: usize = 50;
 pub const READING_PAGE: usize = 50;
-/// Complete owner-only chapter detail reply; numeric discovery keeps its separate 1 MiB cap.
-pub const SUMMARY_DETAILS_BYTES: usize = 128 * 1024;
+/// Pending items the owner chapter details name (the first by rank; the count is `needsYou`), and
+/// the longest excerpt of the page's latest comment (`reading-details.ts` holds the same numbers).
+pub const NEEDS_PASSAGES: usize = 20;
+pub const LATEST_POINTS: usize = 160;
+/// Complete owner-only chapter detail reply (readings, named passages and the latest excerpt, all
+/// at their longest); numeric discovery keeps its separate 2 MiB cap. `reading-details.ts` holds
+/// the same number.
+pub const SUMMARY_DETAILS_BYTES: usize = 192 * 1024;
 /// Maximum time spent projecting quote anchors for one owner summary.
 pub const SUMMARY_PROJECTION_TIMEOUT: Duration = Duration::from_millis(200);
 /// Maximum admitted proposal, question, review and reading items in one page summary.

@@ -13,6 +13,9 @@ use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::{components::strip, style::TextFlow};
 use unicode_width::UnicodeWidthStr;
 
+/// Where the agent's name sits among the spans of its cell: pin, branch, lead mark, name.
+const NAME_SPAN: usize = 3;
+
 pub(in crate::board) struct Row<'a> {
     pub source: &'a OpsTreeRow,
     pub expanded: bool,
@@ -24,6 +27,8 @@ pub(in crate::board) struct Row<'a> {
     pub model: String,
     pub timers: Option<u32>,
     pub selected: bool,
+    /// Focus is in this agent's conversation: the row takes the conversation tint and a bold name.
+    pub in_conversation: bool,
     pub query: &'a str,
 }
 #[derive(Default)]
@@ -31,10 +36,19 @@ pub(in crate::board) struct Painted {
     pub state: Option<Rect>,
     pub task: Option<Rect>,
     pub timers: Option<Rect>,
+    pub model: Option<Rect>,
 }
 
-fn style(look: Look, selected: bool, value: Style) -> Style {
-    if selected {
+fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
+    if row.in_conversation {
+        let mut style = look
+            .conversation()
+            .patch(look.row_span(true, value, false))
+            .remove_modifier(Modifier::BOLD);
+        // The state words were already painted with the selection background; the tint wins.
+        style.bg = look.conversation().bg;
+        style
+    } else if row.selected {
         look.selection()
             .patch(look.row_span(true, value, false))
             .remove_modifier(Modifier::BOLD)
@@ -50,7 +64,7 @@ pub(in crate::board) fn paint(
     row: &Row<'_>,
     look: Look,
 ) -> Painted {
-    let base = style(look, row.selected, look.role(Role::Text));
+    let base = style(look, row, look.role(Role::Text));
     for y in area.y..area.bottom() {
         strip::paint_left(
             buffer,
@@ -142,12 +156,19 @@ pub(in crate::board) fn paint(
                 )
             }
             AgentsField::Model => {
+                painted.model = Some(cell);
                 Line::styled(fit(&row.model, Align::Left), look.role(Role::Muted))
             }
         };
-        line.style = style(look, row.selected, line.style);
+        line.style = style(look, row, line.style);
         for span in &mut line.spans {
-            span.style = style(look, row.selected, span.style);
+            span.style = style(look, row, span.style);
+        }
+        if row.in_conversation
+            && matches!(field, AgentsField::Agent)
+            && let Some(name) = line.spans.get_mut(NAME_SPAN)
+        {
+            name.style = name.style.add_modifier(Modifier::BOLD);
         }
         strip::paint_left(
             buffer,
@@ -206,6 +227,7 @@ mod tests {
                     model: "gpt-6.1-sol".into(),
                     timers: None,
                     selected: false,
+                    in_conversation: false,
                     query: "",
                 },
                 look,
@@ -263,11 +285,12 @@ mod tests {
                     model: "gpt-6.1-sol".into(),
                     timers: Some(0),
                     selected: true,
+                    in_conversation: false,
                     query: "",
                 },
                 look,
             );
-            look.selected_words_except(&mut buffer, &[painted.state.unwrap()]);
+            look.selected_words(&mut buffer, &[painted.state.unwrap()], true);
             for cell in &buffer.content {
                 assert_eq!(cell.bg, look.selection().bg.unwrap());
                 assert!(!cell.modifier.contains(Modifier::BOLD));
@@ -277,6 +300,83 @@ mod tests {
             let fields = buffer.content[26..70].to_vec();
             assert_eq!(*unpinned.get_or_insert(fields.clone()), fields);
             assert_eq!(buffer[(0, 0)].symbol(), if pinned { "▪" } else { " " });
+        }
+    }
+
+    #[test]
+    fn the_row_in_conversation_has_its_own_tint_and_a_bold_name_and_keeps_state_colours() {
+        let app = crate::board::app::workspace::tests::board();
+        let rows = app.workspace_rows();
+        let source = rows
+            .iter()
+            .find(|row| matches!(row.target, OpsTarget::Member { .. }))
+            .unwrap();
+        let area = Rect::new(0, 0, 70, 1);
+        let slots = [
+            (AgentsField::Agent, Rect::new(0, 0, 25, 1)),
+            (AgentsField::State, Rect::new(26, 0, 16, 1)),
+        ];
+        for (base, depth) in [
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+            (
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+        ] {
+            let look = Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            let paint_row = |selected, in_conversation| {
+                let mut buffer = Buffer::empty(area);
+                let painted = paint(
+                    &mut buffer,
+                    area,
+                    &slots,
+                    &Row {
+                        source,
+                        expanded: false,
+                        last: true,
+                        pinned: false,
+                        state: crate::board::state_cell::unread(
+                            crate::board::unread::Count {
+                                total: 2,
+                                more: false,
+                            },
+                            look,
+                        )
+                        .unwrap(),
+                        state_primary_width: Some(10),
+                        tokens: "—".into(),
+                        model: String::new(),
+                        timers: None,
+                        selected,
+                        in_conversation,
+                        query: "",
+                    },
+                    look,
+                );
+                look.selected_words(&mut buffer, &[painted.state.unwrap()], true);
+                buffer
+            };
+            let plain = paint_row(true, false);
+            let engaged = paint_row(true, true);
+            // The name is bold, the plain selection's is not.
+            assert!(engaged[(6, 0)].modifier.contains(Modifier::BOLD));
+            assert!(!plain[(6, 0)].modifier.contains(Modifier::BOLD));
+            // The state mark keeps its colour.
+            assert_eq!(engaged[(26, 0)].fg, plain[(26, 0)].fg);
+            if let Some(tint) = look.role(Role::Conversation).bg {
+                assert_ne!(Some(tint), look.role(Role::Selection).bg);
+                for cell in &engaged.content {
+                    assert_eq!(cell.bg, tint);
+                }
+            } else {
+                // No background colours: reverse video, and the bold name tells it from selection.
+                assert!(engaged[(40, 0)].modifier.contains(Modifier::REVERSED));
+            }
         }
     }
 }

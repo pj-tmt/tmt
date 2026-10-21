@@ -101,28 +101,37 @@ const liveLabels: ReadonlyArray<readonly [string, string]> = [
 ];
 
 /**
+ * The closed cause an ended page names, mapped from the parent's reference label (the `Code:` line
+ * of its terminal notice); `none` when it shows no such notice and `other` for a label outside the set.
+ */
+const endedCauses = Object.entries(text.failureReference);
+
+/**
  * Wait for the page header to say Live. A failure attaches `colab-live-state`: which state the
- * header stayed in, whether the renderer frame exists and the tab's visibility. It reads the
- * parent's status label only, never authored frame text, and rethrows the original failure.
+ * header stayed in, whether the renderer frame exists, the tab's visibility and the cause an ended
+ * connection names. It reads the parent's status label and reference label only, never authored
+ * frame text, and rethrows the original failure.
  */
 export async function expectLive(page: Page, timeout?: number): Promise<void> {
-  const label = page.locator('.page-sharing .status-label');
+  const label = page.locator('.page-connection .status-label');
   try {
     await expect(label).toHaveText(text.live, { timeout });
   } catch (error) {
-    // #3083: a stopped preview is either the renderer's mount deadline or a frame navigation.
-    // Their notices are product copy, so naming which one shows leaks no page text.
+    // #3083: name only the renderer notice shown, not the cause of its failure.
+    // An ended connection can also stop the preview without either renderer notice.
+    // These notices are product copy, so naming which one shows leaks no page text.
     let stop = 'unavailable';
     try {
       const seen = await page.locator('body').evaluate(
         (_body, { failed, navigation }) => {
           const notice = document.body.innerText;
           return {
-            label: document.querySelector('.page-sharing .status-label')?.textContent ?? null,
+            label: document.querySelector('.page-connection .status-label')?.textContent ?? null,
             frame: document.querySelector('iframe') !== null,
             visible: document.visibilityState === 'visible',
+            reference: document.querySelector('[data-failure-reference]')?.textContent ?? null,
             stop: notice.includes(failed)
-              ? 'mount-deadline'
+              ? 'failed'
               : notice.includes(navigation)
                 ? 'navigation'
                 : 'none',
@@ -138,13 +147,17 @@ export async function expectLive(page: Page, timeout?: number): Promise<void> {
           state: seen.label === null ? 'none' : (known?.[0] ?? 'other'),
           frame: seen.frame,
           visibility: seen.visible ? 'visible' : 'hidden',
+          ended:
+            seen.reference === null
+              ? 'none'
+              : (endedCauses.find(([, label]) => label === seen.reference)?.[0] ?? 'other'),
         }),
         contentType: 'application/json',
       });
     } catch {
       // A missing diagnostic never replaces the original failure.
     }
-    // The hosted report keeps this log line; its closed live-state row admits no new field.
+    // The hosted log keeps this line for the renderer notice, which the live-state row does not carry.
     if (error instanceof Error) error.message += ` · renderer stop ${stop}`;
     throw error;
   }

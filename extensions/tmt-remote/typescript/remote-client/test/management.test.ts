@@ -271,3 +271,27 @@ test('Firestore is an explicit signed opt-in with strict extended shape and no e
       !error.message.includes('TOKEN_CANARY'),
   );
 });
+
+test('bulk removal previews the complete inventory and publishes only its exact snapshot', async () => {
+  const { door, client } = await ready();
+  const fingerprint = 'ab'.repeat(32);
+  door.managementReply = (op, value) =>
+    op === 'remote.devices.remove-others.preview'
+      ? { count: 31, fingerprint }
+      : {
+          operationId: value.operationId,
+          state: 'committed',
+          result: { removed: 31 },
+          sessionEnded: false,
+        };
+  const preview = await client.previewRemoveOthers();
+  assert.deepEqual(preview, { count: 31, fingerprint });
+  const id = crypto.randomUUID();
+  assert.equal((await client.removeOthers({ operationId: id, fingerprint })).state, 'committed');
+  assert.deepEqual(
+    door.calls.map((call) => call.envelope.operation),
+    ['remote.devices.remove-others.preview', 'remote.devices.remove-others'],
+  );
+  assert.deepEqual(door.calls[1]!.payload, { operationId: id, fingerprint });
+  assert.equal(door.opens, 1);
+});

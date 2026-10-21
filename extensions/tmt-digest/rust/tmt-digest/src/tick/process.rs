@@ -1,6 +1,6 @@
 //! Public Core calls and current settings; no terminal or Core storage access.
 
-use super::{TickObservation, TickPort};
+use super::{HOLD_FLOOR_MS, TickObservation, TickPort};
 use crate::{
     core::{Core, Error},
     history::{Decision, Rule},
@@ -10,10 +10,12 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 const MAX_MS: u64 = 9_007_199_254_740_991;
+/// An `auto` member's backlog is offered again after this long while it stays held.
+const REOFFER: Duration = Duration::from_secs(15);
 
 pub struct TickProcess {
     core: Core,
@@ -24,6 +26,9 @@ pub struct TickProcess {
     /// The newest recorded `(rule, outcome, oldest held arrival)` per member, so
     /// the once-a-second loop records a change of decision and not each repeat.
     decided: BTreeMap<String, (Rule, Option<&'static str>, u64)>,
+    /// What an `auto` member held when its backlog was last offered, and when: an
+    /// offer waits for new arrivals or `REOFFER`, so a busy member is not asked every second.
+    offered: BTreeMap<String, ((u64, Option<u64>), Instant)>,
     errors: Vec<String>,
     boundary_ms: u64,
     boundary: Instant,
@@ -37,6 +42,7 @@ impl TickProcess {
             synchronized: BTreeMap::new(),
             failed: BTreeSet::new(),
             decided: BTreeMap::new(),
+            offered: BTreeMap::new(),
             errors: vec![],
             boundary_ms,
             boundary,
@@ -55,20 +61,37 @@ impl TickProcess {
         let revision = number(policy, "revision")?;
         let active = policy["active"].as_bool().ok_or_else(invalid)?;
         let changed = self.synchronized.get(id) != Some(&mode);
+        // A hold from before anyone was recorded names the member as its own owner;
+        // it adopts the setter once one is recorded, and any other owner stays pinned.
+        let recorded = settings.recorded_setter(id).filter(|setter| *setter != id);
         let identity = |key: &str| -> Result<String, Error> {
             if revision == 0 {
-                Ok(settings.setter(id).unwrap_or(id).into())
+                Ok(recorded.unwrap_or(id).into())
             } else {
-                policy[key]
+                let pinned = policy[key]
                     .as_str()
                     .filter(|id| canonical_uuid(id))
-                    .map(str::to_owned)
-                    .ok_or_else(invalid)
+                    .ok_or_else(invalid)?;
+                Ok(match recorded {
+                    Some(setter) if pinned == id => setter,
+                    _ => pinned,
+                }
+                .into())
             }
         };
-        let operation = match mode {
-            Mode::Interval { .. } if changed || !active => Some("digest.policy.set"),
-            Mode::Auto | Mode::Off if active => Some("digest.policy.clear"),
+        let horizon = match &mode {
+            Mode::Interval { milliseconds, .. } => Some((*milliseconds).max(HOLD_FLOOR_MS)),
+            Mode::Auto => Some(HOLD_FLOOR_MS),
+            Mode::Off => None,
+        };
+        let adopts = revision > 0
+            && recorded.is_some()
+            && ["ownerIdentityId", "setterIdentityId"]
+                .iter()
+                .any(|key| policy[*key].as_str() == Some(id));
+        let operation = match horizon {
+            Some(_) if changed || !active || adopts => Some("digest.policy.set"),
+            None if active => Some("digest.policy.clear"),
             _ => None,
         };
         if let Some(operation) = operation {
@@ -78,13 +101,9 @@ impl TickProcess {
             let mut input = json!({"identityId": id, "expectedRevision": revision,
                 "ownerIdentityId": identity("ownerIdentityId")?,
                 "setterIdentityId": identity("setterIdentityId")?});
-            if let Mode::Interval { milliseconds, .. } = mode {
+            if let Some(horizon) = horizon {
                 // A missed next minute does not immediately release a configured long interval.
-                input["untilMs"] = json!(
-                    super::now_ms()?
-                        .saturating_add(milliseconds.max(120_000))
-                        .min(MAX_MS)
-                );
+                input["untilMs"] = json!(super::now_ms()?.saturating_add(horizon).min(MAX_MS));
             }
             self.core.api(operation, input)?;
         }
@@ -129,7 +148,7 @@ impl TickProcess {
         };
         let key = (rule, outcome, oldest);
         let id = row.identity_id.as_str();
-        let known = match (self.decided.get(id), &self.history) {
+        let known = match (self.decided.get(id), &mut self.history) {
             (Some(known), _) => Some(*known),
             (None, Some(store)) => match store.last_decision(id) {
                 Ok(last) => {
@@ -173,15 +192,21 @@ impl TickProcess {
             self.errors.push(message);
         }
     }
-    fn flush(&mut self, row: &TickObservation, rule: Rule) -> Result<(), Error> {
+    /// Offer Core one delivery opportunity. `when_busy` is only for an `auto` member's
+    /// cap: Core then skips its live-idle evidence and keeps every other guard.
+    fn flush(&mut self, row: &TickObservation, rule: Rule, when_busy: bool) -> Result<(), Error> {
         let id = row.identity_id.as_str();
         if self.failed.contains(id) || !self.within_minute()? {
             return Ok(());
         }
+        let mut input = json!({"identityId": id});
+        if when_busy {
+            input["whenBusy"] = json!(true);
+        }
         // Core owns readiness, claims and settlement for this exact UUID.
         let outcome = self
             .core
-            .api("digest.checklist.flush", json!({"identityId": id}))
+            .api("digest.checklist.flush", input)
             .and_then(|value| {
                 if value["identityId"] != id {
                     return Err(invalid());
@@ -200,23 +225,58 @@ impl TickProcess {
             });
         match outcome {
             Ok(state) => self.record(row, rule, Some(state)),
-            Err(error) => {
-                self.record(
-                    row,
-                    rule,
-                    Some(if error.code == "DIGEST_DELIVERY_UNCERTAIN" {
-                        "uncertain"
-                    } else {
-                        "error"
-                    }),
-                );
-                self.failed.insert(id.into());
-                self.errors
-                    .push(format!("{id}: {} ({})", error.message, error.code));
-            }
+            Err(error) => self.refuse(row, rule, error),
         }
         self.collect_history(id);
         Ok(())
+    }
+    /// A failed or uncertain opportunity is recorded and reported after the minute, and
+    /// that member is not offered another within this invocation.
+    fn refuse(&mut self, row: &TickObservation, rule: Rule, error: Error) {
+        let id = row.identity_id.as_str();
+        self.record(
+            row,
+            rule,
+            Some(if error.code == "DIGEST_DELIVERY_UNCERTAIN" {
+                "uncertain"
+            } else {
+                "error"
+            }),
+        );
+        self.failed.insert(id.into());
+        self.errors
+            .push(format!("{id}: {} ({})", error.message, error.code));
+    }
+    /// An `auto` member holding messages is offered its backlog when something new is
+    /// held and again after `REOFFER`: Core delivers it when the agent is idle, and
+    /// the provider's turn end delivers it otherwise. At the cap the offer does not wait
+    /// for idle, so a member that never reports idle is not held for ever.
+    fn offer(&mut self, row: &TickObservation) -> Result<(), Error> {
+        let id = row.identity_id.as_str();
+        let Some(rule) = row.rule(super::now_ms()?) else {
+            self.offered.remove(id);
+            return Ok(());
+        };
+        let held = (row.held_count, row.oldest_held_at_ms);
+        if self.failed.contains(id)
+            || self
+                .offered
+                .get(id)
+                .is_some_and(|(last, at)| *last == held && at.elapsed() < REOFFER)
+            || !self.within_minute()?
+        {
+            return Ok(());
+        }
+        self.offered.insert(id.into(), (held, Instant::now()));
+        // Idle delivery claims only the range marked due, so mark what is held now.
+        if let Err(error) = self
+            .core
+            .api("digest.checklist.dueNow", json!({"identityId": id}))
+        {
+            self.refuse(row, rule, error);
+            return Ok(());
+        }
+        self.flush(row, rule, rule == Rule::AutoCap)
     }
     pub fn finish(self) -> Result<(), Error> {
         if self.errors.is_empty() {
@@ -292,10 +352,14 @@ impl TickPort for TickProcess {
                     continue;
                 }
                 let row = observation(id, &settings, stats)?;
-                if !matches!(row.mode, Mode::Interval { .. })
-                    && let Some(rule) = row.rule(super::now_ms()?)
-                {
-                    self.flush(&row, rule)?;
+                match row.mode {
+                    Mode::Auto => self.offer(&row)?,
+                    Mode::Off => {
+                        if let Some(rule) = row.rule(super::now_ms()?) {
+                            self.flush(&row, rule, false)?;
+                        }
+                    }
+                    Mode::Interval { .. } => {}
                 }
                 observations.push(row);
             }
@@ -342,10 +406,10 @@ impl TickPort for TickProcess {
                     .api("digest.checklist.dueNow", json!({"identityId": id}))?;
                 rule
             }
-            Mode::Auto => Rule::AutoIdlePoint,
+            Mode::Auto => return self.offer(&row),
             Mode::Off => Rule::Off,
         };
-        self.flush(&row, rule)?;
+        self.flush(&row, rule, false)?;
         Ok(())
     }
 }

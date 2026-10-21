@@ -30,10 +30,16 @@ const targets = [
   'x86_64-unknown-linux-musl',
 ];
 const digestOf = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
+const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v1.json';
+const PRICING_ASSET = 'tmt-digest-pricing-v1.json';
+// Exercise the release boundary with the canonical product file's exact bytes.
+const PRICING_BYTES = readFileSync(new URL(`../../../${PRICING_SOURCE}`, import.meta.url));
 
 let root: string;
 beforeAll(() => {
   root = mkdtempSync(path.join(os.tmpdir(), 'release-draft-assets-'));
+  mkdirSync(path.join(root, 'source', path.dirname(PRICING_SOURCE)), { recursive: true });
+  writeFileSync(path.join(root, 'source', PRICING_SOURCE), PRICING_BYTES);
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -107,6 +113,10 @@ function fakeApi(
   const mutable = releases as (Omit<DraftRelease, 'assets'> & { assets: StoredAsset[] })[];
   const contents = new Map<number, string>();
   const api: RecordUploadApi = {
+    readPricing: (sha) => {
+      calls.push(`source ${sha}`);
+      return readFileSync(path.join(root, 'source', PRICING_SOURCE));
+    },
     downloadAsset: (id) => {
       calls.push(`download ${id}`);
       const bytes = contents.get(id);
@@ -186,6 +196,15 @@ describe('bundleFiles', () => {
       )
     ).toThrow('Unexpected archive');
   });
+
+  it('includes the fixed Digest pricing asset in its existing release inventory', () => {
+    const tag = 'tmt-digest-v0.1.0-alpha.4';
+    expect(bundleFiles('digest', manifest(tag, 'digest'), tag)).toEqual([
+      ...targets.map((target) => `tmt-digest-${target}.tar.gz`),
+      'dist-manifest.json',
+      'tmt-digest-pricing-v1.json',
+    ]);
+  });
 });
 
 describe('checkDraft', () => {
@@ -261,9 +280,37 @@ describe('attachBundle', () => {
       'tmt-digest-v0.1.0-alpha.4',
       'digest'
     );
-    expect(uploaded).toHaveLength(7);
+    expect(uploaded).toHaveLength(8);
+    expect(uploaded).toContain(PRICING_ASSET);
+    expect(fake.calls[0]).toBe(`source ${'a'.repeat(40)}`);
     expect(uploaded.at(-1)).toBe('release-publication.json');
     expect(uploaded).not.toContain('install.sh');
+  });
+
+  it('stages captured pricing bytes and rejects missing/oversized source before any mutation', () => {
+    const tag = 'tmt-digest-v0.1.0-alpha.4';
+    const directory = bundle('digest', tag);
+    writeFileSync(path.join(directory, PRICING_ASSET), 'stale main bytes');
+    const fake = fakeApi([draft(tag)]);
+    attach(fake, directory, tag, 'digest');
+    expect(readFileSync(path.join(directory, PRICING_ASSET))).toEqual(PRICING_BYTES);
+    expect(fake.calls.at(-1)).toBe('upload release-publication.json');
+    for (const mode of ['missing', 'oversized']) {
+      const denied = fakeApi([draft(tag)]);
+      denied.api.readPricing = () => {
+        if (mode === 'missing') throw new Error('missing pricing source');
+        return Buffer.alloc(65537);
+      };
+      expect(() => attach(denied, bundle('digest', tag), tag, 'digest')).toThrow();
+      expect(denied.calls).toEqual([]);
+    }
+  });
+
+  it('does not write the completeness marker when the stored pricing digest differs', () => {
+    const tag = 'tmt-digest-v0.1.0-alpha.4';
+    const fake = fakeApi([draft(tag)], { corrupt: PRICING_ASSET });
+    expect(() => attach(fake, bundle('digest', tag), tag, 'digest')).toThrow(PRICING_ASSET);
+    expect(fake.calls).not.toContain('upload release-publication.json');
   });
 
   it('replaces the stale files of an interrupted upload instead of failing on them', () => {
@@ -543,6 +590,68 @@ describe('ghApi', () => {
     };
     return { seen, spawn };
   };
+
+  it('retries contents command/parse failures only and reads the exact captured source', () => {
+    const waits: number[] = [];
+    const file = {
+      type: 'file',
+      path: PRICING_SOURCE,
+      encoding: 'base64',
+      size: PRICING_BYTES.length,
+      content: PRICING_BYTES.toString('base64'),
+    };
+    const spawn = vi
+      .fn()
+      .mockReturnValueOnce({ status: 1, stdout: '', stderr: 'HTTP 503' })
+      .mockReturnValueOnce({ status: 0, stdout: '{', stderr: '' })
+      .mockReturnValue({ status: 0, stdout: JSON.stringify(file), stderr: '' });
+    const writer = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const api = ghApi({ repository: 'pj-tmt/tmt', spawn, sleep: (ms) => waits.push(ms) });
+      expect(api.readPricing!('a'.repeat(40))).toEqual(PRICING_BYTES);
+      expect(spawn).toHaveBeenCalledTimes(3);
+      expect(waits).toEqual([1000, 2000]);
+      for (const call of spawn.mock.calls)
+        expect(call).toEqual([
+          'gh',
+          ['api', `repos/pj-tmt/tmt/contents/${PRICING_SOURCE}?ref=${'a'.repeat(40)}`],
+          { env: process.env, encoding: 'utf8', timeout: 60_000, maxBuffer: 131072 },
+        ]);
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('accepts the source size limit and refuses invalid source records without retry', () => {
+    const bytes = Buffer.alloc(65536, 'x');
+    const file = {
+      type: 'file',
+      path: PRICING_SOURCE,
+      encoding: 'base64',
+      size: bytes.length,
+      content: bytes.toString('base64'),
+    };
+    expect(
+      ghApi({ repository: 'pj-tmt/tmt', ...runner(JSON.stringify(file)) }).readPricing!(
+        'a'.repeat(40)
+      )
+    ).toEqual(bytes);
+    for (const invalid of [
+      { ...file, size: 65537 },
+      { ...file, type: 'symlink' },
+      { ...file, path: 'wrong.json' },
+      { ...file, content: 'not base64' },
+      { ...file, size: 2 },
+    ]) {
+      const { spawn, seen } = runner(JSON.stringify(invalid));
+      const sleep = vi.fn();
+      expect(() =>
+        ghApi({ repository: 'pj-tmt/tmt', spawn, sleep }).readPricing!('a'.repeat(40))
+      ).toThrow();
+      expect(seen).toHaveLength(1);
+      expect(sleep).not.toHaveBeenCalled();
+    }
+  });
 
   it('lists releases across the pages gh slurps', () => {
     const { seen, spawn } = runner(JSON.stringify([[draft('a')], [draft('b')]]));

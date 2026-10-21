@@ -17,6 +17,7 @@ const {
   isProductRetired,
   archivePrefix,
   upgradeSupportFloor,
+  DIGEST_PRICING,
 } = (await import(
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-release-policy.mjs')).href
 )) as {
@@ -36,9 +37,23 @@ const {
   isProductRetired: (product: string) => boolean;
   archivePrefix: (product: string) => string;
   upgradeSupportFloor: (product: string) => string | null;
+  DIGEST_PRICING: { source: string; asset: string; limit: number };
 };
 
 describe('native release publication policy', () => {
+  it('pins the Core-owned Digest pricing source and release asset without changing marker flags', () => {
+    expect(DIGEST_PRICING).toEqual({
+      source: 'extensions/tmt-digest/pricing/pricing-v1.json',
+      asset: 'tmt-digest-pricing-v1.json',
+      limit: 65536,
+    });
+    expect(releasePolicy('digest')).toEqual({
+      product: 'digest',
+      tagPrefix: 'tmt-digest-v',
+      prerelease: true,
+      latest: false,
+    });
+  });
   it('pins the supporting CLI registration for Ops while retaining Squad history', () => {
     const map = JSON.parse(
       readFileSync(path.join(repositoryRoot, '../.github/components.json'), 'utf8')

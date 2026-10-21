@@ -180,10 +180,7 @@ impl NotesCursor {
             self.source = (0..text.line_count())
                 .filter(|index| text.line(*index) == Some(anchor.as_str()))
                 .min_by_key(|index| (index.abs_diff(self.source), std::cmp::Reverse(*index)))
-                .map_or(
-                    self.source.min(text.line_count().saturating_sub(1)),
-                    |index| index,
-                );
+                .unwrap_or(self.source.min(text.line_count().saturating_sub(1)));
         }
         self.select(text, self.source);
     }

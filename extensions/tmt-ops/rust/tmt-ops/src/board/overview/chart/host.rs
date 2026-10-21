@@ -214,7 +214,7 @@ impl App {
     pub(in crate::board) fn retained_history_request(
         &self,
     ) -> Option<crate::board::rate::history::rollup::Request> {
-        if !matches!(self.shell.tab, OpsTab::Overview | OpsTab::Digest)
+        if !matches!(self.shell.tab, OpsTab::Agents | OpsTab::Digest)
             || self.workspace_snapshot().is_none()
             || self.usage_panel_hidden()
         {
@@ -224,7 +224,7 @@ impl App {
         }
     }
     pub(in crate::board) fn quota_history_visible(&self) -> bool {
-        self.shell.tab == OpsTab::Overview
+        self.shell.tab == OpsTab::Agents
             && self.workspace_snapshot().is_some()
             && !self.usage_panel_hidden()
             && render::quotas_visible(self)
@@ -236,7 +236,7 @@ impl App {
     }
     pub(in crate::board) fn usage_chart_available(&self) -> bool {
         self.workspace_snapshot().is_some()
-            && matches!(self.shell.tab, OpsTab::Overview | OpsTab::Digest)
+            && matches!(self.shell.tab, OpsTab::Agents | OpsTab::Digest)
             && self.focused() == Pane::Rows
     }
     fn usage_series(&self, selection: Selection, now: u64) -> Series {
@@ -317,7 +317,7 @@ pub(in crate::board) fn focus(app: &mut App) -> Effect {
     // Overview may omit its inline chart to keep the last usable primary row.
     // Its freshly painted body still admits the read-only dropdown triggers;
     // a pre-frame or invalidated workspace never bypasses the visibility fence.
-    let overview_table = app.shell.tab == OpsTab::Overview && app.scrolls.visible(Pane::Rows);
+    let overview_table = app.shell.tab == OpsTab::Agents && app.scrolls.visible(Pane::Rows);
     if !app.usage_chart.borrow().visible {
         if overview_table {
             return open_dropdown(app, Focus::Range);

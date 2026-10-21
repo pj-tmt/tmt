@@ -6,7 +6,7 @@ impl Renderer<'_> {
         let raw = &self.source[range.clone()];
         let style = self
             .look
-            .role(Role::Text)
+            .role(Role::Code)
             .patch(self.look.role(Role::Track));
         let mut painted = false;
         for (event, at) in Parser::new(raw).into_offset_iter() {

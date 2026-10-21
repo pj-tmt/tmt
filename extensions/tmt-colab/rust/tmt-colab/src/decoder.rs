@@ -137,10 +137,28 @@ pub struct ContentEdit<'a> {
     /// A typed change to `meta.attachments`, bound to `source`; `None` keeps the list as it is.
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentChange>,
 }
-/// Closed shell action data. Attribution is supplied by the admitted write owner.
+/// The closed structured value an edit acts on: a shell page's value, or the work an ordinary
+/// page carries beside its HTML.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StructuredKind {
+    Shell,
+    Work,
+}
+impl StructuredKind {
+    /// The `meta` key that holds the value.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Shell => "shell",
+            Self::Work => "work",
+        }
+    }
+}
+/// Closed structured action data. Attribution is supplied by the admitted write owner.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ShellEdit {
+pub struct StructuredEdit {
+    pub kind: StructuredKind,
     pub action: String,
     pub body: Value,
     pub attribution: Value,
@@ -197,6 +215,8 @@ pub struct BaselineInput<'a> {
     pub publisher_agent: Option<&'a str>,
     pub source_digest: [u8; 32],
     pub creation_recipient: Option<&'a CreationRecipient>,
+    /// The work an ordinary page carries beside its HTML; a new epoch keeps it.
+    pub work: Option<&'a Value>,
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
@@ -526,11 +546,13 @@ impl Decoder {
     ) -> Result<PreparedContent, DecodeFault> {
         self.prepare_mutation(batch, expected_base, edit, None, stop)
     }
-    pub fn prepare_shell_batch(
+    /// One structured action (a shell's or a page's work) against the exact admitted projection;
+    /// the HTML source, layout and attachments stay as they are.
+    pub fn prepare_structured_batch(
         &mut self,
         batch: UpdateBatch<'_>,
         expected_base: &Value,
-        shell: &ShellEdit,
+        edit: &StructuredEdit,
         stop: Option<&AtomicBool>,
     ) -> Result<PreparedContent, DecodeFault> {
         self.prepare_mutation(
@@ -542,7 +564,7 @@ impl Decoder {
                 layout: None,
                 attachments: None,
             },
-            Some(shell),
+            Some(edit),
             stop,
         )
     }
@@ -551,7 +573,7 @@ impl Decoder {
         batch: UpdateBatch<'_>,
         expected_base: &Value,
         edit: ContentEdit<'_>,
-        shell: Option<&ShellEdit>,
+        structured: Option<&StructuredEdit>,
         stop: Option<&AtomicBool>,
     ) -> Result<PreparedContent, DecodeFault> {
         if self.blocked {
@@ -581,8 +603,8 @@ impl Decoder {
                 .validate(&tmt_colab_model::crypto::digest(edit.source.as_bytes()))
                 .map_err(|_| DecodeFault::InvalidInput)?;
         }
-        let expected = match shell {
-            Some(shell) => edited_shell_projection(expected_base, shell)?,
+        let expected = match structured {
+            Some(structured) => edited_structured_projection(expected_base, structured)?,
             None => edited_projection(expected_base, edit)?,
         };
         let wire = WireContentPreparation {
@@ -598,7 +620,7 @@ impl Decoder {
             publisher_agent: edit.publisher_agent,
             layout: edit.layout.cloned(),
             attachments: edit.attachments,
-            shell: shell.cloned(),
+            structured: structured.cloned(),
         };
         let (input, hash) = SerializedInput::serialize(&wire)?.finish();
         let output = self.invoke(&input, ChildCommand::PrepareContent, stop, deadline, None)?;
@@ -650,7 +672,7 @@ impl Decoder {
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
         crate::shell::validate(shell).map_err(|_| DecodeFault::InvalidInput)?;
-        if !view.source.is_empty() || view.attachments.is_some() {
+        if !view.source.is_empty() || view.attachments.is_some() || view.work.is_some() {
             return Err(DecodeFault::InvalidInput);
         }
         self.baseline(
@@ -735,6 +757,9 @@ impl Decoder {
         if view.creation_recipient.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
+        if view.work.is_some_and(|v| crate::work::validate(v).is_err()) {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view.layout.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
@@ -779,6 +804,7 @@ impl Decoder {
             original_author: view.original_author.map(str::to_owned),
             creation_recipient: view.creation_recipient.cloned(),
             layout: view.layout.cloned(),
+            work: view.work.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -1050,7 +1076,7 @@ struct WireContentPreparation<
     C = tmt_colab_model::attachment::DocumentChange,
 > {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    shell: Option<ShellEdit>,
+    structured: Option<StructuredEdit>,
     version: u8,
     baseline: B,
     updates: Vec<B>,
@@ -1062,18 +1088,35 @@ struct WireContentPreparation<
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachments: Option<C>,
 }
-fn edited_shell_projection(base: &Value, edit: &ShellEdit) -> Result<Value, DecodeFault> {
-    if base["meta"]["pageType"].as_str() != Some("shell") {
-        return Err(DecodeFault::InvalidInput);
-    }
+fn edited_structured_projection(base: &Value, edit: &StructuredEdit) -> Result<Value, DecodeFault> {
+    let shell = base["meta"]["pageType"].as_str() == Some("shell");
     let mut expected = base.clone();
-    expected["meta"]["shell"] = crate::shell::apply(
-        &base["meta"]["shell"],
-        &edit.action,
-        &edit.body,
-        &edit.attribution,
-    )
-    .map_err(|_| DecodeFault::InvalidInput)?;
+    match edit.kind {
+        StructuredKind::Shell if shell => {
+            expected["meta"]["shell"] = crate::shell::apply(
+                &base["meta"]["shell"],
+                &edit.action,
+                &edit.body,
+                &edit.attribution,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?;
+        }
+        StructuredKind::Work if !shell => {
+            let stored = base["meta"].get("work");
+            let next = crate::work::apply(
+                stored.unwrap_or(&crate::work::empty()),
+                &edit.action,
+                &edit.body,
+                &edit.attribution,
+            )
+            .map_err(|_| DecodeFault::InvalidInput)?;
+            // A page with no work yet is not given an empty value by an action that adds none.
+            if stored.is_some() || next != crate::work::empty() {
+                expected["meta"]["work"] = next;
+            }
+        }
+        _ => return Err(DecodeFault::InvalidInput),
+    }
     Ok(expected)
 }
 #[derive(Serialize, Deserialize)]
@@ -1197,6 +1240,8 @@ struct WireBaseline {
     creation_recipient: Option<CreationRecipient>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     layout: Option<PageLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    work: Option<Value>,
     version: u8,
     source: String,
     title: String,
@@ -1299,6 +1344,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 "layoutReason" => v.as_str().is_none_or(|v| !valid_layout_reason(v)),
                 "pageType" => v.as_str() != Some("shell"),
                 "shell" => crate::shell::validate(v).is_err(),
+                "work" => crate::work::validate(v).is_err(),
                 _ => true,
             }) {
                 return Err(DecodeFault::InvalidOutput);
@@ -1310,7 +1356,9 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             {
                 return Err(DecodeFault::InvalidOutput);
             }
+            // Work belongs to an ordinary page; a shell keeps its own summary.
             if meta.contains_key("pageType") != meta.contains_key("shell")
+                || (meta.contains_key("work") && meta.contains_key("pageType"))
                 || (meta.contains_key("shell")
                     && (roots["html"].as_str() != Some("") || meta.contains_key("attachments")))
             {

@@ -1391,6 +1391,115 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     60_000
   );
 
+  it('the cap flush offers a held backlog to a live Claude that is still busy, and a plain flush does not', async () => {
+    await withE2EFixture(async (fixture) => {
+      const name = 'CappedClaude';
+      const sessionId = randomUUID();
+      const home = path.join(fixture.root, `home-${name}`);
+      const tree = path.join(home, '.claude', 'projects', '-workspace');
+      fs.mkdirSync(tree, { recursive: true });
+      const transcript = path.join(tree, `${sessionId}.jsonl`);
+      fs.writeFileSync(transcript, '');
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'claude'),
+        fs.readFileSync('/opt/tmt-tests/claude'),
+        0o755
+      );
+      const worker = start(fixture, name, {
+        channel: false,
+        resume: sessionId,
+        env: {
+          MOCK_SESSION_ID: sessionId,
+          MOCK_TURN_TRANSCRIPT: transcript,
+          MOCK_AUTOREPLY: '0',
+          TMT_TEST_CLAUDE_MOCK: mock,
+          TMT_TEST_CLAUDE_NODE: process.execPath,
+          TMT_TEST_CLAUDE_NATIVE_CHANNEL: '1',
+        },
+      });
+      await withCompletedSession(fixture, worker, async () => {
+        await waitForEvent(fixture, worker, 'prompt-recorded');
+        const id = identityId(fixture, name);
+        const created = await fixture.runJsonCli<{ identity: { id: string } }>([
+          'identity',
+          'create',
+          'CapOwner',
+        ]);
+        expect(created.code).toBe(0);
+        const owner = created.json!.identity.id;
+        const api = (operation: string, input: unknown) =>
+          JSON.parse(
+            execFileSync(
+              fixture.executables.cli.executable,
+              [...fixture.executables.cli.args, 'api'],
+              {
+                input: JSON.stringify({ version: 1, operation, input }),
+                encoding: 'utf8',
+                timeout: 5000,
+                env: { PATH: process.env.PATH, HOME: home, TMT_HOME: fixture.globalDir },
+              }
+            )
+          );
+        expect(
+          api('digest.policy.set', {
+            identityId: id,
+            ownerIdentityId: owner,
+            setterIdentityId: owner,
+            expectedRevision: 0,
+            untilMs: Date.now() + 600_000,
+          })
+        ).toMatchObject({ active: true, revision: 1 });
+        const requests: string[] = [];
+        for (const message of ['First held decision', 'Second held review']) {
+          const sent = await talk(fixture, name, message, ['--kind', 'review']);
+          expect(sent.json).toMatchObject({ status: 'queued', digest: true });
+          requests.push(String(sent.json!.requestId));
+        }
+        expect(api('digest.checklist.dueNow', { identityId: id })).toMatchObject({ heldCount: 2 });
+        // The turn has not stopped: Core's own idle evidence declines, nothing is typed.
+        expect(api('digest.checklist.flush', { identityId: id })).toEqual({
+          identityId: id,
+          state: 'not_idle',
+        });
+        expect(named(worker, 'paste')).toEqual([]);
+        expect(
+          sql(fixture, (db) => db.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get())
+        ).toEqual({ count: 0 });
+        // The cap's option skips only that evidence; the same claim, driver and settlement run.
+        expect(api('digest.checklist.flush', { identityId: id, whenBusy: true })).toEqual({
+          identityId: id,
+          state: 'delivered',
+        });
+        await fixture.waitFor(
+          () => named(worker, 'paste').some((event) => String(event.line).endsWith(' | tmt api')),
+          5000,
+          'Digest checklist consumed by the busy mock'
+        );
+        const input = named(worker, 'paste')
+          .map((event) => String(event.line))
+          .join('\n');
+        expect(input.match(/TMT Digest checklist/g)).toHaveLength(1);
+        for (const request of requests) expect(input).toContain(`tmt reply ${request} --receipt `);
+        expect(
+          sql(fixture, (db) => db.prepare('SELECT state FROM focus_checklists').all())
+        ).toEqual([{ state: 'delivered' }]);
+        expect(api('digest.stats.show', { identities: [id] }).stats[0]).toMatchObject({
+          deliveredDigests: 1,
+          heldCount: 0,
+        });
+        // Nothing is left to offer, with or without the option.
+        const consumed = events(worker).length;
+        for (const options of [{}, { whenBusy: true }]) {
+          expect(api('digest.checklist.flush', { identityId: id, ...options })).toEqual({
+            identityId: id,
+            state: 'nothing_due',
+          });
+        }
+        expect(events(worker)).toHaveLength(consumed);
+      });
+    });
+  }, 60_000);
+
   it.each([true, false])(
     'a resumed channel=%s Claude records activity and consumption after an identity rename',
     async (channel) => {

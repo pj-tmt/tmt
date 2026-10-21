@@ -459,6 +459,8 @@ function main(argv, environment) {
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
   if (command === 'dry') {
     if (!values.sha) throw new Error('--sha is required.');
+    // Rehearse the mandatory source requirement without a draft or publication rights.
+    if (values.product === 'digest') ghApi({ repository }).readPricing(values.sha);
     const { held, results } = runGates({
       order: values['on-main'] ? EARLY_GATES : EARLY_GATES.filter((gate) => gate !== 'commit'),
       checks: earlyChecks({

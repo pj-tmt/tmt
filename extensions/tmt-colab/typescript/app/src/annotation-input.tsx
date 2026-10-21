@@ -346,7 +346,7 @@ export function AnnotationInput({
       ownsSend = true;
       setFailures([]);
       setBusy(true);
-      if (echoHost && (captured.thread || chat)) {
+      if (echoHost) {
         const retried = unsentRef.current;
         if (retried) {
           echoHost.remove(retried.echo.local);
@@ -354,7 +354,16 @@ export function AnnotationInput({
           setUnsent(undefined);
         }
         // The echo and the cleared composer appear in the same frame.
-        echoed = messageEcho(captured.value);
+        echoed = messageEcho(
+          captured.value,
+          files.getSnapshot().chips.map(({ id, filename, mediaType, size }) => ({
+            id,
+            filename,
+            mediaType,
+            size,
+            preview: files.preview(id),
+          })),
+        );
         echoHost.show(echoed);
         setEchoing(true);
         if (current.value === latestEdit.current.value) clearDraft();

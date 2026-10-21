@@ -305,17 +305,87 @@ pub(super) fn clear(value: &mut Value, key: Option<&str>) -> bool {
     true
 }
 
-pub(super) fn write(path: &Path, value: &Value, scope: Scope) -> Result<(), ConfigError> {
-    project(value, path, scope)?;
+fn current_value(bytes: Option<&[u8]>, path: &Path, scope: Scope) -> Result<Value, ConfigError> {
+    let value = match bytes {
+        Some(bytes) => {
+            let text =
+                std::str::from_utf8(bytes).map_err(|error| ConfigError::parse(path, error))?;
+            crate::json_document::parse(text).map_err(|error| ConfigError::parse(path, error))?
+        }
+        None => json!({}),
+    };
+    shape(&value, path, scope)?;
+    Ok(value)
+}
+
+/// Read, validate and change the latest bytes while the shared writer lock is held.
+pub(super) fn update(
+    state_root: &Path,
+    path: &Path,
+    scope: Scope,
+    retry: &str,
+    change: impl FnOnce(&mut Value) -> Result<bool, ConfigError>,
+) -> Result<(), ConfigError> {
+    use tmt_extension_state::{Document, UpdateError};
+
+    enum Change {
+        Unchanged,
+        Invalid(ConfigError),
+    }
+    let absolute = |path: &Path| {
+        std::path::absolute(path).map_err(|error| ConfigError::internal(error.to_string()))
+    };
+    // Preserve the existing config byte domain; this migration adds no size limit.
+    let document = Document::new(&absolute(state_root)?, &absolute(path)?, u64::MAX, retry)
+        .map_err(|error| ConfigError::internal(error.to_string()))?;
+    // Refuse malformed input before creating lock state. This no-follow read is
+    // only a preflight: publication must still parse the current bytes under lock.
+    let current = document
+        .read()
+        .map_err(|error| ConfigError::internal(error.to_string()))?;
+    current_value(current.as_deref(), path, scope)?;
     if scope == Scope::Global
         && let Some(parent) = path.parent()
     {
         fs::create_dir_all(parent).map_err(|error| ConfigError::internal(error.to_string()))?;
     }
-    let mut content = serde_json::to_string_pretty(value)
-        .map_err(|error| ConfigError::internal(error.to_string()))?;
-    content.push('\n');
-    fs::write(path, content).map_err(|error| ConfigError::internal(error.to_string()))
+    let result = document.update(|current| {
+        let mut value = current_value(current, path, scope).map_err(Change::Invalid)?;
+        if !change(&mut value).map_err(Change::Invalid)? {
+            return Err(Change::Unchanged);
+        }
+        project(&value, path, scope).map_err(Change::Invalid)?;
+        let mut content = serde_json::to_vec_pretty(&value)
+            .map_err(|error| Change::Invalid(ConfigError::internal(error.to_string())))?;
+        content.push(b'\n');
+        Ok(content)
+    });
+    match result {
+        Ok(()) | Err(UpdateError::Change(Change::Unchanged)) => Ok(()),
+        Err(UpdateError::Change(Change::Invalid(error))) => Err(error),
+        Err(UpdateError::State(error)) => Err(ConfigError::internal(error.to_string())),
+    }
+}
+
+pub(super) fn set_retry(setting: Setting, scope: Scope) -> String {
+    let value = setting_value(setting);
+    let value = value
+        .as_str()
+        .map_or_else(|| value.to_string(), str::to_owned);
+    let global = if scope == Scope::Global {
+        " --global"
+    } else {
+        ""
+    };
+    format!(
+        "tmt config set {} {}{global}",
+        setting.key().name(),
+        quoted(&value)
+    )
+}
+
+pub(super) fn quoted(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 /// Reply acceptance must not depend on unrelated defaults or a local directory.

@@ -38,6 +38,7 @@ impl Prepared {
             .transpose()?;
         let layout = crate::decoder::layout_of_meta(&view.meta);
         let baseline_input = BaselineInput {
+            work: view.meta.get("work"),
             original_author: view.original_author.as_deref(),
             layout: layout.as_ref(),
             attachments: attachments.as_ref(),

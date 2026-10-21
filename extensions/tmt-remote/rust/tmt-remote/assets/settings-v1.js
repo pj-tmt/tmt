@@ -1282,6 +1282,10 @@ var ManagementPage = class {
 	access = "checking";
 	accessRefusal;
 	busy = false;
+	removalPreview;
+	get clientId() {
+		return this.client.clientId;
+	}
 	notice = "";
 	freshAttempted = false;
 	cursor = null;
@@ -1299,6 +1303,7 @@ var ManagementPage = class {
 	async refresh(cursor = this.cursor) {
 		if (this.busy || this.access === "lost") return;
 		this.busy = true;
+		this.removalPreview = void 0;
 		this.accessRefusal = void 0;
 		this.firestoreRead = void 0;
 		this.firestore = void 0;
@@ -1351,8 +1356,21 @@ var ManagementPage = class {
 			this.firestoreAccess = "unconfirmed";
 		}
 	}
+	async previewRemoval() {
+		if (!this.writable) return;
+		this.busy = true;
+		this.removalPreview = void 0;
+		try {
+			this.removalPreview = Object.freeze(await this.client.previewRemoveOthers());
+		} catch {
+			this.notice = "Change refused. Check the current values or use the local CLI.";
+		} finally {
+			this.busy = false;
+		}
+	}
 	async submit(intent) {
 		if (!this.writable) throw new Error("Management controls are read-only.");
+		this.removalPreview = void 0;
 		this.intent = Object.freeze({
 			...intent,
 			input: Object.freeze({ ...intent.input })
@@ -1360,10 +1378,10 @@ var ManagementPage = class {
 		this.outcome = void 0;
 		this.freshAttempted = false;
 		this.busy = true;
-		this.notice = intent.kind === "revoke" ? "Revoking device…" : intent.kind === "talk" ? intent.input.enabled ? "Enabling sending…" : "Disabling sending…" : "Saving…";
+		this.notice = intent.kind === "revoke" || intent.kind === "remove-others" ? "Removing devices…" : intent.kind === "talk" ? intent.input.enabled ? "Enabling sending…" : "Disabling sending…" : "Saving…";
 		try {
 			const frozen = this.intent;
-			this.outcome = frozen.kind === "setting" ? await this.client.set(frozen.input) : frozen.kind === "rename" ? await this.client.rename(frozen.input) : frozen.kind === "talk" ? await this.client.talk(frozen.input) : await this.client.revoke(frozen.input);
+			this.outcome = frozen.kind === "setting" ? await this.client.set(frozen.input) : frozen.kind === "rename" ? await this.client.rename(frozen.input) : frozen.kind === "talk" ? await this.client.talk(frozen.input) : frozen.kind === "remove-others" ? await this.client.removeOthers(frozen.input) : await this.client.revoke(frozen.input);
 			if (this.outcome.state === "committed" && this.outcome.sessionEnded) this.access = "unconfirmed";
 			if (this.outcome.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY") this.access = "unconfirmed";
 			this.describeOutcome();
@@ -1413,10 +1431,10 @@ var ManagementPage = class {
 	describeOutcome() {
 		if (this.outcome?.state === "committed") {
 			const intent = this.intent;
-			this.notice = intent?.kind === "setting" ? intent.input.setting === "open" ? "Browser opening saved." : "Session limit saved. Applies to new sessions." : intent?.kind === "rename" ? "Device renamed." : intent?.kind === "talk" ? intent.input.enabled ? "Sending enabled for this device." : "Sending disabled for this device." : "Device revoked.";
+			this.notice = intent?.kind === "setting" ? intent.input.setting === "open" ? "Browser opening saved." : "Session limit saved. Applies to new sessions." : intent?.kind === "rename" ? "Device renamed." : intent?.kind === "talk" ? intent.input.enabled ? "Sending enabled for this device." : "Sending disabled for this device." : intent?.kind === "remove-others" ? "The other devices were removed. This browser stays connected." : "Device removed.";
 			if (this.outcome.sessionEnded) this.notice += " This session ended. Use the local CLI to continue.";
-		} else if (this.outcome?.state === "unknown") this.notice = this.freshAttempted ? "The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check its original result before making another change.";
-		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI to make changes." : "Change refused. Check the current values or use the local CLI.";
+		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check its original result before making another change.";
+		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_DEVICE_LIST_CHANGED" ? "The device list changed. Review it, then confirm again." : this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI to make changes." : "Change refused. Check the current values or use the local CLI.";
 	}
 };
 function accessRefused(error) {
@@ -1461,6 +1479,7 @@ function cancelConfirmation(refocus = false) {
 }
 /** A second deliberate press confirms only the same currently admitted presentation. */
 function confirmDevice(button, target, kind) {
+	page.removalPreview = void 0;
 	const signature = targetSignature(target);
 	if (confirmation?.button === button && confirmation.signature === signature) {
 		cancelConfirmation();
@@ -1469,7 +1488,7 @@ function confirmDevice(button, target, kind) {
 	cancelConfirmation();
 	const panel = rows.get(target.clientId).querySelector("[data-confirmation]");
 	const consequence = panel.querySelector("p");
-	consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.` : `This ends access for ${target.name}${target.thisBrowser ? ", the browser you are using" : ""}. Press Revoke again to confirm. Pair again to restore access.`;
+	consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.` : target.thisBrowser ? `This ends Remote access for this browser (${target.name}). Press Remove again to confirm.` : `This ends Remote access for ${target.name}. Press Remove again to confirm.`;
 	panel.hidden = false;
 	button.setAttribute("aria-describedby", consequence.id);
 	button.setAttribute("aria-expanded", "true");
@@ -1502,7 +1521,7 @@ function commandNotice(target, text) {
 	} else target.append(document.createTextNode(part));
 }
 function capacityCopy(refusal) {
-	return refusal?.code === "REMOTE_SESSION_LIMIT" ? `This device already has ${refusal.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).` : void 0;
+	return refusal?.code === "REMOTE_SESSION_LIMIT" ? "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged." : void 0;
 }
 function openingChanged() {
 	return !!page.settings && opening.value === "on" !== page.settings.settings.open;
@@ -1553,7 +1572,7 @@ function deviceFeedback(clientId) {
 	return feedback;
 }
 function renderOutcome() {
-	const origin = page.intent?.kind === "setting" ? page.intent.input.setting : page.intent?.input.clientId;
+	const origin = page.intent?.kind === "setting" ? page.intent.input.setting : page.intent?.kind === "remove-others" ? void 0 : page.intent?.input.clientId;
 	const active = origin && [...document.querySelectorAll("[data-feedback]")].find((slot) => slot.dataset.feedback === origin) || document.querySelector("[data-feedback=\"shared\"]");
 	for (const slot of document.querySelectorAll("[data-feedback]")) if (slot !== active) {
 		const status = slot.querySelector("[data-outcome-slot]");
@@ -1601,9 +1620,12 @@ function render() {
 	}[page.access];
 	if (announcement && element("access-announcement").textContent !== announcement) element("access-announcement").textContent = announcement;
 	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
-	element("read-only").hidden = editable;
+	element("read-only").hidden = editable || page.access !== "live";
+	const designation = element("designation-command");
+	designation.hidden = editable || page.access !== "live";
+	if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
 	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
-	const reason = capacity ?? (page.busy ? "A request is in progress. Wait for its outcome." : !editable ? "Changes are unavailable in this browser. Use the local CLI." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
+	const reason = capacity ?? (page.busy ? "A request is in progress. Wait for its outcome." : !editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
 	element("controls-reason").textContent = reason;
 	element("controls-reason").hidden = !reason;
 	for (const button of document.querySelectorAll("button")) {
@@ -1643,6 +1665,17 @@ function render() {
 	}
 	saveState("opening-form", "opening-unchanged", openingChanged(), opening.checkValidity());
 	saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
+	const removeOthers = element("remove-others");
+	removeOthers.hidden = page.removalPreview?.count === 0 || page.onFirstPage && page.devices?.nextCursor === null && page.devices.devices.every((device) => device.clientId === page.clientId);
+	removeOthers.disabled = !page.writable || page.removalPreview?.count === 0;
+	const preview = page.removalPreview;
+	const panel = element("remove-others-confirmation");
+	panel.hidden = !preview || preview.count === 0 || !page.writable;
+	removeOthers.setAttribute("aria-expanded", String(!panel.hidden));
+	if (!panel.hidden && preview) {
+		element("remove-others-consequence").textContent = `This ends Remote access for ${preview.count} other ${preview.count === 1 ? "device" : "devices"}. This browser stays connected. Press Remove the others again to confirm.`;
+		removeOthers.setAttribute("aria-describedby", "remove-others-consequence");
+	}
 	refresh.disabled = page.busy;
 	more.hidden = !page.devices?.nextCursor;
 	more.disabled = page.busy;
@@ -1688,7 +1721,7 @@ function render() {
 				revoke.dataset.variant = "destructive";
 				const revokeLabel = document.createElement("span");
 				revokeLabel.className = "tmt-ui-action-label";
-				revokeLabel.textContent = "Revoke";
+				revokeLabel.textContent = "Remove";
 				revoke.append(revokeLabel);
 				revoke.addEventListener("click", (event) => {
 					if (event.detail > 1 || !page.writable) return;
@@ -1777,7 +1810,7 @@ function render() {
 				rows.set(device.clientId, row);
 				devices.append(row);
 			}
-			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last activity ${device.lastActivityAtMs === null ? "unavailable" : new Date(device.lastActivityAtMs).toLocaleString()}`;
+			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last used ${device.lastUsedAtMs === null ? "Not recorded" : new Date(device.lastUsedAtMs).toLocaleString()}`;
 			row.querySelector("[data-action=\"talk\"] .tmt-ui-action-label").textContent = device.talkEnabled ? "Disable sending" : "Enable sending";
 			row.querySelector("form").setAttribute("aria-label", `Device ${device.name}`);
 			const name = row.querySelector("input");
@@ -1785,12 +1818,12 @@ function render() {
 			name.setAttribute("aria-label", `Device name for ${device.name}`);
 			row.querySelector("button[type=submit]").setAttribute("aria-label", device.thisBrowser ? `Rename this device (${device.name})` : `Rename ${device.name}`);
 			row.querySelector("[data-action=\"talk\"]").setAttribute("aria-label", `${device.talkEnabled ? "Disable" : "Enable"} sending for ${device.name}`);
-			row.querySelector("button[data-action=\"revoke\"]").setAttribute("aria-label", `Revoke ${device.name}`);
+			row.querySelector("button[data-action=\"revoke\"]").setAttribute("aria-label", `Remove ${device.name}`);
 			name.disabled = !editable || device.revoked;
 			if (editable) name.removeAttribute("aria-describedby");
 			else name.setAttribute("aria-describedby", "read-only");
 			const disabledReason = element(`device-reason-${device.clientId}`);
-			disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
+			disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.kind !== "remove-others" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
 			disabledReason.hidden = !disabledReason.textContent;
 			for (const button of row.querySelectorAll("form button")) {
 				button.disabled = !page.writable || device.revoked;
@@ -1897,6 +1930,53 @@ function navigate(cursor) {
 	}
 	run(() => refreshView(cursor));
 }
+element("copy-designation").addEventListener("click", () => {
+	if (page.access !== "live") return;
+	navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(() => {
+		element("designation-copy-feedback").textContent = "Copied.";
+	}, () => {
+		element("designation-copy-feedback").textContent = "Copy failed. Select the command and copy it manually.";
+	});
+});
+element("remove-others").addEventListener("click", (event) => {
+	if (event.detail > 1 || !page.writable) return;
+	for (const device of page.devices?.devices ?? []) {
+		const draft = rows.get(device.clientId)?.querySelector("input");
+		if (draft && draft.value !== device.name) {
+			page.notice = "Save or restore the unsent device name before changing pages.";
+			render();
+			draft.focus();
+			return;
+		}
+	}
+	if (page.removalPreview && page.removalPreview.count > 0) {
+		const fingerprint = page.removalPreview.fingerprint;
+		page.removalPreview = void 0;
+		change({
+			kind: "remove-others",
+			input: {
+				operationId: crypto.randomUUID(),
+				fingerprint
+			}
+		});
+	} else {
+		cancelConfirmation();
+		run(() => page.previewRemoval());
+	}
+});
+element("cancel-remove-others").addEventListener("click", () => {
+	page.removalPreview = void 0;
+	render();
+	element("remove-others").focus();
+});
+element("remove-others").addEventListener("keydown", (event) => {
+	const key = event;
+	if ((key.repeat || key.isComposing) && ["Enter", " "].includes(key.key)) event.preventDefault();
+	if (key.key === "Escape") {
+		page.removalPreview = void 0;
+		render();
+	}
+});
 more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null));
 first.addEventListener("click", () => navigate(null));
 for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
@@ -1915,7 +1995,7 @@ try {
 		"REMOTE_SESSION_ENDED",
 		"REMOTE_SESSION_EVICTED"
 	].includes(error.code);
-	commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI."));
+	commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."));
 	element("access-announcement").textContent = capacity ?? (ended ? "Access ended" : "Access unconfirmed");
 	registryState(error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code) ? "Access ended" : "Unconfirmed");
 	refresh.disabled = true;

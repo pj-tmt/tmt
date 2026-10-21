@@ -428,7 +428,8 @@ mod tests {
             let (path, config) = fixture("header-preview", &text);
             let mut app = crate::board::app::workspace::tests::board();
             crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-            app.shell.tab = crate::board::shell::OpsTab::Overview;
+            app.shell.tab = crate::board::shell::OpsTab::Agents;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             let view = app.view.as_mut().unwrap();
             view.look = Look {
                 theme: config.theme("").unwrap().0,
@@ -486,19 +487,15 @@ mod tests {
                     .iter()
                     .all(|hit| hit.target != crate::board::app::HitTarget::AllRoomTimers)
             );
+            // The count line under the list carries the waiting note.
             let summary_y = (0..buffer.area.height)
                 .find(|y| {
                     (0..108)
                         .map(|x| buffer[(x, *y)].symbol())
                         .collect::<String>()
-                        .contains("── Agents")
+                        .contains("waiting first")
                 })
-                .expect("actual Agents rule");
-            assert_eq!(
-                buffer[(find(summary_y, "Agents"), summary_y)].fg,
-                app.look().role(Role::Text).fg.unwrap_or_default(),
-                "section title uses previewed text while attention retains its token"
-            );
+                .expect("actual Agents count line");
             assert_eq!(buffer[(find(summary_y, "◆"), summary_y)].fg, expected);
             let tabs: String = (0..108).map(|x| buffer[(x, tabs_y)].symbol()).collect();
             assert!(!tabs.contains('◆'));

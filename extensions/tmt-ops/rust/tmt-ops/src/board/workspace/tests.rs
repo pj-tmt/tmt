@@ -226,7 +226,7 @@ fn agents_filters_preserve_targets_expansion_and_saved_preferences() {
     assert_eq!(workspace.rows(&roster, &preferences).len(), 3);
     assert_eq!(workspace.expanded, BTreeSet::from(["room".into()]));
     assert_eq!(workspace.selected, Some(selected));
-    assert_eq!(AgentsFilter::All.next().next(), AgentsFilter::All);
+    assert_eq!(AgentsFilter::All.next().next().next(), AgentsFilter::All);
 }
 
 #[test]

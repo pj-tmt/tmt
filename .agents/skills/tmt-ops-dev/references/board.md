@@ -29,8 +29,8 @@ menu, and each periodic refresh (no frame, so an idle board repairs itself; with
 refresh off it relies on the other moments). `terminal::Backend` is ratatui's crossterm backend plus one rule: a frame that
 writes cells hides a visible caret first and shows it again once placed, so
 the input caret never hops over the changed rows. The session loop applies a
-queued burst of wheel steps in order (at most 64, stopping at the first other
-event, which is handled next) and paints one frame for it. The reader's anchor
+queued burst of wheel steps and pointer moves in order (at most 64, stopping at the
+first other event, which is handled next) and paints one frame for it. The reader's anchor
 cursor works on `notes::IndexedText` built with the rendered text, so a scroll
 step costs one source line, not the history. Worker shutdown follows terminal restoration. Cold launch
 scope names resolve active rooms through the existing `rooms.roster` snapshot port
@@ -46,7 +46,7 @@ regions once. `view::panes` dispatches workspace snapshots to `workspace::render
 before independent row/pane painters. `board/mod.rs` receives input, snapshots
 and deferred events on one channel; snapshots wake painting directly. Redraws
 follow state/input/resize changes and changed clock text/spinner frames. Each
-paint registers only visible dynamic label budgets and Overview quota rows;
+paint registers only visible dynamic label budgets and Usage-band quota rows;
 clock checks reuse those projections without roster traversal or source reads.
 Clipped countdown suffixes and hidden members do not wake the frame. Geometry
 invalidation clears this registry, and painting sets the next comparison base.
@@ -55,12 +55,15 @@ its scope restores nested paints and unwinding. Input and snapshot updates
 retain no row cache, so changed membership/filtering always resolves fresh.
 
 Workspace tree/detail and conversation chrome use shared Strip/Scrolls.
-`pane_chrome` projects App focus into an accent heavy top rule and bold title; other titles/rules are
-Muted. A retained list selection keeps its cursor but loses the active highlight
-and dims while content has focus. NO_COLOR adds a title marker (`▶`, or `>` with
-the board's ASCII glyph switch), independently of the rule and bold title.
-Pane titles consume one rule row with one-cell side padding, without a bottom
-frame or decorative blank row. App's effective table owns Tab/backtab pane
+`pane_chrome` projects App focus into a frame on all four sides: the focused pane has heavy lines
+(`┏━┓ ┃ ┗━┛`; ASCII `+=+ # +=+`) in the bright `text` role and a bold `▸ ` title (`> ` with the
+board's ASCII glyph switch); other panes have light dim lines (`┌─┐ │ └─┘`) and a `muted` title.
+Content keeps full contrast. Panes under six rows keep only the top rule, and the Digest tab
+leaves the divider column between two framed panes blank (the drag handle stays). The Agents tab
+has no boxes: `pane_chrome::mark_focused_rule` makes the focused column's control rule heavy and
+bright with a leading bold `▸`, and its `▸` counts as part of the rule for the resize hit.
+A retained list selection keeps its cursor but loses the active highlight
+and dims while content has focus. App's effective table owns Tab/backtab pane
 switching; text and modal owners handle their raw events first. The same
 workspace Placement feeds paint and frame-title pointer focus; invalidation
 revokes its authority until a new paint. Conversation reserves its WP1 composer
@@ -142,7 +145,7 @@ state only, no squad data or durable preference policy.
   finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
   state colors (waiting, working, review, blocked) paint in `text` unless the cell is a
   single mark glyph (`MARKS`; a dim or muted mark still becomes `text`). Surfaces name no
-  word/mark classes. Agents/Overview State rectangles are frame-local exclusions
+  word/mark classes. Agents State rectangles are frame-local exclusions
   supplied to that same pass while no blocking overlay is present; the state word
   keeps its foreground under the selection background. Resize/model replacement
   and each frame clear these rectangles. The reverse
@@ -239,7 +242,7 @@ no raw key interception or default binding is added.
 
 ## Workspace and retained identity
 
-`board::shell` selects Overview/Agents/Digest without loading a second roster.
+`board::shell` selects Agents/Digest without loading a second roster.
 `board::keycap` projects effective configured keys through the shared style
 keycap painter; tab, filter, search and Snapshots hosts retain their activation
 and geometry owners. Snapshots uses the existing recovery controller on every tab,
@@ -259,7 +262,7 @@ Ordinary restart reads the selected disposable view layer under the existing
 per-user Ops cache after the opening frame. The default keeps `board/view.json`;
 `ui --view <name>` selects `board/views/<name>.json` (1–32 lowercase ASCII letters,
 digits or hyphens). Each bounded 64 KiB file retains destination, expanded squad
-UUIDs, pool expansion, exact UUID selection, committed search, Overview/Agents
+UUIDs, pool expansion, exact UUID selection, committed search, Agents
 filters and sort, authored chart Range/Each, the shared quota-window choice, and pane scroll offsets clamped
 by the next draw. Missing or unknown quota choices restore the default 7d without
 discarding other valid controls. Old v1 hints
@@ -273,8 +276,8 @@ optional layer caption, which ellipsizes first and disappears only when no name
 cell fits.
 For destination/selection, exec Resume wins. On cold start, `ui --tab` wins over
 global `board.startup_tab` (default `last`), then an explicit startup squad, then
-the retained hint. Fixed choices are `overview`, `agents` and `digest`; the flag
-also accepts `1`, `2` and `3`. An explicit destination keeps compatible expansion
+the retained hint. Fixed choices are `agents` and `digest`; the flag
+also accepts `1` and `2`, and the retired `overview` opens Agents. An explicit destination keeps compatible expansion
 hints without restoring a selection from another destination. Invalid authored
 startup preferences are ignored with a notice; the original bytes are retained.
 The global Ops Config editor exposes this preference as `startup tab`.
@@ -341,7 +344,8 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
 - Message fields use the same editor for grapheme-safe multiline
   editing, source-preserving bracketed paste and cached cell geometry. Enter
   submits; distinct Shift+Enter, Alt+Enter, Ctrl+J or retained Ctrl+N inserts a newline, and Escape
-  retains the draft. The input box has `MAX_BOX_ROWS` (6) rows at most and grows upward
+  retains the draft. The input box is 1 to `MAX_TEXT_ROWS` (6) text rows plus one padding row above and
+  below (`input_field::padding`; `input_field::padded` drops them under 28 frame rows) and grows upward
   with its wrapped content while the info line and footer rows stay fixed. Inside tmux,
   Ops reads `extended-keys` and `extended-keys-format` once at start and requests
   `CSI > 4;1 m` only when extended-keys is on/always and the format is csi-u (popped with
@@ -349,7 +353,19 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   names `backtab`. `App::newline_key` is the one source of the new-line key: the footer
   caption and the info line under the input say `Shift+Enter`/`Shift+⏎` only with confirmed
   keyboard enhancement or that request, otherwise `Alt+Enter`/`Alt+⏎`. Terminals own IME preedit; committed Unicode enters the same
-  editor. Large paste folds retain exact text and can be previewed or removed.
+  editor. `composer::paste` projects direct-message Editor folds as atomic chips
+  when a paste exceeds 500 Unicode characters or 10 logical lines (CRLF counts as
+  one break). The Editor remains the only owner of send bytes and retained folds.
+  Chip body clicks and Ctrl-P open a read-only, scrollable preview anchored above
+  the chip, or below when necessary, within half the conversation pane. Escape
+  and outside presses dismiss the preview without changing the draft; the outside
+  press continues to its underlying control. The chip's × removes its source range.
+  Published chip hits are bounded to their draft UUIDs, fold ID and current range.
+  Ctrl-P selects the Editor's current fold even between paints; the next paint
+  publishes its anchor or closes the preview request when it cannot fit.
+  Painting does not mutate the Editor or the pending-send revision fence.
+  A combining mark joining a neighboring grapheme falls back to ordinary text,
+  preserving every byte rather than splitting the grapheme at a chip edge.
   `mentions` supplies the shared completion component with acquired agent UUIDs
   and squad IDs. Inserting a reference never changes recipients or broadcasts;
   cron stores literal text. Name, configuration and search fields do not complete.
@@ -372,7 +388,7 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
 - A visible conversation reserves its composer inside that pane, anchored to
   the exact selected membership. A note can be delivered to the squad lead;
   Status has no message draft key. Neither changes the conversation owning its
-  input band. Compact Overview moves an explicit message to Agents.
+  input band. A compact Agents tab moves an explicit message to the conversation pane.
   `view::waiting` removes only hits covered by the opaque band, preserving
   independent pointer scrolling in other panes. Headers derive from actual
   Compose recipients/subjects; sender, recipient and source fences run at submit.
@@ -432,7 +448,7 @@ member-row admission; no selected member exposes only context actions. Workspace
 `checklist::{controller,forms,surface,load}` owns one centered square modal and its
 room chooser, independent filters, item selection, authored fields and exact
 confirmation. A visible selected squad or its member in Agents/Digest freezes
-the acquired room UUID; Overview, Common pool and hidden/missing targets require an explicit
+the acquired room UUID; the flat list, Common pool and hidden/missing targets require an explicit
 room choice. Closing retains workspace UUID selection and focus without legacy
 row-index restoration. Default scope is Open / Squad-wide / archived excluded.
 The unfiltered total uses the same archive scope as the matched count. Item Enter

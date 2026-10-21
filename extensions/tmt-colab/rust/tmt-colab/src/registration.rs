@@ -251,16 +251,40 @@ impl Registration {
     }
     /// The owner's page list. Each page carries the summary the cache holds for its current
     /// fingerprint, and pages without one are scheduled for a bounded background refresh: this
-    /// read replies at once with whatever is fresh and never waits for the fold.
+    /// read replies at once with whatever is fresh and never waits for the fold. A page's work and
+    /// its parent are resolved here across the fresh pages, never cached: they change when another
+    /// page does.
     pub fn pages(&self, context: Option<&str>) -> std::result::Result<Vec<u8>, Code> {
         let (mut catalog, fingerprints) = self.page_catalog_fingerprinted(context)?;
+        let fresh: std::collections::BTreeMap<String, crate::summary::Summary> = catalog["pages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|page| {
+                let id = page["pageId"].as_str()?;
+                let summary = self.summaries.get(id, fingerprints.get(id)?)?;
+                Some((id.to_owned(), summary))
+            })
+            .collect();
+        let found: crate::work_index::Found = fresh
+            .iter()
+            .map(|(id, summary)| (id.clone(), summary.work.as_deref().cloned()))
+            .collect();
+        let graph = crate::work_links::Graph(&found);
+        let parents = graph.parents();
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
-            let fresh = page["pageId"]
-                .as_str()
-                .and_then(|id| Some(id).zip(fingerprints.get(id)))
-                .and_then(|(id, fingerprint)| self.summaries.get(id, fingerprint));
-            if let Some(summary) = fresh {
-                page["summary"] = summary.json();
+            let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(summary) = fresh.get(&id) else {
+                continue;
+            };
+            page["summary"] = summary.json();
+            if let Some(work) = graph.row(&id) {
+                page["summary"]["work"] = work;
+            }
+            if let Some((parent, task)) = parents.get(&id) {
+                page["summary"]["parent"] = serde_json::json!({"page": parent, "task": task});
             }
         }
         if let Some(open) = &self.summary_source {
@@ -293,8 +317,13 @@ impl Registration {
                     .iter()
                     .map(|b| format!("{b:02x}"))
                     .collect();
-                serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
-                    "summary":projection.summary.json(),"readings":projection.readings})
+                let mut ready = serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
+                    "summary":projection.summary.json(),"readings":projection.readings,
+                    "needs":projection.needs});
+                if let Some(latest) = &projection.latest {
+                    ready["latest"] = serde_json::json!(latest);
+                }
+                ready
             }
             crate::summary::CachedDetails::Unavailable => {
                 serde_json::json!({"pageId":page,"state":"unavailable"})
@@ -1227,11 +1256,24 @@ impl crate::sync::Admission for OwnerAdmission {
                 if tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str()) {
                     return Err(SyncCode::StaleEpoch.into());
                 }
-                if let crate::sync::Access::Append(c) = access
-                    && (values::decimal(&c.membership_revision, false)? != head.revision
-                        || !matches!(c.namespace.as_str(), "content" | "own"))
-                {
-                    return Err(SyncCode::Denied.into());
+                if let crate::sync::Access::Append(c) = access {
+                    let cited = values::decimal(&c.membership_revision, false)?;
+                    if cited > head.revision
+                        || cited < values::decimal(cert.membership_revision, false)?
+                        || !matches!(c.namespace.as_str(), "content" | "own")
+                    {
+                        return Err(SyncCode::Denied.into());
+                    }
+                    // A session admitted before the head moved seals at the head it knew. Every
+                    // authority fact above is read at the head, so the append stands when the
+                    // statements it missed are all scoped to other pages. Any other change, while
+                    // the device is still authorised, is a stale view and no verdict on the device:
+                    // ask it to catch up, never `DENIED`, which the browser treats as lost access.
+                    if cited < head.revision
+                        && !tx.unrelated_since(&scope.page, cited, head.revision)?
+                    {
+                        return Err(SyncCode::ResyncRequired.into());
+                    }
                 }
                 Ok(binding.signing)
             })
@@ -1384,6 +1426,118 @@ mod describe_tests {
     use super::*;
     use crate::summary::{Summary, SummaryProjection};
 
+    /// A page's work row and parent are resolved across the pages the cache holds fresh.
+    #[test]
+    fn the_owner_list_resolves_work_and_parent_across_fresh_pages_only() {
+        use serde_json::json;
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "colab-list-work-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let store = Store::open(&layout).unwrap();
+        let (top, leaf, bare, unread) = (
+            "00000000-0000-4000-8000-000000000002",
+            "00000000-0000-4000-8000-000000000003",
+            "00000000-0000-4000-8000-000000000004",
+            "00000000-0000-4000-8000-000000000005",
+        );
+        for page in [top, leaf, bare, unread] {
+            store.create_page(page).unwrap();
+        }
+        let mut service =
+            Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap();
+        service.genesis().unwrap();
+        let context = json!({"deviceId":"00000000-0000-4000-8000-000000000009","kind":"browser",
+            "origin":"http://127.0.0.1:1","name":"Laptop",
+            "publicKey":values::encode_binary(&service.keyring.owner_public()),
+            "owner":true,"grantRevision":1})
+        .to_string();
+        let (_, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
+        // `top` has a finished task of its own and one that follows `leaf`; `leaf` is done.
+        let work = |tasks: serde_json::Value, order: serde_json::Value, next: u32| json!({"work": {"version":1,"next":next,"tasks":tasks,"order":order}});
+        let top_work = work(
+            json!({
+                "T-1":{"title":"Leaf","state":"todo","child":leaf},
+                "T-2":{"title":"Own","state":"done"}
+            }),
+            json!(["T-1", "T-2"]),
+            3,
+        );
+        let leaf_work = work(
+            json!({"T-1":{"title":"Do","state":"done"}}),
+            json!(["T-1"]),
+            2,
+        );
+        let put = |page: &str, fingerprint: &str, meta: Option<&serde_json::Value>| {
+            service.summaries.put(
+                page,
+                fingerprint,
+                Some(SummaryProjection::from(Summary {
+                    comments: 0,
+                    waiting: false,
+                    needs_you: 0,
+                    author: None,
+                    work: meta
+                        .and_then(|meta| crate::work_index::page_work(page, meta))
+                        .map(Box::new),
+                })),
+            )
+        };
+        put(top, &fingerprints[top], Some(&top_work));
+        put(leaf, &fingerprints[leaf], Some(&leaf_work));
+        put(bare, &fingerprints[bare], None);
+        let rows =
+            |service: &Registration| -> std::collections::BTreeMap<String, serde_json::Value> {
+                let list: serde_json::Value =
+                    serde_json::from_slice(&service.pages(Some(&context)).unwrap()).unwrap();
+                list["pages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|page| (page["pageId"].as_str().unwrap().to_owned(), page.clone()))
+                    .collect()
+            };
+        let list = rows(&service);
+        // `leaf` is done, so the task that follows it is done and `top` is done: the stage crosses
+        // pages. The row names no per-task state and no assignee id.
+        assert_eq!(
+            list[top]["summary"]["work"],
+            json!({"stage":"done","done":2,"total":2,"signoff":0,"working":[]})
+        );
+        assert_eq!(
+            list[leaf]["summary"]["work"],
+            json!({"stage":"done","done":1,"total":1,"signoff":0,"working":[]})
+        );
+        assert_eq!(
+            list[leaf]["summary"]["parent"],
+            json!({"page":top,"task":"T-1"})
+        );
+        // A fresh page without work has a summary and neither field; a page without a fresh summary
+        // has no summary at all.
+        assert!(list[bare]["summary"].get("work").is_none());
+        assert!(list[bare]["summary"].get("parent").is_none());
+        assert!(list[top]["summary"].get("parent").is_none());
+        assert!(list[unread].get("summary").is_none());
+
+        // The followed page goes stale: its stage is unknown, so the task keeps its own state.
+        put(leaf, "stale fingerprint", Some(&leaf_work));
+        let list = rows(&service);
+        assert_eq!(list[top]["summary"]["work"]["stage"], "in-progress");
+        assert_eq!(list[top]["summary"]["work"]["done"], 1);
+        assert!(list[leaf].get("summary").is_none());
+    }
+
     #[test]
     fn describe_matches_active_waiting_pages_and_omits_unknown_counts() {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -1445,6 +1599,7 @@ mod describe_tests {
                     waiting: count > 0,
                     needs_you: count,
                     author: None,
+                    work: None,
                 })),
             )
         };

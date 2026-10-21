@@ -217,6 +217,21 @@ test('opaque frame cannot read app storage, cookies, native keys or bridge; no n
   await expect(homeList(page)).toBeVisible();
 });
 
+test('selection mode annotates a link before ordinary link interception', async ({ page }) => {
+  await page.goto('/');
+  await mount(page, '<p><a href="https://example.com/">Comment on this link</a></p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(() => {
+    (
+      window as unknown as { probe: { handle: { selectionMode(value: boolean): void } } }
+    ).probe.handle.selectionMode(true);
+  });
+  await page.frameLocator('#probe iframe').getByRole('link').click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'Comment on this link');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+});
+
 test('self-navigation can leak one request, then tears down the frame and never resumes it', async ({
   page,
 }) => {

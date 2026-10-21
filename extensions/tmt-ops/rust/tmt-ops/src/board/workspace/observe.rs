@@ -106,12 +106,10 @@ impl OpsWorkspaceSnapshot {
         self.read_markers = config.read_markers()?;
         self.config_path = config.path().display().to_string();
         let scopes = [
-            OpsKeyScope::Overview,
             OpsKeyScope::Squad,
             OpsKeyScope::Member,
             OpsKeyScope::Pool,
             OpsKeyScope::Reader,
-            OpsKeyScope::OverviewReader,
         ];
         for scope in scopes {
             let keys = config.workspace_keys(scope, None, None)?;

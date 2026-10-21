@@ -161,6 +161,62 @@ it('reassembles exact bounded chunks, binds referenced ID and waits as long as t
   }
 });
 
+it('reassembles an anchor frame as the single object it is, and refuses one that is not alone', async () => {
+  const f = await fixture(),
+    frames = new Frames(f.admission),
+    env = await f.seal(f.context, new Uint8Array(50_000)),
+    row = await f.entry(env);
+  const scope = {
+      version: 1,
+      space: f.context.space,
+      page: f.context.page,
+      epoch: f.context.epoch,
+    },
+    id = c.decodeHeader(env.header()).objectId;
+  const anchor = (entry: object, more: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      ...scope,
+      type: 'catchup',
+      streams: [
+        {
+          streamId: f.context.authorDevice,
+          namespace: 'content',
+          checkpoint: null,
+          anchor: entry,
+          tail: [],
+          ...more,
+        },
+      ],
+      more: true,
+    });
+  // A small anchor arrives whole; a large one is referenced and then assembled from its parts.
+  const small = await f.entry(await f.seal(f.context, new Uint8Array(100)));
+  expect(frames.receive(anchor(small))).not.toBeNull();
+  expect(frames.receive(anchor({ ...row, envelope: { objectId: id } }))).toBeNull();
+  const bytes = env.toJson(),
+    count = Math.ceil(bytes.length / 32768);
+  let complete: Record<string, unknown> | null = null;
+  for (let index = 0; index < count; index++)
+    complete = frames.receive(
+      JSON.stringify({
+        ...scope,
+        type: 'chunk',
+        objectId: id,
+        envelopeHash: row.envelopeHash,
+        index,
+        count,
+        bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
+      }),
+    );
+  const streams = complete?.streams as { anchor: { envelope: string } }[];
+  expect(streams[0].anchor.envelope).toBe(row.envelope);
+  // The anchor is alone in its frame: no checkpoint, no tail and no key of another shape.
+  expect(() => frames.receive(anchor(small, { checkpoint: small }))).toThrow();
+  expect(() => frames.receive(anchor(small, { tail: [small] }))).toThrow();
+  expect(() => frames.receive(anchor(small, { extra: 1 }))).toThrow();
+  expect(() => frames.receive(anchor({ ...small, extra: 1 }))).toThrow();
+});
+
 it('paired checkpoints bind one prefix and preserve the cross-namespace tail chain', async () => {
   const f = await fixture(),
     objects = new Objects(f.admission),

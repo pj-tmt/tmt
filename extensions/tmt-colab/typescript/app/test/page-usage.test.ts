@@ -85,6 +85,26 @@ it('reads a compaction report that either combined something or says why not', (
   for (const value of wrong) expect(() => compactReport(value), JSON.stringify(value)).toThrow();
 });
 
+it('reads the streams a compaction folded, left and did not reach, and nothing else', () => {
+  const stream = '50000000-0000-4000-8000-000000000002';
+  const fold = { folded: [{ stream, through: 4, mergedObjects: 4 }] };
+  const left = { left: [{ stream, why: 'published' as const }] };
+  for (const extra of [fold, left, { unfolded: 2 }, { ...fold, ...left, unfolded: 1 }])
+    expect(compactReport(report(extra))).toEqual(report(extra));
+  const wrong: unknown[] = [
+    { ...report(), folded: [] },
+    { ...report(), folded: [{ stream, through: 4 }] },
+    { ...report(), folded: [{ stream, through: -1, mergedObjects: 1 }] },
+    { ...report(), folded: [{ ...fold.folded[0], extra: 1 }] },
+    { ...report(), left: [{ stream, why: 'because' }] },
+    { ...report(), left: [{ stream, why: 'published', extra: 1 }] },
+    { ...report(), left: 'published' },
+    { ...report(), unfolded: -1 },
+    { ...report(), unfolded: 1.5 },
+  ];
+  for (const value of wrong) expect(() => compactReport(value), JSON.stringify(value)).toThrow();
+});
+
 it("settles a reply with the payload or the serve's refusal, and rejects any other shape", () => {
   expect(pageReply(frame({ usage: usage() }), 'usage', pageUsage)).toEqual(usage());
   const refused = () =>

@@ -1373,3 +1373,22 @@ svg.tmt-ui-mark {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+/* The one spinner rule: a LoaderCircle turns once every 0.9 s, linear and infinite. A busy mark in an
+   Action or IconAction turns without a class; any other LoaderCircle opts in with `tmt-ui-spin`.
+   Under reduced motion it stays still and visible, and its words or aria text still name the state. */
+.tmt-ui-spin,
+.tmt-ui-action-mark[data-busy='true'] > svg {
+  animation: tmt-ui-spin 0.9s linear infinite;
+}
+@keyframes tmt-ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tmt-ui-spin,
+  .tmt-ui-action-mark[data-busy='true'] > svg {
+    animation: none;
+  }
+}

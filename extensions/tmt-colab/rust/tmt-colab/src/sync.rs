@@ -70,6 +70,16 @@ impl From<store::Fault> for Code {
         }
     }
 }
+/// One admitted object of [`Server::ingest_bootstrap`]: a checkpoint or fold, or the update a
+/// fold binds.
+pub struct Bootstrapped {
+    pub namespace: store::Namespace,
+    pub hash: [u8; 32],
+    pub previous: [u8; 32],
+    pub bytes: Vec<u8>,
+    /// The device that signed a fold.
+    pub signer: Option<String>,
+}
 /// The trusted caller resolves live device/page/epoch authority from its verified
 /// owner log and certificate chain. It must reject expired/revoked principals,
 /// stale epochs and unauthorized namespaces/revisions, including on Read.
@@ -178,6 +188,8 @@ struct Peer {
     hello: bool,
     catchup: Option<Catchup>,
     chains: std::collections::HashSet<String>,
+    /// The streams and sequences whose owner-fold anchor catch-up already sent this peer.
+    anchored: std::collections::HashSet<(String, u64)>,
     in_flight: usize,
     object_pending: usize,
     incoming: Option<Incoming>,
@@ -219,6 +231,7 @@ impl Peer {
             hello: false,
             catchup: None,
             chains: Default::default(),
+            anchored: Default::default(),
             in_flight: 0,
             object_pending: 0,
             incoming: None,
@@ -796,6 +809,58 @@ impl<A: Admission> Server<A> {
         }
         state.apply(None, scope, &principal, &checked, author_key, false)
     }
+    /// Install the checkpoint pair (or owner fold pair) the cloud delivered for a stream this
+    /// machine holds nothing of, in the Store's one bootstrap transaction, then announce each
+    /// stored checkpoint as for a local compact. The caller has already admitted every object and
+    /// the anchor a fold binds. Nothing is queued for publication.
+    pub fn ingest_bootstrap(
+        &self,
+        scope: &SyncScope,
+        stream: &str,
+        seq: u64,
+        anchor: Option<&Bootstrapped>,
+        objects: &[Bootstrapped],
+    ) -> Result<Accepted, Code> {
+        let epoch = values::decimal(&scope.epoch, false)?;
+        let at = StreamScope {
+            page: &scope.page,
+            epoch,
+            stream,
+        };
+        fn envelope<'a>(
+            scope: StreamScope<'a>,
+            seq: u64,
+            object: &'a Bootstrapped,
+        ) -> store::Envelope<'a> {
+            store::Envelope {
+                scope,
+                namespace: object.namespace,
+                seq,
+                hash: object.hash,
+                previous: object.previous,
+                bytes: &object.bytes,
+            }
+        }
+        let anchor = anchor.map(|object| envelope(at, seq, object));
+        let installed: Vec<store::Bootstrapped<'_>> = objects
+            .iter()
+            .map(|object| store::Bootstrapped {
+                envelope: envelope(at, seq, object),
+                signer: object.signer.as_deref(),
+            })
+            .collect();
+        let mut state = self.0.lock().map_err(|_| Code::Denied)?;
+        if state.draining {
+            return Err(Code::ResyncRequired);
+        }
+        let accepted = state.store.bootstrap(anchor.as_ref(), &installed)?;
+        if accepted == Accepted::New {
+            for object in objects {
+                state.announce_checkpoint(scope, stream, object.namespace, seq);
+            }
+        }
+        Ok(accepted)
+    }
     /// Share the activity the cloud-sync worker waits on.
     pub fn set_activity(&self, activity: ActivePage) -> Result<(), Code> {
         self.0.lock().map_err(|_| Code::Denied)?.activity = activity;
@@ -821,7 +886,7 @@ impl<A: Admission> Server<A> {
         state.recheck();
         Ok(())
     }
-    /// Commit management and invalidate only its newly archived page under the same
+    /// Commit management and invalidate only its newly archived/restored page under the same
     /// sync lock, before a fresh read peer can subscribe. Admission still owns all denials.
     pub fn manage(
         &self,
@@ -836,7 +901,7 @@ impl<A: Admission> Server<A> {
             .map_err(|_| crate::management::Code::Unavailable)?;
         let mut applied = change(&mut state.admission)?;
         state.recheck();
-        if let Some(page) = applied.archived_page.take() {
+        if let Some(page) = applied.resync_page.take() {
             for peer in state.peers.values_mut() {
                 if peer.scope.as_ref().is_some_and(|scope| scope.page == page) {
                     peer.end(Code::ResyncRequired);
@@ -1304,6 +1369,15 @@ impl<A: Admission> State<A> {
                             through: report.through,
                         },
                     );
+                    for folded in &report.folded {
+                        self.announce_combined(
+                            &scope,
+                            &Combined {
+                                stream: folded.stream.clone(),
+                                through: folded.through,
+                            },
+                        );
+                    }
                 }
                 let result = report.map(|report| serde_json::json!({ "report": report }));
                 self.reply_page(id, &scope, "compactresult", result)?;
@@ -1819,33 +1893,94 @@ impl<A: Admission> State<A> {
         if let Some(((stream, ns), object)) = next {
             let decoded = object::Envelope::from_json(&object.bytes)?;
             let header = object::Header::decode(decoded.header())?;
-            if header.context.author_device != stream
+            // A fold is the checkpoint of the stream it covers (colab-v1, "Owner fold"): another
+            // owner-member device signed it, and it names the stream as its covered device.
+            let fold = header.covered_device.is_some();
+            let author = if fold {
+                header.covered_device.as_deref().unwrap_or_default()
+            } else {
+                header.context.author_device.as_str()
+            };
+            if author != stream
                 || header.context.namespace != ns
                 || values::decimal(&header.context.stream_seq, false)? != object.cursor.seq
                 || header.context.kind
-                    != if object.checkpoint {
-                        "checkpoint"
-                    } else {
-                        "update"
+                    != match (object.checkpoint, fold) {
+                        (true, true) => object::FOLD,
+                        (true, false) => "checkpoint",
+                        (false, false) => "update",
+                        (false, true) => return Err(Code::Invalid),
                     }
             {
                 return Err(Code::Invalid);
             }
-            let (envelope, transfer) = delivery(&scope, object.cursor.hash, object.bytes)?;
-            let entry = serde_json::json!({"seq":object.cursor.seq.to_string(),"envelopeHash":values::encode_binary(&object.cursor.hash),"envelope":envelope});
-            let chains = if peer.chains.contains(&stream) {
-                Vec::new()
-            } else {
+            let seq = object.cursor.seq;
+            // The covered device's chain, and the signer's when it is another device. They go
+            // with the first object a peer needs them for: the anchor frame of a fold.
+            let mut wanted = vec![stream.clone()];
+            if fold {
+                wanted.push(header.context.author_device.clone());
+            }
+            let mut chains = Vec::new();
+            for device in wanted {
+                if peer.chains.contains(&device)
+                    || chains.iter().any(|c: &(String, Vec<u8>)| c.0 == device)
+                {
+                    continue;
+                }
                 let chain = self
                     .store
-                    .owner_read(&scope.space, &catchup.owner, |tx| tx.author_chain(&stream))
+                    .owner_read(&scope.space, &catchup.owner, |tx| tx.author_chain(&device))
                     .map_err(bootstrap_error)?;
-                vec![serde_json::json!({"deviceId":stream,"chain":values::encode_binary(&chain)})]
+                chains.push((device, chain));
+            }
+            let chains_json = |chains: &[(String, Vec<u8>)]| -> Vec<serde_json::Value> {
+                chains
+                    .iter()
+                    .map(|(device, chain)| serde_json::json!({"deviceId":device,"chain":values::encode_binary(chain)}))
+                    .collect()
             };
+            if fold && !peer.anchored.contains(&(stream.clone(), seq)) {
+                // The anchor goes first, as its own frame: the update the fold binds, which the
+                // peer checks the fold against and applies nothing from.
+                let stream_scope = StreamScope {
+                    page: &scope.page,
+                    epoch,
+                    stream: &stream,
+                };
+                let anchor = if catchup.wrap_epoch > epoch {
+                    self.store.retained_anchor(stream_scope, seq)?
+                } else {
+                    self.store.anchor(stream_scope, seq)?
+                }
+                .ok_or(Code::ResyncRequired)?;
+                let (envelope, transfer) = delivery(&scope, anchor.hash, anchor.bytes)?;
+                let entry = serde_json::json!({"seq":seq.to_string(),"envelopeHash":values::encode_binary(&anchor.hash),"envelope":envelope});
+                let text = wire::output(
+                    &scope,
+                    "catchup",
+                    serde_json::json!({"chains":chains_json(&chains),"streams":[{
+                    "streamId":stream,"namespace":anchor.namespace.name(),"checkpoint":serde_json::Value::Null,
+                    "anchor":entry,"tail":Vec::<serde_json::Value>::new()
+                }],"more":true}),
+                )?;
+                let peer = self.peers.get_mut(&id).ok_or(Code::Denied)?;
+                peer.anchored.insert((stream, seq));
+                for (device, _) in chains {
+                    peer.chains.insert(device);
+                }
+                peer.push(text);
+                if let Some(transfer) = transfer {
+                    peer.enqueue(transfer);
+                }
+                return Ok(());
+            }
+            let (envelope, transfer) = delivery(&scope, object.cursor.hash, object.bytes)?;
+            let entry = serde_json::json!({"seq":seq.to_string(),"envelopeHash":values::encode_binary(&object.cursor.hash),"envelope":envelope});
             let text = wire::output(
                 &scope,
                 "catchup",
-                serde_json::json!({"chains":chains,"streams":[{
+                serde_json::json!({"chains":chains_json(&chains),"streams":[{
                 "streamId":stream,"namespace":ns,"checkpoint":if object.checkpoint { entry.clone() } else { serde_json::Value::Null },
                 "tail":if object.checkpoint { Vec::<serde_json::Value>::new() } else { vec![entry] }
             }],"more":true}),
@@ -1856,7 +1991,9 @@ impl<A: Admission> State<A> {
                 .ok_or(Code::Invalid)?
                 .positions
                 .insert((stream.clone(), ns), object.cursor);
-            peer.chains.insert(stream);
+            for (device, _) in chains {
+                peer.chains.insert(device);
+            }
             peer.push(text);
             if let Some(transfer) = transfer {
                 peer.enqueue(transfer);

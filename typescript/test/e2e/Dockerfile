@@ -72,11 +72,13 @@ COPY --from=native-tests /native-artifacts/tmt-ops /workspace/rust/target/debug/
 COPY --from=native-tests /native-artifacts/tmt-remote /workspace/rust/target/debug/tmt-remote
 # test/support/cli-process launches native scenarios through this neutral caller fixture.
 COPY --from=native-tests /native-artifacts/codex /workspace/rust/target/debug/examples/runtime-caller-fixture
+# Selection changes never invalidate the Cargo or frozen-pnpm build layers above.
+COPY typescript/scripts/e2e-adapter-tests.mjs /opt/tmt-tests/e2e-adapter-tests.mjs
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.
 # TMT_E2E_FILES (validated plain file names) limits the suite to those files, and
-# TMT_E2E_ADAPTER_TESTS=0 skips the Rust adapter tests; CI sets both per shard. Vitest
+# TMT_E2E_ADAPTER_TESTS=0 skips the pinned-ps adapter slice; CI sets both per shard. Vitest
 # matches a positional filter by substring, so each name becomes the anchored path
 # test/e2e/<name>: a bare routing.e2e.test.ts would also select check-routing.e2e.test.ts.
-CMD ["sh", "-c", "if [ \"${TMT_E2E_ADAPTER_TESTS:-1}\" = 1 ]; then /opt/tmt-tests/adapter-tests; fi && cd /workspace/typescript && for name in $TMT_E2E_FILES; do set -- \"$@\" \"test/e2e/$name\"; done && exec pnpm exec vp test run --config test/e2e/vitest.config.ts \"$@\""]
+CMD ["sh", "-c", "if [ \"${TMT_E2E_ADAPTER_TESTS:-1}\" = 1 ]; then node /opt/tmt-tests/e2e-adapter-tests.mjs; fi && cd /workspace/typescript && for name in $TMT_E2E_FILES; do set -- \"$@\" \"test/e2e/$name\"; done && exec pnpm exec vp test run --config test/e2e/vitest.config.ts \"$@\""]

@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator } from '@playwright/test';
 import { text } from '../src/strings.js';
 import {
@@ -298,12 +299,92 @@ test('a file that cannot be opened is reported on its own row without touching o
   await expect(entries.nth(1).getByRole('alert')).toHaveCount(0);
 });
 
+// #4032: shared sent-image geometry, independently of the answer's styles.
+for (const surface of ['thread', 'chat'] as const)
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const)
+      test(`sent image tiles stay level at ${surface} ${width} ${theme}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await mount(page);
+        const { panel, input } = await (async () => {
+          if (surface === 'chat') return openChat(page);
+          const quote = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+          await quote.evaluate((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const selection = getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+          });
+          await page.getByTestId('selection-ask').click();
+          return {
+            panel: page.locator('.comment-thread'),
+            input: page.getByRole('combobox', { name: 'Message', exact: true }),
+          };
+        })();
+        await input.fill('Review these two images.');
+        const names = ['tradeoffs.png', 'second-screenshot.png'];
+        await attach(
+          page,
+          names.map((name) => ({ name, mimeType: 'image/png', buffer: PNG })),
+        );
+        await send(page).click();
+        const images = panel.locator('.message-image');
+        await expect(images).toHaveCount(2);
+        for (const [index, name] of names.entries()) {
+          await expect(images.nth(index).locator('img')).toBeVisible();
+          await expect(images.nth(index).locator('.attachment-name')).toHaveAttribute(
+            'title',
+            name,
+          );
+          await expect(
+            images.nth(index).getByRole('button', { name: `Preview ${name}`, exact: true }),
+          ).toBeVisible();
+        }
+        const geometry = await images.evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const image = node.querySelector('.attachment-thumbnail')!.getBoundingClientRect();
+            const labels = [...node.querySelectorAll('.attachment-name, .attachment-size')].map(
+              (label) => {
+                const style = getComputedStyle(label);
+                return {
+                  lines: label.getBoundingClientRect().height / parseFloat(style.lineHeight),
+                  overflow: style.textOverflow,
+                  whitespace: style.whiteSpace,
+                };
+              },
+            );
+            return { top: image.top, width: image.width, height: image.height, labels };
+          }),
+        );
+        expect(Math.abs(geometry[0].top - geometry[1].top)).toBeLessThanOrEqual(1);
+        expect(Math.abs(geometry[0].width - geometry[1].width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(geometry[0].height - geometry[1].height)).toBeLessThanOrEqual(1);
+        expect(geometry[0].width).toBeGreaterThan(0);
+        for (const tile of geometry) {
+          expect(tile.labels).toHaveLength(2);
+          for (const label of tile.labels) {
+            expect(label.lines).toBeLessThan(1.1);
+            expect(label.overflow).toBe('ellipsis');
+            expect(label.whitespace).toBe('nowrap');
+          }
+        }
+        const captures = process.env.COLAB_SENT_FILES_CAPTURE_DIR;
+        if (captures) {
+          mkdirSync(captures, { recursive: true });
+          await page.screenshot({
+            fullPage: true,
+            path: `${captures}/${surface}-${width}-${theme}.png`,
+          });
+        }
+      });
+
 const captures = process.env.COLAB_1854_CAPTURE_DIR;
 for (const surface of ['chat', 'thread'] as const)
   for (const width of [1440, 390])
     for (const scheme of ['light', 'dark'] as const)
       test(`captures the attachment states at ${surface} ${width} ${scheme}`, async ({ page }) => {
-        test.skip(!captures, 'Set COLAB_1854_CAPTURE_DIR to write UX review captures.');
         await page.emulateMedia({ colorScheme: scheme });
         await page.setViewportSize({ width, height: 900 });
         await mount(page);
@@ -329,8 +410,13 @@ for (const surface of ['chat', 'thread'] as const)
           { name: 'shot.png', mimeType: 'image/png', buffer: PNG },
           note('refuse.bin'),
         ]);
-        const shot = (name: string) =>
-          page.screenshot({ path: `${captures}/1854-${surface}-${name}-${width}-${scheme}.png` });
+        const shot = async (name: string) => {
+          if (!captures) return;
+          mkdirSync(captures, { recursive: true });
+          await page.screenshot({
+            path: `${captures}/1854-${surface}-${name}-${width}-${scheme}.png`,
+          });
+        };
         await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
         await expect(panel.getByTestId('attachment-chip').last()).toHaveAttribute(
           'data-state',
@@ -339,21 +425,39 @@ for (const surface of ['chat', 'thread'] as const)
         await shot('chips-ready');
         await page.evaluate(async (path) => (await import(path)).pauseAttachmentUploads(), fixture);
         await send(page).click();
-        await expect(panel.getByTestId('attachment-chip').first()).toHaveAttribute(
-          'data-state',
-          'uploading',
-        );
+        // Send moves the draft into a pending echo before the held upload can finish.
+        await expect
+          .poll(async () =>
+            (await actions(page)).filter((action) => action.startsWith('attach:upload:')),
+          )
+          .toEqual(['attach:upload:notes.txt']);
+        const pending = panel.getByTestId('comment-echo');
+        await expect(pending).toHaveCount(1);
+        await expect(pending).toContainText('Files for review');
+        await expect(pending.getByRole('alert')).toHaveCount(0);
+        await expect(panel.getByTestId('attachment-chip')).toHaveCount(0);
+        await expect(input).toHaveText('', { useInnerText: true });
         await expect(send(page)).toBeDisabled();
-        await shot('chips-uploading');
+        expect((await actions(page)).filter((action) => action.startsWith('message:'))).toEqual([]);
+        await shot('send-pending');
         await page.evaluate(
           async (path) => (await import(path)).resumeAttachmentUploads(),
           fixture,
         );
-        await expect(panel.getByTestId('attachment-chip').nth(2)).toHaveAttribute(
-          'data-state',
-          'refused',
+        await expect(pending.getByRole('alert')).toHaveText(
+          `✗ ${text.messageUnsent} ${text.messageSendReference('S10')}`,
         );
-        await panel.getByTestId('attachment-chip').last().scrollIntoViewIfNeeded();
+        await shot('send-failed');
+        await unsentThenEdit(panel, 'S10');
+        await expect(input).toHaveText('Files for review', { useInnerText: true });
+        const chips = panel.getByTestId('attachment-chip');
+        await expect(chips).toHaveCount(3);
+        await expect(chips.nth(0)).toHaveAttribute('data-state', 'stored');
+        await expect(chips.nth(1)).toHaveAttribute('data-state', 'stored');
+        await expect(chips.nth(2)).toHaveAttribute('data-state', 'refused');
+        await expect(chips.nth(2)).toContainText(text.attachRefused.capacity);
+        expect((await actions(page)).filter((action) => action.startsWith('message:'))).toEqual([]);
+        await chips.last().scrollIntoViewIfNeeded();
         await shot('chips-refused');
         await panel.getByRole('button', { name: text.attachRemove }).last().click();
         await send(page).click();
@@ -362,6 +466,18 @@ for (const surface of ['chat', 'thread'] as const)
           .filter({ has: page.getByRole('button', { name: 'Preview shot.png' }) });
         await expect(png.locator('img')).toBeVisible();
         await shot('message-preview');
+        await expect(panel.getByTestId('comment-echo')).toHaveCount(0);
+        await expect(panel.getByTestId('message-attachment')).toHaveCount(2);
+        expect(
+          (await actions(page)).filter((action) => action.startsWith('attach:upload:')),
+        ).toEqual([
+          'attach:upload:notes.txt',
+          'attach:upload:shot.png',
+          'attach:upload:refuse.bin',
+        ]);
+        expect((await actions(page)).filter((action) => action.startsWith('message:'))).toEqual([
+          'message:Files for review:2',
+        ]);
       });
 
 test('an epoch or admission change disposes and rereads the visible thumbnail', async ({

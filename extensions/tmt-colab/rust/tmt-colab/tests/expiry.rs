@@ -108,7 +108,18 @@ impl Fixture {
         let context = json!({"deviceId":"30000000-0000-4000-8000-000000000001", "kind":"browser", "origin":"http://127.0.0.1:1", "name":"Owner", "owner":true, "grantRevision":1,
             "publicKey":values::encode_binary(SigningKey::from_bytes(&[9;32]).verifying_key().as_bytes())}).to_string();
         let api_pages: Value = serde_json::from_slice(&api.pages(Some(&context)).unwrap()).unwrap();
-        assert_eq!(cli["pages"], api_pages["pages"]);
+        // The CLI catalog also says when each page is archived (#2600); the browser's does not, and
+        // everything else is the same verified projection.
+        let mut shared = cli["pages"].clone();
+        for page in shared.as_array_mut().unwrap() {
+            for field in ["lastActivityAtMs", "archiveAfterDays", "archiveAtMs"] {
+                assert!(
+                    page.as_object_mut().unwrap().remove(field).is_some(),
+                    "{field}"
+                );
+            }
+        }
+        assert_eq!(shared, api_pages["pages"]);
         api.close().unwrap();
         cli["pages"][0].clone()
     }
@@ -323,4 +334,178 @@ fn content_samples_append_clock_and_failed_late_receipt_rolls_back_time() {
     let p = f.projection();
     assert_eq!(p["lastUpdateAtMs"], NOW + 40 * DAY);
     assert_eq!(p["archived"], true);
+}
+
+#[test]
+fn restore_restarts_activity_atomically_without_changing_keys_content_or_replaying_activity() {
+    let mut f = Fixture::new();
+    f.create();
+    let activity = |f: &Fixture| {
+        f.sql()
+            .query_row(
+                "SELECT last_activity_at_ms FROM pages WHERE page=?",
+                [PAGE],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap() as u64
+    };
+    let before = page::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    let retained = |f: &Fixture| {
+        let db = f.sql();
+        [
+            "SELECT secret FROM epoch_secrets ORDER BY page,epoch",
+            "SELECT envelope FROM wraps ORDER BY page,epoch,kind,recipient,revision",
+            "SELECT record FROM recipients ORDER BY kind,id",
+            "SELECT record FROM devices ORDER BY id",
+            "SELECT envelope FROM baselines ORDER BY page,epoch",
+        ]
+        .map(|sql| {
+            let mut statement = db.prepare(sql).unwrap();
+            statement
+                .query_map([], |row| row.get::<_, Vec<u8>>(0))
+                .unwrap()
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .unwrap()
+        })
+    };
+    let original = retained(&f);
+    f.apply(OwnerAction::Archive { page: PAGE });
+    let head = f
+        .store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap();
+    let restore = |f: &mut Fixture| {
+        f.engine.apply(
+            &mut f.store,
+            &f.key,
+            OwnerRequest {
+                operation_id: "90000000-0000-4000-8000-000000000001",
+                expected_revision: head.revision,
+                action: OwnerAction::Unarchive { page: PAGE },
+                transport_digest: None,
+                scope: None,
+            },
+            NOW,
+        )
+    };
+    f.clock.store(NOW + 40 * DAY, Ordering::SeqCst);
+    // This returned-error fault is after both statement and activity writes, before their receipt.
+    f.sql().execute_batch("CREATE TRIGGER deny_restore_receipt BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(FAIL,'restore rollback'); END;").unwrap();
+    assert!(restore(&mut f).is_err());
+    assert_eq!(
+        f.store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap(),
+        Some(head.clone())
+    );
+    let unchanged = f.projection();
+    assert_eq!(unchanged["archived"], true);
+    assert_eq!(unchanged["lastUpdateAtMs"], NOW);
+    assert_eq!(activity(&f), NOW);
+    assert_eq!(retained(&f), original);
+    f.sql()
+        .execute_batch("DROP TRIGGER deny_restore_receipt")
+        .unwrap();
+    let committed = restore(&mut f).unwrap();
+    assert!(!committed.replayed);
+    let restored = f.projection();
+    assert_eq!(restored["archived"], false);
+    assert_eq!(
+        restored["lastUpdateAtMs"], NOW,
+        "restore is not a content edit"
+    );
+    assert_eq!(activity(&f), NOW + 40 * DAY);
+    assert_eq!(
+        f.store.last_activity_ms(PAGE).unwrap(),
+        Some(NOW + 40 * DAY)
+    );
+    assert_eq!(restored["epoch"], before.epoch);
+    assert_eq!(retained(&f), original);
+    let after = page::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert_eq!(after.source, before.source);
+    assert_eq!(after.title, before.title);
+    assert_eq!(after.epoch, before.epoch);
+    f.clock.store(NOW + 50 * DAY, Ordering::SeqCst);
+    let replay = restore(&mut f).unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.outcome, committed.outcome);
+    assert_eq!(replay.head, committed.head);
+    assert_eq!(f.projection()["lastUpdateAtMs"], NOW);
+    assert_eq!(activity(&f), NOW + 40 * DAY);
+    f.apply(OwnerAction::Archive { page: PAGE });
+    f.clock.store(NOW + 39 * DAY, Ordering::SeqCst);
+    f.apply(OwnerAction::Unarchive { page: PAGE });
+    assert_eq!(
+        activity(&f),
+        NOW + 40 * DAY,
+        "page activity never moves backwards"
+    );
+}
+
+#[test]
+fn restore_refuses_active_and_deleted_pages_without_recording_activity_or_an_operation() {
+    let mut f = Fixture::new();
+    f.create();
+    for deleted in [false, true] {
+        if deleted {
+            f.apply(OwnerAction::Archive { page: PAGE });
+            f.apply(OwnerAction::Delete { page: PAGE });
+        }
+        let head = f
+            .store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap()
+            .unwrap();
+        let count: i64 = f
+            .sql()
+            .query_row("SELECT count(*) FROM owner_operations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let error = f
+            .engine
+            .apply(
+                &mut f.store,
+                &f.key,
+                OwnerRequest {
+                    operation_id: if deleted {
+                        "90000000-0000-4000-8000-000000000003"
+                    } else {
+                        "90000000-0000-4000-8000-000000000002"
+                    },
+                    expected_revision: head.revision,
+                    action: OwnerAction::Unarchive { page: PAGE },
+                    transport_digest: None,
+                    scope: None,
+                },
+                NOW,
+            )
+            .expect_err("restore must be refused");
+        assert_eq!(error.code, tmt_colab::transitions::Code::Denied);
+        assert_eq!(
+            f.store
+                .owner_head(&f.key.space_id, &f.key.owner_public())
+                .unwrap(),
+            Some(head.clone())
+        );
+        assert_eq!(
+            f.sql()
+                .query_row("SELECT count(*) FROM owner_operations", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            count
+        );
+        assert_eq!(f.store.last_activity_ms(PAGE).unwrap(), Some(NOW));
+        assert_eq!(
+            f.sql()
+                .query_row(
+                    "SELECT last_update_at_ms FROM pages WHERE page=?",
+                    [PAGE],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            NOW as i64
+        );
+    }
 }

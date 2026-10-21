@@ -22,7 +22,15 @@ const ready = () => ({
   fingerprint: 'a'.repeat(64),
   summary,
   readings: [descriptor],
+  needs: [],
 });
+const need = {
+  kind: 'reading' as const,
+  id: readingId,
+  title: 'Read this',
+  agent: 'Agent',
+  why: 'Before deciding',
+};
 
 it('admits one complete fingerprinted reading result and explicit unknown states', () => {
   expect(readingDetails(ready(), pageId)).toEqual(ready());
@@ -32,8 +40,54 @@ it('admits one complete fingerprinted reading result and explicit unknown states
   expect(read.state === 'ready' && read.readings[0].state).toBe('read');
 });
 
+it('admits the named passages and the latest excerpt, each optional field only where it belongs', () => {
+  const review = { kind: 'review' as const, id: pageId, title: 'Plan', agent: 'Agent 2' };
+  const value = {
+    ...ready(),
+    needs: [
+      review,
+      need,
+      { kind: 'proposal' as const, id: '30000000-0000-4000-8000-000000000001', title: 'Pick one' },
+    ],
+    latest: { who: 'Agent', atMs: 1_700_000_000_000, text: 'A reply' },
+  };
+  expect(readingDetails(value, pageId)).toEqual(value);
+  // The label is optional; the excerpt and its time are not.
+  const anonymous = { ...ready(), latest: { atMs: 5, text: 'Unsigned' } };
+  expect(readingDetails(anonymous, pageId)).toEqual(anonymous);
+});
+
 it.each([
   ['another page', () => ({ ...ready(), pageId: readingId })],
+  ['no passages key', () => ({ ...ready(), needs: undefined })],
+  ['a passage of another kind', () => ({ ...ready(), needs: [{ ...need, kind: 'answer' }] })],
+  ['a passage without a title', () => ({ ...ready(), needs: [{ ...need, title: '' }] })],
+  [
+    'an overlong passage title',
+    () => ({ ...ready(), needs: [{ ...need, title: 'x'.repeat(201) }] }),
+  ],
+  ['control text in a passage', () => ({ ...ready(), needs: [{ ...need, agent: 'a\u0007b' }] })],
+  ['a reason on a review', () => ({ ...ready(), needs: [{ ...need, kind: 'review' }] })],
+  ['an unknown passage key', () => ({ ...ready(), needs: [{ ...need, extra: 1 }] })],
+  ['duplicate passage IDs', () => ({ ...ready(), needs: [need, need] })],
+  [
+    'more than twenty passages',
+    () => ({
+      ...ready(),
+      needs: Array.from({ length: 21 }, (_, i) => ({
+        ...need,
+        id: `20000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      })),
+    }),
+  ],
+  ['a latest excerpt without text', () => ({ ...ready(), latest: { atMs: 1, text: '' } })],
+  [
+    'an overlong latest excerpt',
+    () => ({ ...ready(), latest: { atMs: 1, text: 'x'.repeat(161) } }),
+  ],
+  ['a latest time that is not a count', () => ({ ...ready(), latest: { atMs: -1, text: 'x' } })],
+  ['an unknown latest key', () => ({ ...ready(), latest: { atMs: 1, text: 'x', by: 'y' } })],
+
   ['missing fingerprint', () => ({ ...ready(), fingerprint: undefined })],
   ['uppercase fingerprint', () => ({ ...ready(), fingerprint: 'A'.repeat(64) })],
   ['duplicate IDs', () => ({ ...ready(), readings: [descriptor, descriptor] })],
@@ -103,6 +157,25 @@ it('caps an opening at twenty pages including failed and unavailable reads', asy
   expect(read.mock.calls.map(([id]) => id)).toEqual(pages.slice(0, 20));
 });
 
+it('publishes a failed read as unavailable, never as an empty ready result, and a canceled one as nothing', async () => {
+  const gate = deferred<ReturnType<typeof ready>>();
+  const read = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockReturnValueOnce(gate.promise);
+  const publish = vi.fn();
+  const queue = new ReadingDetailsQueue(read, publish);
+  queue.enqueue([pageId, readingId]);
+  await vi.waitFor(() =>
+    expect(publish).toHaveBeenCalledWith(pageId, { pageId, state: 'unavailable' }),
+  );
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  const closing = queue.close();
+  gate.resolve(ready());
+  await closing;
+  expect(publish).toHaveBeenCalledTimes(1);
+});
+
 it('aborts and joins on leaving, fencing a late result and every successor', async () => {
   const gate = deferred<ReturnType<typeof ready>>();
   const read = vi.fn((_id: string, _signal: AbortSignal) => gate.promise);
@@ -158,9 +231,17 @@ it('never converts a refused or oversized details response into a ready zero', a
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
-it('admits all fifty bounded non-ASCII readings without truncating the result', () => {
+it('admits all fifty bounded non-ASCII readings and twenty passages without truncating the result', () => {
   const value = {
     ...ready(),
+    needs: Array.from({ length: 20 }, (_, i) => ({
+      kind: 'reading' as const,
+      id: `20000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      title: '🐈'.repeat(200),
+      agent: '🦉'.repeat(64),
+      why: '🌍'.repeat(200),
+    })),
+    latest: { who: '🦉'.repeat(64), atMs: 1_700_000_000_000, text: '🐈'.repeat(160) },
     readings: Array.from({ length: 50 }, (_, i) => ({
       id: `20000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
       title: '🐈'.repeat(200),

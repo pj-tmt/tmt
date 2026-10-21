@@ -71,6 +71,13 @@ readable state words. Conversation selection follows its own source owner. Secti
 and composer/read reservations are not selected content. Repeated UUIDs retain
 occurrence identity; only the selected occurrence expands or composes.
 
+Focus is drawn on the pane, not the row. A framed pane (the Digest tab's Digest and Details, the
+narrow conversation, the squad and Common pool pane) has all four sides heavy in the bright
+neutral with a bold `▸` title when it has focus, and light dim lines with a secondary title
+otherwise; content keeps full contrast. Where the layout has no boxes (the two Agents columns),
+the focused column's control rule goes heavy `━` with a leading bold `▸`, the other stays light
+and dim, and the `│` divider stays light. With `NO_COLOR` the heavy lines and `▸` carry focus.
+
 Selecting a row does not transfer keyboard focus to it. Keep current title,
 input, modal and effective-hint routing. Borderless workspace rows do not acquire
 new `Focus: rows` footer labels or an extra focus row. Footer input, search,
@@ -115,12 +122,13 @@ an automatic retry.
 
 ## Frame and view composition
 
-One `OPS / UI` shell contains `1 Overview`, `2 Agents`, and `3 Digest`. The same
-acquired roster feeds all three sections. Overview owns global attention, usage
-and provider limits. Agents owns the squad workspace and selected conversation;
+One `OPS / UI` shell contains `1 Agents` and `2 Digest`. The same acquired roster
+feeds both sections. Agents owns usage and provider limits (a full-width band), the
+squad workspace and the selected target as Talk (conversation) or Measure (summary
+cells, soonest timers, Digest table, who talks to whom);
 Digest keeps the same exact identity context and Core policy controls. A section
-label never creates membership or a send audience. Agents/Digest use the selected
-squad's appearance; Overview uses the shared board appearance.
+label never creates membership or a send audience. Both use the selected
+squad's appearance.
 The shared top bar projects held provider limits (`5h`/`7d`) and the selected
 member's observed live context; unknown usage is omitted. Known context windows
 use Waiting at 80% or more. At narrow widths weekly values, count words, the
@@ -134,11 +142,10 @@ in different squads. A collapsed squad keeps its worst observed child state,
 with attention priority. Display names preserve authored text, including `tmt-`
 prefixes, and fit through the shared text policy.
 
-| Section  | Composition                                                              | Placement                                                                            |
-| -------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| Overview | Full-width Usage, switchable Squads/Agents list and narrow Timers/Digest | Missing observations stay unknown; selected rows retain acquired recipient authority |
-| Agents   | Tree plus exact agent conversation or squad detail                       | Auto/Side/Stack uses actual minimum usable areas                                     |
-| Digest   | Same tree/context and existing policy chooser                            | No new Digest store, permission or parallel editor                                   |
+| Section | Composition                                                           | Placement                                                                           |
+| ------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Agents  | Full-width Usage; Squads tree, Agents list or Pinned; Talk or Measure | Missing observations stay unknown; Auto/Side/Stack uses actual minimum usable areas |
+| Digest  | Same tree/context and existing policy chooser                         | No new Digest store, permission or parallel editor                                  |
 
 Auto/Side/Stack, pin and sort are per-user Ops preferences. The new default keys
 replace old squad tabs, Left/Right tab switching, tab reorder/pick/hide and factory
@@ -146,8 +153,8 @@ views; no legacy mode applies those arrangements. Located migration notices
 preserve authored configuration and identify replacements. Independent public
 `ls --tab`/layout projections remain separate contracts.
 
-Tree arrows move/expand/collapse; authored Overview sort bindings change the current
-view layer. The compatible Overview `p` action saves an identity pin without
+Tree arrows move/expand/collapse; authored sort bindings change the current
+view layer. The compatible `p` action saves an identity pin without
 changing waiting order (squad pins remain in Agents), `n` creates, `m` manages
 or assigns, `x` removes only the selected membership, `D` opens Digest, and `c`
 opens Timers. Member rename is deferred and has no `r` hint/default. `w` is reserved
@@ -156,28 +163,28 @@ before section digits. Top tabs have one cell of padding on each side of each la
 gap cell between tabs; pointer hits cover only the complete padded label. Tab and
 filter shortcuts use the [shared keycap style](cli-style.md#themes) before their
 labels, with a brighter cap on the selected tab; unbound actions omit the cap.
-Overview's factory `f` switches Agents/Squads; authored `v = 'overview-view'` remains valid.
-Factory `t` is unassigned; Enter shows `⏎ chat` where it starts the composer.
+Factory `f` cycles the Squads / Agents / Pinned chips and `t` toggles Talk / Measure;
+authored `overview`, `overview-view` and `overview-filter` bindings get located retirement notices. Enter shows `⏎ chat` where it starts the composer.
 Dispatch, help and footer use one effective binding table;
 compatible user/host/section bindings retain precedence.
 
-### HOME overview and sections
+### Agents sections
 
-Overview places Usage across the frame, with provider trends, totals, shares and
+Agents places Usage across the frame, with provider trends, totals, shares and
 inline subscription quota. The existing Each/Range controls stay in their shared
 modal; provider names and quota remain visible before token observations arrive.
 Missing totals use an em dash, measured zero stays zero, and one neutral empty
 state replaces an unavailable trend without bars or a time axis.
 
-The primary body contains one switchable Squads/Agents list. Its shared filter
-bar contains mode chips and the idle search field; the section rule below owns
-counts. Squads show lead-first TEAM, existing HOUR-derived TOK 1h and NOW from
-pending questions before tasks. Agents show AGENT, SQUAD, STATE, TOK 1h and MODEL,
+The primary body contains one list with three chips. The chips and the idle search
+field sit on the list's top rule; the counts sit at the bottom right. Squads show
+lead-first TEAM, existing HOUR-derived TOK 1h and a now text (a task, or "waiting on
+you" for a pending question, never its preview). Agents show AGENT, SQUAD, STATE, TOK 1h and MODEL,
 waiting first with oldest proven request first; no waiting duration is rendered.
 Model cells use the acquired model only with a running driver, omit a leading
 `claude-`, and show `—` when unknown. They use Muted and yield before token
 columns at narrow widths. A Muted `*` directly before a name marks its lead.
-The footer's effective `v` switches views, and authored bindings take precedence.
+The footer's effective `f` cycles the chips, and authored bindings take precedence.
 Source refresh/search retains hidden targets without selecting a neighbor. A
 selected squad addresses only its observed lead; an agent retains its exact
 membership. The existing owner still admits message, host and guarded effects.
@@ -185,23 +192,23 @@ One scroll owner paints clipped rows and `↓ N more` when they overflow. The sh
 filter bar, section rule, team strip, state cell and key hints have one board owner
 for later Agents reuse. Only ◆ and ✗ carry attention color. Search interaction is
 separate from the idle field presentation. Details stays read-only.
-The default Overview Timers key opens the explicit all-room context. An authored
+With nothing selected the default Timers key opens the explicit all-room context. An authored
 selected-scope `timers` action keeps its admission and refuses to widen a missing
 or hidden scope.
 
-Workspace settings → Panels retains separate policies for Overview and Digest.
-Overview exposes Usage, quota inside Usage, Squads / Agents, and Conversation;
+Workspace settings → Panels retains separate policies for Agents and Digest.
+Agents exposes Usage, quota inside Usage, the list, and the side column;
 its section positions are fixed. Digest keeps movable panels and its Details
 switch. Preview is disposable, Save uses the existing guarded write, Cancel
-restores acquired preferences, and Reset restores defaults. Retired Overview
+restores acquired preferences, and Reset restores defaults. Retired
 Summary, Recent exchanges and table controls are absent; unrelated Config bytes
 and shared preferences remain preserved. Hidden surfaces publish no stale hits or
-clock marks. Configured-off Overview Conversation appears only for explicit
+clock marks. A configured-off side column appears only for explicit
 message focus; Escape keeps its UUID draft. Failed/stale/loading Digest Status
 remains visible even when hidden.
 
-Narrow Overview places at most three soonest timer observations beside Digest
-key/value rows below the switchable Squads/Agents list. The Timers more control and effective shortcut
+The Measure view places at most three soonest timer observations beside Digest
+key/value rows in the right column. The Timers more control and effective shortcut
 open the same all-room list; filtered rosters label that global scope. Paused rows
 are dim, stale countdowns stay unknown, and known empty is distinct from unread.
 Digest uses the existing scoped numeric and supplier estimate owners, with values
@@ -265,9 +272,10 @@ input; it does not replace the draft. Up from the input's first line enters the
 chip row, Left/Right moves, `x`/Delete removes, and Down/Esc returns. Sending
 attaches compact quotes above the comment; failed sends retain the chips.
 
-The conversation input is one row when empty and unfocused, and three rows when
-focused or holding a draft. It grows upward inside one reserved envelope; focus
-changes its fill, not its frame. The stable line below it shows the recipient,
+The conversation input is at least three rows tall: a blank padding row above and below
+the text, which starts on the middle row. It grows upward inside one reserved envelope
+up to six text rows and then scrolls inside, keeping the padding; focus changes its fill,
+not its height or frame. Terminals under 28 rows give the padding up and keep one row. The stable line below it shows the recipient,
 acquired unread/open-request counts, optional running-session context usage and
 the send/newline/mention keys. Unknown context is omitted; a known zero remains
 visible, and an unknown window is never inferred. Overflow stays inside the box
@@ -318,7 +326,7 @@ Review identical inputs at 80/100/160/actual 180+ cells and ordinary/low heights
 in light/dark/terminal16/NO_COLOR. Include wrapped selected rows, selected but
 unfocused panes, duplicate occurrences, a middle-row composer, covered hits,
 collapsed squads, scroll/list end, disabled/error states and retained drafts.
-Include Overview usage omission, measured zero, partial data at 60/80/100/160
+Include Agents usage omission, measured zero, partial data at 60/80/100/160
 cells and their width boundaries, plus settings preview/cancel/conflict and
 Checklist/cron authority.
 

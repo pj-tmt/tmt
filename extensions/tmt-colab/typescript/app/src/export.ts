@@ -1,6 +1,6 @@
 import type { CreationRecipient } from './fold-protocol.js';
 import type { Projection } from './fold-protocol.js';
-import { canonicalShell } from './shell.js';
+import { canonical } from './closed.js';
 import { decimal, digest, generatedId, requireValue, spaceId, text, time } from '@tmt/colab-client';
 import {
   projectConversations,
@@ -20,7 +20,7 @@ export const DISCLOSURE =
   'This creates an unencrypted copy of the page. Anyone with these files can read it.';
 /** A published file name: one of the four page files, or `attachments/<attachmentId>`. */
 export type ExportFile = string;
-/** The four page files every export publishes, in order; attachments sit between the third and the manifest. */
+/** The four page files every export publishes, in order; a page's `work.json` follows its HTML when it has work, and attachments sit between the conversations and the manifest. */
 export const PAGE_FILES: readonly ExportFile[] = [
   'page.html',
   'conversations.json',
@@ -32,6 +32,8 @@ export const CONVERSATIONS_BYTES = 8 * 1024 * 1024;
 export interface ExportView {
   pageType?: Projection['pageType'];
   shell?: Projection['shell'];
+  /** An ordinary page's work; exported as `work.json` beside its HTML. */
+  work?: Projection['work'];
   creationRecipient?: CreationRecipient;
   spaceId: string;
   pageId: string;
@@ -66,6 +68,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   const view = {
     ...input,
     ...(input.shell === undefined ? {} : { shell: structuredClone(input.shell) }),
+    ...(input.work === undefined ? {} : { work: structuredClone(input.work) }),
     ...(input.creationRecipient === undefined
       ? {}
       : {
@@ -105,7 +108,8 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   });
   const attachments = await listAttachments(copiedAttachments);
   const contentName = view.pageType === 'shell' ? 'shell.json' : 'page.html';
-  const content = text(view.pageType === 'shell' ? canonicalShell(view.shell) : view.source);
+  const content = text(view.pageType === 'shell' ? canonical(view.shell) : view.source);
+  const work = view.work === undefined ? undefined : text(canonical(view.work));
   const json = text(serializeConversations(conversations));
   const markdown = text(renderConversationsMarkdown(conversations));
   if (json.length + markdown.length > CONVERSATIONS_BYTES) throw new Error('EXPORT_TOO_LARGE');
@@ -113,6 +117,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     Object.freeze({ name, sizeBytes: bytes.length, sha256: hex(await digest(bytes)) });
   const files = [
     await describe(contentName, content),
+    ...(work === undefined ? [] : [await describe('work.json', work)]),
     await describe('conversations.json', json),
     await describe('conversations.md', markdown),
   ];
@@ -151,6 +156,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   return new ExportBundle(
     new Map<ExportFile, Uint8Array>([
       [contentName, content],
+      ...(work === undefined ? [] : [['work.json', work] as [ExportFile, Uint8Array]]),
       ['conversations.json', json],
       ['conversations.md', markdown],
       ...included.map((item): [ExportFile, Uint8Array] => [item.row.file!, item.bytes!]),

@@ -99,6 +99,7 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
         "attribution":{"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1000}
     }});
     let view = || BaselineInput {
+        work: None,
         layout: None,
         original_author: Some("Agent 1"),
         attachments: None,
@@ -144,8 +145,9 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
 
 #[test]
 fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base() {
-    use tmt_colab::decoder::{ContentBatch, ContentEdit, ShellEdit};
+    use tmt_colab::decoder::{ContentBatch, ContentEdit, StructuredEdit, StructuredKind};
     let view = || BaselineInput {
+        work: None,
         layout: None,
         original_author: None,
         attachments: None,
@@ -165,13 +167,14 @@ fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base()
         updates: &[],
     };
     let before = decoder.decode(batch(), Role::Editor, None).unwrap();
-    let edit = ShellEdit {
+    let edit = StructuredEdit {
+        kind: StructuredKind::Shell,
         action: "summary.set".into(),
         body: serde_json::json!({"line1":"Plan","line2":"Check first"}),
         attribution: serde_json::json!({"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1000}),
     };
     let prepared = decoder
-        .prepare_shell_batch(batch(), &before.projection, &edit, None)
+        .prepare_structured_batch(batch(), &before.projection, &edit, None)
         .unwrap();
     let ContentBatch::Updates(updates) = prepared.batch else {
         panic!("expected update")
@@ -214,7 +217,298 @@ fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base()
     bad.body["author"] = serde_json::json!("caller");
     assert!(
         decoder
-            .prepare_shell_batch(batch(), &before.projection, &bad, None)
+            .prepare_structured_batch(batch(), &before.projection, &bad, None)
+            .is_err()
+    );
+}
+const WRITER: &str = "10000000-0000-4000-8000-000000000001";
+fn work_view<'a>(source: &'a [u8], work: Option<&'a serde_json::Value>) -> BaselineInput<'a> {
+    BaselineInput {
+        work,
+        layout: None,
+        original_author: None,
+        attachments: None,
+        source,
+        title: "Work",
+        publisher_agent: None,
+        creation_recipient: None,
+        source_digest: tmt_colab_model::crypto::digest(source),
+    }
+}
+fn work_edit(action: &str, body: serde_json::Value) -> tmt_colab::decoder::StructuredEdit {
+    tmt_colab::decoder::StructuredEdit {
+        kind: tmt_colab::decoder::StructuredKind::Work,
+        action: action.into(),
+        body,
+        attribution: serde_json::json!({"writerId":WRITER,"timeMs":1000}),
+    }
+}
+#[test]
+fn work_shared_values_are_checked_by_the_actual_isolated_decoder() {
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("../../../contracts/vectors/work-v1.json")).unwrap();
+    for case in corpus["cases"].as_array().unwrap() {
+        if case.get("action").is_some() {
+            continue;
+        }
+        let doc = Doc::new();
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let mut tx = doc.transact_mut();
+        html.insert(&mut tx, 0, "<p>page</p>");
+        meta.insert(&mut tx, "title", "Page");
+        meta.insert(
+            &mut tx,
+            "work",
+            yrs::Any::from_json(&case["document"].to_string()).unwrap(),
+        );
+        let bytes = tx.encode_state_as_update_v1(&StateVector::default());
+        drop(tx);
+        let result = owner().decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &bytes,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        );
+        assert_eq!(
+            result.is_ok(),
+            case["valid"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+        if let Ok(value) = result {
+            assert_eq!(value.projection["meta"]["work"], case["document"]);
+            assert_eq!(value.projection["html"], "<p>page</p>");
+            gone(value.child_pid);
+        }
+    }
+}
+
+#[test]
+fn work_never_shares_a_page_with_the_shell_page_type() {
+    let doc = Doc::new();
+    doc.get_or_insert_text("html");
+    let meta = doc.get_or_insert_map("meta");
+    let mut tx = doc.transact_mut();
+    meta.insert(&mut tx, "title", "Shell");
+    meta.insert(&mut tx, "pageType", "shell");
+    meta.insert(
+        &mut tx,
+        "shell",
+        yrs::Any::from_json(&tmt_colab::shell::empty().to_string()).unwrap(),
+    );
+    meta.insert(
+        &mut tx,
+        "work",
+        yrs::Any::from_json(&tmt_colab::work::empty().to_string()).unwrap(),
+    );
+    let bytes = tx.encode_state_as_update_v1(&StateVector::default());
+    drop(tx);
+    assert!(
+        owner()
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &bytes,
+                    updates: &[],
+                },
+                Role::Editor,
+                None,
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn work_rides_a_baseline_and_a_new_epoch_keeps_it() {
+    let work = serde_json::json!({"version":1,"next":3,"tasks":{
+        "T-2":{"title":"Ship it","state":"in-progress","assignee":{"kind":"agent","name":"feat-2"}}
+    },"order":["T-2"],"summary":{"line1":"One task","line2":"Next: review",
+        "attribution":{"writerId":WRITER,"timeMs":1000}}});
+    let source = b"<p>the page</p>";
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_baseline(work_view(source, Some(&work)), None)
+        .unwrap();
+    gone(baseline.child_pid);
+    let verified = decoder
+        .verify_baseline(
+            work_view(source, None),
+            &baseline.update,
+            baseline.commitment,
+            None,
+        )
+        .unwrap();
+    gone(verified.child_pid);
+    let decoded = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &verified.update,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(decoded.projection["meta"]["work"], work);
+    assert_eq!(decoded.projection["html"], "<p>the page</p>");
+    gone(decoded.child_pid);
+    let mut changed = baseline.commitment;
+    changed[0] ^= 1;
+    assert!(
+        decoder
+            .verify_baseline(work_view(source, None), &baseline.update, changed, None)
+            .is_err()
+    );
+    // A baseline without the value is a different page, and an invalid value is refused outright.
+    let without = decoder
+        .produce_baseline(work_view(source, None), None)
+        .unwrap();
+    assert_ne!(without.commitment, baseline.commitment);
+    let invalid = serde_json::json!({"version":1,"next":1,"tasks":{},"order":["T-9"]});
+    assert!(
+        decoder
+            .produce_baseline(work_view(source, Some(&invalid)), None)
+            .is_err()
+    );
+    // Work rides the single baseline update: not the chunked creation of a new page, not a shell.
+    assert!(
+        decoder
+            .produce_page(work_view(source, Some(&work)), None)
+            .is_err()
+    );
+    assert!(
+        decoder
+            .produce_shell(
+                work_view(b"", Some(&work)),
+                &tmt_colab::shell::empty(),
+                false,
+                None
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn work_actions_prepare_replayable_updates_and_leave_the_page_alone() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit};
+    let source = b"<p>the page</p>";
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_baseline(work_view(source, None), None)
+        .unwrap();
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    assert!(before.projection["meta"].get("work").is_none());
+    // The first action starts from an empty value; the decoder re-derives and checks the result.
+    let add = work_edit("task.add", serde_json::json!({"task":{"title":"Write it"}}));
+    let prepared = decoder
+        .prepare_structured_batch(batch(), &before.projection, &add, None)
+        .unwrap();
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected update")
+    };
+    assert_eq!(updates.len(), 1);
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let after_batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: &baseline.update,
+        updates: &refs,
+    };
+    let after = decoder.decode(after_batch(), Role::Editor, None).unwrap();
+    assert_eq!(after.projection, prepared.projection);
+    assert_eq!(after.projection["html"], "<p>the page</p>");
+    assert_eq!(
+        after.projection["meta"]["work"]["tasks"]["T-1"],
+        serde_json::json!({"title":"Write it","state":"todo"})
+    );
+    assert_eq!(after.projection["meta"]["work"]["next"], 2);
+    // An action that leaves a page with no work needs no write and gives it no empty value.
+    let clear = work_edit("summary.clear", serde_json::json!({}));
+    let noop = decoder
+        .prepare_structured_batch(batch(), &before.projection, &clear, None)
+        .unwrap();
+    assert!(matches!(noop.batch, ContentBatch::Noop));
+    // A later source write keeps the work, in the expected projection and in the document.
+    let rewritten = decoder
+        .prepare_content_batch(
+            after_batch(),
+            &after.projection,
+            ContentEdit {
+                layout: None,
+                source: "<p>new</p>",
+                publisher_agent: None,
+                attachments: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        rewritten.projection["meta"]["work"],
+        after.projection["meta"]["work"]
+    );
+    assert_eq!(rewritten.projection["html"], "<p>new</p>");
+    let ContentBatch::Updates(more) = rewritten.batch else {
+        panic!("expected update")
+    };
+    let all = updates
+        .iter()
+        .chain(&more)
+        .map(Vec::as_slice)
+        .collect::<Vec<_>>();
+    let replayed = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &all,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(replayed.projection, rewritten.projection);
+    // Refusals: a caller-supplied attribution, a shell action on an ordinary page, and a work
+    // action on a shell.
+    let mut bad = add.clone();
+    bad.body["author"] = serde_json::json!("caller");
+    assert!(
+        decoder
+            .prepare_structured_batch(batch(), &before.projection, &bad, None)
+            .is_err()
+    );
+    let mut shell = add.clone();
+    shell.kind = tmt_colab::decoder::StructuredKind::Shell;
+    assert!(
+        decoder
+            .prepare_structured_batch(batch(), &before.projection, &shell, None)
+            .is_err()
+    );
+    let shell_page = decoder
+        .produce_shell(
+            work_view(b"", None),
+            &tmt_colab::shell::empty(),
+            false,
+            None,
+        )
+        .unwrap();
+    let shell_batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: shell_page.update.as_slice(),
+        updates: &[],
+    };
+    let shell_before = decoder.decode(shell_batch(), Role::Editor, None).unwrap();
+    assert!(
+        decoder
+            .prepare_structured_batch(shell_batch(), &shell_before.projection, &add, None)
             .is_err()
     );
 }
@@ -831,6 +1125,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
 fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
+        work: None,
         layout: None,
         original_author: None,
         attachments: None,
@@ -903,6 +1198,7 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         let produced = decoder
             .produce_baseline(
                 BaselineInput {
+                    work: None,
                     layout: layout.as_ref(),
                     original_author: vector["originalAuthor"].as_str(),
                     attachments: None,
@@ -974,6 +1270,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         .unwrap();
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
+        work: None,
         layout: None,
         original_author: None,
         attachments: None,
@@ -1184,6 +1481,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                work: None,
                 layout: None,
                 original_author: Some("original-author"),
                 attachments: None,
@@ -1258,6 +1556,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
             decoder
                 .produce_baseline(
                     BaselineInput {
+                        work: None,
                         layout: None,
                         original_author: Some(&invalid),
                         ..view(b"after", "Title")
@@ -1297,6 +1596,7 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
     let made = decoder
         .produce_page(
             BaselineInput {
+                work: None,
                 layout: None,
                 original_author: Some("original-author"),
                 ..view(source.as_bytes(), "T")
@@ -1414,6 +1714,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    work: None,
                     layout: None,
                     attachments: None,
                     creation_recipient: hint,
@@ -1892,6 +2193,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    work: None,
                     layout: None,
                     attachments: None,
                     creation_recipient: hint,

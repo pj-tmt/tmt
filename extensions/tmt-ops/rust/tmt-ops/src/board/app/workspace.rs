@@ -206,11 +206,24 @@ impl App {
             width,
         )
     }
+    /// The Agents chip is active: the left pane is Overview's flat attention list of agents.
+    pub(in crate::board) fn flat_agents(&self) -> bool {
+        self.shell.tab == OpsTab::Agents
+            && self.workspace.filter == crate::board::workspace::AgentsFilter::Agents
+    }
+    /// The flat list keeps its token header whole; the tree yields earlier.
+    pub(in crate::board) fn agents_list_min_columns(&self) -> u16 {
+        if self.flat_agents() {
+            crate::board::conversation::layout::OVERVIEW_MIN_COLUMNS
+        } else {
+            crate::board::conversation::layout::LIST_MIN_COLUMNS
+        }
+    }
     pub(in crate::board) fn workspace_rows(&self) -> Rc<[OpsTreeRow]> {
         if let Some(rows) = self.frame_workspace_rows.borrow().as_ref() {
             return Rc::clone(rows);
         }
-        if self.shell.tab == OpsTab::Overview
+        if self.flat_agents()
             && let Some(snapshot) = self.workspace_snapshot()
         {
             return crate::board::overview::monitor::rows(self, snapshot);
@@ -267,10 +280,10 @@ impl App {
             && rows.is_empty()
             && !self.workspace.query.is_empty()
             && self
-                .search_anchor
+                .search_preview_tab
                 .as_ref()
-                .is_some_and(|(tab, _)| *tab == self.shell.tab)
-            && matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
+                .is_some_and(|tab| *tab == self.shell.tab)
+            && matches!(self.shell.tab, OpsTab::Agents)
             && let Some(target) = self.workspace.selected.as_ref()
         {
             // An empty search keeps the last explicit pane target. Query text
@@ -284,7 +297,7 @@ impl App {
                 _ => None,
             };
             let pinned = self.shell.tab != OpsTab::Agents
-                || self.workspace.filter == AgentsFilter::All
+                || self.workspace.filter != AgentsFilter::Pinned
                 || room.is_some_and(|room| snapshot.preferences.pinned.contains(room))
                 || matches!(target, OpsTarget::Member { identity_id, .. } if snapshot.preferences.agent_pins.contains(identity_id));
             let visible = room.map_or_else(
@@ -302,9 +315,7 @@ impl App {
         None
     }
     pub(in crate::board) fn workspace_is_pinned(&self) -> Option<bool> {
-        if !matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
-            || !self.workspace_selection_visible()
-        {
+        if !matches!(self.shell.tab, OpsTab::Agents) || !self.workspace_selection_visible() {
             return None;
         }
         let preferences = &self.workspace_snapshot()?.preferences;
@@ -319,16 +330,15 @@ impl App {
 
     pub(in crate::board) fn workspace_selection_visible(&self) -> bool {
         let target_shown = match self.shell.tab {
-            OpsTab::Overview => self
+            OpsTab::Agents => self
                 .overview_panels()
                 .shown(crate::config::OverviewPanel::Monitor),
             OpsTab::Digest => self.digest_panels().shown(crate::config::DigestPanel::List),
-            _ => true,
         };
         target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
     pub(in crate::board) fn workspace_squad(&self) -> Option<&crate::board::workspace::OpsSquad> {
-        if self.shell.tab == OpsTab::Overview {
+        if self.flat_agents() {
             return None;
         }
         let id = match self.workspace.selected.as_ref()? {
@@ -344,27 +354,11 @@ impl App {
             .iter()
             .find(|squad| &squad.room_id == id)
     }
-    pub(in crate::board) fn select_overview_view(
-        &mut self,
-        view: crate::board::overview::monitor::View,
-    ) -> Effect {
-        if self.shell.tab != OpsTab::Overview || self.overview_view == view {
-            return Effect::None;
-        }
-        self.overview_view = view;
-        self.overview_rows.borrow_mut().clear();
-        self.workspace.selected = self.workspace_rows().first().map(|row| row.target.clone());
-        self.scrolls
-            .scroll(Pane::Rows, crate::board::scroll::Step::Top);
-        self.workspace_reconcile();
-        self.invalidate_frame_geometry();
-        Effect::None
-    }
     /// A squad selection grants a conversation only to its observed, current lead.
     pub(in crate::board) fn workspace_message_target(&self) -> Option<OpsTarget> {
         match self.workspace.selected.as_ref()? {
             OpsTarget::Squad(room)
-                if matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
+                if matches!(self.shell.tab, OpsTab::Agents)
                     && self.workspace_selection_visible() =>
             {
                 self.workspace_squad_lead(room)
@@ -422,14 +416,7 @@ impl App {
             };
         }
         if self.focused_pane() == Some(Pane::Replies) {
-            return if self.shell.tab == OpsTab::Overview {
-                OpsKeyScope::OverviewReader
-            } else {
-                OpsKeyScope::Reader
-            };
-        }
-        if self.shell.tab == OpsTab::Overview {
-            return OpsKeyScope::Overview;
+            return OpsKeyScope::Reader;
         }
         match self.workspace.selected {
             Some(OpsTarget::Squad(_)) => OpsKeyScope::Squad,
@@ -473,14 +460,6 @@ impl App {
         // Only this explicit, validated message path establishes a temporary
         // reveal. Tab and pointer eligibility are checked before focus changes.
         self.focus = 1;
-        if self.shell.tab == OpsTab::Overview
-            && self
-                .overview_placement(self.conversation_area())
-                .conversation
-                .is_none()
-        {
-            self.shell.tab = OpsTab::Agents;
-        }
         self.invalidate_frame_geometry();
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
@@ -585,6 +564,7 @@ impl App {
             host,
         );
         if self.shell.tab == OpsTab::Agents
+            && !self.flat_agents()
             && let Some(target) = self.workspace_message_target()
             && let Some(sources) = self.workspace_binding_sources()
         {
@@ -614,9 +594,9 @@ impl App {
         }
         keys
     }
-    /// Agents' factory j follows its recipient; other contexts keep their scope default.
+    /// The tree's factory j follows its recipient; the flat list keeps its scope default.
     pub(super) fn workspace_factory_j(&self, recipient: Option<&OpsTarget>) -> Option<Action> {
-        if self.shell.tab == OpsTab::Agents && recipient.is_some() {
+        if self.shell.tab == OpsTab::Agents && !self.flat_agents() && recipient.is_some() {
             Some(Action::parse("jump").expect("factory host action"))
         } else {
             crate::config::workspace_defaults(self.workspace_scope()).remove("j")
@@ -654,35 +634,41 @@ impl App {
     }
     pub(in crate::board) fn workspace_reconcile(&mut self) {
         if self
-            .search_anchor
+            .search_preview_tab
             .as_ref()
-            .is_some_and(|(tab, _)| *tab != self.shell.tab)
+            .is_some_and(|tab| *tab != self.shell.tab)
         {
-            self.search_anchor = None;
+            self.search_preview_tab = None;
         }
         let query_changed = self.workspace.query != self.search.as_str();
-        let selects_matches = matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents);
+        let selects_matches = matches!(self.shell.tab, OpsTab::Agents);
         if query_changed && selects_matches {
             if self.search.is_empty() {
-                if let Some((tab, target)) = self.search_anchor.take()
-                    && tab == self.shell.tab
-                    && self
-                        .workspace_snapshot()
-                        .is_some_and(|snapshot| snapshot.roster.contains(&target))
-                {
-                    self.workspace.selected = Some(target);
+                self.search_preview_tab = None;
+                // Search temporarily reveals collapsed matches. Clearing keeps
+                // this exact occurrence visible in the full list as well.
+                if self.shell.tab == OpsTab::Agents {
+                    match self.workspace.selected.as_ref() {
+                        Some(OpsTarget::Member {
+                            room_id: Some(room),
+                            ..
+                        }) => {
+                            self.workspace.expanded.insert(room.clone());
+                        }
+                        Some(OpsTarget::Member { room_id: None, .. }) => {
+                            self.workspace.pool_expanded = true;
+                        }
+                        _ => {}
+                    }
                 }
-            } else if self.search_anchor.is_none()
+                self.follow = true;
+            } else if self.search_preview_tab.is_none()
                 && self.workspace.selected.as_ref().is_some_and(|target| {
                     self.workspace_snapshot()
                         .is_some_and(|snapshot| snapshot.roster.contains(target))
                 })
             {
-                self.search_anchor = self
-                    .workspace
-                    .selected
-                    .clone()
-                    .map(|target| (self.shell.tab, target));
+                self.search_preview_tab = Some(self.shell.tab);
             }
         }
         self.workspace.query = self.search.to_string();
@@ -709,7 +695,7 @@ impl App {
             }
         }
         let rows = self.workspace_rows();
-        if self.shell.tab == OpsTab::Overview
+        if self.flat_agents()
             && let Some(OpsTarget::Member { identity_id, .. }) = self.workspace.selected.as_ref()
             && self.workspace_snapshot().is_some_and(|snapshot|
                 self.workspace.selected.as_ref().is_some_and(|target| snapshot.roster.contains(target)))
@@ -849,11 +835,10 @@ impl App {
                 self.help = true;
                 return Effect::None;
             }
-            Overview | Agents | DigestDashboard => {
+            Agents | DigestDashboard => {
                 let digit = match action {
-                    Overview => '1',
-                    Agents => '2',
-                    _ => '3',
+                    Agents => '1',
+                    _ => '2',
                 };
                 if !self.shell.select_digit(digit, self.workspace_input_owner()) {
                     return Effect::None;
@@ -927,10 +912,10 @@ impl App {
                 return self.agents_filter(self.workspace.filter.next());
             }
             AgentsFilter => return Effect::None,
-            OverviewView if self.shell.tab == OpsTab::Overview => {
-                return self.select_overview_view(self.overview_view.next());
+            TalkMeasure if self.shell.tab == OpsTab::Agents => {
+                return self.select_right_tab(self.right_tab.next());
             }
-            OverviewView => return Effect::None,
+            TalkMeasure => return Effect::None,
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),
@@ -939,7 +924,10 @@ impl App {
             First => self.workspace_select(0),
             Last => self.workspace_select(usize::MAX),
             PageUp | PageDown => self.page_rows(if action == PageUp { -1 } else { 1 }),
-            Search => self.searching = true,
+            Search => {
+                self.focus = 0;
+                self.searching = true;
+            }
             Fold | Expand | Inspect => {
                 if !self.workspace_selection_visible() {
                     return self.say("The selected target is hidden or unavailable; select a visible target explicitly.");
@@ -982,16 +970,9 @@ impl App {
                 }
             }
             Sort | ReverseSort => {
-                if self.shell.tab == OpsTab::Overview
-                    && self.overview_view == crate::board::overview::monitor::View::Squads
-                {
-                    self.notice =
-                        Some("Switch to Agents to sort; squads are ordered by TOK 1h.".into());
-                    return Effect::None;
-                }
                 let mut order = self.workspace_order();
-                match (action, self.shell.tab) {
-                    (Sort, OpsTab::Overview) => {
+                match (action, self.flat_agents()) {
+                    (Sort, true) => {
                         order.overview = Some(order.overview.map_or_else(
                             || {
                                 crate::config::OverviewSort::initial(
@@ -1001,7 +982,7 @@ impl App {
                             |value| value.next(),
                         ))
                     }
-                    (ReverseSort, OpsTab::Overview) => {
+                    (ReverseSort, true) => {
                         order.overview = Some(
                             order
                                 .overview
@@ -1075,7 +1056,7 @@ impl App {
             }
             AllTimers => return self.workspace_owner_timers(None, None),
             Timers => {
-                if self.shell.tab == OpsTab::Overview && self.workspace.selected.is_none() {
+                if self.flat_agents() && self.workspace.selected.is_none() {
                     return self.workspace_owner_timers(None, None);
                 }
                 if !self.workspace_selection_visible() {
@@ -1087,7 +1068,7 @@ impl App {
                         room_id,
                         identity_id,
                     }) => (
-                        if self.shell.tab == OpsTab::Overview {
+                        if self.flat_agents() {
                             None
                         } else {
                             room_id.clone()
@@ -1102,9 +1083,9 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            ResizePane | Overview | Agents | DigestDashboard | QuotaDetails | SavingsUnit
-            | UsageControls | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
-            | ScrollPageDown | ScrollTop | ScrollBottom => {
+            ResizePane | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
+            | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop
+            | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }
@@ -1119,6 +1100,31 @@ impl App {
             return Effect::None;
         }
         self.workspace.filter = filter;
+        // The flat list has no squad rows: a selected squad hands over to its
+        // lead, else to its first agent, else to the first row.
+        if self.flat_agents()
+            && let Some(OpsTarget::Squad(room)) = self.workspace.selected.clone()
+        {
+            let lead = self.workspace_snapshot().and_then(|snapshot| {
+                snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| squad.room_id == room)
+                    .and_then(|squad| squad.lead.clone())
+            });
+            let rows = self.workspace_rows();
+            let member_of = |lead: Option<&String>| {
+                rows.iter().find(|row| {
+                    matches!(&row.target, OpsTarget::Member { room_id, identity_id }
+                        if room_id.as_ref() == Some(&room)
+                            && lead.is_none_or(|lead| lead == identity_id))
+                })
+            };
+            if let Some(row) = member_of(lead.as_ref()).or_else(|| member_of(None)) {
+                self.workspace.selected = Some(row.target.clone());
+            }
+        }
         self.workspace_reconcile();
         self.invalidate_frame_geometry();
         self.follow = true;
@@ -1367,7 +1373,7 @@ impl App {
                 choice: Choice::Action(Action::parse(action).expect("workspace setting action")),
             });
         }
-        if matches!(self.shell.tab, OpsTab::Overview | OpsTab::Digest) {
+        if matches!(self.shell.tab, OpsTab::Agents | OpsTab::Digest) {
             entries.push(MenuEntry {
                 key: String::new(),
                 label: "Panels".into(),
@@ -1400,6 +1406,17 @@ impl App {
             anchor: None,
             surface: Default::default(),
         });
+        Effect::None
+    }
+    /// Selects the Agents tab's right pane; choosing the pane already shown changes nothing.
+    pub(in crate::board) fn select_right_tab(
+        &mut self,
+        tab: super::super::shell::RightTab,
+    ) -> Effect {
+        if self.shell.tab == OpsTab::Agents && self.right_tab != tab {
+            self.right_tab = tab;
+            self.invalidate_frame_geometry();
+        }
         Effect::None
     }
     pub(in crate::board) fn workspace_layout(

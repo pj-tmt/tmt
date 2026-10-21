@@ -57,9 +57,11 @@ fn every_frozen_status_response_matches_the_same_projection() {
         let mut actual = project(&settings, &identities, &stats, 1791630000000).unwrap();
         for row in actual["members"].as_array_mut().unwrap() {
             assert!(row.get("oldestHeldAgeMs").is_some());
+            assert!(row.get("ownerBypass").is_some());
             assert_eq!(row["deliveredDigests"], Value::Null);
             row.as_object_mut().unwrap().remove("oldestHeldAgeMs");
             row.as_object_mut().unwrap().remove("deliveredDigests");
+            row.as_object_mut().unwrap().remove("ownerBypass");
         }
         assert_eq!(actual, *expected, "{}", vector["name"]);
     }
@@ -215,5 +217,47 @@ fn malformed_stats_never_become_zero_and_the_clock_is_js_safe() {
             .unwrap_err()
             .code,
         "DIGEST_CLOCK_INVALID"
+    );
+}
+
+#[test]
+fn a_row_says_whether_a_recorded_owner_passes_its_hold() {
+    const SETTER: &str = "20000000-0000-4000-8000-000000000001";
+    let bypass = |toml: String| {
+        let settings = DigestConfig::parse(toml.as_bytes()).unwrap();
+        member(&settings, ID, "worker", None, 0).unwrap()["ownerBypass"].clone()
+    };
+    let row = |mode: &str, setter: &str| format!("[members.{ID}]\nmode = '{mode}'\n{setter}");
+    let own = format!("setByIdentityId = '{SETTER}'\n");
+    // A member that inherits auto follows the global default's recorded setter...
+    assert_eq!(
+        bypass(format!("defaultSetByIdentityId = '{SETTER}'\n")),
+        json!(true)
+    );
+    // ...and with none recorded anywhere it owns its hold, which the row flags.
+    assert_eq!(bypass(String::new()), json!(false));
+    assert_eq!(bypass("default = '10m'\n".into()), json!(false));
+    // An override stands on its own setter: it neither borrows the default's nor loses its own.
+    assert_eq!(bypass(row("auto", &own)), json!(true));
+    assert_eq!(bypass(row("5m", &own)), json!(true));
+    assert_eq!(bypass(row("auto", "")), json!(false));
+    assert_eq!(
+        bypass(format!(
+            "defaultSetByIdentityId = '{SETTER}'\n{}",
+            row("auto", "")
+        )),
+        json!(false)
+    );
+    // The member being its own setter is no one else to pass, and `off` holds nothing.
+    assert_eq!(
+        bypass(row("5m", &format!("setByIdentityId = '{ID}'\n"))),
+        json!(false)
+    );
+    assert_eq!(bypass(row("off", &own)), Value::Null);
+    assert_eq!(
+        bypass(format!(
+            "default = 'off'\ndefaultSetByIdentityId = '{SETTER}'\n"
+        )),
+        Value::Null
     );
 }

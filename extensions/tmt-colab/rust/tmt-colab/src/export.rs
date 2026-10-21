@@ -262,10 +262,17 @@ impl Bundle {
         let (content_name, content) = if let Some(shell) = view.meta.get("shell") {
             (
                 "shell.json",
-                crate::shell::canonical(shell).map_err(|_| crate::page::Fault::Invalid)?,
+                crate::closed::canonical(shell).map_err(|_| crate::page::Fault::Invalid)?,
             )
         } else {
             ("page.html", std::mem::take(&mut view.source).into_bytes())
+        };
+        // An ordinary page's work is exported beside its HTML, so a copy never loses its tasks.
+        let work = match view.meta.get("work") {
+            Some(work) => {
+                Some(crate::closed::canonical(work).map_err(|_| crate::page::Fault::Invalid)?)
+            }
+            None => None,
         };
         let conversations = conversations::Conversations::project(
             conversations::Capture {
@@ -306,11 +313,12 @@ impl Bundle {
             attachment_source,
             std::time::Instant::now(),
         )?;
-        let mut files = vec![
-            FileInfo::new(content_name, &content),
-            FileInfo::new("conversations.json", &json),
-            FileInfo::new("conversations.md", &markdown),
-        ];
+        let mut files = vec![FileInfo::new(content_name, &content)];
+        if let Some(work) = &work {
+            files.push(FileInfo::new("work.json", work));
+        }
+        files.push(FileInfo::new("conversations.json", &json));
+        files.push(FileInfo::new("conversations.md", &markdown));
         let manifest = serde_json::to_vec(&Manifest {
             format: "tmt-colab-page-export",
             version: 1,
@@ -337,12 +345,15 @@ impl Bundle {
             attachments: &entries,
             files: &files,
         })?;
-        let mut contents = vec![content, json, markdown];
+        let mut contents = vec![content];
+        contents.extend(work);
+        contents.extend([json, markdown]);
         for (name, bytes) in attachment_files {
             files.push(FileInfo::new(name, &bytes));
             contents.push(bytes);
         }
-        // The manifest lists the three page files and every attachment entry, never itself.
+        // The manifest lists the page files (the work among them when there is some) and every
+        // attachment entry, never itself.
         files.push(FileInfo::new("manifest.json", &manifest));
         contents.push(manifest);
         Ok(Self {

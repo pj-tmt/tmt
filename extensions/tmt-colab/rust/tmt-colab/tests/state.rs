@@ -947,6 +947,76 @@ fn content_time_is_atomic_new_only_and_nondecreasing_across_restart() {
     assert_eq!(updated(), Some(6000));
 }
 #[test]
+fn activity_counts_new_content_and_own_updates_and_never_decreases() {
+    use std::sync::{Arc, atomic::AtomicU64};
+    let f = Fixture::new();
+    let layout = f.layout();
+    let time = Arc::new(AtomicU64::new(1000));
+    let clock = time.clone();
+    let mut store = Store::open(&layout)
+        .unwrap()
+        .with_clock(move || Ok(clock.load(Ordering::SeqCst)));
+    store.create_page("page").unwrap();
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    let edited = || {
+        db.query_row("SELECT last_update_at_ms FROM pages", [], |r| {
+            r.get::<_, Option<i64>>(0)
+        })
+        .unwrap()
+    };
+    assert_eq!(store.last_activity_ms("page").unwrap(), None);
+    assert_eq!(store.last_activity_ms("missing").unwrap(), None);
+    store.append(&envelope(1, Namespace::Content)).unwrap();
+    assert_eq!(store.last_activity_ms("page").unwrap(), Some(1000));
+    // A comment or reply is an own-stream update: activity moves, the content-edit time does not.
+    time.store(5000, Ordering::SeqCst);
+    store.append(&envelope(2, Namespace::Own)).unwrap();
+    assert_eq!(store.last_activity_ms("page").unwrap(), Some(5000));
+    assert_eq!(edited(), Some(1000));
+    // Replay, a refused gap and a checkpoint are not activity.
+    time.store(9000, Ordering::SeqCst);
+    assert_eq!(
+        store.append(&envelope(2, Namespace::Own)).unwrap(),
+        Accepted::Replay
+    );
+    assert!(matches!(
+        store.append(&envelope(4, Namespace::Own)),
+        Err(Fault::Gap)
+    ));
+    let checkpoint = Envelope {
+        hash: [9; 32],
+        previous: [2; 32],
+        ..envelope(2, Namespace::Own)
+    };
+    store.checkpoint(&checkpoint).unwrap();
+    assert_eq!(store.last_activity_ms("page").unwrap(), Some(5000));
+    // A clock that went backwards never lowers it.
+    time.store(500, Ordering::SeqCst);
+    store.append(&envelope(3, Namespace::Own)).unwrap();
+    assert_eq!(store.last_activity_ms("page").unwrap(), Some(5000));
+    store.close().unwrap();
+    let reopened = Store::open(&layout).unwrap();
+    assert_eq!(reopened.last_activity_ms("page").unwrap(), Some(5000));
+}
+#[test]
+fn activity_write_failure_rolls_back_an_own_update() {
+    let f = Fixture::new();
+    let layout = f.layout();
+    let mut store = Store::open(&layout).unwrap().with_clock(|| Ok(1000));
+    store.create_page("page").unwrap();
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER refuse_time BEFORE UPDATE OF last_activity_at_ms ON pages BEGIN SELECT RAISE(ABORT,'refused time'); END;").unwrap();
+    assert!(store.append(&envelope(1, Namespace::Own)).is_err());
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM receipts", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    db.execute_batch("DROP TRIGGER refuse_time").unwrap();
+    store.append(&envelope(1, Namespace::Own)).unwrap();
+    assert_eq!(store.last_activity_ms("page").unwrap(), Some(1000));
+}
+#[test]
 fn timestamp_write_failure_rolls_back_content_receipt_and_stream() {
     let f = Fixture::new();
     let layout = f.layout();
@@ -996,6 +1066,7 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects;
+        ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     let raw = fs::read(layout.directory.join("space.db")).unwrap();
@@ -1035,7 +1106,9 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
             .unwrap(),
         None
     );
+    assert_eq!(migrated.last_activity_ms("page").unwrap(), None);
     migrated.append(&envelope(2, Namespace::Content)).unwrap();
+    assert_eq!(migrated.last_activity_ms("page").unwrap(), Some(3000));
     migrated.close().unwrap();
     Store::open(&layout).unwrap().close().unwrap();
     assert_eq!(

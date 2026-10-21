@@ -22,7 +22,11 @@ pub enum Operation {
     Show(Vec<String>),
     Stats(Vec<String>),
     Due(String),
-    Flush(String),
+    Flush {
+        identity: String,
+        /// Skip only the live-idle evidence; every other send guard stays.
+        when_busy: bool,
+    },
     Read {
         identity: String,
         checklist: Option<String>,
@@ -66,6 +70,13 @@ struct Show {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Due {
     identity_id: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FlushInput {
+    identity_id: String,
+    #[serde(default)]
+    when_busy: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -145,13 +156,17 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 Operation::Show(v.identities)
             }
         }
-        "digest.checklist.dueNow" | "digest.checklist.flush" => {
+        "digest.checklist.dueNow" => {
             let v: Due = serde_json::from_slice(input).map_err(|_| invalid())?;
             uuid(&v.identity_id)?;
-            if operation.ends_with(".flush") {
-                Operation::Flush(v.identity_id)
-            } else {
-                Operation::Due(v.identity_id)
+            Operation::Due(v.identity_id)
+        }
+        "digest.checklist.flush" => {
+            let v: FlushInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+            uuid(&v.identity_id)?;
+            Operation::Flush {
+                identity: v.identity_id,
+                when_busy: v.when_busy,
             }
         }
         "digest.checklist.read" | "digest.checklist.history" => {
@@ -238,14 +253,22 @@ pub(super) fn execute(
                 .map_err(error)?;
             json!({"identityId":identity,"heldCount":due.held_count,"throughSequence":due.through_sequence})
         }
-        Operation::Flush(identity) => {
+        Operation::Flush {
+            identity,
+            when_busy,
+        } => {
             let stats = RequestService::new(&mut *storage, wall_time_ms)
                 .digest_stats(std::slice::from_ref(&identity))
                 .map_err(error)?;
             let state = if stats[0].due_count == 0 {
                 "nothing_due"
             } else {
-                match digest::flush_idle(storage, &identity, delay).map_err(error)? {
+                let readiness = if when_busy {
+                    digest::Readiness::Live
+                } else {
+                    digest::Readiness::Idle
+                };
+                match digest::flush(storage, &identity, delay, readiness).map_err(error)? {
                     None => "not_idle",
                     Some(DigestState::Delivered) => "delivered",
                     Some(DigestState::Uncertain | DigestState::Claimed) => "uncertain",

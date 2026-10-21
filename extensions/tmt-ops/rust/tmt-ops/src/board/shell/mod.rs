@@ -4,7 +4,6 @@
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OpsTab {
     #[default]
-    Overview,
     Agents,
     Digest,
 }
@@ -12,9 +11,26 @@ pub enum OpsTab {
 impl OpsTab {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Overview => "Overview",
             Self::Agents => "Agents",
             Self::Digest => "Digest",
+        }
+    }
+}
+
+/// The right column of the Agents tab: the selected agent's conversation, or the measures of the
+/// selected squad (all agents when the Agents chip is active).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RightTab {
+    #[default]
+    Talk,
+    Measure,
+}
+
+impl RightTab {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Talk => Self::Measure,
+            Self::Measure => Self::Talk,
         }
     }
 }
@@ -46,9 +62,8 @@ impl OpsShell {
             return false;
         }
         let tab = match digit {
-            '1' => OpsTab::Overview,
-            '2' => OpsTab::Agents,
-            '3' => OpsTab::Digest,
+            '1' => OpsTab::Agents,
+            '2' => OpsTab::Digest,
             _ => return false,
         };
         self.tab = tab;

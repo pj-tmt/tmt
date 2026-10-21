@@ -1,9 +1,7 @@
 import type { ComposerConnectionPresentation } from '../router.js';
-import { BrowserAction, useBusyMark } from '@tmt/browser-ui/react';
-import { LoaderCircle } from 'lucide-react';
-import { useId, useRef, type ReactNode } from 'react';
+import { BrowserAction } from '@tmt/browser-ui/react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import {
-  answerOf,
   canonicalQuestionThread,
   currentAnswer,
   QUESTION_SHORT_POINTS,
@@ -91,14 +89,18 @@ export function QuestionCard({
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
   const disabled = blocked || busy || recorded || !discussion;
   const attachable = !!files && !disabled;
-  // From Send until the verified record arrives, the card shows the answer being sent where the
-  // verified one will stand. It is display only: nothing here is a record, and a failure drops it.
-  const echoing = !readOnly && (busy || recorded) && body !== undefined;
-  const echo = echoing ? answerOf(question, body) : undefined;
-  const pendingMark = useBusyMark(echoing);
-  const compose = !echoing && (!answer || changing);
+  const compose = !answer || changing;
+  // A failed send re-opens the card on its error row; the reader must act on it, so Retry has focus.
+  const retryable = !!error && !!onRetry;
+  useEffect(() => {
+    if (!retryable || section.current?.closest('[hidden]')) return;
+    const active = document.activeElement;
+    if (active?.closest('input,textarea,[contenteditable]') && !section.current?.contains(active))
+      return;
+    section.current?.querySelector<HTMLElement>('.question-status button')?.focus();
+  }, [retryable]);
   const changeAction =
-    !readOnly && (echoing || (answer && !changing)) ? (
+    !readOnly && answer && !changing ? (
       <BrowserAction
         label="Change answer"
         type="button"
@@ -144,21 +146,11 @@ export function QuestionCard({
       }}
     >
       <div className="question-controls">
-        {(answer || echoing) && (
-          <div className="question-answer" data-echo={echoing || undefined}>
-            <p>{echo ?? (pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText)}</p>
-            {answer && !echoing && (
-              <MessageAttachments comment={answer} binding={discussion?.attachments} />
-            )}
+        {answer && (
+          <div className="question-answer">
+            <p>{pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}</p>
+            <MessageAttachments comment={answer} binding={discussion?.attachments} />
             {changeAction}
-            <span className="question-pending" aria-hidden="true">
-              {echoing && (
-                // The same wordless mark as a sent message's echo, on the shared busy-mark delay.
-                <span className="comment-echo-mark" data-shown={pendingMark || undefined}>
-                  <LoaderCircle />
-                </span>
-              )}
-            </span>
           </div>
         )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}

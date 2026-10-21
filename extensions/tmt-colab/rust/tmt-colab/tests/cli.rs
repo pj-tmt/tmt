@@ -583,7 +583,8 @@ fn listing_is_read_only_and_foreground_shutdown_releases_state_and_sockets_twice
             .unwrap();
         let mut page = String::new();
         socket.read_to_string(&mut page).unwrap();
-        assert!(page.starts_with("HTTP/1.1 200") && page.contains("This Colab space is private"));
+        assert!(page.starts_with("HTTP/1.1 200") && page.contains("Reopen the page to try again."));
+        assert!(!page.contains("tmt remote pair"));
         assert_eq!(
             fs::read_to_string(pilot.root.join("calls")).unwrap(),
             "api\napi\n",
@@ -1379,7 +1380,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -1687,6 +1688,947 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
         let advanced = call(&pilot, &["shell", "read", id, "--json"]);
         assert_eq!(advanced["epoch"], "2");
         assert_eq!(advanced["shell"], before["shell"]);
+    }
+}
+
+/// A scripted `gh`: it logs each call, answers `issue list` from `list.json` (else `[]`), `issue create`
+/// from `create.txt`, and `api graphql` from `graphql.json` (failing when `graphql.fail` exists).
+const FAKE_GH: &str = r#"#!/bin/sh
+d="$FAKE_GH_DIR"
+printf '%s %s\n' "$1" "$2" >> "$d/log"
+case "$1 $2" in
+  "issue list")
+    if [ -f "$d/list.json" ]; then /bin/cat "$d/list.json"; else printf '[]'; fi ;;
+  "issue create")
+    prev=""
+    for a in "$@"; do
+      case "$prev" in
+        --title) printf '%s' "$a" > "$d/title" ;;
+        --body) printf '%s' "$a" > "$d/body" ;;
+      esac
+      prev="$a"
+    done
+    /bin/cat "$d/create.txt" ;;
+  "api graphql")
+    printf '%s\n' "$4" >> "$d/queries"
+    if [ -f "$d/graphql.err" ]; then /bin/cat "$d/graphql.err" >&2; fi
+    if [ -f "$d/graphql.json" ]; then /bin/cat "$d/graphql.json"; fi
+    if [ -f "$d/graphql.fail" ]; then exit 1; fi ;;
+  *) echo "unexpected: $*" >&2; exit 2 ;;
+esac
+"#;
+
+#[test]
+fn the_github_driver_pushes_a_task_once_and_syncs_done_from_merged_closures() {
+    let pilot = Pilot::new(None);
+    let gh = pilot.root.join("fake-gh");
+    fs::create_dir(&gh).unwrap();
+    let script = gh.join("gh");
+    fs::write(&script, FAKE_GH).unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let run_with = |program: &std::path::Path, args: &[&str]| {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .env("TMT_COLAB_GH", program)
+            .env("FAKE_GH_DIR", &gh)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let call = |args: &[&str]| -> Value {
+        let out = run_with(&script, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let refused = |args: &[&str]| -> Value {
+        let out = run_with(&script, args);
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let log = || fs::read_to_string(gh.join("log")).unwrap_or_default();
+    let calls = |what: &str| log().lines().filter(|line| *line == what).count();
+    let queries = || fs::read_to_string(gh.join("queries")).unwrap_or_default();
+    let source = pilot.root.join("source.html");
+    fs::write(&source, "<h1>Plan</h1>").unwrap();
+    let page = call(&[
+        "page",
+        "create",
+        "--title",
+        "One",
+        "--layout",
+        "column",
+        "--file",
+        source.to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ])["pageId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let first = pilot.root.join("first.json");
+    fs::write(
+        &first,
+        json!({"title":"Ship #9","detail":"Close #3 and gh-4 for @ada","needsSignoff":true,
+            "acceptance":[{"kind":"test","name":"guide builds"}]})
+        .to_string(),
+    )
+    .unwrap();
+    call(&[
+        "task",
+        "add",
+        &page,
+        "--file",
+        first.to_str().unwrap(),
+        "--json",
+    ]);
+    let tasks = || call(&["task", "ls", &page, "--json"])["work"]["tasks"].clone();
+
+    // No repository, nothing asked of GitHub.
+    for args in [
+        vec!["task", "github", "push", &page, "T-1", "--json"],
+        vec!["task", "github", "sync", "--json"],
+    ] {
+        assert_eq!(refused(&args)["error"]["code"], "COLAB_GITHUB_REPO_UNSET");
+    }
+    assert_eq!(log(), "");
+    assert_eq!(
+        refused(&["settings", "github-repo", "not a repo", "--json"])["error"]["code"],
+        "COLAB_INPUT_INVALID"
+    );
+    let settings = call(&["settings", "github-repo", "pj-tmt/tmt", "--json"]);
+    assert_eq!(settings["githubRepo"], "pj-tmt/tmt");
+
+    // Push publishes the task, neutralised and fenced, and links it.
+    fs::write(
+        gh.join("create.txt"),
+        "https://github.com/pj-tmt/tmt/issues/501\n",
+    )
+    .unwrap();
+    let pushed = call(&["task", "github", "push", &page, "T-1", "--json"]);
+    assert_eq!(pushed["repo"], "pj-tmt/tmt");
+    assert_eq!(pushed["created"], true);
+    assert_eq!(
+        pushed["issue"],
+        json!({"number":501,"url":"https://github.com/pj-tmt/tmt/issues/501"})
+    );
+    assert_eq!((calls("issue list"), calls("issue create")), (1, 1));
+    assert_eq!(
+        fs::read_to_string(gh.join("title")).unwrap(),
+        "Ship #\u{200b}9"
+    );
+    let body = fs::read_to_string(gh.join("body")).unwrap();
+    assert!(body.starts_with(&format!(
+        "<!-- {} -->",
+        tmt_colab::work_github::marker(&page, "T-1")
+    )));
+    assert!(
+        body.contains("Close #\u{200b}3 and gh-\u{200b}4 for @ada"),
+        "{body}"
+    );
+    for form in [page.clone(), page.replace('-', "")] {
+        assert!(!body.contains(&form), "the page's ID stays private: {form}");
+    }
+    let linked = tasks();
+    assert_eq!(linked["T-1"]["externalId"], "#501");
+    assert_eq!(linked["T-1"]["needsSignoff"], true);
+    assert_eq!(linked["T-1"]["acceptance"][0]["name"], "guide builds");
+    assert_eq!(
+        linked["T-1"]["title"], "Ship #9",
+        "the page keeps its own text"
+    );
+    // A linked task is not pushed again, and nothing is asked of GitHub for it.
+    let again = refused(&["task", "github", "push", &page, "T-1", "--json"]);
+    assert_eq!(again["error"]["code"], "COLAB_INPUT_INVALID");
+    assert_eq!((calls("issue list"), calls("issue create")), (1, 1));
+
+    // An issue this task already pushed is adopted, never created twice.
+    call(&["task", "add", &page, "--title", "Second", "--json"]);
+    fs::write(
+        gh.join("list.json"),
+        json!([
+            {"number":1,"url":"https://github.com/pj-tmt/tmt/issues/1","body":"unrelated"},
+            {"number":502,"url":"https://github.com/pj-tmt/tmt/issues/502",
+                "body":format!("<!-- {} -->\nbody", tmt_colab::work_github::marker(&page, "T-2"))}
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    let adopted = call(&["task", "github", "push", &page, "T-2", "--json"]);
+    assert_eq!(
+        (
+            adopted["created"].clone(),
+            adopted["issue"]["number"].clone()
+        ),
+        (json!(false), json!(502))
+    );
+    assert_eq!((calls("issue list"), calls("issue create")), (2, 1));
+    assert_eq!(tasks()["T-2"]["externalId"], "#502");
+    fs::remove_file(gh.join("list.json")).unwrap();
+
+    // Other IDs belong to other trackers, and a manual #N is synced like a pushed one.
+    call(&[
+        "task",
+        "add",
+        &page,
+        "--title",
+        "Third",
+        "--external-id",
+        "GH-77",
+        "--json",
+    ]);
+    call(&[
+        "task",
+        "add",
+        &page,
+        "--title",
+        "Fourth",
+        "--external-id",
+        "#503",
+        "--json",
+    ]);
+    fs::write(
+        gh.join("graphql.json"),
+        json!({"data":{"repository":{
+            "i501":{"state":"CLOSED","closedByPullRequestsReferences":{"nodes":[{"merged":true}]}},
+            "i502":{"state":"OPEN","closedByPullRequestsReferences":{"nodes":[]}},
+            "i503":{"state":"CLOSED","closedByPullRequestsReferences":{"nodes":[{"merged":false}]}}
+        }}})
+        .to_string(),
+    )
+    .unwrap();
+    let synced = call(&["task", "github", "sync", "--json"]);
+    let outcomes: Vec<(String, String)> = synced["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["task"].as_str().unwrap().into(),
+                row["outcome"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        outcomes,
+        [("T-1", "done"), ("T-2", "open"), ("T-4", "closed")]
+            .map(|(task, outcome)| (task.to_owned(), outcome.to_owned()))
+    );
+    // One call asked about all three issues together, and not about the other tracker's ID.
+    assert_eq!(
+        (synced["calls"].clone(), synced["checked"].clone()),
+        (json!(1), json!(3))
+    );
+    assert_eq!(calls("api graphql"), 1);
+    let asked = queries();
+    for number in [501, 502, 503] {
+        assert!(
+            asked.contains(&format!("i{number}:issue(number:{number})")),
+            "{asked}"
+        );
+    }
+    assert!(!asked.contains("77"), "{asked}");
+    let after = tasks();
+    assert_eq!(
+        ["T-1", "T-2", "T-3", "T-4"].map(|id| after[id]["state"].as_str().unwrap().to_owned()),
+        ["done", "todo", "todo", "todo"]
+    );
+    // A task that is done is not asked about again.
+    fs::remove_file(gh.join("queries")).unwrap();
+    let rerun = call(&["task", "github", "sync", &page, "--json"]);
+    assert_eq!(rerun["rows"].as_array().unwrap().len(), 2);
+    assert!(!queries().contains("i501"), "{}", queries());
+    assert_eq!(calls("api graphql"), 2);
+
+    // An issue GitHub has no record of is missing, and the rest of the answer still counts.
+    fs::write(gh.join("graphql.fail"), "").unwrap();
+    fs::write(
+        gh.join("graphql.json"),
+        json!({"data":{"repository":{"i502":null,
+            "i503":{"state":"CLOSED","closedByPullRequestsReferences":{"nodes":[{"merged":true}]}}}},
+            "errors":[{"type":"NOT_FOUND"}]})
+        .to_string(),
+    )
+    .unwrap();
+    let partial = call(&["task", "github", "sync", "--json"]);
+    let outcomes: Vec<&str> = partial["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["outcome"].as_str().unwrap())
+        .collect();
+    assert_eq!(outcomes, ["missing", "done"]);
+    assert_eq!(tasks()["T-4"]["state"], "done");
+
+    // A refused call fails the run, names the rows, and moves nothing.
+    call(&["task", "state", &page, "T-4", "todo", "--json"]);
+    fs::remove_file(gh.join("graphql.json")).unwrap();
+    fs::write(gh.join("graphql.err"), "HTTP 502: Bad Gateway").unwrap();
+    let before = tasks();
+    let failed = refused(&["task", "github", "sync", "--json"]);
+    assert_eq!(failed["error"]["code"], "COLAB_GITHUB_REFUSED");
+    let rows = failed["rows"].as_array().unwrap();
+    assert!(rows.iter().all(|row| row["outcome"] == "failed"
+        && row["error"]["message"].as_str().unwrap().contains("502")));
+    assert_eq!(tasks(), before);
+    // Not signed in, or no gh at all, is its own code and spends no more calls.
+    fs::write(
+        gh.join("graphql.err"),
+        "To get started with GitHub CLI, please run:  gh auth login",
+    )
+    .unwrap();
+    let spent = calls("api graphql");
+    assert_eq!(
+        refused(&["task", "github", "sync", "--json"])["error"]["code"],
+        "COLAB_GITHUB_UNAVAILABLE"
+    );
+    assert_eq!(calls("api graphql"), spent + 1);
+    let out = run_with(
+        std::path::Path::new("/nonexistent/gh-for-the-test"),
+        &["task", "github", "sync", "--json"],
+    );
+    assert!(!out.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"]["code"],
+        "COLAB_GITHUB_UNAVAILABLE"
+    );
+    assert_eq!(tasks(), before);
+}
+
+/// The owner list's summary carries the page's own work from the real fold, with the task lines a
+/// follow needs, and nothing for a page that has none.
+#[test]
+fn the_summary_fold_carries_a_pages_own_work_and_its_follow_lines() {
+    let pilot = Pilot::new(None);
+    let call = |args: &[&str]| -> Value {
+        let out = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let source = pilot.root.join("source.html");
+    fs::write(&source, "<h1>Plan</h1>").unwrap();
+    let create = |title: &str| {
+        call(&[
+            "page",
+            "create",
+            "--title",
+            title,
+            "--layout",
+            "column",
+            "--file",
+            source.to_str().unwrap(),
+            "--no-open",
+            "--json",
+        ])["pageId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let (top, leaf, bare) = (create("Top"), create("Leaf"), create("Bare"));
+    call(&["task", "add", &top, "--title", "Follows", "--json"]);
+    call(&["task", "add", &leaf, "--title", "Plain", "--json"]);
+    call(&["task", "link", &top, "T-1", &leaf, "--json"]);
+    let mut opened = tmt_colab::page::save::open_source(
+        &pilot.root.join("selected"),
+        support::decoder_config(BINARY.into()),
+    )
+    .unwrap();
+    let mut summarize = |page: &str| {
+        tmt_colab::summary::summarize(&mut opened, page)
+            .unwrap()
+            .work
+    };
+    let top_work = summarize(&top).expect("a page with a task has work");
+    // The page's own derived values come first; the followed page is resolved at read time.
+    assert_eq!(top_work.derived["stage"], "in-progress");
+    assert_eq!(top_work.derived["total"], 1);
+    assert_eq!(top_work.lines.len(), 1);
+    assert_eq!(top_work.lines[0].child.as_deref(), Some(leaf.as_str()));
+    // Without a follow the lines are not kept; a page with no task has no work.
+    let leaf_work = summarize(&leaf).expect("a page with a task has work");
+    assert_eq!(leaf_work.derived["total"], 1);
+    assert!(leaf_work.lines.is_empty());
+    assert!(summarize(&bare).is_none());
+}
+
+#[test]
+fn a_task_follows_a_page_with_one_parent_and_no_loop_and_a_task_becomes_a_page() {
+    fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap()
+    }
+    fn call(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = run(pilot, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        assert!(out.stderr.is_empty(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+    fn refused(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = run(pilot, args);
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"].clone()
+    }
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("source.html");
+        fs::write(&source, "<h1>Plan</h1>").unwrap();
+        let create = |title: &str| {
+            call(
+                &pilot,
+                &[
+                    "page",
+                    "create",
+                    "--title",
+                    title,
+                    "--layout",
+                    "column",
+                    "--file",
+                    source.to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ],
+            )["pageId"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let (top, mid, leaf) = (create("Top"), create("Middle"), create("Leaf"));
+        for page in [&top, &mid, &leaf] {
+            call(&pilot, &["task", "add", page, "--title", "First", "--json"]);
+        }
+        call(
+            &pilot,
+            &["task", "add", &top, "--title", "Second", "--json"],
+        );
+        let tasks = |page: &str| call(&pilot, &["task", "ls", page, "--json"]);
+
+        // A task follows a page: it shows the page's stage as its state (the page's task is todo, so
+        // the page is in progress), and the page is listed as part of the task's page.
+        let linked = call(&pilot, &["task", "link", &top, "T-1", &mid, "--json"]);
+        assert!(linked["changed"].as_bool().unwrap());
+        let listed = tasks(&top);
+        assert_eq!(listed["work"]["tasks"]["T-1"]["child"], json!(mid));
+        assert_eq!(listed["work"]["tasks"]["T-1"]["state"], "todo");
+        assert_eq!(listed["derived"]["states"], json!({"T-1":"in-progress"}));
+        let rows = call(&pilot, &["ls", "--json"]);
+        let row = |id: &str| {
+            rows["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["pageId"] == id)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(row(&mid)["parent"], json!({"page":top,"task":"T-1"}));
+        assert!(row(&top).get("parent").is_none());
+        let text = String::from_utf8(run(&pilot, &["ls"]).stdout).unwrap();
+        assert!(text.contains("part of T-1 of"), "{text}");
+        let human = String::from_utf8(run(&pilot, &["task", "ls", &top]).stdout).unwrap();
+        assert!(human.contains("in-progress  follows"), "{human}");
+
+        // Linking the same page again changes nothing, and a second parent, a loop, itself and a
+        // page that is not there are each refused, naming why. The loop needs the chain top, middle,
+        // leaf first.
+        call(&pilot, &["task", "link", &mid, "T-1", &leaf, "--json"]);
+        let again = call(&pilot, &["task", "link", &top, "T-1", &mid, "--json"]);
+        assert!(!again["changed"].as_bool().unwrap());
+        for (args, words) in [
+            (
+                vec!["task", "link", &top, "T-2", &mid],
+                "already followed by T-1",
+            ),
+            (
+                vec!["task", "link", &leaf, "T-1", &top],
+                "would make a loop",
+            ),
+            (vec!["task", "link", &top, "T-2", &top], "own page"),
+            (
+                vec![
+                    "task",
+                    "link",
+                    &top,
+                    "T-2",
+                    "99999999-9999-4999-8999-999999999999",
+                ],
+                "not a page of this space",
+            ),
+        ] {
+            let mut args = args;
+            args.push("--json");
+            let error = refused(&pilot, &args);
+            assert_eq!(error["code"], "COLAB_LINK_REFUSED", "{args:?}");
+            assert!(
+                error["message"].as_str().unwrap().contains(words),
+                "{error}"
+            );
+        }
+        assert_eq!(
+            tasks(&top)["work"],
+            listed["work"],
+            "a refused link changes nothing"
+        );
+
+        // The state of a task that follows a page is not set by hand, and an external ID cannot join
+        // it.
+        assert_eq!(
+            refused(&pilot, &["task", "state", &top, "T-1", "done", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        let file = pilot.root.join("task.json");
+        fs::write(
+            &file,
+            json!({"title":"First","externalId":"#7"}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            refused(
+                &pilot,
+                &[
+                    "task",
+                    "set",
+                    &top,
+                    "T-1",
+                    "--file",
+                    file.to_str().unwrap(),
+                    "--json"
+                ]
+            )["code"],
+            "COLAB_INPUT_INVALID"
+        );
+
+        // The state follows all the way down: a finished leaf finishes the middle page and the
+        // task above it.
+        call(&pilot, &["task", "state", &leaf, "T-1", "done", "--json"]);
+        let done = tasks(&top);
+        assert_eq!(done["derived"]["states"], json!({"T-1":"done"}));
+        assert_eq!(done["derived"]["done"], 1);
+        assert_eq!(done["derived"]["stage"], "in-progress", "T-2 is still todo");
+        assert_eq!(row_of(&pilot, &mid)["work"]["stage"], "done");
+        // The task's own state is untouched underneath.
+        assert_eq!(done["work"]["tasks"]["T-1"]["state"], "todo");
+
+        // Unlinking shows the task's own state again, and the page is no longer a child.
+        call(&pilot, &["task", "unlink", &top, "T-1", "--json"]);
+        let free = tasks(&top);
+        assert!(free["work"]["tasks"]["T-1"].get("child").is_none());
+        assert!(free["derived"].get("states").is_none());
+        assert!(row_of(&pilot, &mid).get("parent").is_none());
+        call(
+            &pilot,
+            &["task", "state", &top, "T-1", "in-progress", "--json"],
+        );
+
+        // A task becomes a page of its own: a new page with its title and detail, linked.
+        let detail = pilot.root.join("detail.json");
+        fs::write(
+            &detail,
+            json!({"title":"Write <the> guide","detail":"First & foremost\n\nSecond line"})
+                .to_string(),
+        )
+        .unwrap();
+        call(
+            &pilot,
+            &[
+                "task",
+                "set",
+                &top,
+                "T-2",
+                "--file",
+                detail.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        let converted = call(&pilot, &["task", "convert", &top, "T-2", "--json"]);
+        let child = converted["childPage"].as_str().unwrap().to_owned();
+        assert_eq!(converted["taskId"], "T-2");
+        assert_eq!(tasks(&top)["work"]["tasks"]["T-2"]["child"], json!(child));
+        let source = call(&pilot, &["page", "read", &child, "--json"])["source"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            source,
+            "<h1>Write &lt;the&gt; guide</h1>\n<p>First &amp; foremost</p>\n<p>Second line</p>\n"
+        );
+        assert_eq!(row_of(&pilot, &child)["title"], "Write <the> guide");
+        assert_eq!(row_of(&pilot, &child)["parent"]["page"], json!(top));
+        // A task that follows a page is not pushed to GitHub: the page owns its state.
+        call(&pilot, &["settings", "github-repo", "pj-tmt/tmt", "--json"]);
+        let pushed = refused(&pilot, &["task", "github", "push", &top, "T-2", "--json"]);
+        assert_eq!(pushed["code"], "COLAB_INPUT_INVALID");
+        assert!(
+            pushed["message"]
+                .as_str()
+                .unwrap()
+                .contains("follows a page"),
+            "{pushed}"
+        );
+        // A task that already follows a page is not converted again, and no page is made for it.
+        let before = call(&pilot, &["ls", "--json"])["pages"]
+            .as_array()
+            .unwrap()
+            .len();
+        assert_eq!(
+            refused(&pilot, &["task", "convert", &top, "T-2", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(
+            call(&pilot, &["ls", "--json"])["pages"]
+                .as_array()
+                .unwrap()
+                .len(),
+            before
+        );
+    }
+    fn row_of(pilot: &Pilot, id: &str) -> Value {
+        call(pilot, &["ls", "--json"])["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["pageId"] == id)
+            .unwrap()
+            .clone()
+    }
+}
+
+#[test]
+fn work_commands_change_a_page_limit_each_agent_across_the_space_and_list() {
+    fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap()
+    }
+    fn call(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = run(pilot, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        assert!(out.stderr.is_empty(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+    fn refused(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = run(pilot, args);
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"].clone()
+    }
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("source.html");
+        fs::write(&source, "<h1>Plan</h1>").unwrap();
+        let create = |title: &str| {
+            call(
+                &pilot,
+                &[
+                    "page",
+                    "create",
+                    "--title",
+                    title,
+                    "--layout",
+                    "column",
+                    "--file",
+                    source.to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ],
+            )["pageId"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let (one, two) = (create("One"), create("Two"));
+        let listed = call(&pilot, &["task", "ls", &one, "--json"]);
+        assert_eq!(listed["work"], tmt_colab::work::empty());
+        assert_eq!(listed["derived"]["stage"], "discussion");
+        // Setting a limit keeps the other settings.
+        call(&pilot, &["settings", "open", "off", "--json"]);
+        let settings = call(&pilot, &["settings", "wip-limit", "ada", "2", "--json"]);
+        assert_eq!(settings["open"], false);
+        assert_eq!(
+            settings["wipLimit"],
+            json!({"default":1,"agents":{"ada":2}})
+        );
+        assert_eq!(
+            call(
+                &pilot,
+                &["settings", "wip-limit", "ada", "default", "--json"]
+            )["wipLimit"]["agents"],
+            json!({})
+        );
+
+        // The default limit is one: the second task assigned to ada is refused, naming her tasks.
+        let added = call(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &one,
+                "--title",
+                "Write",
+                "--assignee",
+                "ada",
+                "--json",
+            ],
+        );
+        assert_eq!(
+            (added["changed"].as_bool(), added["taskId"].as_str()),
+            (Some(true), Some("T-1"))
+        );
+        let over = refused(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &one,
+                "--title",
+                "Test",
+                "--assignee",
+                "ada",
+                "--json",
+            ],
+        );
+        assert_eq!(over["code"], "COLAB_WIP_LIMIT");
+        let message = over["message"].as_str().unwrap();
+        assert!(
+            message.contains("ada") && message.contains("T-1"),
+            "{message}"
+        );
+        assert!(message.contains("wip-limit ada 2"), "{message}");
+        assert_eq!(
+            call(&pilot, &["task", "ls", &one, "--json"])["derived"]["total"],
+            1
+        );
+        // Another page counts too, and a person or an unassigned task is not limited.
+        let elsewhere = refused(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &two,
+                "--title",
+                "Other",
+                "--assignee",
+                "agent:ada",
+                "--json",
+            ],
+        );
+        assert_eq!(elsewhere["code"], "COLAB_WIP_LIMIT");
+        call(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &two,
+                "--title",
+                "Mine",
+                "--assignee",
+                "person:ben",
+                "--json",
+            ],
+        );
+        call(&pilot, &["task", "add", &two, "--title", "Free", "--json"]);
+        // A larger limit admits it; lowering it again never invalidates what is published.
+        call(&pilot, &["settings", "wip-limit", "ada", "2", "--json"]);
+        call(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &one,
+                "--title",
+                "Test",
+                "--assignee",
+                "ada",
+                "--json",
+            ],
+        );
+        call(&pilot, &["settings", "wip-limit", "ada", "1", "--json"]);
+        let work = call(&pilot, &["task", "ls", &one, "--json"]);
+        assert_eq!(work["derived"]["total"], 2);
+        // Over the limit, finishing, blocking and unassigning are admitted; taking one back is not.
+        call(
+            &pilot,
+            &["task", "state", &one, "T-1", "in-progress", "--json"],
+        );
+        call(
+            &pilot,
+            &[
+                "task", "state", &one, "T-1", "blocked", "--reason", "Waiting", "--json",
+            ],
+        );
+        let back = refused(&pilot, &["task", "state", &one, "T-1", "todo", "--json"]);
+        assert_eq!(back["code"], "COLAB_WIP_LIMIT");
+        call(&pilot, &["task", "assign", &one, "T-2", "--json"]);
+        call(&pilot, &["task", "state", &one, "T-1", "todo", "--json"]);
+        call(&pilot, &["task", "state", &one, "T-1", "done", "--json"]);
+        // A blocked task needs its reason, and an unknown task is invalid.
+        assert_eq!(
+            refused(&pilot, &["task", "state", &one, "T-2", "blocked", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(
+            refused(&pilot, &["task", "state", &one, "T-9", "done", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        // Edit, summary, remove and a stale revision.
+        let file = pilot.root.join("task.json");
+        fs::write(
+            &file,
+            json!({"title":"Test it","needsSignoff":true}).to_string(),
+        )
+        .unwrap();
+        call(
+            &pilot,
+            &[
+                "task",
+                "set",
+                &one,
+                "T-2",
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        call(
+            &pilot,
+            &[
+                "summary",
+                "set",
+                &one,
+                "--line1",
+                "Release plan",
+                "--line2",
+                "Read first",
+                "--json",
+            ],
+        );
+        let before = call(&pilot, &["task", "ls", &one, "--json"]);
+        assert_eq!(
+            before["work"]["tasks"]["T-2"],
+            json!({"title":"Test it","state":"todo","needsSignoff":true})
+        );
+        assert_eq!(before["work"]["summary"]["line1"], "Release plan");
+        assert_eq!(
+            before["derived"],
+            json!({"stage":"in-progress","done":1,"total":2,"working":[],"signoff":0})
+        );
+        call(&pilot, &["task", "rm", &one, "T-2", "--json"]);
+        let stale = refused(
+            &pilot,
+            &[
+                "task",
+                "rm",
+                &one,
+                "T-1",
+                "--expected-revision",
+                before["revision"].as_str().unwrap(),
+                "--json",
+            ],
+        );
+        assert_eq!(stale["code"], "COLAB_STALE_BASE");
+        call(&pilot, &["summary", "clear", &one, "--json"]);
+        // Task numbers are never reused.
+        let again = call(&pilot, &["task", "add", &one, "--title", "Again", "--json"]);
+        assert_eq!(again["taskId"], "T-3");
+
+        // The list carries the work of the pages that have it, in JSON and under the row.
+        let rows = call(&pilot, &["ls", "--json"]);
+        let row = |id: &str| {
+            rows["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["pageId"] == id)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(row(&one)["work"]["stage"], "in-progress");
+        assert_eq!(row(&one)["work"]["total"], 2);
+        assert_eq!(row(&two)["work"]["working"], json!([]));
+        let text = run(&pilot, &["ls"]);
+        assert!(
+            String::from_utf8(text.stdout)
+                .unwrap()
+                .contains("work in-progress")
+        );
+
+        // An export keeps the tasks beside the page's own HTML, and a page without work has none.
+        let destination = pilot.root.join("export");
+        fs::create_dir(&destination).unwrap();
+        let exported = |id: &str| {
+            let out = call(
+                &pilot,
+                &[
+                    "export",
+                    id,
+                    "--dir",
+                    destination.to_str().unwrap(),
+                    "--json",
+                ],
+            );
+            PathBuf::from(out["directory"].as_str().unwrap())
+        };
+        let directory = exported(&one);
+        assert_eq!(
+            fs::read_to_string(directory.join("page.html")).unwrap(),
+            "<h1>Plan</h1>"
+        );
+        let live = call(&pilot, &["task", "ls", &one, "--json"]);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(directory.join("work.json")).unwrap())
+                .unwrap(),
+            live["work"]
+        );
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(directory.join("manifest.json")).unwrap()).unwrap();
+        let listed: Vec<&str> = manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                "page.html",
+                "work.json",
+                "conversations.json",
+                "conversations.md"
+            ]
+        );
+        let bare = create("Bare");
+        assert!(!exported(&bare).join("work.json").exists());
+
+        // A shell page holds no work.
+        let shell = call(&pilot, &["shell", "create", "--title", "Shell", "--json"]);
+        let shell = shell["pageId"].as_str().unwrap();
+        assert_eq!(
+            refused(&pilot, &["task", "add", shell, "--title", "No", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        if serving {
+            pilot.stop();
+        }
     }
 }
 
@@ -5404,7 +6346,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -5500,7 +6442,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6565,12 +7507,12 @@ fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
     let pilot = Pilot::new(None);
     assert_eq!(
         pilot.call(&["settings", "--json"]),
-        json!({"open":true,"source":"default"})
+        json!({"open":true,"source":"default","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
     );
     assert!(!pilot.root.join("selected/colab").exists());
     assert_eq!(
         pilot.call(&["settings", "open", "off", "--json"]),
-        json!({"open":false,"source":"settings.json"})
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
     );
     let out = pilot.command().arg("settings").output().unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
@@ -6588,7 +7530,167 @@ fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("settings.json could not be read"));
     assert_eq!(
         pilot.call(&["settings", "open", "on", "--json"]),
-        json!({"open":true,"source":"settings.json"})
+        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
+    );
+}
+#[test]
+fn the_page_expiry_setting_is_days_off_or_default_and_keeps_other_settings() {
+    let pilot = Pilot::new(None);
+    assert_eq!(pilot.call(&["settings", "--json"])["pageExpiryDays"], 180);
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let file = pilot.root.join("selected/colab/settings.json");
+    assert_eq!(
+        pilot.call(&["settings", "page-expiry", "90", "--json"]),
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":90})
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"open":false,"pageExpiry":90}"#
+    );
+    let out = pilot
+        .command()
+        .args(["settings", "page-expiry"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains("90 days"));
+    assert_eq!(
+        pilot.call(&["settings", "page-expiry", "off", "--json"])["pageExpiryDays"],
+        json!(null)
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"open":false,"pageExpiry":"off"}"#
+    );
+    let out = pilot.command().arg("settings").output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains("page-expiry"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("off"));
+    assert_eq!(
+        pilot.call(&["settings", "page-expiry", "default", "--json"])["pageExpiryDays"],
+        180
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"open":false}"#);
+    for bad in ["0", "3651", "-1", "1.5", "+7", "ninety", "forever"] {
+        let out = pilot
+            .command()
+            .args(["settings", "page-expiry", bad, "--json"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{bad}");
+        let error: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(error["error"]["code"], "COLAB_INPUT_INVALID", "{bad}");
+    }
+    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"open":false}"#);
+}
+#[test]
+fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_retention() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let pilot = Pilot::new(None);
+    pilot.devices(r#"{"devices":[]}"#);
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Idle page",
+        "--layout",
+        "column",
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let day = 86_400_000u64;
+    let now = || {
+        u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap()
+    };
+    // Only fixture SQL sets the evidence; production sets it from admitted updates.
+    let set_times = |updated: Option<u64>, active: Option<u64>| {
+        let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
+        let as_sql = |ms: Option<u64>| ms.map(|value| i64::try_from(value).unwrap());
+        db.execute(
+            "UPDATE pages SET last_update_at_ms=?1, last_activity_at_ms=?2",
+            rusqlite::params![as_sql(updated), as_sql(active)],
+        )
+        .unwrap();
+    };
+    let read = || pilot.call(&["retention", id, "--json"])["page"].clone();
+    let human = |args: &[&str]| {
+        let out = pilot.command().args(args).output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let expiring = || {
+        let listed = pilot.call(&["ls", "--expiring", "--json"]);
+        listed["pages"].as_array().unwrap().len()
+    };
+
+    // The default is 180 days since the last activity; the due time is that activity plus it.
+    let active = now() - 10 * day;
+    set_times(Some(now() - 20 * day), Some(active));
+    let page = read();
+    assert_eq!(page["lastActivityAtMs"], active);
+    assert_eq!(page["archiveAfterDays"], 180);
+    assert_eq!(page["archiveAtMs"], active + 180 * day);
+    let text = human(&["show", id]);
+    assert!(text.contains("10 days ago"), "{text}");
+    assert!(text.contains("auto-archive"), "{text}");
+    assert!(text.contains("in 169 days"), "{text}");
+    assert!(!text.contains("◷ in 169"), "{text}");
+    assert_eq!(expiring(), 0);
+
+    // Within seven days of the due time it is marked and listed; past it, it is due now.
+    set_times(None, Some(now() - 175 * day - 3_600_000));
+    assert!(human(&["retention", id]).contains("◷ in 4 days"));
+    assert_eq!(expiring(), 1);
+    set_times(None, Some(now() - 200 * day));
+    assert!(human(&["retention", id]).contains("due now"));
+    assert_eq!(expiring(), 1);
+
+    // Content-edit time is the evidence before any activity was recorded; with neither it is unknown.
+    let edited = now() - 5 * day;
+    set_times(Some(edited), None);
+    assert_eq!(read()["lastActivityAtMs"], edited);
+    set_times(None, None);
+    let page = read();
+    assert_eq!(page["lastActivityAtMs"], json!(null));
+    assert_eq!(page["archiveAfterDays"], 180);
+    assert_eq!(page["archiveAtMs"], json!(null), "unknown is not old");
+    assert!(human(&["retention", id]).contains("180 days after last activity (none recorded yet)"));
+    assert_eq!(expiring(), 0);
+
+    // The space setting changes the days; `off` is never.
+    set_times(None, Some(now() - 10 * day));
+    pilot.call(&["settings", "page-expiry", "30", "--json"]);
+    assert_eq!(read()["archiveAfterDays"], 30);
+    assert!(human(&["retention", id]).contains("in 19 days"));
+    pilot.call(&["settings", "page-expiry", "off", "--json"]);
+    let page = read();
+    assert_eq!(page["archiveAfterDays"], json!(null));
+    assert_eq!(page["archiveAtMs"], json!(null));
+    assert!(human(&["retention", id]).contains("never"));
+    assert_eq!(expiring(), 0);
+
+    // A page's own retention wins over the space setting, and forever never archives.
+    pilot.call(&["retention", id, "7", "--json"]);
+    let page = read();
+    assert_eq!(page["archiveAfterDays"], 7);
+    assert_eq!(page["retentionDays"], 7);
+    assert_eq!(expiring(), 1, "10 days idle against 7 days");
+    pilot.call(&["retention", id, "forever", "--json"]);
+    assert_eq!(read()["archiveAfterDays"], json!(null));
+    assert_eq!(expiring(), 0);
+
+    // The same fields are in the list and detail, and no read changed the evidence.
+    pilot.call(&["settings", "page-expiry", "default", "--json"]);
+    pilot.call(&["retention", id, "90", "--json"]);
+    let listed = pilot.call(&["ls", "--json"]);
+    assert_eq!(listed["pages"][0]["archiveAfterDays"], 90);
+    assert_eq!(
+        pilot.call(&["show", id, "--json"])["page"]["archiveAfterDays"],
+        90
     );
 }
 #[test]
@@ -7430,7 +8532,10 @@ fn reading_settings_waits_for_a_setter_instead_of_seeing_a_half_written_file() {
     let out = reader.wait_with_output().unwrap();
     assert!(out.status.success());
     let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(answer, json!({"open":false,"source":"settings.json"}));
+    assert_eq!(
+        answer,
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
+    );
 }
 #[test]
 fn setting_waits_for_a_reader_that_holds_the_lock() {
@@ -7456,7 +8561,7 @@ fn setting_waits_for_a_reader_that_holds_the_lock() {
     assert!(out.status.success());
     assert_eq!(
         serde_json::from_slice::<Value>(&out.stdout).unwrap(),
-        json!({"open":true,"source":"settings.json"})
+        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
     );
 }
 const OUTDATED_ENVELOPE: &str = r#"!{"error":{"code":"REMOTE_SERVE_OUTDATED","message":"The running serve is older; stop it by hand."}}"#;
@@ -7723,6 +8828,14 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             "components",
             include_bytes!("../../../skills/tmt-colab/references/components.md").as_slice(),
         ),
+        (
+            "shell",
+            include_bytes!("../../../skills/tmt-colab/references/shell.md").as_slice(),
+        ),
+        (
+            "work",
+            include_bytes!("../../../skills/tmt-colab/references/work.md").as_slice(),
+        ),
     ] {
         let reference = invoke(&["skill", name]);
         assert!(reference.status.success(), "{reference:?}");
@@ -7752,6 +8865,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             "editing",
             "layout",
             "components",
+            "work",
         ] {
             assert!(message.contains(valid), "{message}");
         }
@@ -7779,6 +8893,180 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     );
     // Only the copied executable exists: pure guidance neither discovers core nor initializes state.
     assert_eq!(fs::read_dir(&pilot.root).unwrap().count(), 1);
+}
+
+/// #3708: execute the shipped reference, not a second hand-copied command list.
+#[test]
+fn shell_skill_examples_publish_the_documented_data_without_changing_the_source() {
+    let pilot = Pilot::new(None);
+    let reading = "30000000-0000-4000-8000-000000000001";
+    let source = format!(
+        "<h1 id=\"plan\">Source</h1><tmt-read data-id=\"{reading}\" data-agent=\"ada\" data-why=\"Read first\"><h2 data-title>Plan</h2><p>Source text</p></tmt-read>"
+    );
+    fs::write(pilot.root.join("source.html"), &source).unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Source",
+        "--layout",
+        "column",
+        "--file",
+        "source.html",
+        "--no-open",
+        "--json",
+    ]);
+    let source_id = created["pageId"].as_str().unwrap();
+    let mut source_before = Value::Null;
+    let reference = include_str!("../../../skills/tmt-colab/references/shell.md");
+    let mut shell_id = String::new();
+    let mut commands = Vec::new();
+    let mut first_revision = String::new();
+    let first = "10000000-0000-4000-8000-000000000001";
+    let second = "10000000-0000-4000-8000-000000000002";
+    // Fences are deliberately literal single-line commands and JSON, without a shell interpreter.
+    for block in reference.split("```").skip(1).step_by(2) {
+        let (language, sample) = block.split_once('\n').unwrap();
+        if language == "json" {
+            let body = sample
+                .replace("SOURCE", source_id)
+                .replace("READING", reading);
+            let _: Value = serde_json::from_str(&body).unwrap();
+            fs::write(pilot.root.join("action.json"), body).unwrap();
+            continue;
+        }
+        assert_eq!(language, "sh");
+        for line in sample.lines().filter(|line| !line.is_empty()) {
+            let revision = if shell_id.is_empty() {
+                String::new()
+            } else {
+                pilot.call(&["shell", "read", &shell_id, "--json"])["revision"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            };
+            let line = line
+                .replace("SHELL", &shell_id)
+                .replace("REVISION", &revision);
+            let words: Vec<_> = line.split_whitespace().collect();
+            assert_eq!(&words[..3], &["tmt", "colab", "shell"]);
+            let command = words[3];
+            commands.push(command.to_owned());
+            let result = pilot.call(&words[2..]);
+            if command == "create" {
+                shell_id = result["pageId"].as_str().unwrap().to_owned();
+                assert_eq!(result["opened"], false);
+                // Creating a shell advances the space membership head used by source revisions.
+                source_before = pilot.call(&["page", "read", source_id, "--json"]);
+            }
+            let view = pilot.call(&["shell", "read", &shell_id, "--json"]);
+            assert_eq!(view["pageType"], "shell");
+            match command {
+                "read" => {
+                    first_revision = view["revision"].as_str().unwrap().to_owned();
+                    assert_eq!(view["shell"], json!({"version":1,"items":{},"order":[]}));
+                }
+                "item-add" => assert_eq!(
+                    view["shell"]["items"][first],
+                    json!({"kind":"page","pageId":source_id,"note":"Start here","audience":"Ben"})
+                ),
+                "reading-suggest" => assert_eq!(
+                    view["shell"]["items"][second],
+                    json!({"kind":"reading","pageId":source_id,"readingId":reading})
+                ),
+                "item-move" => assert_eq!(view["shell"]["order"], json!([second, first])),
+                "item-set" => assert_eq!(
+                    view["shell"]["items"][first],
+                    json!({"kind":"anchor","pageId":source_id,"anchor":"plan"})
+                ),
+                "summary-set" => {
+                    assert_eq!(view["shell"]["summary"]["line1"], "Release plan");
+                    assert_eq!(view["shell"]["summary"]["line2"], "Read before the release");
+                    assert!(
+                        view["shell"]["summary"]["attribution"]["timeMs"]
+                            .as_u64()
+                            .unwrap()
+                            > 0
+                    );
+                }
+                "summary-clear" => assert!(view["shell"].get("summary").is_none()),
+                "item-remove" => {
+                    assert!(view["shell"]["items"].get(first).is_none());
+                    assert_eq!(view["shell"]["order"], json!([second]));
+                }
+                "create" => (),
+                other => panic!("unverified documented command: {other}"),
+            }
+        }
+    }
+    assert_eq!(
+        commands,
+        [
+            "create",
+            "read",
+            "item-add",
+            "reading-suggest",
+            "item-move",
+            "item-set",
+            "summary-set",
+            "summary-clear",
+            "item-remove"
+        ]
+    );
+    let before = pilot.call(&["shell", "read", &shell_id, "--json"]);
+    let revision = before["revision"].as_str().unwrap();
+    fs::write(
+        pilot.root.join("action.json"),
+        json!({"itemId":second,"layout":"wide"}).to_string(),
+    )
+    .unwrap();
+    failure(
+        &pilot,
+        &[
+            "shell",
+            "item-remove",
+            &shell_id,
+            "--expected-revision",
+            revision,
+            "--file",
+            "action.json",
+            "--json",
+        ],
+        "COLAB_INPUT_INVALID",
+    );
+    fs::write(
+        pilot.root.join("action.json"),
+        json!({"itemId":second}).to_string(),
+    )
+    .unwrap();
+    failure(
+        &pilot,
+        &[
+            "shell",
+            "item-remove",
+            &shell_id,
+            "--expected-revision",
+            &first_revision,
+            "--file",
+            "action.json",
+            "--json",
+        ],
+        "COLAB_STALE_BASE",
+    );
+    assert_eq!(pilot.call(&["shell", "read", &shell_id, "--json"]), before);
+    let cleared = pilot.call(&[
+        "shell",
+        "summary-clear",
+        &shell_id,
+        "--expected-revision",
+        revision,
+        "--json",
+    ]);
+    assert_eq!(cleared["changed"], false);
+    let source_after = pilot.call(&["page", "read", source_id, "--json"]);
+    assert_eq!(source_after["source"], source);
+    assert_eq!(source_after["revision"], source_before["revision"]);
+    assert!(pilot.opened().is_empty());
 }
 
 /// #3927: a markup sample the layout and component references teach must be markup `page check`

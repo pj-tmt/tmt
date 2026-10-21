@@ -124,3 +124,19 @@ it('an explicit authority refusal keeps its marker and is never a network recove
   expect(reopen).toHaveBeenCalledOnce();
   expect(reload).not.toHaveBeenCalled();
 });
+
+it('preserves the exact failure cause for guidance without allowing another automatic attempt', async () => {
+  for (const reason of ['unpaired', 'revoked', 'expired', 'mismatch', 'capacity', 'transient']) {
+    const error = Object.assign(new Error('SDK refusal'), { name: 'ReopenSessionError', reason });
+    const failed = vi.fn(),
+      reopen = vi.fn().mockRejectedValue(error),
+      reload = vi.fn();
+    const options = { mount, storage: storage(), reopen, reload, failed };
+    expect(await recoverSession(options)).toBe(false);
+    expect(failed).toHaveBeenCalledExactlyOnceWith(error);
+    expect(await recoverSession(options)).toBe(false);
+    expect(failed).toHaveBeenCalledOnce();
+    expect(reopen).toHaveBeenCalledOnce();
+    expect(reload).not.toHaveBeenCalled();
+  }
+});

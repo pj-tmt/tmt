@@ -106,7 +106,7 @@ impl AgentsField {
     pub fn caption(self, glyphs: crate::board::overview::cron_counts::GlyphSet) -> &'static str {
         match self {
             Self::Agent => "SQUAD / AGENT",
-            Self::Model => "MODEL",
+            Self::Model => "MODEL / NOW",
             Self::State => "STATE",
             Self::Tokens => TOKENS_CAPTION,
             Self::Cron => match glyphs {
@@ -253,9 +253,16 @@ impl AgentsLayout {
             .1
             .iter()
             .map(|(field, slot)| {
+                // MODEL takes what the other columns leave, so a squad's "now"
+                // text has room on a wide list.
+                let width = if *field == AgentsField::Model {
+                    inside.width.saturating_sub(slot.x)
+                } else {
+                    slot.width
+                };
                 (
                     *field,
-                    Rect::new(inside.x.saturating_add(slot.x), inside.y, slot.width, 1)
+                    Rect::new(inside.x.saturating_add(slot.x), inside.y, width, 1)
                         .intersection(inside),
                 )
             })
@@ -748,7 +755,11 @@ mod tests {
                     field,
                     AgentsField::Tokens | AgentsField::Cron | AgentsField::Model
                 ) {
-                    assert_eq!(slot.width, field.minimum(), "optional fields fit whole");
+                    // MODEL, the last field, also takes what the others leave.
+                    assert!(slot.width >= field.minimum(), "optional fields fit whole");
+                    if *field != AgentsField::Model {
+                        assert_eq!(slot.width, field.minimum());
+                    }
                 }
             }
         }

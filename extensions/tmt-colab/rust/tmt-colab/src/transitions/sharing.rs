@@ -36,6 +36,7 @@ pub(super) enum PageAction {
     History(HistoryMode),
     Retention(Option<u64>),
     Archive,
+    Unarchive,
     Delete,
 }
 impl PageAction {
@@ -52,6 +53,7 @@ impl PageAction {
             ),
             Self::Retention(days) => ("retention.set", json!({"pageId":page,"days":days})),
             Self::Archive => ("page.archive", json!({"pageId":page})),
+            Self::Unarchive => ("page.unarchive", json!({"pageId":page})),
             Self::Delete => ("page.delete", json!({"pageId":page})),
         }
     }
@@ -202,6 +204,9 @@ impl Engine {
                     key.sign_statement(tx.head(), operation, &serde_json::to_vec(&payload)?)?;
                 tx.append_statement(&statement)?;
                 statements.push(statement);
+                if matches!(request.action, PageAction::Unarchive) {
+                    tx.touch_activity(request.page)?;
+                }
                 if matches!(request.action, PageAction::Delete) {
                     tx.delete_page_data(request.page)?;
                 }
@@ -236,8 +241,9 @@ fn plan(
         || (authority.policy.archived
             && !matches!(
                 request.action,
-                PageAction::Delete | PageAction::Retention(_)
+                PageAction::Delete | PageAction::Retention(_) | PageAction::Unarchive
             ))
+        || (matches!(request.action, PageAction::Unarchive) && !authority.policy.archived)
     {
         return Err(OwnerFault::WrongOwner.into());
     }

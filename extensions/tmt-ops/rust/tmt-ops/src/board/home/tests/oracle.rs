@@ -348,6 +348,8 @@ fn captures() -> Value {
         let mut styles = Styles::default();
         let mut frames = Vec::new();
         for (look_name, look) in looks() {
+            // `overview` and the `*-overview` names below are frozen fixture names;
+            // they now render the merged Agents tab.
             for state in [
                 "overview",
                 "agents",
@@ -434,6 +436,126 @@ fn captures() -> Value {
                         36,
                         &mut styles,
                     ));
+                }
+            }
+        }
+        // Measure, the right column's summary view: an agent, a squad and the Agents chip.
+        for (look_name, look) in looks() {
+            for scene in ["measure-agent", "measure-squad", "measure-agents-chip"] {
+                for width in [160, 100] {
+                    let mut app = crate::board::app::workspace::tests::populated_board(1, 24);
+                    app.view.as_mut().unwrap().look = look;
+                    let workspace =
+                        &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                    for squad in &workspace.roster.squads {
+                        workspace.squad_looks.insert(squad.room_id.clone(), look);
+                    }
+                    let member = workspace
+                        .rows
+                        .keys()
+                        .find(|target| {
+                            matches!(target, crate::board::workspace::OpsTarget::Member { .. })
+                        })
+                        .cloned()
+                        .unwrap();
+                    let room = workspace.roster.squads[0].room_id.clone();
+                    app.shell.tab = crate::board::shell::OpsTab::Agents;
+                    app.right_tab = crate::board::shell::RightTab::Measure;
+                    app.workspace.filter = if scene == "measure-agents-chip" {
+                        crate::board::workspace::AgentsFilter::Agents
+                    } else {
+                        crate::board::workspace::AgentsFilter::All
+                    };
+                    crate::board::overview::capture::populate_lower_band(&mut app, "digest-rows");
+                    crate::board::overview::capture::populate_final(&mut app, "digest-rows");
+                    app.workspace.expanded.insert(room.clone());
+                    app.workspace.selected = Some(if scene == "measure-squad" {
+                        crate::board::workspace::OpsTarget::Squad(room)
+                    } else {
+                        member
+                    });
+                    app.workspace_reconcile();
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        51,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
+        // Search has its own committed indicator and clear hit. These additive
+        // scenes keep the existing unfiltered baseline independently frozen.
+        for (look_name, look) in looks() {
+            for mode in [
+                "overview-agents",
+                "overview-squads",
+                "agents-all",
+                "agents-pinned",
+            ] {
+                for state in ["matches", "empty"] {
+                    for width in [160, 100, 80] {
+                        let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
+                        app.view.as_mut().unwrap().look = look;
+                        let workspace =
+                            &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                        for squad in &workspace.roster.squads {
+                            workspace.squad_looks.insert(squad.room_id.clone(), look);
+                        }
+                        if mode == "agents-pinned" {
+                            workspace
+                                .preferences
+                                .pinned
+                                .insert(workspace.roster.squads[7].room_id.clone());
+                            app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
+                        }
+                        app.shell.tab = crate::board::shell::OpsTab::Agents;
+                        if mode != "agents-pinned" {
+                            app.workspace.filter = if mode == "overview-squads" {
+                                crate::board::workspace::AgentsFilter::All
+                            } else {
+                                crate::board::workspace::AgentsFilter::Agents
+                            };
+                        }
+                        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+                        app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+                        app.paste(if state == "matches" {
+                            "agent-00007"
+                        } else {
+                            "no-such-agent"
+                        });
+                        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                        let mut captured = capture_frame(
+                            &app,
+                            &format!("search-{mode}-{state}"),
+                            look_name,
+                            width,
+                            36,
+                            &mut styles,
+                        );
+                        captured["stripHits"] =
+                            json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+                        frames.push(captured);
+                    }
+                }
+            }
+        }
+        // Paste attachments belong only to the Agents conversation. #4100
+        // carries these scenes into Talk when it migrates the shell.
+        for (look_name, look) in looks() {
+            for state in crate::board::composer::paste::tests::SCENES {
+                let height = if *state == "paste-tiny" { 8 } else { 36 };
+                for width in [160, 100, 80] {
+                    let app = crate::board::composer::paste::tests::capture_case(
+                        state, look, width, height,
+                    );
+                    let mut captured =
+                        capture_frame(&app, state, look_name, width, height, &mut styles);
+                    captured["paste"] =
+                        crate::board::composer::paste::tests::capture_metadata(&app);
+                    frames.push(captured);
                 }
             }
         }

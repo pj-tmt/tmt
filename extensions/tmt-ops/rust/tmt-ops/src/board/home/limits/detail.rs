@@ -94,7 +94,7 @@ fn held_lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) 
     lines
 }
 fn lines(app: &App, now: u64) -> Vec<String> {
-    if app.shell.tab != crate::board::shell::OpsTab::Overview {
+    if app.shell.tab != crate::board::shell::OpsTab::Agents {
         return held_lines(
             app.limits.as_deref(),
             now,
@@ -206,7 +206,7 @@ impl Details {
             ));
         }
         let look = app.look();
-        surface::render(
+        let outer = surface::render(
             &self.scene.as_ref().unwrap().1,
             &mut self.scroll,
             body,
@@ -217,7 +217,10 @@ impl Details {
             },
             |role| look.role(role),
         )
-        .expect("admitted quota details surface");
+        .expect("admitted quota details surface")
+        .areas
+        .outer;
+        app.peek_areas.set(crate::board::peek::Peek::Quota, outer);
         if self.scroll.viewport().height > 0 {
             app.frame_clocks
                 .borrow_mut()
@@ -230,7 +233,7 @@ impl App {
         self.workspace_snapshot().is_some()
             && matches!(
                 self.shell.tab,
-                crate::board::shell::OpsTab::Overview | crate::board::shell::OpsTab::Digest
+                crate::board::shell::OpsTab::Agents | crate::board::shell::OpsTab::Digest
             )
     }
     pub(in crate::board) fn open_quota_details(&mut self) -> Effect {

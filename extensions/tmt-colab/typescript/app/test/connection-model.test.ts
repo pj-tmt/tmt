@@ -26,21 +26,24 @@ describe('connection model: settle', () => {
   });
 
   it.each([
-    [of('Access ended'), 'access', 'pair'],
-    [of('REMOTE_DEVICE_REVOKED'), 'access', 'pair'],
+    [of('Access ended'), 'access', 'reload'],
+    [of('REMOTE_DEVICE_REVOKED'), 'revoked', 'pair'],
+    [of('REMOTE_DEVICE_NOT_FOUND'), 'unpaired', 'pair'],
+    [of('REMOTE_GRANT_EXPIRED'), 'expired', 'pair'],
+    [of('REMOTE_SCOPE_DENIED'), 'access', 'reload'],
     // A published legacy close means the fresh open was refused: the one silent try is spent.
-    [of('REMOTE_CLOSED'), 'access', 'pair'],
-    [of('REMOTE_GRANT_CHANGED'), 'access', 'pair'],
-    [of('REMOTE_SERVE_STOPPED'), 'generic', 'none'],
-    [new ReopenFailedError('revoked'), 'access', 'pair'],
-    [new ReopenFailedError('expired'), 'access', 'pair'],
+    [of('REMOTE_CLOSED'), 'access', 'reload'],
+    [of('REMOTE_GRANT_CHANGED'), 'access', 'reload'],
+    [of('REMOTE_SERVE_STOPPED'), 'generic', 'reload'],
+    [new ReopenFailedError('revoked'), 'revoked', 'pair'],
+    [new ReopenFailedError('expired'), 'expired', 'pair'],
     [new ReopenFailedError('unpaired'), 'unpaired', 'pair'],
-    [new ReopenFailedError('mismatch'), 'unpaired', 'pair'],
-    [new ReopenFailedError('capacity'), 'generic', 'none'],
+    [new ReopenFailedError('mismatch'), 'mismatch', 'reload'],
+    [new ReopenFailedError('capacity'), 'generic', 'reload'],
     [of('Page unavailable'), 'gone', 'pages'],
-    [of('REMOTE_SESSION_ENDED'), 'session', 'none'],
+    [of('REMOTE_SESSION_ENDED'), 'session', 'reload'],
     [of('CAPACITY'), 'large', 'none'],
-    [of('SURPRISE_CODE'), 'generic', 'none'],
+    [of('SURPRISE_CODE'), 'generic', 'reload'],
   ] as const)('%s ends as %s with the action %s', (error, reason, action) => {
     expect(settle(error)).toEqual({ phase: 'ended', reason, action });
   });
@@ -68,17 +71,17 @@ describe('connection model: terminal', () => {
     expect(terminal(of('STALE_EPOCH'))).toEqual({
       phase: 'ended',
       reason: 'access',
-      action: 'pair',
+      action: 'reload',
     });
     expect(terminal(new RecoveryRequiredError(of('Sync disconnected')))).toEqual({
       phase: 'ended',
       reason: 'generic',
-      action: 'none',
+      action: 'reload',
     });
     expect(terminal(new ReopenFailedError('transient'))).toEqual({
       phase: 'ended',
       reason: 'generic',
-      action: 'none',
+      action: 'reload',
     });
   });
 

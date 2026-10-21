@@ -13,6 +13,9 @@ import type { ManagementPort } from './management.js';
 import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
 export interface PageView extends Projection {
+  /** The document is shown, but its threads and asks are still being verified: `threads`, `asks`
+   * and `threadPresentations` are absent, never empty, so nothing unverified reads as verified. */
+  readonly discussionPending?: boolean;
   readonly archived?: boolean;
   readonly ownData?: boolean;
   readonly own?: OwnState;
@@ -42,8 +45,12 @@ export interface PageSnapshot extends PageSummary {
   readonly layout?: Projection['layout'];
   /** Why a canvas page draws its own frame (`meta.layoutReason`). */
   readonly layoutReason?: Projection['layoutReason'];
+  /** As on the view: the threads and asks follow through the binding once verified. */
+  readonly discussionPending?: boolean;
   readonly pageType?: Projection['pageType'];
   readonly shell?: Projection['shell'];
+  /** The page's summary and task list (`meta.work`); never on a shell page. */
+  readonly work?: Projection['work'];
   readonly originalAuthor?: Projection['originalAuthor'];
   readonly publisherAgent?: Projection['publisherAgent'];
   readonly source: string;
@@ -102,7 +109,8 @@ export interface PageTransport {
   /** Device-local unsent-draft persistence; absent means drafts stay in memory. */
   readonly drafts?: DraftStore;
   readonly management?: ManagementPort;
-  spaceHome(): Promise<SpaceHome>;
+  /** The space's page list. A `signal` that aborts ends the read: a reader that leaves cancels it. */
+  spaceHome(signal?: AbortSignal): Promise<SpaceHome>;
   /** Optional, owner-only cached reading metadata. No page subscription, fold or publication. */
   readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;
   /** A verified title only: no editor, discussion or live subscription. */

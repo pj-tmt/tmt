@@ -38,7 +38,8 @@ fn saved() -> ViewState {
 }
 fn cold() -> App {
     let mut app = board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.workspace.expanded.clear();
     app.workspace.pool_expanded = false;
     app.workspace.selected = None;
@@ -180,7 +181,7 @@ fn partial_unknown_failed_and_loading_views_do_not_apply_or_clobber_the_hint() {
             .observation = observation;
         assert!(session.tick(&mut app, Instant::now()).1.is_none());
         assert!(session.hint.is_some());
-        assert_eq!(app.shell.tab, OpsTab::Overview);
+        assert_eq!(app.shell.tab, OpsTab::Agents);
         assert_eq!(app.workspace.selected, initial_selection);
         assert!(
             app.workspace_selected_member().is_none(),
@@ -494,7 +495,6 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
     write(&default, &saved());
     let mut first = board();
     first.workspace.filter = super::super::workspace::AgentsFilter::Pinned;
-    first.overview_view = super::super::overview::monitor::View::Agents;
     first.search = "committed".into();
     first.workspace.query = first.search.to_string();
     first.workspace.order = Some(Order {
@@ -522,7 +522,6 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
     assert!(reopened.tick(&mut second, Instant::now()).0);
     assert_eq!(second.search, "committed");
     assert_eq!(second.workspace.filter, first.workspace.filter);
-    assert_eq!(second.overview_view, first.overview_view);
     assert_eq!(second.workspace_order(), first.workspace_order());
     assert_eq!(second.scrolls.offset(crate::config::Pane::Rows), 9);
     reset(&popup).unwrap();
@@ -629,7 +628,6 @@ fn replaced_overview_filter_does_not_erase_other_layer_controls() {
     app.search = "committed".into();
     app.workspace.filter = super::super::workspace::AgentsFilter::Pinned;
     let mut encoded = Controls::capture(&app).json();
-    encoded.as_object_mut().unwrap().remove("overviewView");
     encoded["overviewFilter"] = json!("needs-you");
     let decoded =
         Controls::decode(&encoded).expect("old controls retain query, sort and Agents filter");
@@ -638,22 +636,14 @@ fn replaced_overview_filter_does_not_erase_other_layer_controls() {
         decoded.agents_filter,
         super::super::workspace::AgentsFilter::Pinned
     );
-    assert_eq!(
-        decoded.overview_view,
-        super::super::overview::monitor::View::Agents
-    );
     let current = decoded.json();
-    assert_eq!(current["overviewView"], "agents");
+    assert!(current.get("overviewView").is_none());
     assert!(current.get("overviewFilter").is_none());
-    encoded["overviewView"] = json!(42);
-    assert!(
-        Controls::decode(&encoded).is_none(),
-        "a present malformed mode is refused"
-    );
-    encoded["overviewView"] = json!("agents");
+    // The Overview tab's saved Squads/Agents mode is ignored; the chip is `agentsFilter`.
+    encoded["overviewView"] = json!("squads");
     assert_eq!(
-        Controls::decode(&encoded).unwrap().overview_view,
-        super::super::overview::monitor::View::Agents
+        Controls::decode(&encoded).unwrap().agents_filter,
+        super::super::workspace::AgentsFilter::Pinned
     );
 }
 
@@ -713,21 +703,6 @@ fn pane_ratios_restore_from_the_selected_named_layer_and_exec_controls() {
     assert!(Session::open(left.clone(), false, false, true).is_ok());
     assert!(!left.exists());
     assert_eq!(fs::read(&right).unwrap(), right_bytes);
-}
-
-#[test]
-fn explicit_overview_choice_survives_the_new_agents_factory_default() {
-    use crate::board::overview::monitor::View;
-    for view in [View::Squads, View::Agents] {
-        let mut app = board();
-        app.overview_view = view;
-        let controls = Controls::capture(&app);
-        let decoded = Controls::decode(&controls.json()).unwrap();
-        assert_eq!(decoded.overview_view, view);
-        let mut old = controls.json();
-        old.as_object_mut().unwrap().remove("overviewView");
-        assert_eq!(Controls::decode(&old).unwrap().overview_view, View::Agents);
-    }
 }
 
 #[test]
@@ -791,7 +766,7 @@ fn missing_or_unknown_quota_choice_keeps_other_committed_controls() {
     use crate::board::limits::QuotaWindow;
     let mut app = board();
     app.search = "worker".into();
-    app.overview_view = crate::board::overview::monitor::View::Squads;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     app.usage_chart
         .borrow_mut()
         .restore_quota_window(QuotaWindow::Short);
@@ -813,7 +788,6 @@ fn missing_or_unknown_quota_choice_keeps_other_committed_controls() {
 fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
     use crate::config::StartupTab;
     let fixed = [
-        (StartupTab::Overview, OpsTab::Overview),
         (StartupTab::Agents, OpsTab::Agents),
         (StartupTab::Digest, OpsTab::Digest),
     ];
@@ -849,9 +823,10 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
             app.shell.tab, tab,
             "saved Agents tab cannot override fixed startup"
         );
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.workspace_reconcile();
-        assert_eq!(app.shell.tab, OpsTab::Overview, "startup is consumed once");
+        assert_eq!(app.shell.tab, OpsTab::Agents, "startup is consumed once");
     }
     let mut app = cold();
     let mut session = Session::load(scratch.file(), false, false);

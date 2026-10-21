@@ -109,6 +109,8 @@ struct Session {
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
     transcript_context: transcript::Context,
+    /// When the exchanges first went unanswered, for the delayed loading line.
+    pending_since_ms: Option<u64>,
     /// The user's durable sends to this agent, restored from storage.
     sent: Vec<crate::board::row_detail::Sent>,
 }
@@ -133,6 +135,7 @@ impl Default for Session {
             pane_output: Default::default(),
             pane_output_fresh: false,
             transcript_context: Default::default(),
+            pending_since_ms: None,
             sent: Vec::new(),
         }
     }
@@ -230,6 +233,7 @@ impl Session {
         row: &serde_json::Value,
     ) -> String {
         let detail = app.detail(&Target::Row(target.clone())).unwrap_or_default();
+        let detail_agent = detail.agent.clone();
         self.observe_finals(detail.finals);
         if self.sent != detail.sent {
             self.sent = detail.sent;
@@ -277,7 +281,7 @@ impl Session {
             app,
             &sanitize(row["name"].as_str().unwrap_or("unknown agent")),
         );
-        self.transcript_context(app, row);
+        self.transcript_context(app, row, detail_agent.as_ref());
         words
     }
 
@@ -496,19 +500,16 @@ impl App {
 
 pub(in crate::board) struct LinkPreview {
     pub(in crate::board) value: String,
-    key: String,
-    wording: String,
 }
 pub(in crate::board) fn link_preview(
     app: &App,
     row: &serde_json::Value,
     bindings: &crate::action::Bindings,
 ) -> Option<LinkPreview> {
-    let (key, action) = bindings.get("o").map(|action| ("o", action)).or_else(|| {
+    let action = bindings.get("o").or_else(|| {
         bindings
-            .iter()
-            .find(|(_, action)| action.verb == crate::action::Verb::Open)
-            .map(|(key, action)| (key.as_str(), action))
+            .values()
+            .find(|action| action.verb == crate::action::Verb::Open)
     })?;
     if action.verb == crate::action::Verb::Open
         && action.args.is_empty()
@@ -526,15 +527,8 @@ pub(in crate::board) fn link_preview(
         )
     }
     .unwrap_or_else(|error| format!("Unavailable: {error}"));
-    let wording = if action.verb == crate::action::Verb::Open && action.args.is_empty() {
-        "open $link"
-    } else {
-        &action.text
-    };
     Some(LinkPreview {
         value: sanitize(&value),
-        key: key.into(),
-        wording: sanitize(wording),
     })
 }
 
@@ -593,7 +587,12 @@ fn render_target(
         .then(|| app.conversation_input_area())
         .flatten()
         .map_or(0, |pane| {
-            super::view::waiting::input_lines(app, pane).min(usize::from(area.height)) as u16
+            super::view::waiting::input_lines(
+                app,
+                pane,
+                crate::board::input_field::padded(frame.area().height),
+            )
+            .min(usize::from(area.height)) as u16
         });
     let area = if input_height > 0 {
         app.input_band.set(Some(Rect::new(
@@ -672,7 +671,7 @@ fn render_target(
         .unwrap_or("–");
     let room = match &target {
         RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id, .. })
-            if app.shell.tab != super::shell::OpsTab::Overview =>
+            if !app.flat_agents() =>
         {
             room_id.as_deref()
         }

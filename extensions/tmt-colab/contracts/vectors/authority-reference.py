@@ -128,10 +128,8 @@ def history_vectors(a):
     join_payload = json.dumps(dict(memberId=member,role="viewer",signKey=b64(public(Ed25519PrivateKey.from_private_bytes(bytes([7])*32))),encKey=b64(public(recipient)),pages=pages),separators=(",", ":")).encode()
     return dict(historyCases=cases,historyWrongOwner=wrong_owner,forwardWrap=forward(pages[0],63),historyJoin=dict(currentEpoch="64",membershipRevision="2",recipientSeed=recipient_seed.hex(),memberAdd=signed("member.add",join_payload),wrapLists=[wraps[:512],wraps[512:]]))
 
-def sealed_history_vectors(a):
-    # Independent signed owner log and encrypted receipt for the sealed-epoch rule.
+def owner_log_fixture(a):
     owner = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(a["seed"]))
-    secret = bytes.fromhex(a["epochKey"])
     member = management_vectors(a)
     management_seed = expand(mac(b"", bytes.fromhex(a["seed"])), lp(b"tmt-colab-management-signing-seed-v1", a["space"].encode()), 32)
     manager = Ed25519PrivateKey.from_private_bytes(management_seed)
@@ -142,6 +140,47 @@ def sealed_history_vectors(a):
     initial_hash = digest(lp(b"tmt-colab-membership-hash-v1",initial_input,initial_signature))
     cert = lp(b"tmt-colab-device-cert-v1",b"1",a["space"].encode(),b"member",member["memberId"].encode(),a["page"].encode(),bytes.fromhex(a["public"]),bytes.fromhex(member["encryptionPublic"]),b"1",b"0",b"100")
     chain = dict(version=1,issuerStatement=b64(initial_hash),deviceCertificate=b64(cert),issuerSignature=b64(manager.sign(cert)))
+    return initial, initial_hash, chain
+
+def unarchive_vectors(a):
+    owner = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(a["seed"]))
+    initial, initial_hash, chain = owner_log_fixture(a)
+    cases = []
+    for name, operations, admitted, archived, deleted in [
+        ("archived", ["page.archive"], True, True, False),
+        ("restored", ["page.archive", "page.unarchive"], True, False, False),
+        ("restored-twice", ["page.archive", "page.unarchive", "page.archive", "page.unarchive"], True, False, False),
+        ("active-restore", ["page.unarchive"], False, False, False),
+        ("duplicate-restore", ["page.archive", "page.unarchive", "page.unarchive"], False, False, False),
+        ("deleted-restore", ["page.archive", "page.delete", "page.unarchive"], False, True, True),
+        ("deleted-then-archive-restore", ["page.delete", "page.archive", "page.unarchive"], False, True, True),
+        ("restored-then-deleted", ["page.archive", "page.unarchive", "page.delete"], True, False, True),
+    ]:
+        log, previous = [initial], initial_hash
+        def append(operation, value):
+            nonlocal previous
+            raw = json.dumps(value, separators=(",", ":")).encode()
+            framed = lp(b"tmt-colab-membership-v1", b"1", a["space"].encode(), str(len(log)+1).encode(), previous, operation.encode(), digest(raw))
+            signature = owner.sign(framed)
+            log.append(dict(statement=b64(framed), payload=b64(raw), signature=b64(signature)))
+            previous = digest(lp(b"tmt-colab-membership-hash-v1", framed, signature))
+        append("page.share", dict(pageId=a["page"], mode="private", epoch="1"))
+        writable = [True, True]
+        frozen = removed = False
+        for operation in operations:
+            append(operation, dict(pageId=a["page"]))
+            if operation == "page.archive": frozen = True
+            elif operation == "page.delete": removed = True
+            elif operation == "page.unarchive": frozen = False
+            writable.append(not frozen and not removed)
+        cases.append(dict(name=name, log=log, admitted=admitted, archived=archived, deleted=deleted, writable=writable))
+    return dict(seed=a["seed"], public=a["public"], space=a["space"], page=a["page"], chain=chain, cases=cases)
+
+def sealed_history_vectors(a):
+    # Independent signed owner log and encrypted receipt for the sealed-epoch rule.
+    owner = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(a["seed"]))
+    secret = bytes.fromhex(a["epochKey"])
+    initial, initial_hash, chain = owner_log_fixture(a)
     def receipt(seq, kind="update"):
         header = lp(b"tmt-colab-object-v1", b"1", b"aes256gcm-hkdfsha256-ed25519-v1", a["space"].encode(), a["page"].encode(), b"1", kind.encode(), b"own", b"01"*32, a["page"].encode(), b"1", str(seq).encode(), bytes(32))
         key = expand(mac(b"", secret), lp(b"tmt-colab-object-key-v1", header), 32)
@@ -206,7 +245,7 @@ if __name__ == "__main__":
     authority = generate()
     authority.update(history_vectors(authority))
     authority["sealedHistoryCases"] = sealed_history_vectors(authority)
-    for destination, value in [(DEST, authority), (DEST.with_name("owner-member-v1.json"), owner_member_vectors(authority)), (DEST.with_name("management-key-v1.json"), management_vectors(authority))]:
+    for destination, value in [(DEST, authority), (DEST.with_name("owner-member-v1.json"), owner_member_vectors(authority)), (DEST.with_name("management-key-v1.json"), management_vectors(authority)), (DEST.with_name("unarchive-v1.json"), unarchive_vectors(authority))]:
         frozen = json.dumps(value, indent=2) + "\n"
         if args.write:
             destination.write_text(frozen)

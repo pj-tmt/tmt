@@ -35,6 +35,16 @@ fn stop(transcript: Option<&Path>) -> Vec<u8> {
     .into_bytes()
 }
 
+/// A Stop that carries no final text, for the transcript fallback.
+fn stop_without_message(transcript: Option<&Path>) -> Vec<u8> {
+    let mut payload: Value = serde_json::from_slice(&stop(transcript)).unwrap();
+    payload
+        .as_object_mut()
+        .unwrap()
+        .remove("last_assistant_message");
+    payload.to_string().into_bytes()
+}
+
 fn edited(line: &str, edit: impl FnOnce(&mut Value)) -> String {
     let mut value: Value = serde_json::from_str(line).unwrap();
     edit(&mut value);
@@ -281,8 +291,7 @@ fn only_a_turn_end_is_decoded_as_one() {
             Some(TurnEnd {
                 session: tmt_core::binding::session::ProviderSessionId::new(SESSION).unwrap(),
                 transcript: Some("/t.jsonl".into()),
-                final_text: (driver.tree.starts_with(".codex"))
-                    .then(|| tmt_core::responses::FinalText::new("<redacted>").unwrap()),
+                final_text: Some(tmt_core::responses::FinalText::new("<redacted>").unwrap()),
                 interrupted: false,
             })
         );
@@ -385,7 +394,7 @@ fn recent_final_text_uses_the_existing_provider_turn_observation() {
     sidechain["message"]["content"][0]["text"] = json!("not main");
     fs::write(&transcript, format!("{main}\n{sidechain}\n")).unwrap();
     let turn = claude::ClaudeLifecycle
-        .decode_turn(&stop(Some(&transcript)))
+        .decode_turn(&stop_without_message(Some(&transcript)))
         .unwrap();
     let read = |turn: &TurnEnd| {
         claude::ClaudeLifecycle.turn_observation(
@@ -419,7 +428,7 @@ fn recent_final_text_uses_the_existing_provider_turn_observation() {
     let outside = directory.path.join("outside.jsonl");
     fs::copy(&transcript, &outside).unwrap();
     let outside_turn = claude::ClaudeLifecycle
-        .decode_turn(&stop(Some(&outside)))
+        .decode_turn(&stop_without_message(Some(&outside)))
         .unwrap();
     assert!(
         read(&outside_turn).final_text.is_none(),
@@ -457,6 +466,72 @@ fn recent_final_text_uses_the_existing_provider_turn_observation() {
         codex::CodexLifecycle
             .decode_turn(no_text.to_string().as_bytes())
             .is_none()
+    );
+}
+
+/// Claude Code flushes a turn's final assistant record to the transcript a
+/// little after it fires Stop (#4165), so the Stop payload's own text is the
+/// final text and the transcript is only the fallback.
+#[test]
+fn a_claude_stop_payload_text_is_the_final_text_before_the_transcript_has_it() {
+    let directory = TestDirectory::new();
+    let environment =
+        ProviderEnvironment::from_parts(&directory.path, &directory.path, Vec::new(), []);
+    let root = directory.path.join(".claude/projects/-workspace");
+    fs::create_dir_all(&root).unwrap();
+    let transcript = root.join("session.jsonl");
+    let assistant = |content: Value| json!({"type":"assistant","sessionId":SESSION,"message":{"model":"claude","usage":{"input_tokens":1},"content":content}});
+    // The race: the newest assistant record on disk is still the tool call.
+    let tool_use = assistant(json!([{"type":"tool_use","name":"private tool"}]));
+    fs::write(&transcript, format!("{tool_use}\n")).unwrap();
+    let read = |payload: Vec<u8>| {
+        let turn = claude::ClaudeLifecycle.decode_turn(&payload).unwrap();
+        claude::ClaudeLifecycle
+            .turn_observation(
+                &turn,
+                &environment,
+                None,
+                NOW,
+                std::time::Instant::now() + std::time::Duration::from_secs(1),
+            )
+            .final_text
+    };
+    let with_text = |text: Value| {
+        let mut payload: Value = serde_json::from_slice(&stop(Some(&transcript))).unwrap();
+        payload["last_assistant_message"] = text;
+        payload.to_string().into_bytes()
+    };
+    assert_eq!(
+        read(with_text(json!("the answer\r\nin full")))
+            .unwrap()
+            .text(),
+        "the answer\r\nin full"
+    );
+    // Without a usable payload text the transcript decides, as before.
+    for unusable in [
+        json!(""),
+        json!({"unexpected":"shape"}),
+        json!(7),
+        Value::Null,
+    ] {
+        assert!(read(with_text(unusable.clone())).is_none(), "{unusable}");
+    }
+    assert!(read(stop_without_message(Some(&transcript))).is_none());
+    let text = assistant(json!([{"type":"text","text":"from the transcript"}]));
+    fs::write(&transcript, format!("{tool_use}\n{text}\n")).unwrap();
+    assert_eq!(
+        read(stop_without_message(Some(&transcript)))
+            .unwrap()
+            .text(),
+        "from the transcript"
+    );
+    // The payload wins when both exist, and needs no transcript at all.
+    assert_eq!(read(with_text(json!("payload"))).unwrap().text(), "payload");
+    let mut bare: Value = serde_json::from_slice(&stop(None)).unwrap();
+    bare["last_assistant_message"] = json!("no transcript");
+    assert_eq!(
+        read(bare.to_string().into_bytes()).unwrap().text(),
+        "no transcript"
     );
 }
 

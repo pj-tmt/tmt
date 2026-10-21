@@ -2,12 +2,32 @@
 use super::*;
 use crate::board::recent_responses::{Observation, Source};
 
+/// R1 for the conversation's loading line: nothing for the first 400 ms.
+const LOADING_DELAY_MS: u64 = 400;
+
+/// What the transcript may say about exchanges it does not hold.
+#[derive(PartialEq, Eq)]
+pub(super) enum Exchanges {
+    /// Core answered, so an empty history is the real state.
+    Observed,
+    /// Core answered with an error: the one case for "unavailable".
+    Failed,
+    /// Core has not answered yet; `loading` is set once the delay has passed.
+    Pending { loading: bool },
+}
+
+impl Default for Exchanges {
+    fn default() -> Self {
+        Self::Pending { loading: false }
+    }
+}
+
 #[derive(Default, PartialEq, Eq)]
 pub(super) struct Context {
     pub enabled: bool,
     pub name: String,
     pub times: Vec<u64>,
-    pub exchanges_observed: bool,
+    pub exchanges: Exchanges,
     pub output_ages: Vec<String>,
     pub final_ages: Vec<String>,
     pub sent_ages: Vec<String>,
@@ -24,7 +44,8 @@ impl State {
 
 impl App {
     pub(in crate::board) fn pane_output_enabled(&self) -> bool {
-        self.workspace_snapshot().is_none() || self.shell.tab == crate::board::shell::OpsTab::Agents
+        self.workspace_snapshot().is_none()
+            || self.shell.tab == crate::board::shell::OpsTab::Agents && !self.flat_agents()
     }
 
     pub(in crate::board) fn pane_output_read(&self) -> Option<ConversationKey> {
@@ -66,7 +87,12 @@ impl App {
 impl Session {
     /// Metadata is already acquired. Unknown times remain unknown (zero for
     /// merge placement), rather than fabricating an observation from frame time.
-    pub(super) fn transcript_context(&mut self, app: &App, row: &serde_json::Value) {
+    pub(super) fn transcript_context(
+        &mut self,
+        app: &App,
+        row: &serde_json::Value,
+        agent: Option<&crate::board::home_leads::FinalsKey>,
+    ) {
         let name =
             super::super::notes::single_line(row["name"].as_str().unwrap_or("unknown agent"));
         let id = row["id"].as_str().unwrap_or_default();
@@ -172,13 +198,54 @@ impl Session {
                 .as_ref()
                 .and_then(|view| view.me.clone())
                 .unwrap_or_else(|| "you".into()),
-            exchanges_observed: app
-                .home_leads
-                .results_observed(app.view.as_ref().and_then(|view| view.me_id.as_deref())),
+            exchanges: self.exchanges(app, agent),
         };
         if self.transcript_context != context {
             self.transcript_context = context;
             self.rendered = None;
+        }
+    }
+
+    /// Whether anything is held that the placeholder would stand in for.
+    fn holds_content(&self) -> bool {
+        self.reply.is_some()
+            || !self.outgoing.is_empty()
+            || !self.finals.is_empty()
+            || self.restored_sends().next().is_some()
+            || matches!(&self.pane_output, Observation::Observed(items) if !items.is_empty())
+    }
+
+    /// Pending history shows nothing for 400 ms, then the loading line; the gate
+    /// wakes the board to repaint at that instant.
+    fn exchanges(
+        &mut self,
+        app: &App,
+        agent: Option<&crate::board::home_leads::FinalsKey>,
+    ) -> Exchanges {
+        match app.exchanges_read(agent) {
+            crate::board::row_detail::ExchangesRead::Observed => {
+                self.pending_since_ms = None;
+                Exchanges::Observed
+            }
+            crate::board::row_detail::ExchangesRead::Failed => {
+                self.pending_since_ms = None;
+                Exchanges::Failed
+            }
+            // Held messages stand in for the wait: no placeholder, so no gate.
+            crate::board::row_detail::ExchangesRead::Pending if self.holds_content() => {
+                self.pending_since_ms = None;
+                Exchanges::Pending { loading: false }
+            }
+            crate::board::row_detail::ExchangesRead::Pending => {
+                let now = crate::status::now_ms();
+                let since = *self.pending_since_ms.get_or_insert(now);
+                let until_ms = since + LOADING_DELAY_MS;
+                let loading = now >= until_ms;
+                if !loading {
+                    crate::board::view::ClockSurface::admit_delay_gate(app, until_ms);
+                }
+                Exchanges::Pending { loading }
+            }
         }
     }
 
@@ -194,7 +261,7 @@ impl Session {
             enabled,
             name,
             times,
-            exchanges_observed,
+            exchanges,
             output_ages,
             final_ages,
             sent_ages,
@@ -206,7 +273,9 @@ impl Session {
             && (!enabled
                 || (matches!(&self.pane_output, Observation::Pending)
                     || matches!(&self.pane_output, Observation::Observed(items) if items.is_empty()))
-                    && (*exchanges_observed || self.reply.is_some() || !self.outgoing.is_empty()))
+                    && (matches!(exchanges, Exchanges::Observed)
+                        || self.reply.is_some()
+                        || !self.outgoing.is_empty()))
         {
             return RenderedTranscript {
                 mapped,
@@ -464,12 +533,18 @@ impl Session {
                 }
             }
         }
-        if !has_exchange && !exchanges_observed {
-            append(
-                Line::styled("Exchange history unavailable", look.role(Role::Muted)),
-                vec![],
-                None,
-            );
+        if !self.holds_content() {
+            let note = match exchanges {
+                Exchanges::Observed => None,
+                // One blank row, not none: an empty transcript collapses the pane,
+                // and with it the reads that would fill it.
+                Exchanges::Pending { loading: false } => Some(""),
+                Exchanges::Failed => Some("Exchange history unavailable"),
+                Exchanges::Pending { loading: true } => Some("Loading exchanges…"),
+            };
+            if let Some(note) = note {
+                append(Line::styled(note, look.role(Role::Muted)), vec![], None);
+            }
         }
         if matches!(self.pane_output, Observation::Unavailable) {
             append(

@@ -237,6 +237,63 @@ fn a_compacted_stream_starts_from_its_pair_then_the_retained_tail() {
 }
 
 #[test]
+fn a_folded_stream_publishes_its_anchor_before_the_pair_then_the_retained_tail() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    fixture.append(DEVICE);
+    let anchor = fixture.append(DEVICE);
+    fixture.fold_pair(DEVICE, 2);
+    fixture.append(DEVICE);
+    let data = fixture
+        .local
+        .next(&page)
+        .ok()
+        .unwrap()
+        .expect("fold publication");
+    assert_eq!(data.documents[0].target.resource, "authority");
+    assert_eq!(data.documents[1].target.resource, "log");
+    assert_eq!(decode_envelope(&data.documents[1]).as_bytes(), anchor);
+    let groups: Vec<_> = data.documents[2..]
+        .chunks(1)
+        .map(|group| originals::checkpoint(group).unwrap())
+        .collect();
+    assert_eq!(groups.len(), 2);
+    for original in &groups {
+        assert_eq!(original.header.context.kind, "fold");
+        assert_eq!(original.header.covered_device.as_deref(), Some(DEVICE));
+        assert_eq!(
+            original.header.context.prev_hash,
+            object::Envelope::from_json(&anchor)
+                .unwrap()
+                .hash()
+                .unwrap()
+        );
+    }
+    // The same exact batch remains pending until its complete confirmation.
+    let again = fixture.local.next(&page).ok().unwrap().unwrap();
+    assert_eq!(again.documents, data.documents);
+    fixture.local.confirm(&page, &data.confirm).ok().unwrap();
+    assert_eq!(
+        update_seq(&fixture.local.next(&page).ok().unwrap().unwrap()),
+        3
+    );
+}
+
+#[test]
+fn a_fold_after_tracking_replaces_the_pending_prefix_without_a_new_cursor() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    fixture.append(DEVICE);
+    let pending = fixture.local.next(&page).ok().unwrap().unwrap();
+    assert_eq!(update_seq(&pending), 1);
+    let anchor = fixture.append(DEVICE);
+    fixture.fold_pair(DEVICE, 2);
+    let data = fixture.local.next(&page).ok().unwrap().unwrap();
+    assert!(matches!(data.confirm, Confirm::Checkpoint { seq: 2, .. }));
+    assert_eq!(decode_envelope(&data.documents[1]).as_bytes(), anchor);
+}
+
+#[test]
 fn a_stream_this_machine_did_not_register_is_never_published() {
     let mut fixture = Fixture::new();
     let page = fixture.page(1);
@@ -701,4 +758,82 @@ fn a_link_that_ends_is_retired_once_and_forgotten() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn a_fold_batch_includes_the_signer_chain_without_publishing_its_stream() {
+    let mut fixture = Fixture::new();
+    fixture.append(DEVICE);
+    fixture.append(DEVICE);
+    fixture.fold_pair(DEVICE, 2);
+    let rows = fixture.local.preamble(&fixture.page(1)).ok().unwrap();
+    let chains: Vec<_> = documents(&rows, "authority")
+        .iter()
+        .filter_map(|row| {
+            let (kind, bytes) = originals::authority(std::slice::from_ref(row)).unwrap();
+            (kind == originals::Authority::Chain).then_some(bytes)
+        })
+        .collect();
+    assert!(chains.contains(&fixture.chain(DEVICE)));
+    let batch = fixture.local.next(&fixture.page(1)).unwrap().unwrap();
+    let (_, signer) = originals::authority(&batch.documents[..1]).unwrap();
+    assert_eq!(signer, fixture.chain(FOREIGN));
+    assert_eq!(
+        fixture.local.local_streams(&fixture.page(1)).unwrap(),
+        [DEVICE]
+    );
+}
+
+#[test]
+fn a_pending_fold_carries_its_signer_proof_independently_of_a_newer_preamble() {
+    let mut fixture = Fixture::new();
+    fixture.append(DEVICE);
+    fixture.append(DEVICE);
+    fixture.fold_pair(DEVICE, 2);
+    let batch = fixture.local.next(&fixture.page(1)).unwrap().unwrap();
+    let mut proofs = Vec::new();
+    for document in &batch.documents {
+        if document.target.resource == "authority" {
+            let (kind, bytes) = originals::authority(std::slice::from_ref(document)).unwrap();
+            assert_eq!(kind, originals::Authority::Chain);
+            proofs.push(bytes);
+        }
+    }
+    assert!(
+        proofs.contains(&fixture.chain(FOREIGN)),
+        "the selected batch must carry its exact signer dependency, not infer it again from latest local state"
+    );
+}
+
+#[test]
+fn a_fold_stored_under_a_different_covered_stream_stops_instead_of_retrying() {
+    let mut fixture = Fixture::new();
+    for stream in [DEVICE, FOREIGN] {
+        fixture.append(stream);
+        fixture.append(stream);
+        fixture.fold_pair(stream, 2);
+    }
+    // Corrupt only the local routing: a valid foreign-stream fold now occupies this
+    // device's checkpoint slot. Store-selected scope must not turn corruption into retry.
+    let db = rusqlite::Connection::open(fixture.layout.directory.join("space.db")).unwrap();
+    assert_eq!(
+        db.execute(
+            "UPDATE checkpoints SET payload=(SELECT payload FROM checkpoints WHERE stream=?1 AND namespace='content')
+             WHERE stream=?2 AND namespace='content'",
+            rusqlite::params![FOREIGN, DEVICE],
+        ).unwrap(),
+        1,
+    );
+    drop(db);
+    let page = fixture.page(1);
+    for _ in 0..2 {
+        assert_eq!(
+            fixture
+                .local
+                .next(&page)
+                .err()
+                .expect("corrupt routing must refuse"),
+            Fault::Stuck("A stored original could not be mapped for cloud sync.")
+        );
+    }
 }

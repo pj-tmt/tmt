@@ -24,11 +24,19 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { workspaceVersion } from '../support/workspace-version.js';
 import { parseWholeStdout, runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 import { install } from '../support/native-installation.js';
+import { locateTmux, privateTmux } from '../support/private-tmux.js';
 
 // Scenario-local selector: the built squad extension, never an installed copy.
 const squadExecutable =
   process.env.TMT_TEST_OPS ??
   fileURLToPath(new URL('../../../rust/target/debug/tmt-ops', import.meta.url));
+
+/** The sandbox's own tmux server: a private socket under its root, the real tmux on PATH. */
+function startPrivateTmux(sandbox: Sandbox, name: string, config?: string) {
+  const executable = locateTmux();
+  sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+  return privateTmux({ root: sandbox.root, name, env: sandbox.env, executable, config });
+}
 
 /** Puts the sole shipped `tmt-ops` command on the sandbox PATH. */
 function installSquad(sandbox: Sandbox): string {
@@ -112,10 +120,14 @@ function observe(sandbox: Sandbox) {
            JOIN identities i ON i.id = m.identity_id ORDER BY room, identity`
         )
         .all(),
+      // Core's reserved `user` entry is left out: Ops writes it only for the recorded
+      // user (see "shows, records and clears who you are"), and every other entry
+      // a scenario compares must be the squad's own.
       metadata: db
         .prepare(
           `SELECT i.name AS identity, m.key, m.value FROM identity_metadata m
-           JOIN identities i ON i.id = m.identity_id ORDER BY identity, key`
+           JOIN identities i ON i.id = m.identity_id WHERE m.key <> 'user'
+           ORDER BY identity, key`
         )
         .all() as { identity: string; key: string; value: string }[],
     };
@@ -1565,11 +1577,27 @@ o = "run touch ${marker}"
         source: 'recorded',
       });
       expect((await runCli(sandbox, ['ops', 'sq', 'status'])).stdout).not.toContain('◆ needs');
+      // Core learns the recorded user is a person, so Digest never holds their messages.
+      const metadata = async () =>
+        JSON.parse(
+          (await runCli(sandbox, ['identity', 'meta', 'list', '--identity', ben, '--json'])).stdout
+        ).metadata;
+      expect(await metadata()).toEqual({ user: 'true' });
+      const sol = await identity(sandbox, 'Sol');
+      expect(
+        JSON.parse(
+          (await runCli(sandbox, ['identity', 'meta', 'list', '--identity', sol, '--json'])).stdout
+        ).metadata,
+        'only the recorded user is marked'
+      ).toEqual({});
       const missing = await squad(sandbox, ['me', 'Nobody']);
       expect(missing.body.error.code).toBe('NAME_NOT_FOUND');
 
       const cleared = await squad(sandbox, ['me', '--clear']);
       expect(cleared.body).toMatchObject({ action: 'clear', changed: true, me: null });
+      expect(await metadata(), 'clearing the record never removes the mark').toEqual({
+        user: 'true',
+      });
       expect(readFileSync(squadToml, 'utf8')).toBe('');
       const repeat = await runCli(sandbox, ['ops', 'sq', 'me', '--clear']);
       expect(repeat.stdout).toBe('No identity was recorded; nothing changed.\n');
@@ -4904,11 +4932,7 @@ describe('large board responsiveness', () => {
     async ({ theme, width }) => {
       await withSandbox(async (sandbox) => {
         const bin = installSquad(sandbox);
-        const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
-        if (found.status !== 0) throw new Error('Install tmux for private source-selection checks');
-        const executable = found.stdout.trim();
-        const socket = path.join(sandbox.root, 'source.sock');
-        sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+        const scratch = startPrivateTmux(sandbox, 'source');
         sandbox.env.TERM = 'xterm-256color';
         sandbox.env.COLORTERM = 'truecolor';
         if (theme === 'NO_COLOR') sandbox.env.NO_COLOR = '1';
@@ -4972,19 +4996,8 @@ describe('large board responsiveness', () => {
             ])
           ).status
         ).toBe(0);
-        const tmux = (args: string[]) => {
-          const result = spawnSync(executable, ['-S', socket, ...args], {
-            env: sandbox.env,
-            encoding: 'utf8',
-            timeout: 5000,
-          });
-          if (result.status !== 0)
-            throw new Error(`Private source fixture failed: ${result.stderr}`);
-          return result.stdout.trimEnd();
-        };
+        const { tmux } = scratch;
         tmux([
-          '-f',
-          '/dev/null',
           'new-session',
           '-d',
           '-s',
@@ -5145,19 +5158,13 @@ describe('large board responsiveness', () => {
           try {
             // The pane shell was replaced by the board. Let its existing
             // shutdown owner join workers before stopping the private server.
-            spawnSync(executable, ['-S', socket, 'send-keys', '-t', pane, 'C-c'], {
-              env: sandbox.env,
-              timeout: 5000,
-            });
+            scratch.run(['send-keys', '-t', pane, 'C-c']);
             await vi.waitFor(() => expect(() => process.kill(boardPid, 0)).toThrow(), {
               timeout: 10_000,
               interval: 25,
             });
           } finally {
-            spawnSync(executable, ['-S', socket, 'kill-server'], {
-              env: sandbox.env,
-              timeout: 5000,
-            });
+            scratch.stop();
             await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
               timeout: 10_000,
               interval: 25,
@@ -5179,22 +5186,10 @@ describe('large board responsiveness', () => {
   it('member mention links keep raw drafts and open adjacent actions on the real board', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
-      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
-      if (found.status !== 0) throw new Error('Build/install tmux for isolated mention tests');
-      const executable = found.stdout.trim();
-      const socket = path.join(sandbox.root, 'mentions.sock');
-      sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+      const scratch = startPrivateTmux(sandbox, 'mentions');
       sandbox.env.TERM = 'xterm-256color';
       sandbox.env.COLORTERM = 'truecolor';
-      const tmux = (args: string[]) => {
-        const result = spawnSync(executable, ['-S', socket, ...args], {
-          env: sandbox.env,
-          encoding: 'utf8',
-          timeout: 5000,
-        });
-        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
-        return result.stdout.trimEnd();
-      };
+      const { tmux } = scratch;
       await identity(sandbox, 'Ben');
       const worker = await identity(sandbox, 'worker');
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
@@ -5238,8 +5233,6 @@ describe('large board responsiveness', () => {
         ).status
       ).toBe(0);
       tmux([
-        '-f',
-        '/dev/null',
         'new-session',
         '-d',
         '-s',
@@ -5371,7 +5364,7 @@ describe('large board responsiveness', () => {
         if (process.env.TMT_MENTION_CAPTURES)
           writeFileSync(process.env.TMT_MENTION_CAPTURES, JSON.stringify(captures));
       } finally {
-        spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+        scratch.stop();
         await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
           timeout: 10_000,
           interval: 25,
@@ -5383,22 +5376,10 @@ describe('large board responsiveness', () => {
   it('restores the sends of the user to an agent after an Ops restart without touching delivery state', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
-      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
-      if (found.status !== 0) throw new Error('Build/install tmux for isolated restore tests');
-      const executable = found.stdout.trim();
-      const socket = path.join(sandbox.root, 'restore.sock');
-      sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+      const scratch = startPrivateTmux(sandbox, 'restore');
       sandbox.env.TERM = 'xterm-256color';
       sandbox.env.NO_COLOR = '1';
-      const tmux = (args: string[]) => {
-        const result = spawnSync(executable, ['-S', socket, ...args], {
-          env: sandbox.env,
-          encoding: 'utf8',
-          timeout: 5000,
-        });
-        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
-        return result.stdout.trimEnd();
-      };
+      const { tmux } = scratch;
       await identity(sandbox, 'Ben');
       await identity(sandbox, 'worker');
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
@@ -5423,8 +5404,6 @@ describe('large board responsiveness', () => {
       const before = await durable();
       expect(before).toContain(request);
       tmux([
-        '-f',
-        '/dev/null',
         'new-session',
         '-d',
         '-s',
@@ -5482,7 +5461,7 @@ describe('large board responsiveness', () => {
         // Reading history changed no delivery or acknowledgement state.
         expect(await durable()).toBe(before);
       } finally {
-        spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+        scratch.stop();
         await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
           timeout: 10_000,
           interval: 25,
@@ -5494,39 +5473,25 @@ describe('large board responsiveness', () => {
   it('tmux gives the board a new-line key (Shift+Enter with csi-u, else Alt+Enter) while Enter still sends', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
-      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
-      if (found.status !== 0) throw new Error('Build/install tmux for isolated keyboard tests');
-      const executable = found.stdout.trim();
-      const socket = path.join(sandbox.root, 'keys.sock');
-      sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+      const config = path.join(sandbox.root, 'keys.tmux.conf');
+      const scratch = startPrivateTmux(sandbox, 'keys', config);
       sandbox.env.TERM = 'xterm-256color';
       sandbox.env.NO_COLOR = '1';
-      const config = path.join(sandbox.root, 'keys.tmux.conf');
       // `extended-keys-format` is tmux 3.5 or later; older servers keep the Alt+Enter fallback.
       const [, major = 0, minor = 0] = /(\d+)\.(\d+)/
-        .exec(spawnSync(executable, ['-V'], { encoding: 'utf8' }).stdout)
+        .exec(spawnSync(scratch.executable, ['-V'], { encoding: 'utf8' }).stdout)
         ?.map(Number) ?? [0, 0, 0];
       const csiU = major > 3 || (major === 3 && minor >= 5);
       writeFileSync(
         config,
         `set -g extended-keys on\n${csiU ? 'set -g extended-keys-format csi-u\n' : ''}`
       );
-      const tmux = (args: string[]) => {
-        const result = spawnSync(executable, ['-S', socket, ...args], {
-          env: sandbox.env,
-          encoding: 'utf8',
-          timeout: 5000,
-        });
-        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
-        return result.stdout.trimEnd();
-      };
+      const { tmux } = scratch;
       await identity(sandbox, 'Ben');
       await identity(sandbox, 'worker');
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
       expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
       tmux([
-        '-f',
-        config,
         'new-session',
         '-d',
         '-s',
@@ -5603,7 +5568,7 @@ describe('large board responsiveness', () => {
           { timeout: 10_000, interval: 25 }
         );
       } finally {
-        spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+        scratch.stop();
         await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
           timeout: 10_000,
           interval: 25,
@@ -5615,22 +5580,10 @@ describe('large board responsiveness', () => {
   it('named view layers restore independently, reset one layer and retain controls through reload', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
-      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
-      if (found.status !== 0) throw new Error('Build/install tmux for isolated board tests');
-      const executable = found.stdout.trim();
-      const socket = path.join(sandbox.root, 'views.sock');
-      sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+      const scratch = startPrivateTmux(sandbox, 'views');
       sandbox.env.TERM = 'xterm-256color';
       sandbox.env.NO_COLOR = '1';
-      const tmux = (args: string[]) => {
-        const result = spawnSync(executable, ['-S', socket, ...args], {
-          env: sandbox.env,
-          encoding: 'utf8',
-          timeout: 5000,
-        });
-        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
-        return result.stdout.trimEnd();
-      };
+      const { tmux } = scratch;
       await identity(sandbox, 'Ben');
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
       const directory = path.join(sandbox.env.XDG_CACHE_HOME!, 'tmt-ops', 'board');
@@ -5665,8 +5618,6 @@ describe('large board responsiveness', () => {
       const config = path.join(sandbox.globalDir, 'ops.toml');
       const configBefore = readFileSync(config, 'utf8');
       tmux([
-        '-f',
-        '/dev/null',
         'new-session',
         '-d',
         '-s',
@@ -5760,9 +5711,9 @@ describe('large board responsiveness', () => {
           sort: 'name',
           reversed: false,
           agentsFilter: 'all',
-          overviewView: 'agents',
         });
         expect(retained.controls).not.toHaveProperty('overviewFilter');
+        expect(retained.controls).not.toHaveProperty('overviewView');
         expect(retained).not.toHaveProperty('scope');
         expect(retained).not.toHaveProperty('revealHidden');
         expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);
@@ -5778,7 +5729,7 @@ describe('large board responsiveness', () => {
           writeFileSync(process.env.TMT_VIEW_LAYER_CAPTURES, JSON.stringify(captures));
         }
       } finally {
-        spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+        scratch.stop();
         await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
           timeout: 10_000,
           interval: 25,
@@ -5787,25 +5738,13 @@ describe('large board responsiveness', () => {
     });
   }, 120_000);
 
-  it('paints a placeholder before configuration and switches tabs off the input thread', async () => {
+  it('paints a placeholder before configuration and switches tabs and panes off the input thread', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
-      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
-      if (found.status !== 0) throw new Error('Build/install tmux for the isolated board tests');
-      const tmuxExecutable = found.stdout.trim();
-      const socket = path.join(sandbox.root, 'board.sock');
-      sandbox.env.PATH = [path.dirname(tmuxExecutable), sandbox.env.PATH].join(path.delimiter);
+      const scratch = startPrivateTmux(sandbox, 'board');
       sandbox.env.TERM = 'xterm-256color';
       sandbox.env.NO_COLOR = '1';
-      const tmux = (args: string[]) => {
-        const result = spawnSync(tmuxExecutable, ['-S', socket, ...args], {
-          env: sandbox.env,
-          encoding: 'utf8',
-          timeout: 5000,
-        });
-        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
-        return result.stdout.trimEnd();
-      };
+      const { tmux } = scratch;
       expect((await runCli(sandbox, ['identity', 'create', 'Ben', '--json'])).status).toBe(0);
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
       for (let index = 0; index < 30; index += 1) {
@@ -5814,8 +5753,6 @@ describe('large board responsiveness', () => {
         expect((await squad(sandbox, ['add', name])).status).toBe(0);
       }
       tmux([
-        '-f',
-        '/dev/null',
         'new-session',
         '-d',
         '-s',
@@ -5832,7 +5769,7 @@ describe('large board responsiveness', () => {
       try {
         for (let index = 0; index < 71; index += 1) tmux(['new-window', '-d', '/bin/sh']);
         expect(tmux(['list-panes', '-a', '-F', '#{pane_id}']).split('\n')).toHaveLength(72);
-        sandbox.env.TMUX = `${socket},${tmux(['display-message', '-p', '#{pid}'])},0`;
+        sandbox.env.TMUX = `${scratch.socket},${tmux(['display-message', '-p', '#{pid}'])},0`;
         const pane = tmux([
           'new-window',
           '-d',
@@ -5888,19 +5825,41 @@ describe('large board responsiveness', () => {
           (first.find((r) => r.event === event)!.elapsed_us as number) / 1000;
         expect(milestone('first_frame')).toBeLessThan(budgetMs.firstFrame);
         expect(milestone('fresh_board')).toBeLessThan(budgetMs.freshBoard);
-        // Shell switching repaints from the acquired snapshot; no new roster load.
-        const loads = first.filter((r) => r.stage === 'load').length;
-        const before = tmux(['capture-pane', '-p', '-t', pane]);
-        const pressed = Date.now();
-        tmux(['send-keys', '-t', pane, '1']);
-        await vi.waitFor(
-          () => {
-            expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
-            expect(records().filter((r) => r.stage === 'load').length).toBe(loads);
-          },
-          { timeout: budgetMs.tabSwitch, interval: 10 }
-        );
-        expect(Date.now() - pressed).toBeLessThan(budgetMs.tabSwitch);
+        // The Usage band's readers finish their first loads shortly after the first board;
+        // count from the moment the load stage has been quiet for a second.
+        const loadCount = () => records().filter((r) => r.stage === 'load').length;
+        const settle = async () => {
+          let loads = loadCount();
+          for (let quiet = 0; quiet < 1000;) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const now = loadCount();
+            quiet = now === loads ? quiet + 100 : 0;
+            loads = now;
+          }
+          return loads;
+        };
+        // Every switch paints at once from the acquired snapshot. A tab switch (1 Agents, 2 Digest)
+        // may start its own async fill afterwards; the Talk/Measure pane switch (t) loads nothing.
+        const switchTo = async (key: string, loads?: number) => {
+          const before = tmux(['capture-pane', '-p', '-t', pane]);
+          const pressed = Date.now();
+          tmux(['send-keys', '-t', pane, key]);
+          await vi.waitFor(
+            () => {
+              expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
+              if (loads !== undefined) expect(loadCount()).toBe(loads);
+            },
+            { timeout: budgetMs.tabSwitch, interval: 10 }
+          );
+          expect(Date.now() - pressed).toBeLessThan(budgetMs.tabSwitch);
+        };
+        await settle();
+        await switchTo('2');
+        await settle();
+        await switchTo('1');
+        const loads = await settle();
+        await switchTo('t', loads);
+        await switchTo('t', loads);
         // The board ends on q and its pane shell returns; only then does the server go.
         tmux(['send-keys', '-t', pane, 'q']);
         await vi.waitFor(
@@ -5911,11 +5870,8 @@ describe('large board responsiveness', () => {
           { timeout: 10_000, interval: 25 }
         );
       } finally {
-        // kill-server acknowledges before its panes' HUP handlers finish: wait for the server itself.
-        spawnSync(tmuxExecutable, ['-S', socket, 'kill-server'], {
-          env: sandbox.env,
-          timeout: 5000,
-        });
+        // Stopping the server is acknowledged before its panes' HUP handlers finish: wait for the server itself.
+        scratch.stop();
         await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
           timeout: 10_000,
           interval: 25,

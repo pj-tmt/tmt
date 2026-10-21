@@ -27,7 +27,7 @@ one snapshot. Pool remains first outside a launch scope; pinned squads precede t
 selected sort order. Session visibility holds resolved launch room UUIDs and the
 explicit hidden-room reveal. Scope wins saved hiding. Hidden memberships never
 become Common pool members, and search never reveals hidden squads. Saved hiding
-filters Agents and Overview; launch scope applies across destinations. The hidden band reports UUID-deduplicated waiting/blocked evidence from hidden
+filters Agents; launch scope applies across destinations. The hidden band reports UUID-deduplicated waiting/blocked evidence from hidden
 rooms in the existing state roles, cached when preferences configure the snapshot;
 it omits absent attention and drops these counts after session reveal. The
 acquired roster and global shell attention remain unchanged.
@@ -45,30 +45,38 @@ Config preference save lane; hidden/scope and search fences still apply. Retaine
 loads as All; an authored `agents-filter needs-you` binding gets a located
 retirement notice without rewriting its text or falling through to a default key.
 Waiting agents remain visible through their state marks. Search keeps matching
-ancestors and temporarily reveals matching children without changing saved
-expansion. Group totals remain unfiltered room totals. Empty filtered results are
+ancestors and temporarily reveals matching children; clearing expands the
+selected occurrence's group when needed to keep that row visible. Group totals remain unfiltered room totals. Empty filtered results are
 non-interactive; retained hidden targets grant no action authority.
 
-Overview and Agents share the always-visible search field after FilterBar chips.
-Overview orders its chips Agents then Squads and starts in Agents unless a saved
-choice exists. Its default `v` toggles that view from either pane for any selected
-row; authored bindings retain precedence. `p` pins or unpins the selected visible
+The Agents list rule carries the FilterBar chips (Squads, Agents, Pinned) and the
+always-visible search field; `f` cycles the chips from either pane for any selected
+row (a selected squad hands over to its lead when the flat list opens);
+authored bindings retain precedence. `p` pins or unpins the selected visible
 agent or squad in either tab, and the effective footer reflects its saved state.
-Pinned names carry a Muted `▪` mark in both lists. Overview reserves its two-cell
+Pinned names carry a Muted `▪` mark in both lists. The flat list reserves its two-cell
 name slot; the Agents tree uses its leading gutter. An unpinned row keeps the same
 name and numeric tracks, and NO_COLOR keeps the glyph.
 Selected chips keep their fill while search owns input; hover and activation
 eligibility remain independent.
 `/` edits the retained query; typing filters live, with bold-only matches. Up/Down
-move through filtered rows while typing; Enter keeps the filter and returns list
-keys; Escape clears from typing or applied state; empty Backspace ends typing.
+move through filtered rows while typing; opening search moves focus to the list.
+Enter keeps the filter and returns list keys; Escape clears and closes from typing
+or applied state in one press; empty Backspace ends typing.
 The filled field keeps one 34-cell slot across idle, typing and applied states,
 clipped only by available width. Each query edit selects the first visible match;
-Up/Down then move among its matches. Clearing restores the pre-filter selection
-when it still exists. No matches leave the previous pane visible as a read-only
+Up/Down then move among its matches. Clearing retains the current exact row and
+squad occurrence, expands its group when needed, and scrolls it into view. A
+subsequent Escape uses the normal list behavior. No matches leave the previous
+pane visible as a read-only
 preview, without hidden-row actions, revealing hidden rooms or bypassing scope
 or the Pinned filter.
-Counts belong to section rules, not FilterBar. Overview applies the query to held
+While editing, match counts live on section rules. Committing moves the count
+into the shared field (`/ foo  3 of 23  ×`); × clears and closes through the same
+transition as Escape. The shared field reports distinct clipped clear geometry;
+hosts supply admitted counts and current-frame hits. App owns the sole query and
+exact selection, with only a tab marker retained for the guarded no-match preview.
+Ordinary unfiltered totals remain on section rules. The Measure view applies the query to held
 Timers before the three-row preview limit, matching displayed ID, squad, schedule
 or purpose. Its rule counts all matching jobs against the unsearched observation;
 stale and unavailable observations stay explicit. Transient footer feedback keeps
@@ -92,13 +100,13 @@ StateCell supplies `● N unread` in place of the glyph and activity words
 (working/idle/waiting/stale/`?`); the member's task state still follows, as
 `● N unread · <task>`, and clips first in a narrow cell. Only the activity form
 leaves out a task that repeats its activity word; the unread form keeps it. One owner,
-`columns::activity_spans`, paints it in the tree, roster and Overview rows.
+`columns::activity_spans`, paints it in the tree, roster and flat rows.
 Only the glyph uses the canonical `unread` role, with neutral count/words and
 unchanged text under NO_COLOR. TeamStrip retains lead-first UUID order and admits
 whole labels or its existing overflow mark. A visible unread squad reserves a
 14-cell TEAM column for a full two-digit lower-bound label and overflow mark;
 the shared header and TOK/NOW columns move together. With no visible unread
-squad, the existing ten-cell TEAM column remains. Unread members sort first in Overview
+squad, the existing ten-cell TEAM column remains. Unread members sort first in the flat list
 and within Agents tree sibling groups without rewriting raw state or waiting
 permission. Marker/page updates invalidate the existing row cache and reconcile
 the retained selected UUID. TopBar sums the global workspace independently of
@@ -109,15 +117,18 @@ to [the reply owner](board-notebooks.md#replies-and-verification).
 
 ## Shell, geometry and input
 
-`board::shell` owns Overview, Agents and Digest selection. Overview uses one
-switchable Squads/Agents list. The shared FilterBar paints mode chips and the
-in-place search field; section rules own right-aligned counts. `v` switches the
-view through the effective binding table; active searches show matching squads or
+`board::shell` owns Agents and Digest selection. Agents uses one list with three
+chips (`AgentsFilter`: Squads tree, Agents flat list, Pinned) and one right column
+(`RightTab`: Talk, Measure). The shared FilterBar paints the chips and the
+in-place search field on the left rule and `talk_measure` paints its control on the
+right rule; the totals sit at the bottom right of the list. `f` and `t` switch them
+through the effective binding table; active searches show matching squads or
 agents out of that mode's admitted unsearched total. Agents counts deduplicate
 identities across memberships and include collapsed matching children, without
 building or sorting display rows. Binding resolution shares the existing immutable
 row scope and releases it before any input or model change. Explicit authored keys
 win; App retains the only search query and editing state.
+While focus is in a conversation, the selected agent's row (Agents tab tree and Overview agents list) takes the `conversation` tint and a bold name instead of the plain selection, with state colours unchanged; without background colours it is reverse video plus the bold name (`Look::conversation`, `tree_row::Row::in_conversation`).
 `overview::monitor` caches canonical rows and the scoped numeric summary; acquired
 roster, preferences, label and meter/job updates invalidate it. Waiting membership
 occurrences are admitted before UUID deduplication, so an unobserved or nonwaiting
@@ -146,19 +157,19 @@ The list uses that full space; later lower sections reduce it through placement.
 The waiting-first count note appears only for a positive count. Short viewports
 reveal the selected target. Only the
 footer advertises effective keys; Help and Actions retain other admitted actions.
-Overview's default Timers key is the explicit `all-timers` action. The authored
+With nothing selected the default Timers key is the explicit `all-timers` action. The authored
 `timers` action retains selected-scope admission; hidden or missing selected scopes
 still refuse to widen.
 
-Overview Usage is a fixed full-width band reserved once before body placement.
-Panels exposes Usage, its inline quota, Squads / Agents, and Conversation;
-retired Summary, Recent exchanges and table controls are absent. Overview section
+Agents Usage is a fixed full-width band reserved once before body placement; it yields to its one-line summary, then to nothing, when the two panes would no longer fit below it.
+Panels exposes Usage, its inline quota, the list, and the side column;
+retired Summary, Recent exchanges and table controls are absent. Agents section
 positions are fixed, while Digest keeps its independent ordered panels and Details
-switch. Overview also exposes its retained Digest toggle. Timers are
-a fixed overview module. Persisted Config IDs and compare-and-save semantics remain with
+switch. Timers are
+a fixed Measure module. Persisted Config IDs and compare-and-save semantics remain with
 [config-and-effects](config-and-effects.md#views-pane-arrangements); unrelated
 preferences are retained. Hidden surfaces have no stale hits or clocks. Only
-explicit message focus reveals a configured-off Overview conversation; Escape
+explicit message focus reveals a configured-off Agents side column; Escape
 keeps the UUID draft. Hidden Digest Status still exposes failed/loading/stale
 observations.
 
@@ -208,7 +219,7 @@ note to a different UUID cannot borrow the selected agent's question. The fill k
 and the right hint ends one cell before the fill edge. The same geometry owns
 editor cursors and send hits. The input has no section rule or frame, uses the
 existing UUID draft/editor/quote owners, and publishes only its clipped input and
-send geometry. Overview list and reader defaults use Reply on Enter; authored
+send geometry. The flat list and reader defaults use Reply on Enter; authored
 bindings merge afterward without a rewrite. Paint, action admission and host-key
 provenance share the selected exact membership or the squad's observed current lead.
 Short columns drop optional static
@@ -225,9 +236,9 @@ supplier-owned status snapshot and UUID-deduplicated member list through
 `digest_dashboard`; the canonical roster owns membership and action admission.
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message
-focuses the selected agent's conversation: compact Overview opens Agents, while
-wide Overview retains its shared pane. A retained Reader moves to Agents when
-Overview can no longer fit its conversation; refresh/resize never converts its
+focuses the selected agent's conversation: a compact Agents tab shows the conversation
+pane alone, while a wide one retains both columns. A retained Reader moves to the
+conversation pane when the columns can no longer fit; refresh/resize never converts its
 reader arrows or paging into list/host actions. Logical placement survives clearing pointer
 rectangles. With fewer than three content rows, the table omits its header and
 keeps usable target rows.
@@ -286,7 +297,7 @@ labels escape sanitized display text without promoting names to target identitie
 Clipped controls publish no action authority.
 
 `workspace::manage::Draft` freezes typed operations, UUIDs/revisions and observed
-timer impact for review. Agents uses the exact selected squad; Overview, Digest
+timer impact for review. Agents uses the exact selected squad; the flat list, Digest
 and Common-pool members resolve memberships only from a Complete roster. One
 membership supplies context; several require the existing Menu's explicit room
 choice; none reports no membership rather than incomplete data. Choice rechecks
@@ -312,13 +323,22 @@ selected UUID and consumes close before base dispatch. Shared ScrollState owns
 its current viewport, wheel/page scrolling and resize clamping. The old
 HOME display cache is not admitted as a new shell frame.
 
+Peek windows light-dismiss (`board/peek.rs`): the Timers list, Help, the subscription and
+agent details, and the Actions and mention menus close on a left press outside their painted
+sheet, and the same press goes on to what is under it. Each window records its painted sheet
+during paint (`PeekAreas`, cleared at the start of every paint), so a stale frame never
+dismisses. A wheel or other button outside, a keyboard close, a press inside, and any press
+while the composer holds a draft leave the window as it is. Dialogs (forms, Settings, Timer
+review, pickers, Recovery, Checklist, the reply reader, Discovery, Usage controls) are not peeks
+and still swallow outside presses.
+
 ## Usage and verification
 
 `App::home_usage` and provider-limit estimates reuse the existing history owner:
 missing differs from measured zero, uncovered evidence is partial, sampling off
 has no token cells, and model metadata is best effort. See the
 [meter reference](refresh-and-meter.md#token-window-meter) for evidence fences.
-Overview places Usage across the frame above its body panes. One shared 7d/5h
+Agents places Usage across the frame above its body panes. One shared 7d/5h
 choice in the quota heading selects the window for every provider. The selected
 quota, rate and forecast are neutral; only the early-runout ◆ uses attention color.
 Missing windows, stale balances or insufficient rate evidence remain explicit.
@@ -327,7 +347,7 @@ At 103/148 columns the quota track occupies 37/49 cells plus its three-cell gap.
 Smaller widths admit complete fields or leave full values in the existing Details.
 Digest retains its independent held account meters and width rules.
 
-Overview quota pace uses the last two hours of the actual clock, including the
+Agents quota pace uses the last two hours of the actual clock, including the
 latest admitted observation and both horizon endpoints, independent of token
 Each/Range.
 Rate is the change in used percentage divided by actual source elapsed hours;
@@ -343,10 +363,10 @@ Footer-only balances remain usable without claiming this API-backed pace. Detail
 uses the same projection and gives source timestamps and complete reset/depletion
 values. Paint and input perform no acquisition.
 
-`board::overview::chart::host` owns one session Each/Range selection for Overview
+`board::overview::chart::host` owns one session Each/Range selection for Agents
 and Digest. `u` resolves through effective bindings in their list scopes; Agents,
 Reader, search and composers retain their own input. Tab selects Range, Each,
-quota and buckets in Overview (without quota in Digest). Enter opens a dropdown
+quota and buckets in Agents (without quota in Digest). Enter opens a dropdown
 or pins a bucket; arrows choose menu entries or select/scroll buckets. Esc closes
 the dropdown or unpins and returns to the list. The quota choice is retained per
 view layer; changing it does not change token controls or acquire source data.
@@ -355,7 +375,7 @@ The independent choices, Auto width rule and readout are defined under
 admitted fixed interval or chooses the closest admitted interval; invalid direct
 pairs preserve both controls. Control and bucket hits come from admitted,
 clipped nodes; resize and source replacement revoke their authority.
-Overview retains provider rows when counts are missing or measured zero. With no
+Agents retains provider rows when counts are missing or measured zero. With no
 observed token bucket, EmptyState paints one muted status in the trend track;
 provider names and available quotas remain, totals/shares are em dashes, and no
 axis, blank bar rows or invented unknown provider appears. Measured zero remains
@@ -363,9 +383,9 @@ zero. Digest retains its existing summary collapse for nonpositive evidence. If
 placement would leave fewer than six target rows, the chart collapses to one
 summary line. Its effective shortcut, summary click or Actions entry focuses the
 same controls; Enter opens the anchored dropdown. When the Usage band is omitted
-on a short Overview, the shortcut opens Range directly. Closing never replays input. A body with
+on a short Agents tab, the shortcut opens Range directly. Closing never replays input. A body with
 no spare target row omits the summary to retain the last usable row. At eight
-terminal rows, Overview reveals selected targets and omits the full Usage band; the
+terminal rows, Agents reveals selected targets and omits the full Usage band; the
 effective view, Details and usage-control keys remain reachable.
 
 ## Shared board components
@@ -382,7 +402,7 @@ trends, numeric headings, totals, shares, optional quota tracks and drawn-width
 time axes. `chip_group` owns option padding, selection and clipped option hits;
 `empty_state` owns the honest unavailable/empty sentence. `timer_rows` owns bounded
 job tracks and their more hint, `key_value` owns aligned metric values, and
-`divider` owns joined band separators. Overview adapts acquired
+`divider` owns joined band separators. Agents adapts acquired
 observations and owns effects. These painters perform no acquisition or
 view-specific projection. Agents focus reuses these same modules.
 `top_bar` and `tab_strip` paint the neutral shared shell from held values.
@@ -398,7 +418,7 @@ Core's idle alert reaches the board through the same acquisition: `tab_view::ros
 runs `idle_alert::overs`/`annotate` on the squad document and its projected rows (Home passes the
 identities list as `idle_source`, so no presence is read), `OpsMembershipState::idle_over` and
 `OpsSquad::idle_alert` carry the result, and `activity::Label::idle_over` (only while the label
-reads idle) makes `columns::activity_spans`, `team_strip::line` and the Overview team strip paint
+reads idle) makes `columns::activity_spans`, `team_strip::line` and the squad team strip paint
 `state_cell::over` (`◷`, `!` under the ASCII glyph set) in the attention colour before the idle word.
 The squad row's MODEL cell names `idle alert 30m` while enabled; nothing is derived in the board.
 The per-squad settings overlay is reached from the Workspace settings menu (`Choice::SquadSettings`, last
@@ -410,7 +430,7 @@ that does not fit its cell whole is dropped, never cut (`Label::fit`, `activity_
 Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
 and a member's secondary task state is muted unless it is `blocked` (✗, red). Agent working/idle
 counts tally core activity once per identity and count a stale read as unknown;
-Overview TEAM glyphs use the same activity label (request attention first, never
+Squad TEAM glyphs use the same activity label (request attention first, never
 a task state). Needs-you counts stay task and request facts.
 Sent-message feedback shares that acquired activity; the [conversation owner](board-notebooks.md#replies-and-verification) defines its progress and visible clocks.
 

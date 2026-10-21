@@ -693,8 +693,17 @@ fn chrome_browser_responses() {
         PathBuf::from(std::env::var_os("COLAB_CHROME_FIXTURE_DIR").expect("fixture directory"));
     assert!(directory.is_absolute() && directory.is_dir());
     let server = Running::start(Tunnels::PRODUCT);
+    let recovering = Running::start_with_app(Tunnels::PRODUCT, Some(fixture_app()));
     let responses = [
         ("private", server.request(&Running::get("/", ""))),
+        ("recovery", recovering.request(&Running::get("/", ""))),
+        (
+            "public-recovery",
+            recovering.request(&Running::get(
+                "/",
+                "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n",
+            )),
+        ),
         (
             "owner",
             server.request(&Running::get(
@@ -749,19 +758,18 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let private = server.request(&Running::get("/", ""));
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("<title>Colab</title>"));
-    assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
-    assert!(
-        private.contains("This Colab space is private. For page access, pair this browser with")
-    );
-    assert!(private.contains("<code class=\"tmt-ui-command-text\">tmt remote pair</code>"));
-    assert!(private.contains("or open a share link."));
+    assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Could not reconnect</h2>"));
+    assert!(private.contains("<p>Reopen the page to try again.</p>"));
+    assert!(!private.contains("Your pairing is unchanged."));
+    assert!(!private.contains("tmt remote pair"));
     assert!(private.contains("<main class=\"guidance-main\">"));
     assert!(!private.contains("./assets/reader.css"));
     assert!(private.contains("./assets/chrome.css"));
     assert!(!private.contains("colab-recovery-status"));
     assert!(!private.contains("./assets/recovery.js"));
     assert!(!private.contains("class=\"guidance-detail\" hidden"));
-    assert!(private.contains("data-tone=\"waiting\""));
+    assert!(private.contains("data-tone=\"muted\""));
+    assert!(private.contains("not connected"));
     assert!(private.contains("class=\"tmt-ui-header\""));
     let chrome = server.request(&Running::get("/assets/chrome.css", ""));
     assert!(chrome.starts_with("HTTP/1.1 200"));
@@ -2446,7 +2454,7 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
         }
     }
     let guidance = server.request(&Running::get("/", ""));
-    assert!(guidance.contains("This Colab space is private"));
+    assert!(guidance.contains("Reopen the page to try again."));
     // The browser leaf owns the mark. This test-only source read detects copy drift.
     let shared_header = include_str!("../../../../../design/browser-ui/src/header.tsx");
     let shared_mark = shared_header
@@ -2488,8 +2496,8 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     assert!(guidance.contains(r#"</svg><span class="tmt-ui-wordmark">Colab</span></span>"#));
     assert!(!guidance.contains(r#"<span class="tmt-ui-mark""#));
     assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
-    assert!(guidance.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
-    assert!(guidance.contains("<code class=\"tmt-ui-command-text\">tmt remote pair</code>"));
+    assert!(guidance.contains("<h2 class=\"tmt-ui-notice-heading\">Opening Colab</h2>"));
+    assert!(!guidance.contains("tmt remote pair"));
     assert!(guidance.contains("<link rel=\"stylesheet\" href=\"./assets/chrome.css\">"));
     assert!(guidance.contains("<main class=\"guidance-main\">"));
     assert!(
@@ -3134,15 +3142,70 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     assert_eq!(pages["pages"][0]["archived"], true);
     assert_eq!(pages["pages"][0]["sharing"], "link");
     assert_eq!(pages["pages"][0]["history"], "current");
-    let delete = local_management(
+    let restore = management_body(
         &server,
         "90000000-0000-4000-8000-000000000005",
         5,
+        "page.unarchive",
+        json!({"pageId":PAGE}),
+        DEVICE,
+        now(),
+    );
+    let restored = server.event(path, &header, &restore);
+    management_response(&server, &restored, "6");
+    match peer.read() {
+        Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "RESYNC_REQUIRED"),
+        other => panic!("restore reused the archived page admission: {other:?}"),
+    }
+    let mut peer = server.peer(DEVICE);
+    let frames = hello(&server, &mut peer, DEVICE);
+    assert_eq!(frames[0]["membershipHead"]["revision"], "6");
+    assert_eq!(server.event(path, &header, &restore), restored);
+    peer.send(Message::Ping(vec![6].into())).unwrap();
+    assert!(matches!(peer.read().unwrap(), Message::Pong(_)));
+    let page_list = server.request(&Running::get("/api/pages", &header));
+    let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(pages["pages"][0]["archived"], false);
+    assert_eq!(pages["pages"][0]["sharing"], "link");
+    assert_eq!(pages["pages"][0]["history"], "current");
+    // Only a newly admitted session with the restored membership cut can write.
+    let context = object::Context {
+        space: server.space.clone(),
+        page: PAGE.into(),
+        epoch: "1".into(),
+        kind: "update".into(),
+        namespace: "content".into(),
+        author_device: DEVICE.into(),
+        membership_revision: "6".into(),
+        stream_seq: "1".into(),
+        prev_hash: [0; 32],
+    };
+    let envelope = object::seal(&context, &[8; 32], &signing(DEVICE), b"restored update").unwrap();
+    send(
+        &mut peer,
+        server.frame(
+            "append",
+            json!({
+                "streamId":DEVICE,"seq":"1",
+                "envelopeHash":values::encode_binary(&envelope.hash().unwrap()),
+                "envelope":values::encode_binary(&envelope.to_json().unwrap())
+            }),
+        ),
+    );
+    let (receipt, before) = receive_until(&mut peer, "receipt");
+    assert_eq!(receipt["type"], "receipt");
+    if !before.iter().any(|frame| frame["type"] == "broadcast") {
+        assert_eq!(receive(&mut peer)["type"], "broadcast");
+    }
+    let delete = local_management(
+        &server,
+        "90000000-0000-4000-8000-000000000006",
+        6,
         "page.delete",
         json!({"pageId":PAGE}),
     );
     let deleted = server.event(tmt_colab::management::LOCAL_PATH, "", &delete);
-    management_response(&server, &deleted, "6");
+    management_response(&server, &deleted, "7");
     match peer.read() {
         Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "DENIED"),
         other => panic!("delete left a subscribed peer alive: {other:?}"),
@@ -3158,8 +3221,8 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     );
     let db = server.oracle();
     for (table, expected) in [
-        ("membership_log", 6),
-        ("owner_operations", 6),
+        ("membership_log", 7),
+        ("owner_operations", 7),
         ("epoch_secrets", 0),
     ] {
         let count: i64 = db

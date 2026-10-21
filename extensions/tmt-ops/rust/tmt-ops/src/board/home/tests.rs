@@ -598,6 +598,7 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
 mod cache;
 mod cron;
 mod interaction;
+mod light_dismiss;
 mod limits;
 pub(in crate::board) mod oracle;
 

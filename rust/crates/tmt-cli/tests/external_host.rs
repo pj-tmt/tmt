@@ -1,8 +1,8 @@
 //! A stored binding on an external host, end to end (#570 slice 3b-2a-2): a
 //! shell-script driver approved in a disposable home, a binding made through
 //! the core port on that driver, then the real `tmt` reading it. Routing by
-//! name is current-server-only, so from a tmux caller the name is not active
-//! and `--inbox` queues; without its driver, or with a changed one, the
+//! name selects its recorded server independently of the caller; `--inbox`
+//! still queues without a probe. Without its driver, or with a changed one, the
 //! binding stays unknown and is never retired.
 #![cfg(unix)]
 // This fixture uses only the shared private command environment.
@@ -87,7 +87,11 @@ case "$3" in
       blocked|not_ready) printf '{"error":{"code":"%s","message":"agent busy"}}' "$a" ;;
       *) printf '{"error":{"code":"no_agent","message":"no agent"}}' ;;
     esac ;;
-  capture) printf '{"ok":{"text":"captured line"}}' ;;
+  capture)
+    printf '%s\n' "$input" >> "$d/captured"
+    # `capture-answer`, when present, replaces the answer.
+    if [ -f "$d/capture-answer" ]; then cat "$d/capture-answer"
+    else printf '{"ok":{"text":"captured line"}}'; fi ;;
   focus) printf '{"ok":{}}' ;;
   name-agent)
     printf '%s\n' "$input" >> "$d/named"
@@ -120,6 +124,8 @@ case "$3" in
       *) printf '{"ok":{"paneId":null}}' ;;
     esac ;;
   snapshot)
+    if [ -f "$d/unreachable" ]; then printf '{"error":{"code":"unavailable","message":"server offline"}}'; exit 0; fi
+    if [ -f "$d/absent" ]; then printf '{"ok":{"panes":[]}}'; exit 0; fi
     # A sampling fixture logs each snapshot with its caller and requested
     # panes. While `gate` exists, a caller `ps` cannot classify, and a
     # consumption sampler other than the one pid it names, are refused.
@@ -175,8 +181,7 @@ impl Fixture {
             fs::create_dir_all(root.join(dir)).unwrap();
         }
         let driver = root.join("driver/tmt-driver-fake");
-        fs::write(&driver, DRIVER).unwrap();
-        fs::set_permissions(&driver, fs::Permissions::from_mode(0o755)).unwrap();
+        tmt_test_support::write_executable(&driver, DRIVER.as_bytes(), 0o755).unwrap();
         let pid = std::process::id().to_string();
         let beside =
             |file: &str, text: &str| fs::write(root.join("driver").join(file), text).unwrap();
@@ -328,24 +333,36 @@ fn worker(listed: &Value) -> &Value {
         .unwrap_or_else(|| panic!("worker is listed: {listed:#}"))
 }
 
-/// Talk by name routes only on the caller's own server (ARCHITECTURE,
-/// routing): from a tmux caller, a name bound on another host is not
-/// active. Its own host is only read, for the recipient's availability.
+/// An unapproved or changed driver is not an inactive identity or permission
+/// to run the driver, touch a pane or discard the stored binding.
 fn assert_talk_fails_closed(fixture: &Fixture) {
     let before = fixture.calls().len();
     let talk = fixture.tmt(&["talk", "worker", "hello", "--detach", "--json"]);
     assert!(!talk.status.success(), "{talk:?}");
     let failure: Value = serde_json::from_slice(&talk.stdout).unwrap();
-    assert_eq!(failure["error"]["code"], "NAME_NOT_FOUND", "{failure:#}");
-    let calls = fixture.calls();
+    assert_eq!(
+        failure["error"]["code"], "RECONCILIATION_FAILED",
+        "{failure:#}"
+    );
     assert!(
-        calls[before..].iter().all(|call| call == "snapshot"),
-        "{calls:?}"
+        failure["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("not approved")
+    );
+    let human = fixture.tmt(&["check", "worker"]);
+    assert_eq!(human.status.code(), Some(1), "{human:?}");
+    assert!(String::from_utf8_lossy(&human.stderr).contains("tmt driver install <driver-path>"));
+    let calls = fixture.calls();
+    assert_eq!(
+        calls.len(),
+        before,
+        "an unapproved driver must never run: {calls:?}"
     );
 }
 
 #[test]
-fn an_external_binding_reads_through_its_driver_and_routes_only_on_its_server() {
+fn an_external_binding_reads_through_its_driver_and_inbox_skips_observation() {
     register();
     let fixture = Fixture::new("bound");
     let record = fixture.approve();
@@ -361,7 +378,6 @@ fn an_external_binding_reads_through_its_driver_and_routes_only_on_its_server() 
     // The marker publish wrote came back through the driver's snapshot.
     assert_eq!(fixture.calls(), ["snapshot"]);
 
-    assert_talk_fails_closed(&fixture);
     assert_eq!(
         worker(&fixture.json(&["ls", "--json"]))["presence"],
         "active"
@@ -393,14 +409,20 @@ fn without_its_approved_driver_a_binding_stays_unknown_and_is_never_retired() {
     // it is never run, and the binding still reads as unknown.
     let record = fixture.approve();
     assert_eq!(record.name, "fake");
-    fs::write(&fixture.driver, format!("{DRIVER}\n# changed\n")).unwrap();
+    tmt_test_support::write_executable(
+        &fixture.driver,
+        format!("{DRIVER}\n# changed\n").as_bytes(),
+        0o755,
+    )
+    .unwrap();
     fs::remove_file(fixture.root.join("driver/calls")).unwrap();
     let row = worker(&fixture.json(&["ls", "--json"])).clone();
     assert_eq!(row["presence"], "unknown", "{row:#}");
     assert!(fixture.calls().is_empty());
+    assert_talk_fails_closed(&fixture);
 
     // Restored and approved again: the same binding reads active again.
-    fs::write(&fixture.driver, DRIVER).unwrap();
+    tmt_test_support::write_executable(&fixture.driver, DRIVER.as_bytes(), 0o755).unwrap();
     fixture.approve();
     assert_eq!(
         worker(&fixture.json(&["ls", "--json"]))["presence"],
@@ -676,6 +698,74 @@ fn check_and_focus_reach_an_external_pane_through_its_driver() {
     let focused = fixture.tmt_in(Some("f1"), &["focus", "worker", "--json"]);
     assert!(focused.status.success(), "{focused:?}");
     assert!(fixture.calls().contains(&"focus".to_owned()));
+}
+
+#[test]
+fn check_zero_asks_an_external_host_for_the_visible_screen() {
+    register();
+    let fixture = Fixture::delivering("check-zero");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+
+    let checked = fixture.tmt_in(
+        Some("f1"),
+        &["check", "worker", "0", "--capture-only", "--json"],
+    );
+    assert!(checked.status.success(), "{checked:?}");
+    let checked: Value = serde_json::from_slice(&checked.stdout).unwrap();
+    assert_eq!(checked["lines"], 0);
+    assert_eq!(checked["output"], "captured line");
+    // Core passes 0 on unchanged: the driver contract defines it as the
+    // visible screen.
+    let captured = fixture.requests("captured");
+    assert_eq!(captured.len(), 1);
+    assert_eq!(captured[0]["lines"], 0);
+}
+
+#[test]
+fn a_failed_capture_on_an_external_host_names_its_driver_answer_not_tmux() {
+    register();
+    let fixture = Fixture::delivering("check-refused");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+    let answer = |text: &str| fs::write(fixture.root.join("driver/capture-answer"), text).unwrap();
+
+    // An older driver that refuses the visible screen.
+    answer(r#"{"error":{"code":"bad_request","message":"capture needs at least one line"}}"#);
+    let refused = fixture.tmt_in(
+        Some("f1"),
+        &["check", "worker", "0", "--capture-only", "--json"],
+    );
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let failure: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(failure["error"]["code"], "ERROR");
+    assert_eq!(
+        failure["error"]["message"],
+        "Failed to capture pane fake-1 on host fake: the fake driver answered bad_request: capture needs at least one line"
+    );
+    let human = fixture.tmt_in(Some("f1"), &["check", "worker", "0", "--capture-only"]);
+    assert_eq!(human.status.code(), Some(1), "{human:?}");
+    let stderr = String::from_utf8_lossy(&human.stderr);
+    assert!(
+        stderr.contains("Failed to capture pane fake-1 on host fake: the fake driver answered bad_request: capture needs at least one line"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("tmux"), "{stderr}");
+
+    // A driver that breaks the protocol: the host's own error, no tmux hint.
+    answer("not json");
+    let broken = fixture.tmt_in(Some("f1"), &["check", "worker", "--capture-only", "--json"]);
+    assert_eq!(broken.status.code(), Some(1), "{broken:?}");
+    let failure: Value = serde_json::from_slice(&broken.stdout).unwrap();
+    let message = failure["error"]["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("Failed to capture pane fake-1 on host fake: "),
+        "{message}"
+    );
+    assert!(!message.contains("tmux"), "{message}");
+    assert!(fixture.requests("typed").is_empty());
 }
 
 #[test]
@@ -2277,6 +2367,69 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
     assert_eq!(captured(&fixture), 1);
 }
 
+/// A Digest checklist blocks a Stop and the provider continues the same turn
+/// without a new prompt (#4159). The blocked Stop already ended the turn, so
+/// the continuation's own Stop (`stop_hook_active`) is the only event that
+/// ends its work: it is an admitted end and keeps its answer, while an
+/// ordinary repeated Stop still changes nothing.
+#[test]
+fn a_stop_that_ends_a_digest_continuation_is_admitted_and_keeps_its_response() {
+    register();
+    let fixture = Fixture::new("codex-continued-stop");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    fs::create_dir_all(fixture.root.join("home/.codex")).unwrap();
+    let observer = tmt_adapters::runtime::hook_protocol::command_entry("codex", "/stable/tmt");
+    fs::write(
+        fixture.root.join("home/.codex/hooks.json"),
+        serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
+    )
+    .unwrap();
+    let mut codex = SteppedProvider::start(&fixture, "codex", "codex-steps");
+    let answers = |fixture: &Fixture| {
+        stored_rows(fixture)
+            .into_iter()
+            .filter(|row| row.starts_with("recent_responses:"))
+            .collect::<Vec<_>>()
+    };
+    let stop = |turn: &str, text: &str, continued: bool| {
+        let mut payload = codex_event("Stop", Some(turn));
+        payload["last_assistant_message"] = text.into();
+        payload["stop_hook_active"] = continued.into();
+        payload
+    };
+    let ok = |(status, _, err): (i32, String, String)| assert_eq!((status, err.as_str()), (0, ""));
+
+    ok(codex.hook(codex_event("SessionStart", None)));
+    ok(codex.hook(codex_event("UserPromptSubmit", Some("a"))));
+    assert_eq!(activity(&fixture)["state"], "working");
+
+    // The Stop a checklist blocks ends the turn like any other.
+    ok(codex.hook(stop("a", "answer before the checklist", false)));
+    assert_eq!(activity(&fixture)["state"], "idle");
+    assert_eq!(answers(&fixture).len(), 1, "{:#?}", answers(&fixture));
+
+    // The provider continues the turn; its Stop is the continuation's end.
+    ok(codex.hook(stop("a", "answer after the checklist", true)));
+    let kept = answers(&fixture);
+    assert_eq!(kept.len(), 2, "{kept:#?}");
+    assert!(
+        kept.iter()
+            .any(|row| row.contains("answer after the checklist")),
+        "{kept:#?}"
+    );
+    assert_eq!(activity(&fixture)["state"], "idle");
+
+    // A repeated plain Stop and a continuation of another turn change no
+    // activity and capture nothing (a refused Stop may still read usage, as in
+    // the interrupt scenario).
+    let (idle, kept) = (activity(&fixture), answers(&fixture));
+    ok(codex.hook(stop("a", "answer before the checklist", false)));
+    ok(codex.hook(stop("b", "another turn's stop", true)));
+    assert_eq!(activity(&fixture), idle);
+    assert_eq!(answers(&fixture), kept);
+}
+
 fn observed_model(fixture: &Fixture) -> Value {
     worker(&fixture.json(&["ls", "--json"]))["resume"]["observedModel"].clone()
 }
@@ -2661,4 +2814,143 @@ fn an_external_hook_starts_no_driver_for_the_pane_badge() {
     drop(unapproved);
     assert_eq!(unapproved_provider.seen(), Seen::Ended);
     assert_drivers_ended(&fixture);
+}
+
+#[test]
+fn a_default_caller_reaches_a_named_external_recipient() {
+    register();
+    let fixture = Fixture::delivering("cross-host-name");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    assert_eq!(
+        worker(&fixture.json(&["ls", "--json"]))["presence"],
+        "active"
+    );
+    let checked = fixture.tmt(&["check", "worker"]);
+    assert!(checked.status.success(), "{checked:?}");
+    assert!(String::from_utf8_lossy(&checked.stdout).contains("captured line"));
+    fs::write(fixture.root.join("driver/agent"), "ok").unwrap();
+    let sent = fixture.tmt(&["talk", "worker", "cross-host", "--detach", "--json"]);
+    assert!(sent.status.success(), "{sent:?}");
+    assert_eq!(fixture.requests("prompted").len(), 1);
+    assert_eq!(fixture.requests("prompted")[0]["paneId"], "fake-1");
+    assert!(fixture.requests("typed").is_empty());
+    // Normal external focus is owned by that driver; caller tmux locators
+    // supply a view without starting or accessing any real tmux server.
+    let focused = fixture
+        .command_in(None, &["focus", "worker", "--json"])
+        .env(
+            "TMUX",
+            format!("{},123,0", fixture.root.join("tmux/caller.sock").display()),
+        )
+        .env("TMUX_PANE", "%1")
+        .output()
+        .unwrap();
+    assert!(focused.status.success(), "{focused:?}");
+    assert!(fixture.calls().contains(&"focus".to_owned()));
+}
+
+#[test]
+fn an_unreachable_recipient_is_not_reported_as_an_inactive_name() {
+    register();
+    let fixture = Fixture::delivering("cross-host-unreachable");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let before = worker(&fixture.json(&["ls", "--json"]))["id"].clone();
+    fs::write(fixture.root.join("driver/unreachable"), "").unwrap();
+    for args in [
+        vec!["check", "worker", "--json"],
+        vec!["talk", "worker", "hello", "--detach", "--json"],
+    ] {
+        let output = fixture.tmt(&args);
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        let failure: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(failure["error"]["code"], "RECONCILIATION_FAILED");
+        assert!(
+            !failure["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("not active")
+        );
+    }
+    assert!(fixture.requests("prompted").is_empty());
+    assert!(fixture.requests("typed").is_empty());
+    let unknown = fixture.json(&["ls", "--json"]);
+    assert_eq!(worker(&unknown)["id"], before);
+    assert_eq!(worker(&unknown)["presence"], "unknown");
+    fs::remove_file(fixture.root.join("driver/unreachable")).unwrap();
+    assert_eq!(
+        worker(&fixture.json(&["ls", "--json"]))["presence"],
+        "active"
+    );
+}
+
+#[test]
+fn a_first_missing_recipient_refusal_uses_its_reconciled_lifetime() {
+    register();
+    for saved in [false, true] {
+        for operation in ["check", "focus"] {
+            let fixture = Fixture::delivering(&format!("missing-{saved}-{operation}"));
+            fixture.approve();
+            let mut name = vec!["name", "worker", "--json"];
+            if saved {
+                name.push("--save");
+            }
+            let named = fixture.tmt_in(Some("f1"), &name);
+            assert!(named.status.success(), "{named:?}");
+            let id = worker(&fixture.json(&["ls", "--json"]))["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            // No discovery command runs between disappearance and the first
+            // refusal: this command itself must reconcile the temporary row.
+            fs::write(fixture.root.join("driver/absent"), "").unwrap();
+            let target = if operation == "focus" {
+                id.as_str()
+            } else {
+                "worker"
+            };
+            let args = match operation {
+                "focus" => vec!["focus", target, "--json"],
+                _ => vec!["check", target, "--capture-only", "--json"],
+            };
+            let output = fixture.tmt_in(Some("f1"), &args);
+            assert_eq!(output.status.code(), Some(3), "{output:?}");
+            let failure: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(failure["error"]["code"], "NAME_NOT_FOUND");
+            let reason = if saved {
+                "is not active"
+            } else {
+                "was not found"
+            };
+            assert_eq!(
+                failure["error"]["message"],
+                format!("Identity '{target}' {reason}.")
+            );
+            let connection = rusqlite::Connection::open_with_flags(
+                fixture.state().join("tmt.db"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            let retired: Option<i64> = connection
+                .query_row(
+                    "SELECT retired_at_ms FROM identities WHERE id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(retired.is_some(), !saved);
+            let bound: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM bindings WHERE identity_id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(bound, 0);
+            assert!(fixture.requests("typed").is_empty());
+            assert!(fixture.requests("prompted").is_empty());
+            assert!(!fixture.calls().iter().any(|call| call == "focus"));
+        }
+    }
 }

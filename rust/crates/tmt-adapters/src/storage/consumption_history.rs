@@ -414,6 +414,11 @@ impl Storage {
     /// One deferred read snapshot; no source access or history renewal/pruning.
     /// Windows up to an hour read the 5-second buckets, longer ones the 5-minute
     /// rollup. A retired identity is answered only when `include_retired` is set.
+    ///
+    /// `pinned` is the cut a client carries from an earlier batch of the same
+    /// refresh (#4176): every window then ends there instead of at the read time.
+    /// It must be a multiple of the bucket width and not later than `now`; how old
+    /// a pin may be is admission policy, owned by the API.
     pub fn consumption_history(
         &mut self,
         ids: &[String],
@@ -421,12 +426,14 @@ impl Storage {
         max_buckets: u64,
         now: u64,
         include_retired: bool,
+        pinned: Option<u64>,
     ) -> Result<Value, StorageError> {
         if now > MAX_JS_SAFE_INTEGER
             || !(1..=MAX_BUCKETS).contains(&max_buckets)
             || windows
                 .iter()
                 .any(|window| window_resolution_ms(*window).is_none())
+            || pinned.is_some_and(|cut| !cut.is_multiple_of(BUCKET_MS) || cut > now)
         {
             return Err(invalid());
         }
@@ -434,9 +441,9 @@ impl Storage {
             .connection_mut()?
             .transaction()
             .map_err(|e| classify(e, "Read consumption history snapshot"))?;
-        let through = now / BUCKET_MS * BUCKET_MS;
+        let through = pinned.unwrap_or(now / BUCKET_MS * BUCKET_MS);
         let retained = through.saturating_sub(HISTORY_MS);
-        let rollup_through = now / ROLLUP_BUCKET_MS * ROLLUP_BUCKET_MS;
+        let rollup_through = through / ROLLUP_BUCKET_MS * ROLLUP_BUCKET_MS;
         let rollup_longest = windows
             .iter()
             .copied()

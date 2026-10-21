@@ -37,6 +37,8 @@ impl Details {
             modal.title = "Enlarge terminal · Esc closes agent details".into();
         }
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+        app.peek_areas
+            .set(crate::board::peek::Peek::Monitor, areas.outer);
         let retained = app
             .workspace_snapshot()
             .is_none_or(|snapshot| !snapshot.roster.contains(&self.target));
@@ -144,13 +146,10 @@ impl App {
             });
             lines.push(actions::host_preview(raw, self.invoker_tmux, host_action));
             let scope = match self.workspace_scope() {
-                crate::config::OpsKeyScope::Overview => "Overview",
                 crate::config::OpsKeyScope::Member => "selected squad member",
                 crate::config::OpsKeyScope::Squad => "selected squad",
                 crate::config::OpsKeyScope::Pool => "Common pool",
-                crate::config::OpsKeyScope::Reader | crate::config::OpsKeyScope::OverviewReader => {
-                    "conversation reader"
-                }
+                crate::config::OpsKeyScope::Reader => "conversation reader",
             };
             lines.push(format!(
                 "Binding scope: {scope}; configuration: {}",
@@ -305,7 +304,8 @@ mod tests {
     fn full_detail_retains_hidden_values_and_is_read_only_after_target_changes() {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         assert_eq!(app.overview_details(), Effect::None);
         let details = app.monitor_details.as_ref().unwrap();
         assert!(details.lines.iter().any(|line| line == "Runtime: —"));
@@ -324,7 +324,8 @@ mod tests {
     fn details_uses_the_renderers_injected_ascii_count_words() {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.cron_glyphs = super::super::cron_counts::GlyphSet::from_ascii(true);
         assert_eq!(app.overview_details(), Effect::None);
         let lines = &app.monitor_details.as_ref().unwrap().lines;
@@ -335,7 +336,8 @@ mod tests {
     fn a_zero_content_viewport_explains_how_to_read_and_close_details() {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         assert_eq!(app.overview_details(), Effect::None);
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 8)).unwrap();
@@ -362,7 +364,8 @@ mod tests {
     fn details_retains_complete_observed_metadata_and_literal_idn_link() {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         let target = app.workspace.selected.clone().unwrap();
         let OpsTarget::Member { identity_id, .. } = &target else {
             panic!("member")

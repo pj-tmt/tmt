@@ -40,6 +40,8 @@ import {
   productOfTag,
   publishFlags,
   releasePolicy,
+  DIGEST_PRICING,
+  digestPricingBytes,
 } from './native-release-policy.mjs';
 import { parseComponentMap } from './ci-scope.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
@@ -63,6 +65,17 @@ const VERIFY_ATTEMPTS = 8;
 const VERIFY_WAIT_MS = 15_000;
 const VERIFY_LOOKUP_MS = 120_000;
 const VERIFY_EXTRA_MS = 300_000;
+
+function verifyDigestPricing({ api, release, sha, readAsset }) {
+  const assets = (release.assets ?? []).filter(({ name }) => name === DIGEST_PRICING.asset);
+  assert.equal(assets.length, 1, `Release needs exactly one ${DIGEST_PRICING.asset}.`);
+  const expected = digestPricingBytes(api.readPricing(sha));
+  const actual = digestPricingBytes(readAsset(assets[0]));
+  assert.ok(
+    actual.equals(expected),
+    `${DIGEST_PRICING.asset} differs from ${sha}:${DIGEST_PRICING.source}.`
+  );
+}
 
 /**
  * Why this draft may not be published now, or an empty string. The workflow publishes only after
@@ -151,6 +164,13 @@ export function publishDraft({
     });
     verifyDeclaration({ ...context, releases });
   }
+  if (product === 'digest')
+    verifyDigestPricing({
+      api,
+      release,
+      sha: release.target_commitish,
+      readAsset: (asset) => Buffer.from(api.downloadAsset(asset.id, DIGEST_PRICING.limit)),
+    });
   const flags = publishFlags(product).map((flag) =>
     product === 'cli' && flag === '--latest=true' ? '--latest=false' : flag
   );
@@ -360,6 +380,20 @@ export function verifyPublication(input) {
   const { results, release, tagCommit, downloadFailed } = verifyPublishedAssets(input);
   if (!release || downloadFailed) return results;
   const { product, tag, directory } = input;
+  if (product === 'digest') {
+    try {
+      verifyDigestPricing({
+        api: input.api,
+        release,
+        sha: tagCommit,
+        readAsset: () =>
+          readBoundedFile(path.join(directory, DIGEST_PRICING.asset), DIGEST_PRICING.limit),
+      });
+      results.push(pass('pricing', 'Digest pricing asset equals the tagged source bytes'));
+    } catch (error) {
+      results.push(fail('pricing', error.message));
+    }
+  }
   const names = (release.assets ?? []).map(({ name }) => name);
   if (!names.includes(RELEASE_RECORD)) {
     results.push(

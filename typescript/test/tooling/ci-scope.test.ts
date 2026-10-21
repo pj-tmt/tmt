@@ -56,6 +56,10 @@ const { isComponentRetired } = (await import(
   new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
 )) as { isComponentRetired: (name: string) => boolean };
 
+it('keeps the adapter environment runner on full native verification', () => {
+  expect(selectNativeScope(['typescript/scripts/e2e-adapter-tests.mjs'])).toBe('full');
+});
+
 describe('complete trusted-main verification', () => {
   const context = {
     repository: 'pj-tmt/tmt',
@@ -1190,6 +1194,8 @@ describe('component map', () => {
     }
     // Tests that name Ops without exercising its executable or sources.
     const namesOnly: Record<string, string> = {
+      'typescript/test/e2e/check-routing.e2e.test.ts':
+        'host-driver protocol ops operation names, no Ops executable or source',
       'typescript/test/e2e/driver-consent.e2e.test.ts':
         'host-driver protocol ops operation names, no Ops executable or source',
       'typescript/test/e2e/nested-host-hooks.e2e.test.ts':
@@ -3516,9 +3522,9 @@ describe('required CI gate', () => {
     // Whole-file shards balance the one single-worker suite (#3618): none cancels another, and each keeps
     // its own concurrency group and evidence.
     expect(app).toContain('fail-fast: false');
-    expect(app).toContain('shard: [1, 2, 3, 4, 5]');
+    expect(app).toContain('shard: [1, 2, 3, 4, 5, 6]');
     expect(app).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 5 component)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 6 component)"'
     );
     expect(app).not.toContain('--shard=');
     expect(app).toContain('--reporter=dot,json');

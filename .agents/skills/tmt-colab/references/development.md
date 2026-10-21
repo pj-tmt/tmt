@@ -19,7 +19,9 @@ non-writing failures, and budgets of 3,000 bytes for the starter, 12,000 bytes /
 10,000 bytes for the root skill. `tests/cli.rs` also runs every `html` sample in `references/layout.md` and
 `components.md` through `page check`, and the app's `e2e/skill-samples.spec.ts` renders each in a `column`
 page and checks its blocks against the column.
-`tests/cli.rs` verifies a relocated executable with no core or checkout. Its
+`tests/cli.rs` runs the shell reference’s fenced command/body examples through the
+native CLI and checks items, order, summary, refusal rollback and source preservation.
+It also verifies a relocated executable with no core or checkout. Its
 fixture publishes the exact binary bytes and mode through the existing dev-only
 `tmt-test-support::write_executable` boundary before execution; the test process
 never opens that executable for writing and does not retry its invocation.
@@ -180,7 +182,10 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
   attachment checks are `test/attachment-channel.test.ts`, `test/attachment-read.test.ts`
   and `e2e/fold.spec.ts`; native reads require an already established channel. The
   composer and message surfaces are `test/attachment-{file,service,draft}.test.ts`,
-  `e2e/attachments.spec.ts` and `acceptance/attachments.spec.ts`.
+  `e2e/attachments.spec.ts` and `acceptance/attachments.spec.ts`. The browser spec always checks
+  paused-upload Send fencing, the pending/failed message echo and Edit restoring stored/refused chips
+  for thread and Chat at 1440/390 in both themes. `COLAB_1854_CAPTURE_DIR` only enables screenshots
+  of those states; it never gates the lifecycle assertions.
 - Management subcommands precede operands: `tmt colab share link list <page>`,
   `tmt colab share mode <page> link --yes`.
 - Full management includes `share member add/remove/role`, `share history`,

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { installTmuxTrace } from './tmux-trace.js';
+import { spawnRealTmuxCli, releaseRealTmuxCli, readRealTmuxCli } from './real-tmux-caller.js';
 import { expectError, runCli, withSandbox } from '../support/cli-process.js';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 
@@ -28,7 +29,7 @@ async function seedDiagnostic(fixture: E2EFixture, message: string): Promise<voi
   await fixture.waitForCapture((output) => output.includes(message));
 }
 
-describe('current-server diagnostic routing', { concurrent: false }, () => {
+describe('recorded-recipient diagnostic routing', { concurrent: false }, () => {
   it('captures names, stable panes and tmux targets with configured and explicit line counts', async () => {
     await withE2EFixture(async (fixture) => {
       expect(await fixture.runJsonCli(['name', 'Alice'])).toMatchObject({
@@ -218,10 +219,11 @@ describe('current-server diagnostic routing', { concurrent: false }, () => {
   );
 
   it.each([false, true])(
-    'does not route to an equal pane ID on a foreign server (copied UUID: %s)',
+    'routes the recorded socket rather than an equal local pane ID (copied UUID: %s)',
     async (copyUuid) => {
       await withE2EFixture(async (first) => {
         expect(await first.runJsonCli(['name', 'Foreign'])).toMatchObject({ code: 0 });
+        await seedDiagnostic(first, 'recorded-socket-only');
         const serverId = JSON.parse(first.paneMetadata()).globalIdentity.serverId;
         await withE2EFixture(
           async (second) => {
@@ -233,14 +235,35 @@ describe('current-server diagnostic routing', { concurrent: false }, () => {
             });
             const before = durableState(first);
             const trace = installTmuxTrace(second);
-            const result = await second.runJsonCli(['check', 'Foreign'], { outsideTmux: true });
-            expect(result).toMatchObject({
-              code: 3,
-              stderr: '',
-              json: { error: { code: 'NAME_NOT_FOUND' } },
+            const result = await second.runJsonCli<Capture>(['check', 'Foreign'], {
+              outsideTmux: true,
             });
-            expect(trace.invocations().some((line) => line.includes('capture-pane'))).toBe(false);
-            expect(durableState(first)).toEqual(before);
+            expect(result).toMatchObject({
+              code: 0,
+              stderr: '',
+              json: { pane: first.pane, output: expect.stringContaining('recorded-socket-only') },
+            });
+            const captures = trace.invocations().filter((line) => line.includes('capture-pane'));
+            expect(captures).toHaveLength(1);
+            expect(captures[0]).toContain(first.socketPath);
+            expect(captures[0]).not.toContain(second.socketPath);
+            const after = durableState(first);
+            for (const binding of after.bindings) {
+              const previous = before.bindings.find((row) => row.id === binding.id)!;
+              expect(Date.parse(String(binding.last_verified_at))).toBeGreaterThanOrEqual(
+                Date.parse(String(previous.last_verified_at))
+              );
+              // Reconciliation may refresh only this observation timestamp.
+              binding.last_verified_at = previous.last_verified_at;
+            }
+            expect(after).toEqual(before);
+            expect(
+              await second.runJsonCli(['talk', 'Foreign', 'recorded-recipient', '--detach'])
+            ).toMatchObject({ code: 0 });
+            await first.waitForEvent(
+              (event) =>
+                event.event === 'input' && event.line?.includes('recorded-recipient') === true
+            );
             expect(second.paneMetadata()).toBe('');
           },
           { ...inputLog, globalDir: first.globalDir }
@@ -270,7 +293,7 @@ describe('current-server diagnostic routing', { concurrent: false }, () => {
         fixture.tmux(['new-window', '-d', '-t', 'e2e:', '-n', `unbound-${index}`, 'sleep', '300']);
       const large = await capture();
       expect(large).toHaveLength(small.length);
-      expect(small).toHaveLength(3);
+      expect(small).toHaveLength(2);
       expect(large.filter((line) => line.includes('capture-pane'))).toHaveLength(1);
       const paneQueries = large.filter((line) => line.includes('list-panes'));
       expect(paneQueries).toHaveLength(1);
@@ -293,4 +316,76 @@ describe('current-server diagnostic routing', { concurrent: false }, () => {
       }, inputLog);
     }
   );
+});
+
+// The driver names only a private test pane. Its caller process is the shell
+// created by the existing harness; no real Herdr or provider is involved.
+describe('external caller to a recorded tmux recipient', () => {
+  it('checks and sends by name after the caller tmux context is removed', async () => {
+    await withE2EFixture(async (fixture) => {
+      expect(await fixture.runJsonCli(['name', 'Reverse'])).toMatchObject({ code: 0 });
+      await seedDiagnostic(fixture, 'reverse-host-capture');
+      const directory = fixture.createWorkspace('external-caller-driver');
+      const driver = path.join(directory, 'tmt-driver-fake');
+      fs.writeFileSync(path.join(directory, 'server'), String(fixture.serverPid));
+      fs.writeFileSync(
+        path.join(directory, 'capabilities'),
+        JSON.stringify({
+          ok: {
+            protocols: [1],
+            kind: 'host',
+            name: 'fake',
+            version: '0.0.0-test',
+            ops: ['caller', 'server', 'resolve-target', 'snapshot', 'publish', 'clear'],
+            paneId: { prefix: 'fake-' },
+            target: 'f{n}',
+            callerEnv: ['FAKE_PANE_ID'],
+          },
+        })
+      );
+      writeExecutable(
+        driver,
+        `#!/bin/sh
+ d=$(dirname "$0")
+ echo "$3" >> "$d/calls"
+ cat >/dev/null
+ case "$3" in
+ capabilities) cat "$d/capabilities" ;;
+ server) printf '{"ok":{"server":{"socket":"/tmp/fake-caller.sock","pid":%s,"startTime":"driver"}}}' "$(cat "$d/server")" ;;
+ caller) printf '{"ok":{"pane":{"id":"fake-1","socket":"/tmp/fake-caller.sock","shellPid":%s}}}' "$(cat "$d/pid")" ;;
+ snapshot) printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/tmp","command":"sh","panePid":%s,"suggestedName":null,"marker":null}]}}' "$(cat "$d/pid")" ;;
+ *) printf '{"error":{"code":"unsupported","message":"not used"}}' ;;
+ esac
+`
+      );
+      expect(await fixture.runJsonCli(['driver', 'install', driver, '--yes'])).toMatchObject({
+        code: 0,
+      });
+      fixture.tmux(['set-environment', '-g', 'FAKE_PANE_ID', 'f1']);
+      for (const [index, args] of [
+        ['check', 'Reverse'],
+        ['talk', 'Reverse', 'reverse-host-send', '--detach'],
+      ].entries()) {
+        const process = await spawnRealTmuxCli(fixture, args, {
+          name: `external-caller-${index}`,
+          stripTmux: true,
+          stripPane: true,
+        });
+        fs.writeFileSync(path.join(directory, 'pid'), String(process.panePid));
+        await releaseRealTmuxCli(fixture, process);
+        const result = readRealTmuxCli<Capture>(process);
+        expect(result.code).toBe(0);
+        expect(result.stderr).toBe('');
+        if (index === 0)
+          expect(result.stdout).toMatchObject({
+            pane: fixture.pane,
+            output: expect.stringContaining('reverse-host-capture'),
+          });
+      }
+      await fixture.waitForEvent(
+        (event) => event.event === 'input' && event.line?.includes('reverse-host-send') === true
+      );
+      expect(fs.readFileSync(path.join(directory, 'calls'), 'utf8')).toContain('caller');
+    }, inputLog);
+  });
 });

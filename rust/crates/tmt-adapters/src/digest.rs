@@ -84,6 +84,12 @@ pub fn read(
                 .flatten();
             value["sender"] =
                 json!({"identityId":sender_id,"name":sender.as_ref().map(|i|preview(&i.name))});
+            // Only an item held before its sender was marked a person can still be listed.
+            value["fromUser"] = json!(match sender_id {
+                Some(id) =>
+                    RequestService::new(&mut *storage, wall_time_ms).identity_is_user(id)?,
+                None => false,
+            });
             value["urgent"] = json!(
                 RequestService::new(&mut *storage, wall_time_ms)
                     .request_delivery_policy(&item.request_id)?
@@ -144,6 +150,11 @@ pub fn digest(page: &Value, batch: &DigestChecklist) -> String {
     let mut after = 0u64;
     for item in page["items"].as_array().into_iter().flatten() {
         let sender = item["sender"]["name"].as_str().unwrap_or("unknown");
+        let sender = if item["fromUser"].as_bool() == Some(true) {
+            format!("{sender} (user)")
+        } else {
+            sender.to_owned()
+        };
         let line = format!(
             "- [{}] {} / {}: {}\n  {}\n",
             item["kind"].as_str().unwrap_or("fyi"),
@@ -170,12 +181,18 @@ pub fn digest(page: &Value, batch: &DigestChecklist) -> String {
     text
 }
 
-/// Fresh host/process status plus the driver's authoritative activity for the
-/// exact stored session/incarnation. Quiet typing alone is not agent idle.
-pub fn idle_entry(
-    storage: &mut Storage,
-    identity: &str,
-) -> Result<Option<BindingEntry>, StorageError> {
+/// What a flush needs from the recipient before it may claim a range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Readiness {
+    /// Live evidence that the agent is idle: the ordinary opportunity.
+    Idle,
+    /// Only the verified live binding and session. An agent that is busy, or never
+    /// reports its activity, still takes the digest like an ordinary message does.
+    Live,
+}
+
+/// The exact current binding when its host session is verified running.
+fn live_entry(storage: &mut Storage, identity: &str) -> Result<Option<BindingEntry>, StorageError> {
     let Some(entry) = delivery::current(storage, identity)? else {
         return Ok(None);
     };
@@ -191,6 +208,21 @@ pub fn idle_entry(
     ) {
         return Ok(None);
     }
+    Ok(Some(entry))
+}
+
+/// Fresh host/process status plus the driver's authoritative activity for the
+/// exact stored session/incarnation. Quiet typing alone is not agent idle.
+pub fn idle_entry(
+    storage: &mut Storage,
+    identity: &str,
+) -> Result<Option<BindingEntry>, StorageError> {
+    let Some(entry) = live_entry(storage, identity)? else {
+        return Ok(None);
+    };
+    let Some(binding) = &entry.binding else {
+        return Ok(None);
+    };
     let preferences = storage.with_binding_transaction(|r| r.session_preferences(identity))?;
     let registry = RuntimeRegistry::first_party();
     let idle = preferences
@@ -221,6 +253,17 @@ pub fn idle_entry(
     Ok(Some(entry))
 }
 
+fn ready_entry(
+    storage: &mut Storage,
+    identity: &str,
+    readiness: Readiness,
+) -> Result<Option<BindingEntry>, StorageError> {
+    match readiness {
+        Readiness::Idle => idle_entry(storage, identity),
+        Readiness::Live => live_entry(storage, identity),
+    }
+}
+
 /// Called only by an admitted talk/check/API invocation; Core has no timer. A crash
 /// after claim leaves no replay permission. Refusal releases only proven unsent.
 pub fn flush_idle(
@@ -228,12 +271,21 @@ pub fn flush_idle(
     identity: &str,
     delay: Duration,
 ) -> Result<Option<DigestState>, RequestError<StorageError>> {
+    flush(storage, identity, delay, Readiness::Idle)
+}
+
+pub fn flush(
+    storage: &mut Storage,
+    identity: &str,
+    delay: Duration,
+    readiness: Readiness,
+) -> Result<Option<DigestState>, RequestError<StorageError>> {
     let views =
         RequestService::new(&mut *storage, wall_time_ms).digest_policies(&[identity.into()])?;
     if views[0].held_count == 0 {
         return Ok(None);
     }
-    let Some(entry) = idle_entry(storage, identity)? else {
+    let Some(entry) = ready_entry(storage, identity, readiness)? else {
         return Ok(None);
     };
     let Some(batch) = RequestService::new(&mut *storage, wall_time_ms).claim_digest_checklist(
@@ -257,7 +309,7 @@ pub fn flush_idle(
             return Err(error);
         }
     };
-    let state = if idle_entry(storage, identity)?.as_ref() != Some(&entry) {
+    let state = if ready_entry(storage, identity, readiness)?.as_ref() != Some(&entry) {
         DigestState::Unsent
     } else {
         match delivery::send_digest(storage, &entry, &digest(&page, &batch), delay)?

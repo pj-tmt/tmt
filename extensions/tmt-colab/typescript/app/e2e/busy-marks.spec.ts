@@ -16,6 +16,15 @@ const run = (page: Page, method: string, argument?: unknown) =>
     { fixture, method, argument },
   );
 
+/** The infinite animations on a mark: every shown LoaderCircle turns by the one shared rule (#3985). */
+const turns = (mark: Locator) =>
+  mark.evaluate((node) => ({
+    name: getComputedStyle(node.querySelector('svg') ?? node).animationName,
+    running: (node.querySelector('svg') ?? node)
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity).length,
+  }));
+
 /** The look a capture run uses, `COLAB_LOOK=390:dark`; the assertions hold in every look. */
 const look = process.env.COLAB_LOOK ?? '1440:light';
 const capture = async (page: Page, name: string) => {
@@ -188,4 +197,50 @@ test('a dispatching ask is a wordless mark that shows after 400 ms', async ({ pa
   await expect(mark).toHaveAttribute('data-shown', 'true');
   await expect(state).toHaveText('');
   await capture(page, 'dispatching');
+});
+
+test('a shown mark turns by the shared spinner and stands still under reduced motion', async ({
+  page,
+}) => {
+  let card!: Locator;
+  await mount(page, async () => {
+    await run(page, 'review');
+    card = page.locator('.review-card').first();
+    await expect(page.locator('[data-inline-review]').first()).not.toHaveAttribute('data-detached');
+  });
+  const confirm = card.getByRole('button', { name: 'Confirm and close', exact: true });
+  await run(page, 'holdStatusOnce');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await confirm.click();
+  await page.clock.runFor(400);
+  const mark = markOf(confirm);
+  await expect(mark).toHaveAttribute('data-busy', 'true');
+  expect(await turns(mark)).toEqual({ name: 'tmt-ui-spin', running: 1 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await turns(mark)).toEqual({ name: 'none', running: 0 });
+  // The mark stays on screen; only the turning stops.
+  await expect(mark.locator('svg')).toBeVisible();
+  await settle(page, () => run(page, 'releaseStatus'));
+});
+
+test('a dispatching ask turns its mark by the shared spinner and stands still under reduced motion', async ({
+  page,
+}) => {
+  await mount(page, async () => {
+    await run(page, 'conversation', { surface: 'thread', state: 'dispatching' });
+  });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
+  const mark = page
+    .getByTestId('comment-thread')
+    .getByTestId('ask-state')
+    .locator('.comment-echo-mark');
+  await expect(mark).not.toHaveAttribute('data-shown');
+  await page.clock.runFor(399);
+  await page.clock.runFor(1);
+  await expect(mark).toHaveAttribute('data-shown', 'true');
+  expect(await turns(mark)).toEqual({ name: 'tmt-ui-spin', running: 1 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await turns(mark)).toEqual({ name: 'none', running: 0 });
+  await expect(mark.locator('svg')).toBeVisible();
 });

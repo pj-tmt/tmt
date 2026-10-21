@@ -43,8 +43,9 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
     let mut document = project(&settings, &identities, &stats, now)?;
     let prices = lookup.map_or_else(crate::pricing::Resolved::built_in, |lookup| lookup.finish());
     document["pricing"] = prices.document();
+    document["tick"] = json!({"lastAtMs": root.as_deref().and_then(crate::tick::last_tick_ms)});
     let history = root.and_then(|root| crate::history::Store::open(&root, false).ok().flatten());
-    if let Some(history) = history {
+    if let Some(mut history) = history {
         for (row, observation) in document["members"]
             .as_array_mut()
             .expect("projected rows")
@@ -194,7 +195,8 @@ fn member(
         "intervalMs":interval,"settingSource":if inherited {"default"} else {"member"},
         "settingValue":value,"heldCount":held,"statsObservedAtMs":observation.map(|stats| stats.observed),
         "oldestHeldAgeMs":observation.and_then(|stats| stats.age),"deliveredDigests":observation.and_then(|stats| stats.delivered),
-        "nextSendAtMs":deadline,"timeToSendMs":time,"savings":null,"labels":labels});
+        "nextSendAtMs":deadline,"timeToSendMs":time,"savings":null,"labels":labels,
+        "ownerBypass":owner_bypass(settings, id, &mode)});
     if !inherited {
         if let Some(setter) = settings.setter(id) {
             row["setByIdentityId"] = json!(setter);
@@ -204,6 +206,19 @@ fn member(
         }
     }
     Ok(row)
+}
+/// Whether a recorded owner's messages pass this member's hold. A member whose
+/// setting names no setter other than itself owns its own hold, so only `--urgent`
+/// passes; `off` holds nothing, so the question does not arise.
+fn owner_bypass(settings: &DigestConfig, id: &str, mode: &Mode) -> Value {
+    if *mode == Mode::Off {
+        return Value::Null;
+    }
+    json!(
+        settings
+            .recorded_setter(id)
+            .is_some_and(|setter| setter != id)
+    )
 }
 fn label(text: impl Into<String>, color: &str) -> Value {
     json!({"text":text.into(),"colorClass":color,"action":null})

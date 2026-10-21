@@ -1,0 +1,53 @@
+/* A comment or Chat body as Markdown: the plain-text look (wrapped text, newlines kept) with a little
+   structure. No new colours; code uses the page's text and sheet roles. */
+.markdown-body {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+.markdown-body :where(p, ul, ol, blockquote, pre) {
+  margin: 0;
+}
+.markdown-body > * + *,
+.markdown-body li > * + *,
+.markdown-body blockquote > * + * {
+  margin-top: 8px;
+}
+.markdown-body li + li {
+  margin-top: 4px;
+}
+.markdown-body p {
+  white-space: pre-wrap;
+}
+.markdown-body ul,
+.markdown-body ol {
+  padding-inline-start: 24px;
+}
+.markdown-body blockquote {
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--tmt-ui-color-edge);
+  color: var(--tmt-ui-color-secondary);
+}
+.markdown-body code {
+  padding: 0 4px;
+  background: var(--tmt-ui-surface-sheet);
+  font-family: var(--f-mono, monospace);
+  font-size: 0.92em;
+}
+.markdown-body pre.markdown-code {
+  padding: 8px 12px;
+  overflow-x: auto;
+  background: var(--tmt-ui-surface-sheet);
+  border: 1px solid var(--tmt-ui-color-edge);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.markdown-body pre.markdown-code code {
+  padding: 0;
+  background: transparent;
+  font-size: 0.92em;
+}
+.markdown-link {
+  color: var(--tmt-ui-color-link);
+  text-decoration: underline;
+}

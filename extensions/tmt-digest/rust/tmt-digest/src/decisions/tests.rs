@@ -4,7 +4,10 @@ use crate::history::{Decision, Rule};
 const ID: &str = "10000000-0000-4000-8000-000000000001";
 
 fn row(at_ms: u64, rule: Rule, outcome: Option<&'static str>) -> Decision {
-    let interval = !matches!(rule, Rule::AutoIdlePoint | Rule::Off);
+    let interval = matches!(
+        rule,
+        Rule::IntervalDeadline | Rule::FlushCount | Rule::NotDue
+    );
     Decision {
         at_ms,
         identity_id: ID.into(),
@@ -24,6 +27,8 @@ fn a_recorded_day_lists_every_row_with_its_rule_and_outcome() {
         row(1_000, Rule::NotDue, None),
         row(2_000, Rule::IntervalDeadline, Some("delivered")),
         row(3_000, Rule::AutoIdlePoint, Some("not_idle")),
+        row(4_000, Rule::AutoHold, Some("not_idle")),
+        row(5_000, Rule::AutoCap, Some("delivered")),
     ];
     let document = document(Since::Day, 90_000_000, &rows, &names);
     assert_eq!(
@@ -37,6 +42,10 @@ fn a_recorded_day_lists_every_row_with_its_rule_and_outcome() {
                  "flushCount":10,"rule":"interval_deadline","heldCount":2,"oldestHeldAgeMs":1500,"outcome":"delivered"},
                 {"atMs":3000,"identityId":ID,"name":"worker","mode":"auto","intervalMs":null,
                  "flushCount":10,"rule":"auto_idle_point","heldCount":2,"oldestHeldAgeMs":1500,"outcome":"not_idle"},
+                {"atMs":4000,"identityId":ID,"name":"worker","mode":"auto","intervalMs":null,
+                 "flushCount":10,"rule":"auto_hold","heldCount":2,"oldestHeldAgeMs":1500,"outcome":"not_idle"},
+                {"atMs":5000,"identityId":ID,"name":"worker","mode":"auto","intervalMs":null,
+                 "flushCount":10,"rule":"auto_cap","heldCount":2,"oldestHeldAgeMs":1500,"outcome":"delivered"},
             ]
         })
     );

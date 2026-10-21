@@ -10,6 +10,8 @@ mod test_isolation;
 #[cfg(test)]
 mod initialization_tests;
 #[cfg(test)]
+mod mutation_tests;
+#[cfg(test)]
 mod theme_tests;
 
 pub use document::ThemeProblem;
@@ -158,27 +160,55 @@ impl ConfigFiles {
 
     pub fn set(&self, setting: Setting, scope: Scope) -> Result<(), ConfigError> {
         let path = self.path(scope);
-        let mut value = document::read(path, scope)?;
-        document::set(&mut value, setting, scope)?;
-        document::write(path, &value, scope)
+        document::update(
+            &self.paths.global_dir,
+            path,
+            scope,
+            &document::set_retry(setting, scope),
+            |value| {
+                document::set(value, setting, scope)?;
+                Ok(true)
+            },
+        )
     }
 
     /// Write only the presentation base, validated by the CLI style registry.
     /// Theme errors must remain independent of runtime settings validation.
     pub fn set_theme_base(&self, base: &str) -> Result<(), ConfigError> {
         let path = self.path(Scope::Global);
-        let mut value = document::read(path, Scope::Global)?;
-        document::set_theme_base(&mut value, base, path)?;
-        document::write(path, &value, Scope::Global)
+        let retry = format!(
+            "tmt config set theme.base {} --global",
+            document::quoted(base)
+        );
+        document::update(
+            &self.paths.global_dir,
+            path,
+            Scope::Global,
+            &retry,
+            |value| {
+                document::set_theme_base(value, base, path)?;
+                Ok(true)
+            },
+        )
     }
 
     pub fn clear_local(&self, clear: LocalClear) -> Result<(), ConfigError> {
         let path = self.path(Scope::Local);
         let mut value = document::read(path, Scope::Local)?;
-        if document::clear(&mut value, clear.key()) {
-            document::write(path, &value, Scope::Local)?;
+        if !document::clear(&mut value, clear.key()) {
+            return Ok(());
         }
-        Ok(())
+        let retry = clear.key().map_or_else(
+            || "tmt config rm".to_owned(),
+            |key| format!("tmt config rm {}", document::quoted(key)),
+        );
+        document::update(
+            &self.paths.global_dir,
+            path,
+            Scope::Local,
+            &retry,
+            |value| Ok(document::clear(value, clear.key())),
+        )
     }
 
     fn path(&self, scope: Scope) -> &Path {

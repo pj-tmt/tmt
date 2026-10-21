@@ -16,6 +16,18 @@ restate them.
 
 ## Gotchas
 
+Page links stay with trusted chrome: `page-link-request.ts` admits the current renderer's closed
+request and classifies URLs against the trusted app base and space. `page-link-bar.tsx` owns the
+frozen pending confirmation and the one in-place navigation per render. `renderer.ts` checks
+frame/lifetime and reads the parent's browser activation at receipt; the bootstrap only intercepts
+links and reports intent. Neither its render ID nor its messages authenticate a user gesture.
+This is a bounded parent-owned exception: same-space navigation requires recent browser user
+activation or trusted confirmation, and outside URLs always require confirmation with the full
+frozen URL. No frame privilege or network policy is widened.
+The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
+owns direct internal activation versus confirmed external/fallback behavior. ReaderApp reuses the
+confirmation owner without receiving same-space app-navigation authority.
+
 Attachment descriptor/manifest/selector/publication syntax and asset verification
 live in model `attachment.rs` and client `attachment.ts`, reusing existing crypto;
 [attachment-v1](../../../../extensions/tmt-colab/contracts/attachment-v1.md) owns the bytes.
@@ -50,7 +62,8 @@ path, and a chain imported from the cloud stays foreign. `sync.rs` reports the p
 through `ActivePage`, and `socket.rs` also touches it after a management change (`Applied.touched`); the worker never retries a refusal Remote will not change by itself
 (`object_channel/cloud_sync/activation.rs`) and shows its one line once. The same worker is the reader of that page:
 `object_channel/cloud_sync/interests.rs` holds the three interests whose notices only wake it,
-`reader.rs` discovers the signed authority and one foreign stream's log tail, and
+`reader.rs` discovers the signed authority, one foreign stream's log tail and, for a stream this
+machine holds nothing of, the page's checkpoints, and
 `inbound.rs` (`Puller`) compares the cloud's membership log with the owner log, then follows
 each foreign stream from the Store's `stream_head`; the worker reads only when a read is due (a
 newly watched page, a notice, an unfinished read), and chains are read again at most once per
@@ -58,9 +71,10 @@ newly watched page, a notice, an unfinished read), and chains are read again at 
 `Snapshot::open_stream_object` (the fold that reads stored objects), keeps the writer's verified
 chain for later catch-up, and applies it through
 `Server::ingest`, the split of the browser append path, so one apply path serves both and nothing
-that arrived is queued for publication. A refused writer stops alone, per page and epoch; `stops.rs` keeps the
+that arrived is queued for publication; a checkpoint pair (and a fold's anchor) goes through
+`Server::ingest_bootstrap` and `Store::bootstrap` instead. A refused writer stops alone, per page and epoch; `stops.rs` keeps the
 page's stopped state in the worker's memory and the lines announce each transition.
-Checkpoint import, adopting a cloud-only log, forks, attachments and a second machine's own
+Adopting a cloud-only log, forks, attachments and a second machine's own
 enrollment are not implemented.
 Its `admission` module captures the actual peer, current native context, exact
 request and reference/target; `peer` serializes bounded original-ID calls without
@@ -258,8 +272,11 @@ session limit (`sessionLimit()`, `session-limit-error.ts`) still loads the app, 
 shows the limit card, never the unpaired guidance. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
-refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. On an open page's socket close, `Live` makes one read-only probe of the exact old
+refused reopen, or unavailable session storage, leaves neutral reopen guidance and never
+retries an Ask. Native HTML cannot infer pairing loss from absent owner context. The recovery
+script requests one typed SDK attempt with a timeout signal (no bounded retry); only its
+`unpaired`, `revoked` or `expired` result reveals the pairing command. Mismatch, capacity and
+transport/storage uncertainty preserve pairing and show their approved recovery copy. On an open page's socket close, `Live` makes one read-only probe of the exact old
 Connection/Registration/Remote owner. A current pending same-session attempt keeps
 that owner while diagnosis settles, even if readiness has already rejected.
 Verified session end starts one existing mounted-owner replacement; verified eviction
@@ -307,8 +324,9 @@ stays, the match never goes stale (`staleTime: Infinity`): a thread selection re
 address fragment, and a reload for it would replace the binding and close its writer under a send
 in flight. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
-command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
-page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
+command only for verified revoked, expired or missing pairing; a way back to the space for a
+page that is gone; `Reload` for ended sessions, access refusals, identity mismatches and a device
+at its Remote session limit, and generic reconnect failures; none for an oversized change). A modal drawer makes that card inert, so a live Chat
 composer owns its ended sentence/action once; an archived Chat and every other drawer keep
 the same sentence/action in the `notice` row under the header. An ended annotation keeps its
 action scroll- and keyboard-reachable within the existing composer overflow. `Live` stays
@@ -317,14 +335,20 @@ and publishes failures, and no longer decides terminal or recoverable for the pa
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame
 codes, Remote refusal codes, HTTP admission refusals, a few short messages, each `ReopenFailedError` reason): what recovers
 it (`resync` on the same session, replace the `session`, `reopen` the page for a new epoch,
-`retry` a fresh open, or `none`) and which sentence it ends with. `live.ts`, `readmit.ts`,
+`retry` a fresh open, or `none`) and which sentence it ends with. Verified pairing loss is a
+separate cause from page access ending; a saved identity mismatch never proves pairing loss.
+Generic reconnect failures offer Reload and Return to space, never a pairing command.
+Only access-ending refusals (denied access, identity mismatch or verified missing/revoked/expired
+pairing) use the red failed mark. Other stopped connections use the neutral circle and
+`not connected` state, with the `Preview stopped` title. A failure before the page opens
+keeps the separate open-failure presentation below. `live.ts`, `readmit.ts`,
 `connection-model.ts` and `terminal-failure.ts` read it; none matches raw strings. A signed
 `REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED` or `REMOTE_SERVE_STOPPED` replaces the session once,
 silently; the access card shows only when that fresh open is refused (#2619).
-A terminal failure card shows one of seven `strings.ts` sentences (access ended, not paired, page
-gone, session ended, too large, session limit, generic), never the raw token (`terminal-failure.ts`); an unknown non-admission token is not
-recovered, gets the generic sentence and stays visible, bounded to 120 characters, as a muted
-`Code: …` reference. A test requires a decision for every `SYNC_ERROR_CODES` and
+A terminal failure card uses a `strings.ts` sentence and readable code label
+(`terminal-failure.ts`); revoked and expired pairing have distinct sentences. An unknown
+non-admission token is not automatically recovered and gets the generic sentence. The raw
+diagnostic remains bounded to 120 characters in the reference title rather than its visible label. A test requires a decision for every `SYNC_ERROR_CODES` and
 `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline or an accidental retry.
 A page that cannot open (the root error on `/pages/…`) is decided once by `openFailure()` (`open-failure.ts`)
 from the same classification, because the open has no deadline (#3975) and ends only by a closed connection,
@@ -334,8 +358,9 @@ loader again (`router.invalidate()`; the router then shows the same opening fram
 Return to space and the raw token as the muted `Code: …` reference, with no red state. A page over the
 read limits (`large`) is the same card without Retry, with the way out (`tmt colab export`) and a
 readable label in place of the token.
-Only a refusal (access ended, not paired, page gone, session limit, or a message that is already a
-sentence) keeps the red card, now with its sentence instead of the raw message. A test decides every
+Only a refusal (access ended, not paired, page gone, session limit, or no verified page key)
+keeps the red card, now with its sentence instead of the raw message. The recognized generic
+reconnect sentence is retryable and uses that same plain open-failure card. A test decides every
 `CONNECTION_CODES` entry. Other routes keep the plain root error.
 Eviction and management-changed keep their own cards. A device at its Remote session limit
 (`REMOTE_SESSION_LIMIT`: Remote never evicts an attached session, #2585) is refused with the
@@ -532,16 +557,21 @@ is added.
   statement, so a project change never contends with sharing or member changes. `delete_page_data`
   removes a page's assignments (the project stays); an open page is one that still has its epoch
   secrets.
-- Page summaries (`summary.rs`: comment count, pending-item count, the creator) are
-  display-only values for the owner list that only the owner fold can read, so the serve keeps
+- Page summaries (`summary.rs`: comment count, pending-item count, the creator, the page's own
+  work) are display-only values for the owner list that only the owner fold can read, so the serve keeps
   them in an in-memory `SummaryCache` keyed by each page's fingerprint (epoch, membership head,
   receipt and checkpoint counts, read in the same store transaction as `page_list()`). A list
   read replies at once with the fresh entries, omits `summary` elsewhere and schedules one
   single-flight background worker over at most `REFRESH_PAGES` stale pages; the worker folds
   through a second read-only `page::save::Source` (its own opener, `with_summary_source`), never
   the request path's store, keyring or decoder. A failed or timed-out page keeps no summary and
-  waits behind pages not yet tried at its fingerprint. The same projection caches complete reading
-  descriptors (`summary_readings.rs`), never a second state owner. The cache retains at most
+  waits behind pages not yet tried at its fingerprint. The cached `work` is the page's own
+  (`work_index::page_work`, the same derivation the CLI index uses); the list read resolves each
+  fresh page's row and parent across the fresh entries with `work_links::Graph`, so a followed
+  page's stage is never cached. The same projection caches complete reading
+  descriptors (`summary_readings.rs`) and the named pending passages with the latest comment
+  excerpt (`summary_passages.rs`: `needs` ranked review, question, reading, proposal and capped at
+  20, text made inert), never a second state owner. The cache retains at most
   `PAGES` entries, including failures; catalog reads prune deleted pages. The owner-only chapter-details
   route reads one current fingerprint without decoding on the request path; complete results are
   bounded by `SUMMARY_DETAILS_BYTES`, pending/failed entries remain unknown. Nothing is persisted.
@@ -571,7 +601,9 @@ is added.
 - `page compact` (`cli_compact.rs`) asks the serve over `page/compact_ipc.rs` (route
   `page-compact`, `Server::compact_page` under the sync mutex) or, when stopped, runs
   `page::compact::request` under the lifecycle lock. `request` is the automatic combine with a
-  trigger of one change plus the report; it never touches another device's stream.
+  trigger of one change plus the report, then `page::owner_fold::fold_others` (the owner fold,
+  #3983): it combines other owner-member devices' streams as folds signed by the local writer and
+  reports `folded` / `left` / `unfolded`; a stream a fold cannot cover stays and is named.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
@@ -600,8 +632,8 @@ over the raw query, so it names every key and sets an unreadable one to `undefin
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a draft until Enter
 applies it, and a chip click or token removal applies at once. A row's `summary` (the contract's
-Page summary section; `bootstrap.ts` validates it and holds `AUTHOR_BYTES` and
-`DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
+Page summary section; `bootstrap.ts` validates it, including the work row and parent, and holds
+`AUTHOR_BYTES` and the 2 MiB `DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
 `◆ Waiting for you` mark, and the `by:` filter and free text read the creator; a page without a
 summary shows only what the list already knows, with no placeholder. The `Needs you N` chip beside
 the project chips sets `needs=true` in that search and keeps the pages whose summary is `waiting`
@@ -626,14 +658,19 @@ The views are the `All` and `Archived` tabs (`BrowserTabs variant="flush"`; `arc
 search selects the second, and each label counts what the scope holds). A page waiting on the viewer
 shows `◆ Waiting for you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
 word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
-menu with `Manage page`, `Archive…` and `Delete…`) show on hover or focus where there is a pointer
+menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
 and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. Archive and
 delete confirm in `PageOperationDialog` and run `runPageOperation` (`page-operations.ts`): the four
-steps `ShareDialog` runs (`read`, `prepare`, `send`, `verify`) for one `page.archive` or
+steps `ShareDialog` runs (`read`, `prepare`, `send`, `verify`) for one `page.archive`, `page.unarchive` or
 `page.delete` statement, ending `verified`, `awaiting` (acknowledged but its log not read back, said
-so and never called done) or `failed` with the management error code. The list never calls archive
-reversible: the contract has no unarchive operation (#3833), so an archived row offers `Delete…`
-only.
+so and never called done) or `failed` with the management error code. An archived row offers `Restore…` and `Delete…`. Restore requires an archived, non-deleted
+page in the verified owner log. Its owner transaction preserves content, keys, epochs and access
+policy while committing the statement, projection, monotonic `pages.last_activity_at_ms` reset and receipt together.
+`pages.last_update_at_ms` remains the last content edit and is unchanged by restore.
+Exact receipt replay does not refresh activity. Archive and restore end existing page sessions
+with `RESYNC_REQUIRED`; replacement verifies current policy before writing and never submits
+retained drafts automatically. The existing touched-page cloud activation republishes the open
+state; confirmed cloud expiry remains the result of a confirmed publication, not a local guess.
 
 Each row has a leading checkbox (`BrowserListRow`'s `leading` slot) when the transport has
 `management`. The selection is a set of page IDs in `Home`; what counts is the selected pages the
@@ -722,37 +759,45 @@ result that arrives after a close, a reopen or a change of transport or space.
 ## The shell page
 
 A shell opens in the owner app as `ShellPage` (`shell-page.tsx`), mounted by the page route in place
-of the HTML frame; the app owns every pixel and the document supplies only data. `shell-grid.ts`
-is the plain per-item view: `shellCells` matches each item, in `order`, to its source page in the
-space list (title, archived, last edit, Needs you count); a page the list does not show is
-`unavailable`, listed but never linked, and a reference grants no access. `shellByline` names the
-summary writer only by the Core-resolved display agent, never by identity (the page draws it as one
-inline `AgentChip`), and `pagesChangedSince` counts the distinct source pages edited after the summary
-(unknown times never count).
+of the HTML frame; the app owns every pixel and the document supplies only data. The look is the v4
+design (#4082): a greeting, three counts, numbered chapters joined by hairlines, and a list of older
+pages. `shell-grid.ts` is the plain per-item view: `shellCells` matches each item, in `order`, to its
+source page in the space list (title, archived, last edit, Needs you count, author, first project); a
+page the list does not show is `unavailable`, never linked, and a reference grants no access.
+`shellByline` names the summary writer only by the Core-resolved display agent, never by identity,
+and `pagesChangedSince` counts the distinct source pages edited after the summary.
+
+`shell-model.ts` is the pure computation, given the cells, the owner chapter details and a clock:
+the referenced pages are the distinct available, non-archived pages (a page named by several items
+is one chapter); `waiting` is the sum of their `needsYou` (the number the page header shows); a page
+not waiting and edited within seven days is in progress (`inProgress()`, the one place a page's work
+stage can replace that rule); waiting chapters come first, then in progress, each by update time with
+the shell's `order` as the tie-break; older pages fold into `earlier`. A chapter's passage is the
+pending item an item names (a reading ID or an anchor equal to a pending ID), else the first pending
+item by rank (review, question, reading, proposal), else the latest comment, else the item note;
+`pending` only while a waiting page's details are unanswered. `shell-sections.tsx` draws the parts
+(`ShellGreeting`, `ShellCounts`, `ShellChapter`, `ShellEarlier`); the counts jump to the first row
+they count.
 
 The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
-filled by the same bounded hint read as the list); a failed read keeps every item as a link with
-an "unavailable" notice. Cells are real `Link`s (`pageLinkKey` keeps the modified-open
-behaviour); a reading item adds the page route's `read` hint, and an anchor item adds the `anchor`
-search parameter (`pageSearch` in `reading-link.ts`). The page route then asks the renderer to
-`reveal` it: the frame counts the elements with that exact id and, only when exactly one exists,
+filled by the same bounded hint read as the list); a failed read keeps every page as a link in the
+older list with a notice. Links are real `Link`s (`pageLinkKey` keeps the modified-open behaviour); a
+passage that names a reading adds the page route's `read` hint, and an anchor item's element adds the
+`anchor` search parameter (`pageSearch` in `reading-link.ts`). The page route then asks the renderer
+to `reveal` it: the frame counts the elements with that exact id and, only when exactly one exists,
 reports its top so the host scrolls there, finishing the scroll if the frame grows within two
-seconds and the reader has not moved (a later growth never pulls them back); anything else leaves
-the page open at the top with a short notice. Before it leaves for an item the page
-records the item in its own history entry (`shellFocus`), and the shell restores focus to it when
-the browser comes back. The layout is borderless and wide (grid columns, no card or shadow) and
-holds no per-user state; a shell page whose value was not admitted shows one state line instead of
-an empty page.
+seconds and the reader has not moved; anything else leaves the page open at the top with a short
+notice. Before it leaves for a chapter the page records the page in its own history entry
+(`shellFocus`), and the shell restores focus to it when the browser comes back. The layout is
+borderless and full bleed (no card or shadow) and holds no per-user state; a shell page whose value
+was not admitted shows one state line instead of an empty page.
 
-Reading items show their source reading's state. `ShellContent` reads the owner chapter details
-(`reading-details.ts`, the optional owner-only transport port `readingDetails`) once per distinct
-source page the space list shows, through `ReadingDetailsQueue`: one read in flight, at most
-`READING_DETAILS_PAGES` pages per opening, aborted when the page is left. `readingView` turns a
-ready result into the item's state (`Unread`/`Read` with the reading's own title and reason) or
-`missing` when the page no longer lists it; pending, unavailable, failed, over-cap and hosted reads
-leave no state. The shell stores and writes none: opening an item never marks it read (only the
-page's own `Mark read` does), and returning to the shell reads again, so the page's new state shows
-without a poll. Editing stays with the seven validated actions; the browser has no edit
+Passages come from the owner chapter details (`reading-details.ts`, the optional owner-only
+transport port `readingDetails`) of the first `READING_DETAILS_PAGES` chapters, through
+`ReadingDetailsQueue`: one read in flight, aborted when the page is left; a failed read is published
+as `unavailable`, so a chapter never loads forever. The shell stores and writes none: opening a
+chapter never marks a reading read (only the page's own `Mark read` does), and returning to the
+shell reads again. Editing stays with the seven validated actions; the browser has no edit
 controls, and the shared and hosted readers keep `ShellNotice`.
 
 ## Trusted browser management
@@ -790,6 +835,17 @@ controls, and the shared and hosted readers keep `ShellNotice`.
   `local only` and `not in the cloud`.
   Exact warning codes and forever semantics live in the contract.
   The link artifact is a transient ID/seed, not a new reader URL/import grammar.
+
+## The work band
+
+An ordinary page whose view carries `work` (`PageSnapshot.work`, then every live projection) draws
+`WorkBand` (`work-band.tsx`) in the page route between the link bar and the canvas, so it scrolls
+with the page and pushes it down when the list opens. It is read-only: `derivedWork` gives the
+stage, progress, workers and sign-off count; `work-list.tsx` lists the tasks and `work-detail.tsx`
+shows one, with an `actions` slot for the controls that write (#4051 slice 2) and an optional
+`parent` breadcrumb for a page that follows a task (#4118). A shell page never draws it. The browser
+has no stage resolver for linked pages yet, so a task that follows a page shows its own state.
+`work-people.tsx` is the one place an assignee is drawn (`AgentChip` for an agent).
 
 ## Short owner-page links
 

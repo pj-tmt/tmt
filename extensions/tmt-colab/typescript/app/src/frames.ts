@@ -147,11 +147,25 @@ export class Frames {
       }
       let count = 0;
       for (const stream of frame.streams) {
-        exactKeys(stream, ['streamId', 'namespace', 'checkpoint', 'tail']);
+        // An anchor frame carries one more key (colab-v1, "Owner fold"): the covered stream's
+        // update that the fold after it binds. It is its own object, never beside a checkpoint.
+        const anchored =
+          typeof stream === 'object' && stream !== null && Object.hasOwn(stream, 'anchor');
+        exactKeys(
+          stream,
+          anchored
+            ? ['streamId', 'namespace', 'checkpoint', 'anchor', 'tail']
+            : ['streamId', 'namespace', 'checkpoint', 'tail'],
+        );
         requireValue(['content', 'own'].includes(stream.namespace as string));
         requireValue(Array.isArray(stream.tail) && stream.tail.length <= 256);
-        count += stream.tail.length + (stream.checkpoint === null ? 0 : 1);
+        count += stream.tail.length + (stream.checkpoint === null && !anchored ? 0 : 1);
         requireValue(count <= 1);
+        if (anchored) {
+          requireValue(stream.checkpoint === null && stream.tail.length === 0);
+          exactKeys(stream.anchor, ['seq', 'envelopeHash', 'envelope']);
+          target = stream.anchor as Record<string, unknown>;
+        }
         if (stream.checkpoint !== null) {
           exactKeys(stream.checkpoint, ['seq', 'envelopeHash', 'envelope']);
           target = stream.checkpoint;

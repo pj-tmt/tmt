@@ -377,7 +377,8 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                             })
                             .collect::<Vec<_>>()
                             .join("\n");
-                        let usage = pane_text.split("Usage").nth(1).unwrap();
+                        // The squad's own Usage section is the last one; the band above also says Usage.
+                        let usage = pane_text.rsplit("Usage").next().unwrap();
                         assert!(
                             usage.find("night-3 ").unwrap() < usage.find("night-muse ").unwrap()
                         );
@@ -392,13 +393,13 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                     );
                     let pane = app.conversation.borrow().pane.unwrap();
                     if width == 148 {
-                        assert_eq!((pane.x, pane.y, pane.width), (71, 6, 77));
+                        assert_eq!((pane.x, pane.y, pane.width), (71, 9, 77));
                     } else {
                         assert_eq!(pane.x, 0);
-                        assert!(pane.y > 6);
+                        assert!(pane.y > 9);
                     }
                     let band = app.input_band.get().unwrap();
-                    assert_eq!(band.height, 2);
+                    assert_eq!(band.height, 4);
                     assert_eq!(band.bottom(), pane.bottom());
                     assert!(text.contains(if selected == "tmt-night" {
                         "lead night-lead"

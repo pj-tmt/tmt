@@ -159,6 +159,8 @@
           }
           let heightTimer,
             height = 0,
+            // What the body alone read when the height was last measured.
+            content = 0,
             innerScroll = false;
           function measureHeight() {
             heightTimer = undefined;
@@ -169,23 +171,62 @@
               margin = parseFloat(getComputedStyle(body).marginBottom) || 0;
             // Root scrollHeight is at least the frame viewport. Ignore that floor
             // so content can shrink; retain root overflow and body/absolute content.
-            const next = Math.max(
-              1,
-              Math.ceil(
-                Math.max(
-                  rect.bottom + scrollY + margin,
-                  rect.top + scrollY + body.scrollHeight + margin,
-                  root.scrollHeight > innerHeight + 1 ? root.scrollHeight : 0,
-                ),
-              ),
+            const reading = Math.max(
+              rect.bottom + scrollY + margin,
+              rect.top + scrollY + body.scrollHeight + margin,
             );
+            const overflow = root.scrollHeight > innerHeight + 1 ? root.scrollHeight : 0;
+            // A last block whose bottom margin collapses through the body's puts the root a few
+            // pixels past what the body reads. At the frame height that includes them the root shows
+            // only the floor, so shrinking to the body's reading would show them again and the height
+            // would alternate for as long as the page is open: the height already holds the content
+            // when the body still reads what it read then.
+            if (!overflow && reading === content && height) return;
+            content = reading;
+            const next = Math.max(1, Math.ceil(Math.max(reading, overflow)));
             if (next === height) return;
             height = next;
             parent.postMessage({ type: 'colab.render.height', renderId, height }, '*');
           }
+          // The scheme the author's page paints, for the parent's cards drawn over it (#4081): the
+          // document's own canvas colour (the root's, else the body's) over the white frame canvas.
+          // The app's theme is no part of it.
+          let scheme, schemeTimer;
+          const swatch = document.createElement('canvas').getContext('2d', {
+            willReadFrequently: true,
+          });
+          function measureScheme() {
+            schemeTimer = undefined;
+            if (stopped || !document.body || !swatch) return;
+            const fills = [document.documentElement, document.body].map((node) => {
+              swatch.clearRect(0, 0, 1, 1);
+              swatch.fillStyle = '#000';
+              swatch.fillStyle = getComputedStyle(node).backgroundColor;
+              swatch.fillRect(0, 0, 1, 1);
+              return swatch.getImageData(0, 0, 1, 1).data;
+            });
+            // Nothing painted is the white frame canvas: a light page.
+            const fill = fills[0][3] > 0 ? fills[0] : fills[1];
+            const alpha = fill[3] / 255;
+            const lin = (c) => {
+              const s = (c * alpha + 255 * (1 - alpha)) / 255;
+              return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+            };
+            const luminance = 0.2126 * lin(fill[0]) + 0.7152 * lin(fill[1]) + 0.0722 * lin(fill[2]);
+            const next = luminance < 0.179 ? 'dark' : 'light';
+            if (next === scheme) return;
+            scheme = next;
+            parent.postMessage({ type: 'colab.render.scheme', renderId, scheme }, '*');
+          }
+          const scheduleScheme = () => {
+            if (!stopped && schemeTimer === undefined) schemeTimer = setTimeout(measureScheme, 100);
+          };
           const scheduleHeight = () => {
             if (!stopped && heightTimer === undefined) heightTimer = setTimeout(measureHeight, 100);
+            scheduleScheme();
           };
+          const paintObserver = new MutationObserver(scheduleScheme);
+          matchMedia('(prefers-color-scheme: dark)').addEventListener('change', scheduleScheme);
           const sizeObserver = new ResizeObserver(() => {
             scheduleHeight();
             schedule();
@@ -195,16 +236,40 @@
             if (
               !event.isTrusted ||
               event.defaultPrevented ||
-              event.button !== 0 ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey
+              event.altKey ||
+              (event.type === 'click' && event.button !== 0) ||
+              (event.type === 'auxclick' && event.button !== 1) ||
+              (event.type === 'keydown' &&
+                (event.key !== 'Enter' ||
+                  event.repeat ||
+                  event.isComposing ||
+                  !(event.metaKey || event.ctrlKey || event.shiftKey)))
             )
               return;
             const link = event.target instanceof Element ? event.target.closest('a[href]') : null,
               href = link?.getAttribute('href');
-            if (!href?.startsWith('#') || href.length > 1024) return;
+            if (href === null || href === undefined) return;
+            // Never let an ordinary link navigate this isolated document, including a refused URL.
+            event.preventDefault();
+            if (!href.startsWith('#')) {
+              if (utf8.encode(href).length > 8 * 1024) return;
+              parent.postMessage(
+                {
+                  type: 'colab.render.link',
+                  renderId,
+                  href,
+                  newTab:
+                    event.button === 1 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    link.getAttribute('target') === '_blank',
+                },
+                '*',
+              );
+              return;
+            }
+            if (href.length > 1024) return;
             let id;
             try {
               id = decodeURIComponent(href.slice(1));
@@ -216,10 +281,15 @@
               : document.body;
             if (!target) return;
             const top = Math.max(0, target.getBoundingClientRect().top + scrollY);
-            event.preventDefault();
             if (innerScroll) target.scrollIntoView();
             parent.postMessage({ type: 'colab.render.anchor', renderId, top }, '*');
           }
+          // Registered before author HTML runs. These messages remain untrusted parent inputs.
+          // Existing annotation/highlight selection gets first refusal of a plain click.
+          document.addEventListener('click', chooseTarget, true);
+          document.addEventListener('click', anchor, true);
+          document.addEventListener('auxclick', anchor, true);
+          document.addEventListener('keydown', anchor, true);
           let layer, markers;
           const anchorRanges = new Map();
           const readingRanges = new Map();
@@ -230,7 +300,7 @@
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
-            '@layer colab-frame { html:is([data-colab-layout="column"], [data-colab-layout="full"]) { margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(1280px, 100% - 32px) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { align-self: stretch !important; width: auto !important; padding-inline: max(16px, (100% - 1280px) / 2) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
+            '@layer colab-frame { html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { align-self: stretch !important; width: auto !important; padding-inline: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
           // END GENERATED PAGE FRAME
           const highlightStyle =
             annotationTokens +
@@ -664,7 +734,25 @@
                 const inset = style
                   ? [parseFloat(style.paddingLeft) || 0, parseFloat(style.paddingRight) || 0]
                   : [0, 0];
-                const width = column.width - inset[0] - inset[1];
+                let left = column.left + inset[0];
+                let width = column.width - inset[0] - inset[1];
+                if (container === document.body && document.documentElement.dataset.colabLayout) {
+                  // A direct child of a framed page sits on the frame's column (the frame stylesheet:
+                  // centred, min(column, 100% - 2 gutters), or the whole width for data-width="full"),
+                  // which the body's own box does not show and the hidden target cannot be measured
+                  // for (#4011). The column and the gutter are the frame stylesheet's own properties.
+                  if (target.getAttribute('data-width') === 'full') {
+                    left = column.left;
+                    width = column.width;
+                  } else {
+                    const frame = getComputedStyle(document.documentElement);
+                    width = Math.min(
+                      parseFloat(frame.getPropertyValue('--colab-column')),
+                      column.width - 2 * parseFloat(frame.getPropertyValue('--colab-gutter')),
+                    );
+                    left = column.left + (column.width - width) / 2;
+                  }
+                }
                 const top = panel.getBoundingClientRect().top + scrollY;
                 if (
                   box.width &&
@@ -683,7 +771,7 @@
                       width: box.width,
                       height: box.height,
                     },
-                    left: column.left + inset[0],
+                    left,
                     width,
                   });
                 continue;
@@ -1506,11 +1594,19 @@
               document.addEventListener('pointerup', finishSelection, true);
               document.addEventListener('pointercancel', cancelSelection, true);
               document.addEventListener('keyup', finishKeyboardSelection, true);
-              document.addEventListener('click', chooseTarget, true);
               document.addEventListener('pointermove', hoverTarget, true);
-              document.addEventListener('click', anchor, true);
               sizeObserver.observe(document.documentElement);
               sizeObserver.observe(document.body);
+              paintObserver.observe(document.documentElement, {
+                attributes: true,
+                attributeFilter: ['class', 'style', 'data-theme'],
+              });
+              paintObserver.observe(document.body, {
+                attributes: true,
+                attributeFilter: ['class', 'style'],
+              });
+              // At once, so the cards take the page's scheme before the first one is drawn.
+              measureScheme();
               scheduleHeight();
             },
             { once: true },
@@ -1623,8 +1719,10 @@
               stopped = true;
               clearTimeout(timer);
               clearTimeout(heightTimer);
+              clearTimeout(schemeTimer);
               cancelAnimationFrame(selectionFrame);
               sizeObserver.disconnect();
+              paintObserver.disconnect();
               observer.disconnect();
               port.close();
               clear();
@@ -1637,6 +1735,8 @@
               document.removeEventListener('click', chooseTarget, true);
               document.removeEventListener('pointermove', hoverTarget, true);
               document.removeEventListener('click', anchor, true);
+              document.removeEventListener('auxclick', anchor, true);
+              document.removeEventListener('keydown', anchor, true);
               document.removeEventListener('keydown', annotate);
               removeEventListener('resize', clearTarget);
               removeEventListener('scroll', clearTarget);

@@ -214,6 +214,79 @@ esac
 }
 
 #[test]
+fn the_global_default_records_who_set_it_and_a_missing_caller_is_said_not_hidden() {
+    use std::os::unix::fs::PermissionsExt;
+    let sandbox = Sandbox::new();
+    let config = sandbox.0.join("config.json");
+    let path = sandbox.0.join("digest.toml");
+    let core = |name: &str, identity: &str| {
+        let program = sandbox.0.join(name);
+        let script = format!(
+            "#!/bin/sh\ncase \"$*\" in\n  'identity show --json') {identity} ;;\n  'config show --json') printf '%s\\n' '{{\"paths\":{{\"global\":\"{}\"}}}}' ;;\n  *) exit 9 ;;\nesac\n",
+            config.to_str().unwrap()
+        );
+        fs::write(&program, script).unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+        program
+    };
+    let named = core(
+        "named-core",
+        "printf '%s\\n' '{\"identity\":{\"id\":\"20000000-0000-4000-8000-000000000001\"}}'",
+    );
+    let anonymous = core(
+        "anonymous-core",
+        "printf '%s\\n' '{\"error\":{\"code\":\"IDENTITY_REQUIRED\",\"message\":\"no caller\"}}'; exit 1",
+    );
+    let run = |program: &std::path::Path, words: &[&str]| {
+        support::digest()
+            .args(words)
+            .env("TMT_EXECUTABLE", program)
+            .env("NO_COLOR", "1")
+            .current_dir(&sandbox.0)
+            .output()
+            .unwrap()
+    };
+    fs::write(&path, "# keep\nflushCount = 7\n").unwrap();
+    let result = run(&named, &["global", "auto"]);
+    assert!(result.status.success(), "{:?}", result.stderr);
+    let message = String::from_utf8(result.stdout).unwrap();
+    assert!(
+        message.contains("Saved the global digest default: auto"),
+        "{message}"
+    );
+    assert!(!message.contains("No caller identity"), "{message}");
+    let document = fs::read_to_string(&path)
+        .unwrap()
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap();
+    assert_eq!(document["default"].as_str(), Some("auto"));
+    assert_eq!(
+        document["defaultSetByIdentityId"].as_str(),
+        Some("20000000-0000-4000-8000-000000000001")
+    );
+    assert!(document["defaultSetAtMs"].as_integer().unwrap() > 0);
+    assert_eq!(document["flushCount"].as_integer(), Some(7));
+    assert!(fs::read_to_string(&path).unwrap().contains("# keep"));
+    // Writing without a caller says so and forgets the old setter.
+    let result = run(&anonymous, &["global", "20m"]);
+    assert!(result.status.success(), "{:?}", result.stderr);
+    let message = String::from_utf8(result.stdout).unwrap();
+    assert!(message.contains("every 20m"), "{message}");
+    assert!(message.contains("No caller identity"), "{message}");
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("default = \"20m\""));
+    assert!(!text.contains("defaultSetByIdentityId"));
+    // Only a mode is a global default: a member word or a bad duration is refused first.
+    let before = fs::read(&path).unwrap();
+    for value in ["default", "0s", "bogus"] {
+        let result = run(&named, &["global", value]);
+        assert_eq!(result.status.code(), Some(2), "{value}");
+    }
+    assert_eq!(run(&named, &["global"]).status.code(), Some(2));
+    assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+#[test]
 fn decisions_needs_json_and_a_missing_core_is_a_json_error_without_state() {
     let sandbox = Sandbox::new();
     let help = sandbox.run(&["decisions", "--help"]);

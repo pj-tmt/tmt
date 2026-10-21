@@ -370,6 +370,7 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
         ),
         ("skill_reminder.rs", crate::skill_reminder::PRINTED_HINTS),
         ("talk_command.rs", crate::talk_command::PRINTED_HINTS),
+        ("target.rs", crate::target::PRINTED_HINTS),
         (
             "talk_command/preparation.rs",
             crate::talk_command::PREPARATION_HINTS,

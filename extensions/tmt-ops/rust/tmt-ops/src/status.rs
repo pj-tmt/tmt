@@ -361,7 +361,7 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
                 .as_str()
                 .map_or_else(|| "no lead".to_owned(), |name| format!("lead {name}")),
             cell(&squad["layout"]),
-        ) + &crate::idle_alert::setting_label(document)
+        ) + &crate::idle_alert::document_label(document)
             .map_or_else(String::new, |label| format!(" · {label}"))
     };
     let _ = writeln!(output, "{}\n", terminal.paint(Token::Dim, &escape(&header)));

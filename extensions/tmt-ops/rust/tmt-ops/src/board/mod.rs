@@ -44,6 +44,7 @@ mod overview;
 mod pane_chrome;
 mod pane_resize;
 mod panels_picker;
+mod peek;
 mod picker_surface;
 mod rate;
 mod recent_responses;
@@ -63,6 +64,7 @@ mod stat_tiles;
 mod state_cell;
 mod status_update;
 mod tab_strip;
+mod talk_measure;
 mod team_strip;
 mod timer_rows;
 mod top_bar;
@@ -473,11 +475,12 @@ fn is_wheel(event: &ratatui::crossterm::event::MouseEvent) -> bool {
     )
 }
 
-/// Applies a wheel event and the wheel events already queued behind it, in
-/// order and without dropping any, so a burst paints one frame instead of one per
-/// event. It stops at the first event that is not a wheel step (a click, a key, a
-/// resize, a focus change), which is handed back to land in order on the next turn.
-/// A non-wheel `first` is applied alone.
+/// Applies a wheel event and the wheel and pointer-move events already queued
+/// behind it, in order and without dropping any, so a burst paints one frame
+/// instead of one per event. Pointer motion (any-motion reporting sends it between
+/// wheel steps) moves the hover and changes nothing the frame must wait for. It stops
+/// at the first other event (a click, a key, a resize, a focus change), which is
+/// handed back to land in order on the next turn. A non-wheel `first` is applied alone.
 fn coalesce_wheel(
     first: ratatui::crossterm::event::MouseEvent,
     input: &Receiver<BoardEvent>,
@@ -493,7 +496,9 @@ fn coalesce_wheel(
             return (effect, None);
         }
         match input.try_recv() {
-            Ok(BoardEvent::Input(Event::Mouse(next))) if is_wheel(&next) => {
+            Ok(BoardEvent::Input(Event::Mouse(next)))
+                if is_wheel(&next) || next.kind == MouseEventKind::Moved =>
+            {
                 effect = apply(next);
             }
             Ok(other) => return (effect, Some(other)),
@@ -1064,6 +1069,7 @@ fn session(
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
                 capture_lost = true;
+                app.composer.paste_preview.get_mut().take();
                 if let Some(discovery) = &mut app.discovery {
                     discovery.changed();
                 }
@@ -1368,6 +1374,9 @@ pub fn run(
     let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
         Config::load(&core)
     })?;
+    // The recorded user is marked as a person in Core off the screen's path.
+    let marker = core.clone();
+    std::thread::spawn(move || crate::me::mark_recorded_user(&marker));
     let (preference, startup_notice) = config.startup_tab();
     let cold_tab = view_state::startup_destination(startup_tab, preference, resume.is_some());
     if cold_tab.is_some()
@@ -1585,7 +1594,9 @@ mod tests {
     fn theme_board() -> App {
         let mut app = app::workspace::tests::board();
         app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = shell::OpsTab::Overview;
+        app.shell.tab = shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+        app.workspace.filter = workspace::AgentsFilter::Agents;
         app.view.as_mut().unwrap().refresh = None;
         for bindings in app
             .view
@@ -1755,34 +1766,33 @@ mod tests {
             !old.acquired,
             "a result for the selection left behind is never admitted"
         );
-        for tab in [shell::OpsTab::Overview, shell::OpsTab::Agents] {
-            app.shell.tab = tab;
-            // Terminal::resize alone leaves TestBackend at160x36; draw would
-            // auto-resize back and never exercise a hidden conversation.
-            terminal.backend_mut().resize(60, 8);
-            terminal
-                .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
-                .unwrap();
-            terminal
-                .draw(|frame| {
-                    view::prepare(&mut app, frame.area());
-                    view::render(frame, &app);
-                })
-                .unwrap();
-            assert_eq!(
-                terminal.backend().buffer().area,
-                ratatui::layout::Rect::new(0, 0, 60, 8)
-            );
-            assert!(
-                !app.scrolls.visible(crate::config::Pane::Replies),
-                "{tab:?}"
-            );
-            assert_eq!(
-                app.selected_read(),
-                None,
-                "hidden source surfaces start no background read: {tab:?}"
-            );
-        }
+        let tab = shell::OpsTab::Agents;
+        app.shell.tab = tab;
+        // Terminal::resize alone leaves TestBackend at160x36; draw would
+        // auto-resize back and never exercise a hidden conversation.
+        terminal.backend_mut().resize(60, 8);
+        terminal
+            .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
+            .unwrap();
+        terminal
+            .draw(|frame| {
+                view::prepare(&mut app, frame.area());
+                view::render(frame, &app);
+            })
+            .unwrap();
+        assert_eq!(
+            terminal.backend().buffer().area,
+            ratatui::layout::Rect::new(0, 0, 60, 8)
+        );
+        assert!(
+            !app.scrolls.visible(crate::config::Pane::Replies),
+            "{tab:?}"
+        );
+        assert_eq!(
+            app.selected_read(),
+            None,
+            "hidden source surfaces start no background read: {tab:?}"
+        );
     }
 
     #[test]
@@ -2391,7 +2401,7 @@ mod tests {
     }
 
     #[test]
-    fn long_chart_demand_uses_existing_refresh_and_cancels_on_leaving_usage() {
+    fn long_chart_demand_uses_existing_refresh_and_does_not_reacquire_a_closed_range() {
         crate::status::with_now_ms(1_791_600_000_000, || {
             let mut app = theme_board();
             let mut terminal =
@@ -2438,18 +2448,19 @@ mod tests {
                     assert!(preempt && !preview);
                     requests.borrow_mut().push(chart);
                     match requests.borrow().len() {
+                        // Moving within the closed range, then to Digest, which shows
+                        // the same chart, changes nothing the refresh would reacquire.
                         1 => {
                             for code in [
                                 KeyCode::Down,
                                 KeyCode::Down,
                                 KeyCode::Up,
                                 KeyCode::Char('2'),
+                                KeyCode::Char('q'),
                             ] {
                                 events.send(key(code)).unwrap();
                             }
                         }
-                        2 => events.send(key(KeyCode::Char('3'))).unwrap(),
-                        3 => events.send(key(KeyCode::Char('q'))).unwrap(),
                         _ => panic!("unchanged closed range must not reacquire"),
                     }
                 },
@@ -2470,9 +2481,9 @@ mod tests {
                     .iter()
                     .map(|d| d.and_then(|d| d.chart))
                     .collect::<Vec<_>>(),
-                [Some(expected), None, Some(expected)]
+                [Some(expected)]
             );
-            assert!(draws.get() >= 6);
+            assert!(draws.get() >= 3);
         });
     }
 
@@ -3215,7 +3226,8 @@ mod tests {
         let (sender, input) = channel();
         let down = |column| wheel(MouseEventKind::ScrollDown, column);
         let up = |column| wheel(MouseEventKind::ScrollUp, column);
-        for event in [down(1), up(2)] {
+        // Any-motion reporting sends pointer moves between the wheel steps.
+        for event in [down(1), wheel(MouseEventKind::Moved, 7), up(2)] {
             sender.send(BoardEvent::Input(Event::Mouse(event))).unwrap();
         }
         sender
@@ -3238,9 +3250,10 @@ mod tests {
             [
                 (MouseEventKind::ScrollDown, 0),
                 (MouseEventKind::ScrollDown, 1),
+                (MouseEventKind::Moved, 7),
                 (MouseEventKind::ScrollUp, 2),
             ],
-            "wheel, wheel, wheel in arrival order; none dropped"
+            "wheel, wheel, move, wheel in arrival order; none dropped"
         );
         assert!(matches!(
             deferred,
@@ -3298,18 +3311,17 @@ mod tests {
         assert_eq!(input.try_iter().count(), 1);
     }
 
-    /// Ten queued wheel steps paint one frame (plus the first), not eleven.
+    /// Ten queued wheel steps with a pointer move after each paint one frame (plus the first).
     #[test]
     fn a_wheel_burst_in_the_session_paints_one_frame() {
         let mut app = app::workspace::tests::board();
         let (sender, input) = channel();
         for column in 0..10 {
-            sender
-                .send(BoardEvent::Input(Event::Mouse(wheel(
-                    MouseEventKind::ScrollDown,
-                    column,
-                ))))
-                .unwrap();
+            for kind in [MouseEventKind::ScrollDown, MouseEventKind::Moved] {
+                sender
+                    .send(BoardEvent::Input(Event::Mouse(wheel(kind, column))))
+                    .unwrap();
+            }
         }
         sender.send(BoardEvent::InputClosed).unwrap();
         let frames = std::cell::Cell::new(0);

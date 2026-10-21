@@ -1,27 +1,49 @@
-/* Layout owned by the app; the numbers are the design proposal and wait for the UX look. */
+/* The v4 look (design page 870f989c): large type, full bleed, hairlines, no cards, no shadows.
+ * Widths follow the page's own width (container units) up to a bounded maximum. */
 .shell-page {
   --shell-max: 1680px;
-  --shell-gutter: 24px;
-  --shell-columns: 3;
+  --shell-pad: clamp(18px, 6cqw, 96px);
+  container-type: inline-size;
   box-sizing: border-box;
   width: 100%;
   max-width: var(--shell-max);
   margin: 0 auto;
-  padding: 40px var(--shell-gutter) 80px;
+  padding: 0 0 80px;
 }
-.shell-summary {
-  margin: 0 0 32px;
+.shell-state {
+  margin: 0 var(--shell-pad) 24px;
+  color: var(--tmt-ui-color-secondary);
+}
+.shell-mark {
+  color: var(--tmt-ui-color-waiting);
+}
+
+/* Greeting and the maintainer agent's two lines. */
+.shell-hero {
+  padding: clamp(32px, 6cqw, 96px) var(--shell-pad) clamp(24px, 4cqw, 56px);
+}
+.shell-greeting {
+  margin: 0;
+  max-width: 20ch;
+  font-size: clamp(36px, 5.4cqw, 80px);
+  line-height: 1;
+  letter-spacing: -0.05em;
+  font-weight: 650;
+  text-wrap: balance;
 }
 .shell-summary-line1 {
-  margin: 0;
-  font-size: 28px;
-  line-height: 1.25;
-  font-weight: 700;
+  margin: 22px 0 0;
+  max-width: 46ch;
+  font-size: clamp(18px, 1.8cqw, 24px);
+  line-height: 1.3;
+  font-weight: 600;
 }
 .shell-summary-line2 {
-  margin: 8px 0 0;
-  font-size: 18px;
+  margin: 6px 0 0;
+  max-width: 46ch;
+  font-size: clamp(16px, 1.5cqw, 20px);
   line-height: 1.4;
+  color: var(--tmt-ui-color-secondary);
 }
 .shell-summary-meta {
   margin: 12px 0 0;
@@ -31,101 +53,236 @@
 .shell-changed {
   color: var(--tmt-ui-color-secondary);
 }
-.shell-state {
-  margin: 0 0 24px;
-  color: var(--tmt-ui-color-secondary);
-}
-.shell-grid {
+
+/* The count row: three numbers, each a jump to its first row. */
+.shell-counts ul {
   display: grid;
-  grid-template-columns: repeat(var(--shell-columns), minmax(0, 1fr));
-  gap: 0 32px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 var(--shell-pad);
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+}
+.shell-counts li {
+  min-width: 0;
+  border-left: 1px solid var(--tmt-ui-surface-rule);
+  padding-left: clamp(10px, 2cqw, 18px);
+}
+.shell-counts li:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.shell-counts button,
+.shell-count-plain {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 18px 0 20px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.shell-counts button {
+  cursor: pointer;
+}
+.shell-counts button:hover .shell-count-label {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.shell-counts button:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.shell-count-number {
+  display: block;
+  font-size: clamp(28px, 3cqw, 44px);
+  letter-spacing: -0.05em;
+  font-weight: 600;
+  line-height: 1;
+}
+.shell-count-label {
+  display: block;
+  margin-top: 6px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  overflow-wrap: anywhere;
+}
+
+/* Chapters joined by hairlines. */
+.shell-chapters {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.shell-cell {
-  position: relative;
-  min-width: 0;
-  padding: 16px 0 20px;
-  border-top: 1px solid var(--tmt-ui-surface-rule);
+.shell-chapter {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(24px, 5cqw, 80px);
+  padding: clamp(32px, 5cqw, 80px) var(--shell-pad);
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  scroll-margin-top: 16px;
 }
-/* The title link stretches over the whole cell: one target, one focus ring around the cell. */
-.shell-cell-title a::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-}
-.shell-cell-title a:focus-visible {
-  outline: none;
-}
-.shell-cell:has(.shell-cell-title a:focus-visible) {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 3px;
-}
-.shell-cell:hover .shell-cell-title a {
-  text-decoration: underline;
-}
-.shell-cell p {
+/* Zero specificity, so the title's and the meta line's own margins below still apply. */
+:where(.shell-chapter) :where(p, h3) {
   margin: 0;
 }
-.shell-cell-kind {
+.shell-chapter-number {
+  font:
+    500 11px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  letter-spacing: 0.1em;
   color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
-  overflow-wrap: anywhere;
 }
-.shell-cell-title {
-  margin-top: 4px;
-  font-size: 16px;
+.shell-chapter-title {
+  margin-top: 12px;
+  font-size: clamp(30px, 3.6cqw, 56px);
+  line-height: 1.04;
+  letter-spacing: -0.045em;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.shell-cell-unavailable {
-  color: var(--tmt-ui-color-secondary);
-  font-weight: 400;
+.shell-chapter-title a {
+  /* A block link's box is the title's own lines, so its focus ring cannot reach the text around it. */
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
 }
-.shell-cell-note {
-  margin-top: 8px;
+.shell-chapter-title a:hover {
+  text-decoration: underline;
+  text-underline-offset: 6px;
+}
+.shell-chapter-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 18px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.shell-tag {
+  padding: 1px 6px;
+  background: var(--tmt-ui-surface-mention-agent);
+  font-size: 12px;
+}
+.shell-open {
+  display: inline-block;
+  margin-top: 22px;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.shell-chapter a:focus-visible,
+.shell-earlier a:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+/* The title's line box is tight, so its ring sits further out and clears the eyebrow above and the
+ * meta line below. */
+.shell-chapter-title a:focus-visible {
+  outline-offset: 6px;
+}
+
+/* The passage on the right of a chapter. */
+.shell-passage {
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.shell-passage p {
   overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
 }
-.shell-cell-audience {
-  margin-top: 8px;
+.shell-passage-lead {
   color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
+  font-size: 13px;
 }
-.shell-cell-needs {
+.shell-passage-title {
   margin-top: 8px;
-  font-size: var(--tmt-ui-caption-size);
-}
-.shell-cell-needs > span {
-  color: var(--tmt-ui-color-waiting);
-}
-@media (max-width: 1279px) {
-  .shell-page {
-    --shell-columns: 2;
-  }
-}
-@media (max-width: 639px) {
-  .shell-page {
-    --shell-gutter: 16px;
-    --shell-columns: 1;
-    padding-top: 24px;
-  }
-}
-.shell-cell-state[data-state='unread'] .shell-cell-mark {
-  color: var(--tmt-ui-color-waiting);
-}
-.shell-cell-state[data-state='unread'] .shell-cell-word {
-  color: var(--tmt-ui-color-text);
+  font-size: 17px;
   font-weight: 600;
 }
-.shell-cell-source,
-.shell-cell-why {
-  margin-top: 4px;
+.shell-passage-text,
+.shell-passage-note {
+  margin-top: 8px;
+}
+.shell-passage-why,
+.shell-passage-more,
+.shell-passage-meta,
+.shell-passage-pending {
+  margin-top: 8px;
   color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
+  font-size: 13px;
+}
+
+/* Older pages: one large-type row each. */
+.shell-earlier {
+  padding: clamp(28px, 4cqw, 56px) var(--shell-pad) 0;
+}
+.shell-earlier-heading {
+  margin: 0 0 8px;
+  color: var(--tmt-ui-color-secondary);
+  font:
+    500 11px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.shell-earlier ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.shell-earlier-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: baseline;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+}
+.shell-earlier-title {
+  min-width: 0;
+  font-size: clamp(18px, 1.8cqw, 24px);
+  letter-spacing: -0.03em;
   overflow-wrap: anywhere;
+}
+.shell-earlier-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.shell-earlier-title a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.shell-earlier-meta {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@container (max-width: 719px) {
+  .shell-chapter {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell-earlier-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .shell-earlier-meta {
+    white-space: normal;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .shell-counts button {
+    transition: opacity 120ms;
+  }
 }

@@ -9,6 +9,8 @@ import {
 } from '../src/fold-protocol.js';
 import { contentBase } from './content-base.js';
 import shellVectors from '../../../contracts/vectors/shell-v1.json';
+import workVectors from '../../../contracts/vectors/work-v1.json';
+import * as Y from 'yjs';
 
 it('validates structured shell projections with the shared corpus and refuses HTML replacement', () => {
   for (const fixture of shellVectors.cases) {
@@ -41,6 +43,148 @@ it('validates structured shell projections with the shared corpus and refuses HT
   expect(() => fold.prepareContent('erase', base)).toThrow('cannot replace a shell');
   expect(worker.postMessage).not.toHaveBeenCalled();
   fold.close();
+});
+
+it('validates work on an ordinary page with the shared corpus and never beside the shell page type', () => {
+  for (const fixture of workVectors.cases) {
+    if ('action' in fixture) continue;
+    const projection = { source: '<p>page</p>', title: 'Page', work: fixture.document };
+    if (fixture.valid) expect(() => validateProjection(projection)).not.toThrow();
+    else expect(() => validateProjection(projection)).toThrow();
+  }
+  const shell = {
+    source: '',
+    title: 'Shell',
+    pageType: 'shell' as const,
+    shell: { version: 1 as const, items: {}, order: [] },
+  };
+  expect(() =>
+    validateProjection({ ...shell, work: { version: 1, next: 1, tasks: {}, order: [] } }),
+  ).toThrow();
+});
+
+it('carries admitted work through the parent and rejects a preparation that drops or changes it', async () => {
+  const work = {
+    version: 1 as const,
+    next: 2,
+    tasks: { 'T-1': { title: 'Write it', state: 'todo' as const } },
+    order: ['T-1'],
+  };
+  const open = async () => {
+    const worker = {
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+      onerror: null,
+      onmessage: null as unknown as (event: unknown) => void,
+    };
+    const fold = new Fold(worker as unknown as Worker);
+    const pending = fold.run({ type: 'apply', updates: [] });
+    worker.onmessage({
+      data: {
+        id: 1,
+        source: '<p>page</p>',
+        title: 'Page',
+        work,
+        own: {},
+        update: new Uint8Array([0, 0]),
+      },
+    });
+    const initial = await pending;
+    return { worker, fold, initial, base: contentBase(initial) };
+  };
+  const reply = (worker: { onmessage: (event: unknown) => void }, projection: object) =>
+    worker.onmessage({
+      data: {
+        id: 2,
+        type: 'prepared-content',
+        kind: 'updates',
+        projection,
+        updates: [new Uint8Array([0, 0])],
+      },
+    });
+  const kept = await open();
+  expect(kept.initial.work).toEqual(work);
+  const prepared = kept.fold.prepareContent('<p>changed</p>', kept.base);
+  reply(kept.worker, { ...kept.base, source: '<p>changed</p>' });
+  expect((await prepared).projection.work).toEqual(work);
+  expect(kept.worker.terminate).not.toHaveBeenCalled();
+  for (const tampered of [
+    // The reply drops the work, or changes it, or invents it on a page that has none.
+    (base: object) => {
+      const { work: _dropped, ...rest } = base as { work: unknown };
+      return rest;
+    },
+    (base: object) => ({ ...base, work: { ...work, next: 3 } }),
+  ]) {
+    const { worker, fold, base } = await open();
+    const rejected = expect(fold.prepareContent('<p>changed</p>', base)).rejects.toThrow();
+    reply(worker, { ...tampered(base), source: '<p>changed</p>' });
+    await rejected;
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  }
+});
+
+it('the actual Worker reads work from the document and keeps it through a source edit', async () => {
+  const contentUpdate = (work?: unknown) => {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      doc.getText('html').insert(0, '<p>page</p>');
+      doc.getMap('meta').set('title', 'Page');
+      if (work !== undefined) doc.getMap('meta').set('work', work);
+    });
+    return Y.encodeStateAsUpdate(doc);
+  };
+  const work = {
+    version: 1,
+    next: 2,
+    tasks: { 'T-1': { title: 'Write it', state: 'todo' } },
+    order: ['T-1'],
+  };
+  const open = async () => {
+    vi.resetModules();
+    const surface = {
+      onmessage: null as unknown as (event: {
+        data: { id: number; command: DecoderCommand };
+      }) => Promise<void>,
+      postMessage: vi.fn(),
+    };
+    vi.stubGlobal('self', surface);
+    await import('../src/fold.worker.js');
+    return async (command: DecoderCommand) => {
+      surface.postMessage.mockClear();
+      await surface.onmessage({ data: { id: 1, command } });
+      return surface.postMessage.mock.calls[0][0];
+    };
+  };
+  try {
+    const send = await open();
+    const applied = await send({ type: 'apply', updates: [contentUpdate(work)] });
+    expect(applied.error).toBeUndefined();
+    expect(applied.work).toEqual(work);
+    const edit = await send({
+      type: 'prepare-content',
+      source: '<p>Later source</p>',
+      base: contentBase(applied),
+    });
+    expect(edit.error).toBeUndefined();
+    expect(edit.projection.work).toEqual(work);
+    const later = await send({ type: 'apply', updates: edit.updates });
+    expect(later.source).toBe('<p>Later source</p>');
+    expect(later.work).toEqual(work);
+    // A page with no work projects none, and a value the contract refuses never projects.
+    expect(
+      Object.hasOwn(await (await open())({ type: 'apply', updates: [contentUpdate()] }), 'work'),
+    ).toBe(false);
+    const invalid = await (
+      await open()
+    )({
+      type: 'apply',
+      updates: [contentUpdate({ ...work, order: ['T-9'] })],
+    });
+    expect(invalid.error).toBeDefined();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it('terminates a stalled decoder and rejects further use without publishing output', async () => {

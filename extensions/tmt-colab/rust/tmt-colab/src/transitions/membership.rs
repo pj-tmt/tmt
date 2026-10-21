@@ -349,11 +349,19 @@ impl Engine {
                     payload["cuts"] =
                         Value::Array(cuts.iter().map(|c| c.payload()).collect::<Result<_>>()?);
                 }
-                if operation == "device.revoke" {
+                if let Action::Device { id, .. } = &action {
                     payload
                         .as_object_mut()
                         .ok_or(OwnerFault::Invalid)?
                         .remove("grantRevision");
+                    // The folds this device signed that the store still retains: a reader admits a
+                    // fold of a revoked signer only when its revoke lists it (colab-v1, "Owner
+                    // fold"). The key is absent when there are none, as before folds existed.
+                    let folds = tx.committed_folds(id)?;
+                    if !folds.is_empty() {
+                        payload["folds"] =
+                            Value::Array(folds.into_iter().map(Value::String).collect());
+                    }
                 }
                 let statement =
                     key.sign_statement(tx.head(), operation, &serde_json::to_vec(&payload)?)?;

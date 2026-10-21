@@ -39,13 +39,12 @@ impl App {
     }
     pub(in crate::board) fn usage_panel_hidden(&self) -> bool {
         match self.shell.tab {
-            OpsTab::Overview => !self
+            OpsTab::Agents => !self
                 .overview_panels()
                 .shown(crate::config::OverviewPanel::Usage),
             OpsTab::Digest => !self
                 .digest_panels()
                 .shown(crate::config::DigestPanel::Chart),
-            _ => false,
         }
     }
     pub(in crate::board) fn digest_placement(
@@ -84,34 +83,7 @@ impl App {
             placement,
             crate::action::ResizeBoundary::DigestColumns,
             crate::action::ResizeBoundary::DigestRows,
-        )
-    }
-    pub(in crate::board) fn overview_placement(
-        &self,
-        area: ratatui::layout::Rect,
-    ) -> crate::board::conversation::layout::Placement {
-        let usage = self.overview_usage_band(area);
-        let area = ratatui::layout::Rect::new(
-            area.x,
-            area.y + usage.height,
-            area.width,
-            area.height.saturating_sub(usage.height),
-        );
-        // Reader focus alone may come from Tab. The existing UUID draft owner
-        // distinguishes an explicit message reveal without another open flag.
-        let placement = crate::board::conversation::layout::overview_policy(
-            area,
-            &self.overview_panels(),
-            self.focused() == crate::config::Pane::Replies
-                && self
-                    .input
-                    .as_ref()
-                    .is_some_and(|input| input.draft_key.is_some()),
-        );
-        self.pane_resize.panes(
-            placement,
-            crate::action::ResizeBoundary::OverviewColumns,
-            crate::action::ResizeBoundary::OverviewList,
+            crate::board::conversation::layout::LIST_MIN_COLUMNS,
         )
     }
     pub(in crate::board) fn overview_usage_band(
@@ -134,17 +106,29 @@ impl App {
                 .shown(crate::config::OverviewPanel::Monitor)
             && self
                 .pane_resize
-                .adjusted(crate::action::ResizeBoundary::OverviewUsage)
+                .adjusted(crate::action::ResizeBoundary::AgentsUsage)
         {
             self.pane_resize.size(
-                crate::action::ResizeBoundary::OverviewUsage,
+                crate::action::ResizeBoundary::AgentsUsage,
                 area.height,
                 height,
                 height,
-                crate::board::overview::composition::minimum_height(self, area.width),
+                crate::board::overview::composition::minimum_height(),
             )
         } else {
             height
+        };
+        // The band yields to the two panes: first to its one-line summary, then
+        // entirely, whenever the panes would no longer both fit below it.
+        let panes = crate::board::conversation::layout::LIST_MIN_ROWS
+            + crate::board::conversation::layout::CONVERSATION_MIN_ROWS;
+        let fits = |band: u16| area.height < panes || area.height - band >= panes;
+        let height = if fits(height) {
+            height
+        } else if fits(1) {
+            1.min(height)
+        } else {
+            0
         };
         ratatui::layout::Rect::new(
             area.x.saturating_add(u16::from(area.width > 0)),
@@ -163,8 +147,8 @@ impl App {
         let Some(snapshot) = self.workspace_snapshot() else {
             return self.say("The workspace has not loaded.");
         };
-        if !matches!(self.shell.tab, OpsTab::Overview | OpsTab::Digest) {
-            return self.say("Panels are configurable in Overview and Digest.");
+        if !matches!(self.shell.tab, OpsTab::Agents | OpsTab::Digest) {
+            return self.say("Panels are configurable in Agents and Digest.");
         }
         self.panels_picker = Some(Picker::open(
             snapshot.preferences.clone(),

@@ -344,3 +344,233 @@ fn tracking_metadata_is_bounded_and_capacity_failure_rolls_it_back() {
         0
     );
 }
+
+impl Fixture {
+    /// A fold of the stream at `seq` in both namespaces, signed by another device.
+    fn fold_pair(&mut self, seq: u64, signer: &str) {
+        for (index, namespace) in [Namespace::Content, Namespace::Own].into_iter().enumerate() {
+            self.store
+                .fold(
+                    &Envelope {
+                        scope: scope(),
+                        namespace,
+                        seq,
+                        hash: [150 + index as u8 + seq as u8; 32],
+                        previous: [seq as u8; 32],
+                        bytes: format!("fold-{seq}-{}", namespace.name()).as_bytes(),
+                    },
+                    signer,
+                )
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_fold_keeps_the_update_it_binds_until_a_later_checkpoint_supersedes_it() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    f.fold_pair(3, "signer");
+    // The prefix is pruned, but the update at the fold's sequence stays: it is the anchor.
+    assert_eq!((f.payload(1), f.payload(2)), (None, None));
+    assert!(f.payload(3).is_some());
+    let anchor = f.store.anchor(scope(), 3).unwrap().unwrap();
+    assert_eq!(
+        (anchor.namespace, anchor.hash),
+        (Namespace::Content, [3; 32])
+    );
+    assert_eq!(anchor.bytes, b"update-3");
+    assert!(f.store.anchor(scope(), 2).unwrap().is_none(), "pruned");
+    assert!(
+        f.store.anchor(scope(), 9).unwrap().is_none(),
+        "never stored"
+    );
+    // A fold at 5 supersedes the one at 3 and takes the anchor with it.
+    f.append(4);
+    f.append(5);
+    f.fold_pair(5, "signer");
+    assert_eq!((f.payload(3), f.payload(4)), (None, None));
+    assert!(f.payload(5).is_some());
+    // A device's own checkpoint binds the same update but needs no anchor: its signer is the stream.
+    f.append(6);
+    f.append(7);
+    f.pair(7);
+    assert_eq!((f.payload(5), f.payload(7)), (None, None));
+    assert!(f.store.anchor(scope(), 7).unwrap().is_none());
+}
+
+#[test]
+fn a_fold_in_one_namespace_alone_prunes_nothing() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    f.store
+        .fold(
+            &Envelope {
+                scope: scope(),
+                namespace: Namespace::Content,
+                seq: 3,
+                hash: [150; 32],
+                previous: [3; 32],
+                bytes: b"fold-3-content",
+            },
+            "signer",
+        )
+        .unwrap();
+    for seq in 1..=3 {
+        assert!(
+            f.payload(seq).is_some(),
+            "update {seq} is kept until the pair is complete"
+        );
+    }
+}
+
+#[test]
+fn a_fold_must_bind_an_update_the_stream_holds_and_never_replaces_another_checkpoint() {
+    let mut f = Fixture::new();
+    f.append(1);
+    f.append(2);
+    let fold = |f: &mut Fixture, seq, previous: [u8; 32], hash: [u8; 32]| {
+        f.store.fold(
+            &Envelope {
+                scope: scope(),
+                namespace: Namespace::Content,
+                seq,
+                hash,
+                previous,
+                bytes: b"fold",
+            },
+            "signer",
+        )
+    };
+    // No update at 3, and an update whose hash is not the one the fold names.
+    assert!(matches!(
+        fold(&mut f, 3, [3; 32], [150; 32]),
+        Err(Fault::Gap)
+    ));
+    assert!(matches!(
+        fold(&mut f, 2, [9; 32], [150; 32]),
+        Err(Fault::Gap)
+    ));
+    // A device's own checkpoint at 2 wins the sequence: the fold that differs is a conflict.
+    f.pair(2);
+    assert!(matches!(
+        fold(&mut f, 2, [2; 32], [150; 32]),
+        Err(Fault::Conflict)
+    ));
+    // Replaying a fold that is stored is not a second one.
+    f.append(3);
+    f.fold_pair(3, "signer");
+    let replay = f.store.fold(
+        &Envelope {
+            scope: scope(),
+            namespace: Namespace::Content,
+            seq: 3,
+            hash: [150 + 3; 32],
+            previous: [3; 32],
+            bytes: b"fold-3-content",
+        },
+        "signer",
+    );
+    assert!(matches!(replay, Ok(crate::store::Accepted::Replay)));
+}
+
+#[test]
+fn the_retained_folds_a_device_signed_are_listed_sorted_and_without_the_superseded() {
+    let mut f = Fixture::new();
+    for seq in 1..=5 {
+        f.append(seq);
+    }
+    f.fold_pair(2, "signer");
+    f.fold_pair(4, "signer");
+    let owner = ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+        .verifying_key()
+        .to_bytes();
+    let space = crypto::space_id(&owner).unwrap();
+    let signed = |f: &Fixture, device: &str| {
+        f.store
+            .owner_read(&space, &owner, |tx| tx.committed_folds(device))
+            .unwrap()
+    };
+    // Only the fold at 4 is retained (the one at 2 was superseded), in the byte order a revoke
+    // lists them.
+    let encode = |hash: [u8; 32]| values::encode_binary(&hash);
+    assert_eq!(
+        signed(&f, "signer"),
+        [encode([154; 32]), encode([155; 32])],
+        "the content and the own fold at 4"
+    );
+    assert!(signed(&f, "another").is_empty());
+    // A later checkpoint of the device itself supersedes them; nothing is left to list.
+    f.append(6);
+    f.pair(6);
+    assert!(signed(&f, "signer").is_empty());
+}
+
+#[test]
+fn a_device_that_signed_more_folds_than_a_revoke_can_list_is_refused() {
+    let mut f = Fixture::new();
+    f.append(1);
+    let owner = ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+        .verifying_key()
+        .to_bytes();
+    let space = crypto::space_id(&owner).unwrap();
+    let count = |f: &Fixture, n: usize| {
+        let rows: Vec<(String, Vec<u8>)> = (0..n)
+            .map(|i| (format!("{}", 100 + i), (i as u32).to_be_bytes().repeat(8)))
+            .collect();
+        f.store.connection.execute_batch("BEGIN").unwrap();
+        for (seq, hash) in rows {
+            f.store
+                .connection
+                .execute(
+                    "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,signer)
+                     SELECT page,epoch,stream,'content',?1,?2,x'00',x'00',x'01','signer' FROM streams LIMIT 1",
+                    rusqlite::params![seq, hash],
+                )
+                .unwrap();
+        }
+        f.store.connection.execute_batch("COMMIT").unwrap();
+    };
+    let list = |f: &Fixture| {
+        f.store
+            .owner_read(&space, &owner, |tx| tx.committed_folds("signer"))
+    };
+    count(&f, 512);
+    assert_eq!(list(&f).unwrap().len(), 512, "exactly the limit is listed");
+    f.store
+        .connection
+        .execute(
+            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,signer)
+             SELECT page,epoch,stream,'content','999',x'ff',x'00',x'00',x'01','signer' FROM streams LIMIT 1",
+            [],
+        )
+        .unwrap();
+    assert!(
+        list(&f).is_err(),
+        "one more is refused rather than left out of the revoke"
+    );
+}
+#[test]
+fn a_snapshot_is_given_the_anchor_of_each_retained_fold_and_of_nothing_else() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    f.pair(1);
+    f.append(4);
+    f.fold_pair(4, "signer");
+    let owner = ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+        .verifying_key()
+        .to_bytes();
+    let space = crypto::space_id(&owner).unwrap();
+    let anchors = f
+        .store
+        .owner_read(&space, &owner, |tx| tx.fold_anchors(PAGE, 1))
+        .unwrap();
+    assert_eq!(anchors.len(), 1);
+    assert_eq!(anchors[&(STREAM.to_owned(), 4)], b"update-4");
+}

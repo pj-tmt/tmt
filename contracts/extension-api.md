@@ -42,32 +42,32 @@ operation was performed. Other storage-open failures retain `API_UNAVAILABLE`
 or the resource's existing code. `capabilities` and `storage.root` remain
 independent of storage access.
 
-| Operation                | Input                                                                                              | Result                                                                                                                                                            |
-| ------------------------ | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities`           | `{}`                                                                                               | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
-| `storage.root`           | `{}`                                                                                               | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
-| `changes.cursor`         | `{}`                                                                                               | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
-| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`; optional `limit` and `before` | `items`, `nextBefore`                                                                                                                                             |
-| `requests.show`          | `requestId`                                                                                        | Request detail including retained prompt/final state                                                                                                              |
-| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–10, default 10)                                 | `identityId`, `items`: locally retained provider-final pane output (see below)                                                                                    |
-| `dispatch.show`          | `operationId`                                                                                      | Immutable acceptance receipt                                                                                                                                      |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`                        | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
-| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                              | Room resource                                                                                                                                                     |
-| `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                                            | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT` |
-| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`                                      | `room` resource and `members` with metadata and status                                                                                                            |
-| `notes.read`             | `identityId`                                                                                       | Saved identity's `identityId`, `name`, `content`                                                                                                                  |
-| `identityHooks.register` | `consumer`, `identityId`, `reference`                                                              | `state`: `registered`, `pending` or `delivered`                                                                                                                   |
-| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                                         | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count                                                                           |
-| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                                              | `recorded`                                                                                                                                                        |
-| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                              | `acknowledged`                                                                                                                                                    |
-| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                               | `owner`, `published` targets                                                                                                                                      |
-| `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                | `owner`, `removed` and `kept` targets                                                                                                                             |
-| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                          | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
-| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`             | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                              |
-| `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                    | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                           |
-| `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                              | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                            |
-| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                       | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
-| `extensions.uses`        | `extension`, `feature`                                                                             | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
+| Operation                | Input                                                                                               | Result                                                                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities`           | `{}`                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
+| `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
+| `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
+| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`; optional `limit` and `before`  | `items`, `nextBefore`                                                                                                                                             |
+| `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state                                                                                                              |
+| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–10, default 10)                                  | `identityId`, `items`: locally retained provider-final pane output (see below)                                                                                    |
+| `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                      |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`                         | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
+| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                               | Room resource                                                                                                                                                     |
+| `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                                             | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT` |
+| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`                                       | `room` resource and `members` with metadata and status                                                                                                            |
+| `notes.read`             | `identityId`                                                                                        | Saved identity's `identityId`, `name`, `content`                                                                                                                  |
+| `identityHooks.register` | `consumer`, `identityId`, `reference`                                                               | `state`: `registered`, `pending` or `delivered`                                                                                                                   |
+| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                                          | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count                                                                           |
+| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                                               | `recorded`                                                                                                                                                        |
+| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                               | `acknowledged`                                                                                                                                                    |
+| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                                | `owner`, `published` targets                                                                                                                                      |
+| `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                 | `owner`, `removed` and `kept` targets                                                                                                                             |
+| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
+| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs` | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                              |
+| `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                           |
+| `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                            |
+| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
+| `extensions.uses`        | `extension`, `feature`                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
 
 `storage.root` reports the data directory selected by the invoking core, including
 its normal explicit-home/XDG/legacy selection. Extensions MUST use this operation
@@ -109,17 +109,21 @@ subagent event, malformed payload or missing admissible final text creates no
 entry, not an empty replacement. Hooks keep their existing finite budgets and
 best-effort, non-veto behavior.
 
-Claude extracts the final main-conversation assistant text blocks, in their
-original order joined by a newline, from the Stop handler's existing bounded
-transcript read. It performs no additional transcript read for this feature.
-User text, tools and thinking are excluded. Codex takes `last_assistant_message`
-from its admitted turn-end payload. Neither driver scrapes pane text or follows
-an unverified transcript path. This is bounded turn-end observation, not a
+Both drivers take `last_assistant_message` from the admitted turn-end payload
+when it is a non-empty string. Claude, whose transcript receives the final record
+slightly after the Stop fires, otherwise extracts the final main-conversation
+assistant text blocks, in their original order joined by a newline, from the Stop
+handler's existing bounded transcript read; it performs no additional transcript
+read for this feature. User text, tools and thinking are excluded. Neither driver
+scrapes pane text or follows an unverified transcript path. This is bounded turn-end observation, not a
 complete transcript backup or a guarantee that an identity has prior text.
 
 Core's SQLite store retains at most the newest 10 captures per identity. Capture
 occurs only when the existing Stop admission commits a turn end, in that same
-CAS transaction; a duplicate Stop treated as a no-op captures nothing. Text is
+CAS transaction; a duplicate Stop treated as a no-op captures nothing. A Stop
+reported while the provider continues because a Stop hook blocked an earlier one
+(`stop_hook_active`, for example a Digest checklist) ends that continuation: it is
+admitted after the earlier end, and its text is captured. Text is
 not deduplicated: two distinct committed turns with identical text are retained
 separately. The transaction appends the capture and removes overflow. Each
 capture freezes the current global `exchange.retentionDays` policy (default 90,
@@ -184,7 +188,10 @@ API rename needs no host process or endpoint observation.
 
 `identity.meta.apply` updates descriptive, untrusted metadata for one exact active
 identity UUID. It grants no ownership, availability or prompt authority and does
-not promote temporary identities. An unknown or retired UUID is `NAME_NOT_FOUND`;
+not promote temporary identities. One key is reserved: `user` with the value `true`
+marks an identity as a person, and Digest never holds that identity's messages or
+replies ([policy and checklist](#digest-policy-and-checklist)). Any other value, or
+a retired identity, marks no one. An unknown or retired UUID is `NAME_NOT_FOUND`;
 it never falls back to a display name or a same-name successor. No originator
 fields are accepted for this operation.
 
@@ -254,7 +261,8 @@ must not repeat a confirmed mutation to retry it.
 canonical `identityIds`, 1–3 distinct `windowsMs` (multiples of 5,000 from 5,000
 through 3,600,000, or multiples of 300,000 above that through 2,592,000,000, which
 read the [30-day rollup](#thirty-day-rollup)), `maxBuckets` (1–720, default 120) and
-`includeRetired` (default false). Other values or fields return `API_INPUT_INVALID`.
+`includeRetired` (default false) and an optional pinned cut `throughMs`. Other values
+or fields return `API_INPUT_INVALID`.
 One response carries at most 23,040 buckets: per identity, each window contributes
 `min(maxBuckets, windowMs / resolutionMs)` and the sum over identities and windows
 is bounded (today's largest request, 32 x 3 x 120, is well inside it). Batch larger
@@ -276,7 +284,8 @@ sample beyond the returned seed, so clients can verify the first live delta.
 ```
 
 The result is one SQLite read snapshot. `asOfMs` is core's UTC Unix millisecond
-clock at admission; `throughMs` is that time rounded down to 5 seconds.
+clock at admission; `throughMs` is that time rounded down to 5 seconds, or the
+pinned cut below.
 `resolutionMs` is 5,000 and `retainedFromMs` is `throughMs - 7,200,000`, clamped
 to zero. Only closed buckets in `[retainedFromMs, throughMs)` are included.
 The open bucket is excluded. Counter `observedAtMs` records acceptance of new
@@ -284,6 +293,18 @@ provider evidence and does not advance on a reread; `lastSampleAtMs` records an
 accepted source read, including an unchanged counter. Neither grants a heartbeat
 or permission to send input. Clock rollback fails closed rather than inventing
 an interval.
+
+**Pinned cut.** A client that must read more than 32 identities in several batches
+of one refresh reads the first batch unpinned and passes its `throughMs` back as the
+input `throughMs` of the others, so every window of every batch ends at the same
+instant instead of at each batch's own read time. The response always carries the cut
+it used. Admission refuses with `API_INPUT_INVALID` a pin that is not a non-negative
+multiple of 5,000, is later than the read time, or is more than 60 seconds before it:
+a pin carries one refresh's cut, and is not a historical query. Everything derived
+from the cut follows it, including `retainedFromMs`, the closed buckets and the
+5-minute tier's last slot, so the answer equals an unpinned read taken at that
+instant; `asOfMs` is still the real read time. The shared vector's `pinned` entry
+pins the expectation.
 
 `identities` preserves request order. Unknown or retired UUIDs return
 `{id,found:false}`. A found identity additionally returns `reporting`,
@@ -1023,7 +1044,7 @@ claiming. Core never reads Squad configuration or installs provider-global hooks
 | `digest.policy.clear`      | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
 | `digest.policy.show`       | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
 | `digest.checklist.dueNow`  | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                   |
-| `digest.checklist.flush`   | `identityId`                                                                                          | `identityId`, `state`                                          |
+| `digest.checklist.flush`   | `identityId`, optional `whenBusy` (boolean)                                                           | `identityId`, `state`                                          |
 | `digest.stats.show`        | `identities`: 1–256 active UUIDs                                                                      | `stats`: views in input order                                  |
 | `digest.checklist.read`    | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
 | `digest.checklist.history` | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | content-free settled checklist evidence                        |
@@ -1041,7 +1062,8 @@ Policy conflicts return `DIGEST_REVISION_CONFLICT`; refresh before another write
 A read without a checklist ID shows unclaimed references. A sealed read includes
 its retained membership regardless of settlement; later arrivals stay outside it.
 Each item includes `sequence`, `requestId`, `kind`, `source`, `createdAtMs`, sender
-UUID/name, `urgent`, bounded `preview`, optional `replyCommand`/`inspectCommand`,
+UUID/name, `fromUser` (true when that sender is marked a person, which only an item
+held before the mark can show), `urgent`, bounded `preview`, optional `replyCommand`/`inspectCommand`,
 and a bounded `resultPreview` for finals. Optional `contextTokensAtArrival` and
 `contextObservedAtMs` preserve the receiver's latest recorded, readable driver
 usage when the reference first entered hold. They are absent when evidence is
@@ -1067,10 +1089,16 @@ Due-now grants no transport permission and starts no worker. No core scheduler e
 `digest.checklist.flush` offers one existing idle-delivery opportunity for the exact
 active identity UUID, without name or pane resolution. Core reuses its ordinary
 live-session, readiness, claim, transport and settlement checks; it is not a
-readiness grant. The operation reads the configured paste-to-Enter delay, starts
+readiness grant. The one option, `whenBusy` (a boolean, false by default; any other
+type or an unknown field is refused), replaces only the live-idle evidence with the
+exact verified live binding and session, so an extension's cap can offer a held
+backlog to an agent that is busy or never reports its activity. The approval and
+host guards, the claim, the seal and settlement are unchanged, `nothing_due` still
+means no range was marked, and `not_idle` then means no live session. It delivers
+what an ordinary message already delivers to a busy agent, never more. The operation reads the configured paste-to-Enter delay, starts
 no timer and returns no message or captured pane text. `state` is `nothing_due`
 when no unclaimed range is mechanically eligible, `not_idle` when no idle claim
-is admitted, `delivered` after successful settlement, `uncertain` after uncertain
+(or, with `whenBusy`, no live session) is admitted, `delivered` after successful settlement, `uncertain` after uncertain
 transport, or `unavailable` after definitely-unsent settlement. Errors remain
 ordinary API errors. A competing or uncertain sealed checklist is never replayed;
 the result is not a retry lease.

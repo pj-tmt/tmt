@@ -163,7 +163,8 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
 fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
     for width in [80, 100, 160] {
         let mut app = workspace_board();
-        app.shell.tab = crate::board::shell::OpsTab::Overview;
+        app.shell.tab = crate::board::shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         let summary = draw(&app, width, 24)[2].clone();
         app.view.as_mut().unwrap().history_pending = true;
         let pending = draw(&app, width, 24);
@@ -180,14 +181,6 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
             draw(&app, width, 24)
                 .iter()
                 .all(|line| !line.contains("Updating usage"))
-        );
-        app.view.as_mut().unwrap().history_pending = true;
-        app.shell.tab = crate::board::shell::OpsTab::Agents;
-        assert!(
-            draw(&app, width, 24)
-                .iter()
-                .all(|line| !line.contains("Updating usage")),
-            "hidden Overview status cannot appear in Agents"
         );
     }
 }
@@ -375,10 +368,7 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
 #[test]
 fn footer_labels_use_only_registered_spaced_marks_and_structural_typography() {
     use crate::board::glyph_guard::glyph_error;
-    for tab in [
-        crate::board::shell::OpsTab::Overview,
-        crate::board::shell::OpsTab::Agents,
-    ] {
+    for tab in [crate::board::shell::OpsTab::Agents] {
         for reader in [false, true] {
             let mut app = workspace_board();
             app.shell.tab = tab;
@@ -846,7 +836,7 @@ fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
     );
     let screen = draw(&app, 80, 8);
     let tab_y = usize::from(app.tab_hits.borrow()[0].y);
-    assert!(screen[tab_y].contains("1  Overview") && screen[tab_y].contains("2  Agents"));
+    assert!(screen[tab_y].contains("1  Agents") && screen[tab_y].contains("2  Digest"));
     assert!(screen.iter().any(|line| line.contains("Opening")));
     let settled = workspace_board();
     assert!(!settled.loading());
@@ -862,13 +852,15 @@ fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
 fn only_visible_label_text_invalidates_the_clock() {
     crate::status::with_now_ms(1_000, || {
         let mut app = workspace_board();
+        app.right_tab = crate::board::shell::RightTab::Measure;
         app.view.as_mut().unwrap().replies = vec![json!({
             "recipientId": crate::board::app::workspace::tests::MEMBER,
             "requestId":"response", "submittedAtMs":1_000, "response":"quiet response"
         })];
         draw(&app, 160, 24);
+        // The Usage band's quota clock has nothing to show here, so its mark stays blank.
         assert!(
-            time_marks(&app, 1_000).is_empty(),
+            time_marks(&app, 1_000).iter().all(String::is_empty),
             "a timestamp without displayed age cannot invalidate"
         );
         workspace_row(&mut app)["digest"] =
@@ -900,7 +892,7 @@ fn only_visible_label_text_invalidates_the_clock() {
         app.select(index);
         draw(&app, 80, 24);
         assert!(
-            time_marks(&app, 61_000).is_empty(),
+            time_marks(&app, 61_000).iter().all(String::is_empty),
             "collapsed members have no visible labels"
         );
     });
@@ -924,6 +916,10 @@ fn clipped_label_suffix_does_not_invalidate_until_the_visible_word_expires() {
                 .iter()
                 .any(|cell| cell.symbol() == "d")
         );
+        // The loading line's own delay gate is not what this test measures.
+        app.frame_clocks
+            .borrow_mut()
+            .retain(|clock| !matches!(clock, ClockSurface::DelayGate { .. }));
         let first = time_marks(&app, 1_000);
         assert_eq!(first, vec!["digest"]);
         assert_eq!(first, time_marks(&app, 61_000));
@@ -932,7 +928,7 @@ fn clipped_label_suffix_does_not_invalidate_until_the_visible_word_expires() {
 }
 
 #[test]
-fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() {
+fn quota_clock_tracks_its_visible_projection_and_stays_out_of_digest() {
     const NOW: u64 = 1_791_600_000_000;
     crate::status::with_now_ms(NOW, || {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
@@ -944,8 +940,6 @@ fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() 
             initial, later,
             "reset/observation text advances without a new source read"
         );
-        app.shell.tab = crate::board::shell::OpsTab::Agents;
-        draw(&app, 160, 36);
         assert!(
             app.frame_clocks
                 .borrow()
@@ -953,17 +947,19 @@ fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() 
                 .any(|surface| matches!(surface, super::ClockSurface::TopBar { .. }))
         );
         assert!(
-            !app.frame_clocks
+            app.frame_clocks
                 .borrow()
                 .iter()
                 .any(|surface| matches!(surface, super::ClockSurface::OverviewUsageQuota { .. }))
         );
-        app.frame_clocks
-            .borrow_mut()
-            .retain(|surface| matches!(surface, super::ClockSurface::OverviewUsageQuota { .. }));
+        app.shell.tab = crate::board::shell::OpsTab::Digest;
+        draw(&app, 160, 36);
         assert!(
-            time_marks(&app, NOW).is_empty(),
-            "body quota clock belongs to Overview; compact top-bar limits are shared"
+            !app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|surface| matches!(surface, super::ClockSurface::OverviewUsageQuota { .. })),
+            "the body quota clock belongs to the Agents tab; compact top-bar limits are shared"
         );
     });
 }
@@ -987,7 +983,7 @@ fn editor_help_distinguishes_portable_newlines_from_enhanced_shift_enter() {
 fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_width() {
     use crate::board::{app::RowTarget, shell::OpsTab};
     crate::status::with_now_ms(1_000, || {
-        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             for width in [40, 80, 160] {
                 for (base, depth) in [
                     (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
@@ -1079,11 +1075,10 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                             .collect::<String>();
                         let label = match tab {
                             OpsTab::Digest => "unavailable",
-                            OpsTab::Overview => "waiting",
                             OpsTab::Agents => "—",
                         };
                         assert!(line.contains(label), "{tab:?}/{width}/{depth:?}: {line}");
-                        if tab == OpsTab::Overview {
+                        if tab == OpsTab::Agents {
                             assert!(
                                 !line.contains("Auto ▾"),
                                 "the removed MODE cell grants no choice authority"
@@ -1140,6 +1135,7 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
         for width in [80, 100, 160] {
             crate::status::with_now_ms(1000, || {
                 let mut app = workspace_board();
+                app.right_tab = crate::board::shell::RightTab::Measure;
                 app.shell.tab = tab;
                 for (mode, text, held) in [
                     ("auto", "Auto", false),
@@ -1183,7 +1179,7 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                     let screen = buffer_text(&buffer).join("\n");
                     let context = format!("{tab:?}/{width}/{mode}/{held}:\n{screen}");
                     assert!(!screen.contains("No held messages"), "{context}");
-                    if tab == crate::board::shell::OpsTab::Overview {
+                    if tab == crate::board::shell::OpsTab::Agents {
                         assert_eq!(
                             crate::board::workspace::columns::member_digest_labels(
                                 &app.labels,
@@ -1202,7 +1198,7 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                         assert_eq!(screen.contains("3 held"), held, "{context}");
                     }
                     // Complete trailing labels may be omitted at compact widths.
-                    if width == 160 && tab != crate::board::shell::OpsTab::Overview {
+                    if width == 160 && tab != crate::board::shell::OpsTab::Agents {
                         assert_eq!(screen.contains("When idle"), held, "{context}");
                     }
                     for old in ["Auto ▾", "Every 5m ▾", "Off ▾"] {
@@ -1255,23 +1251,22 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
 fn applied_search_and_footer_notices_fit_whole_effective_hints() {
     use crate::board::shell::OpsTab;
     for width in [103, 148] {
-        for tab in [OpsTab::Overview, OpsTab::Agents] {
-            let mut app = workspace_board();
-            app.shell.tab = tab;
-            app.search = "worker".into();
-            app.workspace_reconcile();
-            let screen = draw(&app, width, 51);
-            let footer = screen.last().unwrap();
-            assert!(
-                footer.contains("/ edit filter"),
-                "{tab:?}/{width}: {footer}"
-            );
-            assert!(
-                footer.contains("Esc clear filter"),
-                "{tab:?}/{width}: {footer}"
-            );
-        }
-        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+        let tab = OpsTab::Agents;
+        let mut app = workspace_board();
+        app.shell.tab = tab;
+        app.search = "worker".into();
+        app.workspace_reconcile();
+        let screen = draw(&app, width, 51);
+        let footer = screen.last().unwrap();
+        assert!(
+            footer.contains("/ edit filter"),
+            "{tab:?}/{width}: {footer}"
+        );
+        assert!(
+            footer.contains("Esc clear filter"),
+            "{tab:?}/{width}: {footer}"
+        );
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             let mut app = workspace_board();
             app.shell.tab = tab;
             app.finished(Err("Could not show worker".into()));

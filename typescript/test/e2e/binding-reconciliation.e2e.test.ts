@@ -590,8 +590,7 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
         },
         { ...inputLog, globalDir: first.globalDir }
       );
-      // Native global visibility reconciles conclusive foreign death too;
-      // the installed TS current-server-only rule is not this contract.
+      // Global visibility reconciles conclusive foreign death too.
       expect(
         expectJsonResult(withoutAddress(await first.runJsonCli<Listing>(['ls']))).identities
       ).toEqual([]);

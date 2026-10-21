@@ -72,16 +72,21 @@ fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
         "Exchanges with you",
         "One short observed response.",
         "tmux work:2.1",
-        "TOK 1h",
-        "STATE",
-        "DIGEST",
-        "TIMERS",
     ] {
         assert!(text.contains(value), "{value}:\n{text}");
     }
+    // The cells belong to Measure, not to the conversation.
+    assert!(!text.contains("TIMERS"), "{text}");
+    app.right_tab = crate::board::shell::RightTab::Measure;
+    let measure = screen(&draw(&mut app, 148, 51));
+    for value in ["TOK 1h", "STATE", "DIGEST", "TIMERS"] {
+        assert!(measure.contains(value), "{value}:\n{measure}");
+    }
+    app.right_tab = crate::board::shell::RightTab::Talk;
+    let sparse = draw(&mut app, 148, 51);
     assert!(!text.contains("all parties") && !text.contains("since "));
     let input = app.input_band.get().expect("admitted idle input");
-    assert_eq!(input.height, 2);
+    assert_eq!(input.height, 4);
     assert_eq!(
         input.bottom(),
         app.conversation.borrow().pane.unwrap().bottom()
@@ -271,7 +276,8 @@ fn responsive_and_short_focus_keep_an_admitted_editor_and_its_uuid() {
                 .input_band
                 .get()
                 .expect("usable conversation retains its input");
-            assert_eq!(input.height, 2);
+            // Short terminals give the padding rows up first.
+            assert_eq!(input.height, if height >= 28 { 4 } else { 2 });
             assert_eq!(input.intersection(pane), input);
         }
         assert_eq!(app.workspace.selected, selected);

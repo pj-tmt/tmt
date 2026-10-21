@@ -3,7 +3,7 @@
 //! here, since serve is the state's only opener. One JSON object per line.
 use crate::{
     canonical,
-    devices::{Devices, device_json},
+    devices::Devices,
     error::RemoteError,
     firestore_limits,
     object_service::{NativeActivationInfo, ObjectReadiness},
@@ -504,15 +504,20 @@ fn session(
                 .undesignate()
                 .map(|()| json!({"designatedClientId":null})),
         ),
-        Some("devices") => {
-            Some(devices.list().map(
-                |grants| json!({"devices": grants.iter().map(device_json).collect::<Vec<_>>()}),
-            ))
-        }
+        Some("devices") => Some(devices.visible().map(|rows| json!({"devices":rows}))),
+        Some("remove-others") if request.as_object().is_some_and(|row| row.len() == 2) => Some(
+            request
+                .get("keep")
+                .and_then(Value::as_str)
+                .ok_or_else(crate::operations::invalid)
+                .and_then(|keep| devices.remove_others(keep))
+                .map(|count| json!({"removed":count})),
+        ),
         Some("revoke") => Some(match request.get("clientId").and_then(Value::as_str) {
             Some(client_id) => devices
                 .revoke(client_id)
-                .map(|grant| json!({"device": device_json(&grant)})),
+                .and_then(|grant| devices.describe(&grant))
+                .map(|row| json!({"device":row})),
             None => Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",
                 "Revoke needs a clientId.",
@@ -525,7 +530,8 @@ fn session(
             ) {
                 (Some(client), Some(enabled)) => devices
                     .talk(client, enabled)
-                    .map(|grant| json!({"device":device_json(&grant)})),
+                    .and_then(|grant| devices.describe(&grant))
+                    .map(|row| json!({"device":row})),
                 _ => Err(crate::operations::invalid()),
             },
         ),
@@ -536,7 +542,8 @@ fn session(
             ) {
                 (Some(client_id), Some(name)) => devices
                     .rename(client_id, name)
-                    .map(|grant| json!({"device": device_json(&grant)})),
+                    .and_then(|grant| devices.describe(&grant))
+                    .map(|row| json!({"device":row})),
                 _ => Err(RemoteError::new(
                     "REMOTE_INPUT_INVALID",
                     "Rename needs a clientId and name.",

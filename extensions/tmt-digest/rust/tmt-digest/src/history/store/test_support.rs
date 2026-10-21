@@ -34,7 +34,7 @@ impl Fixture {
 impl Store {
     /// `status` at the built-in prices, for scenarios that are not about prices.
     pub(crate) fn status_built_in(
-        &self,
+        &mut self,
         id: &str,
         window: Window,
         now: u64,

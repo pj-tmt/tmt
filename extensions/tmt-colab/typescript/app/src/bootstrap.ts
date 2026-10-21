@@ -13,6 +13,7 @@ import { ownerPageHint } from './reading-link.js';
 import { record } from './storage.js';
 import { shortPageId, validPagePrefix } from './short-links.js';
 import { jsonResponse } from './registration.js';
+import { WORK_TASKS, taskNumber } from './work.js';
 
 import type { ExpiryInfo } from './expiry.js';
 
@@ -24,11 +25,16 @@ const PROJECTS_PER_SPACE = 1000;
 
 /** Page summary limits; the contract's Page summary section holds the same numbers. */
 export const AUTHOR_BYTES = 128;
+/** Assignees a list row names; `work.rs` (`ROW_WORKING`) holds the same number. */
+export const ROW_WORKING = 3;
+/** A row's assignee label, as long as the task's own (`work.ts`). */
+const ASSIGNEE_BYTES = 128;
 /** 200 proposals + 50 readings + 50 answer blocks + 50 reviews. */
 export const NEEDS_YOU_MAX = 350;
 const COMMENTS_MAX = 4_294_967_295;
-/** The complete `/api/pages` reply: 1,000 pages with the longest labels and summaries (about 780 KB) fit. */
-export const DISCOVERY_BYTES = 1024 * 1024;
+/** The complete `/api/pages` reply: 1,000 pages with the longest labels, summaries, work rows and
+ * parents (about 1.9 MB) fit. */
+export const DISCOVERY_BYTES = 2 * 1024 * 1024;
 
 /** Project names are display-only text: unique, 1 to 32 code points, no control character. The owner enforces the full grammar; the browser refuses what it could not render safely. */
 function projectNames(names: readonly unknown[]): boolean {
@@ -44,6 +50,24 @@ function projectNames(names: readonly unknown[]): boolean {
   );
 }
 
+/** An assignee a list row names: no identity, only the display label. */
+export interface RowAssignee {
+  kind: 'agent' | 'person';
+  name: string;
+}
+/** What a list row shows of a page's tasks, every task that follows a page showing that page's
+ * stage; omitted for a page with no work (contract: Page summary). */
+export interface PageWorkRow {
+  stage: 'discussion' | 'in-progress' | 'done';
+  done: number;
+  total: number;
+  /** Tasks waiting in review for a sign-off. */
+  signoff: number;
+  /** The assignees of in-progress tasks, each once in task order, at most `ROW_WORKING`. */
+  working: readonly RowAssignee[];
+  /** How many more assignees work, when more than `ROW_WORKING` do. */
+  more?: number;
+}
 /** What the owner derives for the list: comment count, a proposal awaiting the owner, the creator. */
 export interface PageActivity {
   comments: number;
@@ -53,6 +77,10 @@ export interface PageActivity {
   needsYou: number;
   /** The page's creation label (`meta.originalAuthor`); omitted when it has none. */
   author?: string;
+  /** The page's tasks; omitted for a page with no work, so a fresh summary without it is in discussion. */
+  work?: PageWorkRow;
+  /** The task that follows this page; omitted when none does. */
+  parent?: { page: string; task: string };
 }
 export interface PageInfo extends ExpiryInfo {
   pageId: string;
@@ -78,15 +106,55 @@ export interface Bootstrap {
   pages: PageInfo[];
   pageIds: PageId[];
 }
-/** The owner's display-only summary is untrusted text: bounded and typed, never trusted for more. */
-export function activity(value: unknown): asserts value is PageActivity {
+/** A work row is untrusted text too: closed values, and counts that agree with the stage. */
+function workRow(value: unknown): asserts value is PageWorkRow {
   requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
   exactKeys(
     value,
-    'author' in value
-      ? ['comments', 'waiting', 'needsYou', 'author']
-      : ['comments', 'waiting', 'needsYou'],
+    'more' in value
+      ? ['stage', 'done', 'total', 'signoff', 'working', 'more']
+      : ['stage', 'done', 'total', 'signoff', 'working'],
   );
+  const count = (n: unknown): n is number =>
+    Number.isSafeInteger(n) && Number(n) >= 0 && Number(n) <= WORK_TASKS;
+  requireValue(count(value.done) && count(value.total) && count(value.signoff));
+  requireValue(value.done <= value.total && value.signoff <= value.total - value.done);
+  // The stage follows the counts, as `waiting` follows `needsYou`.
+  requireValue(
+    value.stage ===
+      (value.total === 0 ? 'discussion' : value.done === value.total ? 'done' : 'in-progress'),
+  );
+  requireValue(Array.isArray(value.working) && value.working.length <= ROW_WORKING);
+  for (const who of value.working) {
+    requireValue(who !== null && typeof who === 'object' && !Array.isArray(who));
+    exactKeys(who, ['kind', 'name']);
+    requireValue(
+      (who.kind === 'agent' || who.kind === 'person') &&
+        typeof who.name === 'string' &&
+        who.name.length >= 1 &&
+        new TextEncoder().encode(who.name).length <= ASSIGNEE_BYTES &&
+        !/\p{Cc}/u.test(who.name),
+    );
+  }
+  if ('more' in value)
+    requireValue(
+      count(value.more) &&
+        value.more >= 1 &&
+        value.working.length === ROW_WORKING &&
+        value.working.length + value.more <= value.total,
+    );
+}
+/** The owner's display-only summary is untrusted text: bounded and typed, never trusted for more. */
+export function activity(value: unknown): asserts value is PageActivity {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  exactKeys(value, [
+    'comments',
+    'waiting',
+    'needsYou',
+    ...('author' in value ? ['author'] : []),
+    ...('work' in value ? ['work'] : []),
+    ...('parent' in value ? ['parent'] : []),
+  ]);
   requireValue(
     Number.isSafeInteger(value.comments) &&
       Number(value.comments) >= 0 &&
@@ -104,6 +172,15 @@ export function activity(value: unknown): asserts value is PageActivity {
         new TextEncoder().encode(value.author).length <= AUTHOR_BYTES &&
         !/\p{Cc}/u.test(value.author),
     );
+  if ('work' in value) workRow(value.work);
+  if ('parent' in value) {
+    const parent = value.parent;
+    requireValue(parent !== null && typeof parent === 'object' && !Array.isArray(parent));
+    exactKeys(parent, ['page', 'task']);
+    requireValue(typeof parent.page === 'string' && typeof parent.task === 'string');
+    generatedId(parent.page);
+    requireValue(taskNumber(parent.task) !== undefined);
+  }
 }
 export function mountUrl(): URL {
   if (publicEntry()) return entryMount();

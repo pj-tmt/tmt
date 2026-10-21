@@ -270,8 +270,7 @@ A square, opaque, shadow-free sheet with the shared thin edge.
 ### Chip
 
 A one-line label whose content is always vertically centered (fixed height,
-inline flex). Kinds: **status** (mark plus word), **driver** (`claude`,
-`codex` in the driver color), **filter** (a toggle button, accent when on) and
+inline flex). Kinds: **status** (mark plus word), **filter** (a toggle button, accent when on) and
 **count** (`◆ 2 open`, a button that opens its list). Static chips are square
 outlines; interactive ones are buttons with a focus ring. Height 20 px, filter
 24 px. Basis: own.
@@ -442,21 +441,21 @@ An anchored window adds no decorative connector line beside the circle.
 One message in Chat or a thread: author line (`name AGENT · time` for agents, `name · time` for people), body,
 state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
-- Chat and threads share `ConversationTurn` structure and history ownership.
-  In annotation/thread windows, human messages sit directly on the grey panel;
-  agent messages use a whole-message sheet block without borders or bubbles.
-  Every author line includes a person/agent icon, name and time; agent messages
-  carry one small outlined `AGENT` tag, 6px after the name and before the time.
-  Chat retains its existing rows and trusted driver rail treatment.
-- In Chat, only the current verified `runningDriver`, matched by machine and agent,
-  selects driver treatment: `claude` uses `review`, `codex` uses `link`. Present
-  metadata adds a square filled Bot avatar, bold name and lowercase driver tag;
-  the rail uses the same role. No shadow.
-- Loading, failed, absent or other values use neutral agent treatment, without a
-  driver tag or explanation. Names, body content and remembered `driver` cannot
-  select a treatment. Observation refreshes update treatment with stable turn
-  keys, preserving the mounted turn and focus; no driver history is persisted.
-- Literal markup in a body always renders as text. Basis: own.
+- Chat and threads share `ConversationTurn` structure and history ownership, and one
+  turn look: a message sits directly on its surface, with no card fill, border or rule,
+  whoever wrote it. The author line is the Chat meta style in both: the person or agent
+  name in semibold sans, then the muted time. A person's turn in a thread keeps its
+  small avatar. The thread's own `THREAD` and `OPEN` header may stay mono.
+- An agent reply looks the same running or finished: no edge or colour per driver
+  and no driver word. A running turn shows only the
+  chip's own working state. The verified `runningDriver` never selects a
+  treatment. No shadow.
+- A body is a small safe Markdown subset: paragraphs, bullet and numbered lists, block quotes,
+  fenced code, `code`, **strong**, _emphasis_ and links, with 8px between blocks. Anything else
+  stays the text the author wrote, and raw markup always renders as text. Fenced code scrolls
+  inside its own block and never widens the window. A link opens only a page of this space, in the app; an
+  outside URL shows as words followed by the URL, and any other target stays literal text.
+  Basis: own.
 
 ### Message attachments
 
@@ -528,7 +527,8 @@ your machine`) and a way to recheck.
 days`); exact time on hover.
 - **Counts:** the header carries one pending count per surface; it disappears at
   zero.
-- **Motion:** none except the LoaderCircle spin, which stops under
+- **Motion:** none except the LoaderCircle spin (see
+  [Transient states](#transient-states)), which stops under
   `prefers-reduced-motion`.
 
 ## Transient states
@@ -541,6 +541,12 @@ the busy mark and busy state for every Action and IconAction.
   that the action's reserved busy mark shows, and once shown it stays at least
   400 ms. Errors show at once. No label swaps (`Saving…`) and no inserted
   status paragraphs.
+- **Spinner:** one turn per 0.9 s, linear, infinite, defined once in
+  `browser-ui` (`browserUiClasses.spin`, `tmt-ui-spin`). Every shown
+  LoaderCircle uses it: the busy mark of an Action or IconAction turns by
+  itself, any other mark takes the class. A surface never brings its own
+  keyframes or speed. Under `prefers-reduced-motion: reduce` the mark stays
+  on screen and stands still.
 - **Busy is not disabled:** a busy control keeps its look, focus and readable
   text; it is `aria-disabled` with an activation guard. Only an unavailable
   control uses the muted disabled style.

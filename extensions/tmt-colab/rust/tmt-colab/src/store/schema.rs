@@ -117,6 +117,20 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO page_projects(page,project) SELECT page,label FROM page_labels;
     DROP TABLE page_labels;
     "#,
+    // Schema 14: who signed a checkpoint. NULL is the stream's own device, as every checkpoint
+    // before this; an owner fold (#3983) names the owner-member device that signed it for the
+    // stream, so a prune keeps its anchor and a revoke can list the folds its device signed.
+    r#"
+    ALTER TABLE checkpoints ADD COLUMN signer TEXT;
+    "#,
+    // Schema 15: server-observed page activity (#2600): the clock at the last admitted content or
+    // own-stream update (edits, comments, replies) or explicit owner restore. Legacy pages stay
+    // unknown until new activity; nothing is backfilled and a read never establishes it.
+    r#"
+    ALTER TABLE pages ADD COLUMN last_activity_at_ms INTEGER
+        CHECK(last_activity_at_ms IS NULL OR
+            (typeof(last_activity_at_ms)='integer' AND last_activity_at_ms>=0 AND last_activity_at_ms<=9007199254740991));
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

@@ -104,11 +104,12 @@ Rules that are easy to get wrong:
   changes and orderly shutdown have distinct bounded notices, never revocation proof. The journal/ack
   remain per device.
 - **Session cap.** `session.open` rereads `settings` on each open. Unset settings
-  use the default cap of 8 sessions per device; `off` is unlimited. `session`
+  are unlimited by default; explicit positive caps retain the same behavior. `session`
   evicts only that device's most idle session without a live transport. When no
   detached victim can make room, a verified fresh open receives signed
   `REMOTE_SESSION_LIMIT`; attached sessions survive. The transport-count lock
   linearizes detached end with attachment; no new lock order or cap is introduced.
+- **Device cleanup.** Store owns durable last-use observations and atomic inventory-checked removal; public lists exclude revoked rows without removing event tombstones.
 - **Multi-session migration.** The `multi_session` store migration preserves grants
   and copies existing client/server sequence counters into session-ID-keyed rows.
 - **Embedded SDK asset.** The door embeds `assets/remote-v1.js` built from

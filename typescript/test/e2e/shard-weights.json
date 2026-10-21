@@ -2,9 +2,9 @@
   "$comment": [
     "Approximate seconds each E2E file takes in CI, used only to balance the two Docker E2E shards (typescript/scripts/e2e-shards.mjs).",
     "A stale or missing weight costs balance, never coverage: every E2E file always lands in exactly one shard (guarded by ci-scope tests).",
-    "Whole-second medians from eight full green PR/MG shard pairs in #3232 (2026-10-16): 66 timed files and adapter execution. Unmeasured and skipped-file weights remain unchanged and positive."
+    "E2E file weights are whole-second medians from eight full green PR/MG shard pairs in #3232 (2026-10-16), with unmeasured and skipped-file weights unchanged and positive; adapterTestsSeconds is ceil(32.2 s adapter-only compile + 0.055258 s filtered two-case execution) = 33 from #4101 PR #4115 run 39412855253 attempt 1, head 632712a2d55c, Docker shard 1."
   ],
-  "adapterTestsSeconds": 119,
+  "adapterTestsSeconds": 33,
   "defaultSeconds": 5,
   "files": {
     "activity-hooks.e2e.test.ts": 3,

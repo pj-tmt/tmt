@@ -115,7 +115,7 @@ for (const width of [1440, 390])
           });
           await expect(page.locator('#scale-fixture .conversation-turn')).toHaveCSS(
             'padding',
-            '8px 16px 8px 13px',
+            '8px 16px',
           );
         }
       });

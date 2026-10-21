@@ -93,6 +93,7 @@ export class Fold {
             ...(Object.hasOwn(value.projection, 'layoutReason') ? ['layoutReason'] : []),
             ...(Object.hasOwn(value.projection, 'creationRecipient') ? ['creationRecipient'] : []),
             ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
+            ...(Object.hasOwn(value.projection, 'work') ? ['work'] : []),
           ]);
           validateProjection(value.projection);
           validateOwn(value.projection.own);
@@ -127,6 +128,7 @@ export class Fold {
           ...(Object.hasOwn(event.data as object, 'attachments') ? ['attachments'] : []),
           ...(Object.hasOwn(event.data as object, 'pageType') ? ['pageType'] : []),
           ...(Object.hasOwn(event.data as object, 'shell') ? ['shell'] : []),
+          ...(Object.hasOwn(event.data as object, 'work') ? ['work'] : []),
           ...(Object.hasOwn(event.data as object, 'creationRecipient')
             ? ['creationRecipient']
             : []),
@@ -153,6 +155,7 @@ export class Fold {
               attachments: value.attachments,
               pageType: value.pageType,
               shell: value.shell,
+              work: value.work,
               own: value.own,
             }),
           ).length > STATE_BYTES
@@ -174,6 +177,7 @@ export class Fold {
           ...(Object.hasOwn(value, 'pageType')
             ? { pageType: value.pageType, shell: value.shell }
             : {}),
+          ...(Object.hasOwn(value, 'work') ? { work: value.work } : {}),
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           ...(value.creationRecipient === undefined
             ? {}
@@ -207,6 +211,7 @@ export class Fold {
       ...(Object.hasOwn(base, 'layoutReason') ? ['layoutReason'] : []),
       ...(Object.hasOwn(base, 'creationRecipient') ? ['creationRecipient'] : []),
       ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
+      ...(Object.hasOwn(base, 'work') ? ['work'] : []),
     ]);
     validateProjection(base);
     validateProjection({ ...base, source });

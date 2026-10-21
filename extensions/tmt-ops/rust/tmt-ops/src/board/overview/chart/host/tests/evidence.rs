@@ -10,7 +10,7 @@ fn terminal_cell_evidence() {
     let root = std::path::PathBuf::from(root);
     std::fs::create_dir_all(&root).unwrap();
     crate::status::with_now_ms(fixtures::NOW, || {
-        for tab in [OpsTab::Overview, OpsTab::Digest] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             for (base, depth) in [
                 (Base::Tmt, Depth::TrueColor),
                 (Base::TmtLight, Depth::TrueColor),

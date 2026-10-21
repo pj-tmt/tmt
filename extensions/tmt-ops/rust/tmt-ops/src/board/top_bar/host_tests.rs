@@ -92,7 +92,7 @@ fn every_tab_uses_the_selected_uuid_and_held_limits_without_commands() {
         let _no_commands = crate::runner::forbid_commands();
         let (mut app, members, names) = observed_app(now);
         let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
-        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             app.shell.tab = tab;
             for (id, name, expected) in [
                 (&members[0], &names[0], "142k / 258k"),

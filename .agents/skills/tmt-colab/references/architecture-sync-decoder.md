@@ -15,6 +15,23 @@ and `limits.rs`; do not restate them.
   envelope, header, hash and signature bindings, then calls the create-only `Store`. It
   never decrypts and never calls the decoder. An exact retry returns the same receipt
   without a rebroadcast; awareness is ephemeral.
+- Owner folds (#3983, colab-v1 "Owner fold"): the model decodes the `fold` object kind
+  (`object::seal_fold`, `open_fold`, `check_anchor`; a fold header has one more field, so a reader
+  of the thirteen-field header refuses it) and a `device.revoke` carries the fold hashes it accepts
+  (`DeviceRevoke::folds`; the native revoke lists `committed_folds`, at most 512). The writer is
+  `page/owner_fold.rs`, run by `compact::request` after the device's own combine: it merges another
+  owner-member device's verified updates per namespace and publishes them with `Store::fold` (the
+  signer is the local writer, kept in `checkpoints.signer`) only after one source/metadata/own
+  equality guard; `prune` keeps the update at the fold's sequence as its anchor. Native
+  admission reads folds through `fold.rs` (`open_fold_object`, anchors from `fold_anchors`); catch-up
+  sends the anchor frame, then the fold; the browser admits both in `Objects` through
+  `Admission.readFold`. A fold is not accepted as an `append` from another device yet. The cloud
+  publisher sends its retained anchor in `log` before the fold pair in `checkpoints`; the hosted
+  reader admits the anchor frame before either fold. Native cloud inbound installs a pair (and a
+  fold's anchor) for a stream it holds nothing of with `Store::bootstrap`, one transaction; the
+  stream position is `store::position`, the one definition `stream_head` and `append_in` share.
+  `contracts/vectors/fold-v1.json` is replayed by `src/fold_vectors.rs`, `tests/fold_vectors.rs` and
+  `test/fold-own.test.ts`.
 - Overflow, an unknown or pruned cursor and any abnormal close end in `RESYNC_REQUIRED`:
   clients reconstruct from a fresh verified catchup. Bytes already written cannot be
   recalled, so a stalled write drops the stream instead of flushing ciphertext.
@@ -111,6 +128,32 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   neutral notice, never the empty wire text container.
   The [Shell pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#shell-pages-3648)
   owns roots, action grammar, attribution and shared validation vectors.
+
+- `work.rs` and browser `work.ts` own the closed work value an ordinary page carries in
+  `meta.work` (a two-line summary and a task list) and its detached trial actions and derived
+  values; `closed.rs`/`closed.ts` and `summary_lines.rs`/`summary-lines.ts` hold the checks the
+  shell and work values share (`summary.rs` is the unrelated list summary). The decoder treats a
+  shell edit and a work edit as one `StructuredEdit`, admits `meta.work` only on a page that is
+  not a shell, and carries it through `BaselineInput`, so a fresh epoch baseline and an HTML
+  source write keep it. `page::read_work` and `page::prepare_structured_publication` are the page
+  owner's read and write. `wip.rs` owns the work-in-progress limit, the write owner's admission
+  rule and never a property of the value, so no published state is invalid for it;
+  `work_index.rs` reads every page's work for it and for the CLI list through one derived file keyed
+  by the page's own progress (`work-index.json`, rebuildable, never signed or synced), and
+  `settings.rs` stores the limits. A task may follow a page (`child`): `work_links.rs` is pure over
+  that index and resolves a page's derived values through the pages its tasks follow (a page's
+  stage is its tasks' states, bounded in depth and cycle-safe) and decides whether `task.link` is
+  admitted (one parent, no loop, a page that exists), since one page's value cannot see another's;
+  the owner list resolves its rows and parents through the same `Graph` (`registration.rs`).
+  `cli_work.rs` runs the `task` and `summary` commands: it checks the limit and the link before it
+  prepares a change, so the decoder and the browser never see them, `task convert` makes the page
+  through `cli_management::commit_creation` and then links it, and `ls` adds each page's derived
+  work and its parent. Export publishes `meta.work` as `work.json` beside the
+  HTML. The browser fold validates the value and projects it through the Worker and the parent's
+  prepared-content check; the browser shows nothing new yet. The
+  [Work contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#work-4050) owns the
+  schema, limits, actions and derived values, and `work-v1.json` is shared by Rust and
+  TypeScript.
 
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace

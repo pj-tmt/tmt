@@ -77,7 +77,7 @@ must suppress foreground collection too.
 
 ## Targets, hosts and setup
 
-Ad-hoc isolated runs must use `env -u TMUX -u TMUX_PANE` and a private tmux `-L` socket before any `tmt add`/`name`; a throwaway `TMT_HOME` alone does not isolate the server.
+A scratch tmux server runs only through `scripts/private-tmux.sh <scratch-dir> <tmux command>`: the socket is fixed at `<scratch-dir>/tmux.sock`, `TMUX` and `TMUX_PANE` are dropped, and a scratch directory inside a host socket directory is refused; stop the server with the same call. The rule, and what an agent may still do on the host server, is [Host tmux safety](../../../../AGENTS.md#host-tmux-safety). To run `tmt` against a scratch server, use `env -u TMUX -u TMUX_PANE TMUX_TMPDIR=<scratch-dir>`; a throwaway `TMT_HOME` alone does not isolate the server. Test fixtures start servers only through `privateTmux` (TypeScript), the Rust `PrivateServer` or the e2e wrapper, which assert the socket private.
 
 - Explicit tmux target errors: `cargo test --locked -p tmt-adapters tmux::io_tests` and
   `cargo test --locked -p tmt-cli --test target_resolution` (slow stand-in under an

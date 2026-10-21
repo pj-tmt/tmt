@@ -154,11 +154,14 @@ export function FilesPanel({
   descriptors,
   files,
   disabled,
+  afterSave,
   readOnly = false,
 }: {
   descriptors: readonly attachment.AttachmentDescriptor[];
   files: DocumentFiles;
   disabled: boolean;
+  /** Settles once a Source save in flight has landed: true if it did, false if it failed. */
+  afterSave(): Promise<boolean>;
   readOnly?: boolean;
 }) {
   // A same-page reopen may replace the files owner; the draft keeps its picked bytes and reads
@@ -187,6 +190,8 @@ export function FilesPanel({
     }
     setAdding(true);
     try {
+      // A save in flight lands first; if it fails, nothing is added and the chips stay staged.
+      if (!(await afterSave())) return;
       const prepared = await draft.prepare();
       if (!prepared.ok) {
         setError(text.filesBlocked[prepared.why]);
@@ -209,7 +214,14 @@ export function FilesPanel({
       <FilesList
         descriptors={descriptors}
         binding={files.attachments}
-        remove={readOnly ? undefined : (id) => files.remove([id])}
+        remove={
+          readOnly
+            ? undefined
+            : async (id) => {
+                // The save lands first; if it fails, nothing is removed.
+                if (await afterSave()) await files.remove([id]);
+              }
+        }
         disabled={disabled || adding}
         readOnly={readOnly}
         epoch={files.epoch}
