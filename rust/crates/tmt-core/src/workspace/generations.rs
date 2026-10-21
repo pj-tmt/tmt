@@ -1,10 +1,8 @@
 //! Bounded recovery history. Counts select recovery input, never live authority.
 use std::collections::BTreeSet;
 
-pub const RECENT: usize = 10;
-pub const HOURLY: usize = 24;
-pub const MAX_GENERATIONS: usize = RECENT + HOURLY + 1;
-const HOUR_MS: u64 = 3_600_000;
+pub const RECENT: usize = 5;
+pub const MAX_GENERATIONS: usize = RECENT + 1;
 
 /// Separate from manually named snapshots: `:` is not a valid saved name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -109,7 +107,6 @@ impl Catalogue {
         if !next.shrink {
             self.protected = Some(next.id.clone());
         }
-        let hour = next.captured_at_ms / HOUR_MS;
         self.entries.push(next);
         let mut keep = self
             .entries
@@ -120,13 +117,6 @@ impl Catalogue {
             .collect::<BTreeSet<_>>();
         if let Some(id) = &self.protected {
             keep.insert(id.clone());
-        }
-        let mut hours = BTreeSet::new();
-        for entry in self.entries.iter().rev() {
-            let bucket = entry.captured_at_ms / HOUR_MS;
-            if bucket <= hour && hour - bucket < HOURLY as u64 && hours.insert(bucket) {
-                keep.insert(entry.id.clone());
-            }
         }
         let mut removed = Vec::new();
         self.entries.retain(|entry| {
@@ -147,7 +137,7 @@ mod tests {
     fn entry(number: u64, panes: usize, agents: usize) -> WorkspaceGeneration {
         WorkspaceGeneration {
             id: format!("g:{number:064x}").parse().unwrap(),
-            captured_at_ms: number * HOUR_MS,
+            captured_at_ms: number * 3_600_000,
             panes,
             agents,
             shrink: false,
@@ -164,7 +154,10 @@ mod tests {
             assert_eq!(history.protected(), Some(&good));
             assert_eq!(history.preferred(), Some(&good));
             assert!(history.latest().unwrap().shrink);
+            assert!(history.entries.len() <= 6);
         }
+        assert_eq!(history.entries.len(), 6);
+        assert_eq!(history.entries[1].id, entry(96, 1, 1).id);
         history.append(entry(101, 20, 10));
         assert_eq!(history.protected(), history.latest());
         assert!(!history.latest().unwrap().shrink);
@@ -197,7 +190,38 @@ mod tests {
         }
     }
     #[test]
-    fn retention_combines_distinct_recent_hours_and_clock_rollback() {
+    fn retention_keeps_five_recent_distinct_generations_without_hourly_buckets() {
+        let mut history = Catalogue::default();
+        for number in 1..=8 {
+            history.append(entry(number, 20, 10));
+        }
+        assert_eq!(
+            history
+                .entries
+                .iter()
+                .map(|entry| entry.id.clone())
+                .collect::<Vec<_>>(),
+            (4..=8)
+                .map(|number| entry(number, 20, 10).id)
+                .collect::<Vec<_>>()
+        );
+        let before = history.clone();
+        assert!(history.append(entry(8, 20, 10)).is_empty());
+        assert_eq!(history, before);
+        assert!(history.is_valid());
+    }
+    #[test]
+    fn a_catalogue_over_six_generations_is_invalid() {
+        let history = Catalogue {
+            entries: (1..=7).map(|number| entry(number, 20, 10)).collect(),
+            protected: None,
+        };
+        assert!(!history.is_valid());
+        assert_eq!(RECENT, 5);
+        assert_eq!(MAX_GENERATIONS, 6);
+    }
+    #[test]
+    fn clock_rollback_keeps_five_recent_generations_and_the_protected_baseline() {
         let mut history = Catalogue::default();
         for number in 1..=200 {
             let mut next = entry(number, 20, 10);
@@ -213,5 +237,15 @@ mod tests {
         }
         assert_eq!(history.latest().unwrap().id, entry(250, 1, 1).id);
         assert_eq!(history.protected().unwrap().id, entry(200, 20, 10).id);
+        assert_eq!(history.entries.len(), 6);
+        assert_eq!(
+            history.entries[1..]
+                .iter()
+                .map(|entry| entry.id.clone())
+                .collect::<Vec<_>>(),
+            (246..=250)
+                .map(|number| entry(number, 1, 1).id)
+                .collect::<Vec<_>>()
+        );
     }
 }
