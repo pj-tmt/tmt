@@ -8,7 +8,7 @@ import { createArtifact, type ArtifactFixture } from '../support/native-artifact
 import { runCli, withSandbox } from '../support/cli-process.js';
 import { install as installCore } from '../support/native-installation.js';
 import { requestEnvelope, text, verifyResponse } from '../support/remote-device.js';
-import { dispatchIntent, RemoteOwner, RemoteSession } from '../support/remote-owner.js';
+import { dispatchIntent, post, RemoteOwner, RemoteSession } from '../support/remote-owner.js';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture } from './harness.js';
 import { requestAttempts } from './request-state-oracle.js';
@@ -126,6 +126,9 @@ describe('post-upgrade Remote restart', () => {
             expect(grantBytes().equals(grants)).toBe(true);
             // This is the real restarted door, not RemoteOwner's foreground process.
             // Open against its newly admitted window and keep that same session alive.
+            const backgroundDoor: Pick<RemoteOwner, 'post'> = {
+              post: (route, input) => post(`${text(admission.address)}/${route}`, input),
+            };
             const windowId = text(admission.windowId);
             const opening = requestEnvelope(
               device,
@@ -137,11 +140,11 @@ describe('post-upgrade Remote restart', () => {
               { clientNonce: randomBytes(16).toString('hex') },
               { kind: 'control' }
             );
-            const opened = await owner.post('append', opening);
+            const opened = await backgroundDoor.post('append', opening);
             expect(opened.status).toBe(200);
             const openedSession = verifyResponse(opened.body, opening, paired);
             const session = new RemoteSession(
-              owner,
+              backgroundDoor,
               device,
               paired,
               text(openedSession.payload.sessionId),

@@ -260,7 +260,7 @@ export class RemoteSession {
   private next = 1n;
   private observed = 0n;
   constructor(
-    readonly owner: RemoteOwner,
+    readonly owner: Pick<RemoteOwner, 'post'>,
     readonly device: RemoteDevice,
     readonly paired: PairedDevice,
     readonly id: string,
