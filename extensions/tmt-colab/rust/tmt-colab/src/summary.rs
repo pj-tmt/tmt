@@ -448,6 +448,24 @@ pub fn refresh(
     drop(spawned);
 }
 
+/// Record a fresh fold's title for an open page (none for an archived one).
+fn record_title(
+    titles: Option<&Titles>,
+    page: &str,
+    fingerprint: &str,
+    projection: &SummaryProjection,
+) {
+    if let Some(titles) = titles {
+        let title = projection
+            .summary
+            .title
+            .as_deref()
+            .filter(|_| titles.open.contains(page));
+        // Display state: a failed record waits for the next fold.
+        let _ = titles.writer.record(page, fingerprint, title);
+    }
+}
+
 /// The catalog's pages with their fingerprints, the most recently updated first (then by page ID),
 /// so the pages a person is working on fill the list before old ones do. A page without a
 /// fingerprint is left out.
@@ -501,8 +519,9 @@ fn drain_with(
 }
 
 /// Schedules a drain of every stale page on one background worker with its own read-only source,
-/// unless a worker is already running. Never blocks the caller.
-pub fn drain(cache: &Arc<SummaryCache>, open: &page::save::SourceOpener) {
+/// unless a worker is already running. Never blocks the caller. With `titles`, each fresh fold also
+/// records its page's title on the worker, as [`refresh`] does.
+pub fn drain(cache: &Arc<SummaryCache>, open: &page::save::SourceOpener, titles: Option<Titles>) {
     let Some(worker) = cache.claim() else { return };
     let (cache, open) = (Arc::clone(cache), Arc::clone(open));
     let spawned = std::thread::Builder::new()

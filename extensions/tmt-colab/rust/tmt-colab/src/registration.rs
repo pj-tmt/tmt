@@ -298,7 +298,21 @@ impl Registration {
             // next read has more of them; this read never waits for it.
             let order = crate::summary::recent_first(&catalog, &fingerprints);
             if !self.summaries.stale(&order, 1).is_empty() {
-                crate::summary::drain(&self.summaries, open);
+                // The worker's folds record the open pages' titles; this read writes nothing.
+                let titles = self
+                    .title_writer
+                    .as_ref()
+                    .map(|writer| crate::summary::Titles {
+                        writer: std::sync::Arc::clone(writer),
+                        open: catalog["pages"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter(|page| page["archived"] != true)
+                            .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+                            .collect(),
+                    });
+                crate::summary::drain(&self.summaries, open, titles);
             }
         }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)

@@ -7434,8 +7434,7 @@ fn page_create_without_terminal_opens_once_and_failure_or_no_door_keeps_creation
         }
     }
 }
-const LAUNCH_OPENED: &str =
-    r#"{"version":1,"link":"http://127.0.0.1:53253/colab/p/12345678","opened":true,"state":"opened"}"#;
+const LAUNCH_OPENED: &str = r#"{"version":1,"link":"http://127.0.0.1:53253/colab/p/12345678","opened":true,"state":"opened"}"#;
 /// Creates a page with the door answering and `launch` replying `(exit, reply)`; returns the output.
 fn create_with_launch(
     pilot: &Pilot,
@@ -7462,7 +7461,10 @@ fn a_page_opens_through_remotes_launch_seam_with_only_the_short_target() {
     let result: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(result["opened"], true);
     let short = result["shortLink"].as_str().unwrap();
-    assert!(short.starts_with("http://127.0.0.1:53253/colab/p/"), "{short}");
+    assert!(
+        short.starts_with("http://127.0.0.1:53253/colab/p/"),
+        "{short}"
+    );
     // Remote opened the browser; Colab did not use the plain opener or learn any launch URL.
     assert!(pilot.opened().is_empty());
     let target = short.strip_prefix("http://127.0.0.1:53253").unwrap();
