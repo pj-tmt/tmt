@@ -718,6 +718,22 @@ fn confirm_cloud_copy(pilot: &Pilot, page: &str, after_ms: u64) -> u64 {
         .unwrap();
     now + after_ms
 }
+/// Waits, bounded, until the store holds `count` page-title rows: the serve folds every page once at
+/// start and records its title, so a test that compares the store's bytes waits for that first.
+fn wait_for_title_rows(database: &std::path::Path, count: i64) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let rows: i64 = rusqlite::Connection::open(database)
+            .unwrap()
+            .query_row("SELECT count(*) FROM page_titles", [], |row| row.get(0))
+            .unwrap();
+        if rows >= count {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{rows} title rows of {count}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
 fn seed_page_with_title(pilot: &Pilot, title: &str) {
     use ed25519_dalek::{Signer, SigningKey};
     use tmt_colab::{
@@ -1163,6 +1179,8 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
         );
         if serving {
             pilot.start();
+            // The serve's start fold records the page's title; compare the store once it has.
+            wait_for_title_rows(&db, 1);
         }
         let before = fs::read(&db).unwrap();
         failure(
@@ -7364,6 +7382,9 @@ fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
     );
     serving.ready();
     let database = pilot.root.join("selected/colab/space.db");
+    // The serve's start fold records the page's title (display state, not content); compare the
+    // store only once that has settled.
+    wait_for_title_rows(&database, 1);
     let before = fs::read(&database).unwrap();
     for args in [vec!["open"], vec!["open", &PAGE[..8]]] {
         // Captured stdout is not a terminal: explicit intent still opens.
