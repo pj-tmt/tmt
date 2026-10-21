@@ -256,6 +256,9 @@ export async function mountRenderer(
   let slotRounds = 0;
   let slotPositions = '';
   let lastSlots: AnchorPosition[] = [];
+  // A measurement that named a chip group the frame has not been told yet; the questions request
+  // that registers the group sends it, since the page does not measure the same sizes again.
+  let waitingSlots: InlineSlot[] | undefined;
   const inset = () => Math.max(0, Math.min(window.innerHeight, options.viewportInset?.() ?? 0));
   const viewportHeight = () => Math.max(1, window.innerHeight - inset());
   let reportedHeight = 0,
@@ -970,6 +973,7 @@ export async function mountRenderer(
     }
     if (new TextEncoder().encode(JSON.stringify(message)).length > 256 * 1024) return;
     channel.port1.postMessage(message);
+    const waiting = waitingSlots;
     if (moved.size && slotHeights.length) {
       // A tab change needs geometry for that description. Retire its old answer geometry while
       // the existing slot owner requests fresh placement on the same ordered port.
@@ -981,8 +985,17 @@ export async function mountRenderer(
       });
       slots(slotHeights);
     }
+    if (waiting) slots(waiting);
   };
   const slots = (input: InlineSlot[]) => {
+    waitingSlots = input.some(
+      (v) =>
+        v.chip !== undefined &&
+        v.before === undefined &&
+        !questionGroups.some((group) => group.id === v.id && group.form === 'chip'),
+    )
+      ? input
+      : undefined;
     if (
       stopped ||
       input.length > INLINE_SLOT_LIMIT ||
