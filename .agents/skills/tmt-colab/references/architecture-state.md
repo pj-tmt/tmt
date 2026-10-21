@@ -779,6 +779,17 @@ item by rank (review, question, reading, proposal), else the latest comment, els
 (`ShellGreeting`, `ShellCounts`, `ShellChapter`, `ShellEarlier`); the counts jump to the first row
 they count.
 
+A chapter's panel (`shell-panel.tsx`, `ChapterPanel` in the app's `BrowserDrawer`) opens from the
+passage's "Open to decide" button when the window is at least 900 px wide (`useWide` in
+`shell-page.tsx`); narrower, that action is the same link to the page as before. It is the page
+route's `open` search parameter (`openSearch` in `reading-link.ts`, a page ID, dropped otherwise), and
+only a chapter of the shell opens one. Opening pushes a history entry; closing from a panel this
+window opened steps back, and one that arrived by link only drops the parameter. The drawer returns
+focus to the trigger (or the chapter title after a reload). `withViewTransition` wraps open and close
+in the browser's view transition when it exists and motion is not reduced. The panel shows the chapter
+details' `needs` and `latest` as text and links to the page, the passage and the anchor; it holds no
+live page session, because a second app instance would race the first on the same own stream.
+
 The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
 filled by the same bounded hint read as the list); a failed read keeps every page as a link in the
 older list with a notice. Links are real `Link`s (`pageLinkKey` keeps the modified-open behaviour); a

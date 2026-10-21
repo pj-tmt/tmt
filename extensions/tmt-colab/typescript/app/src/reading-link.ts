@@ -31,6 +31,14 @@ export function pageSearch(search: Record<string, unknown>): { read?: string; an
   return read !== undefined ? { read } : anchor !== undefined ? { anchor } : {};
 }
 
+/** The shell chapter whose panel is open (`?open=<pageId>`): a page ID and nothing else, so a stray
+ * value is dropped. It only says which chapter of the shell shows its panel; it never admits anything. */
+export function openSearch(search: Record<string, unknown>): { open?: string } {
+  return typeof search.open === 'string' && validReadingId(search.open)
+    ? { open: search.open }
+    : {};
+}
+
 /** A router path with its cosmetic hint, when it carries exactly one valid one. */
 export function splitPageHint(path: string): { route: string; hint?: PageHint } {
   const [route, query] = path.split('?');

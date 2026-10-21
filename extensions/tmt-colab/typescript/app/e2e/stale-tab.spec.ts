@@ -1,22 +1,26 @@
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page, type Route } from '@playwright/test';
 import { text } from '../src/strings.js';
 
 const mount = '/r/abcd/x/colab/';
 const OLD = '/assets/index-OLDOLD12.js';
 const NEW = '/assets/index-NEWNEW34.js';
 const GUIDANCE = '/assets/recovery.js';
+type Fulfill = (route: Route, options: Parameters<Route['fulfill']>[0]) => Promise<void>;
 
 /** The mounted page as a built app serves it: a hashed entry module. The tab loads the
  * old build; what the server serves on later reads is `served`. Registration cannot
  * start (no Remote SDK), which is the failure path that asks whether the tab is stale. */
-async function serve(context: BrowserContext, served: () => string) {
+async function serve(
+  context: BrowserContext,
+  served: () => string,
+  fulfill: Fulfill = (route, options) => route.fulfill(options),
+) {
   const documents: boolean[] = [];
   await context.route(`**${mount}`, async (route) => {
     const navigation = route.request().isNavigationRequest();
-    documents.push(navigation);
     const response = await route.fetch();
     const html = await response.text();
-    await route.fulfill({
+    await fulfill(route, {
       response,
       body: html.replace(
         /\/src\/main\.tsx(?:\?[^"']*)?/,
@@ -24,6 +28,7 @@ async function serve(context: BrowserContext, served: () => string) {
       ),
     });
     if (navigation) loaded.value = true;
+    documents.push(navigation);
   });
   const loaded = { value: false };
   for (const entry of [OLD, NEW, GUIDANCE])
@@ -40,6 +45,48 @@ async function serve(context: BrowserContext, served: () => string) {
 }
 
 const notice = (page: Page) => page.locator('[data-update-notice]');
+
+test('a document read is ready only after its held response is fulfilled', async ({
+  page,
+  context,
+}) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let entered!: () => void;
+  const pending = new Promise<void>((resolve) => (entered = resolve));
+  let delivery = Promise.resolve();
+  const server = await serve(
+    context,
+    () => OLD,
+    (route, options) => {
+      if (route.request().isNavigationRequest()) return route.fulfill(options);
+      delivery = held.then(() => route.fulfill(options));
+      entered();
+      return delivery;
+    },
+  );
+  // Exercise the fixture directly, independently of application startup or build checks.
+  await context.route(
+    (url) => url.pathname === OLD,
+    (route) => route.fulfill({ contentType: 'text/javascript', body: '' }),
+  );
+  let read: Promise<string> | undefined;
+  try {
+    await page.goto(mount);
+    read = page.evaluate((url) => fetch(url).then((response) => response.text()), mount);
+    await pending;
+    expect(server.navigations()).toBe(1);
+    expect(server.reads()).toBe(0);
+    release();
+    await expect.poll(() => server.reads()).toBe(1);
+    expect(await read).toContain(OLD);
+  } finally {
+    // Drain the actual delivery even when the readiness assertion fails.
+    release();
+    await delivery;
+    await read;
+  }
+});
 
 test('a tab whose build was replaced says so, keeps its failure, and never reloads by itself', async ({
   page,
