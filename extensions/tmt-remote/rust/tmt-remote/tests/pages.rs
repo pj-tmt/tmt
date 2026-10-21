@@ -951,12 +951,23 @@ fn door_routes_app_routes_keep_the_app_plain_query() {
     for path in [
         "/colab/pages/abcd?read=%2F",
         "/colab/pages/abcd?tmt-session=x",
+        "/colab/pages/abcd?read=x&tmt-session=y",
         "/colab/pages/abcd?read=a/b",
         "/colab/pages/abcd?",
         "/home?read=x",
         "/colab/a.b?read=x",
     ] {
         assert_ne!(get(&h, path, "").status, 200, "{path}");
+    }
+    // A key named like the session hand-off inside a value is plain text, not the hand-off.
+    app_page(&h, "/colab/pages/abcd?read=tmt-session", "");
+    // Mount paths keep their strict grammar: an app key on a module mount is a malformed target.
+    for path in [
+        format!("{}/x/colab/?read=a", h.prefix),
+        format!("{}/x/colab/pages/abcd?open=a", h.prefix),
+        "/x/colab/p/abcd?open=a".to_owned(),
+    ] {
+        assert_eq!(get(&h, &path, "").status, 400, "{path}");
     }
 }
 

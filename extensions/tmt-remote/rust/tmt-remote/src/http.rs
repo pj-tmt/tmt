@@ -319,7 +319,10 @@ fn target(path: &str) -> bool {
         Some((short, query))
             if (short.starts_with("/p/") || crate::pages::app_route(short))
                 && !query.is_empty()
-                && !query.contains("tmt-session")
+                // A session hand-off has its own grammar below; it never rides on an app query.
+                && !query
+                    .split('&')
+                    .any(|pair| pair.split('=').next() == Some("tmt-session"))
                 && query.bytes().all(|b| {
                     b.is_ascii_alphanumeric()
                         || matches!(b, b'-' | b'_' | b'.' | b'~' | b'=' | b'&')
