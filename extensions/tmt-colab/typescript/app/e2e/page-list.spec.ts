@@ -484,6 +484,43 @@ test('an archived row offers Restore and Delete while keeping archive unavailabl
   await expect(app(page).getByRole('tab', { name: 'Archived 0' })).toBeVisible();
 });
 
+for (const width of [1440, 390]) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`a change the owner accepted but has not confirmed says so in plain words at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.evaluate(() => {
+        window.__operationMode = 'unverified';
+      });
+      await rows(page)
+        .filter({ hasText: 'Gamma notes' })
+        .getByRole('button', { name: 'Actions for Gamma notes' })
+        .click();
+      await page.getByRole('menuitem', { name: 'Archive…' }).click();
+      await confirmDialog(page, 'Archive “Gamma notes”?')
+        .getByRole('button', { name: 'Archive page' })
+        .click();
+      await expect(status(page)).toHaveText(
+        '“Gamma notes”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.',
+      );
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: await capturePath(`4171-not-confirmed-${width}-${theme}.png`),
+      });
+    });
+  }
+}
+
 test('a refused statement changes nothing and says why; an unverified one is not called done', async ({
   page,
 }) => {
@@ -509,7 +546,9 @@ test('a refused statement changes nothing and says why; an unverified one is not
   await confirmDialog(page, 'Archive “Gamma notes”?')
     .getByRole('button', { name: 'Archive page' })
     .click();
-  await expect(status(page)).toContainText('not verified yet');
+  await expect(status(page)).toContainText(
+    'the owner accepted the change, but it is not confirmed yet',
+  );
   await expect(status(page)).not.toHaveText(/^Archived/);
 });
 

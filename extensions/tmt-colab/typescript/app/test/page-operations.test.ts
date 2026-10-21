@@ -131,14 +131,28 @@ describe('what the status line says', () => {
       'page.archive',
       1,
     );
-    expect(single.text).toContain('not verified yet');
+    expect(single.text).toBe(
+      '“Plan”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.',
+    );
     expect(single.text).not.toMatch(/^Archived/);
     const many = operationStatus(
       done([page(1), page(2)], { awaiting: [page(2)] }),
       'page.delete',
       2,
     );
-    expect(many.text).toContain('not verified yet');
+    expect(many.text).toBe(
+      'The owner accepted 1 of the changes, but it is not confirmed yet. Open Manage page to check it again.',
+    );
+    const several = operationStatus(
+      done([page(1), page(2), page(3)], { awaiting: [page(2), page(3)] }),
+      'page.delete',
+      3,
+    );
+    expect(several.text).toBe(
+      'The owner accepted 2 of the changes, but they are not confirmed yet. Open Manage page to check them again.',
+    );
+    for (const sentence of [single.text, many.text, several.text])
+      expect(sentence).not.toMatch(/signed log|acknowledged|verif/i);
   });
   it('reports how far a stopped batch got and which page stopped it', () => {
     const stopped = operationStatus(
