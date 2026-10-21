@@ -108,6 +108,74 @@ impl OverviewSort {
     }
 }
 
+/// One saved TOK range shared by Agents and Digest, independent of chart zoom
+/// and the Digest supplier's savings window.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum TokRange {
+    #[default]
+    Hour,
+    ThreeHours,
+    SixHours,
+    Day,
+    Week,
+}
+
+impl TokRange {
+    pub const ALL: [Self; 5] = [
+        Self::Hour,
+        Self::ThreeHours,
+        Self::SixHours,
+        Self::Day,
+        Self::Week,
+    ];
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|range| range.argument() == value)
+    }
+
+    pub fn argument(self) -> &'static str {
+        match self {
+            Self::Hour => "1h",
+            Self::ThreeHours => "3h",
+            Self::SixHours => "6h",
+            Self::Day => "1d",
+            Self::Week => "7d",
+        }
+    }
+
+    pub fn caption(self) -> &'static str {
+        match self {
+            Self::Hour => "TOK 1h",
+            Self::ThreeHours => "TOK 3h",
+            Self::SixHours => "TOK 6h",
+            Self::Day => "TOK 1d",
+            Self::Week => "TOK 7d",
+        }
+    }
+
+    pub fn milliseconds(self) -> u64 {
+        match self {
+            Self::Hour => 3_600_000,
+            Self::ThreeHours => 10_800_000,
+            Self::SixHours => 21_600_000,
+            Self::Day => 86_400_000,
+            Self::Week => 604_800_000,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Hour => Self::ThreeHours,
+            Self::ThreeHours => Self::SixHours,
+            Self::SixHours => Self::Day,
+            Self::Day => Self::Week,
+            Self::Week => Self::Hour,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpsPreferences {
     pub pinned: BTreeSet<String>,
@@ -118,6 +186,7 @@ pub struct OpsPreferences {
     /// None retains the monitor's needs-you ordering until an explicit sort.
     pub overview_sort: Option<OverviewSort>,
     pub layout: OpsLayout,
+    pub tok_range: TokRange,
     pub digest_window: super::DigestWindow,
     pub savings_unit: super::SavingsUnit,
     pub overview_panels: Option<PanelSetting<OverviewPanel>>,
@@ -496,6 +565,12 @@ impl Config {
                         .as_bool()
                         .ok_or_else(|| invalid("`workspace.reverse` must be true or false."))?
                 }
+                "tok_range" => {
+                    result.tok_range =
+                        item.as_str().and_then(TokRange::parse).ok_or_else(|| {
+                            invalid("`workspace.tok_range` must be 1h, 3h, 6h, 1d or 7d.")
+                        })?;
+                }
                 "digest_window" => {
                     result.digest_window = item
                         .as_str()
@@ -623,6 +698,7 @@ impl Config {
                 table.remove("overview_sort");
                 table.remove("overview_reverse");
             }
+            document["workspace"]["tok_range"] = value(next.tok_range.argument());
             document["workspace"]["digest_window"] = value(next.digest_window.argument());
             document["workspace"]["savings_unit"] = value(next.savings_unit.argument());
             document["workspace"]["layout"] = value(match next.layout {
@@ -748,6 +824,20 @@ fn configured_binding_source(
 }
 
 fn panel_notice<P: Panel>(item: Option<&Item>, key: &str, notices: &mut Vec<String>) {
+    if let Some(table) = item.and_then(Item::as_table_like) {
+        for field in ["order", "hidden"] {
+            if let Some(values) = table.get(field).and_then(Item::as_array) {
+                for value in values {
+                    if let Some(id) = value.as_str().filter(|id| P::RETIRED.contains(id)) {
+                        notices.push(format!("`workspace.{key}.{field}`: '{id}' is retired; Digest has a fixed summary, TOK table and Exchanges. The authored value is preserved for migration."));
+                    }
+                }
+            }
+        }
+        if key == "digest_panels" && table.get("order").is_some() {
+            notices.push("`workspace.digest_panels.order` is retired; Digest sections have fixed positions. The authored value is preserved for migration.".into());
+        }
+    }
     if let Some(error) = item
         .map(PanelSetting::<P>::observe)
         .and_then(|setting| setting.error().map(str::to_owned))
@@ -1301,6 +1391,7 @@ mod tests {
             sort: OpsSort::Attention,
             reversed: true,
             layout: OpsLayout::Stack,
+            tok_range: TokRange::default(),
             digest_window: super::super::DigestWindow::default(),
             savings_unit: super::super::SavingsUnit::Cost,
             overview_sort: None,
@@ -1323,6 +1414,75 @@ mod tests {
             Verb::Copy
         );
     }
+    #[test]
+    fn shared_tok_range_roundtrips_without_changing_other_workspace_settings() {
+        let fixture = FileFixture::new();
+        let mut config = fixture.config();
+        let initial = config.workspace_preferences().unwrap();
+        let mut expected = initial.clone();
+        for range in TokRange::ALL {
+            let next = OpsPreferences {
+                tok_range: range,
+                ..expected.clone()
+            };
+            config.save_workspace_preferences(&expected, &next).unwrap();
+            let loaded = fixture.config().workspace_preferences().unwrap();
+            assert_eq!(loaded, next);
+            assert_eq!(loaded.digest_window, initial.digest_window);
+            assert_eq!(loaded.layout, initial.layout);
+            assert!(
+                fs::read_to_string(config.path())
+                    .unwrap()
+                    .contains("# preserve user text")
+            );
+            expected = loaded;
+        }
+        assert_eq!(expected.tok_range.next(), TokRange::Hour);
+        for invalid in ["24h", "30d", "0h", "2h", "1H", ""] {
+            assert_eq!(TokRange::parse(invalid), None);
+        }
+        fs::write(config.path(), "# untouched\n[workspace]\ntok_range='30d'\n").unwrap();
+        let before = fs::read(config.path()).unwrap();
+        assert!(fixture.config().workspace_preferences().is_err());
+        assert_eq!(fs::read(config.path()).unwrap(), before);
+    }
+
+    #[test]
+    fn retired_digest_panels_report_locations_and_unrelated_saves_preserve_bytes() {
+        let fixture = FileFixture::new();
+        let authored = "# preserve user text\n[workspace]\ndigest_panels = { order=['report','list','status','usage','subscriptions','chart'], hidden=['usage','chart'], details=false } # legacy\n";
+        fs::write(fixture.0.join("ops.toml"), authored).unwrap();
+        let mut config = fixture.config();
+        let expected = config.workspace_preferences().unwrap();
+        let panel_bytes = config.document["workspace"]["digest_panels"].to_string();
+        let mut next = expected.clone();
+        next.tok_range = TokRange::Week;
+        config.save_workspace_preferences(&expected, &next).unwrap();
+        let reloaded = fixture.config();
+        assert_eq!(
+            reloaded.document["workspace"]["digest_panels"].to_string(),
+            panel_bytes
+        );
+        assert!(
+            !reloaded
+                .workspace_preferences()
+                .unwrap()
+                .digest_panels
+                .unwrap()
+                .effective()
+                .shown(DigestPanel::Chart)
+        );
+        let notices = reloaded.workspace_migration_notices();
+        for id in ["report", "status", "usage"] {
+            assert!(
+                notices
+                    .iter()
+                    .any(|notice| notice.contains("workspace.digest_panels.order")
+                        && notice.contains(id))
+            );
+        }
+    }
+
     #[test]
     fn digest_window_uses_one_workspace_preference_and_preserves_authored_text() {
         use super::super::DigestWindow;

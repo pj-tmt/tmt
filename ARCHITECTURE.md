@@ -430,8 +430,8 @@ own module/drawing boundaries and verification.
   The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
   `labels::Reader` acquires Config-selected windows; `labels::digest` sums
   [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings), never provider history.
-  `usage_report::Reader` reads the Digest tab's [Usage report](extensions/tmt-digest/contracts/usage-v1.md)
-  on its own thread, only while that panel is shown; the panel projects the held document.
+  `usage_report::Reader` acquires public Core usage/traffic off-thread;
+  [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns its range and lifecycle.
   Member references resolve through the acquired global identity inventory;
   Markdown carries UUID tags into clipped frame hits. Existing menu/actions own
   navigation, while copy/annotation retain raw source. No text grants new delivery

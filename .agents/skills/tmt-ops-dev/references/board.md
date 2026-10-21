@@ -131,7 +131,7 @@ state only, no squad data or durable preference policy.
   derive from the acquired UUID roster instead of this document projection.
 - `workspace::render::tree` projects viewport UUID targets through `tree_row`.
   `workspace::columns` owns fixed tracks and whole optional-column removal;
-  TOK 1h is visible with STATE, owned-timer count and a local lead marker when
+  The saved TOK range is visible with STATE, owned-timer count and a local lead marker when
   they fit. Connectors follow filtered siblings. Selection fills the whole row
   at normal weight, including when the conversation has focus; attention belongs
   to state glyphs. `agents_focus` owns selected member/squad projection through
@@ -139,6 +139,17 @@ state only, no squad data or durable preference policy.
   timer counts publish only complete clipped current-frame hits. Unknown readings,
   membership and timer totals remain distinct from observed zero. The
   [workspace surface](board-home.md#shell-geometry-and-input) owns its layout.
+
+- `digest_dashboard` owns a fixed range summary, TOK-ranked UUID table with a
+  read-only `DigestAll` aggregate, and selection details. The same row projection
+  owns paint and input order. Whole optional tracks yield before numeric values
+  truncate. Activity retains 24 one-hour cells; narrow details show that strip
+  when it cannot fit in the table. `exchange_matrix` is a reusable content-free
+  painter: top five ranked identities with the selection retained, sender rows,
+  recipient columns, talk/reply counts only, self/known-none/unknown distinct.
+  Hosts keep navigation and effects. Ops quantizes six levels; shared
+  `screen::neutral_ramp` supplies neutral endpoint interpolation, contrasting ink,
+  ANSI greys and no-fill NO_COLOR. No new role or theme setting is introduced.
 
 - Selection words: `Look::selected_words` is the one owner of what a real selection
   background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the

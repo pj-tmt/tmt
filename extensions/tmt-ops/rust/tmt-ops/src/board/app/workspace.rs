@@ -95,20 +95,45 @@ impl App {
         let member = row.activity.as_ref()?;
         Some(member.label(self.activity_stale(now), now_ms))
     }
+    pub(in crate::board) fn tok_range(&self) -> crate::config::TokRange {
+        self.workspace_snapshot()
+            .map_or(crate::config::TokRange::default(), |snapshot| {
+                snapshot.preferences.tok_range
+            })
+    }
+
+    pub(in crate::board) fn select_tok_range(&mut self, range: crate::config::TokRange) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return self.say("The workspace has not loaded.");
+        };
+        let mut next = snapshot.preferences.clone();
+        next.tok_range = range;
+        self.workspace_save(next)
+    }
+
+    pub(in crate::board) fn cycle_tok_range(&mut self) -> Effect {
+        self.select_tok_range(self.tok_range().next())
+    }
+
     pub(in crate::board) fn digest_window(&self) -> crate::config::DigestWindow {
         self.workspace_snapshot()
             .map_or(crate::config::DigestWindow::default(), |snapshot| {
                 snapshot.preferences.digest_window
             })
     }
-    /// The window the reader should read: only while the Digest tab shows the panel.
-    pub(in crate::board) fn usage_report_want(&self) -> Option<super::super::usage_report::Since> {
-        (self.shell.tab == OpsTab::Digest
-            && self.workspace_snapshot().is_some()
-            && self
-                .digest_panels()
-                .shown(crate::config::DigestPanel::Report))
-        .then_some(self.usage_report.since)
+    /// Usage and traffic are independent of the optional Digest extension. The
+    /// acquired roster supplies identities; no second roster read is scheduled.
+    pub(in crate::board) fn usage_report_want(
+        &self,
+    ) -> Option<super::super::usage_report::Request> {
+        let snapshot = self.workspace_snapshot()?;
+        (self.shell.tab == OpsTab::Digest || self.tok_range() != crate::config::TokRange::Hour)
+            .then(|| {
+                super::super::usage_report::Request::new(
+                    self.tok_range(),
+                    std::sync::Arc::clone(&snapshot.identity_ids),
+                )
+            })
     }
     pub(in crate::board) fn select_digest_window(
         &mut self,
@@ -231,15 +256,7 @@ impl App {
         self.workspace_snapshot()
             .map(|snapshot| {
                 if self.shell.tab == OpsTab::Digest {
-                    crate::board::workspace::identity_rows(
-                        snapshot,
-                        &self.workspace.query,
-                        self.workspace.selected.as_ref(),
-                        &crate::board::workspace::OpsVisibility {
-                            scope: self.workspace.visibility.scope.clone(),
-                            reveal_hidden: true,
-                        },
-                    )
+                    crate::board::digest_dashboard::rows(self, snapshot)
                 } else {
                     let mut rows = self.workspace.rows(&snapshot.roster, &snapshot.preferences);
                     let unread = self.unread_identities();
@@ -324,7 +341,7 @@ impl App {
                 Some(preferences.agent_pins.contains(identity_id))
             }
             OpsTarget::Squad(room) => Some(preferences.pinned.contains(room)),
-            OpsTarget::Pool => None,
+            OpsTarget::Pool | OpsTarget::DigestAll => None,
         }
     }
 
@@ -375,7 +392,7 @@ impl App {
         match self.workspace_retained_search_target()? {
             member @ OpsTarget::Member { .. } => Some(member.clone()),
             OpsTarget::Squad(room) => self.workspace_squad_lead(room),
-            OpsTarget::Pool => None,
+            OpsTarget::Pool | OpsTarget::DigestAll => None,
         }
     }
 
@@ -563,6 +580,19 @@ impl App {
             self.workspace_scope(),
             host,
         );
+        if self.shell.tab == OpsTab::Digest
+            && self.focused() == Pane::Rows
+            && self.workspace_binding_sources().is_some_and(|sources| {
+                sources
+                    .get("e")
+                    .is_none_or(|source| source == "workspace default")
+            })
+        {
+            keys.insert(
+                "e".into(),
+                Action::parse("monitor-details").expect("Digest details action"),
+            );
+        }
         if self.shell.tab == OpsTab::Agents
             && !self.flat_agents()
             && let Some(target) = self.workspace_message_target()
@@ -708,11 +738,9 @@ impl App {
             self.workspace.selected = Some(row.target.clone());
         }
         if self.shell.tab == OpsTab::Digest
-            && self
-                .workspace
-                .selected
-                .as_ref()
-                .is_some_and(|target| !matches!(target, OpsTarget::Member { .. }))
+            && self.workspace.selected.as_ref().is_some_and(|target| {
+                !matches!(target, OpsTarget::Member { .. } | OpsTarget::DigestAll)
+            })
         {
             self.workspace.selected = rows.first().map(|row| row.target.clone());
         }
@@ -738,11 +766,19 @@ impl App {
     }
     pub(super) fn workspace_select(&mut self, index: usize) {
         let rows = self.workspace_rows();
-        let Some(row) = rows.get(index.min(rows.len().saturating_sub(1))) else {
+        let index = index.min(rows.len().saturating_sub(1));
+        let Some(row) = rows.get(index) else {
             return;
         };
         self.workspace.selected = Some(row.target.clone());
-        self.workspace_reconcile();
+        if self.shell.tab == OpsTab::Digest {
+            // These rows already carry current admission and ordering. Cursor
+            // movement changes an anchor, not the acquired workspace/query.
+            self.selected = index;
+            self.last_click = None;
+        } else {
+            self.workspace_reconcile();
+        }
         self.follow = true;
         self.invalidate_frame_geometry();
     }
@@ -829,6 +865,7 @@ impl App {
             Quit => return Effect::Quit,
             QuotaDetails => return self.open_quota_details(),
             SavingsUnit => return self.cycle_savings_unit(),
+            CycleTokRange => return self.cycle_tok_range(),
             UsageControls => return super::super::overview::chart::host::focus(self),
             Help => {
                 self.help_state.borrow_mut().open();
@@ -916,6 +953,18 @@ impl App {
                 return self.select_right_tab(self.right_tab.next());
             }
             TalkMeasure => return Effect::None,
+            MonitorDetails if self.shell.tab == OpsTab::Digest => {
+                let Some(snapshot) = self.workspace_snapshot() else {
+                    return Effect::None;
+                };
+                let mut next = snapshot.preferences.clone();
+                let mut panels = self.digest_panels();
+                if let Err(error) = panels.set_side_shown(!panels.side_shown()) {
+                    return self.say(&error);
+                }
+                next.digest_panels = Some(crate::config::PanelSetting::configured(panels));
+                return self.workspace_save(next);
+            }
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),
@@ -935,28 +984,31 @@ impl App {
                 let Some(target) = self.workspace.selected.clone() else {
                     return Effect::None;
                 };
+                if target == OpsTarget::DigestAll {
+                    return Effect::None;
+                }
                 if matches!(target, OpsTarget::Member { .. }) {
                     if action == Inspect {
-                        if self.shell.tab != OpsTab::Digest {
-                            self.conversation_return.get_or_insert(self.shell.tab);
-                            self.shell.tab = OpsTab::Agents;
-                            if let OpsTarget::Member {
-                                room_id: Some(room),
-                                ..
-                            } = &target
-                            {
-                                self.workspace.expanded.insert(room.clone());
-                            } else {
-                                self.workspace.pool_expanded = true;
-                            }
-                            self.workspace_reconcile();
+                        self.conversation_return.get_or_insert(self.shell.tab);
+                        self.shell.tab = OpsTab::Agents;
+                        self.right_tab = super::super::shell::RightTab::Talk;
+                        if let OpsTarget::Member {
+                            room_id: Some(room),
+                            ..
+                        } = &target
+                        {
+                            self.workspace.expanded.insert(room.clone());
+                        } else {
+                            self.workspace.pool_expanded = true;
                         }
+                        self.workspace_reconcile();
                         self.focus = 1;
                         self.unread.displayed = None;
                     }
                 } else {
                     let expanded = match &target {
                         OpsTarget::Pool => self.workspace.pool_expanded,
+                        OpsTarget::DigestAll => false,
                         OpsTarget::Squad(id) => self.workspace.expanded.contains(id),
                         _ => false,
                     };
@@ -1084,8 +1136,8 @@ impl App {
                 return self.workspace_management(action);
             }
             ResizePane | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
-            | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop
-            | ScrollBottom => {
+            | CycleTokRange | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
+            | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }
@@ -1340,23 +1392,22 @@ impl App {
                 choice: Choice::DigestWindow(window),
             });
         }
-        if self.shell.tab == OpsTab::Digest {
-            for since in super::super::usage_report::Since::ALL {
-                entries.push(MenuEntry {
-                    key: String::new(),
-                    label: format!(
-                        "Usage report window: {}{}",
-                        since.text(),
-                        if self.usage_report.since == since {
-                            " (current)"
-                        } else {
-                            ""
-                        }
-                    ),
-                    choice: Choice::UsageReportSince(since),
-                });
-            }
+        for range in crate::config::TokRange::ALL {
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: format!(
+                    "TOK range: {}{}",
+                    range.argument(),
+                    if self.tok_range() == range {
+                        " (current)"
+                    } else {
+                        ""
+                    }
+                ),
+                choice: Choice::TokRange(range),
+            });
         }
+
         entries.push(MenuEntry {
             key: String::new(),
             label: "Host action (j)".into(),

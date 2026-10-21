@@ -28,7 +28,7 @@ pub(in crate::board) fn pin_mark(
     let pinned = match target {
         OpsTarget::Squad(room) => preferences.pinned.contains(room),
         OpsTarget::Member { identity_id, .. } => preferences.agent_pins.contains(identity_id),
-        OpsTarget::Pool => false,
+        OpsTarget::Pool | OpsTarget::DigestAll => false,
     };
     Span::styled(if pinned { "▪ " } else { "  " }, look.role(Role::Muted))
 }
@@ -304,6 +304,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         &slots,
         look,
         app.cron_glyphs,
+        app.tok_range(),
     );
     let body = Rect::new(
         inside.x,
@@ -342,7 +343,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     id: identity_id,
                     room: room_id.as_deref(),
                 }),
-                OpsTarget::Pool => None,
+                OpsTarget::Pool | OpsTarget::DigestAll => None,
             };
             let timers = scope.and_then(|scope| app.cron.counts.count(scope));
             let tokens = match &row.target {
@@ -355,7 +356,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 OpsTarget::Member { identity_id, .. } => app
                     .overview_member_usage(identity_id)
                     .map(|reading| (reading.tokens, reading.partial)),
-                OpsTarget::Pool => None,
+                OpsTarget::Pool | OpsTarget::DigestAll => None,
             }
             .map_or_else(
                 || "—".into(),
@@ -455,7 +456,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 OpsTarget::Member { identity_id, .. } => {
                     snapshot.preferences.agent_pins.contains(identity_id)
                 }
-                OpsTarget::Pool => false,
+                OpsTarget::Pool | OpsTarget::DigestAll => false,
             };
             let model: String = match &row.target {
                 OpsTarget::Member { identity_id, .. } => {
@@ -487,7 +488,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                             })
                     })
                     .unwrap_or_default(),
-                OpsTarget::Pool => String::new(),
+                OpsTarget::Pool | OpsTarget::DigestAll => String::new(),
             };
             // Decided once per row: focus in this agent's conversation.
             let in_conversation = selected
@@ -541,7 +542,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         room_id,
                         identity_id,
                     } => (room_id.clone(), Some(identity_id.clone())),
-                    OpsTarget::Pool => (None, None),
+                    OpsTarget::Pool | OpsTarget::DigestAll => (None, None),
                 };
                 app.cron_scope_hits
                     .borrow_mut()

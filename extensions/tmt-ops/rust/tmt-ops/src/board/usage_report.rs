@@ -1,23 +1,26 @@
-//! The Digest tab's Usage report panel: the document `tmt digest usage report
-//! --json` prints, shown as the supplier decided it. A dedicated reader acquires
-//! it off the paint path, only while the panel is on screen; paint and input
-//! read nothing. Wording and layout belong to the panel module.
-mod model;
-mod paint;
-mod panel;
+//! A bounded background reader of public Core usage and message aggregates.
+//! The shared TOK range and acquired UUID roster are its only demand; paint and
+//! input project held evidence without starting commands.
+mod acquire;
+pub(in crate::board) mod model;
 mod reader;
 #[cfg(test)]
 mod tests;
 
+pub(super) use acquire::Request;
 pub(super) use model::{Report, Since};
-pub(super) use paint::{paint, zone};
-pub(super) use panel::{View, rows};
 pub(super) use reader::{Delivery, Reader, Timing};
 
-/// What the board holds for the panel: the window it shows and the newest read.
+/// One held observation and its latest refresh failure.
+pub enum View<'a> {
+    Loading,
+    Failed(&'a str),
+    Report(&'a Report),
+}
+
+/// The range itself is saved by workspace preferences, never in this cache.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct State {
-    pub since: Since,
     report: Option<Report>,
     failure: Option<(Since, String)>,
 }
@@ -35,16 +38,19 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> View<'_> {
-        if let Some(report) = self
-            .report
+    pub fn refresh_error(&self, since: Since) -> Option<&str> {
+        self.failure
             .as_ref()
-            .filter(|report| report.since == self.since)
-        {
+            .filter(|(range, _)| *range == since)
+            .map(|(_, message)| message.as_str())
+    }
+
+    pub fn view_for(&self, since: Since) -> View<'_> {
+        if let Some(report) = self.report.as_ref().filter(|report| report.since == since) {
             return View::Report(report);
         }
         match &self.failure {
-            Some((since, message)) if *since == self.since => View::Failed(message),
+            Some((failed_since, message)) if *failed_since == since => View::Failed(message),
             _ => View::Loading,
         }
     }

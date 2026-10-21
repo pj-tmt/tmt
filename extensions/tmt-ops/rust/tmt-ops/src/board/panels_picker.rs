@@ -123,7 +123,7 @@ fn rows<P: Panel>(policy: &Panels<P>) -> Vec<(String, String, String)> {
         ("save", "Save"),
         ("cancel", "Cancel"),
     ] {
-        if P::SIDE_KEY != "conversation" || !matches!(id, "up" | "down") {
+        if !matches!(id, "up" | "down") {
             rows.push((id.into(), String::new(), name.into()));
         }
     }
@@ -149,28 +149,7 @@ fn edit<P: Panel>(
             policy.set_shown(panel, !policy.shown(panel))?;
         }
         Edit::Up | Edit::Down => {
-            if P::SIDE_KEY == "conversation" {
-                return Err("Overview sections have fixed positions.".into());
-            }
-            let panel = P::parse(selected).ok_or("Select a vertical panel first.")?;
-            let index = policy
-                .order()
-                .iter()
-                .position(|item| *item == panel)
-                .expect("admitted panel");
-            let down = matches!(action, Edit::Down);
-            let next = if down {
-                index
-                    .checked_add(1)
-                    .filter(|next| *next < policy.order().len())
-            } else {
-                index.checked_sub(1)
-            };
-            if let Some(next) = next {
-                for _ in 0..index.abs_diff(next) {
-                    policy.move_panel(panel, down);
-                }
-            }
+            return Err("Dashboard sections have fixed positions.".into());
         }
     }
     *draft = Some(policy);

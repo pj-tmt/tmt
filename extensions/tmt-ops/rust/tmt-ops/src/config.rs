@@ -31,6 +31,7 @@ pub(crate) use unread::ReadMarkers;
 pub use workspace::{
     DigestPanel, DigestPanels, OpsKeyScope, OpsLayout, OpsPreferences, OpsSort, OverviewColumn,
     OverviewDirection, OverviewPanel, OverviewPanels, OverviewSort, Panel, PanelSetting, Panels,
+    TokRange,
 };
 pub(crate) use workspace::{
     admit_action as admit_workspace_action, defaults as workspace_defaults,

@@ -175,7 +175,7 @@ pub(in crate::board) fn tiles(
         let timers = app.cron.counts.count(CronCountScope::Owner { id, room });
         let tiles = [
             Tile {
-                label: "TOK 1h",
+                label: app.tok_range().caption(),
                 value: token_value,
                 detail: neutral(detail, look),
             },

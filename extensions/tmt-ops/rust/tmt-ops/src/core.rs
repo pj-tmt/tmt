@@ -204,6 +204,18 @@ impl Core {
         self.call(&["api".into()], request.to_string().as_bytes())
     }
 
+    /// One public API read within a caller-owned remaining budget. Cancellation
+    /// keeps the same runner ownership as ordinary board reads.
+    pub fn api_within(
+        &self,
+        operation: &str,
+        input: Value,
+        timeout: Duration,
+    ) -> Result<Value, SquadError> {
+        let request = json!({"version": 1, "operation": operation, "input": input});
+        self.call_within(&["api".into()], request.to_string().as_bytes(), timeout)
+    }
+
     /// Like [`Core::json`], bounded by `timeout` instead of the usual limit.
     pub fn json_within(&self, args: &[&str], timeout: Duration) -> Result<Value, SquadError> {
         document(self.json_finished(args, timeout)?)

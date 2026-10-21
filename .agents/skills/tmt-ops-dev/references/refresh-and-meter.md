@@ -78,15 +78,24 @@
   [board.md](board.md#frame-and-terminal). A `Refresh` handle (`Reader::refresher`) makes the thread read at once and restart its wait;
   the lane uses it after a successful digest change. Dropping the reader cancels the read in
   flight and joins the thread.
-- Usage report: `usage_report::Reader`, a thread of its own next to the labels reader, runs
-  `tmt digest usage report --since W --json` (one read in flight, 45 s limit) only while the
-  session loop tells it the Digest tab shows the panel (`App::usage_report_want`, sent on
-  change through `Wants`); it reads at once on a window change, then every 60 s (failures back
-  off to 5 min), and drops a result whose window changed during the read. `BoardEvent::UsageReport`
-  carries it; `usage_report::State` keeps the newest good report per window (a failed read keeps
-  it and the rule's own time says how old it is), and a window with no answer yet paints
-  "Loading". The panel (`usage_report::panel`) is a pure projection of that report; paint and input
-  read nothing. Dropping the reader cancels the read in flight and joins the thread.
+- TOK observations: `usage_report::Reader` is a separate cancellable thread beside
+  labels. `App::usage_report_want` supplies the saved TOK range and the acquired
+  roster's immutable UUID inventory while Digest is selected or Agents uses a
+  non-hour range. One public `x flow --since W --bucket W` read aggregates traffic;
+  batches of at most 32 identities read `consumption.history` twice: one exact
+  aggregate for the selected range and 24 hourly buckets for activity. The first
+  successful history response supplies `throughMs`; every later aggregate and
+  activity request of that refresh pins the same echoed cut, while `asOfMs`
+  remains the actual admission time. All calls share one 45 s deadline (within
+  Core's 60 s pin age limit). A changed range or inventory cancels the in-flight
+  process and starts the latest coalesced demand; identical demand leaves it
+  running. Late changed-demand results are dropped. Reads repeat every 60 s,
+  backing off to 5 min on failure.
+  `BoardEvent::UsageReport` publishes held evidence and reconciles UUID sorting
+  before input. `State` retains the latest good observation and exposes refresh
+  failure separately; another range stays loading rather than reusing its totals.
+  Missing hourly data keeps valid totals, with unknown activity and a warning.
+  Paint/input start no commands. Drop cancels the in-flight process and joins.
 - Squad enrichment: a squad tab publishes without its digest-policy read and reply-body
   reads. It applies the digest rows and bodies this worker already read (`Known`), so a
   reload never blinks them off. The first deferred job (`EnrichJob`) then makes one

@@ -180,14 +180,16 @@ reader context inherits reader scrolling before the existing authored
 key merge. Authored global, host and section overrides keep their meaning;
 Agents/Digest reader defaults remain independent. The filled input advertises the
 effective admitted Reply/Talk start key, and pointer focus uses that same action.
-`workspace.digest_panels` stores `order`, `hidden` and `details` over IDs `status`,
-`usage`, `subscriptions`, `chart`, `list`, `report`. Saved order retains its relative order;
-omitted known IDs are inserted at their default indices with default visibility.
-Unknown IDs and duplicate IDs remain invalid; hidden is a unique subset. Keep monitor/list or its side pane visible. Absence and omitted
-fields select defaults; Save writes all three fields, preserving table or inline
-table form, comments and unrelated values. Only Reset removes the table. Invalid
-panel values yield a located notice and default policy; other invalid config
-still fails admission. IDs are persisted: older builds still reject IDs they do not know.
+`workspace.digest_panels` stores `hidden` and `details` over IDs
+`subscriptions`, `chart`, `list`; Digest sections have fixed positions. Retired
+`order` and `status`/`usage`/`report` entries produce located migration notices
+and remain authored, including on panel Save and the Details toggle. Save never
+creates `order`. Unknown IDs and duplicate IDs remain invalid; hidden is a unique
+subset. Keep list or Details visible. Absence and omitted fields select defaults.
+Save preserves table or inline-table form, comments and unrelated values; only
+Reset removes the table. Invalid panel values yield a located notice and default
+policy; other invalid config still fails admission. IDs are persisted: older
+builds still reject IDs they do not know.
 
 Independent `view` CLI configuration, workflow/layout readers and offline markup
 validation retain their own command contracts. A CLI view key changes no roster,

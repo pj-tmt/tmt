@@ -171,6 +171,9 @@ pub(super) fn room_ids(value: &Value) -> Option<Vec<String>> {
 
 pub(super) fn row_json(target: &RowTarget) -> Value {
     match target {
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::DigestAll) => {
+            json!({"kind":"workspace-digest-all"})
+        }
         RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
             room_id,
             identity_id,
@@ -199,6 +202,9 @@ pub(super) fn row_from(value: &Value) -> Option<RowTarget> {
         "workspace-squad" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Squad(
             text("id").filter(|id| crate::config::uuid_like(id))?,
         )),
+        "workspace-digest-all" => {
+            RowTarget::Workspace(crate::board::workspace::OpsTarget::DigestAll)
+        }
         "workspace-pool" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool),
         "workspace-member" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
             room_id: match &value["roomId"] {

@@ -319,6 +319,13 @@ pub(in crate::board) fn focus(app: &mut App) -> Effect {
     // a pre-frame or invalidated workspace never bypasses the visibility fence.
     let overview_table = app.shell.tab == OpsTab::Agents && app.scrolls.visible(Pane::Rows);
     if !app.usage_chart.borrow().visible {
+        if app.shell.tab == OpsTab::Digest
+            && app.scrolls.visible(Pane::Rows)
+            && !app.usage_panel_hidden()
+        {
+            app.usage_chart.borrow_mut().set_focus(Focus::Range);
+            return Effect::None;
+        }
         if overview_table {
             return open_dropdown(app, Focus::Range);
         }
@@ -366,6 +373,16 @@ fn commit_dropdown(app: &mut App) -> Effect {
 pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
     if !app.usage_chart_available() {
         app.usage_chart.borrow_mut().focus = None;
+        return None;
+    }
+    // An inactive chart cannot own this event. Resolve selected-row binding
+    // provenance only when a chart control or pinned Escape can consume it.
+    if !app.usage_controls
+        && app.usage_chart.borrow().focus.is_none()
+        && app.usage_chart.borrow().hover.is_none()
+        && app.usage_chart.borrow().dropdown.is_none()
+        && !(key.code == KeyCode::Esc && app.usage_chart.borrow().pinned.is_some())
+    {
         return None;
     }
     if !app.usage_controls

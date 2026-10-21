@@ -10,6 +10,8 @@ pub trait Panel: sealed::Sealed + Copy + Debug + Ord + 'static {
     const ALL: &'static [Self];
     const TARGET: Self;
     const SIDE_KEY: &'static str;
+    const ORDERED: bool = true;
+    const RETIRED: &'static [&'static str] = &[];
     fn key(self) -> &'static str;
 
     fn parse(key: &str) -> Option<Self> {
@@ -53,34 +55,22 @@ impl Panel for OverviewPanel {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DigestPanel {
-    Status,
-    Usage,
     Subscriptions,
     Chart,
     List,
-    Report,
 }
 impl sealed::Sealed for DigestPanel {}
 impl Panel for DigestPanel {
-    const ALL: &'static [Self] = &[
-        Self::Status,
-        Self::Usage,
-        Self::Subscriptions,
-        Self::Chart,
-        Self::List,
-        Self::Report,
-    ];
+    const ALL: &'static [Self] = &[Self::Subscriptions, Self::Chart, Self::List];
     const TARGET: Self = Self::List;
     const SIDE_KEY: &'static str = "details";
-
+    const ORDERED: bool = false;
+    const RETIRED: &'static [&'static str] = &["status", "usage", "report"];
     fn key(self) -> &'static str {
         match self {
-            Self::Status => "status",
-            Self::Usage => "usage",
             Self::Subscriptions => "subscriptions",
             Self::Chart => "chart",
             Self::List => "list",
-            Self::Report => "report",
         }
     }
 }
@@ -118,7 +108,10 @@ impl<P: Panel> Panels<P> {
         }
         let mut policy = Self::default();
         if let Some(item) = table.get("order") {
-            policy.order = ids::<P>(item, "order")?;
+            let order = ids::<P>(item, "order")?;
+            if P::ORDERED {
+                policy.order = order;
+            }
             // Preserve the relative order the user saved across new panel IDs.
             for (index, panel) in P::ALL.iter().copied().enumerate() {
                 if !policy.order.contains(&panel) {
@@ -189,6 +182,9 @@ impl<P: Panel> Panels<P> {
 
     /// Moves one slot; a boundary leaves both order and selection unchanged.
     pub fn move_panel(&mut self, panel: P, down: bool) -> bool {
+        if !P::ORDERED {
+            return false;
+        }
         let index = self.order.iter().position(|item| *item == panel).unwrap();
         let next = if down {
             index.checked_add(1).filter(|next| *next < self.order.len())
@@ -220,6 +216,7 @@ enum Observation<P: Panel> {
 }
 
 impl<P: Panel> PanelSetting<P> {
+    const FIELDS: u8 = if P::ORDERED { 7 } else { 6 };
     pub fn observe(item: &Item) -> Self {
         let observed = match Panels::<P>::parse(item) {
             Ok(policy) => {
@@ -228,7 +225,8 @@ impl<P: Panel> PanelSetting<P> {
                     .into_iter()
                     .enumerate()
                     .fold(0, |mask, (bit, key)| {
-                        mask | (u8::from(table.get(key).is_some()) << bit)
+                        mask | (u8::from(table.get(key).is_some() && (bit != 0 || P::ORDERED))
+                            << bit)
                     });
                 Observation::Valid { policy, fields }
             }
@@ -244,7 +242,10 @@ impl<P: Panel> PanelSetting<P> {
 
     pub fn configured(policy: Panels<P>) -> Self {
         Self {
-            observed: Box::new(Observation::Valid { policy, fields: 7 }),
+            observed: Box::new(Observation::Valid {
+                policy,
+                fields: Self::FIELDS,
+            }),
         }
     }
 
@@ -263,15 +264,20 @@ impl<P: Panel> PanelSetting<P> {
     }
 
     pub(super) fn writable(&self) -> bool {
-        matches!(self.observed.as_ref(), Observation::Valid { fields: 7, .. })
+        matches!(self.observed.as_ref(), Observation::Valid { fields, .. } if *fields == Self::FIELDS)
     }
 
     /// Only an explicit full Save calls this; partial/invalid observations are
     /// retained unchanged by the enclosing writer until Save or Reset.
     pub(super) fn write(&self, item: &mut Item) {
-        let Observation::Valid { policy, fields: 7 } = self.observed.as_ref() else {
+        let Observation::Valid { policy, fields } = self.observed.as_ref() else {
             unreachable!("only configured panel policies are written");
         };
+        assert_eq!(
+            *fields,
+            Self::FIELDS,
+            "only configured panel policies are written"
+        );
         if item.as_table_like().is_none() {
             let decor = item.as_value().map(|value| value.decor().clone());
             *item = if let Some(decor) = decor {
@@ -303,7 +309,31 @@ impl<P: Panel> PanelSetting<P> {
             ),
             ("hidden", policy.hidden.iter().map(|id| id.key()).collect()),
         ] {
+            // Fixed sections never create or rewrite the retired authored order.
+            if key == "order" && !P::ORDERED {
+                continue;
+            }
             let previous = table.get(key).and_then(Item::as_array);
+            // A side-only toggle preserves the authored array verbatim.
+            if previous.is_some_and(|array| {
+                array
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter(|id| !P::RETIRED.contains(id))
+                    .eq(ids.iter().copied())
+            }) {
+                continue;
+            }
+            let mut ids = ids;
+            // Retired IDs remain authored migration data, even on explicit Save.
+            if let Some(previous) = previous {
+                ids.extend(
+                    previous
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .filter(|id| P::RETIRED.contains(id)),
+                );
+            }
             let mut array = previous.cloned().unwrap_or_default();
             array.clear();
             let mut removed_comments = String::new();
@@ -331,7 +361,7 @@ impl<P: Panel> PanelSetting<P> {
         }
         replace_value(table, P::SIDE_KEY, Value::from(policy.side_shown));
         if !displaced_comments.is_empty() {
-            let mut key = table.key_mut("order").expect("full policy");
+            let mut key = table.key_mut(P::SIDE_KEY).expect("full policy");
             let existing = key
                 .leaf_decor()
                 .prefix()
@@ -406,23 +436,24 @@ fn ids<P: Panel>(item: &Item, field: &str) -> Result<Vec<P>, String> {
     let array = item
         .as_array()
         .ok_or_else(|| format!("{field} must be an array of panel IDs"))?;
-    if array.len() > P::ALL.len() {
+    if array.len() > P::ALL.len() + P::RETIRED.len() {
         return Err(format!("{field} has more entries than dashboard panels"));
     }
     let mut seen = BTreeSet::new();
-    array
-        .iter()
-        .map(|value| {
-            let key = value
-                .as_str()
-                .ok_or_else(|| format!("{field} must contain panel ID strings"))?;
-            let panel = P::parse(key).ok_or_else(|| format!("unknown {field} panel '{key}'"))?;
-            if !seen.insert(panel) {
-                return Err(format!("{field} repeats panel '{key}'"));
-            }
-            Ok(panel)
-        })
-        .collect()
+    let mut result = Vec::new();
+    for value in array {
+        let key = value
+            .as_str()
+            .ok_or_else(|| format!("{field} must contain panel ID strings"))?;
+        if !seen.insert(key) {
+            return Err(format!("{field} repeats panel '{key}'"));
+        }
+        if P::RETIRED.contains(&key) {
+            continue;
+        }
+        result.push(P::parse(key).ok_or_else(|| format!("unknown {field} panel '{key}'"))?);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

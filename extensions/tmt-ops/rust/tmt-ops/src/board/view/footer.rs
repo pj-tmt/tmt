@@ -24,6 +24,16 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
                 .unwrap_or("?")
         );
     }
+    if app.shell.tab == crate::board::shell::OpsTab::Digest {
+        match action.verb {
+            Verb::Talk | Verb::Ui(crate::action::OpsUiAction::Inspect) => {
+                return "chat in Agents".into();
+            }
+            Verb::NextPane => return "Exchanges".into(),
+            Verb::Ui(crate::action::OpsUiAction::MonitorDetails) => return "details".into(),
+            _ => {}
+        }
+    }
     if app.workspace_snapshot().is_some() && action.verb == Verb::Run {
         return format!(
             "run {}",
@@ -464,6 +474,34 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
     let mut entries: Vec<_> = bindings
         .iter()
         .filter(|(event, action)| {
+            if app.shell.tab == crate::board::shell::OpsTab::Digest {
+                let useful = matches!(
+                    action.verb,
+                    Verb::NextPane
+                        | Verb::Talk
+                        | Verb::Digest
+                        | Verb::Refresh
+                        | Verb::Settings
+                        | Verb::Theme
+                        | Verb::Ui(
+                            OpsUiAction::Inspect
+                                | OpsUiAction::MonitorDetails
+                                | OpsUiAction::UsageControls
+                                | OpsUiAction::WorkspaceSnapshots
+                                | OpsUiAction::Search
+                                | OpsUiAction::Help
+                                | OpsUiAction::Quit
+                                | OpsUiAction::CycleTokRange
+                        )
+                );
+                if !useful
+                    || (action.verb == Verb::Ui(OpsUiAction::Inspect)
+                        && app.workspace_message_target().is_none())
+                {
+                    return false;
+                }
+            }
+
             !matches!(event.as_str(), "click" | "double-click")
                 && !matches!(
                     action.verb,
@@ -484,7 +522,12 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                 && row_allows(app, action)
         })
         .collect();
-    entries.sort_by_key(|(_, action)| action.order());
+    entries.sort_by_key(|(event, action)| {
+        (
+            action.order(),
+            app.shell.tab == crate::board::shell::OpsTab::Digest && event.as_str() == "backtab",
+        )
+    });
     let mut seen = std::collections::BTreeSet::new();
     let mut hints = Vec::new();
     let mut tail = Vec::new();

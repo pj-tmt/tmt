@@ -20,7 +20,12 @@ struct Capture {
 fn capture(app: &App, width: u16) -> Capture {
     let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
     terminal
-        .draw(|frame| render_frame(frame, app, None, Vec::new()))
+        .draw(|frame| {
+            // Compare cache paths at one clock, including delayed loading rows.
+            crate::status::with_now_ms(1_791_600_000_000, || {
+                render_frame(frame, app, None, Vec::new());
+            });
+        })
         .unwrap();
     Capture {
         buffer: terminal.backend().buffer().clone(),

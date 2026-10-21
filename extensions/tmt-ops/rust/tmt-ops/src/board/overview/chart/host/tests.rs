@@ -560,43 +560,42 @@ fn unavailable_idle_chart_does_not_wake_until_visible_time_evidence_changes() {
 #[test]
 fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_replay() {
     crate::status::with_now_ms(fixtures::NOW, || {
-        for tab in [OpsTab::Agents, OpsTab::Digest] {
-            let mut app = board();
-            fixtures::populate(&mut app);
-            app.shell.tab = tab;
-            app.usage_chart
-                .borrow_mut()
-                .apply(Target::Each(Each::Fixed(5)))
-                .unwrap();
-            let selected = app.workspace.selected.clone();
-            let shown = text(&paint(&mut app, 60, 14));
-            assert!(
-                shown.contains("Usage · last 1h · ~689 tok"),
-                "{tab:?}: {shown}"
-            );
-            assert!(
-                app.usage_chart.borrow().hits.iter().all(|hit| matches!(
-                    hit.target,
-                    Target::Controls | Target::OpenEach | Target::OpenRange
-                )),
-                "summary has only complete control triggers, no bar hits"
-            );
-            press(&mut app, KeyCode::Char('u'));
-            assert!(!app.usage_controls);
-            press(&mut app, KeyCode::Enter);
-            assert!(app.usage_controls);
-            let shown = text(&paint(&mut app, 60, 14));
-            assert!(shown.contains("Range"), "{shown}");
-            press(&mut app, KeyCode::Down);
-            press(&mut app, KeyCode::Enter);
-            assert!(!app.usage_controls);
-            assert_eq!(app.usage_chart.borrow().selection.range_minutes, 360);
-            assert_eq!(app.workspace.selected, selected);
-            assert!(app.input.is_none());
-            paint(&mut app, 60, 14);
-            press(&mut app, KeyCode::Esc);
-            assert_eq!(app.workspace.selected, selected);
-        }
+        let tab = OpsTab::Agents;
+        let mut app = board();
+        fixtures::populate(&mut app);
+        app.shell.tab = tab;
+        app.usage_chart
+            .borrow_mut()
+            .apply(Target::Each(Each::Fixed(5)))
+            .unwrap();
+        let selected = app.workspace.selected.clone();
+        let shown = text(&paint(&mut app, 60, 14));
+        assert!(
+            shown.contains("Usage · last 1h · ~689 tok"),
+            "{tab:?}: {shown}"
+        );
+        assert!(
+            app.usage_chart.borrow().hits.iter().all(|hit| matches!(
+                hit.target,
+                Target::Controls | Target::OpenEach | Target::OpenRange
+            )),
+            "summary has only complete control triggers, no bar hits"
+        );
+        press(&mut app, KeyCode::Char('u'));
+        assert!(!app.usage_controls);
+        press(&mut app, KeyCode::Enter);
+        assert!(app.usage_controls);
+        let shown = text(&paint(&mut app, 60, 14));
+        assert!(shown.contains("Range"), "{shown}");
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
+        assert!(!app.usage_controls);
+        assert_eq!(app.usage_chart.borrow().selection.range_minutes, 360);
+        assert_eq!(app.workspace.selected, selected);
+        assert!(app.input.is_none());
+        paint(&mut app, 60, 14);
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.workspace.selected, selected);
     });
 }
 
@@ -705,7 +704,8 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
 #[test]
 fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
     crate::status::with_now_ms(fixtures::NOW, || {
-        for tab in [OpsTab::Agents, OpsTab::Digest] {
+        {
+            let tab = OpsTab::Agents;
             let mut app = board();
             fixtures::populate(&mut app);
             app.shell.tab = tab;

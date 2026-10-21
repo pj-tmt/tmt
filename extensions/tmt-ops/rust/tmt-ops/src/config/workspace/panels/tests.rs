@@ -51,7 +51,7 @@ fn explicit_order_completes_known_ids_and_hidden_is_a_unique_subset() {
 fn dashboards_have_distinct_ids_and_side_panes() {
     let document: DocumentMut = "[workspace.digest_panels]\norder = ['list','status','usage','subscriptions','chart','report']\nhidden = ['chart']\ndetails = false\n".parse().unwrap();
     let policy = DigestPanels::parse(&document["workspace"]["digest_panels"]).unwrap();
-    assert_eq!(policy.order()[0], DigestPanel::List);
+    assert_eq!(policy.order(), DigestPanel::ALL);
     assert!(!policy.shown(DigestPanel::Chart));
     assert!(!policy.side_shown());
     assert!(OverviewPanel::parse("chart").is_none());
@@ -63,25 +63,13 @@ fn dashboards_have_distinct_ids_and_side_panes() {
 }
 
 #[test]
-fn an_order_saved_before_a_panel_existed_gets_it_appended() {
-    let saved = |order: &str| -> Result<DigestPanels, String> {
-        let document: DocumentMut = format!("[workspace.digest_panels]\norder = [{order}]\n")
-            .parse()
-            .unwrap();
-        DigestPanels::parse(&document["workspace"]["digest_panels"])
-    };
-    let policy = saved("'list','status','usage','subscriptions','chart'").unwrap();
-    assert_eq!(policy.order()[0], DigestPanel::List);
-    assert_eq!(policy.order().last(), Some(&DigestPanel::Report));
-    assert!(policy.shown(DigestPanel::Report));
-    // Every omitted known ID is completed by the same expansion rule.
-    let older = saved("'list','status','usage','subscriptions'").unwrap();
-    assert!(older.order().contains(&DigestPanel::Chart));
-    assert_eq!(older.order().last(), Some(&DigestPanel::Report));
-    // An order that already places it keeps its place; duplicates stay refused.
-    let placed = saved("'report','list','status','usage','subscriptions','chart'").unwrap();
-    assert_eq!(placed.order()[0], DigestPanel::Report);
-    assert!(saved("'report','report','list','status','usage','subscriptions','chart'").is_err());
+fn retired_digest_sections_are_ignored_while_equivalent_switches_survive() {
+    let document: DocumentMut = "[workspace.digest_panels]\norder=['list','status','usage','subscriptions','chart','report']\nhidden=['report','chart']\ndetails=false\n".parse().unwrap();
+    let policy = DigestPanels::parse(&document["workspace"]["digest_panels"]).unwrap();
+    assert_eq!(policy.order(), DigestPanel::ALL);
+    assert!(!policy.shown(DigestPanel::Chart));
+    assert!(!policy.side_shown());
+    assert!(policy.shown(DigestPanel::List));
 }
 
 #[test]
@@ -199,7 +187,7 @@ fn saving_changed_ids_and_repairing_unknown_fields_keep_displaced_comments() {
 }
 
 #[test]
-fn older_panel_orders_keep_custom_order_visibility_and_round_trip_in_both_forms() {
+fn older_panel_orders_respect_fixed_sections_and_round_trip_visibility_in_both_forms() {
     for (key, side, order, hidden, expected) in [
         (
             "overview_panels",
@@ -219,15 +207,8 @@ fn older_panel_orders_keep_custom_order_visibility_and_round_trip_in_both_forms(
             "digest_panels",
             "details",
             "'list','usage','status','subscriptions'",
-            "status",
-            vec![
-                "list",
-                "usage",
-                "status",
-                "chart",
-                "subscriptions",
-                "report",
-            ],
+            "chart",
+            vec!["subscriptions", "chart", "list"],
         ),
     ] {
         for inline in [false, true] {
@@ -259,14 +240,22 @@ fn older_panel_orders_keep_custom_order_visibility_and_round_trip_in_both_forms(
                 let missing = if P::SIDE_KEY == "conversation" {
                     "usage"
                 } else {
-                    "chart"
+                    "subscriptions"
                 };
                 assert!(
                     parsed.shown(P::parse(missing).unwrap()),
                     "new panels use the default visibility"
                 );
+                let authored_order = item["order"].to_string();
                 PanelSetting::configured(parsed.clone()).write(item);
                 assert_eq!(Panels::<P>::parse(item).unwrap(), parsed);
+                if !P::ORDERED {
+                    assert_eq!(
+                        item["order"].to_string(),
+                        authored_order,
+                        "retired order remains authored migration data"
+                    );
+                }
             }
             if key == "overview_panels" {
                 round_trip::<OverviewPanel>(&mut document["workspace"][key], &expected, hidden);
@@ -283,7 +272,7 @@ fn older_panel_orders_keep_custom_order_visibility_and_round_trip_in_both_forms(
 }
 
 #[test]
-fn every_omitted_subset_preserves_saved_relative_order_and_completes_once() {
+fn every_omitted_subset_completes_once_and_only_ordered_panels_keep_saved_order() {
     fn check<P: Panel>() {
         for mask in 0..1usize << P::ALL.len() {
             let saved: Vec<_> = P::ALL
@@ -307,15 +296,22 @@ fn every_omitted_subset_preserves_saved_relative_order_and_completes_once() {
                 policy.order.iter().copied().collect::<BTreeSet<_>>(),
                 P::ALL.iter().copied().collect()
             );
-            assert_eq!(
-                policy
-                    .order
-                    .iter()
-                    .copied()
-                    .filter(|panel| saved.contains(panel))
-                    .collect::<Vec<_>>(),
-                saved
-            );
+            if P::ORDERED {
+                assert_eq!(
+                    policy
+                        .order
+                        .iter()
+                        .copied()
+                        .filter(|panel| saved.contains(panel))
+                        .collect::<Vec<_>>(),
+                    saved
+                );
+            } else {
+                assert_eq!(policy.order(), P::ALL);
+                let mut moved = policy.clone();
+                assert!(!moved.move_panel(P::ALL[0], true));
+                assert_eq!(moved, policy);
+            }
             for (index, panel) in P::ALL.iter().enumerate() {
                 if !saved.contains(panel) {
                     assert_eq!(&policy.order[index], panel);

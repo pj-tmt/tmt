@@ -1642,7 +1642,7 @@ fn supplied_label_fixture(look: crate::look::Look) -> App {
 fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
     use tmt_cli_style::Role;
     let mut app = supplied_label_fixture(look);
-    for tab in [OpsTab::Agents, OpsTab::Digest] {
+    for tab in [OpsTab::Agents] {
         app.shell.tab = tab;
         for width in [100, 160] {
             let screen = paint(&app, width, 36).join("\n");
