@@ -19,6 +19,8 @@ export interface ColabSettingsView {
 /** A read that does not exist yet: what the page needs, shown instead of any value. */
 export interface ColabSettingsUnavailable {
   unavailable: string;
+  /** The terminal command that shows these settings. */
+  command?: string;
 }
 export interface ColabSettingsSource {
   read(): Promise<ColabSettingsView | ColabSettingsUnavailable>;
@@ -32,9 +34,13 @@ export const mockColabSettingsSource: ColabSettingsSource = {
   },
 };
 
-/** The source the page reads by default: no browser read of these settings exists yet. */
+/** The source the page reads by default. It needs a Colab read of these settings served to the
+ * owner's browser; until then the page points to the terminal. */
 export const colabSettingsSource: ColabSettingsSource = {
   async read() {
-    return { unavailable: 'Not available yet: needs a Colab read of these settings.' };
+    return {
+      unavailable: 'Colab settings are not in the browser yet.',
+      command: 'tmt colab settings',
+    };
   },
 };

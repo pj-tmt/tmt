@@ -3,7 +3,7 @@
  * read-only. The page depends only on `OpsSource`; the source below is a MOCK until Core exposes a
  * read API for the board (`tmt ops ui` reads the same facts in the terminal).
  */
-import { needs } from './not-available.js';
+import { notInBrowser } from './not-available.js';
 /** The shared state marks (c5ccd17a §4): always a mark and a word. */
 export type AgentState =
   | 'working'
@@ -137,6 +137,7 @@ export const mockOpsSource: OpsSource = {
 };
 
 /** The source the page reads by default. */
+// Needs a Core read of the squad board served to the owner's browser.
 export const opsSource: OpsSource = {
   async board() {
     return {
@@ -145,7 +146,7 @@ export const opsSource: OpsSource = {
       schedules: [],
       settings: [],
       sample: false,
-      unavailable: needs('a Core read of the squad board'),
+      unavailable: notInBrowser('The Ops board', 'tmt ops ui'),
     };
   },
 };

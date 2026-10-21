@@ -4851,10 +4851,12 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await themes.getByRole('tab', { name: 'System', exact: true }).click();
     await expect(page.locator('html')).not.toHaveAttribute('data-theme');
-    // Without a Core read the sections say what they need and show no invented values.
-    await expect(page.locator('#tmt-settings-note')).toContainText(
-      'Not available yet: needs a Core read of this machine’s settings.',
+    // Without a browser read each section names the terminal command and shows no values.
+    await expect(page.locator('#tmt-settings-section')).toContainText(
+      'TMT settings is not in the browser yet. Run tmt config show in a terminal.',
     );
+    await expect(page.locator('#tmt-settings-section code')).toHaveText('tmt config show');
+    await expect(page.locator('#tmt-settings-note')).toBeHidden();
     await expect(page.locator('#tmt-settings-section .tmt-ui-list-row')).toHaveCount(0);
     // The only route-prefixed read is the owner's composed shell (display data).
     expect(
@@ -4897,13 +4899,13 @@ test('Digest and Ops say which read they wait for and show no invented numbers',
       'aria-current',
       'page',
     );
-    // No Core read of usage yet: the page says so, links the request and shows no rows.
+    // No browser read of usage yet: the page names the terminal command and shows no rows.
     const usage = page.locator('#usage-note');
-    await expect(usage).toContainText('Not available yet: needs a Core read of Digest usage.');
-    await expect(usage.getByRole('link', { name: 'Read request' })).toHaveAttribute(
-      'href',
-      /issues\/3937/,
+    await expect(usage).toHaveText(
+      'Usage is not in the browser yet. Run tmt digest usage report --json in a terminal.',
     );
+    await expect(usage.locator('code')).toHaveText('tmt digest usage report --json');
+    await expect(usage.locator('a')).toHaveCount(0);
     await expect(page.getByRole('tab')).toHaveText(['5m', '1h', '6h', '1d', '7d', '30d']);
     await expect(page.locator('#usage-rows tr')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Sample data');
@@ -4916,9 +4918,10 @@ test('Digest and Ops say which read they wait for and show no invented numbers',
     );
     await rail.getByRole('link', { name: 'Ops', exact: true }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agents');
-    await expect(page.locator('#ops-note')).toContainText(
-      'Not available yet: needs a Core read of the squad board.',
+    await expect(page.locator('#ops-note')).toHaveText(
+      'The Ops board is not in the browser yet. Run tmt ops ui in a terminal.',
     );
+    await expect(page.locator('#ops-note code')).toHaveText('tmt ops ui');
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     // The sections stay in the module menu; each is empty the same way.
     const menu = page.locator('.tmt-ui-module-menu');

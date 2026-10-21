@@ -234,7 +234,8 @@ export function settingsSection(
   } else {
     const none = document.createElement('p');
     none.className = 'home-note';
-    none.textContent = emptyText(section, settings);
+    // The empty state may name a terminal command in backticks; it shows as code.
+    notAvailable(none, emptyText(section, settings));
     body.push(none);
   }
   if (section !== 'general') return body;
@@ -285,16 +286,11 @@ export function tmtSettingsPage(source: SettingsSource = settingsSource): void |
     (next) => {
       if (!live) return;
       settings = next;
-      const missing = [next.general, next.identities, next.modules, next.drivers, next.hooks].find(
-        (part) => part.unavailable,
-      )?.unavailable;
-      if (missing) notAvailable(note, missing);
-      else {
-        note.textContent = next.sample
-          ? 'Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.'
-          : '';
-        note.hidden = !next.sample;
-      }
+      // A section that cannot be read says so itself; the note only marks sample values.
+      note.textContent = next.sample
+        ? 'Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values.'
+        : '';
+      note.hidden = !next.sample;
       paint();
     },
     () => {

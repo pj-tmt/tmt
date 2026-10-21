@@ -5,7 +5,7 @@
  * read-only CLI JSON (`tmt ls`, `tmt extension ls`, `tmt driver ls`, `tmt setup --status`,
  * `tmt config show`), which hold the same facts on the terminal side.
  */
-import { needs } from './not-available.js';
+import { notInBrowser } from './not-available.js';
 
 /** One part of the settings; a part the source cannot read is empty and says why. */
 export interface Part<Row> {
@@ -98,9 +98,10 @@ export const mockSettingsSource: SettingsSource = {
 };
 
 /** The source the page reads by default. */
+// Needs a Core read of this machine's settings served to the owner's browser.
 export const settingsSource: SettingsSource = {
   async read() {
-    const none = { rows: [], unavailable: needs('a Core read of this machine’s settings') };
+    const none = { rows: [], unavailable: notInBrowser('TMT settings', 'tmt config show') };
     return {
       general: none,
       identities: none,

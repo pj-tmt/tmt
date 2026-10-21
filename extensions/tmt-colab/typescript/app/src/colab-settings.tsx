@@ -6,9 +6,6 @@ import {
   type ColabSettingsUnavailable,
   type ColabSettingsView,
 } from './colab-settings-source.js';
-
-/** Where the read this page waits for is requested. */
-const READ_REQUEST = 'https://github.com/pj-tmt/tmt/issues/3937#issuecomment-6321040144';
 import { text } from './strings.js';
 
 /** Colab's own settings, read-only: each row names the setting, what it does and its value. The
@@ -27,7 +24,13 @@ export function ColabSettings({ source = colabSettingsSource }: { source?: Colab
     return (
       <section className="home colab-settings" aria-label={t.title}>
         <p className="colab-settings-note" role="note">
-          {view.unavailable} <a href={READ_REQUEST}>Read request</a>
+          {view.unavailable}
+          {view.command && (
+            <>
+              {' '}
+              Run <code>{view.command}</code> in a terminal.
+            </>
+          )}
         </p>
       </section>
     );

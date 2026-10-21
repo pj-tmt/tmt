@@ -2855,21 +2855,21 @@ var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\
 //#endregion
 //#region src/not-available.ts
 /**
-* The honest empty state of a page whose read does not exist yet: it names what the page needs and
-* links the request for that read. Product builds show this, never sample values; mocks stay in
-* tests, the gallery and the dev preview.
+* The empty state of a page whose browser read does not exist yet. It tells the person what they
+* can do instead: the terminal command that shows the same facts. Product builds show this, never
+* sample values; mocks stay in tests, the gallery and the dev preview.
 */
-var READ_API_REQUEST = "https://github.com/pj-tmt/tmt/issues/3937#issuecomment-6321040144";
-/** The words a source gives for a read it does not have. */
-function needs(read) {
-	return `Not available yet: needs ${read}.`;
+function notInBrowser(page, command) {
+	return `${page} is not in the browser yet. Run \`${command}\` in a terminal.`;
 }
-/** Show `text` in `note` with a link to the read request. */
+/** Show `text` in `note`, each `command` in backticks as code. */
 function notAvailable(note, text) {
-	const link = document.createElement("a");
-	link.href = READ_API_REQUEST;
-	link.textContent = "Read request";
-	note.replaceChildren(`${text} `, link);
+	note.replaceChildren(...text.split("`").map((part, index) => {
+		if (index % 2 === 0) return part;
+		const code = document.createElement("code");
+		code.textContent = part;
+		return code;
+	}));
 	note.hidden = false;
 }
 //#endregion
@@ -2893,7 +2893,7 @@ var digestSource = { async usage(range) {
 		range,
 		agents: [],
 		sample: false,
-		unavailable: needs("a Core read of Digest usage")
+		unavailable: notInBrowser("Usage", "tmt digest usage report --json")
 	};
 } };
 //#endregion
@@ -3066,7 +3066,7 @@ var opsSource = { async board() {
 		schedules: [],
 		settings: [],
 		sample: false,
-		unavailable: needs("a Core read of the squad board")
+		unavailable: notInBrowser("The Ops board", "tmt ops ui")
 	};
 } };
 //#endregion
@@ -3240,7 +3240,7 @@ function setStoredTheme(choice, root, store = browserStore()) {
 var settingsSource = { async read() {
 	const none = {
 		rows: [],
-		unavailable: needs("a Core read of this machine’s settings")
+		unavailable: notInBrowser("TMT settings", "tmt config show")
 	};
 	return {
 		general: none,
@@ -3438,7 +3438,7 @@ function settingsSection(section, settings, links) {
 	} else {
 		const none = document.createElement("p");
 		none.className = "home-note";
-		none.textContent = emptyText(section, settings);
+		notAvailable(none, emptyText(section, settings));
 		body.push(none);
 	}
 	if (section !== "general") return body;
@@ -3488,18 +3488,8 @@ function tmtSettingsPage(source = settingsSource) {
 	source.read().then((next) => {
 		if (!live) return;
 		settings = next;
-		const missing = [
-			next.general,
-			next.identities,
-			next.modules,
-			next.drivers,
-			next.hooks
-		].find((part) => part.unavailable)?.unavailable;
-		if (missing) notAvailable(note, missing);
-		else {
-			note.textContent = next.sample ? "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values." : "";
-			note.hidden = !next.sample;
-		}
+		note.textContent = next.sample ? "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values." : "";
+		note.hidden = !next.sample;
 		paint();
 	}, () => {
 		if (!live) return;

@@ -1,20 +1,25 @@
 /**
- * The honest empty state of a page whose read does not exist yet: it names what the page needs and
- * links the request for that read. Product builds show this, never sample values; mocks stay in
- * tests, the gallery and the dev preview.
+ * The empty state of a page whose browser read does not exist yet. It tells the person what they
+ * can do instead: the terminal command that shows the same facts. Product builds show this, never
+ * sample values; mocks stay in tests, the gallery and the dev preview.
  */
-export const READ_API_REQUEST = 'https://github.com/pj-tmt/tmt/issues/3937#issuecomment-6321040144';
-
-/** The words a source gives for a read it does not have. */
-export function needs(read: string): string {
-  return `Not available yet: needs ${read}.`;
+export function notInBrowser(page: string, command: string): string {
+  return `${page} is not in the browser yet. Run \`${command}\` in a terminal.`;
 }
 
-/** Show `text` in `note` with a link to the read request. */
+/** Show `text` in `note`, each `command` in backticks as code. */
 export function notAvailable(note: HTMLElement, text: string): void {
-  const link = document.createElement('a');
-  link.href = READ_API_REQUEST;
-  link.textContent = 'Read request';
-  note.replaceChildren(`${text} `, link);
   note.hidden = false;
+  if (!text.includes('`')) {
+    note.textContent = text;
+    return;
+  }
+  note.replaceChildren(
+    ...text.split('`').map((part, index) => {
+      if (index % 2 === 0) return part;
+      const code = document.createElement('code');
+      code.textContent = part;
+      return code;
+    }),
+  );
 }
