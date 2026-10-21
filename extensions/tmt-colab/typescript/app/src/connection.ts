@@ -35,7 +35,15 @@ import {
   type CompactReport,
   type PageUsage,
 } from './page-usage.js';
-import { SAVE_SOURCE_BYTES, SaveTooLarge, saveResult, type SaveResult } from './save.js';
+import {
+  SAVE_SOURCE_BYTES,
+  SaveTooLarge,
+  saveResult,
+  workResult,
+  type SaveResult,
+  type WorkAction,
+  type WorkResult,
+} from './save.js';
 import type { SaveHunk } from './save-hunks.js';
 import { text as strings } from './strings.js';
 import {
@@ -492,10 +500,13 @@ export class Connection {
       this.#objectReplies.delete(frame.requestId);
       clearTimeout(pending.timer);
       pending.resolve(result);
-    } else if (frame.type === 'saveresult') {
+    } else if (frame.type === 'saveresult' || frame.type === 'workresult') {
       const pending = this.#reply;
       requireValue(pending !== null);
-      const result = saveResult(frame, pending.operationId);
+      const result =
+        frame.type === 'workresult'
+          ? workResult(frame, pending.operationId)
+          : saveResult(frame, pending.operationId);
       this.#reply = null;
       clearTimeout(pending.timer);
       pending.resolve(result);
@@ -595,6 +606,19 @@ export class Connection {
         });
       }
     });
+  }
+  /** One closed work action of the page, prepared and committed natively. The reply says what
+   * happened; a lost one closes this connection and is settled by one `saveStatus` on the next. */
+  async work(
+    operationId: string,
+    action: WorkAction,
+    body: Record<string, unknown>,
+  ): Promise<WorkResult> {
+    await this.ready;
+    this.admission.validatePage(this.sharing);
+    return (await this.#request(operationId, async () =>
+      this.send('work', { operationId, action, body }),
+    )) as WorkResult;
   }
   /** What the page recorded for an operation ID; the one request that settles a lost reply. */
   async saveStatus(operationId: string): Promise<SaveResult> {

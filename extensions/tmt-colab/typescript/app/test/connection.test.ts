@@ -430,6 +430,45 @@ it('carries every refusal reply with its stable code and message', async () => {
   }
 });
 
+it('sends a work action with its closed body and resolves on the work reply', async () => {
+  const { connection, socket } = await open();
+  try {
+    const pending = connection.work(operation, 'task.add', { task: { title: 'Publish' } });
+    await awaitSent(socket, 1);
+    expect(sent(socket).at(-1)).toEqual({
+      ...scope,
+      type: 'work',
+      operationId: operation,
+      action: 'task.add',
+      body: { task: { title: 'Publish' } },
+    });
+    socket.receive({
+      ...savedFrame({ state: 'committed', revision: 'v1:abc', taskId: 'T-4' }),
+      type: 'workresult',
+    });
+    await expect(pending).resolves.toEqual({
+      operationId: operation,
+      state: 'committed',
+      revision: 'v1:abc',
+      taskId: 'T-4',
+    });
+    // A work action shares the one-request slot, and a lost reply is asked about as a save is.
+    const status = connection.saveStatus(operation);
+    await awaitSent(socket, 2);
+    socket.receive(savedFrame({ state: 'committed', revision: 'v1:abc' }));
+    await expect(status).resolves.toMatchObject({ state: 'committed', revision: 'v1:abc' });
+  } finally {
+    connection.close();
+  }
+});
+
+it('closes on a work reply that nobody asked for', async () => {
+  const { connection, socket, failed } = await open();
+  socket.receive({ ...savedFrame({ state: 'committed', revision: 'v1:abc' }), type: 'workresult' });
+  await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce());
+  expect(connection.active).toBe(false);
+});
+
 it('allows one save or status request at a time per connection', async () => {
   const { connection, socket } = await open();
   try {

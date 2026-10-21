@@ -6,6 +6,7 @@ import {
   SaveConflict,
   SaveRefused,
   settledAgainst,
+  workResult,
 } from '../src/save.js';
 import { text } from '../src/strings.js';
 
@@ -140,4 +141,27 @@ it('a refusal that names hunks which no longer fit is the conflict the first one
   // A commit passes through untouched.
   const committed = saveResult(frame({ state: 'committed', revision: '7' }), 'o');
   expect(settledAgainst(committed, hunks)).toBe(committed);
+});
+
+it('a work reply is a save reply plus the ID a committed task.add made', () => {
+  const reply = (fields: Record<string, unknown>) => ({ ...frame(fields), type: 'workresult' });
+  expect(
+    workResult(reply({ state: 'committed', revision: 'v1:abc', taskId: 'T-12' }), 'o'),
+  ).toMatchObject({ state: 'committed', revision: 'v1:abc', taskId: 'T-12' });
+  expect(workResult(reply({ state: 'unchanged', revision: 'v1:abc' }), 'o').taskId).toBeUndefined();
+  expect(
+    workResult(
+      reply({ state: 'rejected', code: 'COLAB_WIP_LIMIT', message: 'Atlas would hold T-1' }),
+      'o',
+    ),
+  ).toMatchObject({ state: 'rejected', code: 'COLAB_WIP_LIMIT' });
+  for (const broken of [
+    { state: 'committed', revision: 'v1:abc', taskId: 'x' },
+    { state: 'committed', revision: 'v1:abc', taskId: 12 },
+    { state: 'unchanged', revision: 'v1:abc', taskId: 'T-1' },
+    { state: 'rejected', code: 'COLAB_INPUT_INVALID', taskId: 'T-1' },
+    { state: 'committed', revision: 'v1:abc', extra: true },
+  ])
+    expect(() => workResult(reply(broken), 'o'), JSON.stringify(broken)).toThrow();
+  expect(() => workResult(reply({ state: 'committed', revision: 'v1:abc' }), 'other')).toThrow();
 });
