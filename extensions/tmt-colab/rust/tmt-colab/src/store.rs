@@ -80,11 +80,11 @@ impl std::fmt::Display for Fault {
             }
             Self::UnsupportedSchema(_, Some(copy)) => write!(
                 f,
-                "This space was saved by a newer Colab. To use this version, stop the Colab service and put the copy from before that update, {}, back as space.db.",
+                "This space was saved by a newer Colab. Run tmt upgrade to open it. To stay on this version instead, stop Colab and replace space.db with the backup from before that update ({}); changes made since then are lost.",
                 copy.display()
             ),
             Self::Backup(_) => f.write_str(
-                "The copy of this space taken before updating it could not be written; nothing changed.",
+                "Colab could not save a backup of this space before updating it. Nothing was changed.",
             ),
             _ => write!(f, "{self:?}"),
         }

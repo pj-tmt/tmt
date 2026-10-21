@@ -5045,13 +5045,13 @@ renamed, then the directory is synced. A second upgrade from the same schema rep
 committed migration only the two copies at the newest schemas stay. A store with no schema yet and one
 already current make none, and `Store::read` and `Store::write_existing` never migrate, so never copy.
 If the copy cannot be written the migration does not run and the store is untouched:
-`COLAB_STORE_BACKUP_FAILED`, "The copy of this space taken before updating it could not be written;
-nothing changed.", with the hint "Free disk space or fix the permissions of the Colab data folder, then try again."
+`COLAB_STORE_BACKUP_FAILED`, "Colab could not save a backup of this space before updating it.
+Nothing was changed.", with the hint "Free disk space or fix the permissions of the Colab data folder, then try again."
 A copy is store data (it holds epoch secrets) and stays in the private data root. Recovery is manual:
 when a store is newer than this build, the `COLAB_STORE_NEWER` refusal names the newest copy at a schema
-this build supports, "This space was saved by a newer Colab. To use this version, stop the Colab
-service and put the copy from before that update, <path>, back as space.db.", and is unchanged when
-there is none. No command restores a copy.
+this build supports, "This space was saved by a newer Colab. Run tmt upgrade to open it. To stay on
+this version instead, stop Colab and replace space.db with the backup from before that update
+(<path>); changes made since then are lost.", and is unchanged when there is none. No command restores a copy.
 
 ### Projects (#3747)
 

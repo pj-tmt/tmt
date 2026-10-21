@@ -111,10 +111,9 @@ fn a_copy_that_cannot_be_written_stops_the_migration_and_leaves_the_store_untouc
     let fault = error.downcast_ref::<Fault>().unwrap();
     assert!(matches!(fault, Fault::Backup(_)), "{fault:?}");
     assert_eq!(fault.code(), Some("COLAB_STORE_BACKUP_FAILED"));
-    assert!(
-        fault
-            .to_string()
-            .ends_with("could not be written; nothing changed.")
+    assert_eq!(
+        fault.to_string(),
+        "Colab could not save a backup of this space before updating it. Nothing was changed."
     );
     assert_eq!(fs::read(&store).unwrap(), before);
     assert_eq!(version(&store), previous);
@@ -204,7 +203,13 @@ fn a_newer_store_names_the_newest_copy_this_build_can_open() {
         matches!(fault, Fault::UnsupportedSchema(_, Some(found)) if *found == copy),
         "{fault:?}"
     );
-    assert!(fault.to_string().contains(&copy.display().to_string()));
+    assert_eq!(
+        fault.to_string(),
+        format!(
+            "This space was saved by a newer Colab. Run tmt upgrade to open it. To stay on this version instead, stop Colab and replace space.db with the backup from before that update ({}); changes made since then are lost.",
+            copy.display()
+        )
+    );
     assert_eq!(fault.code(), Some("COLAB_STORE_NEWER"));
     // The read-only open names it too, and neither open changed anything.
     let read = Store::read(&layout).err().unwrap();
