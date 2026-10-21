@@ -83,9 +83,9 @@ envelopes. No unauthenticated GET inventory.
 | `POST /ack`       | One signed ack control; no core attention mutation.                                                    |
 | `POST /pair`      | Enrollment fields/proofs for an already machine-opened local offer; no client-created offer.           |
 
-The Remote-owned short-entry table forwards exactly `GET /colab`, `GET /colab/`,
-`GET /p/<id>` and `GET /read/<id>` in place to Colab's public mount entry, without a
-Remote redirect. IDs contain exactly 4–64 ASCII `[0-9A-Za-z_-]` characters; query,
+The Remote-owned short-entry table forwards exactly `GET /read/<id>` in place to Colab's public
+mount entry, without a Remote redirect. `/colab/…` is a route of the
+[TMT web app](#public-browser-routes) and `/p/<id>` redirects into it; neither is forwarded. IDs contain exactly 4–64 ASCII `[0-9A-Za-z_-]` characters; query,
 `tmt-session`, extra segments and upgrades refuse. Thread targets and reader capabilities
 stay in browser fragments, never server paths. Navigation permits absent Origin or the
 exact door Origin; cross-origin Origin and cross-site fetch metadata receive generic HTML 403.
@@ -105,10 +105,22 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 ### Public browser routes
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
-framing rules. Every page except the refusal page renders inside the shared web shell: a rail of
-Home, the described modules and TMT settings, which `/sdk/shell.js` (or the page's own script)
-fills from the [composed shell](#module-descriptions-and-composed-shell) when the browser holds
-an owner session, and otherwise shows Home and Remote only. `/` is Home: it lists, per module,
+framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
+`/remote`, `/remote/`, `/remote/settings`, `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`,
+`/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
+`/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
+explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
+and the document reads no cookie or session. Its policy is the pairing page policy below plus only
+what the Colab route needs in the same document, `img-src 'self' data:`, `worker-src 'self'` and
+`frame-src 'self'`, with `object-src 'none'`; it is no wider than Colab's mounted document policy.
+`GET /p/<id>` answers 308 with `Location: /colab/p/<id>` (its query kept) and an empty body; a
+malformed `/p` path receives the generic HTML 404 page. The client router switches routes in that
+one document: each route is a module mounted into the shared web shell, and Colab's module is
+loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
+always the same fixed list, Home, Colab, Remote, Ops, Digest, other described modules, Search and
+TMT settings, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
+browser holds an owner session; a module the answer does not describe stays listed, disabled, with
+its reason. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
 described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, with
 a visible Remote-settings link. Home preferences remain a separate consumer. Remote's existing
@@ -120,15 +132,14 @@ empty body; the query is discarded without reflection. Host and Origin checks an
 `Sec-Fetch-Site` refusal precede the redirect; CSP, no-store and no-referrer remain. Only that
 redirect path admits a discarded query; other target grammars are unchanged. Browsers retain a
 fragment across the redirect, and the pairing bootstrap erases it before any subresource.
-Other methods and `/pair/…` refuse. Colab public entries, `/p/`, `/read/`, prefixed protocol/mount
-routes, `/sdk/*` and the `/x/` refusal keep their existing behavior.
+Other methods and `/pair/…` refuse. The reader entry `/read/`, prefixed protocol/mount routes,
+`/sdk/*` and the `/x/` refusal keep their existing behavior.
 
 `GET /remote/pair` serves the pairing page with `default-src 'none'; script-src 'self';
 style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 The landing, pairing, settings and error pages share this policy and embed the shared TMT SVG favicon as data; images cannot make network requests.
 `GET /sdk/pair.js` serves the synchronous fragment-erasing bootstrap, which then loads the SDK.
-`GET /sdk/shell.js` is the same-origin entry that mounts the shell from the served SDK on Home and
-TMT settings, which have no page script of their own.
+`GET /sdk/shell.js` is the same-origin entry that starts the TMT web app from the served SDK.
 `GET /sdk/pair-offer` returns only the current unconfirmed offer's
 `{profile, binding, machineId, windowId, offerId, address, serverChallenge}` descriptor with `no-store`; absent, expired, cancelled
 or confirmed offers return the generic JSON 404. Cross-origin loads refuse. The code remains
@@ -586,11 +597,11 @@ server challenge (32 lowercase hex characters). No private key is included in a 
 
 #### Native automatic opens
 
-`tmt remote open [short-target]` opens a running local door (default `/remote/`). Targets are `/remote/`, `/remote/settings` or the
-existing exact public `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` grammar; query/fragment,
+`tmt remote open [short-target]` opens a running local door (default `/remote/`). Targets are the
+[web app routes](#public-browser-routes), `/p/<id>` or `/read/<id>`; query/fragment,
 protocol/mount paths and external redirects refuse. Human output contains only the canonical
 origin plus short target. `--json` returns the versioned result without opening; `--no-open` also
-suppresses opening. The former `/` and `/settings` Remote targets refuse, without aliases.
+suppresses opening.
 Other flags/settings/environment checks use the shared opener policy below.
 
 The extension-only `tmt remote launch <short-target>` seam is hidden from help, takes the same
@@ -1726,6 +1737,9 @@ whole answer. Its fields are:
 - Optional `needsYou`: integer 0–9999, equal to the module's own in-app Needs-you
   number. Absent means unknown and shows no badge; explicit null is refused.
 - Optional `home`: up to eight `{id, title, path}` items, title 1–40 scalars.
+- Optional `entry`: the path of the module's web app script, ending in `.js`. An entry that is not
+  a valid path or not a script is dropped and the rest of the description stands; the app then
+  offers the module's link instead of mounting it.
 
 IDs match `[a-z0-9-]{1,32}` and are unique within their list. Labels contain no controls
 or bidi controls and are text, never markup. Icons are names from `house`, `file-text`,
@@ -1735,7 +1749,7 @@ lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Pat
 escape. The door resolves every path inside that module's own mount, never another module.
 
 The composed answer is `{version:1, modules:[{extension, rail, menu, settings, needsYou?,
-home?}]}`. Remote adds its own module and sorts by rail order, then extension name.
+home?, entry?}]}`. Remote adds its own module and sorts by rail order, then extension name.
 After the existing authority checks, every due callback starts in parallel; composition
 waits within one 300 ms deadline, not one wait per extension. This budget covers module
 composition, not authority checks, which retain the blocking behavior of mounted routes. A successful answer is fresh for five seconds; a last good
