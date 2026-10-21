@@ -341,7 +341,7 @@ fn archive_one(sync: &Server<OwnerAdmission>, page: &str) -> Result<Option<Idle>
         Ok(Applied {
             body: Vec::new(),
             touched: page.iter().cloned().collect(),
-            archived_page: page,
+            resync_page: page,
             deleted_page: None,
         })
     })
