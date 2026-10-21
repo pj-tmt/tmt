@@ -1,10 +1,10 @@
 //! Bounded recovery history. Counts select recovery input, never live authority.
 use std::collections::BTreeSet;
 
-pub const RECENT: usize = 10;
-pub const HOURLY: usize = 24;
-pub const MAX_GENERATIONS: usize = RECENT + HOURLY + 1;
-const HOUR_MS: u64 = 3_600_000;
+pub const RECENT: usize = 5;
+pub const MAX_GENERATIONS: usize = RECENT + 1;
+/// Existing v1 history is readable; publication applies the smaller retention bound.
+pub const MAX_READ_GENERATIONS: usize = 35;
 
 /// Separate from manually named snapshots: `:` is not a valid saved name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -80,7 +80,7 @@ impl Catalogue {
         }
     }
     pub fn is_valid(&self) -> bool {
-        self.entries.len() <= MAX_GENERATIONS
+        self.entries.len() <= MAX_READ_GENERATIONS
             && self.entries.iter().all(|entry| {
                 entry.panes <= super::MAX_PANES
                     && entry.agents <= entry.panes
@@ -109,7 +109,6 @@ impl Catalogue {
         if !next.shrink {
             self.protected = Some(next.id.clone());
         }
-        let hour = next.captured_at_ms / HOUR_MS;
         self.entries.push(next);
         let mut keep = self
             .entries
@@ -120,13 +119,6 @@ impl Catalogue {
             .collect::<BTreeSet<_>>();
         if let Some(id) = &self.protected {
             keep.insert(id.clone());
-        }
-        let mut hours = BTreeSet::new();
-        for entry in self.entries.iter().rev() {
-            let bucket = entry.captured_at_ms / HOUR_MS;
-            if bucket <= hour && hour - bucket < HOURLY as u64 && hours.insert(bucket) {
-                keep.insert(entry.id.clone());
-            }
         }
         let mut removed = Vec::new();
         self.entries.retain(|entry| {
@@ -147,7 +139,7 @@ mod tests {
     fn entry(number: u64, panes: usize, agents: usize) -> WorkspaceGeneration {
         WorkspaceGeneration {
             id: format!("g:{number:064x}").parse().unwrap(),
-            captured_at_ms: number * HOUR_MS,
+            captured_at_ms: number * 3_600_000,
             panes,
             agents,
             shrink: false,
@@ -164,7 +156,10 @@ mod tests {
             assert_eq!(history.protected(), Some(&good));
             assert_eq!(history.preferred(), Some(&good));
             assert!(history.latest().unwrap().shrink);
+            assert!(history.entries.len() <= 6);
         }
+        assert_eq!(history.entries.len(), 6);
+        assert_eq!(history.entries[1].id, entry(96, 1, 1).id);
         history.append(entry(101, 20, 10));
         assert_eq!(history.protected(), history.latest());
         assert!(!history.latest().unwrap().shrink);
@@ -197,7 +192,38 @@ mod tests {
         }
     }
     #[test]
-    fn retention_combines_distinct_recent_hours_and_clock_rollback() {
+    fn retention_keeps_five_recent_distinct_generations_without_hourly_buckets() {
+        let mut history = Catalogue::default();
+        for number in 1..=8 {
+            history.append(entry(number, 20, 10));
+        }
+        assert_eq!(
+            history
+                .entries
+                .iter()
+                .map(|entry| entry.id.clone())
+                .collect::<Vec<_>>(),
+            (4..=8)
+                .map(|number| entry(number, 20, 10).id)
+                .collect::<Vec<_>>()
+        );
+        let before = history.clone();
+        assert!(history.append(entry(8, 20, 10)).is_empty());
+        assert_eq!(history, before);
+        assert!(history.is_valid());
+    }
+    #[test]
+    fn v1_read_admission_accepts_existing_history_but_rejects_overflow() {
+        let mut history = Catalogue {
+            entries: (1..=35).map(|number| entry(number, 20, 10)).collect(),
+            protected: None,
+        };
+        assert!(history.is_valid());
+        history.entries.push(entry(36, 20, 10));
+        assert!(!history.is_valid());
+    }
+    #[test]
+    fn clock_rollback_keeps_five_recent_generations_and_the_protected_baseline() {
         let mut history = Catalogue::default();
         for number in 1..=200 {
             let mut next = entry(number, 20, 10);
@@ -213,5 +239,15 @@ mod tests {
         }
         assert_eq!(history.latest().unwrap().id, entry(250, 1, 1).id);
         assert_eq!(history.protected().unwrap().id, entry(200, 20, 10).id);
+        assert_eq!(history.entries.len(), 6);
+        assert_eq!(
+            history.entries[1..]
+                .iter()
+                .map(|entry| entry.id.clone())
+                .collect::<Vec<_>>(),
+            (246..=250)
+                .map(|number| entry(number, 1, 1).id)
+                .collect::<Vec<_>>()
+        );
     }
 }
