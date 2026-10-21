@@ -753,6 +753,8 @@ export function ThreadWindow({
         {echoes.map((echo) => (
           <MessageEchoTurn key={echo.local} echo={echo} writer={binding?.deviceId} />
         ))}
+        {/* A thread just created here is not attached until the page has checked its anchors: the
+            row waits for that, rather than flashing in for a frame and moving the window. */}
         {!archived &&
           binding &&
           thread &&
@@ -760,6 +762,7 @@ export function ThreadWindow({
           !thread.deleted &&
           owned &&
           tracked &&
+          anchorsChecked &&
           !attached && (
             <div className="comment-actions">
               <BrowserAction
