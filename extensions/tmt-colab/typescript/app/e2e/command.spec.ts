@@ -9,7 +9,7 @@ test('verified bearer values copy exactly and remain selectable on clipboard den
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/test/command-browser.html');
   await page.getByRole('button', { name: 'Create a sharing link…', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm create a sharing link', exact: true }).click();
+  await page.getByRole('button', { name: 'Create a sharing link', exact: true }).click();
   const block = page.locator('.bearer .tmt-ui-command');
   const link = await page.getByLabel('Share link', { exact: true }).inputValue();
   expect(new URL(link).pathname).toBe('/read/22222222-2222-4222-8222-222222222222');

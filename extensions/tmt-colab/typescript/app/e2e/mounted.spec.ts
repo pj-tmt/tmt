@@ -1,6 +1,7 @@
 import { expect, test, type Page, type BrowserContext, type Locator } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { homeList } from '../test/home-list.js';
+import { text } from '../src/strings.js';
 import * as c from '@tmt/colab-client';
 
 // Keep only error diagnostics: other console levels can include fixture data.
@@ -554,7 +555,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await captureListbox(page, 'selected');
   await choose(dialog, 'Permission for this new recipient', 'Read');
   await expect(dialog.getByText('Active', { exact: true })).toBeVisible();
-  const revision = dialog.getByText('Verified revision 2', { exact: true });
+  const revision = dialog.getByText(/^Last edit:/);
   await expect(revision).toBeHidden();
   await dialog.getByText('Details', { exact: true }).click();
   await expect(revision).toBeVisible();
@@ -582,6 +583,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toContainText('Editors can change');
+  await expect(dialog).toContainText(text.frameLimit);
   expect(await page.locator('iframe').count()).toBe(0);
   for (const theme of ['light', 'dark']) {
     await page.evaluate((theme) => {
@@ -603,12 +605,12 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await choose(dialog, 'Who can open this page', 'Anyone with the link');
   await dialog.getByRole('button', { name: 'Allow access by link' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Result unknown');
-  await dialog.getByRole('button', { name: 'Retry exact request' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Change verified');
+  await dialog.getByRole('button', { name: 'Retry this request' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Done.');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await dialog.getByRole('button', { name: 'Create a sharing link…' }).click();
   await expect(dialog.getByLabel('Share link', { exact: true })).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Confirm create a sharing link' }).click();
+  await dialog.getByRole('button', { name: 'Create a sharing link', exact: true }).click();
   await expect(dialog.getByLabel('Share link', { exact: true })).toBeVisible();
   const shared = new URL(await dialog.getByLabel('Share link', { exact: true }).inputValue());
   const capability = new URLSearchParams(shared.hash.slice(1));
@@ -774,15 +776,15 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByLabel('Days after the last change').fill('14');
   await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
   await expect(dialog).toContainText('Access expires after 14 days without a page update');
-  await dialog.getByRole('button', { name: 'Confirm set access expiry' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Change verified');
+  await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('Done.');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await expect(dialog.getByLabel('Days after the last change')).toHaveValue('14');
   await dialog.getByLabel('Keep on this computer until I delete it').check();
   await expect(dialog.getByLabel('Days after the last change')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Confirm set access expiry' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Change verified');
+  await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('Done.');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await expect(dialog.getByLabel('Keep on this computer until I delete it')).toBeChecked();
   await dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }).click();
@@ -790,8 +792,8 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(requests).toBe(2);
   await dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Confirm archive and stop edits' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Change verified');
+  await dialog.getByRole('button', { name: 'Archive and stop edits', exact: true }).click();
+  await expect(dialog.getByRole('status')).toContainText('Done.');
   expect(contexts.at(-1)).toBe(pageId);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(row(pageId)).toHaveCount(0);
@@ -828,15 +830,15 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(requests).toBe(3);
   await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
+  await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'Deletion acknowledged, awaiting verification',
+    'The owner accepted the deletion, but it is not confirmed yet',
   );
-  await expect(dialog).not.toContainText('Management access was denied');
+  await expect(dialog).not.toContainText('This device is not allowed to manage this page');
   expect(contexts.at(-1)).toBe(other);
   withheld = false;
-  await dialog.getByRole('button', { name: 'Verify signed log' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Deletion verified');
+  await dialog.getByRole('button', { name: 'Check again' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Done.');
   await expect(dialog.getByRole('alert')).toHaveCount(0);
   expect(requests).toBe(4);
   await expect(dialog.getByRole('button', { name: 'Manage another change' })).toHaveCount(0);
@@ -848,14 +850,14 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     .click();
   await page.getByRole('menuitem', { name: 'Manage page' }).click();
   await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
+  await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'Deletion acknowledged, awaiting verification',
+    'The owner accepted the deletion, but it is not confirmed yet',
   );
   const sockets = contexts.length;
-  await dialog.getByRole('button', { name: 'Verify signed log' }).click();
+  await dialog.getByRole('button', { name: 'Check again' }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'Deletion acknowledged, awaiting verification',
+    'The owner accepted the deletion, but it is not confirmed yet',
   );
   expect(requests).toBe(5);
   expect(contexts).toHaveLength(sockets);

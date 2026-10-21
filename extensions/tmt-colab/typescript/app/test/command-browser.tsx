@@ -8,6 +8,9 @@ import type { ManagementPort, ManagementView } from '../src/management.js';
 
 const params = new URLSearchParams(location.search);
 const shareCopy = params.has('share-copy');
+// With `unconfirmed`, the first verification fails and a second one succeeds.
+const unconfirmed = params.has('unconfirmed');
+let verifications = 0;
 const pageId = '11111111-1111-4111-8111-111111111111';
 const view: ManagementView = {
   page: {
@@ -40,19 +43,26 @@ const port: ManagementPort = {
     operation: selection.operation,
     expiresAt: Date.now() + 60000,
     expectedRevision: '1',
-    artifact: {
-      linkId: '22222222-2222-4222-8222-222222222222',
-      seed: 'A'.repeat(43),
-      space: 'a'.repeat(32),
-      root: 'A'.repeat(43),
-      role: 'viewer',
-    },
+    // Only a new link carries a secret to show.
+    artifact:
+      selection.operation === 'link.add'
+        ? {
+            linkId: '22222222-2222-4222-8222-222222222222',
+            seed: 'A'.repeat(43),
+            space: 'a'.repeat(32),
+            root: 'A'.repeat(43),
+            role: 'viewer',
+          }
+        : undefined,
   }),
   send: async () => ({
     operationId: 'operation',
     membershipHead: { revision: '2', statementHash: 'A'.repeat(43) },
   }),
-  verify: async () => view,
+  verify: async () => {
+    if (unconfirmed && verifications++ === 0) throw new Error('The signed log is not readable yet');
+    return view;
+  },
   manageProject: async () => {},
   setProjects: async () => {},
 };
