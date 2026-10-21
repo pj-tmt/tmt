@@ -1313,15 +1313,27 @@ describe('Claude channel delivery', { concurrent: false }, () => {
         fixture.tmux(['send-keys', '-t', board, '/', name, 'Enter']);
         await fixture.waitForCapture((screen) => /1 of 1/.test(screen), board);
         fixture.tmux(['send-keys', '-t', board, 'End']);
-        await fixture.waitForCapture((screen) => screen.includes(`⏎ to message ${name}`), board);
-        const screen = fixture.capture(60, board);
-        for (const text of [
+        // The chat history is read after the row opens; wait for it on a loaded runner.
+        const wanted = [
           'Draft before the checklist',
           'Final after the checklist',
           'Plain answer with no tmt reply',
           'Replied exchange body: the build is green',
-        ])
-          expect(screen, text).toContain(text);
+        ];
+        let screen = '';
+        await fixture
+          .waitFor(
+            () => {
+              screen = fixture.capture(60, board);
+              return wanted.every((text) => screen.includes(text));
+            },
+            20_000,
+            'the finals and the answered exchange on the Ops board'
+          )
+          .catch((error: Error) => {
+            throw new Error(`${error.message}\n${screen}`, { cause: error });
+          });
+        for (const text of wanted) expect(screen, text).toContain(text);
         expect(screen).not.toContain('Stale text of an older turn');
         fixture.tmux(['send-keys', '-t', board, 'q']);
         await fixture.waitForCapture((text) => /^BOARD_EXIT=0$/m.test(text), board);
