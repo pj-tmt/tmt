@@ -1175,15 +1175,20 @@ fn guidance_page(
         ),
         None => (
             "Private space",
-            "Pair this browser first",
-            "<p>This Colab space is private. For page access, pair this browser with</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code></div><p>or open a share link. To send to agents, pair with tmt remote pair --talk or ask the owner to enable sending for this device in Remote settings.</p>".into(),
+            if recovery {
+                "Opening Colab"
+            } else {
+                "Could not reconnect"
+            },
+            "<p>Could not reconnect. Reopen the page to try again. Your pairing is unchanged.</p>"
+                .into(),
         ),
     };
     let stylesheet = format!("<link rel=\"stylesheet\" href=\"{assets}assets/chrome.css\">");
     let screen_title = if owner.is_some() {
         "App unavailable"
     } else {
-        "Pair browser"
+        "Open Colab"
     };
     let recovery_status = if recovery {
         "<p id=\"colab-recovery-status\" class=\"guidance-status\" role=\"status\">Opening your paired browser…</p>"
@@ -1196,12 +1201,17 @@ fn guidance_page(
     } else {
         String::new()
     };
-    // Lucide Diamond geometry (lucide-react 1.52.0, ISC); text carries the state.
+    // Lucide Diamond/Circle geometry (lucide-react 1.52.0, ISC); text carries the state.
     let mark = "<svg class=\"guidance-mark lucide\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path d=\"M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z\"/></svg>";
+    let mark = if owner.is_some() {
+        mark
+    } else {
+        "<svg class=\"guidance-mark lucide\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg>"
+    };
     let (state, state_label) = if owner.is_some() {
         ("waiting", "Update needed")
     } else {
-        ("waiting", "waiting")
+        ("muted", "not connected")
     };
     // Geometry copied from design/browser-ui/src/header.tsx; socket tests enforce equality.
     let brand_mark = concat!(

@@ -693,8 +693,17 @@ fn chrome_browser_responses() {
         PathBuf::from(std::env::var_os("COLAB_CHROME_FIXTURE_DIR").expect("fixture directory"));
     assert!(directory.is_absolute() && directory.is_dir());
     let server = Running::start(Tunnels::PRODUCT);
+    let recovering = Running::start_with_app(Tunnels::PRODUCT, Some(fixture_app()));
     let responses = [
         ("private", server.request(&Running::get("/", ""))),
+        ("recovery", recovering.request(&Running::get("/", ""))),
+        (
+            "public-recovery",
+            recovering.request(&Running::get(
+                "/",
+                "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n",
+            )),
+        ),
         (
             "owner",
             server.request(&Running::get(
@@ -749,19 +758,21 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let private = server.request(&Running::get("/", ""));
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("<title>Colab</title>"));
-    assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
+    assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Could not reconnect</h2>"));
     assert!(
-        private.contains("This Colab space is private. For page access, pair this browser with")
+        private.contains(
+            "Could not reconnect. Reopen the page to try again. Your pairing is unchanged."
+        )
     );
-    assert!(private.contains("<code class=\"tmt-ui-command-text\">tmt remote pair</code>"));
-    assert!(private.contains("or open a share link."));
+    assert!(!private.contains("tmt remote pair"));
     assert!(private.contains("<main class=\"guidance-main\">"));
     assert!(!private.contains("./assets/reader.css"));
     assert!(private.contains("./assets/chrome.css"));
     assert!(!private.contains("colab-recovery-status"));
     assert!(!private.contains("./assets/recovery.js"));
     assert!(!private.contains("class=\"guidance-detail\" hidden"));
-    assert!(private.contains("data-tone=\"waiting\""));
+    assert!(private.contains("data-tone=\"muted\""));
+    assert!(private.contains("not connected"));
     assert!(private.contains("class=\"tmt-ui-header\""));
     let chrome = server.request(&Running::get("/assets/chrome.css", ""));
     assert!(chrome.starts_with("HTTP/1.1 200"));
@@ -2446,7 +2457,7 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
         }
     }
     let guidance = server.request(&Running::get("/", ""));
-    assert!(guidance.contains("This Colab space is private"));
+    assert!(guidance.contains("Your pairing is unchanged."));
     // The browser leaf owns the mark. This test-only source read detects copy drift.
     let shared_header = include_str!("../../../../../design/browser-ui/src/header.tsx");
     let shared_mark = shared_header
@@ -2488,8 +2499,8 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     assert!(guidance.contains(r#"</svg><span class="tmt-ui-wordmark">Colab</span></span>"#));
     assert!(!guidance.contains(r#"<span class="tmt-ui-mark""#));
     assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
-    assert!(guidance.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
-    assert!(guidance.contains("<code class=\"tmt-ui-command-text\">tmt remote pair</code>"));
+    assert!(guidance.contains("<h2 class=\"tmt-ui-notice-heading\">Opening Colab</h2>"));
+    assert!(!guidance.contains("tmt remote pair"));
     assert!(guidance.contains("<link rel=\"stylesheet\" href=\"./assets/chrome.css\">"));
     assert!(guidance.contains("<main class=\"guidance-main\">"));
     assert!(

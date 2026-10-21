@@ -270,8 +270,11 @@ session limit (`sessionLimit()`, `session-limit-error.ts`) still loads the app, 
 shows the limit card, never the unpaired guidance. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
-refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. On an open page's socket close, `Live` makes one read-only probe of the exact old
+refused reopen, or unavailable session storage, leaves neutral reopen guidance and never
+retries an Ask. Native HTML cannot infer pairing loss from absent owner context. The recovery
+script requests one typed SDK attempt with a timeout signal (no bounded retry); only its
+`unpaired`, `revoked` or `expired` result reveals the pairing command. Mismatch, capacity and
+transport/storage uncertainty preserve pairing and show their approved recovery copy. On an open page's socket close, `Live` makes one read-only probe of the exact old
 Connection/Registration/Remote owner. A current pending same-session attempt keeps
 that owner while diagnosis settles, even if readiness has already rejected.
 Verified session end starts one existing mounted-owner replacement; verified eviction

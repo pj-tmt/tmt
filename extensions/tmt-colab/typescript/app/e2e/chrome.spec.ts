@@ -78,7 +78,7 @@ async function nativeScreen(page: Page, name: 'private' | 'owner') {
     await expect(page.locator('.guidance-detail')).toContainText('tmt extension upgrade colab');
     await expect(page.locator('.guidance-detail')).not.toContainText('Build the app:');
   } else {
-    await expect(page.locator('.guidance-mark path')).toBeVisible();
+    await expect(page.locator('.guidance-mark circle')).toBeVisible();
   }
 }
 
@@ -199,9 +199,9 @@ for (const width of [1440, 390, 320])
             const role =
               screen === 'rust-owner'
                 ? 'waiting'
-                : screen.includes('opening') || screen === 'rust-private'
+                : screen.includes('opening')
                   ? 'waiting'
-                  : screen === 'reader-ended'
+                  : screen === 'reader-ended' || screen === 'rust-private'
                     ? 'muted'
                     : 'blocked';
             const color = await page.evaluate((role) => {
@@ -220,7 +220,7 @@ for (const width of [1440, 390, 320])
               screen === 'rust-owner'
                 ? 'Update needed'
                 : screen === 'rust-private'
-                  ? 'waiting'
+                  ? 'not connected'
                   : screen.includes('opening')
                     ? 'opening'
                     : screen === 'reader-ended'
@@ -436,3 +436,136 @@ for (const width of [1440, 390, 320])
         expect(painted.headerOnTop, `${className} must not cover the fixed header`).toBe(true);
       }
     });
+
+// Use actual socket-produced HTML with the production recovery entry, never a React stand-in.
+for (const entry of ['restart', 'public'] as const) {
+  for (const [cause, sentence, pairing] of [
+    ['unpaired', 'This browser is not paired with Remote for this page.', true],
+    ['revoked', "This browser's pairing was removed.", true],
+    ['expired', "This browser's pairing expired.", true],
+    ['mismatch', 'Your access to this page ended. Open it again to continue.', false],
+    [
+      'capacity',
+      "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.",
+      false,
+    ],
+    [
+      'unreachable',
+      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
+      false,
+    ],
+    [
+      'unconfirmed',
+      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
+      false,
+    ],
+    [
+      'transient',
+      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
+      false,
+    ],
+    [
+      'storage',
+      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
+      false,
+    ],
+    [
+      'plain-revoked',
+      'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
+      false,
+    ],
+  ] as const) {
+    test(`native ${entry} recovery ${cause} offers only evidence-based guidance`, async ({
+      page,
+    }) => {
+      const mount = '/r/abcdefghijklmnop/x/colab/';
+      const path = entry === 'restart' ? mount : '/colab';
+      const response = JSON.parse(
+        await readFile(
+          `${nativeDirectory}/${entry === 'restart' ? 'recovery' : 'public-recovery'}.json`,
+          'utf8',
+        ),
+      );
+      const css = JSON.parse(await readFile(`${nativeDirectory}/css.json`, 'utf8'));
+      await page.route('**/assets/chrome.css', (route) => route.fulfill(css));
+      await page.route(`**${path}`, (route) => route.fulfill(response));
+      await page.route('**/sdk/remote-v1.js*', (route) =>
+        route.fulfill({
+          contentType: 'text/javascript',
+          body: `export async function reopenSession(previous, options) {
+          sessionStorage.setItem('fixture:typed', String(previous === undefined && Boolean(options?.signal) && !options.retry));
+          const count = Number(sessionStorage.getItem('fixture:attempts') ?? 0) + 1;
+          sessionStorage.setItem('fixture:attempts', String(count));
+          const cause = ${JSON.stringify(cause)};
+          if (cause === 'storage') throw new Error('IndexedDB unavailable');
+          if (cause === 'plain-revoked') throw new Error('REMOTE_DEVICE_REVOKED');
+          const error = Object.assign(new Error('SDK result'), {name:'ReopenSessionError', reason:cause});
+          if (cause === 'capacity') error.cause = Object.assign(new Error('limit'), {name:'RefusalError',code:'REMOTE_SESSION_LIMIT',limit:8});
+          throw error;
+        }`,
+        }),
+      );
+      if (entry === 'public' && cause === 'capacity') {
+        await page.route(`**${mount}index.html`, (route) =>
+          route.fulfill({
+            contentType: 'text/html',
+            body: '<script type="module" src="./assets/fixture-capacity.js"></script>',
+          }),
+        );
+        await page.route(`**${mount}assets/fixture-capacity.js`, (route) =>
+          route.fulfill({
+            contentType: 'text/javascript',
+            body: 'document.body.dataset.appLoaded = "true";',
+          }),
+        );
+        await page.goto(path);
+        await expect(page.locator('body')).toHaveAttribute('data-app-loaded', 'true');
+        await expect(page.locator('body')).not.toContainText('tmt remote pair');
+        expect(await page.evaluate(() => sessionStorage.getItem('fixture:attempts'))).toBe('1');
+        return;
+      }
+      await page.goto(path);
+      const detail = page.locator('#colab-guidance');
+      await expect(detail).toBeVisible();
+      await expect(detail).toContainText(sentence);
+      await expect(page.locator('#colab-recovery-status')).toBeHidden();
+      await expect(page.locator('.tmt-ui-notice-heading')).toHaveText(
+        pairing ? 'Pair this browser first' : 'Could not reconnect',
+      );
+      const blocked = pairing || cause === 'mismatch';
+      await expect(page.locator('.guidance-card')).toHaveAttribute(
+        'data-tone',
+        blocked ? 'blocked' : 'muted',
+      );
+      await expect(page.locator('.tmt-ui-notice-mark')).toContainText(
+        blocked ? 'failed' : 'not connected',
+      );
+      await expect(
+        page.locator(blocked ? '.guidance-mark path' : '.guidance-mark circle'),
+      ).toBeVisible();
+      await expect(detail.locator('code')).toHaveCount(pairing ? 1 : 0);
+      if (pairing) await expect(detail.locator('code')).toHaveText('tmt remote pair');
+      else await expect(page.locator('body')).not.toContainText('tmt remote pair');
+      expect(await page.evaluate(() => sessionStorage.getItem('fixture:attempts'))).toBe('1');
+      expect(await page.evaluate(() => sessionStorage.getItem('fixture:typed'))).toBe('true');
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 844 });
+          await containment(page);
+          await page.screenshot({
+            path: `${captureDirectory}/recovery-${entry}-${cause}-${width}-${theme}.png`,
+          });
+        }
+      }
+      if (entry === 'restart') {
+        await page.reload();
+        await expect(detail).toContainText(
+          'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
+        );
+        await expect(detail.locator('code')).toHaveCount(0);
+        expect(await page.evaluate(() => sessionStorage.getItem('fixture:attempts'))).toBe('1');
+      }
+    });
+  }
+}
