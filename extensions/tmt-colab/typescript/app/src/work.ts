@@ -6,6 +6,7 @@ import {
   byteLength,
   canonical,
   coreIdentity,
+  id,
   keys,
   multiline,
   nonempty,
@@ -40,6 +41,8 @@ export interface Task {
   /** Display only until the owner can act on it; present only when true. */
   needsSignoff?: true;
   externalId?: string;
+  /** The page this task follows; excludes `externalId`, and the task's state is then its page's. */
+  child?: string;
 }
 export interface Work {
   version: 1;
@@ -59,6 +62,9 @@ export interface Derived {
   working: Assignee[];
   /** Flagged tasks waiting in review. The flag is display only until the owner can act on it. */
   signoff: number;
+  /** What each task that follows a page shows, when that page's stage is known; present only when
+   * some task does. The other tasks show their own state. */
+  states?: Record<string, TaskState>;
 }
 export const WORK_TASKS = 256;
 export const WORK_BYTES = 128 * 1024;
@@ -128,9 +134,14 @@ export function validateTask(value: unknown): asserts value is Task {
   const task = keys(
     value,
     ['title', 'state'],
-    ['detail', 'reason', 'assignee', 'acceptance', 'needsSignoff', 'externalId'],
+    ['detail', 'reason', 'assignee', 'acceptance', 'needsSignoff', 'externalId', 'child'],
   );
   editable(task);
+  // A task links to a page or to an external issue, never both: its state has one owner.
+  if (Object.hasOwn(task, 'child')) {
+    id(task.child);
+    requireValue(!Object.hasOwn(task, 'externalId'));
+  }
   requireValue(TASK_STATES.includes(task.state as TaskState));
   // A blocked task says why, and only a blocked task does.
   if (Object.hasOwn(task, 'reason')) {
@@ -206,6 +217,8 @@ export function applyWorkAction(
       ],
       'task.state': [['taskId', 'state'], ['reason']],
       'task.assign': [['taskId'], ['assignee']],
+      'task.link': [['taskId', 'pageId'], []],
+      'task.unlink': [['taskId'], []],
       'task.remove': [['taskId'], []],
     };
     requireValue(Object.hasOwn(spec, action));
@@ -221,12 +234,21 @@ export function applyWorkAction(
         if (Object.hasOwn(body, field)) task[field] = structuredClone(body[field]);
         else delete task[field];
     } else if (action === 'task.state') {
+      // A linked task's state follows its page: nothing sets it.
+      requireValue(!Object.hasOwn(task, 'child'));
       task.state = body.state;
       if (Object.hasOwn(body, 'reason')) task.reason = body.reason;
       else delete task.reason;
     } else if (action === 'task.assign') {
       if (Object.hasOwn(body, 'assignee')) task.assignee = structuredClone(body.assignee);
       else delete task.assignee;
+    } else if (action === 'task.link') {
+      id(body.pageId);
+      // Another page replaces nothing: the task is unlinked first.
+      requireValue(!Object.hasOwn(task, 'child') || task.child === body.pageId);
+      task.child = body.pageId;
+    } else if (action === 'task.unlink') {
+      delete task.child;
     } else {
       delete next.tasks[key];
       next.order = next.order.filter((entry) => entry !== key);
@@ -235,20 +257,46 @@ export function applyWorkAction(
   validateWork(next);
   return next;
 }
-export function derivedWork(work: unknown): Derived {
+/** What a task shows while its page is at `stage`: nothing yet is `todo`, work under way is
+ * `in-progress`, and a finished page is `done`, or `in-review` when the task waits for sign-off. */
+export function linkedState(stage: string, needsSignoff: boolean): TaskState | undefined {
+  if (stage === 'discussion') return 'todo';
+  if (stage === 'in-progress') return 'in-progress';
+  if (stage === 'done') return needsSignoff ? 'in-review' : 'done';
+  return undefined;
+}
+/** `stageOf` answers a linked page's stage. A page it cannot answer for (deleted, unreadable)
+ * leaves its task showing its own state. */
+export function derivedWork(
+  work: unknown,
+  stageOf: (page: string) => string | undefined = () => undefined,
+): Derived {
   validateWork(work);
   let done = 0;
   let signoff = 0;
   const working: Assignee[] = [];
+  const states: Record<string, TaskState> = {};
   for (const key of work.order) {
     const task = work.tasks[key];
-    if (task.state === 'done') done += 1;
-    else if (task.state === 'in-progress') {
+    const stage = task.child === undefined ? undefined : stageOf(task.child);
+    const followed =
+      stage === undefined ? undefined : linkedState(stage, task.needsSignoff === true);
+    if (followed !== undefined) states[key] = followed;
+    const state = followed ?? task.state;
+    if (state === 'done') done += 1;
+    else if (state === 'in-progress') {
       const who = task.assignee;
       if (who && !working.some((entry) => canonical(entry) === canonical(who))) working.push(who);
-    } else if (task.state === 'in-review' && task.needsSignoff) signoff += 1;
+    } else if (state === 'in-review' && task.needsSignoff) signoff += 1;
   }
   const total = work.order.length;
   const stage = total === 0 ? 'discussion' : done === total ? 'done' : 'in-progress';
-  return { stage, done, total, working, signoff };
+  return {
+    stage,
+    done,
+    total,
+    working,
+    signoff,
+    ...(Object.keys(states).length > 0 ? { states } : {}),
+  };
 }

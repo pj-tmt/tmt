@@ -106,6 +106,12 @@ fn push(root: &Path, gh: &dyn Gh, args: &ArgMatches) -> Result<()> {
             "This page has no task {task_id}; tmt colab task ls shows its tasks."
         ))
     })?;
+    // A task that follows a page takes its state from that page; an issue would be a second owner.
+    if task.get("child").is_some() {
+        return Err(invalid(&format!(
+            "{task_id} follows a page, so it is not pushed to GitHub; stop it following the page first (tmt colab task unlink)."
+        )));
+    }
     if let Some(linked) = task["externalId"].as_str().filter(|id| !id.is_empty()) {
         return Err(invalid(&format!(
             "{task_id} is already linked to {linked}; it is not pushed again."

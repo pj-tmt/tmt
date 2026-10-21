@@ -14,6 +14,7 @@ use crate::{
     page,
     store::Store,
     wip::Held,
+    work::Line,
 };
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, io::Write};
@@ -24,12 +25,19 @@ const LOCK: &str = "work-index.lock";
 const LIMIT: u64 = 1024 * 1024;
 const VERSION: u64 = 1;
 
+/// The work of the pages of the space: a page missing from it is unavailable (not asked, deleted,
+/// unreadable), and `None` is a page with no work.
+pub type Found = BTreeMap<String, Option<PageWork>>;
+
 /// One page's work, as the list and the limit need it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageWork {
-    /// `work::Derived::to_value()`.
+    /// `work::Derived::to_value()` of the tasks' own states.
     pub derived: Value,
     pub held: Vec<Held>,
+    /// Every task, kept only for a page whose tasks follow other pages (`work_links.rs`); empty
+    /// otherwise.
+    pub lines: Vec<Line>,
 }
 
 fn entry_json(work: &Option<PageWork>, fingerprint: &str) -> Value {
@@ -41,8 +49,36 @@ fn entry_json(work: &Option<PageWork>, fingerprint: &str) -> Value {
             .iter()
             .map(|held| json!({"agent":held.agent,"task":held.task}))
             .collect();
+        if !work.lines.is_empty() {
+            entry["lines"] = work.lines.iter().map(line_json).collect();
+        }
     }
     entry
+}
+fn line_json(line: &Line) -> Value {
+    let mut value = json!({"id":line.id,"state":line.state});
+    if line.signoff {
+        value["signoff"] = json!(true);
+    }
+    if let Some(assignee) = &line.assignee {
+        value["assignee"] = assignee.clone();
+    }
+    if let Some(child) = &line.child {
+        value["child"] = json!(child);
+    }
+    value
+}
+fn line_from(value: &Value) -> Option<Line> {
+    Some(Line {
+        id: value["id"].as_str()?.to_owned(),
+        state: value["state"].as_str()?.to_owned(),
+        signoff: value.get("signoff") == Some(&Value::Bool(true)),
+        assignee: value.get("assignee").cloned(),
+        child: match value.get("child") {
+            None => None,
+            Some(child) => Some(child.as_str()?.to_owned()),
+        },
+    })
 }
 fn entry_from(page: &str, entry: &Value) -> Option<(String, Option<PageWork>)> {
     let fingerprint = entry["fingerprint"].as_str()?.to_owned();
@@ -60,11 +96,20 @@ fn entry_from(page: &str, entry: &Value) -> Option<(String, Option<PageWork>)> {
             })
         })
         .collect::<Option<Vec<_>>>()?;
+    let lines = match entry.get("lines") {
+        None => Vec::new(),
+        Some(lines) => lines
+            .as_array()?
+            .iter()
+            .map(line_from)
+            .collect::<Option<Vec<_>>>()?,
+    };
     Some((
         fingerprint,
         Some(PageWork {
             derived: entry["derived"].clone(),
             held,
+            lines,
         }),
     ))
 }
@@ -111,7 +156,7 @@ pub fn scan(
     key: &Keyring,
     decoder: &mut Decoder,
     pages: &[String],
-) -> Result<BTreeMap<String, Option<PageWork>>> {
+) -> Result<Found> {
     let fingerprints =
         store.owner_read(&key.space_id, &key.owner_public(), |tx| tx.page_progress())?;
     let _lock = crate::settings::locked(layout, LOCK)?;
@@ -130,10 +175,7 @@ pub fn scan(
                 match fold(store, key, id, decoder) {
                     Some(work) => work,
                     // Unreadable now: say nothing and ask again next time.
-                    None => {
-                        found.insert(id.clone(), None);
-                        continue;
-                    }
+                    None => continue,
                 }
             }
         };
@@ -150,10 +192,18 @@ pub fn scan(
 fn fold(store: &Store, key: &Keyring, id: &str, decoder: &mut Decoder) -> Option<Option<PageWork>> {
     match page::read_work(store, key, id, decoder) {
         Ok(read) if read.work == crate::work::empty() => Some(None),
-        Ok(read) => Some(Some(PageWork {
-            held: crate::wip::held(id, &read.work),
-            derived: read.derived,
-        })),
+        Ok(read) => {
+            let lines = crate::work::lines(&read.work).ok()?;
+            Some(Some(PageWork {
+                held: crate::wip::held(id, &read.work),
+                derived: read.derived,
+                lines: if lines.iter().any(|line| line.child.is_some()) {
+                    lines
+                } else {
+                    Vec::new()
+                },
+            }))
+        }
         // A shell holds no work.
         Err(error) if error.downcast_ref::<page::Fault>() == Some(&page::Fault::Invalid) => {
             Some(None)
@@ -162,8 +212,29 @@ fn fold(store: &Store, key: &Keyring, id: &str, decoder: &mut Decoder) -> Option
     }
 }
 
+/// `scan` of the given pages and, when one of their tasks follows a page, of every page of the
+/// space, so a page followed from outside the given ones (an archived one, say) still answers.
+pub fn scan_linked(
+    layout: &Layout,
+    store: &Store,
+    key: &Keyring,
+    decoder: &mut Decoder,
+    pages: &[String],
+    everything: impl FnOnce() -> Result<Vec<String>>,
+) -> Result<Found> {
+    let found = scan(layout, store, key, decoder, pages)?;
+    let linked = found
+        .values()
+        .flatten()
+        .any(|work| work.lines.iter().any(|line| line.child.is_some()));
+    if linked {
+        return scan(layout, store, key, decoder, &everything()?);
+    }
+    Ok(found)
+}
+
 /// What the pages other than `page` hold.
-pub fn held_elsewhere(found: &BTreeMap<String, Option<PageWork>>, page: &str) -> Vec<Held> {
+pub fn held_elsewhere(found: &Found, page: &str) -> Vec<Held> {
     found
         .iter()
         .filter(|(id, _)| id.as_str() != page)
@@ -183,6 +254,13 @@ mod tests {
                 agent: "ada".into(),
                 page: "p".into(),
                 task: "T-1".into(),
+            }],
+            lines: vec![Line {
+                id: "T-1".into(),
+                state: "todo".into(),
+                signoff: true,
+                assignee: Some(json!({"kind":"agent","name":"ada"})),
+                child: Some("20000000-0000-4000-8000-000000000001".into()),
             }],
         });
         let json = entry_json(&work, "f1");
@@ -206,6 +284,7 @@ mod tests {
                 page: page.into(),
                 task: "T-1".into(),
             }],
+            lines: vec![],
         };
         let found = BTreeMap::from([
             ("a".to_owned(), Some(held("a"))),
