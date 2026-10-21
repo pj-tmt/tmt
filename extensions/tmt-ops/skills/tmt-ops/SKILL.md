@@ -1403,7 +1403,7 @@ Usage row. Click 7d/5h in its heading, or use the existing `u` controls (arrows,
 Enter and Tab fields); changing quota never changes the token chart or rereads
 Core. Bars and percentages are neutral. The rate uses the last 2h of observed
 quota changes, divided by actual source elapsed time; its arrow compares with
-the preceding 2h. Token Each/Range controls do not affect either horizon. A reset
+the preceding 2h. Chart Time per bar/Range controls do not affect either horizon. A reset
 or percentage drop starts a new suffix. Fewer than two observations or less than
 30 minutes of spacing means `—`; an unknown prior rate shows no arrow.
 Only a positive known rate projects depletion. ◆ marks a projected runout before
