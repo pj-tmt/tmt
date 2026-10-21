@@ -6,6 +6,7 @@
 //! the clock and the pane capture as parameters; painting lives with the HOME
 //! header. Providers are whatever drivers the listing names; nothing here
 //! spells a driver.
+mod allowance;
 mod estimate;
 mod footer;
 mod listing;
@@ -13,6 +14,7 @@ pub(in crate::board) mod observation;
 pub(in crate::board) mod pace;
 mod store;
 
+pub use allowance::{Line, Outcome, Rates, Row, Weekly, rows};
 pub use estimate::{Figures, Left, Outlook, Trend, outlook};
 use serde_json::Value;
 use std::{
@@ -132,6 +134,8 @@ pub struct Standing {
     pub latest: Option<Reading>,
     pub burn: Option<f64>,
     pub trend: Option<Trend>,
+    /// The weekly rates the Digest Allowance block projects.
+    pub rates: Rates,
 }
 
 impl Standing {
@@ -211,6 +215,7 @@ impl Sampler {
                     latest: history.last().copied(),
                     burn,
                     trend,
+                    rates: allowance::rates(history),
                     provider,
                 }
             })

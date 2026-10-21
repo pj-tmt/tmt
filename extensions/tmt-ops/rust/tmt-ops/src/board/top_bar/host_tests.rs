@@ -53,6 +53,7 @@ pub(super) fn observed_app(now: u64) -> (crate::board::app::App, Vec<String>, Ve
     );
     app.limits = Some(vec![
         Standing {
+            rates: Default::default(),
             provider: Provider::named("claude"),
             latest: Some(Reading {
                 observed_at_ms: now,
@@ -69,6 +70,7 @@ pub(super) fn observed_app(now: u64) -> (crate::board::app::App, Vec<String>, Ve
             trend: None,
         },
         Standing {
+            rates: Default::default(),
             provider: Provider::named("codex"),
             latest: Some(Reading {
                 observed_at_ms: now,
@@ -164,6 +166,7 @@ fn shrinking_drops_whole_segments_in_the_approved_order() {
     let now = 10_000;
     let limits = [
         Standing {
+            rates: Default::default(),
             provider: Provider::named("claude"),
             latest: Some(Reading {
                 observed_at_ms: now,
@@ -180,6 +183,7 @@ fn shrinking_drops_whole_segments_in_the_approved_order() {
             trend: None,
         },
         Standing {
+            rates: Default::default(),
             provider: Provider::named("codex"),
             latest: Some(Reading {
                 observed_at_ms: now,
