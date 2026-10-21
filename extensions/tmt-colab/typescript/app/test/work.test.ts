@@ -3,15 +3,17 @@ import vectors from '../../../contracts/vectors/work-v1.json';
 import { byteLength, canonical } from '../src/closed.js';
 import type { Attribution } from '../src/summary-lines.js';
 import {
+  EDITABLE,
   WORK_BYTES,
   WORK_TASKS,
-  applyWorkAction,
   derivedWork,
-  emptyWork,
+  keptByEdit,
   taskNumber,
   validateWork,
+  type Task,
   type Work,
 } from '../src/work.js';
+import { applyWorkAction, emptyWork } from './work-apply.js';
 
 it.each(vectors.cases)('$name', (fixture) => {
   const before = JSON.stringify(fixture.document);
@@ -107,4 +109,20 @@ it('refuses unpaired surrogates and control characters the native side cannot ho
   expect(() => validateWork(task('lone \ud800'))).toThrow();
   expect(() => validateWork(task('bell \u0007'))).toThrow();
   expect(() => validateWork(task('del \u007f'))).toThrow();
+});
+
+it('sends back every editable field a title and detail edit leaves alone', () => {
+  const task: Task = {
+    title: 't',
+    detail: 'd',
+    state: 'todo',
+    acceptance: [{ kind: 'person', who: 'ben' }],
+    needsSignoff: true,
+    externalId: '#7',
+  };
+  // `task.set` replaces the whole editable set: a field added to it and not kept here would be
+  // cleared by every title or detail edit.
+  expect(['title', 'detail', ...Object.keys(keptByEdit(task))].sort()).toEqual(
+    [...EDITABLE].sort(),
+  );
 });

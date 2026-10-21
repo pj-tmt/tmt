@@ -5162,7 +5162,7 @@ fn native_page(
 }
 fn page_ids(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Vec<String> {
     let store = Store::read(layout).unwrap();
-    let ids = tmt_colab::work_admission::all_page_ids(&store, key).unwrap();
+    let ids = tmt_colab::inspection::all_page_ids(&store, key).unwrap();
     store.close().unwrap();
     ids
 }

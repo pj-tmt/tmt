@@ -25,15 +25,21 @@ import {
   authorCounts,
   waitingCount,
   filterPages,
-  pageStage,
   projectCounts,
   projectNameError,
-  stageCounts,
   withProject,
   type PageSort,
-  type PageStage,
   type ProjectChange,
 } from './projects.js';
+import {
+  DEFAULT_VIEW,
+  HOME_STAGES,
+  pageStage,
+  stageCounts,
+  takeStage,
+  type HomeStage,
+  type PageStage,
+} from './list-stage.js';
 import { AUTHOR_BYTES } from './bootstrap.js';
 import { HeaderSlot } from './header-slot.js';
 import { ProjectScopeMenu } from './project-scope-menu.js';
@@ -47,12 +53,9 @@ import { BulkBar } from './bulk-bar.js';
 import { pageTitle, pageUpdate } from './page-index.js';
 import {
   editFromSearch,
-  HOME_STAGES,
   PageListSearch,
   searchFromEdit,
-  takeStage,
   toggleProject,
-  type HomeStage,
   type SearchEdit,
 } from './page-list-search.js';
 import { PageWork } from './page-work.js';
@@ -65,8 +68,6 @@ import './page-list.css';
 const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
 const homeRoute = getRouteApi('/');
-/** The tab a bare list URL opens on; the route search keeps any other. */
-export const DEFAULT_VIEW: HomeStage = 'in-progress';
 /** The query that may filter and order the list (and a copied URL), bounded and validated. */
 export interface HomeSearch {
   q?: string;

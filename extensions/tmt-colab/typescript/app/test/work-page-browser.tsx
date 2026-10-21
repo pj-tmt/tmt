@@ -5,7 +5,8 @@ import { createAppRouter } from '../src/router.js';
 import type { PageView } from '../src/transport.js';
 import { SaveRefused } from '../src/save.js';
 import { localTransport, type PageBinding } from '../src/transport.js';
-import { applyWorkAction, type Work } from '../src/work.js';
+import type { Work } from '../src/work.js';
+import { applyWorkAction } from './work-apply.js';
 
 const attribution = { writerId: '10000000-0000-4000-8000-000000000001', timeMs: 1_000 };
 const work = (done: boolean, owner = false): Work => ({

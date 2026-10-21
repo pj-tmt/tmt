@@ -227,27 +227,6 @@ fn from_work(id: &str, work: &Value, derived: Value) -> Option<PageWork> {
     })
 }
 
-/// `scan` of the given pages and, when one of their tasks follows a page, of every page of the
-/// space, so a page followed from outside the given ones (an archived one, say) still answers.
-pub fn scan_linked(
-    layout: &Layout,
-    store: &Store,
-    key: &Keyring,
-    decoder: &mut Decoder,
-    pages: &[String],
-    everything: impl FnOnce() -> Result<Vec<String>>,
-) -> Result<Found> {
-    let found = scan(layout, store, key, decoder, pages)?;
-    let linked = found
-        .values()
-        .flatten()
-        .any(|work| work.lines.iter().any(|line| line.child.is_some()));
-    if linked {
-        return scan(layout, store, key, decoder, &everything()?);
-    }
-    Ok(found)
-}
-
 /// What the pages other than `page` hold.
 pub fn held_elsewhere(found: &Found, page: &str) -> Vec<Held> {
     found

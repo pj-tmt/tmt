@@ -8,8 +8,9 @@ use super::{
     work::{WorkEdit, prepare_expecting},
 };
 use crate::{
-    work_admission::{all_page_ids, invalid},
-    work_convert::{Blocked, child_page_id, child_source, convertible},
+    inspection::all_page_ids,
+    work_admission::invalid,
+    work_convert::{child_page_id, child_source, convertible},
 };
 use serde_json::json;
 
@@ -44,15 +45,7 @@ pub fn prepare(
             &mut source.decoder,
         )?;
         let task = convertible(&read.work, task_id)
-            .map_err(|blocked| {
-                invalid(&match blocked {
-                    Blocked::Missing => format!("This page has no task {task_id}."),
-                    Blocked::Follows => format!("{task_id} already follows a page."),
-                    Blocked::External => format!(
-                        "{task_id} has an external ID, so it cannot follow a page; clear the ID first."
-                    ),
-                })
-            })?
+            .map_err(|blocked| invalid(&blocked.message(task_id)))?
             .clone();
         let page = child_page_id(&source.keyring.space_id, &edit.operation_id);
         let made = all_page_ids(&source.store, &source.keyring)?.contains(&page);

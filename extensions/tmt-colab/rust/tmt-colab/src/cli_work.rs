@@ -563,7 +563,7 @@ fn follow_pages(root: &Path, page_id: &str, read: &mut page::WorkPage) -> Result
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let found = crate::cli_management::all_page_ids(&store, &key)
+    let found = tmt_colab::inspection::all_page_ids(&store, &key)
         .and_then(|pages| work_index::scan(&layout, &store, &key, &mut decoder, &pages));
     let closed = store.close();
     let found = found?;
@@ -589,18 +589,8 @@ fn convert(root: &Path, args: &ArgMatches) -> Result<()> {
     let task_id = args.get_one::<String>("task").expect("required task");
     let (page_id, read) = read_page_work(root, page)?;
     // Refuse what the link would refuse before a page exists.
-    let task = tmt_colab::work_convert::convertible(&read.work, task_id).map_err(|blocked| {
-        use tmt_colab::work_convert::Blocked;
-        invalid(&match blocked {
-            Blocked::Missing => {
-                format!("This page has no task {task_id}; tmt colab task ls shows its tasks.")
-            }
-            Blocked::Follows => format!("{task_id} already follows a page."),
-            Blocked::External => format!(
-                "{task_id} has an external ID, so it cannot follow a page; clear the ID first (tmt colab task set)."
-            ),
-        })
-    })?;
+    let task = tmt_colab::work_convert::convertible(&read.work, task_id)
+        .map_err(|blocked| invalid(&blocked.message(task_id)))?;
     let title = task["title"].as_str().unwrap_or_default();
     let created = crate::cli_management::commit_creation(
         root,
