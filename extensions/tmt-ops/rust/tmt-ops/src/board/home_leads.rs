@@ -380,6 +380,11 @@ impl State {
             && self.failure.is_none()
     }
 
+    /// The originator page for this exact actor failed to read.
+    pub(super) fn results_failed(&self, sender: Option<&str>) -> bool {
+        sender.is_some() && self.sender.as_deref() == sender && self.failure.is_some()
+    }
+
     pub fn set_sender(&mut self, sender: Option<&str>) {
         if self.sender.as_deref() != sender {
             self.sender = sender.map(str::to_owned);
