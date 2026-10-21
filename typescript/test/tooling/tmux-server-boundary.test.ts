@@ -25,6 +25,7 @@ const SKIPPED = new Set([
 
 const GUARD = 'the private-tmux guard itself';
 const FIXTURE = "the e2e fixture's tmux wrapper (unsets TMUX, refuses a foreign socket)";
+const HOOK = 'the host-tmux hook: it detects the verbs to refuse them on the host server';
 
 /** Every file allowed to name the verbs, with the reason; each must still do so. */
 const ALLOWED: Record<string, string> = {
@@ -33,6 +34,8 @@ const ALLOWED: Record<string, string> = {
   'typescript/test/tooling/private-tmux.test.ts': GUARD,
   'typescript/test/tooling/private-tmux-script.test.ts': GUARD,
   'typescript/test/tooling/tmux-server-boundary.test.ts': GUARD,
+  'typescript/scripts/host-tmux-guard.mjs': HOOK,
+  'typescript/test/tooling/host-tmux-guard.test.ts': HOOK,
   'rust/crates/tmt-adapters/src/tmux/server_id_tests.rs':
     'PrivateServer, which proves its socket private before every command',
   'typescript/test/e2e/harness/fixture.ts': FIXTURE,

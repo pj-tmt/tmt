@@ -1303,6 +1303,8 @@ describe('component map', () => {
       'typescript/test/fixtures/release-cut-history.json':
         'immutable historical path/map data; cut tests compare strings without reading the named prose',
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
+      'typescript/scripts/host-tmux-guard.mjs':
+        'names AGENTS.md in a refusal message; never reads it',
       'typescript/test/tooling/guide-budget.test.ts':
         'counts DEVELOPMENT.md and ARCHITECTURE.md lines; Code quality runs it on every change',
       'typescript/scripts/guide-budgets.json':
