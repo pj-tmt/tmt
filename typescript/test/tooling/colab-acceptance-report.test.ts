@@ -15,6 +15,10 @@ import { describe, expect, it } from 'vite-plus/test';
 
 const script = fileURLToPath(new URL('../../scripts/colab-acceptance-report.mjs', import.meta.url));
 const secret = 'PRIVATE_CREDENTIAL_SENTINEL';
+const productStrings = readFileSync(
+  new URL('../../../extensions/tmt-colab/typescript/app/src/strings.ts', import.meta.url),
+  'utf8'
+);
 
 interface FixtureResult {
   status: string;
@@ -172,20 +176,18 @@ describe('public Colab acceptance evidence', () => {
       expect(report.tests[0].results[0]).not.toHaveProperty('liveStates');
     });
 
-    it.each([
-      'access',
-      'revoked',
-      'expired',
-      'mismatch',
-      'unpaired',
-      'gone',
-      'session',
-      'large',
-      'capacity',
-      'generic',
-      'none',
-      'other',
-    ])('retains the closed ended cause %s', (ended) => {
+    // The report keeps its own copy of the causes as a boundary check, so a cause the product adds
+    // is dropped until the report lists it: every `failureReference` key the product names must be
+    // retained, and this fails when one is not.
+    const productCauses = [
+      ...(/failureReference: \{([^}]*)\}/.exec(productStrings)?.[1] ?? '').matchAll(/^\s*(\w+):/gm),
+    ].map((match) => match[1]);
+
+    it('names the product causes it checks against', () => {
+      expect(productCauses.length).toBeGreaterThanOrEqual(10);
+    });
+
+    it.each([...productCauses, 'none', 'other'])('retains the closed ended cause %s', (ended) => {
       const { report } = runReport((result) => {
         result.attachments.push(liveAttachment({ ...live, ended }));
       });
