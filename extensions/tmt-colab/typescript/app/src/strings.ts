@@ -552,6 +552,8 @@ export const text = {
     openToDecide: 'Open to decide →',
     openFullPage: 'Open the full page →',
     openPassage: 'Open the passage →',
+    panelNeeds: 'Waiting for you on this page',
+    panelNothing: 'Nothing on this page needs you right now.',
     loadingPassage: 'Loading…',
     latest: 'Latest',
     earlier: (count: number) => `Earlier · ${count} ${count === 1 ? 'page' : 'pages'}`,

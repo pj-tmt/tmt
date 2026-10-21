@@ -159,6 +159,8 @@ test('each count jumps to the first row it counts and a zero count is plain text
 test('a reading item names the pending reading that leads its chapter, and opening goes there', async ({
   page,
 }) => {
+  // Below the panel width a chapter has no panel: it opens its page.
+  await page.setViewportSize({ width: 600, height: 900 });
   await openShell(page, 'named');
   const first = page.locator('.shell-chapter').first();
   await expect(first.locator('.shell-passage-lead')).toContainText('To read');
@@ -169,6 +171,105 @@ test('a reading item names the pending reading that leads its chapter, and openi
   await expect(open).toHaveAttribute('href', `/#/pages/${PLAN}?read=${READING}`);
   // The chapter title and the full-page link carry no target of their own.
   await expect(first.locator('.shell-chapter-title a')).toHaveAttribute('href', `/#/pages/${PLAN}`);
+});
+
+test.describe('a chapter opens in a panel beside the shell from 900 px', () => {
+  const panel = (page: Page) => page.getByRole('dialog', { name: 'Release plan' });
+  const trigger = (page: Page) =>
+    page.locator(`.shell-chapter[data-page-id="${PLAN}"] button[data-opens-panel]`);
+
+  test('Open to decide shows what waits on that page, in the URL, and Esc closes it', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openShell(page, 'named');
+    await trigger(page).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`\\?open=${PLAN}`));
+    await expect(panel(page).locator('.shell-panel-needs li').first()).toContainText(
+      'Review the release scope',
+    );
+    await expect(panel(page).locator('.shell-panel-needs li')).toContainText([
+      'Review the release scope',
+      'Decide the scope',
+    ]);
+    await expect(
+      panel(page).getByRole('link', { name: text.shellPage.openFullPage }),
+    ).toHaveAttribute('href', new RegExp(`/#/pages/${PLAN}$`));
+    await page.keyboard.press('Escape');
+    await expect(panel(page)).toHaveCount(0);
+    await expect(page).not.toHaveURL(/open=/);
+    await expect(trigger(page)).toBeFocused();
+  });
+
+  for (const theme of ['light', 'dark'] as const)
+    test(`the panel at 1440 in ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await openShell(page, 'named');
+      await trigger(page).click();
+      await expect(panel(page)).toBeVisible();
+      await page.screenshot({ path: capturePath(`shell-panel-1440-${theme}.png`) });
+    });
+
+  test('a chapter named by an anchor item offers that passage in its panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openShell(page);
+    await page.locator('.shell-chapter').nth(1).locator('button[data-opens-panel]').click();
+    const link = page.getByRole('dialog').getByRole('link', { name: text.shellPage.openPassage });
+    await expect(link).toHaveAttribute('href', `/#/pages/${NOTES}?anchor=decisions`);
+  });
+
+  test('Back closes it, Forward opens it again, a reload keeps it, a backdrop click closes it', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openShell(page);
+    await trigger(page).click();
+    await expect(panel(page)).toBeVisible();
+    await page.goBack();
+    await expect(panel(page)).toHaveCount(0);
+    await page.goForward();
+    await expect(panel(page)).toBeVisible();
+    await page.reload();
+    await expect(panel(page)).toBeVisible();
+    await page.mouse.click(40, 450);
+    await expect(panel(page)).toHaveCount(0);
+    await expect(page).not.toHaveURL(/open=/);
+  });
+
+  test('a page the shell does not list opens nothing, and narrow windows have no panel at all', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openShell(page);
+    await page.evaluate(() => {
+      location.hash = location.hash.split('?')[0] + '?open=10000000-0000-4000-8000-0000000000ff';
+    });
+    await expect(page.locator('.shell-chapter')).toHaveCount(3);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('button[data-opens-panel]')).toHaveCount(0);
+    await expect(
+      page.locator(`.shell-chapter[data-page-id="${PLAN}"] .shell-passage a`),
+    ).toHaveText('Open to decide →');
+  });
+
+  test('opening the full page from the panel and coming back keeps the shell where it was', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 600 });
+    await openShell(page);
+    await page.locator('.shell-chapter').nth(2).scrollIntoViewIfNeeded();
+    const before = await page.evaluate(() => window.scrollY);
+    expect(before).toBeGreaterThan(300);
+    await page.locator('.shell-chapter').nth(2).locator('.shell-open').click();
+    await expect(page).toHaveURL(/#\/pages\/[^?]+$/);
+    await expect(page.locator('.shell-page')).toHaveCount(0);
+    await page.goBack();
+    await expect(page.locator('.shell-chapter')).toHaveCount(3);
+    expect(Math.abs((await page.evaluate(() => window.scrollY)) - before)).toBeLessThan(40);
+  });
 });
 
 test('opening a chapter and coming back lands on the shell with focus on that chapter', async ({
@@ -187,6 +288,7 @@ test('opening a chapter and coming back lands on the shell with focus on that ch
 test('an anchor item opens its page at that exact element and says when it is not there', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 600, height: 900 });
   await openShell(page);
   // The notes page is named by an anchor item: its passage opens the page at that element.
   const anchor = page.locator('.shell-chapter').nth(1).locator('.shell-passage a');

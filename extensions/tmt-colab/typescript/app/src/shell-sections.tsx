@@ -122,10 +122,13 @@ function ChapterPassage({
   chapter,
   now,
   onOpen,
+  onPanel,
 }: {
   chapter: Chapter;
   now: number;
   onOpen: () => void;
+  /** Where a wide window opens the chapter's panel; a narrow one has none and goes to the page. */
+  onPanel?: (pageId: string) => void;
 }) {
   const passage = chapter.passage;
   const search = pageSearch(chapter);
@@ -192,16 +195,28 @@ function ChapterPassage({
       <p className="shell-passage-title">{need.title}</p>
       {need.why && <p className="shell-passage-why">{need.why}</p>}
       {more > 0 && <p className="shell-passage-more">{t.moreWaiting(more)}</p>}
-      <Link
-        className="shell-open"
-        to="/pages/$pageId"
-        params={{ pageId: chapter.pageId }}
-        search={search}
-        onClick={onOpen}
-        onKeyDown={pageLinkKey}
-      >
-        {t.openToDecide}
-      </Link>
+      {onPanel ? (
+        <button
+          type="button"
+          className="shell-open"
+          data-opens-panel
+          aria-haspopup="dialog"
+          onClick={() => onPanel(chapter.pageId)}
+        >
+          {t.openToDecide}
+        </button>
+      ) : (
+        <Link
+          className="shell-open"
+          to="/pages/$pageId"
+          params={{ pageId: chapter.pageId }}
+          search={search}
+          onClick={onOpen}
+          onKeyDown={pageLinkKey}
+        >
+          {t.openToDecide}
+        </Link>
+      )}
     </div>
   );
 }
@@ -217,6 +232,7 @@ export function ShellChapter({
   now,
   today,
   onOpen,
+  onPanel,
 }: {
   chapter: Chapter;
   page: PageSummary | undefined;
@@ -224,6 +240,7 @@ export function ShellChapter({
   now: number;
   today: number;
   onOpen: () => void;
+  onPanel?: (pageId: string) => void;
 }) {
   const isToday = (chapter.lastUpdateAtMs ?? -1) >= today;
   return (
@@ -273,7 +290,7 @@ export function ShellChapter({
           {t.openFullPage}
         </Link>
       </div>
-      <ChapterPassage chapter={chapter} now={now} onOpen={onOpen} />
+      <ChapterPassage chapter={chapter} now={now} onOpen={onOpen} onPanel={onPanel} />
     </li>
   );
 }

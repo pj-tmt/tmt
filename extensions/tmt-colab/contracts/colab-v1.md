@@ -2594,7 +2594,12 @@ details, never stored: the greeting and the first count are the sum of the pages
 a page not waiting and edited within seven days is in progress; waiting chapters come first, then
 in progress, each by update time with the shell's `order` as the tie-break; a chapter shows the
 passage that most needs the owner (a pending item an item names, else the first by rank, else the
-page's latest comment, else the item note). The page never marks a reading read. List/search use its
+page's latest comment, else the item note). From 900 px a chapter's "Open to decide" opens a panel
+beside the shell (the app's drawer: Esc, a click outside or Close dismisses it) listing what waits on
+that page and its latest comment, with the page and passage links; narrower, it opens the page. The
+panel is the page route's `open` search parameter (a page ID, dropped when it is not a chapter of the
+shell), so Back, Forward, a reload and a pasted link keep it; it changes nothing and is never state of
+the shell. The page never marks a reading read. List/search use its
 title and needs-you counts do not treat shell references as authored questions or pending readings. No Today
 integration or migration of older collection data exists. Native and browser
 consume the shared `shell-v1.json` vectors.
