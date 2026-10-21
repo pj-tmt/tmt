@@ -38,7 +38,7 @@ pub(in crate::board) fn rows(
         usage_report::View,
         workspace::{self, OpsTarget, OpsTreeRow},
     };
-    let mut rows = workspace::identity_rows(
+    let mut rows = workspace::admitted_identity_rows(
         snapshot,
         &app.workspace.query,
         app.workspace.selected.as_ref(),
@@ -46,6 +46,7 @@ pub(in crate::board) fn rows(
             scope: app.workspace.visibility.scope.clone(),
             reveal_hidden: true,
         },
+        |_| true,
     );
     let report = match app.usage_report.view_for(app.tok_range()) {
         View::Report(report) => Some(report),

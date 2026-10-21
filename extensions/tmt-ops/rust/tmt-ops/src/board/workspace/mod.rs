@@ -382,6 +382,28 @@ pub(in crate::board) fn identity_rows_matching(
     visibility: &OpsVisibility,
     admit: impl Fn(&OpsTreeRow) -> bool,
 ) -> Vec<OpsTreeRow> {
+    let mut rows = admitted_identity_rows(snapshot, query, preferred, visibility, admit);
+    rows.sort_by(|a, b| {
+        a.title
+            .to_lowercase()
+            .cmp(&b.title.to_lowercase())
+            .then(a.target.cmp(&b.target))
+    });
+    if snapshot.preferences.reversed {
+        rows.reverse();
+    }
+    rows
+}
+
+/// Project admitted UUID occurrences without imposing a destination's display
+/// order. Digest ranks by TOK and must not first sort the same rows by name.
+pub(in crate::board) fn admitted_identity_rows(
+    snapshot: &observe::OpsWorkspaceSnapshot,
+    query: &str,
+    preferred: Option<&OpsTarget>,
+    visibility: &OpsVisibility,
+    admit: impl Fn(&OpsTreeRow) -> bool,
+) -> Vec<OpsTreeRow> {
     let query = query.to_lowercase();
     // Canonical roster projection owns membership and unknown-pool admission.
     // Deduplicate its occurrences once; stale row documents grant no authority.
@@ -417,17 +439,7 @@ pub(in crate::board) fn identity_rows_matching(
             identities.insert(id, row);
         }
     }
-    let mut rows: Vec<_> = identities.into_values().collect();
-    rows.sort_by(|a, b| {
-        a.title
-            .to_lowercase()
-            .cmp(&b.title.to_lowercase())
-            .then(a.target.cmp(&b.target))
-    });
-    if snapshot.preferences.reversed {
-        rows.reverse();
-    }
-    rows
+    identities.into_values().collect()
 }
 
 impl OpsWorkspace {
