@@ -524,19 +524,41 @@ export const text = {
     loading: 'Loading pages…',
     pagesUnavailable: 'The page list is unavailable, so titles are not shown.',
     empty: 'Nothing is here yet.',
-    items: 'Items',
-    unavailable: 'Unavailable',
     notShown: 'This shell page has no content that can be shown.',
-    kind: { page: 'Page', anchor: 'Passage', reading: 'Suggested reading' },
+    /** The greeting names the local time of day and the number waiting, with one to nine spelled out. */
+    greeting: (part: 'morning' | 'afternoon' | 'evening', waiting: number, spelled: string) =>
+      `Good ${part}. ${
+        waiting === 0
+          ? 'Nothing is waiting for you.'
+          : waiting === 1
+            ? 'One thing is waiting for you.'
+            : `${spelled[0].toUpperCase()}${spelled.slice(1)} things are waiting for you.`
+      }`,
+    noSummary: 'Nothing has changed since the last update.',
+    counts: 'Overview',
+    waitingCount: 'Waiting for you',
+    progressCount: 'In progress',
+    todayCount: 'Updated today',
+    chapters: 'Pages',
+    stage: { waiting: 'Waiting', 'in-progress': 'In progress' },
     audience: (audience: string) => `For ${audience}`,
-    needsYou: (count: number) => `Needs you ${count}`,
-    unread: 'Unread',
-    read: 'Read',
-    readingMissing: 'No longer on the page',
-    inPage: (title: string) => `In ${title}`,
+    needKind: {
+      review: 'To confirm',
+      question: 'Question for you',
+      reading: 'To read',
+      proposal: 'To decide',
+    },
+    moreWaiting: (count: number) => `${count} more waiting`,
+    openToDecide: 'Open to decide →',
+    openFullPage: 'Open the full page →',
+    openPassage: 'Open the passage →',
+    loadingPassage: 'Loading…',
+    latest: 'Latest',
+    earlier: (count: number) => `Earlier · ${count} ${count === 1 ? 'page' : 'pages'}`,
+    cannotShow: (count: number) =>
+      count === 1 ? "1 page can't be shown" : `${count} pages can't be shown`,
     changedSince: (count: number) =>
       `${count} ${count === 1 ? 'page' : 'pages'} changed since this summary`,
-    archived: 'Archived',
   },
   shellCommandCopied: 'Copied.',
   shellCommandCopyFailed: 'Clipboard unavailable. Select and copy the displayed command.',

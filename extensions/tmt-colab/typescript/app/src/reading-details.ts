@@ -201,7 +201,9 @@ export class ReadingDetailsQueue {
         const details = await this.read(id, this.#lifetime.signal);
         if (!this.#lifetime.signal.aborted) this.publish(id, details);
       } catch {
-        // Optional details stay unknown. A failed attempt still consumes this generation's cap.
+        // Optional details: a failed attempt says the page's details are unavailable (never a
+        // guess) and still consumes this generation's cap. A canceled one says nothing.
+        if (!this.#lifetime.signal.aborted) this.publish(id, { pageId: id, state: 'unavailable' });
       }
     }
   }
