@@ -901,7 +901,7 @@ var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
 function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function row$2(value, keys) {
+function row$3(value, keys) {
 	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
 	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
@@ -909,7 +909,7 @@ function row$2(value, keys) {
 }
 function parseSyncMapping(value) {
 	valid$4(typeof value === "object" && value !== null);
-	const r = row$2(value, [
+	const r = row$3(value, [
 		"fields",
 		"spaceField",
 		"uidField",
@@ -929,7 +929,7 @@ function parseSyncMapping(value) {
 	let query = null;
 	if (r.query !== null) {
 		valid$4(typeof r.query === "object" && r.query !== null);
-		const q = row$2(r.query, [
+		const q = row$3(r.query, [
 			"scopeFields",
 			"streamField",
 			"seqField",
@@ -942,7 +942,7 @@ function parseSyncMapping(value) {
 		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
-			const d = row$2(q.discovery, [
+			const d = row$3(q.discovery, [
 				"name",
 				"scopeFields",
 				"seqEquals"
@@ -1282,7 +1282,8 @@ async function writeRegistry(expected, text) {
 }
 //#endregion
 //#region src/remote-state.ts
-/** Current-origin observation only. A foreign entry has no mark or live-access claim. */
+/** Current-origin observation only. A foreign entry has no mark or live-access claim. A connection
+* state is words only, in the neutral tone: the shared agent marks mean agent states, not these. */
 function remoteState(state, current = true) {
 	if (!current) return {
 		text: "not checked",
@@ -1291,48 +1292,36 @@ function remoteState(state, current = true) {
 		tone: "muted",
 		action: ""
 	};
-	const [text, word, mark, tone, action] = state === "Connected" ? [
+	const [text, word, action] = state === "Connected" ? [
 		"Connected",
 		"connected",
-		"●",
-		"working",
 		""
 	] : state === "Checking" ? [
-		"Checking",
+		"Checking…",
 		"connecting",
-		"◌",
-		"waiting",
 		""
 	] : state === "Access ended" ? [
 		"Access ended",
 		"access ended",
-		"✗",
-		"blocked",
 		"Pair again"
 	] : state === "Different machine" ? [
 		"Different machine",
 		"different machine",
-		"△",
-		"waiting",
 		"Pair again"
 	] : state === "Not paired" || state === "Pairing unreadable" ? [
 		state,
 		"not paired",
-		"○",
-		"waiting",
 		"Pair again"
 	] : [
 		"Unconfirmed",
 		"unreachable",
-		"○",
-		"blocked",
 		"Retry"
 	];
 	return {
-		text: `${mark} ${text}`,
+		text,
 		word,
-		mark,
-		tone,
+		mark: "",
+		tone: "neutral",
 		action
 	};
 }
@@ -1343,1027 +1332,22 @@ function currentRemote(entry, address, pageUrl) {
 	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
 }
 //#endregion
-//#region ../../../../design/browser-ui/src/brand-mark-svg.ts
-/** A polygon whose corners are quadratic curves of the given radii (0 keeps a corner sharp). */
-function rounded(points, radii) {
-	const n = points.length;
-	const toward = ([ax, ay], [bx, by], k) => {
-		const length = Math.hypot(bx - ax, by - ay);
-		const t = Math.min(k, length / 2) / length;
-		return [ax + (bx - ax) * t, ay + (by - ay) * t];
-	};
-	let d = "";
-	for (let i = 0; i < n; i++) {
-		const corner = points[i];
-		const [sx, sy] = toward(corner, points[(i - 1 + n) % n], radii[i]);
-		const [ex, ey] = toward(corner, points[(i + 1) % n], radii[i]);
-		d += `${i ? "L" : "M"}${sx.toFixed(2)} ${sy.toFixed(2)}Q${corner[0]} ${corner[1]} `;
-		d += `${ex.toFixed(2)} ${ey.toFixed(2)}`;
-	}
-	return `${d}Z`;
-}
-var FULL = {
-	panel: rounded([
-		[6, 10],
-		[50, 24],
-		[50, 80],
-		[6, 88]
-	], [
-		8,
-		6.5,
-		6.5,
-		8
-	]),
-	beam: rounded([
-		[7, 10],
-		[74, 22],
-		[80, 28],
-		[80, 80],
-		[74, 86],
-		[50, 80],
-		[7, 70]
-	], [
-		0,
-		7,
-		7,
-		7,
-		7,
-		0,
-		0
-	]),
-	rim: "M49.4 29 L49.4 75",
-	prompt: "M15.5 34 L23.5 40.5 L15.5 47 M26.5 49.5 L34 51.2"
-};
-var SMALL = {
-	panel: rounded([
-		[5, 14],
-		[52, 24],
-		[52, 76],
-		[5, 86]
-	], [
-		7,
-		7,
-		7,
-		7
-	]),
-	beam: rounded([
-		[6, 14],
-		[86, 24],
-		[92, 29],
-		[92, 81],
-		[86, 86],
-		[52, 76],
-		[6, 70]
-	], [
-		0,
-		9,
-		9,
-		9,
-		9,
-		0,
-		0
-	]),
-	prompt: "M15 37 L28 50 L15 63"
-};
-var brandMarkSmall = (size) => size !== void 0 && size < 28;
-var stop = (name, offset, opacity) => `<stop class="tmt-brand-mark-${name}" offset="${offset}"${opacity === void 0 ? "" : ` stop-opacity="${opacity}"`}></stop>`;
-var light = (offset, opacity) => `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
-var box = "filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"96\" height=\"96\"";
-/** The mark's children; `id` prefixes its paint servers, unique per document. */
-function brandMarkInner(small, id) {
-	const shape = small ? SMALL : FULL;
-	const aurora = `<linearGradient id="${id}-aurora" x1="0.2" y1="0.05" x2="0.85" y2="1">${stop("cyan", 0)}${stop("green", .5)}${stop("gold", 1)}</linearGradient><linearGradient id="${id}-far" x1="0" y1="0" x2="1" y2="0">${stop("far", .45, 0)}${stop("far", 1, small ? .15 : .25)}</linearGradient><linearGradient id="${id}-panel" x1="0" y1="0" x2="0.6" y2="1">${stop("panel-top", 0)}${stop("panel-bottom", 1)}</linearGradient><linearGradient id="${id}-mono" x1="0" y1="0" x2="1" y2="0.35">${stop("mono-start", 0)}${stop("mono-end", 1)}</linearGradient>`;
-	const beam = `<path d="${shape.beam}" fill="url(#${id}-aurora)"></path><path d="${shape.beam}" fill="url(#${id}-far)"></path>`;
-	const print = `<path class="tmt-brand-mark-print" d="${shape.beam}" fill="url(#${id}-mono)"></path>`;
-	const panel = `<path class="tmt-brand-mark-panel" d="${shape.panel}" fill="url(#${id}-panel)"></path>`;
-	const prompt = `<path class="tmt-brand-mark-prompt" d="${shape.prompt}"></path>`;
-	if (small) return `<defs>${aurora}</defs><g class="tmt-brand-mark-beam">${beam}</g>${print}${panel}${prompt}`;
-	return `<defs>${aurora}<linearGradient id="${id}-halo-weight" x1="0" y1="0" x2="1" y2="1">${light(.3, .15)}${light(1, 1)}</linearGradient><mask id="${id}-halo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"><rect width="96" height="96" fill="url(#${id}-halo-weight)"></rect></mask><linearGradient id="${id}-feather" x1="0" y1="0" x2="1" y2="0">${light(.88, 1)}${light(1, .7)}</linearGradient><mask id="${id}-feather-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#${id}-feather)"></rect></mask><linearGradient id="${id}-spill" gradientUnits="userSpaceOnUse" x1="50" y1="0" x2="36" y2="0">${stop("glow", 0, .6)}${stop("cyan", .35, .22)}${stop("cyan", 1, 0)}</linearGradient><linearGradient id="${id}-sheen" x1="0" y1="0" x2="1" y2="1">${light(0, .1)}${light(.35, 0)}</linearGradient><linearGradient id="${id}-rim" x1="0" y1="0" x2="0" y2="1">${stop("cyan", 0, .9)}${stop("gold", 1, .9)}</linearGradient><clipPath id="${id}-panel-clip"><path d="${shape.panel}"></path></clipPath><filter id="${id}-halo" ${box}><feGaussianBlur stdDeviation="2.4"></feGaussianBlur></filter><filter id="${id}-soft" ${box}><feGaussianBlur stdDeviation="0.25"></feGaussianBlur></filter></defs><g transform="translate(6.5 3) scale(0.94)"><g class="tmt-brand-mark-beam"><g mask="url(#${id}-halo-mask)"><path d="${shape.beam}" fill="url(#${id}-aurora)" filter="url(#${id}-halo)" opacity="0.55" transform="translate(1 1.4)"></path></g><g mask="url(#${id}-feather-mask)" filter="url(#${id}-soft)">${beam}</g></g>` + print + panel + `<g class="tmt-brand-mark-beam" clip-path="url(#${id}-panel-clip)"><path d="${shape.panel}" fill="url(#${id}-spill)"></path><path class="tmt-brand-mark-rim" d="${FULL.rim}" stroke="url(#${id}-rim)"></path></g><path d="${shape.panel}" fill="url(#${id}-sheen)"></path>` + prompt + `</g>`;
-}
-/** The whole decorative `<svg>`, as static hosts embed it. */
-function brandMarkSvg({ size, className = "tmt-brand-mark", id }) {
-	const small = brandMarkSmall(size);
-	const dimensions = size === void 0 ? "" : ` width="${size}" height="${size}"`;
-	return `<svg class="${className}" data-form="${small ? "small" : "full"}" viewBox="0 0 96 96" aria-hidden="true"${dimensions}>${brandMarkInner(small, id)}</svg>`;
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/shell-icons.ts
-/**
-* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
-* same icons without a React or Lucide runtime. The first eight are the module icon allow-list
-* of Remote's describe contract; an unknown name falls back to `box`.
-*/
-var shellIconNodes = {
-	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
-	"file-text": [
-		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
-		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
-		["path", { d: "M10 9H8" }],
-		["path", { d: "M16 13H8" }],
-		["path", { d: "M16 17H8" }]
-	],
-	"monitor-smartphone": [
-		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
-		["path", { d: "M10 19v-3.96 3.15" }],
-		["path", { d: "M7 19h5" }],
-		["rect", {
-			width: "6",
-			height: "10",
-			x: "16",
-			y: "12",
-			rx: "2"
-		}]
-	],
-	users: [
-		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
-		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
-		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
-		["circle", {
-			cx: "9",
-			cy: "7",
-			r: "4"
-		}]
-	],
-	"chart-column": [
-		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
-		["path", { d: "M18 17V9" }],
-		["path", { d: "M13 17V5" }],
-		["path", { d: "M8 17v-3" }]
-	],
-	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
-		cx: "11",
-		cy: "11",
-		r: "8"
-	}]],
-	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
-		cx: "12",
-		cy: "12",
-		r: "3"
-	}]],
-	box: [
-		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
-		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
-		["path", { d: "M12 22V12" }]
-	],
-	"panel-left-close": [
-		["rect", {
-			width: "18",
-			height: "18",
-			x: "3",
-			y: "3",
-			rx: "2"
-		}],
-		["path", { d: "M9 3v18" }],
-		["path", { d: "m16 15-3-3 3-3" }]
-	],
-	menu: [
-		["path", { d: "M4 5h16" }],
-		["path", { d: "M4 12h16" }],
-		["path", { d: "M4 19h16" }]
-	]
-};
-var moduleIcons = [
-	"house",
-	"file-text",
-	"monitor-smartphone",
-	"users",
-	"chart-column",
-	"search",
-	"settings",
-	"box"
-];
-var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
-//#endregion
-//#region ../../../../design/browser-ui/src/shell.ts
-/** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
-function shellCount(value, kind = "needs-you") {
-	return {
-		text: value > 99 ? "99+" : String(value),
-		needsYou: kind === "needs-you"
-	};
-}
-/** The answer this browser read last, shared by every page so each paints the same rail first. */
-var ANSWER_KEY = "tmt-shell-answer-v1";
-function rememberedShellAnswer() {
-	try {
-		const stored = JSON.parse(sessionStorage.getItem(ANSWER_KEY) ?? "null");
-		return stored?.version === 1 && Array.isArray(stored.modules) ? stored : void 0;
-	} catch {
-		return;
-	}
-}
-/**
-* Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
-* answer for its path (`POST /sdk/mount`). Undefined when neither answers.
-*/
-async function shellAddress() {
-	const mounted = /^\/r\/[a-z0-9]+(?=\/x\/)/.exec(location.pathname);
-	if (mounted) return `${location.origin}${mounted[0]}`;
-	try {
-		const response = await fetch("/sdk/mount", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ path: location.pathname })
-		});
-		if (response.status !== 200) return void 0;
-		const { address } = await response.json();
-		return typeof address === "string" ? address : void 0;
-	} catch {
-		return;
-	}
-}
-/** Fetch the owner's composed shell once per page; any failure leaves the remembered answer. */
-async function loadShellAnswer(address) {
-	try {
-		const response = await fetch(`${address}/x/-/shell`, {
-			credentials: "same-origin",
-			cache: "no-store"
-		});
-		if (!response.ok) return void 0;
-		const answer = await response.json();
-		if (answer?.version !== 1 || !Array.isArray(answer.modules)) return void 0;
-		try {
-			sessionStorage.setItem(ANSWER_KEY, JSON.stringify(answer));
-		} catch {}
-		return answer;
-	} catch {
-		return;
-	}
-}
-/**
-* The one rail (spec c5ccd17a): the same items in the same order on every page, whatever module
-* hosts it. A module the composed answer does not describe stays, dimmed, with the reason.
-*/
-var RAIL = [
-	{
-		id: "colab",
-		label: "Colab",
-		icon: "file-text",
-		path: "/colab/"
-	},
-	{
-		id: "remote",
-		label: "Remote",
-		icon: "monitor-smartphone",
-		path: "/remote/"
-	},
-	{
-		id: "ops",
-		label: "Ops",
-		icon: "users",
-		path: "/ops/"
-	},
-	{
-		id: "digest",
-		label: "Digest",
-		icon: "chart-column",
-		path: "/digest/"
-	}
-];
-/** Served by the TMT host itself, so always reachable from the rail. */
-var HOST_SERVED = /* @__PURE__ */ new Set([
-	"remote",
-	"ops",
-	"digest"
-]);
-/**
-* Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
-* order, Search, then TMT settings at the bottom. Colab is available when the answer describes it
-* or it hosts the page; without an answer (not paired) it is dimmed, as is Search, which is
-* Colab's quick switcher. The current item is the host's module, else the longest matching path.
-*/
-function shellRail(answer, place, host) {
-	const active = host?.extension;
-	const described = new Map((answer?.modules ?? []).map((module) => [module.extension, module]));
-	if (host && !described.has(host.extension)) described.set(host.extension, host);
-	const path = place.href.slice(place.origin.length);
-	const settings = path === "/settings" || path.startsWith("/settings/");
-	const unavailable = answer ? "Not installed on this machine" : "Pair this browser with Remote to open it";
-	const modules = [...RAIL.map((fixed) => {
-		const module = described.get(fixed.id);
-		return {
-			id: fixed.id,
-			label: module?.rail.label ?? fixed.label,
-			icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
-			href: module?.rail.path ?? `${place.origin}${fixed.path}`,
-			needsYou: module?.needsYou,
-			available: Boolean(module) || HOST_SERVED.has(fixed.id)
-		};
-	}), ...[...described.values()].filter((module) => !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
-		id: module.extension,
-		label: module.rail.label,
-		icon: moduleIcon(module.rail.icon),
-		href: module.rail.path,
-		needsYou: module.needsYou,
-		available: true
-	}))];
-	const matched = active ?? modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
-	const counts = [...described.values()].map((module) => module.needsYou);
-	const total = answer && counts.every((count) => count !== void 0) ? counts.reduce((sum, count) => sum + count, 0) : void 0;
-	const colab = modules[0];
-	return {
-		main: [
-			{
-				id: "home",
-				label: "Home",
-				icon: "house",
-				href: `${place.origin}/`,
-				count: total ? shellCount(total) : void 0,
-				current: path === "/" && !active
-			},
-			...modules.map((module) => ({
-				id: module.id,
-				label: module.label,
-				icon: module.icon,
-				href: module.href,
-				count: module.needsYou ? shellCount(module.needsYou) : void 0,
-				current: !settings && module.id === matched,
-				...module.available ? {} : {
-					disabled: true,
-					note: unavailable
-				}
-			})),
-			{
-				id: "search",
-				label: "Search",
-				icon: "search",
-				href: colab.href,
-				current: false,
-				...colab.available ? {} : {
-					disabled: true,
-					note: "Search opens Colab. " + unavailable
-				}
-			}
-		],
-		bottom: [{
-			id: "settings",
-			label: "TMT settings",
-			icon: "settings",
-			href: `${place.origin}/settings/`,
-			current: settings
-		}]
-	};
-}
-var RAIL_KEY = "tmt.shell.rail";
-var SVG = "http://www.w3.org/2000/svg";
-function railCollapsed() {
-	try {
-		return localStorage.getItem(RAIL_KEY) === "collapsed";
-	} catch {
-		return false;
-	}
-}
-function rememberRail(collapsed) {
-	try {
-		localStorage.setItem(RAIL_KEY, collapsed ? "collapsed" : "expanded");
-	} catch {}
-}
-function icon(document, name) {
-	const svg = document.createElementNS(SVG, "svg");
-	svg.setAttribute("class", "tmt-ui-shell-icon");
-	svg.setAttribute("viewBox", "0 0 24 24");
-	svg.setAttribute("aria-hidden", "true");
-	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = document.createElementNS(SVG, tag);
-		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
-		svg.append(node);
-	}
-	return svg;
-}
-function count(document, value) {
-	const badge = document.createElement("span");
-	badge.className = "tmt-ui-shell-count";
-	if (value.needsYou) badge.dataset.kind = "needs-you";
-	badge.textContent = value.needsYou ? `◆ ${value.text}` : value.text;
-	return badge;
-}
-/**
-* Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
-* `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
-* `.tmt-ui-shell-main`. The module menu goes between the bar and the main area: a column beside
-* them on wide screens, tabs under the title bar on phones. `select` may take over a plain click
-* on an item (an SPA route or Colab's search); it returns true when it handled the click.
-*/
-function mountShell(root, view, select) {
-	const document = root.ownerDocument;
-	root.classList.add("tmt-ui-shell");
-	const open = document.createElement("button");
-	open.type = "button";
-	open.className = "tmt-ui-shell-open";
-	open.setAttribute("aria-label", "Open navigation");
-	open.setAttribute("aria-expanded", "false");
-	open.append(icon(document, "menu"));
-	const rail = document.createElement("nav");
-	rail.className = "tmt-ui-rail";
-	rail.setAttribute("aria-label", "TMT");
-	const menu = document.createElement("nav");
-	menu.className = "tmt-ui-module-menu";
-	root.prepend(open, rail);
-	root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar").after(menu);
-	let collapsed = railCollapsed();
-	const setDrawer = (shown) => {
-		root.dataset.drawer = shown ? "open" : "closed";
-		open.setAttribute("aria-expanded", String(shown));
-	};
-	const paint = () => {
-		root.dataset.rail = collapsed ? "collapsed" : "expanded";
-		toggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
-		toggle.setAttribute("aria-expanded", String(!collapsed));
-		toggle.title = toggle.getAttribute("aria-label");
-	};
-	const toggle = document.createElement("button");
-	toggle.type = "button";
-	toggle.className = "tmt-ui-rail-toggle";
-	toggle.append(icon(document, "panel-left-close"));
-	toggle.onclick = () => {
-		collapsed = !collapsed;
-		rememberRail(collapsed);
-		paint();
-	};
-	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
-	const close = (event) => {
-		if (event.key === "Escape" && root.dataset.drawer === "open") {
-			setDrawer(false);
-			open.focus();
-		}
-	};
-	document.addEventListener("keydown", close);
-	const outside = (event) => {
-		const target = event.target;
-		if (root.dataset.drawer === "open" && !rail.contains(target) && !open.contains(target)) setDrawer(false);
-	};
-	document.addEventListener("pointerdown", outside);
-	const link = (className, item) => {
-		const anchor = document.createElement("a");
-		anchor.className = className;
-		anchor.href = item.href;
-		anchor.dataset.id = item.id;
-		if (item.current) anchor.setAttribute("aria-current", "page");
-		const disabled = "disabled" in item && item.disabled;
-		if (disabled) anchor.setAttribute("aria-disabled", "true");
-		if ("note" in item && item.note) anchor.title = item.note;
-		anchor.onclick = (event) => {
-			if (disabled) return event.preventDefault();
-			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-			setDrawer(false);
-			if (select?.(item.id, item.href)) event.preventDefault();
-		};
-		return anchor;
-	};
-	const railList = (items, extra) => {
-		const list = document.createElement("ul");
-		list.className = extra ? `tmt-ui-rail-items ${extra}` : "tmt-ui-rail-items";
-		for (const item of items) {
-			const anchor = link("tmt-ui-rail-item", item);
-			anchor.title = item.note ? `${item.label}: ${item.note}` : item.label;
-			const label = document.createElement("span");
-			label.className = "tmt-ui-rail-label";
-			label.textContent = item.label;
-			anchor.append(icon(document, item.icon), label);
-			if (item.count) anchor.append(count(document, item.count));
-			const row = document.createElement("li");
-			row.append(anchor);
-			list.append(row);
-		}
-		return list;
-	};
-	let shown = "";
-	const render = (next) => {
-		const key = JSON.stringify(next);
-		if (key === shown) return;
-		shown = key;
-		const top = document.createElement("div");
-		top.className = "tmt-ui-rail-top";
-		const brand = document.createElement("span");
-		brand.className = "tmt-ui-rail-brand";
-		brand.innerHTML = brandMarkSvg({
-			size: 24,
-			id: "tmt-rail"
-		});
-		const word = document.createElement("span");
-		word.className = "tmt-ui-rail-label";
-		word.textContent = "TMT";
-		brand.append(word);
-		top.append(brand, toggle);
-		rail.replaceChildren(top, railList(next.rail.main), railList(next.rail.bottom, "tmt-ui-rail-bottom"));
-		root.dataset.menu = next.menu ? "shown" : "none";
-		if (!next.menu) {
-			menu.replaceChildren();
-			menu.removeAttribute("aria-label");
-			return;
-		}
-		menu.setAttribute("aria-label", next.menu.title);
-		const left = menu.scrollLeft;
-		const title = document.createElement("div");
-		title.className = "tmt-ui-module-menu-title";
-		title.textContent = next.menu.title;
-		menu.replaceChildren(title);
-		for (const group of next.menu.groups) {
-			if (group.label !== void 0 || menu.childElementCount > 1) {
-				const heading = document.createElement("div");
-				heading.className = "tmt-ui-module-menu-group";
-				heading.textContent = group.label ?? "";
-				menu.append(heading);
-			}
-			const list = document.createElement("ul");
-			list.className = "tmt-ui-module-menu-items";
-			for (const item of group.items) {
-				const anchor = link("tmt-ui-module-menu-item", item);
-				const label = document.createElement("span");
-				label.className = "tmt-ui-module-menu-label";
-				label.textContent = item.label;
-				if (!item.note) label.title = item.label;
-				anchor.append(label);
-				if (item.total !== void 0 || item.count) {
-					const counts = document.createElement("span");
-					counts.className = "tmt-ui-shell-counts";
-					if (item.total !== void 0) counts.append(count(document, shellCount(item.total, "plain")));
-					if (item.count) counts.append(count(document, item.count));
-					anchor.append(counts);
-				}
-				const row = document.createElement("li");
-				row.append(anchor);
-				list.append(row);
-			}
-			menu.append(list);
-		}
-		menu.scrollLeft = left;
-		const current = menu.querySelector("[aria-current=\"page\"]");
-		if (current && menu.scrollWidth > menu.clientWidth) {
-			const strip = menu.getBoundingClientRect();
-			const box = current.getBoundingClientRect();
-			if (box.left < strip.left) menu.scrollLeft -= strip.left - box.left;
-			else if (box.right > strip.right) menu.scrollLeft += box.right - strip.right;
-		}
-	};
-	paint();
-	setDrawer(false);
-	render(view);
-	return {
-		update: render,
-		dispose() {
-			document.removeEventListener("keydown", close);
-			document.removeEventListener("pointerdown", outside);
-			open.remove();
-			rail.remove();
-			menu.remove();
-		}
-	};
-}
-//#endregion
-//#region src/digest-source.ts
-/**
-* What the Digest web view (`/digest/`) reads: per-agent token use over one range. The page depends
-* only on `DigestSource`; the source below is a MOCK until Core exposes a read API for the
-* owner's usage (`tmt digest usage report --json` holds the same facts on the terminal side).
-*/
-var USAGE_RANGES = [
-	"5m",
-	"1h",
-	"6h",
-	"24h",
-	"7d",
-	"30d"
-];
-var SAMPLE = [
-	{
-		agent: "tmt-ux-lead",
-		tokens: 482e5,
-		turns: 312
-	},
-	{
-		agent: "ux-1",
-		tokens: 31e6,
-		turns: 205
-	},
-	{
-		agent: "feat-1",
-		tokens: 274e5,
-		turns: 188
-	},
-	{
-		agent: "remote-1",
-		tokens: 199e5,
-		turns: 141
-	},
-	{
-		agent: "night-1",
-		tokens: 63e5,
-		turns: 52
-	}
-];
-var SCALE = {
-	"5m": 1 / 2016,
-	"1h": 1 / 168,
-	"6h": 1 / 28,
-	"24h": 1 / 7,
-	"7d": 1,
-	"30d": 30 / 7
-};
-/** The source the page reads by default. */
-var digestSource = { async usage(range) {
-	const scale = SCALE[range];
-	return {
-		range,
-		sample: true,
-		agents: SAMPLE.map((row) => ({
-			agent: row.agent,
-			tokens: Math.round(row.tokens * scale),
-			turns: Math.round(row.turns * scale)
-		}))
-	};
-} };
-//#endregion
-//#region src/digest-page.ts
-/** The Digest web view: one range picker and the per-agent table (tokens, share, turns). */
-/** 1.9B, 48.2M, 310K, 940: compact token counts in the table. */
-function formatTokens(tokens) {
-	if (tokens >= 1e9) return `${(tokens / 1e9).toFixed(1)}B`;
-	if (tokens >= 1e6) return `${(tokens / 1e6).toFixed(1)}M`;
-	if (tokens >= 1e3) return `${Math.round(tokens / 1e3)}K`;
-	return String(tokens);
-}
-/** Each agent's share of the range's tokens, in whole percent, largest first. */
-function usageRows(report) {
-	const total = report.agents.reduce((sum, row) => sum + row.tokens, 0);
-	return [...report.agents].sort((a, b) => b.tokens - a.tokens || a.agent.localeCompare(b.agent)).map((row) => ({
-		...row,
-		share: total ? Math.round(row.tokens / total * 100) : 0
-	}));
-}
-function cell(tag, text) {
-	const node = document.createElement(tag);
-	node.textContent = text;
-	return node;
-}
-function digestPage(source = digestSource) {
-	const tabs = document.getElementById("usage-ranges");
-	const body = document.getElementById("usage-rows");
-	const note = document.getElementById("usage-note");
-	if (!tabs || !body || !note) return;
-	let current = "7d";
-	let generation = 0;
-	const buttons = USAGE_RANGES.map((range) => {
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = "tmt-ui-tab";
-		button.setAttribute("role", "tab");
-		button.setAttribute("aria-controls", "usage-panel");
-		button.dataset.range = range;
-		const label = document.createElement("span");
-		label.className = "tmt-ui-tab-label";
-		label.textContent = range;
-		button.append(label);
-		button.addEventListener("click", () => void show(range));
-		button.addEventListener("keydown", (event) => {
-			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-			if (!step) return;
-			event.preventDefault();
-			const range = USAGE_RANGES[(USAGE_RANGES.indexOf(current) + step + USAGE_RANGES.length) % USAGE_RANGES.length];
-			show(range).then(() => buttons[USAGE_RANGES.indexOf(range)].focus());
-		});
-		return button;
-	});
-	tabs.replaceChildren(...buttons);
-	async function show(range) {
-		current = range;
-		const mine = ++generation;
-		for (const button of buttons) {
-			const selected = button.dataset.range === range;
-			button.setAttribute("aria-selected", String(selected));
-			button.tabIndex = selected ? 0 : -1;
-		}
-		const report = await source.usage(range);
-		if (mine !== generation) return;
-		body.replaceChildren(...usageRows(report).map((row) => {
-			const line = document.createElement("tr");
-			line.append(cell("th", row.agent), cell("td", formatTokens(row.tokens)), cell("td", `${row.share}%`), cell("td", row.turns === void 0 ? "—" : String(row.turns)));
-			line.firstElementChild.setAttribute("scope", "row");
-			return line;
-		}));
-		note.textContent = report.unavailable ?? (report.sample ? "Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers." : report.agents.some((row) => row.turns === void 0) ? "Turns show — where Digest does not count them yet." : "");
-		note.hidden = !note.textContent;
-	}
-	show(current);
-}
-//#endregion
-//#region src/ops-source.ts
-var AGENT_STATES = {
-	working: {
-		mark: "●",
-		word: "Working",
-		tone: "working"
-	},
-	idle: {
-		mark: "◌",
-		word: "Idle",
-		tone: "neutral"
-	},
-	"needs-you": {
-		mark: "◆",
-		word: "Needs you",
-		tone: "waiting"
-	},
-	blocked: {
-		mark: "✗",
-		word: "Blocked",
-		tone: "blocked"
-	},
-	offline: {
-		mark: "○",
-		word: "Offline",
-		tone: "neutral"
-	},
-	"idle-alert": {
-		mark: "◷",
-		word: "Idle alert",
-		tone: "neutral"
-	},
-	unknown: {
-		mark: "?",
-		word: "Unknown",
-		tone: "neutral"
-	}
-};
-/** The source the page reads by default. */
-var opsSource = { async board() {
-	return {
-		sample: true,
-		squads: [
-			{
-				name: "tmt-ux",
-				lead: "tmt-ux-lead",
-				idleAlertMinutes: 30
-			},
-			{
-				name: "tmt-feat",
-				lead: "tmt-feat-lead",
-				idleAlertMinutes: 30
-			},
-			{
-				name: "tmt-remote",
-				lead: "tmt-remote-lead"
-			}
-		],
-		agents: [
-			{
-				name: "tmt-ux-lead",
-				squad: "tmt-ux",
-				role: "lead",
-				state: "working",
-				task: "Night shift: live review",
-				model: "opus"
-			},
-			{
-				name: "ux-1",
-				squad: "tmt-ux",
-				role: "member",
-				state: "working",
-				task: "#3931 input grows with content",
-				model: "sonnet"
-			},
-			{
-				name: "ux-2",
-				squad: "tmt-ux",
-				role: "member",
-				state: "needs-you",
-				task: "Asks: Shift+Enter behaviour",
-				model: "sol"
-			},
-			{
-				name: "tmt-feat-lead",
-				squad: "tmt-feat",
-				role: "lead",
-				state: "idle",
-				model: "opus"
-			},
-			{
-				name: "feat-1",
-				squad: "tmt-feat",
-				role: "member",
-				state: "idle-alert",
-				task: "Idle 32m",
-				model: "sonnet"
-			},
-			{
-				name: "tmt-remote-lead",
-				squad: "tmt-remote",
-				role: "lead",
-				state: "offline",
-				model: "opus"
-			},
-			{
-				name: "remote-1",
-				squad: "tmt-remote",
-				role: "member",
-				state: "blocked",
-				task: "Waiting on CI",
-				model: "sol"
-			}
-		],
-		schedules: [{
-			id: "c1",
-			squad: "tmt-infra",
-			when: "hourly :07",
-			what: "Release health tick"
-		}, {
-			id: "c2",
-			squad: "tmt-infra",
-			when: "Mon 10:00",
-			what: "Guidance hygiene pass"
-		}],
-		settings: [{
-			name: "Board refresh",
-			value: "5s",
-			description: "How often the board re-reads agent state"
-		}, {
-			name: "Idle alert default",
-			value: "30m",
-			description: "Used when a squad sets none"
-		}]
-	};
-} };
-//#endregion
-//#region src/ops-page.ts
-var SECTIONS = [
-	{
-		id: "agents",
-		label: "Agents"
-	},
-	{
-		id: "squads",
-		label: "Squads"
-	},
-	{
-		id: "schedules",
-		label: "Schedules"
-	},
-	{
-		id: "settings",
-		label: "Settings"
-	}
-];
-function row$1(mark, tone, title, detail, meta = "") {
-	const item = document.createElement("li");
-	item.className = "tmt-ui-list-row";
-	item.dataset.leading = "";
-	const sign = document.createElement("div");
-	sign.className = "tmt-ui-list-leading ops-mark";
-	sign.dataset.tone = tone;
-	sign.setAttribute("aria-hidden", "true");
-	sign.textContent = mark;
-	const name = document.createElement("div");
-	name.className = "tmt-ui-list-title";
-	name.textContent = title;
-	const info = document.createElement("div");
-	info.className = "tmt-ui-list-meta";
-	const more = document.createElement("div");
-	more.className = "tmt-ui-list-updated";
-	more.textContent = detail;
-	more.title = detail;
-	const state = document.createElement("div");
-	state.className = "tmt-ui-list-state";
-	state.textContent = meta;
-	info.append(more, state);
-	item.append(sign, name, info);
-	return item;
-}
-function list(rows) {
-	const node = document.createElement("ul");
-	node.className = "tmt-ui-list";
-	node.append(...rows);
-	return node;
-}
-function heading(text) {
-	const node = document.createElement("h2");
-	node.className = "home-heading";
-	node.textContent = text;
-	return node;
-}
-/** The section's content; agents group under their squad, the lead first. */
-function opsSection(board, section) {
-	if (section === "agents") return board.squads.flatMap((squad) => {
-		const agents = board.agents.filter((agent) => agent.squad === squad.name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
-		if (!agents.length) return [];
-		return [heading(`${squad.name} · lead ${squad.lead}`), list(agents.map((agent) => {
-			const state = AGENT_STATES[agent.state];
-			return row$1(state.mark, state.tone, agent.name, `${state.word}${agent.task ? ` · ${agent.task}` : ""}`, agent.model ?? "");
-		}))];
-	});
-	if (section === "squads") return [list(board.squads.map((squad) => {
-		const count = board.agents.filter((agent) => agent.squad === squad.name).length;
-		return row$1("●", "neutral", squad.name, `lead ${squad.lead} · ${count} agent${count === 1 ? "" : "s"}` + (squad.idleAlertMinutes ? ` · idle alert ${squad.idleAlertMinutes}m` : ""));
-	}))];
-	if (section === "schedules") return [list(board.schedules.map((schedule) => row$1("◷", "neutral", schedule.what, `${schedule.squad} · ${schedule.when}`, schedule.id)))];
-	return [list(board.settings.map((setting) => row$1("", "neutral", setting.name, setting.description, setting.value)))];
-}
-function opsPage(shell, source = opsSource) {
-	const main = document.getElementById("ops-section");
-	const title = document.querySelector(".tmt-ui-title");
-	const note = document.getElementById("ops-note");
-	if (!main || !note) return;
-	const href = (id) => `${location.pathname}#${id}`;
-	const current = () => SECTIONS.find((section) => `#${section.id}` === location.hash)?.id ?? "agents";
-	let board;
-	const paint = () => {
-		const section = current();
-		shell.setMenu({
-			title: "Ops",
-			groups: [{ items: SECTIONS.filter((item) => item.id !== "settings").map((item) => ({
-				id: item.id,
-				label: item.label,
-				href: href(item.id),
-				current: item.id === section
-			})) }, { items: [{
-				id: "settings",
-				label: "Settings",
-				href: href("settings"),
-				current: section === "settings"
-			}] }]
-		});
-		if (title) title.textContent = SECTIONS.find((item) => item.id === section).label;
-		if (board) main.replaceChildren(...opsSection(board, section));
-	};
-	window.addEventListener("hashchange", paint);
-	paint();
-	source.board().then((next) => {
-		board = next;
-		note.textContent = next.sample ? "Sample data: Ops has no web read of your board yet. `tmt ops ui` shows the real board." : "";
-		note.hidden = !next.sample;
-		paint();
-	});
-}
-//#endregion
 //#region src/remote-shell.ts
-/** Remote's static pages inside the one TMT web shell (design/browser-ui `shell.ts`). */
 var current;
-/**
-* Mount the shell once per page. The rail is the leaf's one fixed list, painted from the answer
-* this browser read last and refreshed from the owner's composed shell once the page asks
-* (`describe`) and this browser holds an owner session; any failure keeps what it shows.
-*/
+/** The mounted route's part of the one shell, or undefined outside the app (unit tests). */
 function remoteShell() {
-	if (current) return current;
-	const root = document.querySelector(".tmt-ui-shell");
-	if (!root) return void 0;
-	const place = () => ({
-		origin: location.origin,
-		href: location.href.split(/[?#]/)[0]
-	});
-	let answer = rememberedShellAnswer();
-	let menu;
-	let select;
-	let settled = false;
-	const listeners = [];
-	const settle = () => {
-		settled = true;
-		for (const listener of listeners.splice(0)) listener(answer);
-	};
-	const view = () => ({
-		rail: shellRail(answer, place()),
-		menu
-	});
-	const controls = mountShell(root, view(), (id, href) => Boolean(select?.(id, href)));
-	let asked = false;
-	current = {
-		describe(known) {
-			if (asked) return;
-			asked = true;
-			(async () => {
-				const address = known ?? await shellAddress();
-				const read = address === void 0 ? void 0 : await loadShellAnswer(address);
-				if (read) {
-					answer = read;
-					controls.update(view());
-				}
-				settle();
-			})();
-		},
-		setMenu(next, handler) {
-			menu = next;
-			select = handler;
-			controls.update(view());
-		},
-		described(listener) {
-			if (settled) listener(answer);
-			else listeners.push(listener);
-		}
-	};
 	return current;
 }
-/** Pages without a page script of their own (Home, TMT settings, Digest, Ops) mount the shell;
-* Home lists what needs you and the modules' recent pages, Digest and Ops render their views. */
-async function shellPage() {
-	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
-	const shell = remoteShell();
-	shell?.describe();
-	const page = document.documentElement.dataset.tmtPage;
-	if (shell && page === "home") home(shell);
-	if (page === "digest") digestPage();
-	if (shell && page === "ops") opsPage(shell);
+/** Give Remote's page code the mounted route's slot; `undefined` when the route unmounts. */
+function hostRemote(slot) {
+	current = slot && {
+		setMenu: (menu, select) => slot.setMenu(menu, select),
+		describe: (address) => slot.describe(address),
+		described: (listener) => slot.described(listener)
+	};
 }
 /** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
-function row(href, mark, title, detail) {
+function row$2(href, mark, title, detail) {
 	const item = document.createElement("li");
 	item.className = "tmt-ui-list-row";
 	item.dataset.leading = "";
@@ -2389,7 +1373,7 @@ function row(href, mark, title, detail) {
 }
 /** One Needs-you row per module with a count and a waiting pairing offer; no per-item list until
 * modules publish items. Recent pages are the modules' described home cards. */
-function home(shell) {
+function homePage(shell) {
 	const needs = document.getElementById("home-needs");
 	const note = document.getElementById("home-needs-note");
 	const recent = document.getElementById("home-recent");
@@ -2398,12 +1382,12 @@ function home(shell) {
 	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
 	shell.described(async (answer) => {
 		const rows = [];
-		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row(module.rail.path, "◆", `${module.needsYou} in ${module.rail.label}`, "Waiting on you"));
-		if (await offer) rows.push(row(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(module.rail.path, "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
+		if (await offer) rows.push(row$2(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
 		needs.replaceChildren(...rows);
 		note.textContent = answer ? rows.length ? "" : "Nothing needs you." : "Pair this browser in Remote to see what needs you.";
 		note.hidden = !note.textContent;
-		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row(card.path, "▤", card.title, module.rail.label)));
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(card.path, "▤", card.title, module.rail.label)));
 		recent.replaceChildren(...cards);
 		recentBlock.hidden = cards.length === 0;
 	});
@@ -2433,7 +1417,7 @@ function remoteMenu(actions) {
 		const onLanding = page !== "settings";
 		if (!selected) remotes.push({
 			id: "current",
-			label: `${view.mark} this machine · ${view.word}`,
+			label: [view.mark, `this machine · ${view.word}`].filter(Boolean).join(" "),
 			href: landing,
 			current: onLanding
 		});
@@ -2444,7 +1428,7 @@ function remoteMenu(actions) {
 			if (!here) run.set(id, () => actions.open(entry));
 			remotes.push({
 				id,
-				label: here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
+				label: here ? [shown.mark, `${entry.name} · ${shown.word}`].filter(Boolean).join(" ") : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
 				href: here ? landing : "#",
 				current: here && onLanding,
 				disabled: !here && !!reason,
@@ -3023,7 +2007,7 @@ function remoteRegistryPage(blocked = () => "") {
 	add.addEventListener("click", () => {
 		const view = dialog("Add remote", add);
 		const alias = field("Remote name", "");
-		const url = field("Door address or remote link", "");
+		const url = field("Remote address or link", "");
 		view.body.append(alias.label, url.label);
 		view.buttons.append(action("Continue", () => {
 			reference(alias.input.value, url.input.value).then((entry) => {
@@ -3073,6 +2057,1681 @@ function remoteRegistryPage(blocked = () => "") {
 		}
 		menu(catalog, observed, address ?? "");
 	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/brand-mark-svg.ts
+/** A polygon whose corners are quadratic curves of the given radii (0 keeps a corner sharp). */
+function rounded(points, radii) {
+	const n = points.length;
+	const toward = ([ax, ay], [bx, by], k) => {
+		const length = Math.hypot(bx - ax, by - ay);
+		const t = Math.min(k, length / 2) / length;
+		return [ax + (bx - ax) * t, ay + (by - ay) * t];
+	};
+	let d = "";
+	for (let i = 0; i < n; i++) {
+		const corner = points[i];
+		const [sx, sy] = toward(corner, points[(i - 1 + n) % n], radii[i]);
+		const [ex, ey] = toward(corner, points[(i + 1) % n], radii[i]);
+		d += `${i ? "L" : "M"}${sx.toFixed(2)} ${sy.toFixed(2)}Q${corner[0]} ${corner[1]} `;
+		d += `${ex.toFixed(2)} ${ey.toFixed(2)}`;
+	}
+	return `${d}Z`;
+}
+var FULL = {
+	panel: rounded([
+		[6, 10],
+		[50, 24],
+		[50, 80],
+		[6, 88]
+	], [
+		8,
+		6.5,
+		6.5,
+		8
+	]),
+	beam: rounded([
+		[7, 10],
+		[74, 22],
+		[80, 28],
+		[80, 80],
+		[74, 86],
+		[50, 80],
+		[7, 70]
+	], [
+		0,
+		7,
+		7,
+		7,
+		7,
+		0,
+		0
+	]),
+	rim: "M49.4 29 L49.4 75",
+	prompt: "M15.5 34 L23.5 40.5 L15.5 47 M26.5 49.5 L34 51.2"
+};
+var SMALL = {
+	panel: rounded([
+		[5, 14],
+		[52, 24],
+		[52, 76],
+		[5, 86]
+	], [
+		7,
+		7,
+		7,
+		7
+	]),
+	beam: rounded([
+		[6, 14],
+		[86, 24],
+		[92, 29],
+		[92, 81],
+		[86, 86],
+		[52, 76],
+		[6, 70]
+	], [
+		0,
+		9,
+		9,
+		9,
+		9,
+		0,
+		0
+	]),
+	prompt: "M15 37 L28 50 L15 63"
+};
+var brandMarkSmall = (size) => size !== void 0 && size < 28;
+var stop = (name, offset, opacity) => `<stop class="tmt-brand-mark-${name}" offset="${offset}"${opacity === void 0 ? "" : ` stop-opacity="${opacity}"`}></stop>`;
+var light = (offset, opacity) => `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
+var box = "filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"96\" height=\"96\"";
+/** The mark's children; `id` prefixes its paint servers, unique per document. */
+function brandMarkInner(small, id) {
+	const shape = small ? SMALL : FULL;
+	const aurora = `<linearGradient id="${id}-aurora" x1="0.2" y1="0.05" x2="0.85" y2="1">${stop("cyan", 0)}${stop("green", .5)}${stop("gold", 1)}</linearGradient><linearGradient id="${id}-far" x1="0" y1="0" x2="1" y2="0">${stop("far", .45, 0)}${stop("far", 1, small ? .15 : .25)}</linearGradient><linearGradient id="${id}-panel" x1="0" y1="0" x2="0.6" y2="1">${stop("panel-top", 0)}${stop("panel-bottom", 1)}</linearGradient><linearGradient id="${id}-mono" x1="0" y1="0" x2="1" y2="0.35">${stop("mono-start", 0)}${stop("mono-end", 1)}</linearGradient>`;
+	const beam = `<path d="${shape.beam}" fill="url(#${id}-aurora)"></path><path d="${shape.beam}" fill="url(#${id}-far)"></path>`;
+	const print = `<path class="tmt-brand-mark-print" d="${shape.beam}" fill="url(#${id}-mono)"></path>`;
+	const panel = `<path class="tmt-brand-mark-panel" d="${shape.panel}" fill="url(#${id}-panel)"></path>`;
+	const prompt = `<path class="tmt-brand-mark-prompt" d="${shape.prompt}"></path>`;
+	if (small) return `<defs>${aurora}</defs><g class="tmt-brand-mark-beam">${beam}</g>${print}${panel}${prompt}`;
+	return `<defs>${aurora}<linearGradient id="${id}-halo-weight" x1="0" y1="0" x2="1" y2="1">${light(.3, .15)}${light(1, 1)}</linearGradient><mask id="${id}-halo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"><rect width="96" height="96" fill="url(#${id}-halo-weight)"></rect></mask><linearGradient id="${id}-feather" x1="0" y1="0" x2="1" y2="0">${light(.88, 1)}${light(1, .7)}</linearGradient><mask id="${id}-feather-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#${id}-feather)"></rect></mask><linearGradient id="${id}-spill" gradientUnits="userSpaceOnUse" x1="50" y1="0" x2="36" y2="0">${stop("glow", 0, .6)}${stop("cyan", .35, .22)}${stop("cyan", 1, 0)}</linearGradient><linearGradient id="${id}-sheen" x1="0" y1="0" x2="1" y2="1">${light(0, .1)}${light(.35, 0)}</linearGradient><linearGradient id="${id}-rim" x1="0" y1="0" x2="0" y2="1">${stop("cyan", 0, .9)}${stop("gold", 1, .9)}</linearGradient><clipPath id="${id}-panel-clip"><path d="${shape.panel}"></path></clipPath><filter id="${id}-halo" ${box}><feGaussianBlur stdDeviation="2.4"></feGaussianBlur></filter><filter id="${id}-soft" ${box}><feGaussianBlur stdDeviation="0.25"></feGaussianBlur></filter></defs><g transform="translate(6.5 3) scale(0.94)"><g class="tmt-brand-mark-beam"><g mask="url(#${id}-halo-mask)"><path d="${shape.beam}" fill="url(#${id}-aurora)" filter="url(#${id}-halo)" opacity="0.55" transform="translate(1 1.4)"></path></g><g mask="url(#${id}-feather-mask)" filter="url(#${id}-soft)">${beam}</g></g>` + print + panel + `<g class="tmt-brand-mark-beam" clip-path="url(#${id}-panel-clip)"><path d="${shape.panel}" fill="url(#${id}-spill)"></path><path class="tmt-brand-mark-rim" d="${FULL.rim}" stroke="url(#${id}-rim)"></path></g><path d="${shape.panel}" fill="url(#${id}-sheen)"></path>` + prompt + `</g>`;
+}
+/** The whole decorative `<svg>`, as static hosts embed it. */
+function brandMarkSvg({ size, className = "tmt-brand-mark", id }) {
+	const small = brandMarkSmall(size);
+	const dimensions = size === void 0 ? "" : ` width="${size}" height="${size}"`;
+	return `<svg class="${className}" data-form="${small ? "small" : "full"}" viewBox="0 0 96 96" aria-hidden="true"${dimensions}>${brandMarkInner(small, id)}</svg>`;
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/shell-icons.ts
+/**
+* Lucide 1.52.0 (ISC, see `LICENSE.lucide`) node data for the shell, so static hosts draw the
+* same icons without a React or Lucide runtime. The first eight are the module icon allow-list
+* of Remote's describe contract; an unknown name falls back to `box`.
+*/
+var shellIconNodes = {
+	house: [["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" }], ["path", { d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
+	"file-text": [
+		["path", { d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" }],
+		["path", { d: "M14 2v5a1 1 0 0 0 1 1h5" }],
+		["path", { d: "M10 9H8" }],
+		["path", { d: "M16 13H8" }],
+		["path", { d: "M16 17H8" }]
+	],
+	"monitor-smartphone": [
+		["path", { d: "M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" }],
+		["path", { d: "M10 19v-3.96 3.15" }],
+		["path", { d: "M7 19h5" }],
+		["rect", {
+			width: "6",
+			height: "10",
+			x: "16",
+			y: "12",
+			rx: "2"
+		}]
+	],
+	users: [
+		["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }],
+		["path", { d: "M16 3.128a4 4 0 0 1 0 7.744" }],
+		["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87" }],
+		["circle", {
+			cx: "9",
+			cy: "7",
+			r: "4"
+		}]
+	],
+	"chart-column": [
+		["path", { d: "M3 3v16a2 2 0 0 0 2 2h16" }],
+		["path", { d: "M18 17V9" }],
+		["path", { d: "M13 17V5" }],
+		["path", { d: "M8 17v-3" }]
+	],
+	search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", {
+		cx: "11",
+		cy: "11",
+		r: "8"
+	}]],
+	settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", {
+		cx: "12",
+		cy: "12",
+		r: "3"
+	}]],
+	box: [
+		["path", { d: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" }],
+		["path", { d: "m3.3 7 8.7 5 8.7-5" }],
+		["path", { d: "M12 22V12" }]
+	],
+	"panel-left-close": [
+		["rect", {
+			width: "18",
+			height: "18",
+			x: "3",
+			y: "3",
+			rx: "2"
+		}],
+		["path", { d: "M9 3v18" }],
+		["path", { d: "m16 15-3-3 3-3" }]
+	],
+	menu: [
+		["path", { d: "M4 5h16" }],
+		["path", { d: "M4 12h16" }],
+		["path", { d: "M4 19h16" }]
+	]
+};
+var moduleIcons = [
+	"house",
+	"file-text",
+	"monitor-smartphone",
+	"users",
+	"chart-column",
+	"search",
+	"settings",
+	"box"
+];
+var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
+//#endregion
+//#region ../../../../design/browser-ui/src/shell.ts
+/** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
+function shellCount(value, kind = "needs-you") {
+	return {
+		text: value > 99 ? "99+" : String(value),
+		needsYou: kind === "needs-you"
+	};
+}
+/** The answer this browser read last, shared by every page so each paints the same rail first. */
+var ANSWER_KEY = "tmt-shell-answer-v1";
+function rememberedShellAnswer() {
+	try {
+		const stored = JSON.parse(sessionStorage.getItem(ANSWER_KEY) ?? "null");
+		return stored?.version === 1 && Array.isArray(stored.modules) ? stored : void 0;
+	} catch {
+		return;
+	}
+}
+/**
+* Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
+* answer for its path (`POST /sdk/mount`). Undefined when neither answers.
+*/
+async function shellAddress() {
+	const mounted = /^\/r\/[a-z0-9]+(?=\/x\/)/.exec(location.pathname);
+	if (mounted) return `${location.origin}${mounted[0]}`;
+	try {
+		const response = await fetch("/sdk/mount", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ path: location.pathname })
+		});
+		if (response.status !== 200) return void 0;
+		const { address } = await response.json();
+		return typeof address === "string" ? address : void 0;
+	} catch {
+		return;
+	}
+}
+/** Fetch the owner's composed shell once per page; any failure leaves the remembered answer. */
+async function loadShellAnswer(address) {
+	try {
+		const response = await fetch(`${address}/x/-/shell`, {
+			credentials: "same-origin",
+			cache: "no-store"
+		});
+		if (!response.ok) return void 0;
+		const answer = await response.json();
+		if (answer?.version !== 1 || !Array.isArray(answer.modules)) return void 0;
+		try {
+			sessionStorage.setItem(ANSWER_KEY, JSON.stringify(answer));
+		} catch {}
+		return answer;
+	} catch {
+		return;
+	}
+}
+/**
+* The one rail (spec c5ccd17a): the same items in the same order on every page, whatever module
+* hosts it. A module the composed answer does not describe stays, dimmed, with the reason.
+*/
+var RAIL = [
+	{
+		id: "colab",
+		label: "Colab",
+		icon: "file-text",
+		path: "/colab/"
+	},
+	{
+		id: "remote",
+		label: "Remote",
+		icon: "monitor-smartphone",
+		path: "/remote/"
+	},
+	{
+		id: "ops",
+		label: "Ops",
+		icon: "users",
+		path: "/ops/"
+	},
+	{
+		id: "digest",
+		label: "Digest",
+		icon: "chart-column",
+		path: "/digest/"
+	}
+];
+/** Served by the TMT host itself, so always reachable from the rail. */
+var HOST_SERVED = /* @__PURE__ */ new Set([
+	"remote",
+	"ops",
+	"digest"
+]);
+/**
+* Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
+* order, Search, then TMT settings at the bottom. Colab is available when the answer describes it
+* or it hosts the page; without an answer (not paired) it is dimmed, as is Search, which is
+* Colab's quick switcher. The current item is the host's module, else the longest matching path.
+*/
+function shellRail(answer, place, host) {
+	const active = host?.extension;
+	const described = new Map((answer?.modules ?? []).map((module) => [module.extension, module]));
+	const hosted = (id) => host?.extension === id;
+	const path = place.href.slice(place.origin.length);
+	const settings = path === "/settings" || path.startsWith("/settings/");
+	const unavailable = answer ? "Not installed on this machine" : "Pair this browser with Remote to open it";
+	const modules = [...RAIL.map((fixed) => {
+		const module = described.get(fixed.id);
+		return {
+			id: fixed.id,
+			label: module?.rail.label ?? fixed.label,
+			icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
+			href: module?.rail.path ?? (hosted(fixed.id) ? host.rail.path : `${place.origin}${fixed.path}`),
+			needsYou: module?.needsYou,
+			available: Boolean(module) || hosted(fixed.id) || HOST_SERVED.has(fixed.id)
+		};
+	}), ...[...described.values(), ...host && !described.has(host.extension) ? [host] : []].filter((module) => !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
+		id: module.extension,
+		label: module.rail.label,
+		icon: moduleIcon(module.rail.icon),
+		href: module.rail.path,
+		needsYou: module.needsYou,
+		available: true
+	}))];
+	const matched = active ?? modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
+	const counts = [...described.values()].map((module) => module.needsYou);
+	const total = answer && counts.every((count) => count !== void 0) ? counts.reduce((sum, count) => sum + count, 0) : void 0;
+	const colab = modules[0];
+	return {
+		main: [
+			{
+				id: "home",
+				label: "Home",
+				icon: "house",
+				href: `${place.origin}/`,
+				count: total ? shellCount(total) : void 0,
+				current: path === "/" && !active
+			},
+			...modules.map((module) => ({
+				id: module.id,
+				label: module.label,
+				icon: module.icon,
+				href: module.href,
+				count: module.needsYou ? shellCount(module.needsYou) : void 0,
+				current: !settings && module.id === matched,
+				...module.available ? {} : {
+					disabled: true,
+					note: unavailable
+				}
+			})),
+			{
+				id: "search",
+				label: "Search",
+				icon: "search",
+				href: colab.href,
+				current: false,
+				...colab.available ? {} : {
+					disabled: true,
+					note: "Search opens Colab. " + unavailable
+				}
+			}
+		],
+		bottom: [{
+			id: "settings",
+			label: "TMT settings",
+			icon: "settings",
+			href: `${place.origin}/settings/`,
+			current: settings
+		}]
+	};
+}
+var RAIL_KEY = "tmt.shell.rail";
+var SVG = "http://www.w3.org/2000/svg";
+function railCollapsed() {
+	try {
+		return localStorage.getItem(RAIL_KEY) === "collapsed";
+	} catch {
+		return false;
+	}
+}
+function rememberRail(collapsed) {
+	try {
+		localStorage.setItem(RAIL_KEY, collapsed ? "collapsed" : "expanded");
+	} catch {}
+}
+function icon(document, name) {
+	const svg = document.createElementNS(SVG, "svg");
+	svg.setAttribute("class", "tmt-ui-shell-icon");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = document.createElementNS(SVG, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
+}
+function count(document, value) {
+	const badge = document.createElement("span");
+	badge.className = "tmt-ui-shell-count";
+	if (value.needsYou) badge.dataset.kind = "needs-you";
+	badge.textContent = value.needsYou ? `◆ ${value.text}` : value.text;
+	return badge;
+}
+/**
+* Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
+* `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
+* `.tmt-ui-shell-main`. The module menu goes between the bar and the main area: a column beside
+* them on wide screens, tabs under the title bar on phones. `select` may take over a plain click
+* on an item (an SPA route or Colab's search); it returns true when it handled the click.
+*/
+function mountShell(root, view, select) {
+	const document = root.ownerDocument;
+	root.classList.add("tmt-ui-shell");
+	const open = document.createElement("button");
+	open.type = "button";
+	open.className = "tmt-ui-shell-open";
+	open.setAttribute("aria-label", "Open navigation");
+	open.setAttribute("aria-expanded", "false");
+	open.append(icon(document, "menu"));
+	const rail = document.createElement("nav");
+	rail.className = "tmt-ui-rail";
+	rail.setAttribute("aria-label", "TMT");
+	const menu = document.createElement("nav");
+	menu.className = "tmt-ui-module-menu";
+	root.prepend(open, rail);
+	root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar").after(menu);
+	let collapsed = railCollapsed();
+	const setDrawer = (shown) => {
+		root.dataset.drawer = shown ? "open" : "closed";
+		open.setAttribute("aria-expanded", String(shown));
+	};
+	const paint = () => {
+		root.dataset.rail = collapsed ? "collapsed" : "expanded";
+		toggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+		toggle.setAttribute("aria-expanded", String(!collapsed));
+		toggle.title = toggle.getAttribute("aria-label");
+	};
+	const toggle = document.createElement("button");
+	toggle.type = "button";
+	toggle.className = "tmt-ui-rail-toggle";
+	toggle.append(icon(document, "panel-left-close"));
+	toggle.onclick = () => {
+		collapsed = !collapsed;
+		rememberRail(collapsed);
+		paint();
+	};
+	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
+	const close = (event) => {
+		if (event.key === "Escape" && root.dataset.drawer === "open") {
+			setDrawer(false);
+			open.focus();
+		}
+	};
+	document.addEventListener("keydown", close);
+	const outside = (event) => {
+		const target = event.target;
+		if (root.dataset.drawer === "open" && !rail.contains(target) && !open.contains(target)) setDrawer(false);
+	};
+	document.addEventListener("pointerdown", outside);
+	const link = (className, item) => {
+		const anchor = document.createElement("a");
+		anchor.className = className;
+		anchor.href = item.href;
+		anchor.dataset.id = item.id;
+		if (item.current) anchor.setAttribute("aria-current", "page");
+		const disabled = "disabled" in item && item.disabled;
+		if (disabled) anchor.setAttribute("aria-disabled", "true");
+		if ("note" in item && item.note) anchor.title = item.note;
+		anchor.onclick = (event) => {
+			if (disabled) return event.preventDefault();
+			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+			setDrawer(false);
+			if (select?.(item.id, item.href)) event.preventDefault();
+		};
+		return anchor;
+	};
+	const railList = (items, extra) => {
+		const list = document.createElement("ul");
+		list.className = extra ? `tmt-ui-rail-items ${extra}` : "tmt-ui-rail-items";
+		for (const item of items) {
+			const anchor = link("tmt-ui-rail-item", item);
+			anchor.title = item.note ? `${item.label}: ${item.note}` : item.label;
+			const label = document.createElement("span");
+			label.className = "tmt-ui-rail-label";
+			label.textContent = item.label;
+			anchor.append(icon(document, item.icon), label);
+			if (item.count) anchor.append(count(document, item.count));
+			const row = document.createElement("li");
+			row.append(anchor);
+			list.append(row);
+		}
+		return list;
+	};
+	let shown = "";
+	const render = (next) => {
+		const key = JSON.stringify(next);
+		if (key === shown) return;
+		shown = key;
+		const top = document.createElement("div");
+		top.className = "tmt-ui-rail-top";
+		const brand = document.createElement("span");
+		brand.className = "tmt-ui-rail-brand";
+		brand.innerHTML = brandMarkSvg({
+			size: 24,
+			id: "tmt-rail"
+		});
+		const word = document.createElement("span");
+		word.className = "tmt-ui-rail-label";
+		word.textContent = "TMT";
+		brand.append(word);
+		top.append(brand, toggle);
+		rail.replaceChildren(top, railList(next.rail.main), railList(next.rail.bottom, "tmt-ui-rail-bottom"));
+		root.dataset.menu = next.menu ? "shown" : "none";
+		if (!next.menu) {
+			menu.replaceChildren();
+			menu.removeAttribute("aria-label");
+			return;
+		}
+		menu.setAttribute("aria-label", next.menu.title);
+		const left = menu.scrollLeft;
+		const title = document.createElement("div");
+		title.className = "tmt-ui-module-menu-title";
+		title.textContent = next.menu.title;
+		menu.replaceChildren(title);
+		for (const group of next.menu.groups) {
+			if (group.label !== void 0 || menu.childElementCount > 1) {
+				const heading = document.createElement("div");
+				heading.className = "tmt-ui-module-menu-group";
+				heading.textContent = group.label ?? "";
+				menu.append(heading);
+			}
+			const list = document.createElement("ul");
+			list.className = "tmt-ui-module-menu-items";
+			for (const item of group.items) {
+				const anchor = link("tmt-ui-module-menu-item", item);
+				const label = document.createElement("span");
+				label.className = "tmt-ui-module-menu-label";
+				label.textContent = item.label;
+				if (!item.note) label.title = item.label;
+				anchor.append(label);
+				if (item.total !== void 0 || item.count) {
+					const counts = document.createElement("span");
+					counts.className = "tmt-ui-shell-counts";
+					if (item.total !== void 0) counts.append(count(document, shellCount(item.total, "plain")));
+					if (item.count) counts.append(count(document, item.count));
+					anchor.append(counts);
+				}
+				const row = document.createElement("li");
+				row.append(anchor);
+				list.append(row);
+			}
+			menu.append(list);
+		}
+		menu.scrollLeft = left;
+		const current = menu.querySelector("[aria-current=\"page\"]");
+		if (current && menu.scrollWidth > menu.clientWidth) {
+			const strip = menu.getBoundingClientRect();
+			const box = current.getBoundingClientRect();
+			if (box.left < strip.left) menu.scrollLeft -= strip.left - box.left;
+			else if (box.right > strip.right) menu.scrollLeft += box.right - strip.right;
+		}
+	};
+	paint();
+	setDrawer(false);
+	render(view);
+	return {
+		update: render,
+		dispose() {
+			document.removeEventListener("keydown", close);
+			document.removeEventListener("pointerdown", outside);
+			open.remove();
+			rail.remove();
+			menu.remove();
+		}
+	};
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/shell-host.ts
+function matchRoute(routes, pathname) {
+	let best;
+	let length = -1;
+	for (const route of routes) for (const path of route.paths) if ((path === "/" ? pathname === "/" : pathname === path || path.endsWith("/") && pathname.startsWith(path)) && path.length > length) {
+		best = route;
+		length = path.length;
+	}
+	return best;
+}
+/**
+* Start the one app in `root`, a `.tmt-ui-shell` element holding `.tmt-ui-shell-content` with
+* `.tmt-ui-shell-bar` and `.tmt-ui-shell-main`. A route the host does not own is a full load.
+*/
+function startShellHost(root, routes, options = {}) {
+	const document = root.ownerDocument;
+	const window = document.defaultView;
+	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
+	const main = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-main");
+	let answer = rememberedShellAnswer();
+	let current;
+	let menu;
+	let select;
+	let asked = false;
+	let settled = false;
+	const listeners = [];
+	let generation = 0;
+	const place = () => ({
+		origin: window.location.origin,
+		href: window.location.href.split(/[?#]/)[0]
+	});
+	/** The rail links to this app's routes, not to a module's own mount. */
+	const view = () => {
+		const route = current?.route;
+		const host = route && route.rail !== "home" && route.rail !== "settings" ? {
+			extension: route.rail,
+			rail: {
+				label: route.rail,
+				icon: "box",
+				path: `${place().origin}${route.paths.at(-1)}`,
+				order: 0
+			},
+			menu: [],
+			settings: []
+		} : void 0;
+		const rail = shellRail(answer, place(), host);
+		for (const item of [...rail.main, ...rail.bottom]) {
+			const owner = routes.find((candidate) => candidate.rail === item.id);
+			if (owner && item.id !== "home") item.href = `${place().origin}${owner.paths.at(-1)}`;
+		}
+		return {
+			rail,
+			menu
+		};
+	};
+	const controls = mountShell(root, view(), (id, href) => {
+		if (select?.(id, href)) return true;
+		return go(href);
+	});
+	const paint = () => controls.update(view());
+	const describe = (known) => {
+		if (asked) return;
+		asked = true;
+		(known === void 0 ? shellAddress() : Promise.resolve(known)).then(async (address) => {
+			const read = address === void 0 ? void 0 : await loadShellAnswer(address);
+			if (read) {
+				answer = read;
+				paint();
+			}
+			settled = true;
+			for (const listener of listeners.splice(0)) listener(read);
+		});
+	};
+	const slot = (route, mine) => ({
+		main,
+		bar,
+		basePath: route.paths.at(-1),
+		answer: () => answer,
+		setMenu(next, handler) {
+			if (current?.generation !== mine) return;
+			menu = next;
+			select = handler;
+			paint();
+		},
+		setTitle(title) {
+			if (current?.generation === mine) document.title = `${title} · TMT`;
+		},
+		navigate: (href, options) => void go(href, options),
+		describe,
+		described(listener) {
+			if (settled) listener(answer);
+			else listeners.push(listener);
+		}
+	});
+	async function show() {
+		const route = matchRoute(routes, window.location.pathname);
+		if (!route) return window.location.reload();
+		if (current?.route === route) return paint();
+		current?.release?.();
+		const mine = ++generation;
+		current = {
+			route,
+			generation: mine
+		};
+		menu = void 0;
+		select = void 0;
+		bar.replaceChildren();
+		main.replaceChildren();
+		main.dataset.route = route.id;
+		paint();
+		if (!route.quiet) describe();
+		try {
+			const module = await route.load(answer, () => new Promise((resolve) => settled ? resolve(answer) : listeners.push(resolve)));
+			if (current.generation !== mine) return;
+			const release = await module.mount(slot(route, mine));
+			if (current.generation !== mine) return release?.();
+			current.release = release ?? void 0;
+		} catch (error) {
+			if (current.generation !== mine) return;
+			main.replaceChildren();
+			options.failed?.(main, route, error);
+		}
+	}
+	/** Same-origin URL this app owns: change the history entry and show its route. */
+	function go(href, { replace = false } = {}) {
+		const url = new URL(href, window.location.href);
+		if (url.origin !== window.location.origin || !matchRoute(routes, url.pathname)) return false;
+		if (url.href !== window.location.href) window.history[replace ? "replaceState" : "pushState"](null, "", url.href);
+		if (matchRoute(routes, url.pathname) === current?.route) window.dispatchEvent(new PopStateEvent("popstate"));
+		else show();
+		return true;
+	}
+	const click = (event) => {
+		if (event.defaultPrevented || event.button || event.metaKey || event.ctrlKey) return;
+		if (event.shiftKey || event.altKey) return;
+		const anchor = event.target?.closest?.("a[href]");
+		if (!(anchor instanceof window.HTMLAnchorElement) || anchor.target || anchor.hasAttribute("download")) return;
+		const url = new URL(anchor.href);
+		const route = matchRoute(routes, url.pathname);
+		if (url.origin !== window.location.origin || !route) return;
+		if (route === current?.route && url.pathname === window.location.pathname) return;
+		if (route === current?.route) return;
+		event.preventDefault();
+		go(url.href);
+	};
+	const popstate = () => void show();
+	document.addEventListener("click", click);
+	window.addEventListener("popstate", popstate);
+	show();
+	return {
+		navigate: (href, options) => void go(href, options),
+		route: (pathname) => matchRoute(routes, pathname),
+		dispose() {
+			document.removeEventListener("click", click);
+			window.removeEventListener("popstate", popstate);
+			current?.release?.();
+			controls.dispose();
+		}
+	};
+}
+//#endregion
+//#region ../../rust/tmt-remote/assets/home.html?raw
+var home_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"home\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Home · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\">\n        <!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">TMT</span>\n      </span>\n      <h1 class=\"header-title tmt-ui-title\">Home</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"page home\">\n      <section class=\"home-block\" aria-labelledby=\"home-needs-heading\">\n        <h2 id=\"home-needs-heading\" class=\"home-heading\">◆ Needs you</h2>\n        <ul id=\"home-needs\" class=\"tmt-ui-list\"></ul>\n        <p id=\"home-needs-note\" class=\"home-note\" role=\"status\">Checking…</p>\n      </section>\n      <section id=\"home-recent-block\" class=\"home-block\" aria-labelledby=\"home-recent-heading\" hidden>\n        <h2 id=\"home-recent-heading\" class=\"home-heading\">Recent pages</h2>\n        <ul id=\"home-recent\" class=\"tmt-ui-list\"></ul>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+//#endregion
+//#region ../../rust/tmt-remote/assets/landing.html?raw
+var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landing\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Remote connection · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/landing.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\">\n        <!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">Remote</span>\n      </span>\n      <h1 class=\"header-title tmt-ui-title\">Remote connection</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"page\">\n      <section\n        id=\"notice\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"waiting\"\n        aria-labelledby=\"heading\"\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <div class=\"tmt-ui-notice-mark\">\n            <span id=\"mark\" class=\"state-mark\" aria-hidden=\"true\">◌</span\n            ><span id=\"state-label\">Checking</span>\n          </div>\n          <h2 id=\"heading\" class=\"tmt-ui-notice-heading\">Checking the connection…</h2>\n          <p id=\"status\" role=\"status\">Reading this browser's pairing.</p>\n          <p id=\"command-location\" class=\"entry-note\" hidden>\n            Run these commands on the machine that runs Remote.\n          </p>\n          <ol id=\"steps-missing\" class=\"entry-steps\" hidden>\n            <li>\n              On the machine running Remote, run\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-missing-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-missing-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n            <li>Open the link it prints <strong>in this browser</strong>.</li>\n            <li>Name this device, then check that the four words match the terminal.</li>\n            <li>Confirm in the terminal. This page updates when you come back.</li>\n          </ol>\n          <ol id=\"steps-different\" class=\"entry-steps\" hidden>\n            <li>\n              To use this machine too, run this on it:\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-different-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-different-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n          </ol>\n          <ol id=\"steps-refused\" class=\"entry-steps\" hidden>\n            <li>\n              Check this device with\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote devices</code>\n                <button\n                  id=\"copy-refused-devices\"\n                  aria-label=\"Copy tmt remote devices\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-refused-devices\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n            <li>\n              If it's missing, pair again with\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-refused-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-refused-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n          </ol>\n          <ol id=\"steps-unconfirmed\" class=\"entry-steps\" hidden>\n            <li>\n              Check Remote is running:\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote status</code>\n                <button\n                  id=\"copy-unconfirmed-status\"\n                  aria-label=\"Copy tmt remote status\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-unconfirmed-status\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n          </ol>\n          <ol id=\"steps-unreadable\" class=\"entry-steps\" hidden>\n            <li>\n              Pair again with\n              <span class=\"entry-command tmt-ui-command\"\n                ><code class=\"tmt-ui-command-text\">tmt remote pair</code>\n                <button\n                  id=\"copy-unreadable-pair\"\n                  aria-label=\"Copy tmt remote pair\"\n                  type=\"button\"\n                  class=\"tmt-ui-command-copy\"\n                >\n                  Copy</button\n                ><span\n                  id=\"copy-feedback-unreadable-pair\"\n                  class=\"tmt-ui-command-feedback\"\n                  role=\"status\"\n                ></span\n              ></span>\n            </li>\n          </ol>\n          <p id=\"pairing-note\" class=\"entry-note\" hidden>Pair links are private and work once.</p>\n          <button id=\"check\" class=\"tmt-ui-action\" type=\"button\" aria-describedby=\"status\" disabled>\n            Check again\n          </button>\n          <details class=\"entry-details\">\n            <summary>Details</summary>\n            <dl class=\"entry-status\">\n              <dt>Machine ID</dt>\n              <dd id=\"machine-id\">Not available</dd>\n              <dt>Last checked</dt>\n              <dd id=\"checked-time\">Not checked</dd>\n              <dt>Address</dt>\n              <dd id=\"protocol-address\">Not available</dd>\n              <dt>Fingerprint</dt>\n              <dd id=\"trust-pin\">Not available</dd>\n            </dl>\n            <p class=\"entry-note\">\n              Pairing gives this browser its own access. It does not make this browser a\n              settings administrator.\n            </p>\n          </details>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"remote-registry\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\">Remotes in this browser</h2>\n        <p class=\"entry-note\">Names and addresses are saved here. Each remote keeps its own pairing.</p>\n        <ul id=\"remote-list\" class=\"remote-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n        <button id=\"remote-add\" class=\"tmt-ui-action\" type=\"button\">Add remote</button>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+//#endregion
+//#region ../../rust/tmt-remote/assets/settings.html?raw
+var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>Remote settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\"\n        ><!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">Remote</span></span\n      >\n      <h1 class=\"header-title tmt-ui-title\">Remote settings</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"page settings-page\">\n      <h2 class=\"settings-title\">Remote settings</h2>\n      <p class=\"settings-intro\">\n        Control browser opening, sessions and paired devices for this Remote.\n      </p>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"screen-reader-status\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote devices</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section class=\"settings-section\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-notice-heading settings-heading\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger settings-choice\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              ><span aria-hidden=\"true\">▾</span>\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface settings-options\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"settings-section\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-notice-heading settings-heading\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger settings-choice\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              ><span aria-hidden=\"true\">▾</span>\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface settings-options\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"settings-section\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-notice-heading settings-heading\">Firestore</h2>\n          <p>Recorded setup, not a live Firebase check.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"screen-reader-status\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking recorded Firestore setup…</div>\n        </div>\n      </section>\n      <section class=\"settings-section\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-notice-heading settings-heading\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"device-confirmation\" hidden>\n            <p id=\"remove-others-consequence\" role=\"status\"></p>\n            <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">Cancel</button>\n          </div>\n          <div id=\"devices\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"remote-registry\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\">Remotes in this browser</h2>\n        <p class=\"entry-note\">\n          Names and addresses are saved here. Each remote keeps its own pairing.\n        </p>\n        <ul id=\"remote-list\" class=\"remote-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n        <button id=\"remote-add\" class=\"tmt-ui-action\" type=\"button\">Add remote</button>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+//#endregion
+//#region ../../rust/tmt-remote/assets/tmt-settings.html?raw
+var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"tmt-settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>TMT settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\">\n        <!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">TMT</span>\n      </span>\n      <span class=\"header-divider\" aria-hidden=\"true\">/</span>\n      <h1 class=\"header-title tmt-ui-title\">TMT settings</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"page tmt-settings\">\n      <p id=\"tmt-settings-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"tmt-settings-section\" class=\"tmt-settings-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+//#endregion
+//#region ../../rust/tmt-remote/assets/ops.html?raw
+var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\">\n        <!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">TMT</span>\n      </span>\n      <h1 class=\"header-title tmt-ui-title\">Ops</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+//#endregion
+//#region ../../rust/tmt-remote/assets/digest.html?raw
+var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\">\n        <!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">TMT</span>\n      </span>\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"page usage\">\n      <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <div class=\"tmt-ui-tabs\">\n        <div class=\"tmt-ui-tabs-header\">\n          <div id=\"usage-ranges\" class=\"tmt-ui-tab-list\" role=\"tablist\" aria-label=\"Range\"></div>\n        </div>\n        <div id=\"usage-panel\" class=\"tmt-ui-tab-panel\" role=\"tabpanel\" aria-label=\"Usage by agent\">\n          <table class=\"usage-table\">\n            <thead>\n              <tr><th scope=\"col\">Agent</th><th scope=\"col\">Tokens</th><th scope=\"col\">Share</th><th scope=\"col\">Turns</th></tr>\n            </thead>\n            <tbody id=\"usage-rows\"></tbody>\n          </table>\n        </div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+//#endregion
+//#region src/digest-source.ts
+/**
+* What the Digest web view (`/digest/`) reads: per-agent token use over one range. The page depends
+* only on `DigestSource`; the source below is a MOCK until Core exposes a read API for the
+* owner's usage (`tmt digest usage report --json` holds the same facts on the terminal side).
+*/
+var USAGE_RANGES = [
+	"5m",
+	"1h",
+	"6h",
+	"1d",
+	"7d",
+	"30d"
+];
+var SAMPLE = [
+	{
+		agent: "tmt-ux-lead",
+		tokens: 482e5,
+		turns: 312
+	},
+	{
+		agent: "ux-1",
+		tokens: 31e6,
+		turns: 205
+	},
+	{
+		agent: "feat-1",
+		tokens: 274e5,
+		turns: 188
+	},
+	{
+		agent: "remote-1",
+		tokens: 199e5,
+		turns: 141
+	},
+	{
+		agent: "night-1",
+		tokens: 63e5,
+		turns: 52
+	}
+];
+var SCALE = {
+	"5m": 1 / 2016,
+	"1h": 1 / 168,
+	"6h": 1 / 28,
+	"1d": 1 / 7,
+	"7d": 1,
+	"30d": 30 / 7
+};
+/** The source the page reads by default. */
+var digestSource = { async usage(range) {
+	const scale = SCALE[range];
+	return {
+		range,
+		sample: true,
+		agents: SAMPLE.map((row) => ({
+			agent: row.agent,
+			tokens: Math.round(row.tokens * scale),
+			turns: Math.round(row.turns * scale)
+		}))
+	};
+} };
+//#endregion
+//#region src/digest-page.ts
+/** The Digest web view: one range picker and the per-agent table (tokens, share, turns). */
+/** 1.9B, 48.2M, 310K, 940: compact token counts in the table. */
+function formatTokens(tokens) {
+	if (tokens >= 1e9) return `${(tokens / 1e9).toFixed(1)}B`;
+	if (tokens >= 1e6) return `${(tokens / 1e6).toFixed(1)}M`;
+	if (tokens >= 1e3) return `${Math.round(tokens / 1e3)}K`;
+	return String(tokens);
+}
+/** Each agent's share of the range's tokens, in whole percent, largest first. */
+function usageRows(report) {
+	const total = report.agents.reduce((sum, row) => sum + row.tokens, 0);
+	return [...report.agents].sort((a, b) => b.tokens - a.tokens || a.agent.localeCompare(b.agent)).map((row) => ({
+		...row,
+		share: total ? Math.round(row.tokens / total * 100) : 0
+	}));
+}
+function cell(tag, text) {
+	const node = document.createElement(tag);
+	node.textContent = text;
+	return node;
+}
+function digestPage(source = digestSource) {
+	const tabs = document.getElementById("usage-ranges");
+	const body = document.getElementById("usage-rows");
+	const note = document.getElementById("usage-note");
+	if (!tabs || !body || !note) return;
+	let current = "7d";
+	let generation = 0;
+	const buttons = USAGE_RANGES.map((range) => {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "tmt-ui-tab";
+		button.setAttribute("role", "tab");
+		button.setAttribute("aria-controls", "usage-panel");
+		button.dataset.range = range;
+		const label = document.createElement("span");
+		label.className = "tmt-ui-tab-label";
+		label.textContent = range;
+		button.append(label);
+		button.addEventListener("click", () => void show(range));
+		button.addEventListener("keydown", (event) => {
+			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+			if (!step) return;
+			event.preventDefault();
+			const range = USAGE_RANGES[(USAGE_RANGES.indexOf(current) + step + USAGE_RANGES.length) % USAGE_RANGES.length];
+			show(range).then(() => buttons[USAGE_RANGES.indexOf(range)].focus());
+		});
+		return button;
+	});
+	tabs.replaceChildren(...buttons);
+	async function show(range) {
+		current = range;
+		const mine = ++generation;
+		for (const button of buttons) {
+			const selected = button.dataset.range === range;
+			button.setAttribute("aria-selected", String(selected));
+			button.tabIndex = selected ? 0 : -1;
+		}
+		const report = await source.usage(range);
+		if (mine !== generation) return;
+		body.replaceChildren(...usageRows(report).map((row) => {
+			const line = document.createElement("tr");
+			line.append(cell("th", row.agent), cell("td", formatTokens(row.tokens)), cell("td", `${row.share}%`), cell("td", row.turns === void 0 ? "—" : String(row.turns)));
+			line.firstElementChild.setAttribute("scope", "row");
+			return line;
+		}));
+		note.textContent = report.unavailable ?? (report.sample ? "Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers." : report.agents.some((row) => row.turns === void 0) ? "Turns show — where Digest does not count them yet." : "");
+		note.hidden = !note.textContent;
+	}
+	show(current);
+}
+//#endregion
+//#region src/module-entry.ts
+/**
+* Where the shell may load a module's code from. A composed shell answer names a module's mount
+* (`rail.path`) and optionally its `entry`; the shell imports the entry only when both are paths
+* of this same origin under `/r/<prefix>/x/<module>/`, compared by path segment. Anything else is
+* refused, and the module's own link is the fallback.
+*/
+/** `/r/<prefix>/x/<module>`, the door's mount for one module, with or without a trailing slash. */
+var MOUNT = /^\/r\/[a-z0-9]+\/x\/[a-z0-9][a-z0-9-]*\/?$/;
+/** The module entry the shell asks for when the answer names none. */
+var DEFAULT_ENTRY = "assets/colab-module.js";
+/** An entry has no escapes, backslashes, query, fragment, control characters or dot segments. */
+function plain(entry) {
+	if (/[\\%?#\u0000-\u001f\u007f]/.test(entry)) return false;
+	return entry.split("/").every((segment) => segment !== "." && segment !== "..");
+}
+/** Confine a described module to its mount; `here` is the page's URL, the base of relative paths. */
+function moduleLoad(rail, entry, here) {
+	let page;
+	let mount;
+	try {
+		page = new URL(here);
+		mount = new URL(rail, page);
+	} catch {
+		return {};
+	}
+	if (mount.origin !== page.origin || mount.search || mount.hash || !MOUNT.test(mount.pathname)) return {};
+	const link = mount.pathname.endsWith("/") ? mount.pathname : `${mount.pathname}/`;
+	const wanted = entry ?? DEFAULT_ENTRY;
+	if (!plain(wanted)) return { link };
+	let target;
+	try {
+		target = new URL(wanted, new URL(link, page));
+	} catch {
+		return { link };
+	}
+	return target.origin === page.origin && target.pathname.startsWith(link) && target.pathname.length > link.length && !target.pathname.includes("//") && !target.search && !target.hash ? {
+		link,
+		entry: target.href
+	} : { link };
+}
+//#endregion
+//#region src/ops-source.ts
+var AGENT_STATES = {
+	working: {
+		mark: "●",
+		word: "Working",
+		tone: "working"
+	},
+	idle: {
+		mark: "◌",
+		word: "Idle",
+		tone: "neutral"
+	},
+	"needs-you": {
+		mark: "◆",
+		word: "Needs you",
+		tone: "waiting"
+	},
+	blocked: {
+		mark: "✗",
+		word: "Blocked",
+		tone: "blocked"
+	},
+	offline: {
+		mark: "○",
+		word: "Offline",
+		tone: "neutral"
+	},
+	"idle-alert": {
+		mark: "◷",
+		word: "Idle alert",
+		tone: "neutral"
+	},
+	unknown: {
+		mark: "?",
+		word: "Unknown",
+		tone: "neutral"
+	}
+};
+/** The source the page reads by default. */
+var opsSource = { async board() {
+	return {
+		sample: true,
+		squads: [
+			{
+				name: "tmt-ux",
+				lead: "tmt-ux-lead",
+				idleAlertMinutes: 30
+			},
+			{
+				name: "tmt-feat",
+				lead: "tmt-feat-lead",
+				idleAlertMinutes: 30
+			},
+			{
+				name: "tmt-remote",
+				lead: "tmt-remote-lead"
+			}
+		],
+		agents: [
+			{
+				name: "tmt-ux-lead",
+				squad: "tmt-ux",
+				role: "lead",
+				state: "working",
+				task: "Night shift: live review",
+				model: "opus"
+			},
+			{
+				name: "ux-1",
+				squad: "tmt-ux",
+				role: "member",
+				state: "working",
+				task: "#3931 input grows with content",
+				model: "sonnet"
+			},
+			{
+				name: "ux-2",
+				squad: "tmt-ux",
+				role: "member",
+				state: "needs-you",
+				task: "Asks: Shift+Enter behavior",
+				model: "sol"
+			},
+			{
+				name: "tmt-feat-lead",
+				squad: "tmt-feat",
+				role: "lead",
+				state: "idle",
+				model: "opus"
+			},
+			{
+				name: "feat-1",
+				squad: "tmt-feat",
+				role: "member",
+				state: "idle-alert",
+				task: "Idle 32m",
+				model: "sonnet"
+			},
+			{
+				name: "tmt-remote-lead",
+				squad: "tmt-remote",
+				role: "lead",
+				state: "offline",
+				model: "opus"
+			},
+			{
+				name: "remote-1",
+				squad: "tmt-remote",
+				role: "member",
+				state: "blocked",
+				task: "Waiting on CI",
+				model: "sol"
+			}
+		],
+		schedules: [{
+			id: "c1",
+			squad: "tmt-infra",
+			when: "hourly :07",
+			what: "Release health tick"
+		}, {
+			id: "c2",
+			squad: "tmt-infra",
+			when: "Mon 10:00",
+			what: "Guidance hygiene pass"
+		}],
+		settings: [{
+			name: "Board refresh",
+			value: "5s",
+			description: "How often the board re-reads agent state"
+		}, {
+			name: "Idle alert default",
+			value: "30m",
+			description: "Used when a squad sets none"
+		}]
+	};
+} };
+//#endregion
+//#region src/ops-page.ts
+var SECTIONS$1 = [
+	{
+		id: "agents",
+		label: "Agents"
+	},
+	{
+		id: "squads",
+		label: "Squads"
+	},
+	{
+		id: "schedules",
+		label: "Timers"
+	},
+	{
+		id: "settings",
+		label: "Ops settings"
+	}
+];
+function row$1(mark, tone, title, detail, meta = "") {
+	const item = document.createElement("li");
+	item.className = "tmt-ui-list-row";
+	item.dataset.leading = "";
+	const sign = document.createElement("div");
+	sign.className = "tmt-ui-list-leading ops-mark";
+	sign.dataset.tone = tone;
+	sign.setAttribute("aria-hidden", "true");
+	sign.textContent = mark;
+	const name = document.createElement("div");
+	name.className = "tmt-ui-list-title";
+	name.textContent = title;
+	const info = document.createElement("div");
+	info.className = "tmt-ui-list-meta";
+	const more = document.createElement("div");
+	more.className = "tmt-ui-list-updated";
+	more.textContent = detail;
+	more.title = detail;
+	const state = document.createElement("div");
+	state.className = "tmt-ui-list-state";
+	state.textContent = meta;
+	info.append(more, state);
+	item.append(sign, name, info);
+	return item;
+}
+function list(rows) {
+	const node = document.createElement("ul");
+	node.className = "tmt-ui-list";
+	node.append(...rows);
+	return node;
+}
+function heading$1(text) {
+	const node = document.createElement("h2");
+	node.className = "home-heading";
+	node.textContent = text;
+	return node;
+}
+/** The section's content; agents group under their squad, the lead first. */
+function opsSection(board, section) {
+	if (section === "agents") return board.squads.flatMap((squad) => {
+		const agents = board.agents.filter((agent) => agent.squad === squad.name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
+		if (!agents.length) return [];
+		return [heading$1(`${squad.name} · lead ${squad.lead}`), list(agents.map((agent) => {
+			const state = AGENT_STATES[agent.state];
+			return row$1(state.mark, state.tone, agent.name, `${state.word}${agent.task ? ` · ${agent.task}` : ""}`, agent.model ?? "");
+		}))];
+	});
+	if (section === "squads") return [list(board.squads.map((squad) => {
+		const count = board.agents.filter((agent) => agent.squad === squad.name).length;
+		return row$1("●", "neutral", squad.name, `lead ${squad.lead} · ${count} agent${count === 1 ? "" : "s"}` + (squad.idleAlertMinutes ? ` · idle alert ${squad.idleAlertMinutes}m` : ""));
+	}))];
+	if (section === "schedules") return [list(board.schedules.map((schedule) => row$1("◷", "neutral", schedule.what, `${schedule.squad} · ${schedule.when}`, schedule.id)))];
+	return [list(board.settings.map((setting) => row$1("", "neutral", setting.name, setting.description, setting.value)))];
+}
+function opsPage(shell, source = opsSource) {
+	const main = document.getElementById("ops-section");
+	const title = document.querySelector(".tmt-ui-title");
+	const note = document.getElementById("ops-note");
+	if (!main || !note) return;
+	const href = (id) => `${location.pathname}#${id}`;
+	const current = () => SECTIONS$1.find((section) => `#${section.id}` === location.hash)?.id ?? "agents";
+	let board;
+	const paint = () => {
+		const section = current();
+		shell.setMenu({
+			title: "Ops",
+			groups: [{ items: SECTIONS$1.filter((item) => item.id !== "settings").map((item) => ({
+				id: item.id,
+				label: item.label,
+				href: href(item.id),
+				current: item.id === section
+			})) }, { items: [{
+				id: "settings",
+				label: "Ops settings",
+				href: href("settings"),
+				current: section === "settings"
+			}] }]
+		});
+		if (title) title.textContent = SECTIONS$1.find((item) => item.id === section).label;
+		if (board) main.replaceChildren(...opsSection(board, section));
+	};
+	window.addEventListener("hashchange", paint);
+	paint();
+	source.board().then((next) => {
+		board = next;
+		note.textContent = next.sample ? "Sample data: Ops has no web read of your board yet. `tmt ops ui` shows the real board." : "";
+		note.hidden = !next.sample;
+		paint();
+	});
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/theme.ts
+/**
+* The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
+* `dark` pin a theme, and no attribute follows the device (`prefers-color-scheme`). The choice is
+* stored in this browser only; storage that is blocked or full never breaks the page, which then
+* follows the device.
+*/
+var THEMES = [
+	"system",
+	"light",
+	"dark"
+];
+var themeStorageKey = "tmt-ui-theme";
+function browserStore() {
+	try {
+		return globalThis.localStorage;
+	} catch {
+		return;
+	}
+}
+/** The stored choice; `system` when none is stored, storage is blocked or the value is unknown. */
+function storedTheme(store = browserStore()) {
+	try {
+		const value = store?.getItem(themeStorageKey);
+		return THEMES.find((theme) => theme === value) ?? "system";
+	} catch {
+		return "system";
+	}
+}
+/** Set the root's theme for a choice: `system` leaves the tokens to the device. */
+function applyTheme(choice, root = document.documentElement) {
+	if (choice === "system") root.removeAttribute("data-theme");
+	else root.setAttribute("data-theme", choice);
+}
+/** Apply the stored choice; call once when the app starts, before the first paint of a page. */
+function applyStoredTheme(root, store) {
+	applyTheme(storedTheme(store), root);
+}
+/** Store a choice for this browser and apply it now. `system` clears the stored choice. */
+function setStoredTheme(choice, root, store = browserStore()) {
+	try {
+		if (choice === "system") store?.removeItem(themeStorageKey);
+		else store?.setItem(themeStorageKey, choice);
+	} catch {}
+	applyTheme(choice, root);
+}
+/** The source the page reads by default. */
+var settingsSource = { async read() {
+	return {
+		sample: true,
+		general: { rows: [{
+			name: "Upgrade channel",
+			value: "alpha",
+			description: "Where `tmt upgrade` looks"
+		}, {
+			name: "Message batching",
+			value: "5 s",
+			description: "Replies arrive in one batch"
+		}] },
+		identities: { rows: [
+			{
+				name: "ben",
+				lifetime: "saved",
+				online: false
+			},
+			{
+				name: "ux-1",
+				lifetime: "saved",
+				online: true,
+				provider: "claude"
+			},
+			{
+				name: "night-1",
+				lifetime: "temporary",
+				online: false,
+				provider: "codex"
+			}
+		] },
+		modules: { rows: [
+			{
+				name: "colab",
+				installed: true,
+				version: "0.1.0-alpha.231",
+				channel: "alpha"
+			},
+			{
+				name: "remote",
+				installed: true,
+				version: "0.1.0-alpha.135",
+				channel: "alpha"
+			},
+			{
+				name: "ops",
+				installed: true,
+				version: "0.1.0-alpha.158",
+				channel: "alpha"
+			},
+			{
+				name: "office",
+				installed: false
+			}
+		] },
+		drivers: { rows: [{
+			name: "herdr",
+			version: "0.1.0-alpha.0",
+			state: "ok"
+		}] },
+		hooks: { rows: [{
+			provider: "claude",
+			usage: true
+		}, {
+			provider: "codex",
+			usage: true
+		}] }
+	};
+} };
+//#endregion
+//#region src/tmt-settings-page.ts
+var SECTIONS = [
+	{
+		id: "general",
+		label: "General"
+	},
+	{
+		id: "identities",
+		label: "Identities"
+	},
+	{
+		id: "modules",
+		label: "Modules"
+	},
+	{
+		id: "drivers",
+		label: "Drivers & hooks"
+	}
+];
+var THEME_LABELS = {
+	system: "System",
+	light: "Light",
+	dark: "Dark"
+};
+/** Each described module's rail label and first settings page, by extension name. */
+function moduleLinks(answer) {
+	const links = /* @__PURE__ */ new Map();
+	for (const module of answer?.modules ?? []) links.set(module.extension, {
+		label: module.rail.label,
+		href: module.settings[0]?.path
+	});
+	return links;
+}
+var capitalize = (name) => name.charAt(0).toUpperCase() + name.slice(1);
+/** The section's rows; identities show live agents first, then by name. */
+function settingsRows(section, settings, links = /* @__PURE__ */ new Map()) {
+	if (section === "general") return settings.general.rows.map((row) => ({
+		mark: "",
+		title: row.name,
+		detail: row.description,
+		state: row.value
+	}));
+	if (section === "identities") return [...settings.identities.rows].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name)).map((row) => ({
+		mark: row.online ? "●" : "○",
+		title: row.name,
+		detail: row.provider ? `${row.lifetime} · ${row.provider}` : row.lifetime,
+		state: row.online ? "active" : "offline"
+	}));
+	if (section === "modules") return settings.modules.rows.map((row) => {
+		const link = links.get(row.name);
+		return {
+			mark: row.installed ? "●" : "○",
+			title: link?.label ?? capitalize(row.name),
+			...row.installed && link?.href ? { href: link.href } : {},
+			detail: row.installed ? [row.version, row.channel].filter(Boolean).join(" · ") : "Not installed",
+			state: row.installed ? "installed" : ""
+		};
+	});
+	return [...settings.drivers.rows.map((row) => ({
+		mark: row.state === "ok" ? "●" : "◆",
+		waiting: row.state !== "ok",
+		title: row.name,
+		detail: `Host driver ${row.version}`,
+		state: row.state === "ok" ? "approved" : row.state
+	})), ...settings.hooks.rows.map((row) => ({
+		mark: "●",
+		title: row.provider,
+		detail: `Agent hooks · usage collection ${row.usage ? "on" : "off"}`,
+		state: "set up"
+	}))];
+}
+/** Why a section has nothing to list: the source could not read it, or there is none. */
+function emptyText(section, settings) {
+	const unavailable = (section === "drivers" ? [settings.drivers, settings.hooks] : [settings[section]]).map((part) => part.unavailable).find(Boolean);
+	if (unavailable) return unavailable;
+	return {
+		general: "No settings to show.",
+		identities: "No identities yet.",
+		modules: "No modules.",
+		drivers: "No drivers or agent hooks are set up."
+	}[section];
+}
+function row(item) {
+	const node = document.createElement("li");
+	node.className = "tmt-ui-list-row";
+	node.dataset.leading = "";
+	const sign = document.createElement("div");
+	sign.className = "tmt-ui-list-leading";
+	sign.setAttribute("aria-hidden", "true");
+	sign.textContent = item.mark;
+	if (item.waiting) sign.dataset.tone = "waiting";
+	const name = document.createElement("div");
+	name.className = "tmt-ui-list-title";
+	const label = document.createElement("span");
+	label.className = "tmt-settings-label";
+	if (item.href) {
+		const link = document.createElement("a");
+		link.href = item.href;
+		link.textContent = item.title;
+		label.append(link);
+	} else label.textContent = item.title;
+	name.append(label);
+	if (item.detail) {
+		const detail = document.createElement("span");
+		detail.className = "tmt-settings-detail";
+		detail.textContent = item.detail;
+		name.append(detail);
+	}
+	const info = document.createElement("div");
+	info.className = "tmt-ui-list-meta";
+	const state = document.createElement("div");
+	state.className = "tmt-ui-list-state";
+	state.textContent = item.state;
+	info.append(state);
+	node.append(sign, name, info);
+	return node;
+}
+function heading(text) {
+	const node = document.createElement("h2");
+	node.className = "home-heading";
+	node.textContent = text;
+	return node;
+}
+/** The theme choice: one tab per theme; picking one stores it for this browser and applies it. */
+function themeChoice() {
+	const group = document.createElement("div");
+	group.className = "tmt-ui-tab-list";
+	group.setAttribute("role", "tablist");
+	group.setAttribute("aria-label", "Theme");
+	let current = storedTheme();
+	const buttons = THEMES.map((theme) => {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "tmt-ui-tab";
+		button.setAttribute("role", "tab");
+		button.dataset.choice = theme;
+		const label = document.createElement("span");
+		label.className = "tmt-ui-tab-label";
+		label.textContent = THEME_LABELS[theme];
+		button.append(label);
+		return button;
+	});
+	const show = (theme) => {
+		current = theme;
+		for (const button of buttons) {
+			const selected = button.dataset.choice === theme;
+			button.setAttribute("aria-selected", String(selected));
+			button.tabIndex = selected ? 0 : -1;
+		}
+	};
+	const choose = (theme) => {
+		setStoredTheme(theme);
+		show(theme);
+	};
+	for (const button of buttons) {
+		button.addEventListener("click", () => choose(button.dataset.choice));
+		button.addEventListener("keydown", (event) => {
+			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+			if (!step) return;
+			event.preventDefault();
+			const next = THEMES[(THEMES.indexOf(current) + step + THEMES.length) % THEMES.length];
+			choose(next);
+			buttons[THEMES.indexOf(next)].focus();
+		});
+	}
+	show(current);
+	group.append(...buttons);
+	return group;
+}
+/** The section's content. */
+function settingsSection(section, settings, links) {
+	const rows = settingsRows(section, settings, links);
+	const body = [];
+	if (rows.length) {
+		const list = document.createElement("ul");
+		list.className = "tmt-ui-list";
+		list.append(...rows.map(row));
+		body.push(list);
+	} else {
+		const none = document.createElement("p");
+		none.className = "home-note";
+		none.textContent = emptyText(section, settings);
+		body.push(none);
+	}
+	if (section !== "general") return body;
+	const help = document.createElement("p");
+	help.className = "home-note";
+	help.textContent = "System follows this device. Your choice is kept in this browser only.";
+	return [
+		heading("Theme"),
+		themeChoice(),
+		help,
+		heading("Settings"),
+		...body
+	];
+}
+function tmtSettingsPage(source = settingsSource) {
+	const main = document.getElementById("tmt-settings-section");
+	const note = document.getElementById("tmt-settings-note");
+	if (!main || !note) return;
+	const shell = remoteShell();
+	const title = document.querySelector(".tmt-ui-title");
+	const href = (id) => `${location.pathname}#${id}`;
+	const current = () => SECTIONS.find((section) => `#${section.id}` === location.hash)?.id ?? "general";
+	let settings;
+	let links = /* @__PURE__ */ new Map();
+	let live = true;
+	const paint = () => {
+		if (!live) return;
+		const section = current();
+		shell?.setMenu({
+			title: "TMT settings",
+			groups: [{ items: SECTIONS.map((item) => ({
+				id: item.id,
+				label: item.label,
+				href: href(item.id),
+				current: item.id === section
+			})) }]
+		});
+		if (title) title.textContent = SECTIONS.find((item) => item.id === section).label;
+		if (settings) main.replaceChildren(...settingsSection(section, settings, links));
+	};
+	window.addEventListener("hashchange", paint);
+	shell?.described((answer) => {
+		links = moduleLinks(answer);
+		paint();
+	});
+	paint();
+	source.read().then((next) => {
+		if (!live) return;
+		settings = next;
+		note.textContent = next.sample ? "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values." : "";
+		note.hidden = !next.sample;
+		paint();
+	}, () => {
+		if (!live) return;
+		note.textContent = "Settings could not be read.";
+		note.hidden = false;
+	});
+	return () => {
+		live = false;
+		window.removeEventListener("hashchange", paint);
+	};
+}
+//#endregion
+//#region src/shell-app.ts
+/**
+* The one TMT web app the door serves at every TMT route (#3937): one document, one shell, one
+* router. Remote's own pages are route modules here; Colab is loaded lazily from its own mount.
+*/
+/**
+* Put a page's markup into the slot: its header into the shell bar, its content into the main
+* area, its title and page name onto the document. The page files stay the one source of each
+* page's markup; the door no longer serves them as documents.
+*/
+function adopt(slot, html) {
+	const page = new DOMParser().parseFromString(html, "text/html");
+	const bar = page.querySelector(".tmt-ui-shell-bar");
+	const main = page.querySelector(".tmt-ui-shell-main");
+	slot.bar.replaceChildren(...bar ? [...bar.childNodes].map((node) => document.adoptNode(node)) : []);
+	slot.main.replaceChildren(...main ? [...main.childNodes].map((node) => document.adoptNode(node)) : []);
+	document.documentElement.dataset.tmtPage = page.documentElement.dataset.tmtPage ?? "";
+	slot.setTitle(page.title.replace(/ · TMT$/, ""));
+}
+/** A Remote page as a route module: its markup, then its page code, released on unmount. */
+function remotePage(html, run) {
+	return { async mount(slot) {
+		adopt(slot, html);
+		hostRemote(slot);
+		const release = await run(slot);
+		return () => {
+			release?.();
+			hostRemote(void 0);
+			window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
+		};
+	} };
+}
+/** Colab as the composed answer describes it: its own link, and its entry only if confined. */
+function colabLoad(answer) {
+	const colab = answer?.modules.find((module) => module.extension === "colab");
+	if (!colab) return void 0;
+	return moduleLoad(colab.rail.path, colab.entry, location.href);
+}
+function message(slot, title, text, link) {
+	const main = document.createElement("main");
+	main.className = "page";
+	const heading = document.createElement("h2");
+	heading.textContent = title;
+	const body = document.createElement("p");
+	body.textContent = text;
+	main.append(heading, body);
+	if (link) {
+		const open = document.createElement("p");
+		const anchor = document.createElement("a");
+		anchor.href = link.href;
+		anchor.textContent = link.label;
+		open.append(anchor);
+		main.append(open);
+	}
+	slot.main.replaceChildren(main);
+	slot.setTitle(title);
+}
+var routes = [
+	{
+		id: "home",
+		paths: ["/"],
+		rail: "home",
+		load: async () => remotePage(home_default, () => homePage(remoteShell()))
+	},
+	{
+		id: "remote",
+		paths: ["/remote", "/remote/"],
+		rail: "remote",
+		quiet: true,
+		load: async () => remotePage(landing_default, async () => {
+			const { landingPage } = await import("./remote-v1.js");
+			await landingPage();
+		})
+	},
+	{
+		id: "remote-settings",
+		paths: ["/remote/settings"],
+		rail: "remote",
+		load: async () => remotePage(settings_default, async () => {
+			const { settingsPage } = await import(
+				/* @vite-ignore */
+				settingsEntry
+);
+			await settingsPage();
+		})
+	},
+	{
+		id: "ops",
+		paths: ["/ops", "/ops/"],
+		rail: "ops",
+		load: async () => remotePage(ops_default, () => opsPage(remoteShell()))
+	},
+	{
+		id: "digest",
+		paths: ["/digest", "/digest/"],
+		rail: "digest",
+		load: async () => remotePage(digest_default, () => digestPage())
+	},
+	{
+		id: "settings",
+		paths: ["/settings", "/settings/"],
+		rail: "settings",
+		load: async () => remotePage(tmt_settings_default, () => tmtSettingsPage())
+	},
+	{
+		id: "colab",
+		paths: ["/colab", "/colab/"],
+		rail: "colab",
+		async load(_remembered, settled) {
+			const load = colabLoad(await settled());
+			const entry = load?.entry;
+			if (!entry) return { mount: (slot) => load ? message(slot, "Colab", "This page will not load Colab from the address its description gives.", load.link ? {
+				href: load.link,
+				label: "Open Colab"
+			} : void 0) : message(slot, "Colab", "Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.") };
+			try {
+				return await import(
+					/* @vite-ignore */
+					entry
+);
+			} catch {
+				return { mount: (slot) => message(slot, "Colab", "Colab could not start. It may have stopped on your machine. Reload to try again.") };
+			}
+		}
+	}
+];
+/** Remote's settings page code, served beside the SDK. */
+var settingsEntry = "/sdk/settings-v1.js";
+var started;
+/** Start the app once in the served shell document. */
+function shellApp() {
+	const root = document.querySelector(".tmt-ui-shell");
+	if (!root || started) return started;
+	applyStoredTheme();
+	started = startShellHost(root, routes, { failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
+		className: "page",
+		textContent: "This page could not load. Reload to try again."
+	})) });
+	return started;
 }
 //#endregion
 //#region src/budget.ts
@@ -4895,7 +5554,7 @@ async function existingPairing(signal) {
 }
 function pairingRecovery(error) {
 	if (error instanceof ReopenSessionError && error.detail === "pairing-unavailable") return "Your saved pairing could not be read. Check browser storage and try again.";
-	if (error instanceof ReopenSessionError && error.reason === "capacity") return "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.";
+	if (error instanceof ReopenSessionError && error.reason === "capacity") return "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged.";
 	return "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged.";
 }
 async function door(send = fetch) {
@@ -5078,53 +5737,49 @@ async function landingPage() {
 		const authorityEnded = ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(refusalCode ?? "");
 		const copy = {
 			missing: [
-				"○",
+				"",
 				"Not paired",
 				"Pair this browser with your machine",
 				""
 			],
 			checking: [
-				"◌",
+				"",
 				"Checking",
 				"Checking the connection…",
 				"This browser is paired. Nothing is sent while checking."
 			],
 			connected: [
-				"●",
+				"",
 				"Connected",
 				"This browser can use Remote",
 				"Open your app from its link in this browser."
 			],
 			different: [
-				"△",
+				"",
 				"Different machine",
 				"This browser is paired with another machine",
 				"This Remote runs on a machine this browser isn't paired with. Your existing pairing is kept."
 			],
 			refused: [
-				"×",
+				"",
 				"Not accepted",
 				"Remote didn't accept this browser",
-				refusalCode === "REMOTE_SESSION_LIMIT" ? "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged." : authorityEnded ? "This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine." : "This page's connection ended. Try again. Your pairing is unchanged."
+				refusalCode === "REMOTE_SESSION_LIMIT" ? "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged." : authorityEnded ? "This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine." : "This page's connection ended. Try again. Your pairing is unchanged."
 			],
 			unconfirmed: [
-				"×",
+				"",
 				"Can't reach Remote",
 				"Couldn't confirm the connection",
 				"Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."
 			],
 			unreadable: [
-				"×",
+				"",
 				"Pairing unreadable",
 				"This browser's pairing can't be read",
 				"Your saved pairing could not be read. Check browser storage and try again."
 			]
 		}[state];
-		element("notice").dataset.tone = state === "connected" ? "working" : [
-			"missing",
-			"checking",
-			"different"
-		].includes(state) ? "waiting" : "blocked";
+		element("notice").dataset.tone = "neutral";
 		element("notice").dataset.state = state;
 		registryState(authorityEnded ? "Access ended" : copy[1], element("protocol-address").textContent ?? void 0);
 		for (const [copyState, command] of commandActions) element(`copy-feedback-${copyState}-${command}`).textContent = "";
@@ -5534,4 +6189,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, remoteRegistry, reopenSession, shellPage, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

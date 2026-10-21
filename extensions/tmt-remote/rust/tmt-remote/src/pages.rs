@@ -35,10 +35,10 @@ const STYLE: &str = concat!(
 /// The page runs only the same-origin SDK module and talks only to this door.
 const PAGE_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self'; \
     base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-/// The app document also hosts Colab, so it carries Colab's own document policy
-/// (`tmt-colab` `browser_policy::POLICY`): same-origin scripts, styles, images, fonts, workers and
-/// frames (Colab's renderer stays its own sandboxed opaque frame with its own policy).
-pub(crate) const SHELL_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+/// The page policy plus only what the Colab route needs in the same document: same-origin
+/// images (attachments), its fold worker and its renderer frame (which keeps its own sandboxed
+/// policy). It is no wider than Colab's `browser_policy::POLICY` and loads no fonts.
+pub(crate) const SHELL_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
 /// The app's routes: an explicit list, never a catch-all. `/sdk`, `/x`, `/read` and `/pair`
 /// keep their own handling.
 pub(crate) fn app_route(path: &str) -> bool {

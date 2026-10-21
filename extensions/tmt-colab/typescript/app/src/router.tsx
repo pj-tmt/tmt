@@ -2551,7 +2551,7 @@ function shellLocation() {
   }
   if (!path) return;
   const keys = new URLSearchParams(location.search);
-  for (const key of ['read', 'anchor', 'open'])
+  for (const key of ['read', 'anchor'])
     if (fragment.has(key)) keys.set(key, fragment.get(key)!);
   const search = keys.size ? `?${keys}` : '';
   if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))

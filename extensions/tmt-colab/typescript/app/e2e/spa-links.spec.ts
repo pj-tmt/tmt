@@ -45,7 +45,8 @@ function atLeastAsStrict(actual: string, baseline: string): string[] {
   const have = parse(actual);
   const problems: string[] = [];
   for (const [name, allowed] of parse(baseline)) {
-    const sources = have.get(name);
+    // A directive the page leaves out falls back to its default-src.
+    const sources = have.get(name) ?? (name.endsWith('-src') ? have.get('default-src') : undefined);
     if (!sources) {
       problems.push(`${name} is missing`);
       continue;
@@ -137,14 +138,6 @@ test('an owner link to the old list lands on the home and keeps no stale route',
 }) => {
   await open(page, `/colab/#space=${space}&path=%2Fall`);
   await expect.poll(() => here(page)).toBe('/colab/');
-});
-
-test('an open key on a link survives to the page route', async ({ page }) => {
-  // TODO(ux-4 router): shellLocation copies `open` from the fragment into the search, but the page
-  // and home validators drop keys they do not name, so the key never reaches the page.
-  test.fail(true, 'TODO(ux-4 router): the open key is dropped by pageSearch/validateHomeSearch');
-  await open(page, `/colab/p/12345678#open=1`);
-  await expect.poll(() => here(page)).toBe(`/colab/pages/${page1}?open=1`);
 });
 
 test('the renderer is still a separate sandboxed frame with an opaque origin', async ({ page }) => {
