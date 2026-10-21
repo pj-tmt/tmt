@@ -127567,7 +127567,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:160=s2",
@@ -127627,7 +127627,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -127636,7 +127636,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -127665,7 +127665,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:100=s2",
@@ -127725,7 +127725,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -127734,7 +127734,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -127763,7 +127763,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:80=s2",
@@ -127823,7 +127823,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -127832,7 +127832,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -127861,7 +127861,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:160=s2",
@@ -127946,7 +127946,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -127955,7 +127955,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -127984,7 +127984,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:100=s2",
@@ -128069,7 +128069,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -128078,7 +128078,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -128107,7 +128107,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:80=s2",
@@ -128192,7 +128192,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -128201,7 +128201,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -128230,7 +128230,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:160=s2",
@@ -128315,7 +128315,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -128324,7 +128324,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -128353,7 +128353,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:100=s2",
@@ -128438,7 +128438,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -128447,7 +128447,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -128476,7 +128476,7 @@
         ""
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:80=s2",
@@ -128561,7 +128561,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -128570,7 +128570,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -128599,7 +128599,7 @@
         "                                                                                                                  Paste exceeds 1048576 bytes; draft unchanged."
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:160=s2",
@@ -128684,7 +128684,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -128693,7 +128693,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -128722,7 +128722,7 @@
         "                                                      Paste exceeds 1048576 bytes; draft unchanged."
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:100=s2",
@@ -128807,7 +128807,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -128816,7 +128816,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -128845,7 +128845,7 @@
         "                                         Paste exceeds 1048576 bytes; draft un…"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:80=s2",
@@ -128930,7 +128930,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -128940,7 +128940,7 @@
         "                                                                                              Not enough room for paste preview; enlarge the conversation pane."
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:1=s6 1:1=s9 2:6=s8 8:11=s1 19:2=s0 21:1=s9 22:125=s0 147:1=s2 148:9=s0 157:1=s9 158:2=s0",
@@ -128968,7 +128968,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -128978,7 +128978,7 @@
         "                                                   Not enough room for paste preview; enlarge the …"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:1=s6 1:1=s9 2:6=s8 8:11=s1 19:2=s0 21:1=s9 22:65=s0 87:1=s2 88:9=s0 97:1=s9 98:2=s0",
@@ -129006,7 +129006,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -129016,7 +129016,7 @@
         "                                         Not enough room for paste preview; en…"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:1=s6 1:1=s9 2:6=s8 8:11=s1 19:2=s0 21:1=s9 22:45=s0 67:1=s2 68:9=s0 77:1=s9 78:2=s0",
@@ -129044,7 +129044,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129053,7 +129053,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -129082,7 +129082,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:160=s2",
@@ -129117,7 +129117,7 @@
         "0:75=s2 75:1=s9 76:84=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:84=s2",
         "0:160=s2",
-        "0:15=s16 15:19=s0 34:126=s2"
+        "0:15=s12 15:19=s0 34:126=s2"
       ],
       "state": "paste-form-folded",
       "look": "tmt",
@@ -129142,7 +129142,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129151,7 +129151,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -129180,7 +129180,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:100=s2",
@@ -129215,7 +129215,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:15=s16 15:19=s0 34:66=s2"
+        "0:15=s12 15:19=s0 34:66=s2"
       ],
       "state": "paste-form-folded",
       "look": "tmt",
@@ -129240,7 +129240,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129249,7 +129249,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -129278,7 +129278,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:80=s2",
@@ -129313,7 +129313,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:15=s16 15:19=s0 34:46=s2"
+        "0:15=s12 15:19=s0 34:46=s2"
       ],
       "state": "paste-form-folded",
       "look": "tmt",
@@ -129338,7 +129338,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129347,7 +129347,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -129376,7 +129376,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:160=s2",
@@ -129411,7 +129411,7 @@
         "0:75=s2 75:1=s9 76:84=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:84=s2",
         "0:160=s2",
-        "0:15=s16 15:145=s2"
+        "0:15=s12 15:145=s2"
       ],
       "state": "paste-form-expanded",
       "look": "tmt",
@@ -129436,7 +129436,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129445,7 +129445,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -129474,7 +129474,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:100=s2",
@@ -129509,7 +129509,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:15=s16 15:85=s2"
+        "0:15=s12 15:85=s2"
       ],
       "state": "paste-form-expanded",
       "look": "tmt",
@@ -129534,7 +129534,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129543,7 +129543,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -129572,7 +129572,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:80=s2",
@@ -129607,7 +129607,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:15=s16 15:65=s2"
+        "0:15=s12 15:65=s2"
       ],
       "state": "paste-form-expanded",
       "look": "tmt",
@@ -129632,24 +129632,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:1=s6 1:1=s0 2:3=s3 5:8=s8 13:19=s1 32:93=s0 125:1=s7 126:3=s3 129:30=s7 159:1=s0",
         "0:25=s1 25:1=s2 26:16=s1 42:1=s2 43:7=s1 50:3=s2 53:4=s1 57:1=s2 58:102=s1",
         "0:160=s10",
         "0:1=s2 1:25=s9 26:116=s2 142:17=s1 159:1=s2",
-        "0:15=s16 15:19=s0 34:126=s2"
+        "0:15=s12 15:19=s0 34:126=s2"
       ],
       "state": "paste-form-tiny",
       "look": "tmt",
@@ -129674,24 +129674,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:1=s6 1:1=s0 2:3=s3 5:8=s8 13:19=s1 32:33=s0 65:1=s7 66:3=s3 69:30=s7 99:1=s0",
         "0:25=s1 25:1=s2 26:16=s1 42:1=s2 43:7=s1 50:3=s2 53:4=s1 57:1=s2 58:42=s1",
         "0:100=s10",
         "0:1=s2 1:25=s9 26:56=s2 82:17=s1 99:1=s2",
-        "0:15=s16 15:19=s0 34:66=s2"
+        "0:15=s12 15:19=s0 34:66=s2"
       ],
       "state": "paste-form-tiny",
       "look": "tmt",
@@ -129716,24 +129716,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:1=s6 1:1=s0 2:3=s3 5:8=s8 13:19=s1 32:13=s0 45:1=s7 46:3=s3 49:30=s7 79:1=s0",
         "0:25=s1 25:1=s2 26:16=s1 42:1=s2 43:7=s1 50:3=s2 53:4=s1 57:1=s2 58:22=s1",
         "0:80=s10",
         "0:1=s2 1:25=s9 26:36=s2 62:17=s1 79:1=s2",
-        "0:15=s16 15:19=s0 34:46=s2"
+        "0:15=s12 15:19=s0 34:46=s2"
       ],
       "state": "paste-form-tiny",
       "look": "tmt",
@@ -129758,7 +129758,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129767,7 +129767,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    1   —                │ link —",
         "   └ worker               ● working              —    0   —                │",
@@ -129796,7 +129796,7 @@
         "edit product c0 · message ›"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:160=s2",
@@ -129831,7 +129831,7 @@
         "0:75=s2 75:1=s9 76:84=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:84=s2",
         "0:160=s2",
-        "0:28=s16 28:132=s2"
+        "0:28=s12 28:132=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "tmt",
@@ -129856,7 +129856,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129865,7 +129865,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -129894,7 +129894,7 @@
         "edit product c0 · message ›"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:100=s2",
@@ -129929,7 +129929,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:28=s16 28:72=s2"
+        "0:28=s12 28:72=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "tmt",
@@ -129954,7 +129954,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -129963,7 +129963,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -129992,7 +129992,7 @@
         "edit product c0 · message"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:80=s2",
@@ -130027,7 +130027,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:26=s16 26:54=s2"
+        "0:26=s12 26:54=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "tmt",
@@ -130052,7 +130052,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -130061,7 +130061,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    1   —                │ link —",
         "   └ worker               ● working              —    0   —                │",
@@ -130090,7 +130090,7 @@
         "new job in product · message › ⧉ Pasted · 11 lines                                                                                  The message cannot be empty."
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:90=s2 107:1=s15 108:3=s3 111:11=s15 122:2=s2 124:36=s1",
+        "0:9=s0 9:8=s1 17:89=s2 106:1=s16 107:3=s3 110:11=s16 121:2=s2 123:37=s1",
         "0:160=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:134=s2",
         "0:160=s2",
@@ -130125,7 +130125,7 @@
         "0:75=s2 75:1=s9 76:84=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:84=s2",
         "0:160=s2",
-        "0:31=s16 31:19=s0 50:80=s2 130:30=s21"
+        "0:31=s12 31:19=s0 50:80=s2 130:30=s21"
       ],
       "state": "paste-cron-retry",
       "look": "tmt",
@@ -130150,7 +130150,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -130159,7 +130159,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -130188,7 +130188,7 @@
         "new job in product · message › ⧉ Pasted · 11 lines                      The message cannot be empty."
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:30=s2 47:1=s15 48:3=s3 51:11=s15 62:2=s2 64:36=s1",
+        "0:9=s0 9:8=s1 17:29=s2 46:1=s16 47:3=s3 50:11=s16 61:2=s2 63:37=s1",
         "0:100=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:74=s2",
         "0:100=s2",
@@ -130223,7 +130223,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:31=s16 31:19=s0 50:20=s2 70:30=s21"
+        "0:31=s12 31:19=s0 50:20=s2 70:30=s21"
       ],
       "state": "paste-cron-retry",
       "look": "tmt",
@@ -130248,7 +130248,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -130257,7 +130257,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -130286,7 +130286,7 @@
         "new job in product · messa⧉ Pasted · 11 lines           The message cannot be em"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:10=s2 27:1=s15 28:3=s3 31:11=s15 42:2=s2 44:36=s1",
+        "0:9=s0 9:8=s1 17:9=s2 26:1=s16 27:3=s3 30:11=s16 41:2=s2 43:37=s1",
         "0:80=s2",
         "0:1=s2 1:1=s4 2:3=s5 5:8=s4 13:1=s2 14:1=s1 15:3=s3 18:8=s1 26:54=s2",
         "0:80=s2",
@@ -130321,7 +130321,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:26=s16 26:19=s0 45:9=s2 54:26=s21"
+        "0:26=s12 26:19=s0 45:9=s2 54:26=s21"
       ],
       "state": "paste-cron-retry",
       "look": "tmt",
@@ -130346,7 +130346,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -130355,7 +130355,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -133801,7 +133801,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:160=s2",
@@ -133861,7 +133861,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -133870,7 +133870,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -133899,7 +133899,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:100=s2",
@@ -133959,7 +133959,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -133968,7 +133968,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -133997,7 +133997,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:80=s2",
@@ -134057,7 +134057,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -134066,7 +134066,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -134095,7 +134095,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:160=s2",
@@ -134180,7 +134180,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -134189,7 +134189,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -134218,7 +134218,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:100=s2",
@@ -134303,7 +134303,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -134312,7 +134312,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -134341,7 +134341,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:80=s2",
@@ -134426,7 +134426,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -134435,7 +134435,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -134464,7 +134464,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:160=s2",
@@ -134549,7 +134549,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -134558,7 +134558,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -134587,7 +134587,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:100=s2",
@@ -134672,7 +134672,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -134681,7 +134681,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -134710,7 +134710,7 @@
         ""
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:80=s2",
@@ -134795,7 +134795,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -134804,7 +134804,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -134833,7 +134833,7 @@
         "                                                                                                                  Paste exceeds 1048576 bytes; draft unchanged."
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:160=s2",
@@ -134918,7 +134918,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -134927,7 +134927,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -134956,7 +134956,7 @@
         "                                                      Paste exceeds 1048576 bytes; draft unchanged."
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:100=s2",
@@ -135041,7 +135041,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -135050,7 +135050,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -135079,7 +135079,7 @@
         "                                         Paste exceeds 1048576 bytes; draft un…"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:80=s2",
@@ -135164,7 +135164,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -135174,7 +135174,7 @@
         "                                                                                              Not enough room for paste preview; enlarge the conversation pane."
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:1=s27 1:1=s30 2:6=s29 8:11=s25 19:2=s24 21:1=s30 22:125=s24 147:1=s2 148:9=s24 157:1=s30 158:2=s24",
@@ -135202,7 +135202,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -135212,7 +135212,7 @@
         "                                                   Not enough room for paste preview; enlarge the …"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:1=s27 1:1=s30 2:6=s29 8:11=s25 19:2=s24 21:1=s30 22:65=s24 87:1=s2 88:9=s24 97:1=s30 98:2=s24",
@@ -135240,7 +135240,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -135250,7 +135250,7 @@
         "                                         Not enough room for paste preview; en…"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:1=s27 1:1=s30 2:6=s29 8:11=s25 19:2=s24 21:1=s30 22:45=s24 67:1=s2 68:9=s24 77:1=s30 78:2=s24",
@@ -135278,7 +135278,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -135287,7 +135287,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -135316,7 +135316,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:160=s2",
@@ -135351,7 +135351,7 @@
         "0:75=s2 75:1=s30 76:84=s2",
         "0:1=s2 1:25=s30 26:31=s2 57:17=s25 74:1=s2 75:1=s30 76:84=s2",
         "0:160=s2",
-        "0:15=s37 15:19=s24 34:126=s2"
+        "0:15=s33 15:19=s24 34:126=s2"
       ],
       "state": "paste-form-folded",
       "look": "tmt-light",
@@ -135376,7 +135376,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -135385,7 +135385,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -135414,7 +135414,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:100=s2",
@@ -135449,7 +135449,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:15=s37 15:19=s24 34:66=s2"
+        "0:15=s33 15:19=s24 34:66=s2"
       ],
       "state": "paste-form-folded",
       "look": "tmt-light",
@@ -135474,7 +135474,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -135483,7 +135483,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -135512,7 +135512,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:80=s2",
@@ -135547,7 +135547,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:15=s37 15:19=s24 34:46=s2"
+        "0:15=s33 15:19=s24 34:46=s2"
       ],
       "state": "paste-form-folded",
       "look": "tmt-light",
@@ -135572,7 +135572,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -135581,7 +135581,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -135610,7 +135610,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:160=s2",
@@ -135645,7 +135645,7 @@
         "0:75=s2 75:1=s30 76:84=s2",
         "0:1=s2 1:25=s30 26:31=s2 57:17=s25 74:1=s2 75:1=s30 76:84=s2",
         "0:160=s2",
-        "0:15=s37 15:145=s2"
+        "0:15=s33 15:145=s2"
       ],
       "state": "paste-form-expanded",
       "look": "tmt-light",
@@ -135670,7 +135670,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -135679,7 +135679,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -135708,7 +135708,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:100=s2",
@@ -135743,7 +135743,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:15=s37 15:85=s2"
+        "0:15=s33 15:85=s2"
       ],
       "state": "paste-form-expanded",
       "look": "tmt-light",
@@ -135768,7 +135768,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -135777,7 +135777,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -135806,7 +135806,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:80=s2",
@@ -135841,7 +135841,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:15=s37 15:65=s2"
+        "0:15=s33 15:65=s2"
       ],
       "state": "paste-form-expanded",
       "look": "tmt-light",
@@ -135866,24 +135866,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:1=s27 1:1=s24 2:3=s3 5:8=s29 13:19=s25 32:93=s24 125:1=s28 126:3=s3 129:30=s28 159:1=s24",
         "0:25=s25 25:1=s2 26:16=s25 42:1=s2 43:7=s25 50:3=s2 53:4=s25 57:1=s2 58:102=s25",
         "0:160=s31",
         "0:1=s2 1:25=s30 26:116=s2 142:17=s25 159:1=s2",
-        "0:15=s37 15:19=s24 34:126=s2"
+        "0:15=s33 15:19=s24 34:126=s2"
       ],
       "state": "paste-form-tiny",
       "look": "tmt-light",
@@ -135908,24 +135908,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:1=s27 1:1=s24 2:3=s3 5:8=s29 13:19=s25 32:33=s24 65:1=s28 66:3=s3 69:30=s28 99:1=s24",
         "0:25=s25 25:1=s2 26:16=s25 42:1=s2 43:7=s25 50:3=s2 53:4=s25 57:1=s2 58:42=s25",
         "0:100=s31",
         "0:1=s2 1:25=s30 26:56=s2 82:17=s25 99:1=s2",
-        "0:15=s37 15:19=s24 34:66=s2"
+        "0:15=s33 15:19=s24 34:66=s2"
       ],
       "state": "paste-form-tiny",
       "look": "tmt-light",
@@ -135950,24 +135950,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:1=s27 1:1=s24 2:3=s3 5:8=s29 13:19=s25 32:13=s24 45:1=s28 46:3=s3 49:30=s28 79:1=s24",
         "0:25=s25 25:1=s2 26:16=s25 42:1=s2 43:7=s25 50:3=s2 53:4=s25 57:1=s2 58:22=s25",
         "0:80=s31",
         "0:1=s2 1:25=s30 26:36=s2 62:17=s25 79:1=s2",
-        "0:15=s37 15:19=s24 34:46=s2"
+        "0:15=s33 15:19=s24 34:46=s2"
       ],
       "state": "paste-form-tiny",
       "look": "tmt-light",
@@ -135992,7 +135992,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -136001,7 +136001,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    1   —                │ link —",
         "   └ worker               ● working              —    0   —                │",
@@ -136030,7 +136030,7 @@
         "edit product c0 · message ›"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:160=s2",
@@ -136065,7 +136065,7 @@
         "0:75=s2 75:1=s30 76:84=s2",
         "0:1=s2 1:25=s30 26:31=s2 57:17=s25 74:1=s2 75:1=s30 76:84=s2",
         "0:160=s2",
-        "0:28=s37 28:132=s2"
+        "0:28=s33 28:132=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "tmt-light",
@@ -136090,7 +136090,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -136099,7 +136099,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -136128,7 +136128,7 @@
         "edit product c0 · message ›"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:100=s2",
@@ -136163,7 +136163,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:28=s37 28:72=s2"
+        "0:28=s33 28:72=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "tmt-light",
@@ -136188,7 +136188,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -136197,7 +136197,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -136226,7 +136226,7 @@
         "edit product c0 · message"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:80=s2",
@@ -136261,7 +136261,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:26=s37 26:54=s2"
+        "0:26=s33 26:54=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "tmt-light",
@@ -136286,7 +136286,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -136295,7 +136295,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    1   —                │ link —",
         "   └ worker               ● working              —    0   —                │",
@@ -136324,7 +136324,7 @@
         "new job in product · message › ⧉ Pasted · 11 lines                                                                                  The message cannot be empty."
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:90=s2 107:1=s36 108:3=s3 111:11=s36 122:2=s2 124:36=s25",
+        "0:9=s24 9:8=s25 17:89=s2 106:1=s37 107:3=s3 110:11=s37 121:2=s2 123:37=s25",
         "0:160=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:134=s2",
         "0:160=s2",
@@ -136359,7 +136359,7 @@
         "0:75=s2 75:1=s30 76:84=s2",
         "0:1=s2 1:25=s30 26:31=s2 57:17=s25 74:1=s2 75:1=s30 76:84=s2",
         "0:160=s2",
-        "0:31=s37 31:19=s24 50:80=s2 130:30=s42"
+        "0:31=s33 31:19=s24 50:80=s2 130:30=s42"
       ],
       "state": "paste-cron-retry",
       "look": "tmt-light",
@@ -136384,7 +136384,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -136393,7 +136393,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -136422,7 +136422,7 @@
         "new job in product · message › ⧉ Pasted · 11 lines                      The message cannot be empty."
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:30=s2 47:1=s36 48:3=s3 51:11=s36 62:2=s2 64:36=s25",
+        "0:9=s24 9:8=s25 17:29=s2 46:1=s37 47:3=s3 50:11=s37 61:2=s2 63:37=s25",
         "0:100=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:74=s2",
         "0:100=s2",
@@ -136457,7 +136457,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:31=s37 31:19=s24 50:20=s2 70:30=s42"
+        "0:31=s33 31:19=s24 50:20=s2 70:30=s42"
       ],
       "state": "paste-cron-retry",
       "look": "tmt-light",
@@ -136482,7 +136482,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -136491,7 +136491,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -136520,7 +136520,7 @@
         "new job in product · messa⧉ Pasted · 11 lines           The message cannot be em"
       ],
       "styles": [
-        "0:9=s24 9:8=s25 17:10=s2 27:1=s36 28:3=s3 31:11=s36 42:2=s2 44:36=s25",
+        "0:9=s24 9:8=s25 17:9=s2 26:1=s37 27:3=s3 30:11=s37 41:2=s2 43:37=s25",
         "0:80=s2",
         "0:1=s2 1:1=s26 2:3=s5 5:8=s26 13:1=s2 14:1=s25 15:3=s3 18:8=s25 26:54=s2",
         "0:80=s2",
@@ -136555,7 +136555,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:26=s37 26:19=s24 45:9=s2 54:26=s42"
+        "0:26=s33 26:19=s24 45:9=s2 54:26=s42"
       ],
       "state": "paste-cron-retry",
       "look": "tmt-light",
@@ -136580,7 +136580,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -136589,7 +136589,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -140035,7 +140035,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:160=s2",
@@ -140095,7 +140095,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -140104,7 +140104,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -140133,7 +140133,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:100=s2",
@@ -140193,7 +140193,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -140202,7 +140202,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -140231,7 +140231,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:80=s2",
@@ -140291,7 +140291,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -140300,7 +140300,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -140329,7 +140329,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:160=s2",
@@ -140414,7 +140414,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -140423,7 +140423,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -140452,7 +140452,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:100=s2",
@@ -140537,7 +140537,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -140546,7 +140546,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -140575,7 +140575,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:80=s2",
@@ -140660,7 +140660,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -140669,7 +140669,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -140698,7 +140698,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:160=s2",
@@ -140783,7 +140783,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -140792,7 +140792,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -140821,7 +140821,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:100=s2",
@@ -140906,7 +140906,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -140915,7 +140915,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -140944,7 +140944,7 @@
         ""
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:80=s2",
@@ -141029,7 +141029,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -141038,7 +141038,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -141067,7 +141067,7 @@
         "                                                                                                                  Paste exceeds 1048576 bytes; draft unchanged."
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:160=s2",
@@ -141152,7 +141152,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -141161,7 +141161,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -141190,7 +141190,7 @@
         "                                                      Paste exceeds 1048576 bytes; draft unchanged."
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:100=s2",
@@ -141275,7 +141275,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -141284,7 +141284,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -141313,7 +141313,7 @@
         "                                         Paste exceeds 1048576 bytes; draft un…"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:80=s2",
@@ -141398,7 +141398,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -141408,7 +141408,7 @@
         "                                                                                              Not enough room for paste preview; enlarge the conversation pane."
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:1=s58 1:1=s52 2:6=s47 8:11=s45 19:3=s52 22:7=s2 29:118=s52 147:10=s2 157:3=s52",
@@ -141436,7 +141436,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -141446,7 +141446,7 @@
         "                                                   Not enough room for paste preview; enlarge the …"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:1=s58 1:1=s52 2:6=s47 8:11=s45 19:3=s52 22:7=s2 29:58=s52 87:10=s2 97:3=s52",
@@ -141474,7 +141474,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -141484,7 +141484,7 @@
         "                                         Not enough room for paste preview; en…"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:1=s58 1:1=s52 2:6=s47 8:11=s45 19:3=s52 22:7=s2 29:38=s52 67:10=s2 77:3=s52",
@@ -141512,7 +141512,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -141521,7 +141521,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -141550,7 +141550,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:160=s2",
@@ -141585,7 +141585,7 @@
         "0:75=s2 75:1=s52 76:84=s2",
         "0:1=s2 1:25=s52 26:31=s2 57:17=s45 74:1=s2 75:1=s52 76:84=s2",
         "0:160=s2",
-        "0:15=s57 15:145=s2"
+        "0:15=s54 15:145=s2"
       ],
       "state": "paste-form-folded",
       "look": "terminal",
@@ -141610,7 +141610,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -141619,7 +141619,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -141648,7 +141648,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:100=s2",
@@ -141683,7 +141683,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:15=s57 15:85=s2"
+        "0:15=s54 15:85=s2"
       ],
       "state": "paste-form-folded",
       "look": "terminal",
@@ -141708,7 +141708,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -141717,7 +141717,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -141746,7 +141746,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:80=s2",
@@ -141781,7 +141781,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:15=s57 15:65=s2"
+        "0:15=s54 15:65=s2"
       ],
       "state": "paste-form-folded",
       "look": "terminal",
@@ -141806,7 +141806,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -141815,7 +141815,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -141844,7 +141844,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:160=s2",
@@ -141879,7 +141879,7 @@
         "0:75=s2 75:1=s52 76:84=s2",
         "0:1=s2 1:25=s52 26:31=s2 57:17=s45 74:1=s2 75:1=s52 76:84=s2",
         "0:160=s2",
-        "0:15=s57 15:145=s2"
+        "0:15=s54 15:145=s2"
       ],
       "state": "paste-form-expanded",
       "look": "terminal",
@@ -141904,7 +141904,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -141913,7 +141913,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -141942,7 +141942,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:100=s2",
@@ -141977,7 +141977,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:15=s57 15:85=s2"
+        "0:15=s54 15:85=s2"
       ],
       "state": "paste-form-expanded",
       "look": "terminal",
@@ -142002,7 +142002,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -142011,7 +142011,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -142040,7 +142040,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:80=s2",
@@ -142075,7 +142075,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:15=s57 15:65=s2"
+        "0:15=s54 15:65=s2"
       ],
       "state": "paste-form-expanded",
       "look": "terminal",
@@ -142100,24 +142100,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:1=s51 1:1=s45 2:3=s46 5:8=s47 13:112=s45 125:1=s52 126:3=s46 129:30=s52 159:1=s45",
         "0:25=s45 25:1=s2 26:16=s45 42:1=s2 43:7=s45 50:3=s2 53:4=s45 57:1=s2 58:102=s45",
         "0:160=s50",
         "0:1=s2 1:25=s52 26:116=s2 142:17=s45 159:1=s2",
-        "0:15=s57 15:145=s2"
+        "0:15=s54 15:145=s2"
       ],
       "state": "paste-form-tiny",
       "look": "terminal",
@@ -142142,24 +142142,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:1=s51 1:1=s45 2:3=s46 5:8=s47 13:52=s45 65:1=s52 66:3=s46 69:30=s52 99:1=s45",
         "0:25=s45 25:1=s2 26:16=s45 42:1=s2 43:7=s45 50:3=s2 53:4=s45 57:1=s2 58:42=s45",
         "0:100=s50",
         "0:1=s2 1:25=s52 26:56=s2 82:17=s45 99:1=s2",
-        "0:15=s57 15:85=s2"
+        "0:15=s54 15:85=s2"
       ],
       "state": "paste-form-tiny",
       "look": "terminal",
@@ -142184,24 +142184,24 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:1=s51 1:1=s45 2:3=s46 5:8=s47 13:32=s45 45:1=s52 46:3=s46 49:30=s52 79:1=s45",
         "0:25=s45 25:1=s2 26:16=s45 42:1=s2 43:7=s45 50:3=s2 53:4=s45 57:1=s2 58:22=s45",
         "0:80=s50",
         "0:1=s2 1:25=s52 26:36=s2 62:17=s45 79:1=s2",
-        "0:15=s57 15:65=s2"
+        "0:15=s54 15:65=s2"
       ],
       "state": "paste-form-tiny",
       "look": "terminal",
@@ -142226,7 +142226,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -142235,7 +142235,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    1   —                │ link —",
         "   └ worker               ● working              —    0   —                │",
@@ -142264,7 +142264,7 @@
         "edit product c0 · message ›"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:160=s2",
@@ -142299,7 +142299,7 @@
         "0:75=s2 75:1=s52 76:84=s2",
         "0:1=s2 1:25=s52 26:31=s2 57:17=s45 74:1=s2 75:1=s52 76:84=s2",
         "0:160=s2",
-        "0:28=s57 28:132=s2"
+        "0:28=s54 28:132=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "terminal",
@@ -142324,7 +142324,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -142333,7 +142333,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -142362,7 +142362,7 @@
         "edit product c0 · message ›"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:100=s2",
@@ -142397,7 +142397,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:28=s57 28:72=s2"
+        "0:28=s54 28:72=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "terminal",
@@ -142422,7 +142422,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -142431,7 +142431,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -142460,7 +142460,7 @@
         "edit product c0 · message"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:80=s2",
@@ -142495,7 +142495,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:26=s57 26:54=s2"
+        "0:26=s54 26:54=s2"
       ],
       "state": "paste-cron-prefill",
       "look": "terminal",
@@ -142520,7 +142520,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -142529,7 +142529,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    1   —                │ link —",
         "   └ worker               ● working              —    0   —                │",
@@ -142558,7 +142558,7 @@
         "new job in product · message › ⧉ Pasted · 11 lines                                                                                  The message cannot be empty."
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:90=s2 107:1=s52 108:3=s46 111:11=s52 122:2=s2 124:36=s45",
+        "0:9=s2 9:8=s45 17:89=s2 106:1=s52 107:3=s46 110:11=s52 121:2=s2 123:37=s45",
         "0:160=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:134=s2",
         "0:160=s2",
@@ -142593,7 +142593,7 @@
         "0:75=s2 75:1=s52 76:84=s2",
         "0:1=s2 1:25=s52 26:31=s2 57:17=s45 74:1=s2 75:1=s52 76:84=s2",
         "0:160=s2",
-        "0:31=s57 31:99=s2 130:30=s59"
+        "0:31=s54 31:99=s2 130:30=s59"
       ],
       "state": "paste-cron-retry",
       "look": "terminal",
@@ -142618,7 +142618,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -142627,7 +142627,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -142656,7 +142656,7 @@
         "new job in product · message › ⧉ Pasted · 11 lines                      The message cannot be empty."
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:30=s2 47:1=s52 48:3=s46 51:11=s52 62:2=s2 64:36=s45",
+        "0:9=s2 9:8=s45 17:29=s2 46:1=s52 47:3=s46 50:11=s52 61:2=s2 63:37=s45",
         "0:100=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:74=s2",
         "0:100=s2",
@@ -142691,7 +142691,7 @@
         "0:100=s2",
         "0:100=s2",
         "0:100=s2",
-        "0:31=s57 31:39=s2 70:30=s59"
+        "0:31=s54 31:39=s2 70:30=s59"
       ],
       "state": "paste-cron-retry",
       "look": "terminal",
@@ -142716,7 +142716,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -142725,7 +142725,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -142754,7 +142754,7 @@
         "new job in product · messa⧉ Pasted · 11 lines           The message cannot be em"
       ],
       "styles": [
-        "0:9=s2 9:8=s45 17:10=s2 27:1=s52 28:3=s46 31:11=s52 42:2=s2 44:36=s45",
+        "0:9=s2 9:8=s45 17:9=s2 26:1=s52 27:3=s46 30:11=s52 41:2=s2 43:37=s45",
         "0:80=s2",
         "0:1=s2 1:1=s47 2:3=s48 5:8=s47 13:1=s2 14:1=s45 15:3=s46 18:8=s45 26:54=s2",
         "0:80=s2",
@@ -142789,7 +142789,7 @@
         "0:80=s2",
         "0:80=s2",
         "0:80=s2",
-        "0:26=s57 26:28=s2 54:26=s59"
+        "0:26=s54 26:28=s2 54:26=s59"
       ],
       "state": "paste-cron-retry",
       "look": "terminal",
@@ -142814,7 +142814,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -142823,7 +142823,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -146231,7 +146231,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -146240,7 +146240,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -146269,7 +146269,7 @@
         ""
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:160=s2",
@@ -146329,7 +146329,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -146338,7 +146338,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -146367,7 +146367,7 @@
         ""
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:100=s2",
@@ -146427,7 +146427,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -146436,7 +146436,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -146465,7 +146465,7 @@
         ""
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:80=s2",
@@ -146525,7 +146525,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -146534,7 +146534,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -146563,7 +146563,7 @@
         ""
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:160=s2",
@@ -146648,7 +146648,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -146657,7 +146657,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -146686,7 +146686,7 @@
         ""
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:100=s2",
@@ -146771,7 +146771,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -146780,7 +146780,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -146809,7 +146809,7 @@
         ""
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:80=s2",
@@ -146894,7 +146894,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -146903,7 +146903,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -146932,7 +146932,7 @@
         ""
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:160=s2",
@@ -147017,7 +147017,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -147026,7 +147026,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -147055,7 +147055,7 @@
         ""
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:100=s2",
@@ -147140,7 +147140,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -147149,7 +147149,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -147178,7 +147178,7 @@
         ""
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:80=s2",
@@ -147263,7 +147263,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -147272,7 +147272,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "── Squads   Agents   Pinned  ─────────── Search                           ─┬▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -147301,7 +147301,7 @@
         "                                                                                                                  Paste exceeds 1048576 bytes; draft unchanged."
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:160=s2",
@@ -147386,7 +147386,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -147395,7 +147395,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────────────────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -147424,7 +147424,7 @@
         "                                                      Paste exceeds 1048576 bytes; draft unchanged."
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:100=s2",
@@ -147509,7 +147509,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -147518,7 +147518,7 @@
         "          No token observations yet                                 —         —",
         "",
         "── Squads   Agents   Pinned  ──────────────── Search                           ─",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -147547,7 +147547,7 @@
         "                                         Paste exceeds 1048576 bytes; draft un…"
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:80=s2",
@@ -147632,7 +147632,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -147642,7 +147642,7 @@
         "                                                                                              Not enough room for paste preview; enlarge the conversation pane."
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:1=s49 1:1=s2 2:6=s47 8:152=s2",
@@ -147670,7 +147670,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -147680,7 +147680,7 @@
         "                                                   Not enough room for paste preview; enlarge the …"
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:1=s49 1:1=s2 2:6=s47 8:92=s2",
@@ -147708,7 +147708,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸  Talk   Measure  ━━ worker ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ● working ━━",
@@ -147718,7 +147718,7 @@
         "                                         Not enough room for paste preview; en…"
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:1=s49 1:1=s2 2:6=s47 8:72=s2",
@@ -147746,7 +147746,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -147755,7 +147755,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -147784,7 +147784,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:160=s2",
@@ -147844,7 +147844,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -147853,7 +147853,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -147882,7 +147882,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:100=s2",
@@ -147942,7 +147942,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -147951,7 +147951,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -147980,7 +147980,7 @@
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:80=s2",
@@ -148040,7 +148040,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148049,7 +148049,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    —   —                │ link —",
         "   └ worker               ● working              —    —   —                │",
@@ -148078,7 +148078,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:160=s2",
@@ -148138,7 +148138,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148147,7 +148147,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -148176,7 +148176,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:100=s2",
@@ -148236,7 +148236,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148245,7 +148245,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    —   —",
         "   └ worker               ● working              —    —   —",
@@ -148274,7 +148274,7 @@
         "Message form ›"
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:80=s2",
@@ -148334,17 +148334,17 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:1=s49 1:1=s2 2:11=s47 13:113=s2 126:3=s47 129:31=s2",
@@ -148376,17 +148376,17 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:1=s49 1:1=s2 2:11=s47 13:53=s2 66:3=s47 69:31=s2",
@@ -148418,17 +148418,17 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         "   └ worker               ● working              —    —   —",
         " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
         "Message form › ⧉ Pasted · 11 lines"
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:1=s49 1:1=s2 2:11=s47 13:33=s2 46:3=s47 49:31=s2",
@@ -148460,7 +148460,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148469,7 +148469,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    1   —                │ link —",
         "   └ worker               ● working              —    0   —                │",
@@ -148498,7 +148498,7 @@
         "edit product c0 · message ›"
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:160=s2",
@@ -148558,7 +148558,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148567,7 +148567,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -148596,7 +148596,7 @@
         "edit product c0 · message ›"
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:100=s2",
@@ -148656,7 +148656,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148665,7 +148665,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -148694,7 +148694,7 @@
         "edit product c0 · message"
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:80=s2",
@@ -148754,7 +148754,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                                                                                           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148763,7 +148763,7 @@
         "          No token observations yet                                                                                                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
         " ▸ Common pool                                   —    —                    │",
         " ▾ product                ●                      —    1   —                │ link —",
         "   └ worker               ● working              —    0   —                │",
@@ -148792,7 +148792,7 @@
         "new job in product · message › ⧉ Pasted · 11 lines                                                                                  The message cannot be empty."
       ],
       "styles": [
-        "0:107=s2 107:1=s52 108:3=s47 111:11=s52 122:38=s2",
+        "0:106=s2 106:1=s52 107:3=s47 110:11=s52 121:39=s2",
         "0:160=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:142=s2",
         "0:160=s2",
@@ -148852,7 +148852,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI                               w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148861,7 +148861,7 @@
         "          No token observations yet                                                     —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -148890,7 +148890,7 @@
         "new job in product · message › ⧉ Pasted · 11 lines                      The message cannot be empty."
       ],
       "styles": [
-        "0:47=s2 47:1=s52 48:3=s47 51:11=s52 62:38=s2",
+        "0:46=s2 46:1=s52 47:3=s47 50:11=s52 61:39=s2",
         "0:100=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:82=s2",
         "0:100=s2",
@@ -148950,7 +148950,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI           w  Snapshots   ● 1 online  ◆ 0 need you  ✗ 0 blocked",
         "",
         "   1  Agents    2  Digest",
         "",
@@ -148959,7 +148959,7 @@
         "          No token observations yet                                 —         —",
         "",
         "▸━ f  Squads   Agents   Pinned  ━━━━━━━━━━━━━  /  Search                       ━",
-        "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL / NOW",
+        "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
         " ▸ Common pool                                   —    —",
         " ▾ product                ●                      —    1   —",
         "   └ worker               ● working              —    0   —",
@@ -148988,7 +148988,7 @@
         "new job in product · messa⧉ Pasted · 11 lines           The message cannot be em"
       ],
       "styles": [
-        "0:27=s2 27:1=s52 28:3=s47 31:11=s52 42:38=s2",
+        "0:26=s2 26:1=s52 27:3=s47 30:11=s52 41:39=s2",
         "0:80=s2",
         "0:1=s2 1:12=s47 13:2=s2 15:3=s47 18:62=s2",
         "0:80=s2",
