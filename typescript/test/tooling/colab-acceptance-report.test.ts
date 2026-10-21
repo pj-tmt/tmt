@@ -147,10 +147,10 @@ describe('public Colab acceptance evidence', () => {
   );
 
   describe('Live-status diagnostic', () => {
-    const live = { state: 'opening', frame: true, visibility: 'hidden' };
+    const live = { state: 'opening', frame: true, visibility: 'hidden', ended: 'session' };
     const liveAttachment = (value: unknown) => ({ ...attachment(value), name: 'colab-live-state' });
 
-    it('retains only a closed state, frame presence and visibility', () => {
+    it('retains only a closed state, frame presence, visibility and ended cause', () => {
       const { report } = runReport((result) => {
         result.attachments.push(liveAttachment(live));
       });
@@ -162,6 +162,8 @@ describe('public Colab acceptance evidence', () => {
       { state: 'Opening page…' },
       { frame: 'yes' },
       { visibility: secret },
+      { ended: secret },
+      { ended: 'Session ended' },
       { text: secret },
     ])('drops a diagnostic outside the closed schema: %j', (change) => {
       const { report } = runReport((result) => {
@@ -170,13 +172,35 @@ describe('public Colab acceptance evidence', () => {
       expect(report.tests[0].results[0]).not.toHaveProperty('liveStates');
     });
 
+    it.each([
+      'access',
+      'revoked',
+      'expired',
+      'mismatch',
+      'unpaired',
+      'gone',
+      'session',
+      'large',
+      'capacity',
+      'generic',
+      'none',
+      'other',
+    ])('retains the closed ended cause %s', (ended) => {
+      const { report } = runReport((result) => {
+        result.attachments.push(liveAttachment({ ...live, ended }));
+      });
+      expect(report.tests[0].results[0].liveStates).toEqual([{ ...live, ended }]);
+    });
+
     it('drops a row with a missing field and a diagnostic on a passing result', () => {
       const { frame: _frame, ...partial } = live;
-      expect(
-        runReport((result) => {
-          result.attachments.push(liveAttachment(partial));
-        }).report.tests[0].results[0]
-      ).not.toHaveProperty('liveStates');
+      const { ended: _ended, ...withoutEnded } = live;
+      for (const row of [partial, withoutEnded])
+        expect(
+          runReport((result) => {
+            result.attachments.push(liveAttachment(row));
+          }).report.tests[0].results[0]
+        ).not.toHaveProperty('liveStates');
       expect(
         runReport((result) => {
           result.status = 'passed';
