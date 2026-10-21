@@ -1,5 +1,11 @@
 import { expect, it } from 'vite-plus/test';
-import { shortPageId, shortPageUrl, validPagePrefix } from '../src/short-links.js';
+import {
+  shortLocation,
+  shortLocationPrefix,
+  shortPageId,
+  shortPageUrl,
+  validPagePrefix,
+} from '../src/short-links.js';
 import { FrozenAsk } from '../src/ask-intent.js';
 import { destination, selection } from './ask-fixtures.js';
 it('a historical Ask link becomes a chooser prefix after catalog growth', () => {
@@ -41,4 +47,14 @@ it('freezes the short public owner link while preserving full scope IDs and secr
       { operationId: '00000000-0000-4000-8000-000000000009', issuedAt: 1700000000000 },
     ),
   ).toThrow();
+});
+it('names the short location of a page by where it is opened', () => {
+  expect(shortLocation('12345678', false)).toBe('/p/12345678');
+  expect(shortLocation('12345678', true)).toBe('/colab/p/12345678');
+  expect(() => shortLocation('short', true)).toThrow();
+  expect(shortLocationPrefix('/p/12345678', false)).toBe('12345678');
+  expect(shortLocationPrefix('/colab/p/12345678', false)).toBeUndefined();
+  expect(shortLocationPrefix('/colab/p/12345678', true)).toBe('12345678');
+  expect(shortLocationPrefix('/p/12345678', true)).toBe('12345678');
+  expect(shortLocationPrefix('/colab/pages/12345678', true)).toBeUndefined();
 });

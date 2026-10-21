@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { classifyPageLink, pageLinkRequest } from '../src/page-link-request.js';
+import { classifyPageLink, pageLinkRequest, shortLinkRoute } from '../src/page-link-request.js';
 
 const space = '10000000-0000-4000-8000-000000000001';
 const page = '20000000-0000-4000-8000-000000000001';
@@ -43,6 +43,19 @@ describe('untrusted page link admission', () => {
         space,
       ),
     ).toMatchObject({ kind: 'internal', route: `/pages/${page}`, anchor: 'details' });
+  });
+  it('routes the app short location only inside the one TMT web app', () => {
+    for (const href of ['/colab/p/20000000#details', '/p/20000000#details'])
+      expect(classifyPageLink(href, base, space, true)).toMatchObject({
+        kind: 'internal',
+        route: '/short/20000000',
+        anchor: 'details',
+      });
+    expect(classifyPageLink('/colab/p/20000000', base, space, false)).toEqual({ kind: 'refused' });
+    expect(classifyPageLink('/colab/p/short', base, space, true)).toEqual({ kind: 'refused' });
+    expect(shortLinkRoute('/colab/p/20000000', '', true)).toMatchObject({ prefix: '20000000' });
+    expect(shortLinkRoute('/colab/p/20000000', '', false)).toBeUndefined();
+    expect(shortLinkRoute('/colab/pages/20000000', '', true)).toBeUndefined();
   });
   it.each([
     '/p/short',

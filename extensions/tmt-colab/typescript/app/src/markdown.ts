@@ -1,4 +1,5 @@
-import { validPagePrefix } from './short-links.js';
+import { inShell } from './entry.js';
+import { shortLocation, shortLocationPrefix, validPagePrefix } from './short-links.js';
 
 /**
  * A small, safe Markdown subset for comment and Chat bodies (#4112). The parser outputs a tree, never
@@ -40,16 +41,17 @@ export type HrefKind =
   | { kind: 'outside'; href: string }
   | { kind: 'none' };
 
-export function classifyHref(raw: string, origin: string): HrefKind {
+export function classifyHref(raw: string, origin: string, shell = inShell()): HrefKind {
   if (raw.length === 0 || raw.length > MAX_HREF) return { kind: 'none' };
   // No whitespace or control character anywhere, so no scheme can be split or hidden by one.
   if (/[\s\p{Cc}\\]/u.test(raw)) return { kind: 'none' };
   if (raw.startsWith('//')) return { kind: 'none' };
-  const relative = /^\/p\/([0-9a-fA-F-]+)(#[A-Za-z0-9_-]{1,64})?$/.exec(raw);
+  // An authored page link is always `/p/<prefix>`; the app opens it at its own short location.
+  const relative = /^(\/(?:colab\/)?p\/[0-9a-fA-F-]+)(#[A-Za-z0-9_-]{1,64})?$/.exec(raw);
   if (relative) {
-    const prefix = relative[1].toLowerCase();
-    return validPagePrefix(prefix)
-      ? { kind: 'page', href: `/p/${prefix}${relative[2] ?? ''}` }
+    const prefix = shortLocationPrefix(relative[1], shell)?.toLowerCase();
+    return prefix && validPagePrefix(prefix)
+      ? { kind: 'page', href: `${shortLocation(prefix, shell)}${relative[2] ?? ''}` }
       : { kind: 'none' };
   }
   if (!/^https?:\/\//i.test(raw)) return { kind: 'none' };
@@ -60,9 +62,9 @@ export function classifyHref(raw: string, origin: string): HrefKind {
     return { kind: 'none' };
   }
   if (url.username || url.password) return { kind: 'none' };
-  const same = /^\/p\/([0-9a-fA-F-]+)$/.exec(url.pathname);
-  if (url.origin === origin && same && validPagePrefix(same[1].toLowerCase()))
-    return { kind: 'page', href: `/p/${same[1].toLowerCase()}${url.hash}` };
+  const same = shortLocationPrefix(url.pathname, shell)?.toLowerCase();
+  if (url.origin === origin && same && validPagePrefix(same))
+    return { kind: 'page', href: `${shortLocation(same, shell)}${url.hash}` };
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (url.protocol === 'https:' || (url.protocol === 'http:' && local))
     return { kind: 'outside', href: url.href };

@@ -125,6 +125,32 @@ for (const [name, start, landing] of forms) {
   });
 }
 
+test('a page link in a body opens in the one document, not as a new load', async ({ page }) => {
+  await page.goto('/');
+  await serveRendererLikeTheDoor(page);
+  await page.evaluate(
+    async ({ fixture, url }) =>
+      (await import(fixture)).mountAt(url, 'See [the proposal](/p/12345678#digest-matrix) now'),
+    {
+      fixture,
+      url: '/colab/',
+    },
+  );
+  const link = page.locator('#spa-body').getByRole('link', { name: 'the proposal' });
+  // Inside the app the printed link is the app's own short location.
+  await expect(link).toHaveAttribute('href', '/colab/p/12345678#digest-matrix');
+  await page.evaluate(() => {
+    (window as unknown as { __document: string }).__document = 'same';
+  });
+  await link.click();
+  await expect.poll(() => here(page)).toBe(`/colab/pages/${page1}?anchor=digest-matrix`);
+  // The same document: its own state survived, and no navigation was recorded after the first.
+  expect(await page.evaluate(() => (window as unknown as { __document?: string }).__document)).toBe(
+    'same',
+  );
+  expect(await page.evaluate(() => performance.getEntriesByType('navigation').length)).toBe(1);
+});
+
 test('the printed home link and a bare mount land on the Colab home', async ({ page }) => {
   for (const start of ['/colab/', `/colab/#space=${space}`]) {
     await open(page, start);

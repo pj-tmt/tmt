@@ -1,10 +1,12 @@
 /** Browser-only fixture for the one-TMT-app conditions: Colab as a route under `/colab/`. It starts the
  * real router and the real module entry over the local transports; no door and no native state. */
+import type { ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 import { hostInShell } from '../src/entry.js';
 import { mount as mountColab } from '../src/colab-module.js';
+import { MarkdownText } from '../src/components/markdown-text.js';
 import { createAppRouter, shellLocation } from '../src/router.js';
 import { localTransport } from '../src/transport.js';
 
@@ -23,8 +25,9 @@ const source =
 let root: Root | undefined;
 
 /** Opens `url` (path, query and fragment, as a link would) in the router the TMT app hosts at
- * `/colab/`: the location is rewritten by the module entry exactly as it is on a real load. */
-export function mountAt(url: string) {
+ * `/colab/`: the location is rewritten by the module entry exactly as it is on a real load. A
+ * `body` is also shown as a comment body (`#spa-body`), so its links click inside the router. */
+export function mountAt(url: string, body?: string) {
   root?.unmount();
   document.getElementById('spa-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -43,7 +46,17 @@ export function mountAt(url: string) {
     pageIds: [{ pageId, deleted: false }],
   });
   root = createRoot(host);
-  root.render(<RouterProvider router={createAppRouter(transport)} />);
+  const Wrap = ({ children }: { children: ReactNode }) => (
+    <>
+      {children}
+      {body !== undefined && (
+        <div id="spa-body">
+          <MarkdownText value={body} />
+        </div>
+      )}
+    </>
+  );
+  root.render(<RouterProvider router={createAppRouter(transport)} InnerWrap={Wrap} />);
 }
 
 /** What the module started, recorded so a test can see it released. */

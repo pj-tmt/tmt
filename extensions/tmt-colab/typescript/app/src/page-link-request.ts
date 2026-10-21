@@ -1,4 +1,5 @@
-import { validPagePrefix } from './short-links.js';
+import { inShell } from './entry.js';
+import { shortLocationPrefix, validPagePrefix } from './short-links.js';
 import { validShellAnchor } from './shell.js';
 
 export const PAGE_LINK_BYTES = 8 * 1024;
@@ -24,14 +25,15 @@ export function pageLinkRequest(value: unknown, renderId: string): value is Page
   );
 }
 
-/** The app route of a `/p/<prefix>[#anchor]` link: undefined for any other path, `refused` for a
- * link of that form whose anchor cannot be read. */
+/** The app route of a `/p/<prefix>[#anchor]` link (`/colab/p/` too inside the app): undefined for
+ * any other path, `refused` for a link of that form whose anchor cannot be read. */
 export function shortLinkRoute(
   pathname: string,
   hash: string,
+  shell = inShell(),
 ): { prefix: string; route: string; anchor?: string } | 'refused' | undefined {
-  const short = pathname.match(/^\/p\/([0-9a-f-]+)$/);
-  if (!short || !validPagePrefix(short[1])) return undefined;
+  const prefix = shortLocationPrefix(pathname, shell);
+  if (!prefix || prefix !== prefix.toLowerCase() || !validPagePrefix(prefix)) return undefined;
   let anchor: string | undefined;
   try {
     anchor = hash ? decodeURIComponent(hash.slice(1)) : undefined;
@@ -40,7 +42,7 @@ export function shortLinkRoute(
   }
   if (anchor?.startsWith('anchor=')) anchor = anchor.slice(7);
   if (anchor !== undefined && !validShellAnchor(anchor)) return 'refused';
-  return { prefix: short[1], route: `/short/${short[1]}`, ...(anchor ? { anchor } : {}) };
+  return { prefix, route: `/short/${prefix}`, ...(anchor ? { anchor } : {}) };
 }
 
 export type PageLinkTarget =
@@ -49,7 +51,12 @@ export type PageLinkTarget =
   | { kind: 'internal'; href: string; route: string; anchor?: string; label: string };
 
 /** Only this trusted base and space may select app navigation; author bases have no role. */
-export function classifyPageLink(href: string, base: string, space?: string): PageLinkTarget {
+export function classifyPageLink(
+  href: string,
+  base: string,
+  space?: string,
+  shell = inShell(),
+): PageLinkTarget {
   if (
     !href ||
     href.length > PAGE_LINK_BYTES ||
@@ -67,7 +74,7 @@ export function classifyPageLink(href: string, base: string, space?: string): Pa
   if (url.username || url.password) return { kind: 'refused' };
   if (space !== undefined && url.origin === owner.origin) {
     if (url.search) return { kind: 'refused' };
-    const short = shortLinkRoute(url.pathname, url.hash);
+    const short = shortLinkRoute(url.pathname, url.hash, shell);
     let prefix: string | undefined;
     let route: string | undefined;
     let anchor: string | undefined;
