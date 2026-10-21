@@ -193,7 +193,8 @@ test.describe('a chapter opens in a panel beside the shell from 900 px', () => {
       'Review the release scope',
       'Decide the scope',
     ]);
-    // Every waiting item has its own action: the reading opens its passage, the others the page.
+    // Every waiting item has its own action: the reading opens its passage, the others the page
+    // (the chapter's anchor belongs to the shell item, not to a review or a question).
     const items = panel(page).locator('.shell-panel-needs li');
     for (let index = 0; index < (await items.count()); index += 1)
       await expect(items.nth(index).getByRole('link')).toHaveCount(1);
@@ -218,10 +219,15 @@ test.describe('a chapter opens in a panel beside the shell from 900 px', () => {
       await page.screenshot({ path: capturePath(`shell-panel-1440-${theme}.png`) });
     });
 
-  test('a chapter named by an anchor item offers that passage in its panel', async ({ page }) => {
+  test('a chapter named by an anchor item with nothing waiting offers that passage', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await openShell(page);
-    await page.locator('.shell-chapter').nth(1).locator('button[data-opens-panel]').click();
+    await openShell(page, 'details-failed');
+    // Its details did not come, so the panel opens only from the address, with the item's note.
+    await page.evaluate((id) => {
+      location.hash = `${location.hash.split('?')[0]}?open=${id}`;
+    }, NOTES);
     const link = page.getByRole('dialog').getByRole('link', { name: text.shellPage.openPassage });
     await expect(link).toHaveAttribute('href', `/#/pages/${NOTES}?anchor=decisions`);
   });

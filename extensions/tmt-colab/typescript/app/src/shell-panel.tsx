@@ -99,11 +99,10 @@ export function ChapterPanel({
                     className="shell-open"
                     to="/pages/$pageId"
                     params={{ pageId: chapter.pageId }}
-                    search={chapter.anchor === undefined ? undefined : { anchor: chapter.anchor }}
                     onClick={onOpen}
                     onKeyDown={pageLinkKey}
                   >
-                    {chapter.anchor === undefined ? t.openOnPage : t.openPassage}
+                    {t.openOnPage}
                   </Link>
                 )}
               </li>
