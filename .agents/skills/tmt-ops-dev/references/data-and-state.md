@@ -47,12 +47,14 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
 --global`; `init --me` sets it first, so a bad name changes nothing. Nothing else
   asks for the user.
 - `ops.toml` once held `me` and `me_id`. `me::migrate` runs after every config load
-  (command entry and board start): while either key exists it carries the identity
-  `me_id` names (else `me`) into `user.name`, unless Core already has a name, and
-  drops the keys. A failed move keeps them for the next run. The readers
+  (command entry and board start): while either key exists it marks the identity
+  `me_id` names (else `me`) as a person and carries its name into `user.name`, unless
+  Core already has a name, and drops the keys. A failed move keeps them for the next run. The readers
   `Config::me`/`me_id` exist only for that migration.
-- Core marks the user `user = true`; Ops never writes that key. Ops metadata is
-  otherwise `squad.*` only.
+- Core marks the user `user = true`. Ops writes that key only in `me::migrate`, once,
+  for the migrated identity when it has no `user` entry (a bound pane would otherwise
+  make `user.identity` pass it over for `<name>-user`); an existing value is kept. Ops
+  metadata is otherwise `squad.*` only.
 - The board's sender is the user, else the saved identity bound to the calling pane
   (`tmt whoami`). A pane that is not bound is no sender; a `whoami` failure (a host
   that cannot name the pane) is kept as `App.caller_failure` and the sender prompt says

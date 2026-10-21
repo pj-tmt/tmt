@@ -1510,6 +1510,16 @@ o = "run touch ${marker}"
       const config = parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json']));
       expect(config.resolved).toMatchObject({ user: { name: 'Ben' } });
       expect(config.sources).toMatchObject({ user: { name: 'global' } });
+      // The migrated identity is the person: Core's `user` entry is set, so Digest never holds it.
+      const marked = await runCli(sandbox, [
+        'identity',
+        'meta',
+        'list',
+        '--identity',
+        ben,
+        '--json',
+      ]);
+      expect(JSON.parse(marked.stdout).metadata).toEqual({ user: 'true' });
 
       // A name Core already has wins over an older record.
       writeFileSync(squadToml, `me = "Ben"\nme_id = "${ben}"\n${user}`);

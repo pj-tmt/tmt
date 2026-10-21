@@ -66,7 +66,10 @@ pub fn current(core: &Core) -> Result<Option<Me>, SquadError> {
 
 /// Carries the user an earlier `ops.toml` recorded into Core, once: the
 /// identity `me_id` names (else `me`) becomes `user.name` unless Core already
-/// has a name set, and the record is dropped. Without a record this reads
+/// has a name set, and the record is dropped. That identity also gets Core's
+/// `user` entry first when it has none, so `user.identity` reuses it even if
+/// a pane was ever bound to it (an unmarked bound identity is an agent and
+/// would be passed over for `<name>-user`). Without a record this reads
 /// nothing from Core. A failure keeps the record, so the next run retries.
 pub fn migrate(core: &Core, config: &mut Config) -> Result<(), SquadError> {
     let name = config.me()?.map(str::to_owned);
@@ -85,10 +88,26 @@ pub fn migrate(core: &Core, config: &mut Config) -> Result<(), SquadError> {
             (None, None) => None,
         };
         if let Some(recorded) = recorded {
+            mark_as_person(core, &recorded.id)?;
             set_name(core, &recorded.name)?;
         }
     }
     config.clear_me()
+}
+
+/// Core's reserved `user` entry (contracts/extension-api.md) for the migrated
+/// identity: written only when absent and the metadata table has room; an
+/// existing value, even `false`, is the person's own choice and is kept.
+fn mark_as_person(core: &Core, id: &str) -> Result<(), SquadError> {
+    let listed = core.json(&["identity", "meta", "list", "--identity", id])?;
+    if let Some(metadata) = listed["metadata"].as_object()
+        && (metadata.contains_key("user")
+            || metadata.len() >= crate::membership::METADATA_ENTRY_LIMIT)
+    {
+        return Ok(());
+    }
+    core.json(&["identity", "meta", "set", "user", "true", "--identity", id])
+        .map(drop)
 }
 
 fn set_name(core: &Core, name: &str) -> Result<(), SquadError> {
@@ -290,6 +309,13 @@ mod tests {
                 .filter(|call| call.starts_with("config set"))
                 .collect()
         }
+
+        fn marks(&self) -> Vec<String> {
+            self.calls()
+                .into_iter()
+                .filter(|call| call.starts_with("identity meta set"))
+                .collect()
+        }
     }
 
     impl Drop for Fake {
@@ -308,6 +334,8 @@ mod tests {
     const SET: &str =
         r#"{"sources":{"user":{"name":"global"}},"resolved":{"user":{"name":"ben"}}}"#;
     const OK: &str = r#"{"ok":true}"#;
+    const NO_META: &str = r#"{"metadata":{}}"#;
+    const MARKED: &str = r#"{"metadata":{"user":"false"}}"#;
 
     fn legacy(name: &str, text: &str) -> (std::path::PathBuf, Config) {
         let dir =
@@ -355,17 +383,66 @@ mod tests {
             &[
                 ("config show --json", UNSET, 0),
                 (&format!("identity show {BEN_ID} --json"), BEN_UI, 0),
+                (
+                    &format!("identity meta list --identity {BEN_ID} --json"),
+                    NO_META,
+                    0,
+                ),
+                (
+                    &format!("identity meta set user true --identity {BEN_ID} --json"),
+                    OK,
+                    0,
+                ),
                 ("config set user.name ben-ui --global --json", OK, 0),
             ],
         );
         migrate(&fake.core, &mut config).unwrap();
         assert_eq!(fake.sets(), ["config set user.name ben-ui --global --json"]);
+        // The person is marked before the name points at it.
+        assert_eq!(
+            fake.marks(),
+            [format!(
+                "identity meta set user true --identity {BEN_ID} --json"
+            )]
+        );
+        let order: Vec<_> = fake.calls();
+        let mark = order
+            .iter()
+            .position(|c| c.starts_with("identity meta set"))
+            .unwrap();
+        let set = order
+            .iter()
+            .position(|c| c.starts_with("config set"))
+            .unwrap();
+        assert!(mark < set, "{order:?}");
         let after = std::fs::read_to_string(&path).unwrap();
         assert_eq!(after, "[squad.product]\nlayout = \"pr-queue\"\n");
         // The record is gone, so a second run asks Core nothing.
         let calls = fake.calls().len();
         migrate(&fake.core, &mut config).unwrap();
         assert_eq!(fake.calls().len(), calls);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn an_existing_user_entry_is_the_persons_choice_and_is_never_overwritten() {
+        let (path, mut config) = legacy("marked", &recorded_ben_ui());
+        let fake = Fake::new(
+            "marked",
+            &[
+                ("config show --json", UNSET, 0),
+                (&format!("identity show {BEN_ID} --json"), BEN_UI, 0),
+                (
+                    &format!("identity meta list --identity {BEN_ID} --json"),
+                    MARKED,
+                    0,
+                ),
+                ("config set user.name ben-ui --global --json", OK, 0),
+            ],
+        );
+        migrate(&fake.core, &mut config).unwrap();
+        assert!(fake.marks().is_empty(), "{:?}", fake.calls());
+        assert_eq!(fake.sets().len(), 1);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -401,6 +478,11 @@ mod tests {
             &[
                 ("config show --json", UNSET, 0),
                 (&format!("identity show {BEN_ID} --json"), BEN_UI, 0),
+                (
+                    &format!("identity meta list --identity {BEN_ID} --json"),
+                    MARKED,
+                    0,
+                ),
                 ("config set user.name ben-ui --global --json", refused, 1),
             ],
         );
