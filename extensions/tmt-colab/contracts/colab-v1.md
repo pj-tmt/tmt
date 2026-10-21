@@ -2603,7 +2603,7 @@ A task is a closed object whose optional fields are omitted, never `null`:
 | `assignee`     | `{kind:"agent",name,id?}` (the shell's display-metadata shape) or `{kind:"person",name}`; a name is 1 to 128 bytes                                                           |
 | `acceptance`   | 1 to 8 criteria, each `{kind:"test",name}` (a test name), `{kind:"check",command,result?}` (a command and, once run, its result) or `{kind:"person",who}` (a person or lead) |
 | `needsSignoff` | `true` when the task waits for the owner's sign-off; omitted otherwise                                                                                                       |
-| `externalId`   | At most 128 bytes: the external issue a driver syncs; no driver exists yet                                                                                                   |
+| `externalId`   | At most 128 bytes: the external issue a driver syncs; the GitHub driver's is `#N` (see [GitHub driver](#github-driver-4053))                                                 |
 
 Text is inert and contains no control characters (except the line feeds of `detail`) or unpaired
 surrogates. A criterion records what makes the task acceptable; nothing in this version ticks it
@@ -2664,6 +2664,47 @@ epoch and the content counts, not the membership head, so another page's creatio
 refolds nothing), which holds nothing the pages do not and may be deleted; a revocation alone can
 leave an entry stale until the page's next write. Two commands racing on different pages may
 both be admitted: the limit is a working agreement, not a lock.
+
+#### GitHub driver (#4053)
+
+`tmt colab task github push PAGE TASK` and `tmt colab task github sync [PAGE]` link tasks to
+GitHub issues. Both run the owner's `gh` on the owner's machine with the owner's sign-in, argv only
+(the program is `gh` on PATH, or the file named by `TMT_COLAB_GH`, which is how tests supply a
+scripted fake), and write to the page only through the ordinary `task.set` and `task.state` actions
+under the revision fence. A failure writes nothing. The repository is the space's one setting,
+`tmt colab settings github-repo OWNER/REPO|none`, stored in `settings.json` as
+`{"github":{"repo":"OWNER/REPO"}}`; with none set both commands are `COLAB_GITHUB_REPO_UNSET`.
+Nothing edited on GitHub is read back except the closing described below.
+
+`push` is a command for one task and never part of `sync`: it publishes the task's title, detail
+and acceptance to GitHub, possibly to a public repository, and prints the repository and the issue's
+URL. A task that already has an `externalId` is refused. The issue body carries a hidden marker
+(`<!-- tmtcolab<page><task> -->`, one alphanumeric token), the detail and the acceptance criteria
+each inside a code fence longer than any run of backticks in them, so no mention or link in a page's
+text acts, and every `#N` and `GH-N` reference in the title, detail and criteria is broken by a
+zero-width space, so a page cannot link or close another issue. The page's own ID is not
+published. Before creating, `push` searches the repository's issues for the marker and adopts the
+one that carries it (the lowest number) instead of creating another, so a push whose record failed
+(a stale revision, a crash) is safe to run again. It then records `#N` with `task.set`, the task's
+whole editable part with its `externalId`, on the revision it read.
+
+`sync` asks about every task with an `externalId` of the form `#N` (a decimal number from 1 to
+999999999; any other ID belongs to something else) that is not `done`, on one page or on every
+non-archived page of the space. It makes one `gh api graphql` call per at most 100 distinct issues
+(`issue(number:N){state closedByPullRequestsReferences{nodes{merged}}}` under one alias each) and
+asks about at most 200 issues in a run; the rest are reported `unchecked`, to be asked on a rerun. A task
+becomes `done` (`task.state`, read again once after a `COLAB_STALE_BASE`) only when its issue is
+`CLOSED` and a closing pull request has merged: GitHub's own `Fixes #N`. A task whose issue is
+open, closed without a merged pull request, or missing is left alone. The result is
+`{repo,calls,checked,rows}` with one row `{page,task,externalId,outcome}` per task, `outcome` being
+`done`, `open`, `closed`, `missing`, `unchecked` or `failed` (a `failed` row adds
+`error:{code,message}`). Any `failed` row makes the command fail with the rows in the same JSON
+document; a failed check never moves a task.
+
+Errors: `COLAB_GITHUB_REPO_UNSET` (no repository), `COLAB_GITHUB_UNAVAILABLE` (`gh` cannot be run, or
+is not signed in; one such answer ends the run) and `COLAB_GITHUB_REFUSED` (`gh` refused, did not
+answer within 60 seconds, or answered without what was asked; its message is carried, at most 400
+characters).
 
 ### Answer blocks
 

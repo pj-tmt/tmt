@@ -12,6 +12,7 @@ mod cli_shell;
 mod cli_template;
 mod cli_threads;
 mod cli_work;
+mod cli_work_github;
 mod door;
 mod open;
 mod reach;
@@ -201,16 +202,16 @@ fn grammar() -> Command {
                 note: "Show each setting and where its value comes from",
             },
             Example {
-                command: "tmt colab settings open off",
-                note: "Stop opening the browser from serve and page create",
-            },
-            Example {
                 command: "tmt colab settings wip-limit ada 2",
                 note: "Let the agent ada hold two tasks at once",
             },
+            Example {
+                command: "tmt colab settings github-repo pj-tmt/tmt",
+                note: "Push page tasks to this repository's issues",
+            },
         ],
         outputs: OutputModes::HumanAndJson,
-        details: "open (default on) controls whether serve and page create open the link in your browser. Page create opens even without a terminal or with --json; serve skips in those modes. Automatic opening is skipped in CI, in an SSH session without a display and when no opener is installed; --open and --no-open override it per command. wip-limit N (default 1) is how many assigned todo and in-progress tasks an agent may hold across all pages; wip-limit AGENT N sets one agent's limit and wip-limit AGENT default removes it. Stored in <data root>/colab/settings.json.",
+        details: "open (default on) controls whether serve and page create open the link in your browser. Page create opens even without a terminal or with --json; serve skips in those modes. Automatic opening is skipped in CI, in an SSH session without a display and when no opener is installed; --open and --no-open override it per command. wip-limit N (default 1) is how many assigned todo and in-progress tasks an agent may hold across all pages; wip-limit AGENT N sets one agent's limit and wip-limit AGENT default removes it. github-repo OWNER/REPO is the one repository the GitHub driver pushes tasks to (tmt colab task github); github-repo none clears it. Stored in <data root>/colab/settings.json.",
     };
     const SPACES: CommandSpec = CommandSpec {
         name: "spaces",
@@ -344,11 +345,11 @@ fn grammar() -> Command {
                     .arg(
                         Arg::new("key")
                             .value_name("setting")
-                            .value_parser(["open", "wip-limit"]),
+                            .value_parser(["open", "wip-limit", "github-repo"]),
                     )
                     .arg(
                         Arg::new("value")
-                            .value_name("on|off|N|AGENT")
+                            .value_name("on|off|N|AGENT|OWNER/REPO|none")
                             .requires("key"),
                     )
                     .arg(

@@ -47,6 +47,7 @@ pub mod threads;
 pub mod transitions;
 pub mod wip;
 pub mod work;
+pub mod work_github;
 pub mod work_index;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;

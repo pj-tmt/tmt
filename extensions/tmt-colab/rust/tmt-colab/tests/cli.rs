@@ -1690,6 +1690,309 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
     }
 }
 
+/// A scripted `gh`: it logs each call, answers `issue list` from `list.json` (else `[]`), `issue create`
+/// from `create.txt`, and `api graphql` from `graphql.json` (failing when `graphql.fail` exists).
+const FAKE_GH: &str = r#"#!/bin/sh
+d="$FAKE_GH_DIR"
+printf '%s %s\n' "$1" "$2" >> "$d/log"
+case "$1 $2" in
+  "issue list")
+    if [ -f "$d/list.json" ]; then /bin/cat "$d/list.json"; else printf '[]'; fi ;;
+  "issue create")
+    prev=""
+    for a in "$@"; do
+      case "$prev" in
+        --title) printf '%s' "$a" > "$d/title" ;;
+        --body) printf '%s' "$a" > "$d/body" ;;
+      esac
+      prev="$a"
+    done
+    /bin/cat "$d/create.txt" ;;
+  "api graphql")
+    printf '%s\n' "$4" >> "$d/queries"
+    if [ -f "$d/graphql.err" ]; then /bin/cat "$d/graphql.err" >&2; fi
+    if [ -f "$d/graphql.json" ]; then /bin/cat "$d/graphql.json"; fi
+    if [ -f "$d/graphql.fail" ]; then exit 1; fi ;;
+  *) echo "unexpected: $*" >&2; exit 2 ;;
+esac
+"#;
+
+#[test]
+fn the_github_driver_pushes_a_task_once_and_syncs_done_from_merged_closures() {
+    let pilot = Pilot::new(None);
+    let gh = pilot.root.join("fake-gh");
+    fs::create_dir(&gh).unwrap();
+    let script = gh.join("gh");
+    fs::write(&script, FAKE_GH).unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let run_with = |program: &std::path::Path, args: &[&str]| {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .env("TMT_COLAB_GH", program)
+            .env("FAKE_GH_DIR", &gh)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let call = |args: &[&str]| -> Value {
+        let out = run_with(&script, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let refused = |args: &[&str]| -> Value {
+        let out = run_with(&script, args);
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let log = || fs::read_to_string(gh.join("log")).unwrap_or_default();
+    let calls = |what: &str| log().lines().filter(|line| *line == what).count();
+    let queries = || fs::read_to_string(gh.join("queries")).unwrap_or_default();
+    let source = pilot.root.join("source.html");
+    fs::write(&source, "<h1>Plan</h1>").unwrap();
+    let page = call(&[
+        "page",
+        "create",
+        "--title",
+        "One",
+        "--layout",
+        "column",
+        "--file",
+        source.to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ])["pageId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let first = pilot.root.join("first.json");
+    fs::write(
+        &first,
+        json!({"title":"Ship #9","detail":"Close #3 and gh-4 for @ada","needsSignoff":true,
+            "acceptance":[{"kind":"test","name":"guide builds"}]})
+        .to_string(),
+    )
+    .unwrap();
+    call(&[
+        "task",
+        "add",
+        &page,
+        "--file",
+        first.to_str().unwrap(),
+        "--json",
+    ]);
+    let tasks = || call(&["task", "ls", &page, "--json"])["work"]["tasks"].clone();
+
+    // No repository, nothing asked of GitHub.
+    for args in [
+        vec!["task", "github", "push", &page, "T-1", "--json"],
+        vec!["task", "github", "sync", "--json"],
+    ] {
+        assert_eq!(refused(&args)["error"]["code"], "COLAB_GITHUB_REPO_UNSET");
+    }
+    assert_eq!(log(), "");
+    assert_eq!(
+        refused(&["settings", "github-repo", "not a repo", "--json"])["error"]["code"],
+        "COLAB_INPUT_INVALID"
+    );
+    let settings = call(&["settings", "github-repo", "pj-tmt/tmt", "--json"]);
+    assert_eq!(settings["githubRepo"], "pj-tmt/tmt");
+
+    // Push publishes the task, neutralised and fenced, and links it.
+    fs::write(
+        gh.join("create.txt"),
+        "https://github.com/pj-tmt/tmt/issues/501\n",
+    )
+    .unwrap();
+    let pushed = call(&["task", "github", "push", &page, "T-1", "--json"]);
+    assert_eq!(pushed["repo"], "pj-tmt/tmt");
+    assert_eq!(pushed["created"], true);
+    assert_eq!(
+        pushed["issue"],
+        json!({"number":501,"url":"https://github.com/pj-tmt/tmt/issues/501"})
+    );
+    assert_eq!((calls("issue list"), calls("issue create")), (1, 1));
+    assert_eq!(
+        fs::read_to_string(gh.join("title")).unwrap(),
+        "Ship #\u{200b}9"
+    );
+    let body = fs::read_to_string(gh.join("body")).unwrap();
+    assert!(body.starts_with(&format!(
+        "<!-- {} -->",
+        tmt_colab::work_github::marker(&page, "T-1")
+    )));
+    assert!(
+        body.contains("Close #\u{200b}3 and gh-\u{200b}4 for @ada"),
+        "{body}"
+    );
+    assert!(!body.contains(&page), "the page's ID stays private");
+    let linked = tasks();
+    assert_eq!(linked["T-1"]["externalId"], "#501");
+    assert_eq!(linked["T-1"]["needsSignoff"], true);
+    assert_eq!(linked["T-1"]["acceptance"][0]["name"], "guide builds");
+    assert_eq!(
+        linked["T-1"]["title"], "Ship #9",
+        "the page keeps its own text"
+    );
+    // A linked task is not pushed again, and nothing is asked of GitHub for it.
+    let again = refused(&["task", "github", "push", &page, "T-1", "--json"]);
+    assert_eq!(again["error"]["code"], "COLAB_INPUT_INVALID");
+    assert_eq!((calls("issue list"), calls("issue create")), (1, 1));
+
+    // An issue this task already pushed is adopted, never created twice.
+    call(&["task", "add", &page, "--title", "Second", "--json"]);
+    fs::write(
+        gh.join("list.json"),
+        json!([
+            {"number":1,"url":"https://github.com/pj-tmt/tmt/issues/1","body":"unrelated"},
+            {"number":502,"url":"https://github.com/pj-tmt/tmt/issues/502",
+                "body":format!("<!-- {} -->\nbody", tmt_colab::work_github::marker(&page, "T-2"))}
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    let adopted = call(&["task", "github", "push", &page, "T-2", "--json"]);
+    assert_eq!(
+        (
+            adopted["created"].clone(),
+            adopted["issue"]["number"].clone()
+        ),
+        (json!(false), json!(502))
+    );
+    assert_eq!((calls("issue list"), calls("issue create")), (2, 1));
+    assert_eq!(tasks()["T-2"]["externalId"], "#502");
+    fs::remove_file(gh.join("list.json")).unwrap();
+
+    // Other IDs belong to other trackers, and a manual #N is synced like a pushed one.
+    call(&[
+        "task",
+        "add",
+        &page,
+        "--title",
+        "Third",
+        "--external-id",
+        "GH-77",
+        "--json",
+    ]);
+    call(&[
+        "task",
+        "add",
+        &page,
+        "--title",
+        "Fourth",
+        "--external-id",
+        "#503",
+        "--json",
+    ]);
+    fs::write(
+        gh.join("graphql.json"),
+        json!({"data":{"repository":{
+            "i501":{"state":"CLOSED","closedByPullRequestsReferences":{"nodes":[{"merged":true}]}},
+            "i502":{"state":"OPEN","closedByPullRequestsReferences":{"nodes":[]}},
+            "i503":{"state":"CLOSED","closedByPullRequestsReferences":{"nodes":[{"merged":false}]}}
+        }}})
+        .to_string(),
+    )
+    .unwrap();
+    let synced = call(&["task", "github", "sync", "--json"]);
+    let outcomes: Vec<(String, String)> = synced["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["task"].as_str().unwrap().into(),
+                row["outcome"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        outcomes,
+        [("T-1", "done"), ("T-2", "open"), ("T-4", "closed")]
+            .map(|(task, outcome)| (task.to_owned(), outcome.to_owned()))
+    );
+    // One call asked about all three issues together, and not about the other tracker's ID.
+    assert_eq!(
+        (synced["calls"].clone(), synced["checked"].clone()),
+        (json!(1), json!(3))
+    );
+    assert_eq!(calls("api graphql"), 1);
+    let asked = queries();
+    for number in [501, 502, 503] {
+        assert!(
+            asked.contains(&format!("i{number}:issue(number:{number})")),
+            "{asked}"
+        );
+    }
+    assert!(!asked.contains("77"), "{asked}");
+    let after = tasks();
+    assert_eq!(
+        ["T-1", "T-2", "T-3", "T-4"].map(|id| after[id]["state"].as_str().unwrap().to_owned()),
+        ["done", "todo", "todo", "todo"]
+    );
+    // A task that is done is not asked about again.
+    fs::remove_file(gh.join("queries")).unwrap();
+    let rerun = call(&["task", "github", "sync", &page, "--json"]);
+    assert_eq!(rerun["rows"].as_array().unwrap().len(), 2);
+    assert!(!queries().contains("i501"), "{}", queries());
+    assert_eq!(calls("api graphql"), 2);
+
+    // An issue GitHub has no record of is missing, and the rest of the answer still counts.
+    fs::write(gh.join("graphql.fail"), "").unwrap();
+    fs::write(
+        gh.join("graphql.json"),
+        json!({"data":{"repository":{"i502":null,
+            "i503":{"state":"CLOSED","closedByPullRequestsReferences":{"nodes":[{"merged":true}]}}}},
+            "errors":[{"type":"NOT_FOUND"}]})
+        .to_string(),
+    )
+    .unwrap();
+    let partial = call(&["task", "github", "sync", "--json"]);
+    let outcomes: Vec<&str> = partial["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["outcome"].as_str().unwrap())
+        .collect();
+    assert_eq!(outcomes, ["missing", "done"]);
+    assert_eq!(tasks()["T-4"]["state"], "done");
+
+    // A refused call fails the run, names the rows, and moves nothing.
+    call(&["task", "state", &page, "T-4", "todo", "--json"]);
+    fs::remove_file(gh.join("graphql.json")).unwrap();
+    fs::write(gh.join("graphql.err"), "HTTP 502: Bad Gateway").unwrap();
+    let before = tasks();
+    let failed = refused(&["task", "github", "sync", "--json"]);
+    assert_eq!(failed["error"]["code"], "COLAB_GITHUB_REFUSED");
+    let rows = failed["rows"].as_array().unwrap();
+    assert!(rows.iter().all(|row| row["outcome"] == "failed"
+        && row["error"]["message"].as_str().unwrap().contains("502")));
+    assert_eq!(tasks(), before);
+    // Not signed in, or no gh at all, is its own code and spends no more calls.
+    fs::write(
+        gh.join("graphql.err"),
+        "To get started with GitHub CLI, please run:  gh auth login",
+    )
+    .unwrap();
+    let spent = calls("api graphql");
+    assert_eq!(
+        refused(&["task", "github", "sync", "--json"])["error"]["code"],
+        "COLAB_GITHUB_UNAVAILABLE"
+    );
+    assert_eq!(calls("api graphql"), spent + 1);
+    let out = run_with(
+        std::path::Path::new("/nonexistent/gh-for-the-test"),
+        &["task", "github", "sync", "--json"],
+    );
+    assert!(!out.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"]["code"],
+        "COLAB_GITHUB_UNAVAILABLE"
+    );
+    assert_eq!(tasks(), before);
+}
+
 #[test]
 fn work_commands_change_a_page_limit_each_agent_across_the_space_and_list() {
     fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {

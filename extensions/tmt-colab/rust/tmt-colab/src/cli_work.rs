@@ -28,7 +28,7 @@ macro_rules! example {
         }]
     };
 }
-fn spec(
+pub(crate) fn spec(
     name: &'static str,
     summary: &'static str,
     details: &'static str,
@@ -42,7 +42,7 @@ fn spec(
         details,
     })
 }
-fn task_arg() -> Arg {
+pub(crate) fn task_arg() -> Arg {
     Arg::new("task")
         .index(2)
         .required(true)
@@ -173,6 +173,7 @@ pub fn task_command() -> Command {
         .arg(task_arg())
         .arg(revision_arg()),
     )
+    .subcommand(crate::cli_work_github::command())
 }
 
 pub fn summary_command() -> Command {
@@ -322,33 +323,30 @@ fn refusal(refusal: &wip::Refusal) -> Box<dyn std::error::Error + Send + Sync> {
     )
 }
 
-pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
-    let (name, args) = args.subcommand().expect("required work command");
+/// A work action that was written: the receipt and the work it was based on.
+pub(crate) struct Written {
+    pub receipt: page::Receipt,
+    pub base: page::WorkPage,
+}
+
+/// One conditional work action on a page, through the structured publication owner: on the revision
+/// it just read, or on `expected`. This is the whole of a write command's effect; a caller that must
+/// reach out first (the GitHub driver) reads, reaches out, then calls this.
+pub(crate) fn write_work(
+    root: &Path,
+    page: &str,
+    action: &'static str,
+    body: &Value,
+    expected: Option<&str>,
+) -> Result<Written> {
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
-    let reading = group == "task" && name == "ls";
-    let lock = if reading {
-        None
-    } else {
-        crate::write_owner(&layout)?
-    };
+    let lock = crate::write_owner(&layout)?;
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
-    let page_id = resolve_page(
-        &store,
-        &key,
-        args.get_one::<String>("page").expect("required page"),
-    )?;
+    let page_id = resolve_page(&store, &key, page)?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let current = page::read_work(&store, &key, &page_id, &mut decoder);
-    if reading {
-        let closed = store.close();
-        let read = current?;
-        closed?;
-        return list(&page_id, &read, args.get_flag("json"));
-    }
-    let (action, body) = action(group, name, args)?;
-    let read = current?;
+    let read = page::read_work(&store, &key, &page_id, &mut decoder)?;
     if let Some(task) = body["taskId"].as_str()
         && read.work["tasks"].get(task).is_none()
     {
@@ -357,12 +355,9 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
         )));
     }
     // Whatever the command read is the base unless the caller named one.
-    let expected = args
-        .get_one::<String>("expected-revision")
-        .unwrap_or(&read.revision)
-        .clone();
+    let expected = expected.unwrap_or(&read.revision).to_owned();
     if action.starts_with("task.") {
-        let after = work::apply(&read.work, action, &body, &Value::Null)
+        let after = work::apply(&read.work, action, body, &Value::Null)
             .map_err(|_| invalid("Invalid task value or action; nothing was changed."))?;
         // The space-wide scan is only needed when the change puts a task into an agent's hands.
         if wip::held(&page_id, &after)
@@ -392,7 +387,7 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
         page::StructuredAction {
             kind: StructuredKind::Work,
             action,
-            body: &body,
+            body,
             display_agent,
             expected_revision: &expected,
         },
@@ -434,11 +429,39 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
             receipt
         }
     };
+    Ok(Written {
+        receipt,
+        base: read,
+    })
+}
+
+pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
+    let (name, args) = args.subcommand().expect("required work command");
+    if group == "task" && name == "github" {
+        return crate::cli_work_github::run(root, args);
+    }
+    if group == "task" && name == "ls" {
+        return read_and_list(root, args);
+    }
+    let (action, body) = action(group, name, args)?;
+    let written = write_work(
+        root,
+        args.get_one::<String>("page").expect("required page"),
+        action,
+        &body,
+        args.get_one::<String>("expected-revision")
+            .map(String::as_str),
+    )?;
+    let receipt = written.receipt;
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     // A new task's ID is the one the page was about to hand out: this command holds the base.
-    let created = (action == "task.add" && receipt.changed)
-        .then(|| format!("T-{}", read.work["next"].as_u64().unwrap_or_default()));
+    let created = (action == "task.add" && receipt.changed).then(|| {
+        format!(
+            "T-{}",
+            written.base.work["next"].as_u64().unwrap_or_default()
+        )
+    });
     if json_output {
         let mut value = serde_json::to_value(&receipt)?;
         if let Some(id) = &created {
@@ -466,6 +489,28 @@ pub fn run(root: &Path, group: &str, args: &ArgMatches) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// A page's work read without a write lock: the page's ID and what it holds now.
+pub(crate) fn read_page_work(root: &Path, page: &str) -> Result<(String, page::WorkPage)> {
+    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
+    let key = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    store.require_current_schema()?;
+    let page_id = resolve_page(&store, &key, page)?;
+    let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    let current = page::read_work(&store, &key, &page_id, &mut decoder);
+    let closed = store.close();
+    let read = current?;
+    closed?;
+    Ok((page_id, read))
+}
+
+/// `task ls`: a read, which takes no write lock and creates nothing.
+fn read_and_list(root: &Path, args: &ArgMatches) -> Result<()> {
+    let (page_id, read) =
+        read_page_work(root, args.get_one::<String>("page").expect("required page"))?;
+    list(&page_id, &read, args.get_flag("json"))
 }
 
 fn list(page_id: &str, read: &page::WorkPage, json_output: bool) -> Result<()> {
