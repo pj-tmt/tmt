@@ -695,6 +695,11 @@ export async function mount(
       );
     },
     async create(body, anchor, attach) {
+      await replyGate.held;
+      if (replyGate.fail) {
+        replyGate.fail = false;
+        throw new Error('Comment refused');
+      }
       return publishAnswer(body, () => createThread(body, anchor, crypto.randomUUID(), attach));
     },
     async edit() {

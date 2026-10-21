@@ -346,7 +346,7 @@ export function AnnotationInput({
       ownsSend = true;
       setFailures([]);
       setBusy(true);
-      if (echoHost && (captured.thread || chat)) {
+      if (echoHost) {
         const retried = unsentRef.current;
         if (retried) {
           echoHost.remove(retried.echo.local);
