@@ -198,7 +198,53 @@ pub fn set(core: &Core, config: &mut Config, name: &str) -> Result<Me, SquadErro
         name: display.into(),
     };
     record(config, &me)?;
+    let _ = mark_user(core, &me.id);
     Ok(me)
+}
+
+/// Core's reserved identity-metadata entry for a person ([extension API]
+/// (../../../../../contracts/extension-api.md#identity-metadata)): Digest never
+/// holds the messages or replies of an identity that carries it as `true`.
+const USER_KEY: &str = "user";
+
+/// Marks the identity `id` as a person in Core, so the recorded user need not
+/// run `tmt identity meta set user true`. Only an absent entry is written: an
+/// existing value is the person's own choice, the entry is never removed, and
+/// no other identity is touched. An identity Core does not know, or one at its
+/// metadata limit, is left alone. `Ok(true)` means an entry was written.
+pub fn mark_user(core: &Core, id: &str) -> Result<bool, SquadError> {
+    let Some(me) = lookup(core, id)? else {
+        return Ok(false);
+    };
+    let listed = core.json(&["identity", "meta", "list", "--identity", &me.id])?;
+    if let Some(metadata) = listed["metadata"].as_object()
+        && (metadata.contains_key(USER_KEY)
+            || metadata.len() >= crate::membership::METADATA_ENTRY_LIMIT)
+    {
+        return Ok(false);
+    }
+    core.json(&[
+        "identity",
+        "meta",
+        "set",
+        USER_KEY,
+        "true",
+        "--identity",
+        &me.id,
+    ])?;
+    Ok(true)
+}
+
+/// [`mark_user`] for the `me_id` in `ops.toml`, for the board's start. It is
+/// best effort: a missing record, an unknown identity or a Core error changes
+/// nothing and shows nothing, and the next start tries again.
+pub fn mark_recorded_user(core: &Core) {
+    let Ok(config) = Config::load(core) else {
+        return;
+    };
+    if let Ok(Some(id)) = config.me_id() {
+        let _ = mark_user(core, id);
+    }
 }
 
 /// An `identity.renamed` observation: when it is the user, `me` takes the
@@ -268,6 +314,99 @@ mod tests {
         let found = super::caller(&Core::at(fake));
         let _ = std::fs::remove_dir_all(dir);
         found
+    }
+
+    /// A stand-in tmt for the user mark: `identity show` answers `shown` with
+    /// `status`, `identity meta list` answers `listed`, and every call is
+    /// appended to a log that the test reads back with the outcome.
+    fn marking(
+        name: &str,
+        shown: &str,
+        status: i32,
+        listed: &str,
+    ) -> (Result<bool, SquadError>, String) {
+        let dir = std::env::temp_dir().join(format!("tmt-ops-mark-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("calls.log");
+        let fake = dir.join("tmt");
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$1 $2\" in\n\
+                 'identity show') cat <<'EOF'\n{shown}\nEOF\nexit {status};;\n\
+                 'identity meta') case \"$3\" in list) cat <<'EOF'\n{listed}\nEOF\n;;\n\
+                 *) echo '{{\"ok\":true}}';; esac;;\nesac\n",
+                log.display()
+            ),
+        );
+        let outcome = mark_user(&Core::at(fake), "ben-id");
+        let calls = std::fs::read_to_string(&log).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(dir);
+        (outcome, calls)
+    }
+
+    const BEN: &str = r#"{"identity":{"id":"ben-id","name":"ben","lifetime":"saved"}}"#;
+    const UNKNOWN: &str = r#"{"error":{"code":"NAME_NOT_FOUND","message":"not found"}}"#;
+
+    #[test]
+    fn the_recorded_user_is_marked_once_and_an_existing_entry_is_left_alone() {
+        let (outcome, calls) = marking(
+            "absent",
+            BEN,
+            0,
+            r#"{"metadata":{"squad.mkt.lead":"true"}}"#,
+        );
+        assert!(outcome.unwrap(), "an absent entry is written");
+        let sets = calls
+            .lines()
+            .filter(|line| line.starts_with("identity meta set"))
+            .collect::<Vec<_>>();
+        assert_eq!(sets.len(), 1, "exactly one write: {calls}");
+        assert!(
+            sets[0].starts_with("identity meta set user true --identity ben-id"),
+            "the write marks the recorded identity: {}",
+            sets[0]
+        );
+        for kept in [
+            r#"{"metadata":{"user":"true"}}"#,
+            r#"{"metadata":{"user":"false"}}"#,
+        ] {
+            let (outcome, calls) = marking("present", BEN, 0, kept);
+            assert!(
+                !outcome.unwrap(),
+                "an existing value is the person's choice: {kept}"
+            );
+            assert!(
+                !calls.contains("identity meta set"),
+                "nothing written for {kept}: {calls}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_identity_or_a_full_metadata_table_is_never_written() {
+        let (outcome, calls) = marking("unknown", UNKNOWN, 3, r#"{"metadata":{}}"#);
+        assert!(
+            !outcome.unwrap(),
+            "an identity core does not know is not marked"
+        );
+        assert!(
+            !calls.contains("identity meta"),
+            "no metadata call at all: {calls}"
+        );
+        let full = format!(
+            r#"{{"metadata":{{{}}}}}"#,
+            (0..crate::membership::METADATA_ENTRY_LIMIT)
+                .map(|n| format!(r#""k{n}":"v""#))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let (outcome, calls) = marking("full", BEN, 0, &full);
+        assert!(!outcome.unwrap(), "a table at its limit is left alone");
+        assert!(
+            !calls.contains("identity meta set"),
+            "no write at the limit: {calls}"
+        );
     }
 
     #[test]

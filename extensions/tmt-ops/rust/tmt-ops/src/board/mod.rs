@@ -1374,6 +1374,9 @@ pub fn run(
     let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
         Config::load(&core)
     })?;
+    // The recorded user is marked as a person in Core off the screen's path.
+    let marker = core.clone();
+    std::thread::spawn(move || crate::me::mark_recorded_user(&marker));
     let (preference, startup_notice) = config.startup_tab();
     let cold_tab = view_state::startup_destination(startup_tab, preference, resume.is_some());
     if cold_tab.is_some()
