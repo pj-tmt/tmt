@@ -11,6 +11,7 @@ mod tests;
 pub const SCHEMA_VERSION: u32 = schema::CURRENT_VERSION;
 use crate::{Result, keyring::Layout, limits};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+pub use schema::backup_path;
 use sha2::{Digest, Sha256};
 use std::{
     sync::Arc,
@@ -57,7 +58,10 @@ pub enum Fault {
     StaleCheckpoint,
     ResyncRequired,
     OutdatedSchema(u32),
-    UnsupportedSchema(u32),
+    /// The store's schema, and the newest pre-update copy this build can open when one exists.
+    UnsupportedSchema(u32, Option<std::path::PathBuf>),
+    /// The copy taken before a migration could not be written; nothing was migrated.
+    Backup(std::io::Error),
     Gap,
     Conflict,
     Capacity,
@@ -71,7 +75,17 @@ impl std::fmt::Display for Fault {
             Self::OutdatedSchema(_) => {
                 f.write_str("This space was saved by an older Colab service.")
             }
-            Self::UnsupportedSchema(_) => f.write_str("This space was saved by a newer Colab."),
+            Self::UnsupportedSchema(_, None) => {
+                f.write_str("This space was saved by a newer Colab.")
+            }
+            Self::UnsupportedSchema(_, Some(copy)) => write!(
+                f,
+                "This space was saved by a newer Colab. To use this version, stop the Colab service and put the copy from before that update, {}, back as space.db.",
+                copy.display()
+            ),
+            Self::Backup(_) => f.write_str(
+                "The copy of this space taken before updating it could not be written; nothing changed.",
+            ),
             _ => write!(f, "{self:?}"),
         }
     }
@@ -80,14 +94,15 @@ impl Fault {
     pub fn code(&self) -> Option<&'static str> {
         match self {
             Self::OutdatedSchema(_) => Some("COLAB_STORE_OUTDATED"),
-            Self::UnsupportedSchema(_) => Some("COLAB_STORE_NEWER"),
+            Self::UnsupportedSchema(..) => Some("COLAB_STORE_NEWER"),
+            Self::Backup(_) => Some("COLAB_STORE_BACKUP_FAILED"),
             _ => None,
         }
     }
     pub fn next(&self) -> Option<&'static [&'static str]> {
         match self {
             Self::OutdatedSchema(_) => Some(&["tmt colab stop", "tmt colab serve --background"]),
-            Self::UnsupportedSchema(_) => Some(&["tmt upgrade"]),
+            Self::UnsupportedSchema(..) => Some(&["tmt upgrade"]),
             _ => None,
         }
     }
@@ -96,13 +111,16 @@ impl Fault {
             Self::OutdatedSchema(_) => {
                 Some("Run tmt colab stop, then tmt colab serve --background.")
             }
-            Self::UnsupportedSchema(_) => Some("Run tmt upgrade, then try again."),
+            Self::UnsupportedSchema(..) => Some("Run tmt upgrade, then try again."),
+            Self::Backup(_) => Some(
+                "Free disk space or fix the permissions of the Colab data folder, then try again.",
+            ),
             _ => None,
         }
     }
     pub fn schema_versions(&self) -> Option<(u32, u32)> {
         match self {
-            Self::OutdatedSchema(version) | Self::UnsupportedSchema(version) => {
+            Self::OutdatedSchema(version) | Self::UnsupportedSchema(version, _) => {
                 Some((*version, schema::CURRENT_VERSION))
             }
             _ => None,
@@ -114,6 +132,7 @@ impl std::error::Error for Fault {
         match self {
             Self::Clock(error) => Some(error.as_ref()),
             Self::Sql(error) => Some(error),
+            Self::Backup(error) => Some(error),
             _ => None,
         }
     }
