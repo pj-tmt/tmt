@@ -172,6 +172,15 @@
   background: var(--tmt-ui-surface-mention-agent);
   font-size: 12px;
 }
+button.shell-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .shell-open {
   display: inline-block;
   margin-top: 22px;
@@ -285,4 +294,39 @@
   .shell-counts button {
     transition: opacity 120ms;
   }
+}
+
+/* A chapter opened beside the shell, in the app's one drawer. */
+.shell-panel {
+  display: grid;
+  gap: 24px;
+}
+.shell-panel p {
+  margin: 0;
+}
+.shell-panel-needs {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.shell-panel-needs li {
+  display: grid;
+  gap: 6px;
+  padding: 16px 0;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+}
+.shell-panel-needs li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.shell-panel-latest {
+  display: grid;
+  gap: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+}
+.shell-panel .shell-open {
+  margin-top: 0;
+  justify-self: start;
 }

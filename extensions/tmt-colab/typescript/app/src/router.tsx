@@ -20,6 +20,7 @@ import { shortPageId, validPagePrefix } from './short-links.js';
 import {
   ownerPageHint,
   ownerReadingHref,
+  openSearch,
   pageSearch,
   splitPageHint,
   type PageHint,
@@ -809,7 +810,10 @@ function PageFrame() {
 const page = createRoute({
   getParentRoute: () => root,
   path: '/pages/$pageId',
-  validateSearch: pageSearch,
+  validateSearch: (search: Record<string, unknown>) => ({
+    ...pageSearch(search),
+    ...openSearch(search),
+  }),
   beforeLoad: () => markOpen(openMarks.start),
   loader: ({ context, params, abortController }) =>
     context.transport.page(params.pageId, abortController.signal),

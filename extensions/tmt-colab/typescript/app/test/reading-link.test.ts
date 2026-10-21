@@ -1,7 +1,8 @@
-import { expect, it } from 'vite-plus/test';
+import { describe, expect, it } from 'vite-plus/test';
 import {
   ownerPageHint,
   ownerReadingHint,
+  openSearch,
   ownerReadingHref,
   pageSearch,
 } from '../src/reading-link.js';
@@ -79,4 +80,15 @@ it('refuses an anchor hint with extra, duplicate or mixed parameters', () => {
     owner.replace('/ext/colab/', '/ext/colab/read') + '&anchor=decisions',
   ])
     expect(ownerPageHint(new URL(link), space, page)).toBeUndefined();
+});
+
+describe('openSearch', () => {
+  const id = '10000000-0000-4000-8000-0000000000a1';
+  it('keeps one page ID and drops anything else', () => {
+    expect(openSearch({ open: id })).toEqual({ open: id });
+    expect(openSearch({ open: 'plan' })).toEqual({});
+    expect(openSearch({ open: [id] })).toEqual({});
+    expect(openSearch({ open: `${id}&x=1` })).toEqual({});
+    expect(openSearch({})).toEqual({});
+  });
 });

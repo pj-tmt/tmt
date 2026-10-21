@@ -1,9 +1,10 @@
-import { getRouteApi } from '@tanstack/react-router';
+import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useHomeSpace } from './home-space.js';
 import { ReadingDetailsQueue, type ReadingDetails } from './reading-details.js';
 import type { Shell } from './shell.js';
 import { shellCells } from './shell-grid.js';
+import { ChapterPanel } from './shell-panel.js';
 import { detailPageIds, shellModel, startOfDay } from './shell-model.js';
 import {
   ShellChapter,
@@ -15,9 +16,13 @@ import {
 } from './shell-sections.js';
 import { text } from './strings.js';
 import type { SpaceHome } from './transport.js';
+import { withViewTransition } from './view-transition.js';
 import './shell-page.css';
 
 const rootRoute = getRouteApi('__root__');
+const pageRoute = getRouteApi('/pages/$pageId');
+/** From this width a chapter opens beside the shell; narrower, it goes straight to its page. */
+const WIDE = '(min-width: 900px)';
 const t = text.shellPage;
 
 /** The shell page: the app owns the whole look, the document only supplies the data. Every number,
@@ -87,6 +92,17 @@ function useChapterDetails(pageIds: readonly string[]): ReadonlyMap<string, Read
   return details;
 }
 
+function useWide(): boolean {
+  const [wide, setWide] = useState(() => window.matchMedia(WIDE).matches);
+  useEffect(() => {
+    const query = window.matchMedia(WIDE);
+    const change = () => setWide(query.matches);
+    query.addEventListener('change', change);
+    return () => query.removeEventListener('change', change);
+  }, []);
+  return wide;
+}
+
 function ShellBody({ shell, home, failed }: { shell: Shell; home: SpaceHome; failed: boolean }) {
   const { pages, hints } = useHomeSpace(home);
   const [now] = useState(() => Date.now());
@@ -105,6 +121,33 @@ function ShellBody({ shell, home, failed }: { shell: Shell; home: SpaceHome; fai
   const model = useMemo(() => shellModel(cells, details, now), [cells, details, now]);
   const byId = useMemo(() => new Map(pages.map((page) => [page.id, page])), [pages]);
   const root = useRef<HTMLDivElement>(null);
+  const wide = useWide();
+  const navigate = useNavigate();
+  const { open } = pageRoute.useSearch();
+  const opened = wide ? model.chapters.find((chapter) => chapter.pageId === open) : undefined;
+  // The panel is a history entry of its own, so Back closes it and a reload or a pasted link opens
+  // it again. Closing a panel this window opened steps back to the entry before it; one that arrived
+  // by link only drops the parameter.
+  const pushed = useRef(false);
+  const openPanel = (pageId: string) => {
+    pushed.current = true;
+    void withViewTransition(() =>
+      navigate({ to: '.', search: (previous) => ({ ...previous, open: pageId }) }),
+    );
+  };
+  const closePanel = () =>
+    void withViewTransition(() => {
+      if (pushed.current) {
+        pushed.current = false;
+        window.history.back();
+        return;
+      }
+      return navigate({
+        to: '.',
+        search: (previous) => ({ ...previous, open: undefined }),
+        replace: true,
+      });
+    });
 
   // Coming back from a page restores focus to the chapter's title; the browser restores the scroll.
   useEffect(() => {
@@ -153,6 +196,7 @@ function ShellBody({ shell, home, failed }: { shell: Shell; home: SpaceHome; fai
                 now={now}
                 today={today}
                 onOpen={remember(chapter.pageId)}
+                onPanel={wide ? openPanel : undefined}
               />
             ))}
           </ol>
@@ -166,6 +210,15 @@ function ShellBody({ shell, home, failed }: { shell: Shell; home: SpaceHome; fai
             onOpen={() => undefined}
           />
           <ShellUnavailable count={model.unavailable.length} />
+          {opened && (
+            <ChapterPanel
+              chapter={opened}
+              details={details.get(opened.pageId)}
+              now={now}
+              onDismiss={closePanel}
+              onOpen={remember(opened.pageId)}
+            />
+          )}
         </>
       )}
     </div>

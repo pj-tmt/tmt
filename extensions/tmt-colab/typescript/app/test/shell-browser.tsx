@@ -235,7 +235,8 @@ export function mount(kind: ShellCase = 'full') {
           return { pageId: id, state: 'pending' };
         }
       : undefined;
-  location.hash = `/pages/${SHELL}`;
+  // A reload keeps the address it had, so a panel in the URL opens again.
+  if (!location.hash) location.hash = `/pages/${SHELL}`;
   const router = createAppRouter({
     backendName: 'Fixture device',
     ...(readingDetails ? { readingDetails } : {}),
