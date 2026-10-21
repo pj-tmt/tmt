@@ -45,6 +45,57 @@ function everyTable(sandbox: Sandbox) {
 }
 
 describe('public local extension API', () => {
+  it('pins consumption.history batches of one refresh to one cut and refuses stale, future or unaligned cuts', async () => {
+    await withSandbox(async (sandbox) => {
+      const first = await identity(sandbox, 'Meter A');
+      const second = await identity(sandbox, 'Meter B');
+      const ask = (identityId: string, extra: Record<string, unknown> = {}) =>
+        api(sandbox, 'consumption.history', {
+          identityIds: [identityId],
+          windowsMs: [60000],
+          ...extra,
+        });
+      // The first batch reports the cut it used, a multiple of five seconds.
+      const unpinned = await ask(first);
+      expect(unpinned.status).toBe(0);
+      const cut = unpinned.body.throughMs as number;
+      expect(cut % 5000).toBe(0);
+      expect(unpinned.body.asOfMs).toBeGreaterThanOrEqual(cut);
+      // Later batches of the same refresh end at that cut, whatever the clock says.
+      const pinned = await ask(second, { throughMs: cut });
+      expect(pinned.status).toBe(0);
+      expect(pinned.body.throughMs).toBe(cut);
+      expect(pinned.body.asOfMs).toBeGreaterThanOrEqual(unpinned.body.asOfMs);
+      expect(pinned.body.identities[0].windows[0]).toMatchObject({
+        windowMs: 60000,
+        toMs: cut,
+        fromMs: cut - 60000,
+      });
+      expect(pinned.body.identities[0].windows[0].toMs).toBe(
+        unpinned.body.identities[0].windows[0].toMs
+      );
+      // An earlier cut within a minute is a cut like any other.
+      const earlier = await ask(second, { throughMs: cut - 5000 });
+      expect(earlier.status).toBe(0);
+      expect(earlier.body.throughMs).toBe(cut - 5000);
+      // A pin is one refresh's cut, not a historical query or a future one.
+      for (const bad of [
+        cut + 3_600_000, // in the future
+        cut - 70_000, // older than a minute before the read
+        cut - 1, // not aligned to the 5-second resolution
+        cut + 1,
+        -5000,
+        1.5,
+        '5000',
+        null,
+      ]) {
+        const refused = await ask(second, { throughMs: bad });
+        expect(refused.status, JSON.stringify(bad)).toBe(1);
+        expect(refused.body.error.code).toBe('API_INPUT_INVALID');
+      }
+    });
+  });
+
   it('reads recent pane output by UUID without renewing or acknowledging anything', async () => {
     await withSandbox(async (sandbox) => {
       const id = await identity(sandbox, 'Recent');
