@@ -1121,6 +1121,78 @@ renameSync(output+'.tmp',output);
     });
   });
 
+  it('keeps a dragged chat selection and its Quote button while the sent line ticks', async () => {
+    await withE2EFixture(async (fixture) => {
+      await squadWithMember(fixture);
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('quote-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'tmt ops ui --squad product; echo QUOTE_BOARD_EXIT=$?',
+        'Enter',
+      ]);
+      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('⏎ to message auth-fix'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'hello there']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture((screen) => /\bsent\b/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+
+      const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
+      const where = (needle: string) => {
+        const rows = screen().split('\n');
+        const y = rows.findIndex((row) => row.includes(needle));
+        expect(y, `${needle} on screen`).toBeGreaterThanOrEqual(0);
+        return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
+      };
+      // Pointer reports as the terminal sends them: press, motion with the button held, release.
+      const pointer = (code: number, final: 'M' | 'm', x: number, y: number) =>
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          shell.pane,
+          '-l',
+          `\u001b[<${code};${x + 1};${y + 1}${final}`,
+        ]);
+      const age = () => /Ben → auth-fix\s+(\d+)s ago/.exec(screen())?.[1];
+
+      const text = where('hello there');
+      pointer(0, 'M', text.x, text.y);
+      pointer(32, 'M', text.x + 'hello there'.length, text.y);
+      pointer(0, 'm', text.x + 'hello there'.length, text.y);
+      await fixture.waitForCapture((current) => current.includes('+ Quote'), shell.pane);
+
+      // The exchange stamp repaints the pane while the selection stands.
+      const seen = age();
+      expect(seen, 'the sent exchange shows its age').toBeDefined();
+      await fixture.waitFor(() => age() !== seen, 15_000, 'the age line ticked');
+      expect(screen(), 'the button survived the repaint').toContain('+ Quote');
+
+      const button = where('+ Quote');
+      pointer(0, 'M', button.x + 1, button.y);
+      pointer(0, 'm', button.x + 1, button.y);
+      await fixture.waitForCapture((current) => /hello there\s+×/.test(current), shell.pane);
+
+      // Leave the draft, then the search filter, before quitting.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((current) => current.includes('Nothing sent.'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((current) => !current.includes('Esc clear filter'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture((current) => current.includes('QUOTE_BOARD_EXIT=0'), shell.pane);
+    });
+  });
+
   it('closes a --popup board after its jump and keeps the pane board open', async () => {
     await withE2EFixture(async (fixture) => {
       const member = await squadWithMember(fixture);

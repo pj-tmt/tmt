@@ -186,7 +186,18 @@ Retained row text alone grants no authority after its membership disappears.
 `board::conversation::source` selects the already rendered conversation and task
 text in place. Mouse-up copies the selected plain text through the configured
 clipboard worker; a failed copy does not prevent quoting. Read-focus Shift+arrows
-extend the selection, `y` copies, and Esc or an outside press clears it. The
+extend the selection, `y` copies, and Esc or an outside press clears it. A task
+field is frozen as the cells it displayed. The transcript changes and scrolls under
+the pointer, so its selection (`source/anchored.rs`) is anchored to transcript
+lines and cell columns instead: a progress tick, new output, a growing input band
+or a scroll keeps the highlight and the button, text out of view is clipped and
+comes back with its line, and a rebuilt transcript finds the line again by its text.
+A drag reads the pointer against the transcript as it is now and, at the pane's
+first or last row, scrolls one line per pointer event, so holding the pointer still
+at the edge does not keep scrolling. The selection ends on Esc, an outside press, a
+new drag, a conversation switch, or when it can no longer be shown: its lines are
+gone, an end's text changed, or a resize re-wrapped the transcript. Quoting never
+depends on the agent's state. The
 `+ Quote` control or Enter adds a literal author/excerpt chip above the input,
 without replacing the draft text or granting request authority. Up from the first
 input line enters that chip row; Left/Right move between chips, `x` or Delete
