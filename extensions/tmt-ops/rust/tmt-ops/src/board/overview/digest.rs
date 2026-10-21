@@ -1,6 +1,6 @@
 //! The existing scoped Digest evidence adapted to reusable metric rows.
 use crate::{
-    board::{app::App, digest_dashboard, key_value},
+    board::{app::App, key_value, savings},
     config::SavingsUnit,
 };
 use ratatui::{Frame, layout::Rect};
@@ -92,7 +92,7 @@ pub(super) fn rows(app: &App, summary: &super::summary::Summary) -> [Metric; 5] 
     };
     let estimate = |unit| {
         let (mut amount, mut coverage, note) =
-            digest_dashboard::savings_value(&summary.savings, summary.window, unit);
+            savings::savings_value(&summary.savings, summary.window, unit);
         // The token row already names missing member coverage. An unreported
         // cost stays a dash; reported quotes keep their own distinct coverage.
         if unit == SavingsUnit::Cost && amount.is_none() {

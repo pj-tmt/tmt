@@ -158,7 +158,10 @@ state only, no squad data or durable preference policy.
   replace it. Explicit alternate memberships retain their scoped projection;
   supplier text, freshness and current-frame hits remain live. Whole optional tracks yield before numeric values
   truncate. Activity retains 24 one-hour cells; narrow details show that strip
-  when it cannot fit in the table. `exchange_matrix` is a reusable content-free
+  when it cannot fit in the table. The unit-aware savings caption and its
+  number/money formatters live in `board::savings`, shared by Agents, Conversation,
+  Overview and this tab; `digest_dashboard` keeps only its own details, and
+  `overview` imports it only in tests. `exchange_matrix` is a reusable content-free
   painter: top five ranked identities with the selection retained, sender rows,
   recipient columns, talk/reply counts only, self/known-none/unknown distinct.
   Hosts keep navigation and effects. Ops quantizes six levels; shared
