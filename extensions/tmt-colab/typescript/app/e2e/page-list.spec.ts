@@ -752,6 +752,39 @@ test('the header scope lists All pages and each project with its counts and need
   await expect(page.getByRole('menuitem', { name: 'Manage projects…' })).toBeVisible();
 });
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`the scope menu mutes its counts with the secondary colour in ${theme}`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    await mount(page);
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await scopeTrigger(page).click();
+    const row = page.getByRole('menuitemradio').nth(1);
+    await expect(row).toHaveText(/design\s*2\s*◆ 1/);
+    // A token no CSS defines leaves the declaration invalid, so the count would inherit the name's
+    // colour; the count must instead be the colour the secondary token has in this theme.
+    const colors = await row.evaluate((element) => {
+      const color = (target: Element) => getComputedStyle(target).color;
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--tmt-ui-color-secondary)';
+      element.append(probe);
+      const secondary = color(probe);
+      probe.remove();
+      return {
+        count: color(element.querySelector('.scope-count')!),
+        name: color(element.querySelector('.scope-name')!),
+        secondary,
+      };
+    });
+    expect(colors.count).toBe(colors.secondary);
+    expect(colors.count).not.toBe(colors.name);
+    await page.screenshot({ path: await capturePath(`3952-scope-menu-${theme}.png`) });
+  });
+}
+
 test('choosing a project scopes the list, the filter chips and the needs-you chip', async ({
   page,
 }) => {
