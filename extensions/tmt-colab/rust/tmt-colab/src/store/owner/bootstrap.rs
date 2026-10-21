@@ -8,6 +8,24 @@ pub(crate) struct MembershipPage {
     pub revision: u64,
     pub more: bool,
 }
+/// A page title as one line of plain display text: control and bidirectional formatting characters
+/// become spaces and runs of whitespace collapse. `None` when nothing is left. The projection's one
+/// definition of displayable, so the catalog and the cards never re-validate a title.
+pub(crate) fn display_title(title: &str) -> Option<String> {
+    let cleaned: String = title
+        .chars()
+        .map(|c| {
+            let bidi = matches!(
+                c,
+                '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+            );
+            if c.is_control() || bidi { ' ' } else { c }
+        })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
 impl OwnerTransaction<'_> {
     pub(crate) fn membership_page(
         &self,
@@ -205,21 +223,21 @@ impl OwnerTransaction<'_> {
     /// The owner's local plaintext title of a page, display-only projection state (#4218). It is
     /// stored only while `expected` is still the page's fingerprint: the one the verified fold that
     /// produced `title` started from, so a page that changed meanwhile (an edit, a membership change,
-    /// an archive or a delete) keeps its old row, or none, until its next fold. A title that is empty,
-    /// over [`crate::limits::PAGE_TITLE_BYTES`] or holds a control character is not stored and removes
-    /// the older row, so every consumer reads only text it can show. Returns whether a row was written.
+    /// an archive or a delete) keeps its old row, or none, until its next fold. The title is stored as
+    /// [`display_title`] makes it; one that is then empty or over [`crate::limits::PAGE_TITLE_BYTES`]
+    /// is not stored and removes the older row, so every consumer reads only text it can show.
+    /// Returns whether a row was written.
     pub fn record_page_title(&mut self, page: &str, expected: &str, title: &str) -> Result<bool> {
         values::generated_id(page).map_err(|_| OwnerFault::Invalid)?;
         if self.page_fingerprint(page)?.as_deref() != Some(expected) {
             return Ok(false);
         }
-        if title.is_empty()
-            || title.len() > crate::limits::PAGE_TITLE_BYTES
-            || title.chars().any(char::is_control)
-        {
+        let Some(title) =
+            display_title(title).filter(|t| t.len() <= crate::limits::PAGE_TITLE_BYTES)
+        else {
             self.drop_page_title(page)?;
             return Ok(false);
-        }
+        };
         let progress = self
             .selected_page_fingerprints(Some(page), false)?
             .remove(page)

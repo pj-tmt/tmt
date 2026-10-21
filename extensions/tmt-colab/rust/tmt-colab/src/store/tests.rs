@@ -570,7 +570,7 @@ mod page_titles {
     }
 
     #[test]
-    fn an_empty_over_long_or_control_title_is_not_stored_and_removes_the_older_row() {
+    fn an_empty_or_over_long_title_is_not_stored_and_removes_the_older_row() {
         let mut t = Titled::new();
         t.edit(1);
         let fingerprint = t.fingerprint();
@@ -581,12 +581,37 @@ mod page_titles {
         assert!(t.record(&fingerprint, "Back"));
         assert!(!t.record(&fingerprint, ""));
         assert_eq!(t.rows(), 0);
-        // A control character (a tab, a newline, a NUL) is not displayable text.
-        for control in ["a\tb", "a\nb", "a\u{0}b", "\u{85}"] {
+        // Nothing displayable is left of a title made only of controls, bidi marks and spaces.
+        for blank in ["  ", "\t\n", "\u{0}\u{85}", " \u{200f}\u{202e} "] {
             assert!(t.record(&fingerprint, "Back"));
-            assert!(!t.record(&fingerprint, control), "{control:?}");
+            assert!(!t.record(&fingerprint, blank), "{blank:?}");
             assert_eq!(t.rows(), 0);
         }
+        // The bound is on the displayed line, not the raw title.
+        assert!(t.record(&fingerprint, &format!(" {longest}\t")));
+    }
+
+    #[test]
+    fn a_title_is_stored_as_one_line_of_plain_display_text() {
+        use crate::store::owner::display_title;
+        assert_eq!(
+            display_title("  Launch\tplan\n"),
+            Some("Launch plan".into())
+        );
+        assert_eq!(
+            display_title("a\u{202e}b\u{1b}[31m"),
+            Some("a b [31m".into())
+        );
+        assert_eq!(
+            display_title("Exact title 🐈"),
+            Some("Exact title 🐈".into())
+        );
+        assert_eq!(display_title(" \u{200f}\n\u{3000}"), None);
+        let mut t = Titled::new();
+        t.edit(1);
+        let fingerprint = t.fingerprint();
+        assert!(t.record(&fingerprint, "\u{202e}Plan\u{202c}\r\n  one  "));
+        assert_eq!(t.titles(), [(TITLED.into(), "Plan one".into())]);
     }
 
     #[test]

@@ -592,6 +592,15 @@ impl Registration {
         self.summary_source = Some(open);
         self
     }
+    /// Folds every page that has no fresh summary or title yet, once, on the background worker: the
+    /// first list read does the same, so the serve starts it, and a store that gained its title
+    /// projection by an upgrade fills without anyone opening the list. Never blocks; without a
+    /// summary source (a test, an offline tool) it does nothing.
+    pub fn start_summaries(&self) {
+        if let Some(open) = &self.summary_source {
+            crate::summary::drain(&self.summaries, open);
+        }
+    }
     pub fn with_save_source(mut self, open: crate::page::save::SourceOpener) -> Self {
         self.save_source = Some(open);
         self

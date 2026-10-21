@@ -4959,7 +4959,7 @@ effective activity is the later of `last_activity_at_ms` and `last_update_at_ms`
 unknown, never old. No command reports the value yet.
 
 Schema 16 adds `page_titles(page, progress, title)`, the owner's local plaintext title projection of an
-active page: one row per page, `title` 1–512 UTF-8 bytes with no control character (any other title is not stored and removes the old row). It is derived only from the owner's
+active page: one row per page, `title` 1–512 UTF-8 bytes of one line of plain text (control and bidirectional formatting characters become spaces and whitespace collapses; a title that is then empty or too long is not stored and removes the old row). It is derived only from the owner's
 own verified fold (a decoder-folded title of a page whose authority is writable), never from
 browser input, and the summary workers are its only writers. A worker captures the page's
 fingerprint before folding and installs the row in an immediate transaction only if the
