@@ -492,3 +492,39 @@ fn input_price_qualification_is_shown_once_by_the_visible_amount() {
         }
     }
 }
+
+#[test]
+fn painted_digest_range_click_uses_the_shared_preferences_save() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = fixture();
+    paint(&mut app, 160, 36);
+    let hit = app
+        .workspace_strip_hits
+        .borrow()
+        .iter()
+        .find(|(_, choice)| matches!(choice, crate::board::app::Choice::TokRange(_)))
+        .unwrap()
+        .0;
+    let effect = app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit.x,
+            row: hit.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    );
+    let Effect::Act(crate::board::app::Request::WorkspacePreferences { expected, next, .. }) =
+        effect
+    else {
+        panic!("Range click must use the workspace preferences writer");
+    };
+    assert_eq!(expected.tok_range, crate::config::TokRange::Day);
+    assert_eq!(next.tok_range, crate::config::TokRange::Week);
+    assert_eq!(
+        app.tok_range(),
+        crate::config::TokRange::Day,
+        "only a confirmed save changes the held preference"
+    );
+}

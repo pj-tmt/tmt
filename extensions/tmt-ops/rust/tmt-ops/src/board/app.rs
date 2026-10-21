@@ -4240,9 +4240,11 @@ impl App {
                 .find(|(area, _)| area.contains((event.column, event.row).into()))
                 .map(|(_, choice)| choice.clone());
             if let Some(choice) = strip {
-                // Scope controls and the savings figure work on every tab that paints them.
-                let visibility = matches!(choice, Choice::SavingsUnit | Choice::ClearSearch)
-                    || matches!(&choice, Choice::Action(action) if matches!(action.verb,
+                // Scope, range and savings controls work on every tab that paints them.
+                let visibility = matches!(
+                    choice,
+                    Choice::SavingsUnit | Choice::ClearSearch | Choice::TokRange(_)
+                ) || matches!(&choice, Choice::Action(action) if matches!(action.verb,
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {
