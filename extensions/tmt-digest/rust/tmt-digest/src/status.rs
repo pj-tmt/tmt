@@ -44,7 +44,7 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
     let prices = lookup.map_or_else(crate::pricing::Resolved::built_in, |lookup| lookup.finish());
     document["pricing"] = prices.document();
     let history = root.and_then(|root| crate::history::Store::open(&root, false).ok().flatten());
-    if let Some(history) = history {
+    if let Some(mut history) = history {
         for (row, observation) in document["members"]
             .as_array_mut()
             .expect("projected rows")

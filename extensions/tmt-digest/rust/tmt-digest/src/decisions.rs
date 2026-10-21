@@ -41,9 +41,9 @@ pub fn execute(since: Since, mode: Mode) -> Result<Value, Error> {
         .map(|rows| rows.into_iter().collect())
         .unwrap_or_default();
     let from = now.saturating_sub(since.window_ms());
-    let store = Store::open(&root, false)?;
+    let mut store = Store::open(&root, false)?;
     let Mode::Report(alternative) = mode else {
-        let decisions = match &store {
+        let decisions = match &mut store {
             Some(store) => store.decisions(from, now)?,
             None => vec![],
         };
@@ -63,7 +63,7 @@ pub fn execute(since: Since, mode: Mode) -> Result<Value, Error> {
             })
         })
         .transpose()?;
-    let (settlements, decisions, coverage) = match &store {
+    let (settlements, decisions, coverage) = match &mut store {
         Some(store) => (
             store.settlements(from, now)?,
             store.decisions(from.saturating_sub(120_000), now.saturating_add(120_000))?,

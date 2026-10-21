@@ -10,6 +10,33 @@ import {
 } from '../support/cli-process.js';
 
 describe('native configuration process boundary', () => {
+  it('keeps concurrent config writes and opaque project data without sibling locks', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.writeFileSync(sandbox.localConfig, '{"future":{"keep":true}}');
+      const edits = [
+        ['preambleEvery', '7'],
+        ['pasteEnterDelayMs', '17'],
+      ] as const;
+      const results = await Promise.all(
+        edits.map(([key, value]) => runCli(sandbox, ['config', 'set', key, value, '--json']))
+      );
+      for (const result of results) {
+        expect(result.status).toBe(0);
+        expect(parseWholeStdout(result)).toEqual({ ok: true });
+      }
+      expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
+        future: { keep: true },
+        $config: { preambleEvery: 7, pasteEnterDelayMs: 17 },
+      });
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+      expect(
+        fs
+          .readdirSync(path.dirname(sandbox.localConfig))
+          .filter((name) => name.endsWith('.tmt-staging') || name.endsWith('.lock'))
+      ).toEqual([]);
+    });
+  });
+
   it('sets every CLI theme base globally while preserving token overrides and opaque keys', async () => {
     await withSandbox(async (sandbox) => {
       fs.mkdirSync(sandbox.globalDir, { recursive: true });
