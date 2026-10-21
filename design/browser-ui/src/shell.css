@@ -1,6 +1,10 @@
 /* The TMT web shell: global rail, optional module menu, then the host's one header (the bar)
    over its main area. Square, flat, 1px rules; the window keeps the only scrollbar. */
 .tmt-ui-shell {
+  /* What stacks above the main area besides the sticky bar: nothing beside the rail, the module
+     menu's tab row on a phone. Hosts subtract it from their viewport-high minimums. */
+  --tmt-ui-module-menu-row-height: 44px;
+  --tmt-ui-shell-lead: 0px;
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
   grid-template-rows: auto 1fr;
@@ -262,6 +266,9 @@
   .tmt-ui-shell {
     display: block;
   }
+  .tmt-ui-shell:not([data-menu='none']) {
+    --tmt-ui-shell-lead: var(--tmt-ui-module-menu-row-height);
+  }
   .tmt-ui-shell-content {
     display: block;
   }
@@ -309,7 +316,7 @@
     position: static;
     display: flex;
     width: auto;
-    height: auto;
+    height: var(--tmt-ui-module-menu-row-height);
     overflow-x: auto;
     border-right: 0;
     border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);

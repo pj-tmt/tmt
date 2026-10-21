@@ -107,6 +107,7 @@ import { SaveConflict, SaveOutcomeUnknown, SaveRefused, saveMessage } from './sa
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
 import { compactOffered } from './page-usage.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
+import { toolbarInset } from './toolbar-inset.js';
 
 /** In-page cards whose controls the floating actions move above, never over. */
 const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
@@ -1712,8 +1713,7 @@ function Page() {
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
       onReadings: onReadingAnchors,
-      viewportInset: () =>
-        (toolbar.current?.offsetHeight ?? 0) + (toolbar.current?.getBoundingClientRect().top ?? 0),
+      viewportInset: () => toolbarInset(toolbar.current),
       onSelection: (_value, quote, rect) => {
         setSelector(quote ?? null);
         currentSelector.current = quote ?? null;

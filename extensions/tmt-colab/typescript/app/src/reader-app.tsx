@@ -12,6 +12,7 @@ import { NoticeCard } from './notice-card.js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mountRenderer, type RenderState } from './renderer.js';
 import { text } from './strings.js';
+import { toolbarInset } from './toolbar-inset.js';
 import type { PageView } from './transport.js';
 import './reader-app.css';
 
@@ -85,8 +86,7 @@ export function ReaderApp({
         setRender(next);
       },
       onLink: requestPageLink,
-      viewportInset: () =>
-        (bar.current?.offsetHeight ?? 0) + (bar.current?.getBoundingClientRect().top ?? 0),
+      viewportInset: () => toolbarInset(bar.current),
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
