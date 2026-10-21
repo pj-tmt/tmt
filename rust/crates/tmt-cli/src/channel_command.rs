@@ -17,7 +17,6 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    host::{CallerEnvironment, Host},
     runtime::{
         RuntimeRegistry,
         channel::{
@@ -111,7 +110,6 @@ fn binding(selector: EnrollmentSelector) -> Result<(ConfigPaths, String), Failur
         EnrollmentSelector::Binding(binding_id) => return Ok((paths, binding_id)),
         EnrollmentSelector::Target(target) => target,
     };
-    let host = Host::for_caller(&CallerEnvironment::current());
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -121,7 +119,7 @@ fn binding(selector: EnrollmentSelector) -> Result<(ConfigPaths, String), Failur
             "Could not open identity storage.",
         )
     })?;
-    let pending = target::resolve(&mut storage, &host, &target).and_then(|observed| {
+    let pending = target::resolve(&mut storage, &target).and_then(|observed| {
         observed.binding.map(|binding| binding.id).ok_or_else(|| {
             Failure::new(
                 "BINDING_NOT_FOUND",

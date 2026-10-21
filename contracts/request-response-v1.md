@@ -379,6 +379,16 @@ migration are unsupported.
 
 ## Talk completion
 
+A global identity name selects its stored UUID and recorded host/server, including
+another approved host or tmux socket. Strict fresh evidence and the existing
+binding reconciliation must verify that recipient; preparation observes it again.
+Missing approval or unreachable host evidence is a reconciliation failure (socket
+access denial retains `TMUX_PERMISSION_DENIED`), with a driver-approval or access
+hint, never an inferred inactive identity. Unknown evidence preserves the binding.
+Pane targets retain their invocation-selected host/server scope. Diagnostic
+`check` shares named recipient resolution; Focus's UUID selector does too, with
+its existing client and host capability gates. Inbox-only delivery needs no host.
+
 `talk <target> <message> [--timeout <time> | --detach] [--json]` waits for the
 shared service's complete final by default. It no longer captures or cleans
 terminal output to determine completion. `send` follows the same semantics.

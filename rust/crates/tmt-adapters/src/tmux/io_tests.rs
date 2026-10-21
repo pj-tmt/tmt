@@ -767,3 +767,93 @@ fn utf8_is_one_client_flag_for_bootstrap_and_keeps_command_local_unset() {
     assert_eq!(calls[0].args.iter().filter(|arg| *arg == "-u").count(), 1);
     assert_eq!(calls[1].args.iter().filter(|arg| *arg == "-u").count(), 2);
 }
+
+#[test]
+fn a_recorded_tmux_server_is_observed_on_its_socket_without_metadata_writes() {
+    use tmt_core::binding::BindingEndpoint;
+    #[derive(Clone, Default)]
+    struct Recorded(std::rc::Rc<ScriptedRunner>);
+    impl CommandRunner for Recorded {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            self.0.execute(request)
+        }
+    }
+    let runner = Recorded::default();
+    for _ in 0..3 {
+        runner.0.push_output(marked_row().into_bytes(), Vec::new());
+    }
+    let server = ServerEvidence {
+        host: tmt_core::host::HostKind::Tmux,
+        server_id: SERVER_ID.into(),
+        socket_path: "/tmp/private.sock".into(),
+        server_pid: 321,
+        server_start_time: "1700000000".into(),
+    };
+    let host = crate::host::Host::for_server_with(&server, runner.clone());
+    let snapshot = host.snapshot(OperationOptions::default());
+    assert_eq!(
+        &runner.0.calls.borrow()[0].args[..4],
+        ["-u", "-S", "/tmp/private.sock", "list-panes"],
+        "a recorded server read must not initialize metadata on the ambient socket"
+    );
+    assert_eq!(snapshot.unwrap().server, server);
+    assert_eq!(
+        host.observe_snapshot(OperationOptions::default())
+            .unwrap()
+            .server,
+        server
+    );
+    let mut session = host.session();
+    session.begin_coordination();
+    assert_eq!(
+        session.current_snapshot(&["%9".into()]).unwrap().server,
+        server
+    );
+    let calls = runner.0.calls.borrow();
+    assert_eq!(calls.len(), 3);
+    for call in calls.iter() {
+        assert_eq!(
+            &call.args[..4],
+            ["-u", "-S", "/tmp/private.sock", "list-panes"]
+        );
+        assert!(!call.args.iter().any(|arg| arg == "set-option"));
+    }
+}
+
+#[test]
+fn selected_socket_failure_never_falls_back_to_or_adopts_an_ambient_server() {
+    for result in [Err(failure(false)), Ok("unmarked server")] {
+        let tmux = Tmux::new(ScriptedRunner::new([result])).on_socket("/tmp/selected.sock");
+        assert!(tmux.snapshot(OperationOptions::default()).is_err());
+        let calls = tmux.runner.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            &calls[0].args[..4],
+            ["-u", "-S", "/tmp/selected.sock", "list-panes"]
+        );
+    }
+}
+
+#[test]
+fn a_selected_server_empty_scope_reads_no_panes_or_metadata_writes() {
+    let runner = ScriptedRunner::default();
+    runner.push_output(marked_row().into_bytes(), Vec::new());
+    let tmux = Tmux::new(runner).on_socket("/tmp/private.sock");
+    let snapshot = tmux
+        .snapshot(OperationOptions {
+            pane_ids: Some(&[]),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        snapshot.panes.is_empty(),
+        "an empty scope must not enumerate the server"
+    );
+    assert_eq!(snapshot.server.server_id, SERVER_ID);
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        &calls[0].args[..4],
+        ["-u", "-S", "/tmp/private.sock", "display-message"]
+    );
+}

@@ -639,15 +639,18 @@ name `all` is an ordinary identity; it is not a special destination. Use
 `tmt add <pane-target> <global-name>`.
 
 Names are unique across servers sharing the same local TMT database.
-On tmux, global `ls` can observe recorded bindings on other servers; `talk` and
-`check` route only to the current tmux server. Listing is not routing permission.
+`talk` and `check` by name select the recorded recipient host and server, then
+verify the current binding there; listing alone is not routing permission.
+An unavailable or unapproved driver, or an unreachable server, refuses with its
+host error rather than calling the identity inactive. Review driver approval or
+restore server access as the hint directs; never delete an uncertain binding.
 A `%pane_id` is stable within a server, not unique across servers. Uncertain
 observations preserve bindings; conclusive pane/server death follows the
 temporary/saved lifetime rules, including on other sockets. Binding a foreign live name fails
 with `NAME_ALREADY_ACTIVE` (exit 5); an unverifiable foreign endpoint fails
 with `RECONCILIATION_FAILED` (exit 1). Do not delete the binding to bypass an
 uncertain check. Rebinding a proven stale endpoint retains its identity and
-profile; no cross-server routing or daemon is provided.
+profile. Pane targets remain scoped to their selected host/server; no daemon is provided.
 
 Invalid metadata is not active presence; do not delete durable data or old files
 to repair it. Direct pane targeting remains separate from identity discovery.
