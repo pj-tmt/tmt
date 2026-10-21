@@ -3,11 +3,24 @@ import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { AgentChip } from './components/agent-chip.js';
 import { compactRelativeTime } from './display-time.js';
 import { pageLinkKey } from './page-link.js';
-import type { ReadingDetails } from './reading-details.js';
+import type { LatestComment, ReadingDetails } from './reading-details.js';
 import type { Chapter } from './shell-model.js';
 import { text } from './strings.js';
 
 const t = text.shellPage;
+
+function LatestBlock({ latest, now }: { latest: LatestComment; now: number }) {
+  return (
+    <div className="shell-panel-latest">
+      <p className="shell-passage-lead">{t.latest}</p>
+      <p className="shell-passage-text">{latest.text}</p>
+      <p className="shell-passage-meta">
+        {latest.who && <>{latest.who} · </>}
+        {compactRelativeTime(latest.atMs, now)}
+      </p>
+    </div>
+  );
+}
 
 /** A chapter opened beside the shell: everything its page lists that needs the owner, in the order
  * the page ranks it, then its latest comment, as text. Nothing here changes anything; each line
@@ -70,7 +83,7 @@ export function ChapterPanel({
                 </p>
                 <p className="shell-passage-title">{need.title}</p>
                 {need.why && <p className="shell-passage-why">{need.why}</p>}
-                {need.kind === 'reading' && (
+                {need.kind === 'reading' ? (
                   <Link
                     className="shell-open"
                     to="/pages/$pageId"
@@ -81,31 +94,30 @@ export function ChapterPanel({
                   >
                     {t.openPassage}
                   </Link>
+                ) : (
+                  <Link
+                    className="shell-open"
+                    to="/pages/$pageId"
+                    params={{ pageId: chapter.pageId }}
+                    search={chapter.anchor === undefined ? undefined : { anchor: chapter.anchor }}
+                    onClick={onOpen}
+                    onKeyDown={pageLinkKey}
+                  >
+                    {chapter.anchor === undefined ? t.openOnPage : t.openPassage}
+                  </Link>
                 )}
               </li>
             ))}
           </ol>
         ) : latest ? (
-          <div className="shell-panel-latest">
-            <p className="shell-passage-lead">{t.latest}</p>
-            <p className="shell-passage-text">{latest.text}</p>
-            <p className="shell-passage-meta">
-              {latest.who && <>{latest.who} · </>}
-              {compactRelativeTime(latest.atMs, now)}
-            </p>
-          </div>
+          <LatestBlock latest={latest} now={now} />
         ) : (
           <p className="shell-passage-note">
             {chapter.passage.kind === 'note' ? chapter.passage.note : t.panelNothing}
           </p>
         )}
-        {needs.length > 0 && latest && (
-          <div className="shell-panel-latest">
-            <p className="shell-passage-lead">{t.latest}</p>
-            <p className="shell-passage-text">{latest.text}</p>
-          </div>
-        )}
-        {chapter.anchor !== undefined && (
+        {needs.length > 0 && latest && <LatestBlock latest={latest} now={now} />}
+        {needs.length === 0 && chapter.anchor !== undefined && (
           <Link
             className="shell-open"
             to="/pages/$pageId"

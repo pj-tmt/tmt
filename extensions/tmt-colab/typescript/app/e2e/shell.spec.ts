@@ -193,6 +193,12 @@ test.describe('a chapter opens in a panel beside the shell from 900 px', () => {
       'Review the release scope',
       'Decide the scope',
     ]);
+    // Every waiting item has its own action: the reading opens its passage, the others the page.
+    const items = panel(page).locator('.shell-panel-needs li');
+    for (let index = 0; index < (await items.count()); index += 1)
+      await expect(items.nth(index).getByRole('link')).toHaveCount(1);
+    await expect(items.first().getByRole('link')).toHaveText(text.shellPage.openOnPage);
+    await expect(items.nth(1).getByRole('link')).toHaveText(text.shellPage.openPassage);
     await expect(
       panel(page).getByRole('link', { name: text.shellPage.openFullPage }),
     ).toHaveAttribute('href', new RegExp(`/#/pages/${PLAN}$`));
