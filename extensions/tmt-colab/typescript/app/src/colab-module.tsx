@@ -16,7 +16,7 @@ import { hostInShell } from './entry.js';
 import { previewTransport } from './local-pages.js';
 import { MountedApp } from './mounted-app.js';
 import { UnsupportedBrowserNotice } from './notice-card.js';
-import { createAppRouter } from './router.js';
+import { createAppRouter, shellLocation } from './router.js';
 
 /** The paired mount the composed shell names for Colab, or null for the local preview. */
 function pairedMount(slot: ShellSlot): URL | null {
@@ -53,6 +53,7 @@ export async function mount(slot: ShellSlot): Promise<() => void> {
   }
   const paired = pairedMount(slot);
   hostInShell(paired);
+  shellLocation();
   slot.setTitle('Colab');
   root.render(
     <StrictMode>

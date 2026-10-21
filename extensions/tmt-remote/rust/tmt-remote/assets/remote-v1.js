@@ -2637,6 +2637,26 @@ function matchRoute(routes, pathname) {
 	}
 	return best;
 }
+/** The rail as this app shows it: `route`'s module lit, every item linking to the app's own route
+* for it rather than to a module's mount. */
+function appRail(answer, routes, place, route) {
+	const rail = shellRail(answer, place, route && route.rail !== "home" && route.rail !== "settings" ? {
+		extension: route.rail,
+		rail: {
+			label: route.rail,
+			icon: "box",
+			path: `${place.origin}${route.paths.at(-1)}`,
+			order: 0
+		},
+		menu: [],
+		settings: []
+	} : void 0);
+	for (const item of [...rail.main, ...rail.bottom]) {
+		const owner = routes.find((candidate) => candidate.rail === item.id);
+		if (owner && item.id !== "home") item.href = `${place.origin}${owner.paths.at(-1)}`;
+	}
+	return rail;
+}
 /**
 * Start the one app in `root`, a `.tmt-ui-shell` element holding `.tmt-ui-shell-content` with
 * `.tmt-ui-shell-bar` and `.tmt-ui-shell-main`. A route the host does not own is a full load.
@@ -2659,29 +2679,10 @@ function startShellHost(root, routes, options = {}) {
 		href: window.location.href.split(/[?#]/)[0]
 	});
 	/** The rail links to this app's routes, not to a module's own mount. */
-	const view = () => {
-		const route = current?.route;
-		const host = route && route.rail !== "home" && route.rail !== "settings" ? {
-			extension: route.rail,
-			rail: {
-				label: route.rail,
-				icon: "box",
-				path: `${place().origin}${route.paths.at(-1)}`,
-				order: 0
-			},
-			menu: [],
-			settings: []
-		} : void 0;
-		const rail = shellRail(answer, place(), host);
-		for (const item of [...rail.main, ...rail.bottom]) {
-			const owner = routes.find((candidate) => candidate.rail === item.id);
-			if (owner && item.id !== "home") item.href = `${place().origin}${owner.paths.at(-1)}`;
-		}
-		return {
-			rail,
-			menu
-		};
-	};
+	const view = () => ({
+		rail: appRail(answer, routes, place(), current?.route),
+		menu
+	});
 	const controls = mountShell(root, view(), (id, href) => {
 		if (select?.(id, href)) return true;
 		return go(href);
@@ -3731,8 +3732,18 @@ var started;
 /** Start the app once in the served shell document. */
 function shellApp() {
 	const root = document.querySelector(".tmt-ui-shell");
-	if (!root || started) return started;
+	if (!root || started || root.dataset.tmtRail) return started;
 	applyStoredTheme();
+	if (document.documentElement.dataset.tmtPage === "pair") {
+		root.dataset.tmtRail = "static";
+		const place = {
+			origin: location.origin,
+			href: location.href.split(/[?#]/)[0]
+		};
+		const remote = routes.find((route) => route.id === "remote");
+		mountShell(root, { rail: appRail(rememberedShellAnswer(), routes, place, remote) });
+		return;
+	}
 	started = startShellHost(root, routes, { failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
 		className: "page",
 		textContent: "This page could not load. Reload to try again."

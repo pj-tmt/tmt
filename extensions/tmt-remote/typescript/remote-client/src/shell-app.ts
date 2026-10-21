@@ -3,13 +3,18 @@
  * router. Remote's own pages are route modules here; Colab is loaded lazily from its own mount.
  */
 import {
+  appRail,
   startShellHost,
   type ShellHost,
   type ShellRoute,
   type ShellRouteModule,
   type ShellSlot,
 } from '../../../../../design/browser-ui/src/shell-host.js';
-import type { ShellAnswer } from '../../../../../design/browser-ui/src/shell.js';
+import {
+  mountShell,
+  rememberedShellAnswer,
+  type ShellAnswer,
+} from '../../../../../design/browser-ui/src/shell.js';
 import home from '../../../rust/tmt-remote/assets/home.html?raw';
 import landing from '../../../rust/tmt-remote/assets/landing.html?raw';
 import settings from '../../../rust/tmt-remote/assets/settings.html?raw';
@@ -197,8 +202,17 @@ let started: ShellHost | undefined;
 /** Start the app once in the served shell document. */
 export function shellApp(): ShellHost | undefined {
   const root = document.querySelector<HTMLElement>('.tmt-ui-shell');
-  if (!root || started) return started;
+  if (!root || started || root.dataset.tmtRail) return started;
   applyStoredTheme();
+  if (document.documentElement.dataset.tmtPage === 'pair') {
+    // Pairing stays its own document (its bootstrap erases the code before any other script), so
+    // it shows the rail only; its links load the app's routes.
+    root.dataset.tmtRail = 'static';
+    const place = { origin: location.origin, href: location.href.split(/[?#]/)[0]! };
+    const remote = routes.find((route) => route.id === 'remote');
+    mountShell(root, { rail: appRail(rememberedShellAnswer(), routes, place, remote) });
+    return undefined;
+  }
   started = startShellHost(root, routes, {
     failed: (main) =>
       main.replaceChildren(

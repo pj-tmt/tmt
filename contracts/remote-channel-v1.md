@@ -152,7 +152,7 @@ fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET
 build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
 the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
 identity and the mounted extension that contains `path`, including a valid enabled public short
-entry in the same Remote-owned table, or null. It
+entry in the same Remote-owned table or a web app route named for the extension (`/colab/…`), or null. It
 scopes honest use, such as which extension a page certifies keys for, and is not a security
 boundary: mounted extensions share one browser trust domain and only owner-installed extensions
 mount. None of these routes reads the door cookie or grants authority.

@@ -490,6 +490,20 @@ impl Mounts {
                 self.public_extension(path)
                     .map(|(extension, _)| (extension.name, self.mount(extension)))
             })
+            .or_else(|| {
+                // A route of the one web app named for a mounted extension (`/colab/...`): the
+                // page the extension's module renders in.
+                let bare = path.split(['?', '#']).next().unwrap_or(path);
+                let name = bare.strip_prefix('/')?.split('/').next()?;
+                crate::pages::app_route(bare)
+                    .then(|| {
+                        self.extensions
+                            .iter()
+                            .find(|extension| extension.name == name)
+                    })
+                    .flatten()
+                    .map(|extension| (extension.name, self.mount(extension)))
+            })
     }
     /// Recognized entry families, including malformed IDs which receive page refusals.
     pub fn short_route(path: &str) -> bool {

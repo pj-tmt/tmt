@@ -5,7 +5,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 import { hostInShell } from '../src/entry.js';
 import { mount as mountColab } from '../src/colab-module.js';
-import { createAppRouter } from '../src/router.js';
+import { createAppRouter, shellLocation } from '../src/router.js';
 import { localTransport } from '../src/transport.js';
 
 export const space = '10000000-0000-4000-8000-000000000001';
@@ -33,6 +33,7 @@ export function mountAt(url: string) {
   document.body.append(host);
   history.replaceState(null, '', url);
   hostInShell(null);
+  shellLocation();
   const transport = localTransport('Colab', [
     { id: pageId, title: 'Original proposal', sharing: 'private' as const, source },
   ]);

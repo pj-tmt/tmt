@@ -240,8 +240,8 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
             "mount": colab,
         })
     );
-    // `/colab` and `/p/<id>` are app routes now; the reader is the remaining public entry.
-    for path in ["/read/Z9_-", "/read/aB_0"] {
+    // The reader entry and the Colab routes of the one web app both belong to Colab's mount.
+    for path in ["/read/Z9_-", "/colab", "/colab/", "/colab/pages/x?read=y"] {
         let answer: Value =
             serde_json::from_str(&mount(&h, &json!({"path":path}).to_string(), origin).body)
                 .unwrap();
@@ -258,7 +258,7 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
         &other,
         &bare,
         "/",
-        "/colab/other",
+        "/colab/a.b",
         "/p/abc",
         "/read/abcd/",
         "/p/abcd?next=1",

@@ -2538,9 +2538,10 @@ function Page() {
 /**
  * Inside the TMT app Colab's routes are paths under `/colab/`. Links printed or saved before keep
  * working: the preview's `#/pages/<id>` and an owner fragment's `path=` become the same path, with
- * its reading or anchor hint as search keys.
+ * its reading or anchor hint as search keys. The module runs it before anything reads the location
+ * (the paired bootstrap keeps only a canonical fragment).
  */
-function shellLocation() {
+export function shellLocation() {
   const hash = location.hash.slice(1);
   const fragment = new URLSearchParams(hash);
   const short = /^\/colab\/p\/([A-Za-z0-9_-]{4,64})$/.exec(location.pathname)?.[1];
@@ -2567,7 +2568,6 @@ export function createAppRouter(
   pageIds: readonly { pageId: string; deleted: boolean }[] = [],
 ) {
   let knownPages = pageIds;
-  if (inShell()) shellLocation();
   const history = inShell()
     ? createBrowserHistory()
     : space

@@ -84,6 +84,36 @@ export function matchRoute(routes: readonly ShellRoute[], pathname: string) {
   return best;
 }
 
+/** The rail as this app shows it: `route`'s module lit, every item linking to the app's own route
+ * for it rather than to a module's mount. */
+export function appRail(
+  answer: ShellAnswer | undefined,
+  routes: readonly ShellRoute[],
+  place: { origin: string; href: string },
+  route?: ShellRoute,
+) {
+  const host: ShellModule | undefined =
+    route && route.rail !== 'home' && route.rail !== 'settings'
+      ? {
+          extension: route.rail,
+          rail: {
+            label: route.rail,
+            icon: 'box',
+            path: `${place.origin}${route.paths.at(-1)}`,
+            order: 0,
+          },
+          menu: [],
+          settings: [],
+        }
+      : undefined;
+  const rail = shellRail(answer, place, host);
+  for (const item of [...rail.main, ...rail.bottom]) {
+    const owner = routes.find((candidate) => candidate.rail === item.id);
+    if (owner && item.id !== 'home') item.href = `${place.origin}${owner.paths.at(-1)}`;
+  }
+  return rail;
+}
+
 /**
  * Start the one app in `root`, a `.tmt-ui-shell` element holding `.tmt-ui-shell-content` with
  * `.tmt-ui-shell-bar` and `.tmt-ui-shell-main`. A route the host does not own is a full load.
@@ -115,29 +145,7 @@ export function startShellHost(
     href: window.location.href.split(/[?#]/)[0]!,
   });
   /** The rail links to this app's routes, not to a module's own mount. */
-  const view = () => {
-    const route = current?.route;
-    const host: ShellModule | undefined =
-      route && route.rail !== 'home' && route.rail !== 'settings'
-        ? {
-            extension: route.rail,
-            rail: {
-              label: route.rail,
-              icon: 'box',
-              path: `${place().origin}${route.paths.at(-1)}`,
-              order: 0,
-            },
-            menu: [],
-            settings: [],
-          }
-        : undefined;
-    const rail = shellRail(answer, place(), host);
-    for (const item of [...rail.main, ...rail.bottom]) {
-      const owner = routes.find((candidate) => candidate.rail === item.id);
-      if (owner && item.id !== 'home') item.href = `${place().origin}${owner.paths.at(-1)}`;
-    }
-    return { rail, menu };
-  };
+  const view = () => ({ rail: appRail(answer, routes, place(), current?.route), menu });
   const controls: ShellControls = mountShell(root, view(), (id, href) => {
     if (select?.(id, href)) return true;
     return go(href);

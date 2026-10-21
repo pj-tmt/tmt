@@ -12,8 +12,7 @@ import { binariesBuilt, startIsolatedDoor, type IsolatedDoor } from './isolated-
  * door tests run against a private door: the real tmt-remote and tmt-colab binaries in a throwaway
  * HOME (e2e/isolated-door.ts; build them with `cargo build -p tmt-remote -p tmt-colab`, or set
  * TMT_REMOTE_BINARY and TMT_COLAB_BINARY). TMT_SPA_DOOR_ORIGIN instead points the unpaired checks at
- * a door that is already running. The tests that need a paired browser are expected failures until
- * the pairing page works in the one TMT app (TODO below).
+ * a door that is already running. The paired tests pair through the door's own pairing page.
  */
 const fixture = '/test/spa-links-browser.tsx';
 const space = '10000000-0000-4000-8000-000000000001';
@@ -266,22 +265,16 @@ test.describe('the door serving the TMT app', () => {
   });
 
   test.describe('with a paired browser', () => {
-    // TODO(ux-4 shell): the isolated door's pair() helper drives the pairing page at
-    // /remote/pair#<code> (field #name, then the four words). In the one TMT app that URL shows the
-    // Remote connection page and no pairing form yet, so pairing never completes. Remove the marker
-    // when the pairing form is back; the helper is in e2e/isolated-door.ts.
-    test.beforeEach(() => {
-      test.fail(
-        true,
-        'TODO(ux-4 shell): /remote/pair#<code> shows no pairing form in the one TMT app',
-      );
-    });
-
-    test('the moved Colab mount redirects into /colab/ and keeps its query', async ({ page }) => {
+    test('an old link to the Colab mount opens its page in /colab/ and keeps its keys', async ({
+      page,
+    }) => {
+      // The door refuses a query on mount paths (unchanged), so old owner links carry their keys
+      // in the fragment; the mount's document moves them into the app before reading anything.
+      const id = await door!.createPage('Moved page', '<h1>Moved content</h1>');
       await door!.pair(page);
-      const moved = await page.request.get(`${door!.mount}?read=${reading}`, { maxRedirects: 0 });
-      expect(moved.status()).toBe(308);
-      expect(moved.headers().location).toBe(`/colab/?read=${reading}`);
+      await page.goto(`${door!.mount}#path=${encodeURIComponent(`/pages/${id}`)}&read=${reading}`);
+      await expect.poll(() => here(page)).toBe(`/colab/pages/${id}?read=${reading}`);
+      await expect(page.locator('.colab-route')).toBeVisible();
     });
 
     test('a reload of a page route opens the same page in the TMT app', async ({ page }) => {
