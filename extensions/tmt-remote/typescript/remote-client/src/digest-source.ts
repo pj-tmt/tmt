@@ -3,7 +3,6 @@
  * only on `DigestSource`; the source below is a MOCK until Core exposes a read API for the
  * owner's usage (`tmt digest usage report --json` holds the same facts on the terminal side).
  */
-import { notInBrowser } from './not-available.js';
 export const USAGE_RANGES = ['5m', '1h', '6h', '1d', '7d', '30d'] as const;
 export type UsageRange = (typeof USAGE_RANGES)[number];
 
@@ -65,7 +64,8 @@ export const mockDigestSource: DigestSource = {
 // Needs a Core read of Digest usage served to the owner's browser.
 export const digestSource: DigestSource = {
   async usage(range) {
-    const unavailable = notInBrowser('Usage', 'tmt digest usage report --json');
+    // The terminal board has a Digest tab; a person reads it better than the JSON report.
+    const unavailable = 'Usage is not in the browser yet. Open Digest in `tmt ops ui`.';
     return { range, agents: [], sample: false, unavailable };
   },
 };

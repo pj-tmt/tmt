@@ -30,7 +30,7 @@ it('reads no sample data in the product: the default sources name the terminal c
     const report = await digestSource.usage(range);
     expect(report).toMatchObject({ range, agents: [], sample: false });
     expect(report.unavailable).toBe(
-      'Usage is not in the browser yet. Run `tmt digest usage report --json` in a terminal.',
+      'Usage is not in the browser yet. Open Digest in `tmt ops ui`.',
     );
   }
   const board = await opsSource.board();

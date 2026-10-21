@@ -4901,10 +4901,8 @@ test('Digest and Ops say which read they wait for and show no invented numbers',
     );
     // No browser read of usage yet: the page names the terminal command and shows no rows.
     const usage = page.locator('#usage-note');
-    await expect(usage).toHaveText(
-      'Usage is not in the browser yet. Run tmt digest usage report --json in a terminal.',
-    );
-    await expect(usage.locator('code')).toHaveText('tmt digest usage report --json');
+    await expect(usage).toHaveText('Usage is not in the browser yet. Open Digest in tmt ops ui.');
+    await expect(usage.locator('code')).toHaveText('tmt ops ui');
     await expect(usage.locator('a')).toHaveCount(0);
     await expect(page.getByRole('tab')).toHaveText(['5m', '1h', '6h', '1d', '7d', '30d']);
     await expect(page.locator('#usage-rows tr')).toHaveCount(0);
