@@ -90,7 +90,11 @@ A prompt not read yet or no longer retained keeps its listed preview, marked tru
 `Detail.sent` and render as time-sorted "you" blocks among the finals; a live session entry
 with the same request ID replaces its restored copy, so sends survive an Ops restart and are not
 capped by the session's own list. Request bodies
-load off the UI thread, newest first, one selected read at a time. Finals come from storage
+load off the UI thread on the selected-read lane, newest first, one selected read at a time.
+Until Core has answered for a conversation's exchanges (the agent's own finals read, or the shared
+originator page where there is none) it shows nothing for the first 400 ms, then `Loading
+exchanges…`; "Exchange history unavailable" appears only after a failed read, and never beside
+held messages. Finals come from storage
 alone (`requests.list` and `requests.show`): the originator notification, which is
 `unavailable` for a person with no live pane, and pane output never supply one. A header
 derives its age from `Reply.at_ms` at paint, so a held reply keeps its true age.
