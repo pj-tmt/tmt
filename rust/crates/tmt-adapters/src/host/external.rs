@@ -4,6 +4,7 @@
 //! under the protocol's bounds and checks every answer.
 
 mod caller;
+mod discovery;
 use crate::driver_protocol::registry;
 mod session;
 
@@ -21,8 +22,14 @@ use tmt_driver_protocol::Grammar;
 /// command, and with no registry the only cost is one read attempt. Calling
 /// it twice is a programming error.
 pub fn register_approved() {
-    let grammars = approved()
-        .into_iter()
+    register(&approved());
+}
+
+/// [`register_approved`] for the drivers a command already read, so its
+/// pane-ID syntax is exactly what it may run.
+pub fn register(records: &[registry::DriverRecord]) {
+    let grammars = records
+        .iter()
         .filter_map(|record| {
             Grammar::from_capabilities(record.capabilities.host()?)
                 .ok()
@@ -33,6 +40,26 @@ pub fn register_approved() {
     let registered = tmt_core::host::register_external_hosts(grammars);
     debug_assert!(registered.is_ok(), "external hosts are registered once");
 }
+/// The drivers a command that must not change approvals may run, read once
+/// ([`registry::admitted_read_only`]). Without configuration paths no host
+/// is known.
+pub fn admitted() -> registry::Admitted {
+    admitted_at(ConfigPaths::discover().as_ref())
+}
+
+/// [`admitted`] for the configuration paths a command already resolved.
+pub fn admitted_at(paths: Result<&ConfigPaths, &crate::config::ConfigError>) -> registry::Admitted {
+    match paths {
+        Ok(paths) => {
+            registry::admitted_read_only(&paths.global_dir, std::env::current_exe().ok().as_deref())
+        }
+        Err(error) => registry::Admitted {
+            unreadable: Some(error.to_string()),
+            ..registry::Admitted::default()
+        },
+    }
+}
+
 /// The drivers the user approved, best effort: a registry that can't be
 /// read approves nothing. A first-party driver is the one the running
 /// release ships (`registry::current_first_party`), or none.

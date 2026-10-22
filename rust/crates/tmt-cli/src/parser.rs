@@ -459,7 +459,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             let expect=required(m,"expect");
             if !tmt_core::content_digest::is_sha256(&expect) {return Err("--expect requires a lowercase SHA-256 digest.".into());}
             let pane=required(m,"pane-target");
-            if !tmt_core::host::HostKind::Tmux.is_pane_id(&pane) {return Err("Guarded add requires an exact tmux pane ID.".into());}
+            // Driver syntax is registered after parsing; the command checks it.
+            if !tmt_core::host::HostKind::Tmux.is_pane_id(&pane) && !tmt_core::host::has_pane_id_shape(&pane) {return Err("Guarded add requires an exact pane ID.".into());}
             let identity=text(m,"identity");
             if identity.as_ref().is_some_and(|id|!tmt_core::endpoint::valid_server_id(id) || *id!=id.to_ascii_lowercase()) {return Err("--identity requires a canonical UUID.".into());}
             let name=text(m,"name");

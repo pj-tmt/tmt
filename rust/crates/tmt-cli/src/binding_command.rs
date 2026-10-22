@@ -757,11 +757,105 @@ pub(crate) use presentation::PRINTED_HINTS as PRESENTATION_HINTS;
 #[cfg(test)]
 pub(crate) use session::PRINTED_HINTS as SESSION_HINTS;
 
+/// A pane ID no admitted host reads: tmux's, or an approved driver's
+/// declared syntax. A host whose approval is a gap registers none.
+fn unknown_pane_syntax(admitted: &tmt_adapters::driver_protocol::registry::Admitted) -> Failure {
+    let mut message =
+        String::from("Guarded add requires an exact pane ID of tmux or an approved host driver.");
+    for gap in &admitted.gaps {
+        message.push_str(&format!(
+            " The {} driver is not usable: {}.",
+            gap.name, gap.reason
+        ));
+    }
+    Failure::new("USAGE_ERROR", message, 1)
+}
+
+/// A changed or unverifiable discovered target is drift; anything else is
+/// the endpoint's own failure.
+fn guarded_failure(error: tmt_adapters::host::HostError) -> Failure {
+    match error {
+        error @ tmt_adapters::host::HostError::Evidence { .. } => {
+            Failure::new("PANE_CHANGED", error.to_string(), 3).caused_by(error)
+        }
+        error => endpoint_failure(error),
+    }
+}
+
+/// The guarded add after parsing, on `host`, with the drivers the command
+/// read once. Admission 1 reads only; an external host's server is then
+/// recorded for the fenced incarnation alone, before the binding
+/// transaction admits the target twice more. `partial` turns true once host
+/// effects may have happened.
+fn run_guarded<R: tmt_adapters::process::CommandRunner + Clone>(
+    runner: R,
+    host: tmt_core::host::HostKind,
+    admitted: &tmt_adapters::driver_protocol::registry::Admitted,
+    paths: &ConfigPaths,
+    request: &GuardedRequest<'_>,
+    partial: &mut bool,
+) -> Result<tmt_core::binding::GuardedBoundIdentity, Failure> {
+    use std::time::{Duration, Instant};
+    use tmt_core::binding::{BindingError, GuardedIdentity};
+    let host = match host {
+        tmt_core::host::HostKind::Tmux => {
+            Host::for_caller_with(&CallerEnvironment::admitted(admitted), runner)
+        }
+        external => Host::for_host(external, runner, admitted.records.clone()),
+    };
+    let candidate = tmt_adapters::discovery::guarded_candidate(
+        &host,
+        request.socket,
+        request.pane,
+        &paths.database,
+        request.expect,
+        Instant::now() + Duration::from_secs(2),
+    )
+    .map_err(guarded_failure)?;
+    let mut fence = candidate.fence.expect("admitted native fence");
+    let mut storage = open_storage(paths)?;
+    let result = (|| {
+        if let Some(server_id) = host
+            .resolve_fenced_server(&fence, &mut storage)
+            .map_err(guarded_failure)?
+        {
+            fence.server_id = Some(server_id);
+        }
+        let mut endpoint = host.session().with_discovery_target(fence.clone());
+        let selector = match request.identity {
+            Some(id) => GuardedIdentity::Uuid(id),
+            None => GuardedIdentity::Name(request.name.expect("parser selected name")),
+        };
+        let result =
+            binding::bind_guarded(&mut storage, &mut endpoint, &fence, selector, request.save)
+                .map_err(|error| match error {
+                    BindingError::Partial(error) => {
+                        *partial = true;
+                        binding_failure(*error)
+                    }
+                    error => binding_failure(error),
+                });
+        if result.is_ok() {
+            *partial = true;
+        } // A close failure follows admitted effects.
+        result
+    })();
+    after_cleanup(result, || storage.close())
+}
+
+/// One guarded add, as parsed.
+struct GuardedRequest<'a> {
+    pane: &'a str,
+    name: Option<&'a str>,
+    identity: Option<&'a str>,
+    expect: &'a str,
+    socket: Option<&'a str>,
+    save: bool,
+}
+
 /// Guarded add bypasses optional learning/capture on refusal. It shares the
 /// existing binding/publication policy, with admission before storage creation.
 pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    use std::time::{Duration, Instant};
-    use tmt_core::binding::{BindingError, GuardedIdentity};
     let Invocation::GuardedBind {
         pane,
         name,
@@ -775,49 +869,34 @@ pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> 
     };
     let mut partial = false;
     let outcome: Result<_, Failure> = (|| {
-        // Register approved target syntax in memory before name admission, as
-        // ordinary add does; discovery does not widen driver permissions.
-        tmt_adapters::host::external::register_approved();
+        // One read of the approvals: guarded add never adopts or rewrites
+        // one, and only their syntax is registered, before name admission.
+        let paths = ConfigPaths::discover();
+        let admitted = tmt_adapters::host::external::admitted_at(paths.as_ref());
+        tmt_adapters::host::external::register(&admitted.records);
         if let Some(name) = &name {
             tmt_core::names::validate_name(name)
                 .map_err(|error| Failure::new("USAGE_ERROR", error.to_string(), 1))?;
         }
-        let caller = CallerEnvironment::current();
-        let host = Host::for_caller_with(&caller, tmt_adapters::process::UnixCommandRunner);
-        let paths = ConfigPaths::discover().map_err(Failure::from)?;
-        let candidate = tmt_adapters::discovery::guarded_candidate(
-            &host,
-            socket.as_deref(),
-            &pane,
-            &paths.database,
-            &expect,
-            Instant::now() + Duration::from_secs(2),
-        )
-        .map_err(|error| match error {
-            error @ tmt_adapters::host::HostError::Evidence { .. } => {
-                Failure::new("PANE_CHANGED", error.to_string(), 3).caused_by(error)
-            }
-            error => endpoint_failure(error),
-        })?;
-        let fence = candidate.fence.expect("admitted native fence");
-        let mut storage = open_storage(&paths)?;
-        let mut endpoint = host.session().with_discovery_target(fence.clone());
-        let selector = match identity.as_deref() {
-            Some(id) => GuardedIdentity::Uuid(id),
-            None => GuardedIdentity::Name(name.as_deref().expect("parser selected name")),
+        let host = tmt_core::host::HostKind::of_pane_id(&pane)
+            .ok_or_else(|| unknown_pane_syntax(&admitted))?;
+        let paths = paths.map_err(Failure::from)?;
+        let request = GuardedRequest {
+            pane: &pane,
+            name: name.as_deref(),
+            identity: identity.as_deref(),
+            expect: &expect,
+            socket: socket.as_deref(),
+            save,
         };
-        let result = binding::bind_guarded(&mut storage, &mut endpoint, &fence, selector, save)
-            .map_err(|error| match error {
-                BindingError::Partial(error) => {
-                    partial = true;
-                    binding_failure(*error)
-                }
-                error => binding_failure(error),
-            });
-        if result.is_ok() {
-            partial = true;
-        } // A close failure follows admitted effects.
-        after_cleanup(result, || storage.close())
+        run_guarded(
+            tmt_adapters::process::UnixCommandRunner,
+            host,
+            &admitted,
+            &paths,
+            &request,
+            &mut partial,
+        )
     })();
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     match outcome {
