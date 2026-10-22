@@ -26,6 +26,24 @@ pub const AUTO_CAP_COUNT: u64 = 5;
 /// ...or when the oldest has waited this long. Constants, not settings.
 pub const AUTO_CAP_MS: u64 = 300_000;
 
+/// Starts one `tmt digest tick` now, detached, so a switch change applies without waiting for
+/// the next minute. A tick that is already running exits this one at once, and it re-reads
+/// the settings every second, so either way the change lands. False when none could start.
+pub fn kick(core: &crate::core::Core) -> bool {
+    use std::{
+        os::unix::process::CommandExt,
+        process::{Command, Stdio},
+    };
+    Command::new(core.program())
+        .args(["digest", "tick"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .is_ok()
+}
+
 pub fn now_ms() -> Result<u64, Error> {
     let value = SystemTime::now()
         .duration_since(UNIX_EPOCH)

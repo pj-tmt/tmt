@@ -26,19 +26,23 @@ const ROOT: CommandSpec = CommandSpec {
 
 const GLOBAL: CommandSpec = CommandSpec {
     name: "global",
-    summary: "Set the global default digest mode",
+    summary: "Turn Digest on or off for everyone, or set the global default mode",
     examples: &[
         Example {
-            command: "tmt digest global auto",
-            note: "Members without their own setting use auto",
+            command: "tmt digest global off",
+            note: "Send every message one by one; all stored settings are kept",
+        },
+        Example {
+            command: "tmt digest global on",
+            note: "Batch again with the settings you had",
         },
         Example {
             command: "tmt digest global 10m",
-            note: "Members without their own setting hold messages for up to ten minutes",
+            note: "Set the default to ten minutes and turn Digest on (auto works the same way)",
         },
     ],
     outputs: OutputModes::Human,
-    details: "Saves the mode that every member without its own setting inherits, and records who set it. That person's messages pass the hold of every member that inherits it. A person marked with tmt identity meta set user true already passes every hold and does not need this. Without a caller identity nothing is recorded.",
+    details: "A mode (auto or a duration) saves what every member without its own setting inherits, turns Digest on, and records who set it; that person's messages pass the hold of every member that inherits it. A person marked with tmt identity meta set user true already passes every hold and does not need this. Without a caller identity nothing is recorded. off turns Digest off for everyone: nothing is held or merged, held messages are sent now, and no stored member or default setting changes. on turns it back on with the settings you had. A tick starts now to apply the change without waiting for the next minute. The switch is the enabled key in digest.toml (absent means on).",
 };
 
 const TICK: CommandSpec = CommandSpec {
@@ -131,12 +135,17 @@ pub fn command() -> Command {
         .subcommand(
             tmt_cli_style::command(&GLOBAL).arg(
                 Arg::new("value")
-                    .value_name("DURATION|auto|off")
+                    .value_name("on|off|auto|DURATION")
                     .required(true)
-                    .help("Duration such as 30s, 5m or 1h, or auto or off")
-                    .value_parser(|text: &str| match crate::settings::Mode::parse(text) {
-                        Ok(_) => Ok(text.to_owned()),
-                        Err(error) => Err(error.message),
+                    .help("on or off for everyone, or auto or a duration such as 30s, 5m or 1h")
+                    .value_parser(|text: &str| {
+                        if text == "on" {
+                            return Ok(text.to_owned());
+                        }
+                        match crate::settings::Mode::parse(text) {
+                            Ok(_) => Ok(text.to_owned()),
+                            Err(error) => Err(error.message),
+                        }
                     }),
             ),
         )

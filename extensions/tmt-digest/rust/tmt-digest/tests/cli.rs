@@ -287,6 +287,64 @@ fn the_global_default_records_who_set_it_and_a_missing_caller_is_said_not_hidden
 }
 
 #[test]
+fn global_off_and_on_flip_one_switch_and_keep_every_stored_setting() {
+    use std::os::unix::fs::PermissionsExt;
+    let sandbox = Sandbox::new();
+    let config = sandbox.0.join("config.json");
+    let path = sandbox.0.join("digest.toml");
+    let core = sandbox.0.join("core");
+    // The kicked `digest tick` reaches this stand-in and exits; it touches no state.
+    fs::write(
+        &core,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  'identity show --json') printf '%s\\n' '{{\"identity\":{{\"id\":\"20000000-0000-4000-8000-000000000001\"}}}}' ;;\n  'config show --json') printf '%s\\n' '{{\"paths\":{{\"global\":\"{}\"}}}}' ;;\n  *) exit 9 ;;\nesac\n",
+            config.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&core, fs::Permissions::from_mode(0o700)).unwrap();
+    let run = |words: &[&str]| {
+        support::digest()
+            .args(words)
+            .env("TMT_EXECUTABLE", &core)
+            .env("NO_COLOR", "1")
+            .current_dir(&sandbox.0)
+            .output()
+            .unwrap()
+    };
+    let member = "10000000-0000-4000-8000-000000000001";
+    fs::write(
+        &path,
+        format!("# keep\ndefault = '30m'\n[members.{member}]\nmode = 'auto'\nsetAtMs = 1\n"),
+    )
+    .unwrap();
+    let off = run(&["global", "off"]);
+    assert!(off.status.success(), "{:?}", off.stderr);
+    let message = String::from_utf8(off.stdout).unwrap();
+    assert!(message.contains("Digest is off for everyone"), "{message}");
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("enabled = false"), "{text}");
+    assert!(text.contains("# keep") && text.contains("default = '30m'"));
+    assert!(text.contains("mode = 'auto'"));
+    let on = run(&["global", "on"]);
+    assert!(on.status.success(), "{:?}", on.stderr);
+    let message = String::from_utf8(on.stdout).unwrap();
+    assert!(
+        message.contains("Digest is on (default: every 30m)"),
+        "{message}"
+    );
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("enabled"), "{text}");
+    assert!(text.contains("default = '30m'") && text.contains("mode = 'auto'"));
+    // A mode is also a choice to batch.
+    run(&["global", "off"]);
+    let auto = run(&["global", "auto"]);
+    assert!(auto.status.success(), "{:?}", auto.stderr);
+    assert!(!fs::read_to_string(&path).unwrap().contains("enabled"));
+    assert_eq!(run(&["global", "maybe"]).status.code(), Some(2));
+}
+
+#[test]
 fn decisions_needs_json_and_a_missing_core_is_a_json_error_without_state() {
     let sandbox = Sandbox::new();
     let help = sandbox.run(&["decisions", "--help"]);

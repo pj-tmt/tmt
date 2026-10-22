@@ -197,3 +197,86 @@ fn a_malformed_default_attribution_is_refused_without_changing_the_file() {
     }
     assert!(DigestConfig::parse(b"defaultSetAtMs = 0\n").is_ok());
 }
+
+const OTHER: &str = "10000000-0000-4000-8000-000000000002";
+
+#[test]
+fn the_switch_masks_every_setting_and_leaves_the_stored_ones_untouched() {
+    let source = format!(
+        "default = '30m'\nflushCount = 5\n[members.{MEMBER}]\nmode = 'auto'\nsetAtMs = 1\n[members.{OTHER}]\nmode = '10m'\nsetAtMs = 1\n"
+    );
+    let mut settings = DigestConfig::parse(source.as_bytes()).unwrap();
+    assert!(settings.enabled());
+    settings.edit_enabled(false).unwrap();
+    assert!(!settings.enabled());
+    // A member with its own auto, a member with its own interval and one that inherits.
+    for id in [MEMBER, OTHER, "10000000-0000-4000-8000-000000000003"] {
+        assert_eq!(settings.effective(id).unwrap(), Mode::Off, "{id}");
+    }
+    let off = settings.document.to_string();
+    assert!(off.contains("enabled = false"));
+    assert!(off.contains("default = '30m'"));
+    assert!(off.contains("mode = 'auto'") && off.contains("mode = '10m'"));
+    // The stored settings come back as they were, including a non-auto default.
+    let mut reloaded = DigestConfig::parse(off.as_bytes()).unwrap();
+    assert!(!reloaded.enabled());
+    reloaded.edit_enabled(true).unwrap();
+    assert_eq!(reloaded.effective(MEMBER).unwrap(), Mode::Auto);
+    assert_eq!(reloaded.effective(OTHER).unwrap().text(), "10m");
+    assert_eq!(
+        reloaded
+            .effective("10000000-0000-4000-8000-000000000003")
+            .unwrap()
+            .text(),
+        "30m"
+    );
+    assert!(!reloaded.document.to_string().contains("enabled"));
+}
+
+#[test]
+fn the_switch_must_be_a_boolean_and_an_absent_one_means_on() {
+    assert!(DigestConfig::parse(b"").unwrap().enabled());
+    assert!(!DigestConfig::parse(b"enabled = false\n").unwrap().enabled());
+    assert!(DigestConfig::parse(b"enabled = true\n").unwrap().enabled());
+    for source in ["enabled = 'no'", "enabled = 0", "enabled = 'false'"] {
+        assert!(DigestConfig::parse(source.as_bytes()).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn setting_the_switch_or_a_default_through_the_file_helpers_keeps_the_rest() {
+    let directory = std::env::temp_dir().join(format!(
+        "tmt-digest-settings-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&directory).unwrap();
+    let path = directory.join("digest.toml");
+    fs::write(&path, "# keep\ndefault = '30m'\nfuture = 'keep'\n").unwrap();
+    set_enabled(&path, false).unwrap();
+    let off = DigestConfig::load(&path).unwrap();
+    assert!(!off.enabled());
+    assert_eq!(off.default.text(), "30m");
+    assert!(fs::read_to_string(&path).unwrap().contains("# keep"));
+    // Turning it on restores the default the person had.
+    set_enabled(&path, true).unwrap();
+    let on = DigestConfig::load(&path).unwrap();
+    assert!(on.enabled());
+    assert_eq!(on.default.text(), "30m");
+    // Choosing a new global default is also choosing to batch.
+    set_enabled(&path, false).unwrap();
+    set_default(&path, &Mode::Auto, None, 9).unwrap();
+    assert!(DigestConfig::load(&path).unwrap().enabled());
+    // A legacy `default = "off"` has no default to restore: turning on makes it auto.
+    fs::write(&path, "default = 'off'\n").unwrap();
+    assert_eq!(
+        DigestConfig::load(&path)
+            .unwrap()
+            .effective(MEMBER)
+            .unwrap(),
+        Mode::Off
+    );
+    set_enabled(&path, true).unwrap();
+    assert_eq!(DigestConfig::load(&path).unwrap().default, Mode::Auto);
+    fs::remove_dir_all(directory).unwrap();
+}

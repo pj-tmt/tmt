@@ -106,10 +106,28 @@ pub struct Member {
     pub savings: Option<Savings>,
 }
 
+/// The supplier's one switch: whether Digest batches at all, and its own label for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Global {
+    pub enabled: bool,
+    pub text: String,
+}
+
+impl Global {
+    fn parse(value: &Value) -> Option<Self> {
+        Some(Self {
+            enabled: value.get("enabled")?.as_bool()?,
+            text: text(value.get("text")?)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Status {
     pub observed_at_ms: u64,
     pub members: BTreeMap<String, Member>,
+    /// Absent for older producers and for any shape this version does not know.
+    pub global: Option<Global>,
     /// Absent for older producers and for any shape this version does not know.
     pub pricing: Option<Pricing>,
 }
@@ -134,6 +152,7 @@ impl Status {
         Some(Self {
             observed_at_ms,
             members,
+            global: document.get("global").and_then(Global::parse),
             pricing: document.get("pricing").and_then(Pricing::parse),
         })
     }

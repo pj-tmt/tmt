@@ -192,7 +192,7 @@ fn shell_dashboard_keeps_the_same_identity_and_uses_the_supplied_picker() {
     assert!(shown.contains("Auto ▾"));
     assert!(shown.contains("Digest: Auto ▾ · when idle (default)"));
     assert!(shown.contains("when idle (default)"));
-    match press(&mut app, 'D') {
+    match app.perform(&crate::action::Action::parse("digest").unwrap()) {
         Effect::Act(Request::DigestOpen(ask)) => {
             assert_eq!(ask.squad, "product");
             assert_eq!(ask.member, "worker");
@@ -679,6 +679,63 @@ pub(in crate::board) fn savings_board() -> crate::board::app::App {
         .preferences
         .tok_range = crate::config::TokRange::Day;
     app
+}
+
+fn switched_board(enabled: bool, text: &str) -> crate::board::app::App {
+    let mut document = savings_document();
+    document["global"] = serde_json::json!({"enabled":enabled,"default":"auto","text":text});
+    let mut app = savings_board();
+    app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+    app
+}
+
+#[test]
+fn the_digest_tab_shows_the_suppliers_switch_and_the_all_row_flips_it() {
+    use crate::board::app::{Effect, Request};
+    for (enabled, text, flipped) in [
+        (true, "Digest: on (auto)", false),
+        (false, "Digest: off", true),
+    ] {
+        let mut app = switched_board(enabled, text);
+        press(&mut app, '2');
+        let shown = paint(&mut app, 160, 36);
+        assert!(shown.contains(text), "{shown}");
+        assert!(
+            app.workspace_strip_hits
+                .borrow()
+                .iter()
+                .any(|(_, choice)| *choice == crate::board::app::Choice::DigestSwitch),
+            "the painted switch answers a click"
+        );
+        app.workspace.selected = Some(OpsTarget::DigestAll);
+        app.workspace_reconcile();
+        match app.perform(&crate::action::Action::parse("digest").unwrap()) {
+            Effect::Act(Request::DigestSwitch(on)) => assert_eq!(on, flipped),
+            other => panic!("the all row flips the switch, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn an_older_digest_without_a_switch_shows_none_and_flips_nothing() {
+    use crate::board::app::Effect;
+    let mut app = savings_board();
+    press(&mut app, '2');
+    let shown = paint(&mut app, 160, 36);
+    assert!(
+        !shown.contains("Digest: on") && !shown.contains("Digest: off"),
+        "{shown}"
+    );
+    app.workspace.selected = Some(OpsTarget::DigestAll);
+    app.workspace_reconcile();
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("digest").unwrap()),
+        Effect::None
+    );
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("Digest has not reported its switch yet.")
+    );
 }
 
 #[test]

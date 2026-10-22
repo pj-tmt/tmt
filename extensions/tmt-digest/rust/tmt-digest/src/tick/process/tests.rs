@@ -828,3 +828,57 @@ fn every_hold_records_the_limit_of_the_rule_that_decides_it() {
         .unwrap();
     assert!(clear["input"].get("maxHoldMs").is_none());
 }
+
+#[test]
+fn the_switch_off_sends_one_by_one_despite_a_member_setting_and_on_holds_again() {
+    let fixture = Fixture::new();
+    fixture.settings("auto", Some(SETTER));
+    let off = |on: bool| {
+        let path = fixture.0.join("digest.toml");
+        let stored = fs::read_to_string(&path).unwrap();
+        let stored = stored.replace("enabled = false\n", "");
+        fs::write(
+            &path,
+            if on {
+                stored
+            } else {
+                format!("enabled = false\n{stored}")
+            },
+        )
+        .unwrap();
+    };
+    // The member's own `auto` is holding three messages under an active hold.
+    fixture.stats(3, 1000);
+    fixture.policy(1, true);
+    off(false);
+    fixture.port().observe().unwrap();
+    let operations: Vec<_> = fixture
+        .writes()
+        .iter()
+        .map(|row| row["operation"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(operations, ["digest.policy.clear"], "the hold is released");
+    assert!(
+        fixture
+            .calls()
+            .iter()
+            .any(|line| line.contains("digest.checklist.flush")),
+        "the backlog is offered for delivery now"
+    );
+    // The stored override survived and applies again once the switch is on.
+    assert!(
+        fs::read_to_string(fixture.0.join("digest.toml"))
+            .unwrap()
+            .contains("mode = 'auto'")
+    );
+    off(true);
+    fixture.policy(2, false);
+    fixture.port().observe().unwrap();
+    assert!(
+        fixture
+            .writes()
+            .iter()
+            .any(|row| row["operation"] == "digest.policy.set"),
+        "the member's own auto holds again"
+    );
+}

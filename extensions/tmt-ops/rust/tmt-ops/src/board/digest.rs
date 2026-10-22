@@ -5,6 +5,7 @@
 use super::{
     app::{App, Choice, Compose, Effect, Hint, Menu, MenuEntry, Request, RowTarget},
     notes::sanitize,
+    workspace::OpsTarget,
 };
 use crate::{
     core::Core,
@@ -66,6 +67,30 @@ pub fn grant(core: &Core, ask: Ask) -> Result<Granted, String> {
     Ok(Granted { ask, actor })
 }
 
+/// Turns Digest on or off for everyone. That reaches every member, so only the
+/// recorded user may, not a squad lead.
+pub fn switch(core: &Core, on: bool) -> Result<String, String> {
+    let actor = management::actor(core, None, &management::DIGEST)
+        .map_err(admission)
+        .map_err(|error| error.message)?;
+    let user = crate::me::current(core)
+        .map_err(|error| error.message)?
+        .is_some_and(|user| user.id == actor.id);
+    if !user {
+        return Err("Only the recorded user can turn Digest on or off for everyone.".into());
+    }
+    let value = if on { "on" } else { "off" };
+    match core.succeeds(&["digest".into(), "global".into(), value.into()]) {
+        Ok(true) if on => Ok("Digest is on.".into()),
+        Ok(true) => Ok("Digest is off: messages are sent one by one.".into()),
+        Ok(false) => Err(format!("Digest was not turned {value}.")),
+        Err(error) => Err(format!(
+            "{} Digest may or may not be {value}.",
+            error.message
+        )),
+    }
+}
+
 /// Applies a change after checking access again: the squad's lead may have
 /// changed since the dropdown opened. A refused or failed change says so and is
 /// never repeated; a lost answer says the outcome is unknown.
@@ -91,6 +116,13 @@ impl App {
     /// Starts changing the digest of the row at `index`: Core is asked, on the
     /// lane, whether the person at the board may; the dropdown opens once it says so.
     pub(super) fn digest_row(&mut self, index: usize) -> Effect {
+        // The `all` row stands for everybody: its digest is the one global switch.
+        if matches!(
+            self.row_target(index),
+            Some(RowTarget::Workspace(OpsTarget::DigestAll))
+        ) {
+            return self.digest_switch();
+        }
         match self.digest_ask(index) {
             Ok(ask) => Effect::Act(Request::DigestOpen(ask)),
             Err(reason) => self.say(reason),
@@ -119,6 +151,18 @@ impl App {
             member: member.to_owned(),
             choose,
         })
+    }
+
+    /// Flips the supplier's one switch, as it reads now: on becomes off and off becomes on.
+    pub(super) fn digest_switch(&mut self) -> Effect {
+        match self
+            .labels
+            .digest()
+            .and_then(|(status, _)| status.global.as_ref())
+        {
+            Some(global) => Effect::Act(Request::DigestSwitch(!global.enabled)),
+            None => self.say("Digest has not reported its switch yet."),
+        }
     }
 
     /// The choice the member's mode chip offers, when a source supplied one.

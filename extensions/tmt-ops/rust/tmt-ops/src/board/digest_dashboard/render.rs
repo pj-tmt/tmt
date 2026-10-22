@@ -138,6 +138,15 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
             super::summary(app)
         },
     ];
+    // The supplier's own words for its one switch; a click flips it like `d` on `all`.
+    let switch = app
+        .labels
+        .digest()
+        .and_then(|(status, _)| status.global.as_ref())
+        .map(|global| global.text.clone());
+    if let Some(text) = &switch {
+        parts.push(text.clone());
+    }
     if app.loading() {
         parts.insert(1, "Loading workspace…".into());
     }
@@ -188,6 +197,15 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
         };
         if unicode_width::UnicodeWidthStr::width(candidate.as_str()) > usize::from(area.width) {
             break;
+        }
+        if switch.as_ref() == Some(&part) {
+            let gap = if text.is_empty() { 0 } else { 3 };
+            let x = area.x + (unicode_width::UnicodeWidthStr::width(text.as_str()) + gap) as u16;
+            let width = (unicode_width::UnicodeWidthStr::width(part.as_str()) as u16)
+                .min(area.right().saturating_sub(x));
+            app.workspace_strip_hits
+                .borrow_mut()
+                .push((Rect::new(x, area.y, width, 1), Choice::DigestSwitch));
         }
         if savings_available && part.starts_with("Est.") {
             let gap = if text.is_empty() { 0 } else { 3 };

@@ -43,6 +43,7 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
     let mut document = project(&settings, &identities, &stats, now)?;
     let prices = lookup.map_or_else(crate::pricing::Resolved::built_in, |lookup| lookup.finish());
     document["pricing"] = prices.document();
+    document["global"] = global(&settings);
     document["tick"] = json!({"lastAtMs": root.as_deref().and_then(crate::tick::last_tick_ms)});
     let history = root.and_then(|root| crate::history::Store::open(&root, false).ok().flatten());
     if let Some(mut history) = history {
@@ -65,6 +66,14 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
         }
     }
     Ok(document)
+}
+
+/// The one switch and the default it would restore, as the Ops board labels it.
+fn global(settings: &DigestConfig) -> Value {
+    let default = settings.default.text();
+    let enabled = settings.enabled();
+    json!({"enabled":enabled,"default":default,
+        "text":if enabled { format!("Digest: on ({default})") } else { "Digest: off".into() }})
 }
 
 fn invalid() -> Error {
