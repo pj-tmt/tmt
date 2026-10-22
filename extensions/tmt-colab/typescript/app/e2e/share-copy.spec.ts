@@ -99,7 +99,7 @@ for (const width of [1440, 390]) {
       await confirm(
         'Create a sharing link…',
         'Create a sharing link',
-        'Create a link to this page. Can read this page. Anyone you give it to can open it and sees the page and recent history. You can copy the link once, right after it is created.',
+        'People with this link can read this page. Anyone you give it to can open it and sees the page and recent history. You can copy the link once, right after it is created.',
       );
       await confirm(
         'Replace link…',
@@ -153,13 +153,17 @@ for (const width of [1440, 390]) {
 }
 
 const linkRoles = [
-  { role: 'viewer', option: 'Read', copy: 'Can read this page.' },
+  { role: 'viewer', option: 'Read', copy: 'People with this link can read this page.' },
   {
     role: 'commenter',
     option: 'Comment',
-    copy: 'Can read this page. Commenting from this link is not available yet.',
+    copy: 'People with this link can read this page. Commenting from it is not available yet.',
   },
-  { role: 'editor', option: 'Edit', copy: 'Can read and send edit requests. You apply them.' },
+  {
+    role: 'editor',
+    option: 'Edit',
+    copy: 'People with this link can read this page and send edit requests that you apply.',
+  },
 ] as const;
 
 for (const width of [1440, 390])
@@ -177,7 +181,9 @@ for (const width of [1440, 390])
           .click();
         await dialog.getByRole('button', { name: 'Create a sharing link…', exact: true }).click();
         const review = dialog.getByRole('region', { name: 'Confirm management change' });
-        await expect(review).toContainText(copy);
+        await expect(review.locator('p')).toHaveText(
+          `${copy} Anyone you give it to can open it and sees the page and recent history. You can copy the link once, right after it is created.`,
+        );
         await expect(review).not.toContainText('read-only');
         await shoot(page, dialog, `share-${role}-review-${width}-${theme}.png`);
         await review.getByRole('button', { name: 'Create a sharing link', exact: true }).click();
@@ -186,7 +192,9 @@ for (const width of [1440, 390])
         await expect(dialog.getByLabel('Share link', { exact: true })).toHaveCount(0);
         await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
         await expect(dialog.getByRole('status')).toHaveText('Done.');
-        await expect(dialog.locator('.bearer')).toContainText(copy);
+        await expect(dialog.locator('.bearer > p')).toHaveText(
+          `${copy} Copy this link now. It is shown only once and is not saved.`,
+        );
         await expect(dialog.locator('.bearer')).not.toContainText('read-only');
         await expect(dialog.getByLabel('Share link', { exact: true })).toHaveValue(
           new RegExp(`role=${role}(?:&|$)`),
@@ -209,6 +217,9 @@ for (const replacement of [false, true])
         exact: true,
       })
       .click();
+    await expect(
+      dialog.getByRole('region', { name: 'Confirm management change' }).locator('p'),
+    ).toHaveText(/^People with this link can read this page\. /);
     await dialog
       .getByRole('button', {
         name: replacement ? 'Replace link' : 'Create a sharing link',
@@ -217,7 +228,7 @@ for (const replacement of [false, true])
       .click();
     await expect(dialog.getByRole('status')).toHaveText('Done.');
     await expect(dialog.locator('.bearer')).toContainText(
-      'Can read and send edit requests. You apply them.',
+      'People with this link can read this page and send edit requests that you apply.',
     );
     await expect(dialog.getByLabel('Share link', { exact: true })).toHaveValue(
       /role=editor(?:&|$)/,
