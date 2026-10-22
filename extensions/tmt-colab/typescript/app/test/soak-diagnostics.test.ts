@@ -15,7 +15,11 @@ import {
 import { SoakCollector } from '../acceptance/harness/soak-collector.js';
 import SoakReporter, { apiSpan } from '../acceptance/harness/soak-reporter.js';
 import { appendSoakInvocation } from '../acceptance/harness/soak-diagnostics.js';
-import { policy } from '../acceptance/harness/soak-literals.mjs';
+import {
+  policy,
+  loadSoakDictionary,
+  type SoakDictionary,
+} from '../acceptance/harness/soak-literals.mjs';
 
 const secret = 'PRIVATE_CREDENTIAL_SENTINEL';
 
@@ -37,8 +41,39 @@ describe('synthetic soak API projection', () => {
     });
   });
 
+  it('does not load without an attachment and drops evidence when reporter loading fails', () => {
+    let loads = 0;
+    const reporter = new SoakReporter({
+      loadDictionary: () => {
+        loads++;
+        throw new Error('Fixture compiler unavailable');
+      },
+    });
+    const test = {
+      title: policy.scenario,
+      location: { file: '/fixture/connection-soak.spec.ts' },
+    } as Parameters<SoakReporter['onTestEnd']>[0];
+    const result = {
+      status: 'failed',
+      startTime: new Date(0),
+      attachments: [],
+    } as unknown as Parameters<SoakReporter['onTestEnd']>[1];
+    expect(() => reporter.onTestEnd(test, result)).not.toThrow();
+    expect(loads).toBe(0);
+    result.attachments.push({
+      name: policy.attachment,
+      contentType: 'application/json',
+      path: secret,
+      body: Buffer.from(JSON.stringify({ originMs: 0, observedMs: 1 })),
+    });
+    expect(() => reporter.onTestEnd(test, result)).not.toThrow();
+    expect(loads).toBe(1);
+    expect(result.attachments[0].body).toBeUndefined();
+    expect(result.attachments[0].path).toBeUndefined();
+  });
+
   it('strips private reporter metadata and keeps only the last 30 seconds of API spans', () => {
-    const reporter = new SoakReporter();
+    const reporter = new SoakReporter({});
     const test = {
       title: policy.scenario,
       location: { file: '/fixture/connection-soak.spec.ts' },
@@ -93,17 +128,56 @@ describe('synthetic soak API projection', () => {
 });
 
 describe('soak failure collection before world cleanup', () => {
+  it('loads once on first need, shares the result and disables capture on dictionary failure', async () => {
+    let loads = 0;
+    let read: (() => unknown) | undefined;
+    let observe: (() => Promise<void>) | undefined;
+    let attachments = 0;
+    const world = {
+      enableSoakDiagnostics(dictionary: () => unknown) {
+        read = dictionary;
+      },
+      onFailure(callback: () => Promise<void>) {
+        observe = callback;
+      },
+    } as unknown as ConstructorParameters<typeof SoakCollector>[0];
+    const info = {
+      attach: async () => {
+        attachments++;
+      },
+    } as unknown as ConstructorParameters<typeof SoakCollector>[1];
+    expect(
+      () =>
+        new SoakCollector(world, info, () => {
+          loads++;
+          throw new Error('Fixture compiler unavailable');
+        }),
+    ).not.toThrow();
+    expect(loads).toBe(0);
+    expect(typeof read).toBe('function');
+    expect(() => read!()).not.toThrow();
+    expect(read!()).toBeUndefined();
+    expect(loads).toBe(1);
+    await expect(observe!()).resolves.toBeUndefined();
+    expect(loads).toBe(1);
+    expect(attachments).toBe(0);
+  });
+
   it.each([false, true])(
     'captures setup failure and owned listener liveness=%s without a browser',
     async (listening) => {
       const root = realpathSync(mkdtempSync(path.join(realpathSync('/tmp'), 'tmt-acc-collector-')));
       let observe: (() => Promise<void>) | undefined;
       let body: Buffer | undefined;
+      let dictionary: (() => SoakDictionary | undefined) | undefined;
+      let loads = 0;
       const servers: net.Server[] = [];
       const world = {
         root,
         dataRoot: path.join(root, 'data'),
-        enableSoakDiagnostics() {},
+        enableSoakDiagnostics(read: () => SoakDictionary | undefined) {
+          dictionary = read;
+        },
         onFailure(callback: () => Promise<void>) {
           observe = callback;
         },
@@ -116,7 +190,14 @@ describe('soak failure collection before world cleanup', () => {
         },
       } as unknown as ConstructorParameters<typeof SoakCollector>[1];
       try {
-        const collector = new SoakCollector(world, info);
+        const collector = new SoakCollector(world, info, () => {
+          loads++;
+          return loadSoakDictionary();
+        });
+        expect(loads).toBe(0);
+        expect(dictionary!()).toBeDefined();
+        expect(dictionary!()).toBeDefined();
+        expect(loads).toBe(1);
         if (listening) {
           const directory = path.join(root, 'data', 'colab');
           mkdirSync(directory, { recursive: true });
@@ -146,6 +227,7 @@ describe('soak failure collection before world cleanup', () => {
           JSON.stringify({ error: { code: 'PANE_NOT_FOUND', message: secret }, payload: secret }),
         );
         await observe!();
+        expect(loads).toBe(1);
         const retained = JSON.parse(body!.toString());
         expect(retained.assertion.id).toBe('setup');
         expect(retained.logs.some((row: { code: string }) => row.code === 'PANE_NOT_FOUND')).toBe(

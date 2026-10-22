@@ -1,5 +1,5 @@
 import type { Reporter, TestCase, TestResult, TestStep } from '@playwright/test/reporter';
-import { loadSoakDictionary, policy } from './soak-literals.mjs';
+import { loadSoakDictionary, policy, type SoakDictionary } from './soak-literals.mjs';
 import { projectSoakFailure } from './soak-diagnostics.js';
 
 /** Closed Playwright API labels only. User/test-authored step titles are never evidence. */
@@ -18,6 +18,10 @@ export function apiSpan(
 /** Runs before JSON reporter, replacing private metadata with a closed API-span projection. */
 export default class SoakReporter implements Reporter {
   private readonly steps = new Map<TestResult, TestStep[]>();
+  private readonly loadDictionary: typeof loadSoakDictionary;
+  constructor(options: { loadDictionary?: typeof loadSoakDictionary } = {}) {
+    this.loadDictionary = options.loadDictionary ?? loadSoakDictionary;
+  }
   onStepBegin(_test: TestCase, result: TestResult, step: TestStep) {
     if (step.category !== 'pw:api' || !Object.hasOwn(policy.api, step.title)) return;
     const steps = this.steps.get(result) ?? [];
@@ -34,7 +38,7 @@ export default class SoakReporter implements Reporter {
       !['failed', 'timedOut', 'interrupted'].includes(result.status)
     )
       return;
-    const dictionary = loadSoakDictionary();
+    let dictionary: SoakDictionary | undefined;
     for (const attachment of result.attachments) {
       if (
         attachment.name !== policy.attachment ||
@@ -62,7 +66,7 @@ export default class SoakReporter implements Reporter {
               spans: input.truncated?.spans === true || steps.length >= 512,
             },
           },
-          dictionary,
+          (dictionary ??= this.loadDictionary()),
         );
         attachment.body = projected ? Buffer.from(JSON.stringify(projected)) : undefined;
         delete attachment.path;

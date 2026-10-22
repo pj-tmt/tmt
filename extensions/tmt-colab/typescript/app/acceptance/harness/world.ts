@@ -11,7 +11,7 @@ import {
 } from '../../../../../../typescript/test/support/private-tmux.js';
 import { alive, OwnedProcess, until } from './process.js';
 import { serveLockOwners, signalServeLockOwner } from './serve-lock.js';
-import { loadSoakDictionary, type SoakDictionary } from './soak-literals.mjs';
+import { type SoakDictionary } from './soak-literals.mjs';
 import { appendSoakInvocation } from './soak-diagnostics.js';
 
 const harness = path.dirname(fileURLToPath(import.meta.url));
@@ -124,7 +124,7 @@ export class AcceptanceWorld {
   readonly openerLog = path.join(this.root, 'opener.log');
   private readonly processes = new Set<OwnedProcess>();
   private soakEnabled = false;
-  private soakDictionary?: SoakDictionary;
+  private soakDictionary?: () => SoakDictionary | undefined;
   private readonly soakEvents: Record<string, unknown>[] = [];
   private soakEventsTruncated = false;
   private readonly servePids = new Set<number>();
@@ -525,12 +525,12 @@ export class AcceptanceWorld {
   }
 
   /** Enabled only by the synthetic refused-tab scenario; no process or cleanup owner changes. */
-  enableSoakDiagnostics(): void {
+  enableSoakDiagnostics(dictionary: () => SoakDictionary | undefined): void {
     this.soakEnabled = true;
-    this.soakDictionary = loadSoakDictionary();
+    this.soakDictionary = dictionary;
   }
   private observeSoakLine(source: string, line: string): void {
-    const dictionary = this.soakDictionary;
+    const dictionary = this.soakDictionary?.();
     if (!dictionary) return;
     // Only whole code tokens or exact known message literals survive this observation.
     const codes = line.match(/\b[A-Z][A-Z0-9_]{1,63}\b/g) ?? [];

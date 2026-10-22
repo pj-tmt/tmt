@@ -79,7 +79,9 @@ owned-world regular log files are read, from at most their last 64 KiB, without 
 symlinks. The public report reconstructs every field independently and keeps this artifact
 separate from the unchanged outcome-only results directory. The vocabulary extractor reads
 explicit owner files and named static literals; source drift fails tests instead of widening
-what can be published. This evidence observes failure and never retries an operation.
+what can be published. World and collector share one lazily loaded vocabulary; a load failure
+disables this optional evidence without changing the scenario outcome. This evidence observes
+failure and never retries an operation.
 
 An own-publication timeout may also retain its closed diagnostic: record root/kind, own stream
 ID, submitted/admitted sequence numbers and whether a leader receipt arrived. A replayed receipt

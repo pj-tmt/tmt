@@ -2,14 +2,14 @@ import net from 'node:net';
 import path from 'node:path';
 import type { BrowserContext, Page, TestInfo } from '@playwright/test';
 import { assertPrivateSocket } from '../../../../../../typescript/test/support/private-tmux.js';
-import { loadSoakDictionary, policy } from './soak-literals.mjs';
+import { loadSoakDictionary, policy, type SoakDictionary } from './soak-literals.mjs';
 import { projectSoakFailure, readSoakTail } from './soak-diagnostics.js';
 
 // The collector consumes only owned observations; it does not depend on scenario/browser helpers.
 interface SoakWorld {
   root: string;
   dataRoot: string;
-  enableSoakDiagnostics(): void;
+  enableSoakDiagnostics(dictionary: () => SoakDictionary | undefined): void;
   onFailure(observe: () => Promise<void>): void;
   soakLogs(): { records: Record<string, unknown>[]; truncated: boolean };
   soakChildren(): {
@@ -41,7 +41,18 @@ function accepts(options: net.NetConnectOpts): Promise<boolean> {
 
 /** Observes only the synthetic world. Public fields are reconstructed by the shared projector. */
 export class SoakCollector {
-  private readonly dictionary = loadSoakDictionary();
+  private dictionary: SoakDictionary | null | undefined;
+  private readonly getDictionary = () => {
+    if (this.dictionary === undefined) {
+      try {
+        this.dictionary = this.loadDictionary();
+      } catch {
+        // Optional evidence must never replace the scenario outcome; drift stays a tooling gate.
+        this.dictionary = null;
+      }
+    }
+    return this.dictionary ?? undefined;
+  };
   private readonly originMs = Date.now();
   private readonly world: SoakWorld;
   private readonly info: TestInfo;
@@ -51,10 +62,14 @@ export class SoakCollector {
   private readonly logs: Record<string, unknown>[] = [];
   private truncated = false;
 
-  constructor(world: SoakWorld, info: TestInfo) {
+  constructor(
+    world: SoakWorld,
+    info: TestInfo,
+    private readonly loadDictionary = loadSoakDictionary,
+  ) {
     this.world = world;
     this.info = info;
-    world.enableSoakDiagnostics();
+    world.enableSoakDiagnostics(this.getDictionary);
     world.onFailure(() => this.capture());
   }
 
@@ -94,10 +109,12 @@ export class SoakCollector {
     value: { code?: unknown; message?: unknown },
     atMs = Date.now() - this.originMs,
   ) {
+    const dictionary = this.getDictionary();
+    if (!dictionary) return;
     const code =
-      typeof value.code === 'string' && this.dictionary.codes.has(value.code) ? value.code : null;
+      typeof value.code === 'string' && dictionary.codes.has(value.code) ? value.code : null;
     const message =
-      typeof value.message === 'string' && this.dictionary.messages.has(value.message)
+      typeof value.message === 'string' && dictionary.messages.has(value.message)
         ? value.message
         : null;
     if (!code && !message) return;
@@ -109,6 +126,8 @@ export class SoakCollector {
   }
 
   private async capture() {
+    const dictionary = this.getDictionary();
+    if (!dictionary) return;
     let reference: string | null = null;
     if (this.page && !this.page.isClosed()) {
       reference = await this.page
@@ -189,7 +208,7 @@ export class SoakCollector {
         alive: { socket: socketAlive, door: doorAlive },
         truncated: { input: this.truncated },
       },
-      this.dictionary,
+      dictionary,
     );
     if (projected)
       await this.info.attach(policy.attachment, {
