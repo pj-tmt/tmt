@@ -590,13 +590,24 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis()
         .try_into()?;
-    let bundle = Bundle::capture(
+    // The build's page runtime, for the standalone copy of a page that asks for it (#1693): the
+    // same bytes the app serves, from the embedded inventory or a local build.
+    let app = tmt_colab::assets::App::selected(None).ok().flatten();
+    let text = |path: &str| {
+        let (_, bytes) = app.as_ref()?.find(path)?;
+        std::str::from_utf8(bytes).ok()
+    };
+    let runtime = text("/assets/colab-runtime.js")
+        .zip(text("/assets/colab-runtime.css"))
+        .map(|(script, style)| tmt_colab::export::standalone::Runtime { script, style });
+    let bundle = Bundle::capture_with_runtime(
         &store,
         &keyring,
         &page_id,
         &mut decoder,
         now,
         &tmt_colab::export::attachments::Serve(&layout),
+        runtime.as_ref(),
     );
     let closed = store.close();
     let bundle = bundle?;
@@ -658,6 +669,19 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                 ),
             ],
         )?;
+        // A page that asks for the runtime says what became of its standalone copy.
+        if let Some(outcome) = published.standalone.filter(|outcome| !outcome.included) {
+            tmt_cli_style::detail::write(
+                &mut output,
+                terminal,
+                "STANDALONE COPY",
+                &[(
+                    "not created",
+                    tmt_colab::export::standalone::explanation(outcome.reason.unwrap_or_default())
+                        .into(),
+                )],
+            )?;
+        }
     }
     Ok(())
 }
