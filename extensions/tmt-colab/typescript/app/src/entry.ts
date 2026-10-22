@@ -24,6 +24,14 @@ export function publicEntry(path = location.pathname, origin = location.origin):
     (path === '/colab' || path === '/colab/' || /^\/(?:p|read)\/[A-Za-z0-9_-]{4,64}$/.test(path))
   );
 }
+/** The URL the renderer frame and the bundled page runtime resolve against: the paired mount at a
+ * public entry; inside the TMT app, whose document sits at `/colab/<route>`, the `/colab/` mount
+ * that holds `renderer.html` and the runtime assets; otherwise the document's own base. The frame
+ * and the export's standalone copy must read the same base, so both ask here. */
+export function rendererBase(): string {
+  if (publicEntry()) return entryMount().href;
+  return inShell() ? new URL('/colab/', location.href).href : document.baseURI;
+}
 export function entryMount(): URL {
   const supplied =
     shellMount?.pathname ??
