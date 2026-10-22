@@ -242,3 +242,141 @@ fn saved_remove_requires_confirmation_without_endpoint_io_and_force_removes_only
     assert!(tombstone.is_some());
     storage.close().unwrap();
 }
+
+/// Moving replaces only the binding: even a temporary identity keeps its
+/// UUID, lifetime, preferences and durable exchange/profile state.
+#[test]
+fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
+    use tmt_core::{
+        binding::{
+            self, BindingRepository, BindingTargetEvidence,
+            session::{
+                HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeMode,
+                SessionPreferences, SessionTransition,
+            },
+        },
+        endpoint::ProcessIncarnation,
+    };
+    for saved in [false, true] {
+        for case in ["move", "preferences", "binding", "occupied", "partial"] {
+            let fixture = Fixture::new();
+            let mut storage = fixture.open();
+            let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
+            let bound =
+                binding::bind_identity(&mut storage, &mut endpoint, "%1", "Alice", saved).unwrap();
+            let identity = bound.identity;
+            seed_state(storage.connection().unwrap(), &identity.id);
+            let counts = state_counts(storage.connection().unwrap(), &identity.id);
+            let process = ProcessIncarnation::new(200, "runtime").unwrap();
+            let mut preferences = SessionPreferences {
+                channel: Some(false),
+                preferred_harness: Some(HarnessId::new("claude").unwrap()),
+                ..Default::default()
+            };
+            preferences.remember(
+                HarnessId::new("claude").unwrap(),
+                RuntimeMode::new("default").unwrap(),
+                ProviderSessionId::new("s-1").unwrap(),
+            );
+            storage
+                .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
+                    let binding = bound.binding.as_ref().unwrap();
+                    let next = binding
+                        .session
+                        .admit(
+                            ObservedSessionKey {
+                                incarnation: process.clone(),
+                                provider_session: Some(ProviderSessionId::new("s-1").unwrap()),
+                            },
+                            SessionTransition::Started,
+                            RuntimeLiveness::Alive,
+                        )
+                        .unwrap();
+                    records.set_session_state(&binding.id, &binding.session, &next)?;
+                    records.set_session_preferences(&identity.id, &preferences)
+                })
+                .unwrap();
+            let expected =
+                crate::storage::Storage::context_by_identity(&fixture.database, &identity.id, 0)
+                    .unwrap()
+                    .unwrap();
+            let target = BindingTargetEvidence {
+                server: endpoint.server.clone(),
+                pane_id: "%2".into(),
+                pane_pid: 100,
+                pane_incarnation: None,
+                discovery: None,
+            };
+            match case {
+                "preferences" => {
+                    storage
+                        .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
+                            let mut changed = preferences.clone();
+                            changed.channel = Some(true);
+                            records.set_session_preferences(&identity.id, &changed)
+                        })
+                        .unwrap();
+                }
+                "binding" => {
+                    storage
+                        .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
+                            records.detach_binding(&expected.entry.binding.as_ref().unwrap().id)?;
+                            let server = endpoint.server.clone();
+                            records.insert_binding(&identity, &server, endpoint.pane_mut("%1"))?;
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+                "occupied" => {
+                    binding::bind_identity(&mut storage, &mut endpoint, "%2", "Bob", true).unwrap();
+                }
+                "partial" => {
+                    endpoint.publish_failure = true;
+                }
+                _ => (),
+            }
+            let before =
+                crate::storage::Storage::context_by_identity(&fixture.database, &identity.id, 0)
+                    .unwrap()
+                    .unwrap();
+            let clears = endpoint.clear_calls;
+            let result = binding::move_identity(
+                &mut storage,
+                &mut endpoint,
+                &expected.entry,
+                &expected.preferences,
+                &process,
+                &target,
+            );
+            assert_eq!(result.is_ok(), case == "move", "{saved}/{case}: {result:?}");
+            let after =
+                crate::storage::Storage::context_by_identity(&fixture.database, &identity.id, 0)
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(after.entry.identity, identity);
+            assert_eq!(after.preferences, before.preferences, "{case}");
+            assert_eq!(
+                state_counts(storage.connection().unwrap(), &identity.id),
+                counts,
+                "{case}"
+            );
+            if case == "move" {
+                let binding = after.entry.binding.unwrap();
+                assert_eq!(binding.pane_id, "%2");
+                assert_ne!(binding.id, expected.entry.binding.unwrap().id);
+                assert!(endpoint.pane_mut("%1").marker.is_none());
+                assert_eq!(
+                    endpoint.pane_mut("%2").marker.as_ref().unwrap().identity_id,
+                    identity.id
+                );
+            } else {
+                assert_eq!(after.entry, before.entry, "{case}");
+                if case == "partial" {
+                    assert!(matches!(result, Err(BindingError::Partial(_))));
+                } else {
+                    assert_eq!(endpoint.clear_calls, clears, "{case}");
+                }
+            }
+        }
+    }
+}

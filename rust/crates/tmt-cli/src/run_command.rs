@@ -25,6 +25,7 @@ use tmt_core::{
 
 mod agent_name;
 mod channel;
+mod move_session;
 mod resume;
 mod run;
 
@@ -48,6 +49,8 @@ struct Launch {
 pub struct Resume {
     /// Try a session marked stale once more.
     pub retry: bool,
+    /// Stop the exact old agent before moving this identity to the caller pane.
+    pub move_running: bool,
 }
 
 // The extension envelope (#324/#328) will supply registered observers here.
@@ -109,6 +112,15 @@ fn warn(message: &str, hint: Option<&str>) {
         tmt_cli_style::message::warning(&mut stderr, terminal, &format!("tmt: {message}"), hint);
 }
 
+/// Effects observed by this invocation, solely for truthful failure/retry output.
+#[derive(Clone, Copy, Default)]
+enum LaunchEffect {
+    #[default]
+    NotLaunched,
+    BoundHere,
+    Launched,
+}
+
 #[derive(Clone, Copy)]
 struct RunRequest<'a> {
     name: &'a str,
@@ -162,14 +174,14 @@ pub fn execute(
 
 pub fn resume_with_options(
     name: &str,
-    retry: bool,
+    resume: Resume,
     options: &tmt_adapters::runtime::launch_preset::LaunchSettings,
     channel: crate::invocation::ChannelMode,
 ) -> io::Result<u8> {
     match run(RunRequest {
         name,
         command: &[],
-        resume: Some(Resume { retry }),
+        resume: Some(resume),
         save: false,
         channel,
         options,
@@ -180,6 +192,18 @@ pub fn resume_with_options(
 }
 
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
+    // This invocation-local fact reports effects; it grants no admission authority.
+    let mut effect = LaunchEffect::NotLaunched;
+    run_observed(request, &mut effect).map_err(|error| {
+        if request.resume.is_some_and(|resume| resume.move_running) {
+            move_session::launch_failure(error, request.name, effect)
+        } else {
+            error
+        }
+    })
+}
+
+fn run_observed(request: RunRequest<'_>, effect: &mut LaunchEffect) -> Result<u8, Failure> {
     crate::caller_context::require_independent_host_for(Some(request.name))?;
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let settings = ConfigFiles {
@@ -217,7 +241,7 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
         &pane,
         request,
         &settings,
-        &mut EmptyObserver,
+        effect,
     );
     // The child's status remains authoritative after it has actually run.
     // Closing local state cannot turn a successful child into a different exit.
@@ -235,6 +259,9 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     );
     pending
 }
+
+#[cfg(test)]
+pub(crate) use move_session::PRINTED_HINTS as MOVE_HINTS;
 
 #[cfg(test)]
 pub(crate) use resume::PRINTED_HINTS as RESUME_HINTS;
@@ -344,6 +371,40 @@ mod tests {
         }
     }
 
+    #[test]
+    fn move_errors_report_the_observed_launch_effect_and_exact_retry() {
+        for (effect, message, retry) in [
+            (
+                LaunchEffect::NotLaunched,
+                "No new agent was launched",
+                "tmt resume --move -- '-Saved agent'",
+            ),
+            (
+                LaunchEffect::BoundHere,
+                "No new agent was launched",
+                "tmt resume -- '-Saved agent'",
+            ),
+            (
+                LaunchEffect::Launched,
+                "A new agent was launched",
+                "tmt resume -- '-Saved agent'",
+            ),
+        ] {
+            let error = super::move_session::launch_failure(
+                crate::output::Failure::new("PROCESS_ERROR", "Observation failed.", 1),
+                "-Saved agent",
+                effect,
+            );
+            assert_eq!(error.code, "PROCESS_ERROR");
+            assert_eq!(error.status, 1);
+            assert!(error.message.contains(message));
+            assert_eq!(
+                error.document()["error"]["suggestion"],
+                format!("After resolving this refusal, retry: {retry}")
+            );
+        }
+    }
+
     fn preferences(harness: &str, mode: &str, session: &str) -> SessionPreferences {
         SessionPreferences {
             channel: None,
@@ -360,7 +421,10 @@ mod tests {
     }
 
     const SESSION: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    const RESUME: Option<Resume> = Some(Resume { retry: false });
+    const RESUME: Option<Resume> = Some(Resume {
+        retry: false,
+        move_running: false,
+    });
 
     fn refused(result: Result<Launch, Failure>) -> (String, String) {
         let error = result.err().expect("resume must not launch");
@@ -467,7 +531,10 @@ mod tests {
             &mut registry,
             "Ann",
             &[],
-            Some(Resume { retry: true }),
+            Some(Resume {
+                retry: true,
+                move_running: false,
+            }),
             &preferences,
         )
         .unwrap();

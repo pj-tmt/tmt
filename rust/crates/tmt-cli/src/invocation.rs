@@ -82,6 +82,7 @@ pub enum Invocation {
     },
     Resume {
         name: Option<String>,
+        move_running: bool,
         show: bool,
         forget_launch: bool,
         model: Option<String>,

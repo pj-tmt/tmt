@@ -10,10 +10,11 @@ use tmt_adapters::{
 };
 use tmt_core::{
     binding::{
-        BindingRepository,
+        Binding, BindingRepository,
         session::{RememberedSession, SessionPreferences},
     },
     driver::ActionResult,
+    endpoint::ProcessIncarnation,
 };
 
 fn resume_failure(code: &'static str, message: String, name: &str) -> Failure {
@@ -128,18 +129,49 @@ pub(super) fn failure_is_trustworthy(status: u32, hooks_installed: bool) -> bool
 /// when the failure is trustworthy: a non-zero exit that no signal caused
 /// (128 + n), with the provider's TMT start hook installed at launch, so a
 /// start would have been observed. The child's status stays authoritative.
+pub(super) struct ResumeExit<'a> {
+    pub binding: &'a Binding,
+    pub owner: Option<&'a ProcessIncarnation>,
+    pub child: Option<&'a ProcessIncarnation>,
+}
+
 pub(super) fn settle_resume(
     paths: &ConfigPaths,
     name: &str,
-    identity_id: &str,
+    exited: ResumeExit<'_>,
     session: &RememberedSession,
     status: u32,
     hooks_installed: bool,
 ) {
+    let (Some(owner), Some(child)) = (exited.owner, exited.child) else {
+        return;
+    };
+    let identity_id = &exited.binding.identity_id;
     let trustworthy = failure_is_trustworthy(status, hooks_installed);
     let settled = Storage::open(&paths.database).and_then(|mut storage| {
         let stale = storage.with_binding_transaction::<_, StorageError>(|records| {
+            let ours = records
+                .entry_by_id(identity_id)?
+                .and_then(|entry| entry.binding)
+                .is_some_and(|current| {
+                    current.id == exited.binding.id
+                        && current.session.launch_owner.as_ref() == Some(owner)
+                        && current.session.key.as_ref().is_some_and(|key| {
+                            key.incarnation == *child
+                                && key.provider_session.as_ref() == Some(&session.provider_session)
+                        })
+                });
+            if !ours {
+                return Ok(false);
+            }
             let mut preferences = records.session_preferences(identity_id)?;
+            if preferences.remembered.as_ref().is_none_or(|current| {
+                current.harness != session.harness
+                    || current.mode != session.mode
+                    || current.provider_session != session.provider_session
+            }) {
+                return Ok(false);
+            }
             let before = preferences.clone();
             let stale = preferences.settle_resume(
                 &session.provider_session,
@@ -194,3 +226,155 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
 ];
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use tmt_core::{
+        binding::session::{
+            BindingSessionState, HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeLiveness,
+            RuntimeMode, SessionTransition,
+        },
+        endpoint::{PaneObservation, ServerEvidence},
+        identity::{Lifetime, create_or_resolve},
+    };
+
+    #[test]
+    fn late_resume_exit_cannot_settle_a_replaced_binding_or_launch() {
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        for case in [
+            "unchanged",
+            "moved",
+            "owner",
+            "child",
+            "driver",
+            "unknown-child",
+        ] {
+            let directory = Directory(
+                std::env::temp_dir().join(format!("tmt-resume-exit-{}-{case}", std::process::id())),
+            );
+            std::fs::create_dir(&directory.0).unwrap();
+            let paths = ConfigPaths {
+                global_dir: directory.0.clone(),
+                global_config: directory.0.join("config.json"),
+                local_config: directory.0.join("local.json"),
+                database: directory.0.join("state.db"),
+            };
+            let mut storage = Storage::open(&paths.database).unwrap();
+            let identity = create_or_resolve(&mut storage, "Worker", Lifetime::Saved)
+                .unwrap()
+                .identity;
+            let server = ServerEvidence {
+                host: tmt_core::host::HostKind::Tmux,
+                server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
+                socket_path: "/tmp/test.sock".into(),
+                server_pid: 10,
+                server_start_time: "server".into(),
+            };
+            let mut pane = PaneObservation {
+                agent_name: None,
+                id: "%1".into(),
+                target: None,
+                cwd: None,
+                command: "agent".into(),
+                pane_pid: 11,
+                pane_incarnation: None,
+                suggested_name: None,
+                marker: None,
+                location: None,
+            };
+            let owner = ProcessIncarnation::new(20, "owner").unwrap();
+            let child = ProcessIncarnation::new(21, "child").unwrap();
+            let session = ProviderSessionId::new("s-1").unwrap();
+            let state = BindingSessionState::default()
+                .admit_launched(
+                    ObservedSessionKey {
+                        incarnation: child.clone(),
+                        provider_session: Some(session.clone()),
+                    },
+                    owner.clone(),
+                    SessionTransition::Resumed,
+                    RuntimeLiveness::Alive,
+                    RuntimeLiveness::Alive,
+                )
+                .unwrap();
+            let mut preferences = SessionPreferences::default();
+            preferences.remember(
+                HarnessId::new("claude").unwrap(),
+                RuntimeMode::new("default").unwrap(),
+                session,
+            );
+            preferences
+                .remembered
+                .as_mut()
+                .unwrap()
+                .resume_pending_at_ms = Some(200);
+            let original = storage
+                .with_binding_transaction::<_, StorageError>(|records| {
+                    let mut binding = records.insert_binding(&identity, &server, &pane)?;
+                    records.set_session_state(&binding.id, &binding.session, &state)?;
+                    records.set_session_preferences(&identity.id, &preferences)?;
+                    binding.session = state.clone();
+                    Ok(binding)
+                })
+                .unwrap();
+            let remembered = preferences.remembered.clone().unwrap();
+            storage
+                .with_binding_transaction::<_, StorageError>(|records| {
+                    let mut changed = state.clone();
+                    let mut binding = original.clone();
+                    match case {
+                        "moved" => {
+                            records.detach_binding(&original.id)?;
+                            pane.id = "%2".into();
+                            binding = records.insert_binding(&identity, &server, &pane)?;
+                        }
+                        "owner" => {
+                            changed.launch_owner =
+                                Some(ProcessIncarnation::new(30, "other-owner").unwrap());
+                        }
+                        "child" => {
+                            changed.key.as_mut().unwrap().incarnation =
+                                ProcessIncarnation::new(31, "other-child").unwrap();
+                        }
+                        "driver" => {
+                            preferences.remembered.as_mut().unwrap().harness =
+                                HarnessId::new("codex").unwrap();
+                            records.set_session_preferences(&identity.id, &preferences)?;
+                        }
+                        _ => (),
+                    }
+                    records.set_session_state(&binding.id, &binding.session, &changed)
+                })
+                .unwrap();
+            storage.close().unwrap();
+            settle_resume(
+                &paths,
+                "Worker",
+                ResumeExit {
+                    binding: &original,
+                    owner: Some(&owner),
+                    child: (case != "unknown-child").then_some(&child),
+                },
+                &remembered,
+                7,
+                true,
+            );
+            let stored = Storage::context_by_identity(&paths.database, &identity.id, 0)
+                .unwrap()
+                .unwrap();
+            let actual = stored.preferences.remembered.unwrap();
+            if case == "unchanged" {
+                assert!(actual.resume_pending_at_ms.is_none());
+                assert!(actual.stale_at_ms.is_some());
+            } else {
+                assert_eq!(actual, preferences.remembered.unwrap(), "{case}");
+            }
+        }
+    }
+}

@@ -1,13 +1,13 @@
 //! Bound foreground launch and completion retain one owned child and storage lifetime.
 
 use super::{
-    RunRequest, agent_name,
+    LaunchEffect, RunRequest, agent_name,
     channel::{
         HeldLease, admitted_key, claim_is_current, enrollment_failure, paste_notice, preflight,
         verify_claim, verify_plain_fallback,
     },
     diagnostic, incarnation, observe, observe_admission,
-    resume::{mark_resume_pending, select_command, settle_resume},
+    resume::{ResumeExit, mark_resume_pending, select_command, settle_resume},
     storage_failure,
 };
 use crate::{
@@ -37,7 +37,7 @@ use tmt_core::{
         self, Binding, BindingRepository,
         session::{ObservedSessionKey, RuntimeLiveness, SessionPreferences, SessionTransition},
     },
-    driver::{HookEvent, HookObserver},
+    driver::HookEvent,
     endpoint::ProcessIncarnation,
     identity::IdentityReader,
     names::normalize_name,
@@ -51,8 +51,9 @@ pub(super) fn run_bound(
     pane: &str,
     request: RunRequest<'_>,
     settings: &Settings,
-    observer: &mut impl HookObserver,
+    effect: &mut LaunchEffect,
 ) -> Result<u8, Failure> {
+    let observer = &mut super::EmptyObserver;
     let RunRequest {
         name,
         options,
@@ -61,9 +62,10 @@ pub(super) fn run_bound(
         save,
         channel,
     } = request;
+    let moving = resume.is_some_and(|resume| resume.move_running);
     let mut registry = RuntimeRegistry::first_party();
     // Only the resume path purges or reconciles, and it reports each change once.
-    if resume.is_some() {
+    if resume.is_some() && !moving {
         let registered = registry.harnesses().collect::<Vec<_>>();
         for purged in storage
             .purge_unregistered_sessions(&registered)
@@ -129,7 +131,7 @@ pub(super) fn run_bound(
                 return Ok(SessionPreferences::default());
             };
             let mut preferences = records.session_preferences(&identity.id)?;
-            if resume.is_some()
+            if resume.is_some() && !moving
                 && let Some(StateReconciliation::DiscardedState { harness, version }) =
                     registry.reconcile(&mut preferences)
             {
@@ -221,12 +223,32 @@ pub(super) fn run_bound(
     let mut channel = preflight(&registry, mode, claim.as_ref(), &launch.command, paths)
         .map_err(|error| channel_preflight_failure(error, channel, mode, name))?;
     host.resolve_servers(storage).map_err(endpoint_failure)?;
-    let bound = if auto_named {
+    let moved = if moving {
+        super::move_session::move_binding(
+            storage,
+            host,
+            paths,
+            pane,
+            existing
+                .as_ref()
+                .expect("a selected resume has an existing identity"),
+            &preferences,
+            lifecycle,
+        )?
+    } else {
+        None
+    };
+    let bound = if let Some(bound) = moved {
+        Ok(bound)
+    } else if auto_named {
         binding::bind_auto_identity(storage, &mut host.session(), pane, name, save)
     } else {
         binding::bind_identity_with_creation(storage, &mut host.session(), pane, name, save)
     }
     .map_err(binding_failure)?;
+    if moving {
+        *effect = LaunchEffect::BoundHere;
+    }
     let binding = bound
         .presence
         .binding
@@ -449,6 +471,7 @@ pub(super) fn run_bound(
                 Failure::new("LAUNCH_FAILED", "Could not start the requested command.", 1)
                     .caused_by(error)
             })?;
+    *effect = LaunchEffect::Launched;
     if let Some(preset) = &captured_preset {
         if !tmt_adapters::runtime::launch_preset::remember(storage, &binding.identity_id, preset)
             .unwrap_or(false)
@@ -691,7 +714,11 @@ pub(super) fn run_bound(
         settle_resume(
             paths,
             name,
-            &binding.identity_id,
+            ResumeExit {
+                binding,
+                owner: owner.as_ref(),
+                child: child_incarnation.as_ref(),
+            },
             session,
             status,
             hooks_installed,

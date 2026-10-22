@@ -221,3 +221,38 @@ fn resume_uses_an_optional_name_and_bounded_explicit_overrides() {
     assert!(parse(&args(&["resume", "--json"])).is_err());
     assert!(parse(&args(&["resume", "Alice", "command"])).is_err());
 }
+
+/// Moving names the identity explicitly and keeps the existing resume launch
+/// options; inspection and forgetting never acquire stop authority.
+#[test]
+fn resume_move_requires_an_explicit_identity_and_conflicts_with_inspection() {
+    for words in [
+        vec!["resume", "worker", "--move"],
+        vec!["resume", "--move", "worker"],
+        vec!["resume", "--move", "--retry", "--no-channel", "worker"],
+        vec!["resume", "--move", "--model", "model-a", "worker"],
+    ] {
+        match parse(&args(&words)).unwrap().invocation {
+            Invocation::Resume {
+                name, move_running, ..
+            } => {
+                assert_eq!(name.as_deref(), Some("worker"));
+                assert!(move_running);
+            }
+            other => panic!("move must stay on the resume owner: {other:?}"),
+        }
+    }
+    for words in [
+        vec!["resume", "--move"],
+        vec!["resume", "--move", "--show", "worker"],
+        vec!["resume", "--move", "--forget", "worker"],
+        vec!["resume", "--move", "--forget-launch", "worker"],
+        vec!["run", "--move", "--resume", "worker"],
+    ] {
+        assert_eq!(
+            parse(&args(&words)).unwrap_err().code,
+            "USAGE_ERROR",
+            "{words:?}"
+        );
+    }
+}
