@@ -945,15 +945,14 @@ fn a_restored_send_whose_record_is_gone_says_it_is_truncated_and_how_to_open_it(
 #[test]
 fn a_restored_send_offers_send_now_only_when_core_says_it_can_go() {
     use crate::board::app::workspace::tests::board;
-    use crate::board::refresh::SelectedRead;
     for can_send_now in [true, false] {
         let mut app = board();
         draw(&app, 148, 51);
-        if let Some(SelectedRead::Finals(finals)) = app.selected_read() {
+        if let Some(finals) = app.finals_read() {
             app.apply_finals(finals, Ok(vec![]));
             draw(&app, 148, 51);
         }
-        let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+        let Some(key) = app.sent_read() else {
             panic!("sends are read");
         };
         let mut send = own_send(

@@ -252,17 +252,16 @@ fn in_the_editor_ctrl_s_is_the_chip_and_elsewhere_an_authored_binding_wins() {
 /// message this session sent itself.
 #[test]
 fn when_core_moves_the_state_on_the_chip_goes_even_for_a_send_made_here() {
-    use crate::board::refresh::SelectedRead;
     let mut app = board();
     held(&mut app, true);
     frame(&mut app, 120);
     assert!(app.conversation.borrow().send_now_hit.is_some());
 
-    if let Some(SelectedRead::Finals(finals)) = app.selected_read() {
+    if let Some(finals) = app.finals_read() {
         app.apply_finals(finals, Ok(vec![]));
         frame(&mut app, 120);
     }
-    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+    let Some(key) = app.sent_read() else {
         panic!("sends are read");
     };
     app.apply_sent(
