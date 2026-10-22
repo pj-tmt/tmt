@@ -191,6 +191,11 @@ pub enum Invocation {
         request: Option<String>,
         input: ContentInput,
     },
+    /// Sends one held or waiting message now; the originator or a person only.
+    SendNow {
+        request_id: String,
+        identity: Option<String>,
+    },
     Install {
         target: Option<String>,
         directory: Option<String>,

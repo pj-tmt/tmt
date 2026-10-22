@@ -30,7 +30,7 @@ use tmt_core::{
         routing::send_preferred,
     },
     request::{
-        RequestService, WakeState,
+        RequestError, RequestService, WakeState,
         notification::{HintKind, OriginatorHint},
     },
 };
@@ -128,6 +128,50 @@ pub fn wake_request(
     } else {
         state
     }
+}
+
+/// How typing a request that a send-now released ended.
+pub enum Released {
+    /// The paste was attempted; the wake is settled from this outcome.
+    Typed(Delivery),
+    /// Another caller owns the wake, or it was already settled: nothing was typed here.
+    NotClaimed(WakeState),
+    /// The request can no longer be answered, so nothing was typed.
+    Closed,
+}
+
+/// Type a request whose Digest hold a send-now released, as the ordinary wake would: claim
+/// once, recheck the recipient, type the request exactly as a live delivery reads, then settle
+/// the delivery from what happened. A lost settlement stays claimed and is never pasted twice.
+pub fn deliver_released(
+    storage: &mut Storage,
+    request_id: &str,
+    recipient_id: &str,
+    delay: Duration,
+) -> Result<Released, RequestError<StorageError>> {
+    use crate::request_runtime::wall_time_ms;
+    let claim = RequestService::new(&mut *storage, wall_time_ms).claim_wake(request_id)?;
+    if !claim.claimed {
+        return Ok(Released::NotClaimed(claim.state));
+    }
+    let mut service = RequestService::new(&mut *storage, wall_time_ms);
+    let eligible = service.wake_recipient_is_eligible(request_id, recipient_id)?;
+    let text = if eligible {
+        crate::digest::live_request_text(storage, request_id)?
+    } else {
+        None
+    };
+    let Some(text) = text else {
+        RequestService::new(&mut *storage, wall_time_ms)
+            .settle_request_delivery(request_id, WakeState::Unavailable)?;
+        return Ok(Released::Closed);
+    };
+    let delivery = send(storage, recipient_id, &text, delay)
+        .map_err(RequestError::Repository)?
+        .delivery;
+    RequestService::new(&mut *storage, wall_time_ms)
+        .settle_request_delivery(request_id, delivery.wake_state())?;
+    Ok(Released::Typed(delivery))
 }
 
 pub fn current(

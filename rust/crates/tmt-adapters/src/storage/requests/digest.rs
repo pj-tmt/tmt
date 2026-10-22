@@ -144,6 +144,21 @@ pub(super) fn due_inventory(
         |r| Ok((rows::u64_at(r,0)?,rows::u64_at(r,1)?))).map_err(|e| classify(e,"Read due digest inventory"))
 }
 
+/// Drops a reference no checklist has sealed. A sealed one stays: it is already in a hand-off.
+pub(super) fn release_item(
+    db: &Connection,
+    identity: &str,
+    request: &str,
+    source: DigestSource,
+) -> Result<bool, StorageError> {
+    db.execute(
+        "DELETE FROM focus_items WHERE identity_id=?1 AND request_id=?2 AND source=?3 AND checklist_id IS NULL",
+        params![identity, request, source.as_str()],
+    )
+    .map(|changed| changed > 0)
+    .map_err(|e| classify(e, "Release a held digest reference"))
+}
+
 pub(super) fn oldest_held(
     db: &Connection,
     identity: &str,

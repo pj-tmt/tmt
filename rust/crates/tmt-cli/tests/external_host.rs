@@ -17,6 +17,8 @@ mod passthrough;
 mod run_exit;
 #[path = "external_host/sampling.rs"]
 mod sampling;
+#[path = "external_host/send_now.rs"]
+mod send_now;
 #[allow(dead_code)]
 mod support;
 

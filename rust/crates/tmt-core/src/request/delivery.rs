@@ -133,6 +133,43 @@ impl DeliveryView {
     }
 }
 
+/// Why a send-now selected nothing to send. It never guesses and never resends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendNowRejection {
+    /// Only the request's originator, or a person, may send it now.
+    NotAllowed,
+    /// Only an identified recipient's ordinary request is held and sent by Core.
+    NotApplicable,
+    /// A final, a withdrawal or the request's own expiry ended it.
+    Closed,
+    /// It may already be in the pane; resending could type it twice.
+    Unconfirmed,
+    /// Its state offers no send-now, with the reason the state gives.
+    NotAvailable(DeliveryReason),
+}
+
+impl SendNowRejection {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::NotAllowed => "SEND_NOW_NOT_ALLOWED",
+            Self::NotApplicable => "SEND_NOW_NOT_APPLICABLE",
+            Self::Closed => "SEND_NOW_CLOSED",
+            Self::Unconfirmed => "SEND_NOW_UNCONFIRMED",
+            Self::NotAvailable(_) => "SEND_NOW_NOT_AVAILABLE",
+        }
+    }
+}
+
+/// What a send-now decided, with its hold released and the request ready to type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendNowOutcome {
+    /// The Digest hold is released and the request marked urgent, so the ordinary
+    /// delivery path applies; the caller types it.
+    Release { recipient_identity_id: String },
+    /// It had already reached the agent: nothing changed, nothing is resent.
+    Already(DeliveryState),
+}
+
 /// How far the message itself has got, whichever route carried it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Handover {

@@ -285,9 +285,9 @@ test requires new tables and columns to extend. Typed not-writable storage failu
 are classified once and projected through `tmt-command-output::Failure::storage_access`.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
-exact final submission, waiter release, attention revisions and bounded retention
+exact final submission, waiter release, attention revisions and retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
-`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist) and the delivery mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, not a request; it settles that agent's oldest open request, earns its turn's final (`request_passthrough`); `request::delivery` derives [message state](contracts/request-response-v1.md#message-state); `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
+`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist) and the mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, not a request; it settles that agent's oldest open request, earns its turn's final (`request_passthrough`); `request::delivery` derives [message state](contracts/request-response-v1.md#message-state), decides send-now; `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
 Adapters admit idle handoff; extensions schedule. `tmt-adapters::request_frame` owns the frame `talk` sends and Digest pastes per item; `digest` renders a sealed checklist from it within 32 KiB; a claim seals only the prefix that fits. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient

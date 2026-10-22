@@ -172,6 +172,42 @@ fn sender(
     })
 }
 
+/// The request frame a live delivery of this attempt carries, with its own receipt.
+fn framed_for(attempt: &RequestAttempt, message: &str, sender: &str, request_id: &str) -> String {
+    let receipt = encode_route_receipt(request_id, &attempt.attempt_id, &attempt.route);
+    framed_request(message, sender, request_id, &receipt)
+}
+
+/// A held request exactly as its live delivery reads, for a send-now that types it alone.
+/// `None` when it can no longer be answered: nothing is typed for a request that has no
+/// reply left to wait for.
+pub fn live_request_text(
+    storage: &mut Storage,
+    request_id: &str,
+) -> Result<Option<String>, RequestError<StorageError>> {
+    let safe_id = request_id
+        .strip_prefix("req_")
+        .is_some_and(tmt_core::dispatch::canonical_id);
+    let Some((context, true)) =
+        RequestService::new(&mut *storage, wall_time_ms).digest_reply_context(request_id)?
+    else {
+        return Ok(None);
+    };
+    let RequestPrompt::Retained(prompt) = &context.prompt else {
+        return Ok(None);
+    };
+    let attempt = &context.attempt;
+    let sender = sender(storage, DigestSource::Incoming, attempt)?;
+    Ok(safe_id.then(|| {
+        framed_for(
+            attempt,
+            &prompt.message,
+            sender.name.as_deref().unwrap_or("unknown"),
+            request_id,
+        )
+    }))
+}
+
 /// One item exactly as its live delivery reads: a request is the generated request
 /// frame with its own receipt-bound reply command, a result is the reply notice
 /// with the whole body. Only the request gains a one-line header naming its purpose.
@@ -229,8 +265,7 @@ fn item_block(
         ));
     };
     let body = if safe_id && replyable {
-        let receipt = encode_route_receipt(&item.request_id, &attempt.attempt_id, &attempt.route);
-        framed_request(&prompt.message, plain, &item.request_id, &receipt)
+        framed_for(attempt, &prompt.message, plain, &item.request_id)
     } else {
         // Not replyable any more: the original text stays readable with a truthful
         // way to inspect the request's current state.
