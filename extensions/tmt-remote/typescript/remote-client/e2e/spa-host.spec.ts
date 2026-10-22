@@ -777,7 +777,7 @@ test.describe('the Ops route on the owner read', () => {
       await stub(page, [{ version: 1, state: 'unavailable', reason: 'not_installed' }]);
     });
     await expect(page.locator('#ops-note')).toHaveText(
-      'Ops is not installed on your machine. Install it, then reload this page.',
+      'Ops is not installed on your machine. Run tmt extension install ops, then reload this page.',
     );
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     await page.close();

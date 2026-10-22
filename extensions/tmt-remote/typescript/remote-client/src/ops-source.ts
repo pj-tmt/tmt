@@ -103,7 +103,8 @@ function agentState(agent: OpsPayload['agents'][number]): AgentState {
 
 /** One plain sentence per reason, each saying what the person can do. */
 const REASONS: Record<OwnerReadReason | 'no-session' | 'unreachable', string> = {
-  not_installed: 'Ops is not installed on your machine. Install it, then reload this page.',
+  not_installed:
+    'Ops is not installed on your machine. Run `tmt extension install ops`, then reload this page.',
   core_unavailable: 'TMT on your machine did not answer. This page tries again shortly.',
   timeout: 'Your machine took too long to read the board. This page tries again shortly.',
   read_failed: 'Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.',
