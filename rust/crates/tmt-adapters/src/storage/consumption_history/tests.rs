@@ -420,6 +420,7 @@ fn binding_and_preferences_cas_commits_counter_and_history_once() {
                   consumption| {
         storage
             .commit_runtime_observation(RuntimeObservation {
+                boundary: None,
                 expected,
                 preferences,
                 response: None,
@@ -922,6 +923,7 @@ fn recent_responses_share_the_binding_cas_without_text_deduplication() {
             Some(tmt_core::binding::session::DriverState::new(1, state).unwrap());
         storage
             .commit_runtime_observation(RuntimeObservation {
+                boundary: None,
                 expected,
                 preferences: &preferences,
                 remember_source: false,
@@ -1058,6 +1060,7 @@ fn recent_responses_keep_ten_in_capture_order_and_retirement_removes_them() {
         assert!(
             storage
                 .commit_runtime_observation(RuntimeObservation {
+                    boundary: None,
                     expected: &expected,
                     preferences: &preferences,
                     remember_source: false,
@@ -1144,6 +1147,7 @@ fn recent_response_failure_rolls_back_preferences_and_the_change_cursor() {
     };
     let before = cursor();
     let result = storage.commit_runtime_observation(RuntimeObservation {
+        boundary: None,
         expected: &expected,
         preferences: &preferences,
         remember_source: true,
