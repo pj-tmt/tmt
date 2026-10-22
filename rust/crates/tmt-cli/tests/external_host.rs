@@ -2362,6 +2362,99 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
     assert_eq!(captured(&fixture), 1);
 }
 
+/// A person's passthrough text is matched to the Codex turn it started by the prompt the hook
+/// reports, and that turn's final message becomes its answer (#4336). Another prompt's turn
+/// neither binds nor lends its final.
+#[test]
+fn a_codex_turn_with_the_typed_prompt_answers_the_passthrough_and_another_turn_does_not() {
+    register();
+    let fixture = Fixture::new("codex-passthrough-answer");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    fs::create_dir_all(fixture.root.join("home/.codex")).unwrap();
+    let observer = tmt_adapters::runtime::hook_protocol::command_entry("codex", "/stable/tmt");
+    fs::write(
+        fixture.root.join("home/.codex/hooks.json"),
+        serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
+    )
+    .unwrap();
+    let mut codex = SteppedProvider::start(&fixture, "codex", "codex-steps");
+    let (status, _, err) = codex.hook(codex_event("SessionStart", None));
+    assert_eq!((status, err.as_str()), (0, ""));
+    let agent = worker(&fixture.json(&["ls", "--json"]))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let database = fixture.state().join("tmt.db");
+    let now = tmt_adapters::request_runtime::wall_time_ms() as i64;
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    // Two passthroughs typed into the agent's pane; the hook payloads carry the prompt `go`.
+    for (request, text) in [("typed-go", "go"), ("typed-other", "something else")] {
+        connection
+            .execute(
+                "INSERT INTO request_attempts (
+                    attempt_id,request_id,route_kind,recipient_identity_id,wait_active,status,
+                    inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms,
+                    message_text,message_bytes,message_expires_at_ms
+                ) VALUES (?1,?2,'inbox',?3,0,'sent',0,0,?4,?5,?6,?7,?8,?6)",
+                rusqlite::params![
+                    format!("attempt-{request}"),
+                    request,
+                    agent,
+                    now,
+                    now + 3_600_000,
+                    now + 604_800_000,
+                    text,
+                    text.len() as i64
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO request_passthrough(request_id,delivered_at_ms,state) VALUES(?1,?2,'pending')",
+                rusqlite::params![request, now],
+            )
+            .unwrap();
+    }
+    let capture = |request: &str| -> (String, Option<String>, Option<String>) {
+        rusqlite::Connection::open(&database)
+            .unwrap()
+            .query_row(
+                "SELECT state,bound_turn,answer_text FROM request_passthrough WHERE request_id=?",
+                [request],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
+    };
+
+    let (status, _, err) = codex.hook(codex_event("UserPromptSubmit", Some("a")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    assert_eq!(
+        capture("typed-go"),
+        ("bound".into(), Some("a".into()), None)
+    );
+    assert_eq!(
+        capture("typed-other").0,
+        "pending",
+        "a different text is not this turn"
+    );
+    let (status, _, err) = codex.hook(codex_event("Stop", Some("a")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    assert_eq!(
+        capture("typed-go"),
+        ("answered".into(), Some("a".into()), Some("done".into()))
+    );
+
+    // A later turn with the same prompt finds nothing pending to bind, and the other
+    // passthrough still waits for its own text.
+    let (status, _, err) = codex.hook(codex_event("UserPromptSubmit", Some("b")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    let (status, _, err) = codex.hook(codex_event("Stop", Some("b")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    assert_eq!(capture("typed-other"), ("pending".into(), None, None));
+    assert_eq!(capture("typed-go").2.as_deref(), Some("done"));
+}
+
 /// A Digest checklist blocks a Stop and the provider continues the same turn
 /// without a new prompt (#4159). The blocked Stop already ended the turn, so
 /// the continuation's own Stop (`stop_hook_active`) is the only event that

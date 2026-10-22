@@ -379,3 +379,26 @@ fn only_claude_main_tool_completion_clears_a_reported_approval_prompt() {
         }
     }
 }
+
+#[test]
+fn the_prompt_text_comes_from_a_submission_only_and_only_when_the_provider_gave_one() {
+    for fixture in [
+        include_bytes!("fixtures/claude-prompt-submit.json").as_slice(),
+        include_bytes!("fixtures/codex-prompt-submit.json").as_slice(),
+    ] {
+        let payload: Value = serde_json::from_slice(fixture).unwrap();
+        let text = hook_protocol::decode_prompt_text(fixture).unwrap();
+        assert_eq!(text, payload["prompt"].as_str().unwrap());
+        let mut stop = payload.clone();
+        stop["hook_event_name"] = "Stop".into();
+        assert!(hook_protocol::decode_prompt_text(stop.to_string().as_bytes()).is_none());
+        let mut missing = payload.clone();
+        missing.as_object_mut().unwrap().remove("prompt");
+        assert!(hook_protocol::decode_prompt_text(missing.to_string().as_bytes()).is_none());
+        let mut empty = payload;
+        empty["prompt"] = "".into();
+        assert!(hook_protocol::decode_prompt_text(empty.to_string().as_bytes()).is_none());
+    }
+    let huge = json!({"hook_event_name": "UserPromptSubmit", "prompt": "x".repeat(hook_protocol::HOOK_INPUT_LIMIT)});
+    assert!(hook_protocol::decode_prompt_text(huge.to_string().as_bytes()).is_none());
+}

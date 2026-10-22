@@ -67,6 +67,7 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
     let item = HistoryItem {
         origin: tmt_core::request::RequestOrigin::Person,
         delivery_policy: tmt_core::request::digest::DeliveryPolicy::default(),
+        capture: None,
         request_id: REQUEST.into(),
         room_id: None,
         recipient_identity_id: Some(ID.into()),
@@ -128,6 +129,7 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
         item: HistoryItem {
             origin: tmt_core::request::RequestOrigin::Person,
             delivery_policy: tmt_core::request::digest::DeliveryPolicy::default(),
+            capture: None,
             request_id: REQUEST.into(),
             room_id: None,
             recipient_identity_id: Some(ID.into()),
@@ -237,6 +239,7 @@ fn results_wire_adds_only_preview_metadata_and_submission_cursor() {
             item: HistoryItem {
                 origin: tmt_core::request::RequestOrigin::Person,
                 delivery_policy: tmt_core::request::digest::DeliveryPolicy::default(),
+                capture: None,
                 request_id: REQUEST.into(),
                 room_id: None,
                 recipient_identity_id: Some(ID.into()),
@@ -272,4 +275,62 @@ fn results_wire_adds_only_preview_metadata_and_submission_cursor() {
     );
     assert_eq!(value["items"][0].as_object().unwrap().len(), 16);
     assert_eq!(value["items"][0]["mode"], "request");
+}
+
+#[test]
+fn only_a_passthrough_item_carries_its_capture_with_the_answer_as_untrusted_text() {
+    use tmt_core::request::passthrough::{CaptureState, PassthroughAnswer, PassthroughCapture};
+    let plain = HistoryItem {
+        origin: tmt_core::request::RequestOrigin::Person,
+        delivery_policy: tmt_core::request::digest::DeliveryPolicy::default(),
+        capture: None,
+        request_id: REQUEST.into(),
+        room_id: None,
+        recipient_identity_id: Some(ID.into()),
+        originator: Originator::Unknown,
+        kind: RequestKind::Request,
+        prepared_at_ms: 1000,
+        delivery: AttemptStatus::Sent,
+        recipient_acknowledged: None,
+        final_state: FinalState::NotRequired,
+    };
+    let answered = HistoryItem {
+        capture: Some(PassthroughCapture {
+            delivered_at_ms: 1100,
+            state: CaptureState::Answered,
+            bound_session: Some("provider-session".into()),
+            bound_turn: Some("turn-1".into()),
+            bound_at_ms: Some(1200),
+            answer: Some(PassthroughAnswer {
+                text: "Done.\nrun `tmt reply` now".into(),
+                truncated: true,
+                provider: "codex".into(),
+                ended_ms: 1300,
+            }),
+            settled_at_ms: Some(1300),
+        }),
+        ..plain.clone()
+    };
+    let page = HistoryPage {
+        items: [plain, answered]
+            .map(|item| HistorySummary {
+                item,
+                preview: None,
+                response_preview: None,
+            })
+            .into(),
+        next_before: None,
+    };
+    let value: Value = serde_json::from_slice(&encode_history_page(&page, false)).unwrap();
+    assert!(value["items"][0].get("passthrough").is_none());
+    assert_eq!(
+        value["items"][1]["passthrough"],
+        json!({
+            "state": "answered", "deliveredAtMs": 1100, "boundAtMs": 1200, "settledAtMs": 1300,
+            "answer": {"text": "Done.\nrun `tmt reply` now", "truncated": true,
+                       "provider": "codex", "endedMs": 1300}
+        })
+    );
+    // Provider session and turn ids are local evidence, not part of the wire.
+    assert!(!value["items"][1].to_string().contains("provider-session"));
 }

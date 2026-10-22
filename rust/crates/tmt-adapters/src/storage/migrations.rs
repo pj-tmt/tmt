@@ -40,6 +40,8 @@ mod request_history_tests;
 #[cfg(test)]
 mod request_origin_tests;
 #[cfg(test)]
+mod request_passthrough_tests;
+#[cfg(test)]
 mod request_room_tests;
 #[cfg(test)]
 mod rollup_account_tests;
@@ -293,6 +295,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "record whether a request is a request or a person's passthrough text",
         "schema/059.sql"
+    ),
+    migration!(
+        "keep the turn output a person's passthrough message earned",
+        "schema/060.sql"
     ),
 ];
 

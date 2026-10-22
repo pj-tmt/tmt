@@ -187,6 +187,7 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             next.clone(),
             None,
             None,
+            None,
             Instant::now() + Duration::from_secs(2),
         )
         .unwrap();
