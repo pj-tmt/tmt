@@ -4449,6 +4449,13 @@ impl App {
                 .clone()
                 .map(super::refresh::SelectedRead::Status);
         }
+        if self.screen_mode() {
+            // The chat is not shown, so none of its reads (finals, sends, bodies, pane
+            // output) are made; the screen is read when it is due.
+            return self
+                .pane_screen_read()
+                .map(|(key, round)| super::refresh::SelectedRead::PaneScreen(key, round));
+        }
         // Before bodies: a final found here is read like any other.
         if let Some(key) = self.finals_read() {
             return Some(super::refresh::SelectedRead::Finals(key));

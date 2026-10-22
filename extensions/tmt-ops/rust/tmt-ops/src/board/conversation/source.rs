@@ -549,6 +549,15 @@ impl App {
             self.conversation.borrow_mut().selection = None;
             return None;
         }
+        // `l` swaps the chat and the agent's live screen, unless the user bound `l`.
+        // (`v` is the factory `view-reply`.)
+        if event.code == KeyCode::Char('l')
+            && event.modifiers.is_empty()
+            && !self.bindings().contains_key("l")
+            && self.conversation_target().is_some()
+        {
+            return Some(self.toggle_screen());
+        }
         let movement = matches!(
             event.code,
             KeyCode::Left

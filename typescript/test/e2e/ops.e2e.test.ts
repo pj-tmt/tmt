@@ -64,10 +64,10 @@ function clientPlace(fixture: E2EFixture): string {
   return fixture.tmux(['list-clients', '-F', '#{session_name}/#{pane_id}']).trim();
 }
 
-async function squadWithMember(fixture: E2EFixture): Promise<string> {
+async function squadWithMember(fixture: E2EFixture, command = 'cat'): Promise<string> {
   installSquad(fixture);
   const member = fixture
-    .tmux(['new-session', '-d', '-s', 'crew', '-P', '-F', '#{pane_id}', 'cat'])
+    .tmux(['new-session', '-d', '-s', 'crew', '-P', '-F', '#{pane_id}', command])
     .trim();
   expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
   expectJsonResult(await fixture.runJsonCli(['add', member, 'auth-fix']));
@@ -1315,6 +1315,71 @@ renameSync(output+'.tmp',output);
       await fixture.waitForCapture((current) => current.includes('BUSY_BOARD_EXIT=0'), shell.pane);
     });
   }, 60_000);
+
+  it('shows the selected agent live screen, with its colours, and stops reading when left (#3536)', async () => {
+    await withE2EFixture(async (fixture) => {
+      // The agent pane prints a coloured line, then a counter that changes every second.
+      const member = await squadWithMember(
+        fixture,
+        `sh -c 'printf "\\033[31mred words\\033[0m plain\\n"; i=0; while true; do i=$((i+1)); echo "tick $i"; sleep 1; done'`
+      );
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('screen-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'tmt ops ui --squad product; echo SCREEN_BOARD_EXIT=$?',
+        'Enter',
+      ]);
+      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('⏎ to message auth-fix'),
+        shell.pane
+      );
+      const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
+      const colored = () => fixture.tmux(['capture-pane', '-p', '-e', '-t', shell.pane]);
+
+      // Off by default: the chat, not the pane.
+      expect(screen()).not.toContain('red words');
+
+      // v on the Talk pane shows the live screen.
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'v']);
+      await fixture.waitForCapture((current) => current.includes('Live screen'), shell.pane);
+      await fixture.waitForCapture((current) => current.includes('red words plain'), shell.pane);
+      // The colour survived: the word sits after a colour escape that its neighbours lack.
+      const row = colored()
+        .split('\n')
+        .find((line) => line.includes('red words'))!;
+      expect(row, row).toMatch(/\u001b\[[0-9;]*31m[^\u001b]*red words/);
+      expect(row).not.toMatch(/31m[^\u001b]*plain/);
+
+      // It follows the pane: the counter moves within a few polls.
+      const tick = () => /tick (\d+)/.exec(screen().split('Live screen').join(''))?.[1];
+      const first = await (async () => {
+        await fixture.waitFor(() => tick() !== undefined, 10_000, `a tick:\n${screen()}`);
+        return Number(tick());
+      })();
+      await fixture.waitFor(() => Number(tick()) > first, 10_000, `the screen moves:\n${screen()}`);
+
+      // v again returns to the chat and the reads stop.
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'v']);
+      await fixture.waitForCapture((current) => !current.includes('Live screen'), shell.pane);
+      expect(screen()).not.toContain('red words');
+      void member;
+
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture(
+        (current) => current.includes('SCREEN_BOARD_EXIT=0'),
+        shell.pane
+      );
+    });
+  }, 90_000);
 
   it('closes a --popup board after its jump and keeps the pane board open', async () => {
     await withE2EFixture(async (fixture) => {

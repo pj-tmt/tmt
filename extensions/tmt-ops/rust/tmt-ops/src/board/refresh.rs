@@ -66,6 +66,8 @@ pub(super) enum SelectedRead {
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
     PaneOutput(super::conversation::ConversationKey),
+    /// The shown live screen of one agent, and which read of it this is.
+    PaneScreen(super::conversation::ConversationKey, u64),
     /// One agent's own newest finals, for finals the shared windows scrolled past.
     Finals(super::home_leads::FinalsKey),
     /// The user's own durable sends to one agent, read after its finals.
@@ -121,6 +123,13 @@ impl Worker {
                             SelectedRead::PaneOutput(key) => super::BoardEvent::PaneOutput {
                                 observation: super::recent_responses::read(&reader, &key.1),
                                 key,
+                                revision,
+                                cancellation: cancellation.clone(),
+                            },
+                            SelectedRead::PaneScreen(key, round) => super::BoardEvent::PaneScreen {
+                                observation: super::screen_view::read(&reader, &key.1),
+                                key,
+                                round,
                                 revision,
                                 cancellation: cancellation.clone(),
                             },
