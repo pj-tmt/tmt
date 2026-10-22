@@ -3,11 +3,13 @@
 import type { ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
-import type { ShellSlot } from '@tmt/browser-ui/shell-host';
+import { startShellHost, type ShellHost, type ShellSlot } from '@tmt/browser-ui/shell-host';
 import { hostInShell } from '../src/entry.js';
 import { mount as mountColab } from '../src/colab-module.js';
 import { MarkdownText } from '../src/components/markdown-text.js';
 import { createAppRouter, shellLocation } from '../src/router.js';
+import { previewTransport } from '../src/local-pages.js';
+import { ColabModuleBoundary } from '../src/colab-module-boundary.js';
 import { localTransport } from '../src/transport.js';
 
 export const space = '10000000-0000-4000-8000-000000000001';
@@ -125,9 +127,23 @@ export function trackStarted() {
 
 let unmountColab: (() => void) | undefined;
 let slotHost: HTMLElement | undefined;
+let restoreCrash: (() => void) | undefined;
 
-/** Mounts Colab the way the TMT app does: a slot, no composed shell (so the local preview). */
-export async function mountModule(url: string) {
+/** Poisons the local preview so the Home route throws while it renders: a page whose title is not
+ * text. The router's own error view takes over; the host's rail and header slot must stay. */
+function crashHome(): () => void {
+  const home = previewTransport.spaceHome;
+  previewTransport.spaceHome = async () => ({
+    title: 'Crash',
+    pages: [{ id: 'welcome', title: 5 as unknown as string, sharing: 'private' as const }],
+  });
+  return () => {
+    previewTransport.spaceHome = home;
+  };
+}
+
+/** The slot the host gives a route: a bar for the header and a content area. */
+function newSlot(url: string): ShellSlot {
   document.getElementById('root')?.setAttribute('hidden', '');
   slotHost?.remove();
   slotHost = document.createElement('div');
@@ -137,7 +153,7 @@ export async function mountModule(url: string) {
   slotHost.append(bar, main);
   document.body.append(slotHost);
   history.replaceState(null, '', url);
-  const slot: ShellSlot = {
+  return {
     main,
     bar,
     basePath: '/colab/',
@@ -148,13 +164,117 @@ export async function mountModule(url: string) {
     describe: () => {},
     described: () => {},
   };
-  unmountColab = await mountColab(slot);
+}
+
+/** Mounts Colab the way the TMT app does: a slot, no composed shell (so the local preview).
+ * `crash` makes the Home route throw while it renders. */
+export async function mountModule(url: string, crash = false) {
+  restoreCrash?.();
+  restoreCrash = crash ? crashHome() : undefined;
+  unmountColab = await mountColab(newSlot(url));
+}
+
+let host: ShellHost | undefined;
+
+/** The one TMT app itself: the real host owns the rail and the header bar, and Colab is its `/colab`
+ * route. `crash` makes the Home route throw while it renders (`route`), or mounts the module
+ * boundary over a child that throws (`boundary`). */
+export function mountHostApp(url: string, crash?: 'route' | 'boundary') {
+  restoreCrash?.();
+  restoreCrash = crash === 'route' ? crashHome() : undefined;
+  document.getElementById('root')?.setAttribute('hidden', '');
+  slotHost?.remove();
+  slotHost = document.createElement('div');
+  slotHost.id = 'spa-slot';
+  slotHost.className = 'tmt-ui-shell';
+  slotHost.innerHTML =
+    '<div class="tmt-ui-shell-content"><div class="tmt-ui-shell-bar"></div><div class="tmt-ui-shell-main"></div></div>';
+  document.body.append(slotHost);
+  history.replaceState(null, '', url);
+  host = startShellHost(slotHost, [
+    {
+      id: 'colab',
+      paths: ['/colab', '/colab/'],
+      rail: 'colab',
+      load: async () => ({
+        mount: crash === 'boundary' ? (slot: ShellSlot) => renderBoundary(slot) : mountColab,
+      }),
+    },
+  ]);
+}
+
+let boundaryBroken = false;
+
+/** Whatever the boundary guards stops throwing: the next Try again renders it. */
+export function healBoundary() {
+  boundaryBroken = false;
+}
+
+/** The module boundary alone, over a child that throws until `healBoundary` (React retries a
+ * failed render once, so a count would not hold). */
+export function mountBoundary() {
+  unmountColab = renderBoundary(newSlot('/colab/'));
+}
+
+function renderBoundary(slot: ShellSlot): () => void {
+  const root = createRoot(slot.main);
+  boundaryBroken = true;
+  const Child = () => {
+    if (boundaryBroken) throw new Error('Colab test failure');
+    return <p>Recovered</p>;
+  };
+  const silence = console.error;
+  console.error = () => {};
+  root.render(
+    <ColabModuleBoundary slot={slot}>
+      <Child />
+    </ColabModuleBoundary>,
+  );
+  return () => {
+    root.unmount();
+    console.error = silence;
+  };
+}
+
+/** What the Home route crashed on is fixed: the next Try again loads it. */
+export function healCrash() {
+  restoreCrash?.();
 }
 
 /** The host releases the route before the next module mounts. */
 export function unmountModule() {
+  host?.dispose();
+  host = undefined;
   unmountColab?.();
   unmountColab = undefined;
+  restoreCrash?.();
+  restoreCrash = undefined;
+}
+
+/** What the real host shows now: its rail and brand, its header bar and its main area. */
+export function hostState() {
+  const bar = slotHost?.querySelector('.tmt-ui-shell-bar');
+  const main = slotHost?.querySelector('.tmt-ui-shell-main');
+  return {
+    rail: !!slotHost?.querySelector('.tmt-ui-rail'),
+    brand: slotHost?.querySelector('.tmt-ui-shell-brand')?.textContent ?? '',
+    bar: bar?.textContent ?? '',
+    // The host's own crumb is a header too; Colab's is the other.
+    barHeaders: bar?.querySelectorAll('header:not([data-shell-crumb])').length ?? 0,
+    mainHeaders: main?.querySelectorAll('header').length ?? 0,
+    alert: main?.querySelector('[role="alert"]')?.textContent ?? '',
+  };
+}
+
+/** What the slot holds now: the header bar and the content area, as the host sees them. */
+export function slotState() {
+  return {
+    bar: slotHost?.children[0]?.textContent ?? '',
+    barHeaders: slotHost?.children[0]?.querySelectorAll('header').length ?? 0,
+    main: slotHost?.children[1]?.textContent ?? '',
+    mainHeaders: slotHost?.children[1]?.querySelectorAll('header').length ?? 0,
+    alert: slotHost?.querySelector('[role="alert"]')?.textContent ?? '',
+  };
 }
 
 /** What is still running that the module started. */

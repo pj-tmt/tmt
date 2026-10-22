@@ -51,6 +51,11 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
+/* A heading that takes focus from code (an error view, so a screen reader reads it) is not a place
+   to type or tab to: it announces itself and paints no frame. */
+:is(h1, h2)[tabindex='-1']:focus-visible {
+  outline: none;
+}
 /* Colab's own buttons rest on the edge colour, which the light focus colour equals: focus turns the
    edge into one 2px frame of the focus colour, drawn over the border itself (the border recolours
    too), so nothing moves whatever padding a button has and no second layer shows. A button with

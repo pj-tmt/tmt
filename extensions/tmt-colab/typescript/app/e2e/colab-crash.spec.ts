@@ -1,0 +1,140 @@
+import { expect, test, type Page } from '@playwright/test';
+import { capturePath } from './captures.js';
+
+/**
+ * A crash inside Colab, as a route of the TMT web app, keeps the shell (#4373): the host's rail and
+ * header slot stay, Colab's error view fills the slot, and leaving the route and coming back builds
+ * a clean root. Run over the local preview (test/spa-links-browser.tsx).
+ */
+const fixture = '/test/spa-links-browser.tsx';
+
+/** The look a capture run uses, `COLAB_LOOK=390:dark`; the assertions hold in every look. */
+const look = process.env.COLAB_LOOK ?? '1440:light';
+const capture = async (page: Page, name: string) => {
+  if (process.env.COLAB_CAPTURE_DIR)
+    await page.screenshot({ path: capturePath(`crash-${name}-${look.replace(':', '-')}.png`) });
+};
+
+async function start(page: Page) {
+  const [width, scheme] = look.split(':');
+  await page.setViewportSize({ width: Number(width), height: 900 });
+  await page.emulateMedia({ colorScheme: scheme === 'dark' ? 'dark' : 'light' });
+  await page.goto('/');
+}
+const call = <T>(page: Page, name: string, ...args: unknown[]) =>
+  page.evaluate(
+    async ({ fixture, name, args }) =>
+      ((await import(fixture)) as Record<string, (...args: unknown[]) => unknown>)[name]!(...args),
+    { fixture, name, args },
+  ) as Promise<T>;
+const hostState = (page: Page) =>
+  call<{
+    rail: boolean;
+    brand: string;
+    bar: string;
+    barHeaders: number;
+    mainHeaders: number;
+    alert: string;
+  }>(page, 'hostState');
+const slot = (page: Page) =>
+  call<{
+    bar: string;
+    barHeaders: number;
+    main: string;
+    mainHeaders: number;
+    alert: string;
+  }>(page, 'slotState');
+
+test('a route that throws keeps Colab’s header in the host’s header slot', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountModule', '/colab/', true);
+  await expect(page.getByRole('alert')).toContainText('Page unavailable');
+  // The header is in the host's bar, once, and not inside the content area.
+  expect(await slot(page)).toMatchObject({ barHeaders: 1, mainHeaders: 0 });
+  expect((await slot(page)).bar).toContain('Page unavailable');
+});
+
+test('leaving a crashed route and coming back mounts a clean root', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountModule', '/colab/', true);
+  await expect(page.getByRole('alert')).toBeVisible();
+  await call(page, 'unmountModule');
+  await call(page, 'mountModule', '/colab/');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect.poll(async () => (await slot(page)).barHeaders).toBe(1);
+});
+
+test('a crash above the router shows Colab’s error in the slot and Try again recovers', async ({
+  page,
+}) => {
+  await start(page);
+  await call(page, 'mountBoundary');
+  await expect(page.getByRole('alert')).toContainText('Colab stopped');
+  expect(await slot(page)).toMatchObject({ barHeaders: 1, mainHeaders: 0 });
+  await call(page, 'healBoundary');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText('Recovered')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('Try again that fails again stays on the error view', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountBoundary');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('alert')).toContainText('Colab stopped');
+  await call(page, 'healBoundary');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText('Recovered')).toBeVisible();
+});
+
+test('inside the TMT app a crash keeps the rail and the header bar', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountHostApp', '/colab/', 'route');
+  await expect(page.getByRole('alert')).toContainText('Page unavailable');
+  expect(await hostState(page)).toMatchObject({ rail: true, barHeaders: 1, mainHeaders: 0 });
+  expect((await hostState(page)).brand).toContain('TMT');
+  // The bar reads `<module> / <page>`.
+  expect((await hostState(page)).bar).toMatch(/Colab\s*\/\s*Page unavailable/);
+  // A sentence, not the exception; the exception is behind Details.
+  await expect(page.locator('#spa-slot').getByText('This page could not be shown.')).toBeVisible();
+  await expect(page.locator('#spa-slot').getByText('page.title.trim')).toBeHidden();
+  await page.locator('#spa-slot').getByText('Details').click();
+  await expect(page.locator('#spa-slot').getByText('page.title.trim')).toBeVisible();
+  await capture(page, 'host-route');
+});
+
+test('inside the TMT app a crash above the router keeps the rail too', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountHostApp', '/colab/', 'boundary');
+  await expect(page.getByRole('alert')).toContainText('Colab stopped');
+  expect(await hostState(page)).toMatchObject({ rail: true, barHeaders: 1, mainHeaders: 0 });
+  await capture(page, 'host-boundary');
+});
+
+test('the error view paints no focus frame on the header title', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountHostApp', '/colab/', 'route');
+  await expect(page.getByRole('alert')).toBeVisible();
+  // Focus moves to the heading so a screen reader reads it, and nothing is drawn around it.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const title = document.querySelector('#spa-slot h1[tabindex="-1"]');
+        return title && document.activeElement === title
+          ? getComputedStyle(title).outlineStyle
+          : null;
+      }),
+    )
+    .toBe('none');
+});
+
+test('the route error view offers Try again, which loads the route again', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountHostApp', '/colab/', 'route');
+  const view = page.locator('#spa-slot');
+  await expect(view.getByRole('alert')).toContainText('Page unavailable');
+  await call(page, 'healCrash');
+  await view.getByRole('button', { name: 'Try again' }).click();
+  await expect(view.getByRole('alert')).toHaveCount(0);
+  await expect.poll(async () => (await hostState(page)).rail).toBe(true);
+});

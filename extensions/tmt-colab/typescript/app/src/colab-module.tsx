@@ -10,6 +10,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { probeCapabilities } from '@tmt/colab-client';
 import { moduleMount } from '@tmt/browser-ui/shell';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
+import { ColabModuleBoundary } from './colab-module-boundary.js';
 import '@tmt/browser-ui/static.css';
 import './style.css';
 import { rememberMountedBuild } from './app-build.js';
@@ -65,9 +66,11 @@ export async function mount(slot: ShellSlot): Promise<() => void> {
   slot.setTitle('Colab');
   root.render(
     <StrictMode>
-      <ShellHostSlot value={slot}>
-        {paired ? <MountedApp /> : <RouterProvider router={createAppRouter(previewTransport)} />}
-      </ShellHostSlot>
+      <ColabModuleBoundary slot={slot}>
+        <ShellHostSlot value={slot}>
+          {paired ? <MountedApp /> : <RouterProvider router={createAppRouter(previewTransport)} />}
+        </ShellHostSlot>
+      </ColabModuleBoundary>
     </StrictMode>,
   );
   // MountedApp closes its session and bindings when it unmounts.

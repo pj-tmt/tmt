@@ -25,6 +25,21 @@ export function UnsupportedBrowserNotice() {
   );
 }
 
+/** The exception behind an error view, folded away: the notice speaks in a sentence, and this keeps
+ * the text reachable to copy into a bug report. */
+export function ErrorDetails({ error }: { error: unknown }) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (!message) return null;
+  return (
+    <details className="error-details">
+      <summary>{text.errorDetails}</summary>
+      <pre>
+        <code>{message}</code>
+      </pre>
+    </details>
+  );
+}
+
 /** Colab owns the state and recovery; browser-ui presents the explicit words. */
 export function NoticeCard({
   state,
