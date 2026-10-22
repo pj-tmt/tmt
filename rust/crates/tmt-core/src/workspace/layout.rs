@@ -2,6 +2,8 @@
 
 use std::collections::HashSet;
 
+mod json;
+
 use super::{MAX_PANES, WorkspacePane, WorkspaceSession, WorkspaceSnapshot, WorkspaceWindow};
 
 // tmux's serialized layout buffer is bounded. Limit recursion independently of
@@ -306,10 +308,18 @@ pub fn prepare_layout(
 
 /// Saved pane IDs describe the old layout, never select a current tmux target.
 pub fn parse_layout(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutError> {
-    use WorkspaceLayoutError::{Checksum, Geometry, Limit, Syntax};
+    use WorkspaceLayoutError::{Checksum, Limit, Syntax};
     let bytes = value.as_bytes();
     if bytes.len() > MAX_LAYOUT_BYTES {
         return Err(Limit);
+    }
+    if value
+        .trim_start_matches([' ', '\t', '\r', '\n'])
+        .starts_with('{')
+    {
+        let root = json::parse(value)?;
+        validate_root(&root)?;
+        return Ok(root);
     }
     if bytes.len() < 6 || bytes[4] != b',' || !bytes[..4].iter().all(u8::is_ascii_hexdigit) {
         return Err(Syntax);
@@ -331,10 +341,120 @@ pub fn parse_layout(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutE
     if parser.offset != body.len() {
         return Err(Syntax);
     }
+    validate_root(&root)?;
+    Ok(root)
+}
+
+fn validate_root(root: &WorkspaceLayoutCell) -> Result<(), WorkspaceLayoutError> {
     if root.left != 0 || root.top != 0 {
+        return Err(WorkspaceLayoutError::Geometry);
+    }
+    validate_cell(root)
+}
+
+fn validate_cell(cell: &WorkspaceLayoutCell) -> Result<(), WorkspaceLayoutError> {
+    use WorkspaceLayoutError::Geometry;
+    if cell.width == 0 || cell.height == 0 {
         return Err(Geometry);
     }
-    Ok(root)
+    let WorkspaceLayoutKind::Split(axis, children) = &cell.kind else {
+        return Ok(());
+    };
+    if children.len() < 2 {
+        return Err(Geometry);
+    }
+    let mut position = match axis {
+        WorkspaceSplitAxis::Horizontal => u32::from(cell.left),
+        WorkspaceSplitAxis::Vertical => u32::from(cell.top),
+    };
+    for child in children {
+        validate_cell(child)?;
+        let extent = match axis {
+            WorkspaceSplitAxis::Horizontal => {
+                if child.height != cell.height
+                    || child.top != cell.top
+                    || u32::from(child.left) != position
+                {
+                    return Err(Geometry);
+                }
+                child.width
+            }
+            WorkspaceSplitAxis::Vertical => {
+                if child.width != cell.width
+                    || child.left != cell.left
+                    || u32::from(child.top) != position
+                {
+                    return Err(Geometry);
+                }
+                child.height
+            }
+        };
+        position += u32::from(extent) + 1;
+    }
+    let expected = match axis {
+        WorkspaceSplitAxis::Horizontal => u32::from(cell.left) + u32::from(cell.width),
+        WorkspaceSplitAxis::Vertical => u32::from(cell.top) + u32::from(cell.height),
+    };
+    if position - 1 != expected {
+        return Err(Geometry);
+    }
+    Ok(())
+}
+
+impl WorkspaceLayoutWindow<'_> {
+    /// Adapt admitted saved geometry to a fenced, invocation-owned window's
+    /// observed layout encoding. Matching encodings preserve the original bytes.
+    pub fn layout_for_server(&self, live: &str) -> Result<String, WorkspaceLayoutError> {
+        parse_layout(live)?;
+        let is_json = |value: &str| {
+            value
+                .trim_start_matches([' ', '\t', '\r', '\n'])
+                .starts_with('{')
+        };
+        if is_json(live) == is_json(&self.window.layout) {
+            return Ok(self.window.layout.clone());
+        }
+        let result = if is_json(live) {
+            json::serialize(&self.root)
+        } else {
+            let mut body = String::new();
+            legacy_body(&self.root, &mut body);
+            let checksum = body.bytes().fold(0u16, |sum, byte| {
+                sum.rotate_right(1).wrapping_add(u16::from(byte))
+            });
+            format!("{checksum:04x},{body}")
+        };
+        // Conversion never widens the admitted wire bound.
+        parse_layout(&result)?;
+        Ok(result)
+    }
+}
+
+fn legacy_body(cell: &WorkspaceLayoutCell, out: &mut String) {
+    use std::fmt::Write;
+    write!(
+        out,
+        "{}x{},{},{}",
+        cell.width, cell.height, cell.left, cell.top
+    )
+    .unwrap();
+    match &cell.kind {
+        WorkspaceLayoutKind::Pane(id) => write!(out, ",{id}").unwrap(),
+        WorkspaceLayoutKind::Split(axis, children) => {
+            let (open, close) = match axis {
+                WorkspaceSplitAxis::Horizontal => ('{', '}'),
+                WorkspaceSplitAxis::Vertical => ('[', ']'),
+            };
+            out.push(open);
+            for (i, child) in children.iter().enumerate() {
+                if i != 0 {
+                    out.push(',');
+                }
+                legacy_body(child, out);
+            }
+            out.push(close);
+        }
+    }
 }
 
 struct LayoutParser<'a> {
@@ -416,43 +536,6 @@ impl LayoutParser<'_> {
                     children.push(self.cell(depth + 1)?);
                 }
                 self.take(close)?;
-                if children.len() < 2 {
-                    return Err(Geometry);
-                }
-                let mut position = match axis {
-                    WorkspaceSplitAxis::Horizontal => u32::from(left),
-                    WorkspaceSplitAxis::Vertical => u32::from(top),
-                };
-                for child in &children {
-                    let extent = match axis {
-                        WorkspaceSplitAxis::Horizontal => {
-                            if child.height != height
-                                || child.top != top
-                                || u32::from(child.left) != position
-                            {
-                                return Err(Geometry);
-                            }
-                            child.width
-                        }
-                        WorkspaceSplitAxis::Vertical => {
-                            if child.width != width
-                                || child.left != left
-                                || u32::from(child.top) != position
-                            {
-                                return Err(Geometry);
-                            }
-                            child.height
-                        }
-                    };
-                    position += u32::from(extent) + 1;
-                }
-                let expected = match axis {
-                    WorkspaceSplitAxis::Horizontal => u32::from(left) + u32::from(width),
-                    WorkspaceSplitAxis::Vertical => u32::from(top) + u32::from(height),
-                };
-                if position - 1 != expected {
-                    return Err(Geometry);
-                }
                 WorkspaceLayoutKind::Split(axis, children)
             }
             _ => return Err(Syntax),
