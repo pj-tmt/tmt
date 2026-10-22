@@ -312,9 +312,13 @@
           >
             <span class="tmt-ui-action-label">Remove the others</span>
           </button>
-          <div id="remove-others-confirmation" class="device-confirmation" hidden>
-            <p id="remove-others-consequence" role="status"></p>
-            <button id="cancel-remove-others" class="tmt-ui-action" type="button">Cancel</button>
+          <div id="remove-others-confirmation" class="tmt-ui-notice" hidden>
+            <p id="remove-others-consequence" class="tmt-ui-notice-body" role="status"></p>
+            <div class="tmt-ui-notice-actions">
+              <button id="cancel-remove-others" class="tmt-ui-action" type="button">
+                <span class="tmt-ui-action-label">Cancel</span>
+              </button>
+            </div>
           </div>
           <div id="devices"></div>
           <button
