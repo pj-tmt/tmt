@@ -103,8 +103,11 @@ Colab's integrated app-routing acceptance remains Colab-owned.
 `owner-reads.ts` is the one client for the [owner browser reads](../../../../contracts/remote-channel-v1.md#owner-browser-reads):
 `ownerRead(name, signal)` reads `<mount>/x/-/<name>` (the mount from the shell's `shellAddress`)
 and checks the versioned envelope, so a page gets `ok` with the payload, `unavailable` with a
-contract reason (an unknown one is `unknown`) or `unreachable` (no owner session, no read, no
-network). `whileVisible(intervalMs, signal, tick)` refreshes only while the route is mounted and
+contract reason (an unknown one is `unknown`), `no-session` (no owner mount, or no pairing to open
+one) or `unreachable` (no read, no network). The door's generic 404 means its owner session ended,
+as on a door restart: the read reopens it from the browser's pairing once and reads again. Reads
+that meet the same restart, such as Digest's digest and limits, share that one reopen; it stops
+only when every waiting read's signal aborted. `whileVisible(intervalMs, signal, tick)` refreshes only while the route is mounted and
 the document visible, at once on showing again, doubling the wait after each failed read up to
 eight times. `/ops` reads `ops` every 5 s through `ops-source.ts`, repaints only when the board
 changed and gives each reason one sentence with what to do; Digest uses the same client.
