@@ -6,6 +6,347 @@ use std::os::unix::fs::PermissionsExt;
 const ID: &str = "11111111-1111-4111-8111-111111111111";
 const ROOM: &str = "22222222-2222-4222-8222-222222222222";
 
+fn write_consents(path: &Path, extensions: &[Consent]) -> Result<(), ExtensionHookError> {
+    crate::private_file::replace(path, &encode_consents(extensions)?)
+        .map_err(ExtensionHookError::Io)
+}
+
+thread_local! {
+    static AFTER_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = Default::default();
+}
+
+pub(super) fn after_consent_read() {
+    let checkpoint = AFTER_READ.with(|slot| slot.borrow_mut().take());
+    if let Some(checkpoint) = checkpoint {
+        checkpoint();
+    }
+}
+
+/// Own the thread and release its checkpoint before joining, including on panic.
+struct PausedMutation {
+    read: std::sync::mpsc::Receiver<()>,
+    release: Option<std::sync::mpsc::Sender<()>>,
+    worker: Option<std::thread::JoinHandle<Result<(), ExtensionHookError>>>,
+}
+
+impl PausedMutation {
+    fn start(operation: impl FnOnce() -> Result<(), ExtensionHookError> + Send + 'static) -> Self {
+        let (read_tx, read) = std::sync::mpsc::channel();
+        let (release, resume) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            AFTER_READ.with(|slot| {
+                *slot.borrow_mut() = Some(Box::new(move || {
+                    read_tx.send(()).unwrap();
+                    // Dropping the controller also releases a failed scenario.
+                    let _ = resume.recv();
+                }));
+            });
+            operation()
+        });
+        Self {
+            read,
+            release: Some(release),
+            worker: Some(worker),
+        }
+    }
+
+    fn wait_for_read(&self) {
+        self.read.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    fn finish(mut self) {
+        self.release.take().unwrap().send(()).unwrap();
+        self.worker.take().unwrap().join().unwrap().unwrap();
+    }
+}
+
+impl Drop for PausedMutation {
+    fn drop(&mut self) {
+        self.release.take();
+        if let Some(worker) = self.worker.take() {
+            let result = worker.join();
+            if !std::thread::panicking() {
+                result.unwrap().unwrap();
+            }
+        }
+    }
+}
+
+fn fixture_consent(name: &str) -> Consent {
+    Consent {
+        name: name.into(),
+        path: PathBuf::from("/fixture-not-executed"),
+        digest: "0".repeat(64),
+        fingerprint: Fingerprint {
+            device: 1,
+            inode: 2,
+            size: 3,
+            modified_ns: 4,
+            changed_ns: 5,
+            uid: 6,
+            mode: 0o755,
+        },
+        protocol: "1".into(),
+        capabilities: vec![LIFECYCLE_CAPABILITY.into()],
+        consented_at_ms: 7,
+    }
+}
+
+fn fixture_paths(directory: &TestDirectory) -> ConfigPaths {
+    ConfigPaths::resolve(
+        &directory.path,
+        &directory.path,
+        Some(&directory.path),
+        None,
+    )
+}
+
+#[test]
+fn concurrent_disables_keep_both_successful_removals() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    write_consents(
+        &consent_path(&paths.global_dir),
+        &[fixture_consent("a"), fixture_consent("b")],
+    )
+    .unwrap();
+    let first_paths = paths.clone();
+    let first = PausedMutation::start(move || {
+        assert!(disable(&first_paths, "a")?);
+        Ok(())
+    });
+    first.wait_for_read();
+    let second_paths = paths.clone();
+    let second = PausedMutation::start(move || {
+        assert!(disable(&second_paths, "b")?);
+        Ok(())
+    });
+    second.wait_for_read();
+    // Both operations have read [a,b]. Commit a's removal, then b's.
+    first.finish();
+    second.finish();
+    assert!(list_consents(&paths).unwrap().is_empty());
+}
+
+#[test]
+fn concurrent_enable_and_disable_keep_both_successful_changes() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    write_consents(
+        &consent_path(&paths.global_dir),
+        &[fixture_consent("a"), fixture_consent("b")],
+    )
+    .unwrap();
+    let bin = directory.path.join("bin");
+    fs::create_dir(&bin).unwrap();
+    let executable = bin.join("tmt-c");
+    tmt_test_support::write_executable(
+        &executable,
+        b"#!/bin/sh\nprintf 'TMT-HOOKS/1\\nlifecycle_observations_v1\\n'\n",
+        0o700,
+    )
+    .unwrap();
+    let first_paths = paths.clone();
+    let first = PausedMutation::start(move || {
+        enable(&first_paths, "c", bin.as_os_str(), &executable)?;
+        Ok(())
+    });
+    first.wait_for_read();
+    let second_paths = paths.clone();
+    let second = PausedMutation::start(move || {
+        assert!(disable(&second_paths, "a")?);
+        Ok(())
+    });
+    second.wait_for_read();
+    first.finish();
+    second.finish();
+    assert_eq!(
+        list_consents(&paths)
+            .unwrap()
+            .iter()
+            .map(|consent| consent.name.as_str())
+            .collect::<Vec<_>>(),
+        ["b", "c"]
+    );
+}
+
+#[test]
+fn same_name_mutations_use_current_bytes_and_noops_do_not_publish() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    let path = consent_path(&paths.global_dir);
+    write_consents(&path, &[fixture_consent("a")]).unwrap();
+    let pending_paths = paths.clone();
+    let pending = PausedMutation::start(move || {
+        assert!(!disable(&pending_paths, "a")?);
+        Ok(())
+    });
+    pending.wait_for_read();
+    assert!(disable(&paths, "a").unwrap());
+    let inode = fs::metadata(&path).unwrap().ino();
+    pending.finish();
+    assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+    let mut renewed = fixture_consent("a");
+    renewed.consented_at_ms = 99;
+    apply_consent(&paths, ConsentChange::Enable(&renewed)).unwrap();
+    assert_eq!(list_consents(&paths).unwrap(), [renewed]);
+    assert!(disable(&paths, "a").unwrap());
+}
+
+#[test]
+fn missing_disable_and_failed_probe_create_no_settings_or_lock() {
+    let directory = TestDirectory::new();
+    let missing = directory.path.join("absent");
+    let paths = ConfigPaths::resolve(&missing, &missing, Some(&missing), None);
+    assert!(!disable(&paths, "a").unwrap());
+    assert!(!missing.exists());
+    let executable = directory.path.join("tmt-bad");
+    tmt_test_support::write_executable(&executable, b"#!/bin/sh\nprintf 'invalid\\n'\n", 0o700)
+        .unwrap();
+    let error = enable(&paths, "bad", directory.path.as_os_str(), &executable).unwrap_err();
+    assert_eq!(error.code(), "EXTENSION_INCOMPATIBLE");
+    assert!(!missing.exists());
+}
+
+#[test]
+fn new_consent_is_private_and_oversized_publication_preserves_previous_bytes() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    let path = consent_path(&paths.global_dir);
+    apply_consent(&paths, ConsentChange::Enable(&fixture_consent("a"))).unwrap();
+    assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+    let original = fs::read(&path).unwrap();
+    let mut oversized = fixture_consent("large");
+    oversized.capabilities.push("x".repeat(CONSENT_LIMIT));
+    assert_eq!(
+        apply_consent(&paths, ConsentChange::Enable(&oversized))
+            .unwrap_err()
+            .code(),
+        "EXTENSION_HOOKS_UNAVAILABLE"
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[test]
+fn mutation_requires_private_mode_without_changing_read_only_consent() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    let path = consent_path(&paths.global_dir);
+    write_consents(&path, &[fixture_consent("a'b")]).unwrap();
+    let original = fs::read(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(list_consents(&paths).unwrap().len(), 1);
+    let error = disable(&paths, "a'b").unwrap_err();
+    assert_eq!(error.code(), "EXTENSION_HOOKS_UNAVAILABLE");
+    let message = error.to_string();
+    assert!(message.contains(&path.display().to_string()));
+    assert!(message.contains(&format!("chmod 600 {}", quoted(&path.to_string_lossy()))));
+    assert!(message.contains("Retry: tmt extension hooks disable 'a'\\''b'"));
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o644);
+    assert!(!directory.path.join("document-locks").exists());
+}
+
+#[test]
+fn invalid_and_unsafe_settings_are_never_replaced() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    let path = consent_path(&paths.global_dir);
+    for (bytes, code) in [
+        (b"{".to_vec(), "EXTENSION_HOOKS_INVALID"),
+        (
+            br#"{"version":2,"extensions":[]}"#.to_vec(),
+            "EXTENSION_HOOKS_INVALID",
+        ),
+        (vec![b' '; CONSENT_LIMIT + 1], "EXTENSION_HOOKS_UNAVAILABLE"),
+    ] {
+        crate::private_file::replace(&path, &bytes).unwrap();
+        assert_eq!(disable(&paths, "a").unwrap_err().code(), code);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+    fs::remove_file(&path).unwrap();
+    let target = directory.path.join("untouched");
+    fs::write(&target, b"sentinel").unwrap();
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+    assert!(disable(&paths, "a").is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"sentinel");
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    assert!(disable(&paths, "a").is_err());
+    assert!(path.is_dir());
+}
+
+fn consent_lock_path(paths: &ConfigPaths) -> PathBuf {
+    let entries = fs::read_dir(paths.global_dir.join("document-locks"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    assert_eq!(entries.len(), 1);
+    entries[0].clone()
+}
+
+#[test]
+fn shared_lock_times_out_without_publication_and_is_reused_after_release() {
+    use nix::fcntl::{Flock, FlockArg};
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    let path = consent_path(&paths.global_dir);
+    write_consents(&path, &[fixture_consent("a")]).unwrap();
+    // An existing no-op admits the shared lock without replacing the document.
+    assert!(!disable(&paths, "absent").unwrap());
+    let lock = consent_lock_path(&paths);
+    let inode = fs::metadata(&lock).unwrap().ino();
+    let held = Flock::lock(fs::File::open(&lock).unwrap(), FlockArg::LockExclusive).unwrap();
+    let original = fs::read(&path).unwrap();
+    let started = Instant::now();
+    let error = disable(&paths, "a").unwrap_err();
+    assert!(started.elapsed() >= Duration::from_secs(5));
+    assert_eq!(error.code(), "EXTENSION_HOOKS_UNAVAILABLE");
+    let ExtensionHookError::Io(error) = error else {
+        unreachable!()
+    };
+    assert!(
+        matches!(error.get_ref().unwrap().downcast_ref::<tmt_extension_state::StateError>(),
+        Some(tmt_extension_state::StateError::Timeout { may_not_be_saved: false, retry, .. })
+        if retry == "tmt extension hooks disable 'a'")
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
+    drop(held);
+    assert!(disable(&paths, "a").unwrap());
+    assert_eq!(fs::metadata(&lock).unwrap().ino(), inode);
+    assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+    assert!(
+        !path
+            .with_file_name(".extension-hooks.json.tmt-staging")
+            .exists()
+    );
+}
+
+#[test]
+fn unsafe_lock_and_staging_refuse_without_mutation() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    let path = consent_path(&paths.global_dir);
+    write_consents(&path, &[fixture_consent("a")]).unwrap();
+    assert!(!disable(&paths, "absent").unwrap());
+    let lock = consent_lock_path(&paths);
+    fs::remove_file(&lock).unwrap();
+    let target = directory.path.join("untouched");
+    fs::write(&target, b"sentinel").unwrap();
+    std::os::unix::fs::symlink(&target, &lock).unwrap();
+    assert!(disable(&paths, "a").is_err());
+    fs::remove_file(&lock).unwrap();
+    let staging = path.with_file_name(".extension-hooks.json.tmt-staging");
+    std::os::unix::fs::symlink(&target, &staging).unwrap();
+    assert!(disable(&paths, "a").is_err());
+    assert_eq!(list_consents(&paths).unwrap(), [fixture_consent("a")]);
+    assert_eq!(fs::read(&target).unwrap(), b"sentinel");
+    fs::remove_file(&staging).unwrap();
+    fs::write(&staging, b"interrupted stage").unwrap();
+    assert!(disable(&paths, "a").unwrap());
+    assert!(!staging.exists());
+}
+
 fn capturing(path: &Path) -> Connection {
     crate::storage::Storage::open(path)
         .unwrap()
@@ -134,23 +475,7 @@ fn consents_are_stored_privately_and_disable_removes_one() {
     let path = consent_path(&directory.path);
     assert!(read_consents(&path).unwrap().is_empty());
     assert!(!has_context_consent(&directory.path));
-    let consent = |name: &str| Consent {
-        name: name.into(),
-        path: PathBuf::from("/x"),
-        digest: "0".repeat(64),
-        fingerprint: Fingerprint {
-            device: 1,
-            inode: 2,
-            size: 3,
-            modified_ns: 4,
-            changed_ns: 5,
-            uid: 6,
-            mode: 0o755,
-        },
-        protocol: "1".into(),
-        capabilities: vec![LIFECYCLE_CAPABILITY.into()],
-        consented_at_ms: 7,
-    };
+    let consent = fixture_consent;
     write_consents(&path, &[consent("a"), consent("b")]).unwrap();
     assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
     assert_eq!(read_consents(&path).unwrap().len(), 2);
