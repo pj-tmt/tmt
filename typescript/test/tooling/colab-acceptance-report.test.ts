@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
@@ -590,6 +591,8 @@ describe('closed soak diagnostic projection', () => {
         { name: secret, startMs: 1, durationMs: 1 },
       ],
       logs: [{ ...value.logs[0], headers: secret, request: secret }],
+      assertion: { id: value.assertion, text: secret },
+      children: [{ ...value.children[0], signal: secret, path: secret }],
     };
     const text = JSON.stringify(projectSoakFailure(malicious, dictionary));
     expect(text).not.toContain(secret);
@@ -649,6 +652,7 @@ describe('closed soak diagnostic projection', () => {
     const first = projectSoakFailure(value, dictionary)!;
     expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThanOrEqual(policy.maxBytes);
     expect(first.truncated.input).toBe(true);
+    expect(first.truncated.bytes).toBe(true);
     expect(projectSoakFailure(first, dictionary)!.truncated).toEqual(first.truncated);
     expect(projectSoakFailure({ ...value, scenario: 'unrelated' }, dictionary)).toBeUndefined();
   });
@@ -719,6 +723,17 @@ describe('closed soak diagnostic projection', () => {
     );
     expect(widened.messages.has('UNLISTED_OWNER_LITERAL')).toBe(false);
     expect([...widened.messages].every((value) => typeof value === 'string')).toBe(true);
+    const scenario = 'extensions/tmt-colab/typescript/app/acceptance/connection-soak.spec.ts';
+    expect(() =>
+      loadSoakDictionary((file) =>
+        file === scenario
+          ? read(file).replace(
+              "'The SDK directory exactly matches the native identity set.'",
+              "String('The SDK directory exactly matches the native identity set.')"
+            )
+          : read(file)
+      )
+    ).toThrow('Non-static assertion: directory');
   });
 });
 
@@ -796,57 +811,88 @@ describe('synthetic soak API projection', () => {
 });
 
 describe('soak failure collection before world cleanup', () => {
-  it('captures setup failure without a browser and only reads its owned native tail', async () => {
-    const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'tmt-acc-collector-')));
-    let observe: (() => Promise<void>) | undefined;
-    let body: Buffer | undefined;
-    const world = {
-      root,
-      dataRoot: path.join(root, 'data'),
-      enableSoakDiagnostics() {},
-      onFailure(callback: () => Promise<void>) {
-        observe = callback;
-      },
-      soakLogs: () => ({ records: [], truncated: false }),
-      soakChildren: () => [],
-    } as unknown as ConstructorParameters<typeof SoakCollector>[0];
-    const info = {
-      attach: async (_name: string, attachment: { body: Buffer }) => {
-        body = attachment.body;
-      },
-    } as unknown as ConstructorParameters<typeof SoakCollector>[1];
-    try {
-      new SoakCollector(world, info);
-      appendSoakInvocation(
+  it.each([false, true])(
+    'captures setup failure and owned listener liveness=%s without a browser',
+    async (listening) => {
+      const root = realpathSync(mkdtempSync(path.join(realpathSync('/tmp'), 'tmt-acc-collector-')));
+      let observe: (() => Promise<void>) | undefined;
+      let body: Buffer | undefined;
+      const servers: net.Server[] = [];
+      const world = {
         root,
-        'core',
-        3,
-        null,
-        JSON.stringify({ error: { code: 'PANE_NOT_FOUND', message: secret }, payload: secret })
-      );
-      await observe!();
-      const retained = JSON.parse(body!.toString());
-      expect(retained.assertion.id).toBe('setup');
-      expect(retained.logs.some((row: { code: string }) => row.code === 'PANE_NOT_FOUND')).toBe(
-        true
-      );
-      expect(retained.children).toEqual([
-        { index: 0, role: 'core', alive: false, exitCode: 3, signal: null },
-      ]);
-      expect(retained.alive).toEqual({
-        socket: false,
-        door: false,
-        method: 'owned-resource-probe',
-      });
-      expect(body!.toString()).not.toContain(secret);
-      expect(body!.toString()).not.toContain(root);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+        dataRoot: path.join(root, 'data'),
+        enableSoakDiagnostics() {},
+        onFailure(callback: () => Promise<void>) {
+          observe = callback;
+        },
+        soakLogs: () => ({ records: [], truncated: false }),
+        soakChildren: () => [],
+      } as unknown as ConstructorParameters<typeof SoakCollector>[0];
+      const info = {
+        attach: async (_name: string, attachment: { body: Buffer }) => {
+          body = attachment.body;
+        },
+      } as unknown as ConstructorParameters<typeof SoakCollector>[1];
+      try {
+        const collector = new SoakCollector(world, info);
+        if (listening) {
+          const directory = fixturePath(root, path.join(root, 'data', 'colab'));
+          mkdirSync(directory, { recursive: true });
+          for (const address of [
+            path.join(directory, 'door.sock'),
+            { host: '127.0.0.1', port: 0 },
+          ]) {
+            const server = net.createServer((socket) => socket.destroy());
+            servers.push(server);
+            await new Promise<void>((resolve, reject) => {
+              server.once('error', reject);
+              if (typeof address === 'string') server.listen(address, resolve);
+              else server.listen(address, resolve);
+            });
+          }
+          const address = servers[1].address() as net.AddressInfo;
+          collector.setDoor({
+            origin: `http://127.0.0.1:${address.port}`,
+            remote: { child: { exitCode: null } },
+          });
+        }
+        appendSoakInvocation(
+          root,
+          'core',
+          3,
+          null,
+          JSON.stringify({ error: { code: 'PANE_NOT_FOUND', message: secret }, payload: secret })
+        );
+        await observe!();
+        const retained = JSON.parse(body!.toString());
+        expect(retained.assertion.id).toBe('setup');
+        expect(retained.logs.some((row: { code: string }) => row.code === 'PANE_NOT_FOUND')).toBe(
+          true
+        );
+        expect(retained.children).toEqual([
+          { index: 0, role: 'core', alive: false, exitCode: 3, signal: null },
+        ]);
+        expect(retained.alive).toEqual({
+          socket: listening,
+          door: listening,
+          method: 'owned-resource-probe',
+        });
+        expect(body!.toString()).not.toContain(secret);
+        expect(body!.toString()).not.toContain(root);
+      } finally {
+        await Promise.all(
+          servers
+            .filter((server) => server.listening)
+            .map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
+        );
+        expect(servers.every((server) => !server.listening)).toBe(true);
+        rmSync(root, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it('does not append through a native-log symlink or to an unrelated root', () => {
-    const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'tmt-acc-collector-')));
+    const root = realpathSync(mkdtempSync(path.join(realpathSync('/tmp'), 'tmt-acc-collector-')));
     const outside = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'soak-native-outside-')));
     try {
       const file = fixturePath(outside, path.join(outside, 'private'));
