@@ -2,6 +2,7 @@ import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { destination } from '../test/ask-fixtures.js';
+import { capturePath } from './captures.js';
 import {
   mount as mountAttachments,
   openChat as openAttachmentChat,
@@ -298,6 +299,31 @@ async function openAnchoredThread(page: Page) {
   await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
   return { dialog, input, page_ };
 }
+
+for (const width of [1440, 390])
+  test(`chat: a failed row's Retry and Edit start flush with the message text: ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    const input = await mount(page, 'chat', 'write-failure');
+    await input.pressSequentially('Kept draft.');
+    await input.press('Enter');
+    await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+    const body = (await echo(page).locator('.comment-body').boundingBox())!;
+    // The label is what the eye aligns: the button's own box also holds its padding.
+    const label = (name: string) =>
+      echo(page).getByRole('button', { name }).locator('.tmt-ui-action-label').boundingBox();
+    const retry = (await label(text.chatRetry))!;
+    const edit = (await label(text.commentEdit))!;
+    if (process.env.COLAB_CAPTURE_DIR) {
+      await page.mouse.move(2, 2);
+      await page.screenshot({ path: capturePath(`failed-row-actions-${width}.png`) });
+    }
+    // A text action starts where the text above it starts, not one padding in (#4452).
+    expect(Math.abs(retry.x - body.x)).toBeLessThanOrEqual(1);
+    // The two keep a gap between their labels.
+    expect(edit.x - (retry.x + retry.width)).toBeGreaterThanOrEqual(12);
+  });
 
 test('anchored dialog: the first comment shows at once as the thread, and its record takes its place', async ({
   page,

@@ -662,8 +662,12 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 8px 16px;
   margin: 12px 0;
+}
+/* A text action starts where the text above it starts, not one padding in (as in #4452). */
+.comment-actions > .tmt-ui-action[data-variant='text'] {
+  padding-inline: 0;
 }
 .comments-panel textarea {
   display: block;
