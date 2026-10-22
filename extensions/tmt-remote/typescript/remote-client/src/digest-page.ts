@@ -393,6 +393,7 @@ export function digestPage(source: DigestSource = digestSource): void {
     const report = await source.report(range);
     if (mine !== generation) return;
     badge!.hidden = true;
+    badge!.textContent = '';
     if (report.unavailable || !report.document) {
       panel!.replaceChildren();
       return notAvailable(note!, report.unavailable ?? 'Usage is not available.');
@@ -406,6 +407,7 @@ export function digestPage(source: DigestSource = digestSource): void {
       row('digest-row-coverage', exchangeCard(doc), coverageCard()),
     );
     if (report.sample) {
+      badge!.textContent = 'Sample data';
       badge!.hidden = false;
       notAvailable(note!, 'Usage preview. Real numbers: `tmt digest usage report`.');
     } else {
