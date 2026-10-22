@@ -750,12 +750,14 @@
                   // A direct child of a framed page sits on the frame's column (the frame stylesheet:
                   // centred, min(column, 100% - 2 gutters), or the whole width for data-width="full"),
                   // which the body's own box does not show and the hidden target cannot be measured
-                  // for (#4011). The column and the gutter are the frame stylesheet's own properties.
+                  // for (#4011). The column, the gutter and the marker lane are the frame stylesheet's own
+                  // properties; a full block runs over the lane.
+                  const frame = getComputedStyle(document.documentElement);
                   if (target.getAttribute('data-width') === 'full') {
                     left = column.left;
-                    width = column.width;
+                    width =
+                      column.width + (parseFloat(frame.getPropertyValue('--colab-lane')) || 0);
                   } else {
-                    const frame = getComputedStyle(document.documentElement);
                     width = Math.min(
                       parseFloat(frame.getPropertyValue('--colab-column')),
                       column.width - 2 * parseFloat(frame.getPropertyValue('--colab-gutter')),

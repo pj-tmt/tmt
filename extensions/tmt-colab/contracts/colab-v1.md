@@ -2538,7 +2538,8 @@ from the app's `src/page-frame.css` in a CSS layer declared ahead of every autho
 The top-level blocks, the element children of `<body>` that the frame did not add itself,
 share one centred column of `min(1280px, 100% - 32px)`; `<body>` is a flex column with a
 16 px gap, 8 px above a block marked `data-gap="tight"` and 40 px above `"loose"`, and a
-block marked `data-width="full"` runs edge to edge with its text padded onto the column.
+block marked `data-width="full"` runs edge to edge, over the marker lane below, with its text
+padded onto the column.
 An author's width, `max-width`, margin and the block gap, also with `!important` in a
 stylesheet, do not apply to those blocks or to `<body>`'s own inline margin and padding;
 colours, type and the layout inside a block stay free. An inline `style` attribute
