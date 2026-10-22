@@ -546,9 +546,12 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-partial {
   color: var(--tmt-ui-color-secondary);
 }
+/* A text button: its inset focus frame gets room from the padding, which the margin offsets so
+   the text lines up with the card. */
 .digest-more {
   justify-self: start;
-  padding: 0;
+  margin: 0 -4px;
+  padding: 2px 4px;
   border: 0;
   background: none;
   color: var(--tmt-ui-color-link);
@@ -560,7 +563,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .digest-more:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 2px;
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
 }
 .digest-gaps {
   display: grid;
