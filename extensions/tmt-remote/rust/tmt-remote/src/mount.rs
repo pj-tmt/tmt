@@ -8,6 +8,7 @@ use crate::{
     canonical,
     http::{self, Head, Reply, Request},
     limits,
+    reads::{Reads, Target},
     shell::{Description, Shell, Source},
 };
 use nix::poll::{PollFd, PollFlags, poll};
@@ -325,6 +326,8 @@ pub struct Mounts {
     host: String,
     sessions: Arc<dyn Sessions>,
     shell: Shell,
+    /// Owner browser reads of the Ops board and Digest usage; none without an executable.
+    reads: Option<Reads>,
     extensions: &'static [Extension],
     /// Live tunnels per extension, indexed like `extensions`.
     active: Vec<Arc<AtomicUsize>>,
@@ -368,6 +371,7 @@ impl Mounts {
             origin: origin.to_owned(),
             sessions,
             shell: Shell::new(),
+            reads: None,
             extensions,
             active: extensions.iter().map(|_| Arc::default()).collect(),
             tunnels: Mutex::default(),
@@ -384,6 +388,11 @@ impl Mounts {
     /// Report the origins of upgrades to object-declared extensions to `origins`.
     pub fn with_origins(mut self, origins: Arc<dyn OriginSink>) -> Self {
         self.origins = Some(origins);
+        self
+    }
+    /// Serve `x/-/ops` and `x/-/digest` from `reads`.
+    pub fn with_reads(mut self, reads: Reads) -> Self {
+        self.reads = Some(reads);
         self
     }
     pub fn with_activation(mut self, activation: Arc<dyn ActivationSink>) -> Self {
@@ -591,6 +600,15 @@ impl Mounts {
             }
             return Ok(0);
         }
+        if self.read_route(head.path).is_some() {
+            if head.method != "GET" || head.upgrade || head.content_length.is_some_and(|n| n != 0) {
+                return Err(Reply::empty(404));
+            }
+            if head.origin.is_some_and(|o| o != self.origin) {
+                return Err(Reply::empty(403));
+            }
+            return Ok(0);
+        }
         if head.path.contains('?') && !head.upgrade {
             return Err(Reply::empty(404));
         }
@@ -615,6 +633,9 @@ impl Mounts {
     pub fn handle(&self, request: Request, client: &mut TcpStream) -> Option<Reply> {
         if self.is_shell(&request.path) {
             return Some(self.shell_reply(&request));
+        }
+        if let Some(target) = self.read_route(&request.path) {
+            return Some(self.read_reply(&request, target));
         }
         let (index, extension, rest) = self.extension(&request.path)?;
         if reserved(rest) {
@@ -754,6 +775,47 @@ impl Mounts {
     fn is_shell(&self, path: &str) -> bool {
         path == format!("{}-/shell", self.base)
     }
+    /// Display or read work that waited must not outlive its authority: the same device and
+    /// grant revision still hold a live session.
+    fn still_admitted(&self, admitted: &Admitted, request: &Request) -> bool {
+        !admitted.session.ended()
+            && self
+                .sessions
+                .context(request.cookie.as_deref())
+                .is_some_and(|current| {
+                    current.context.device_id == admitted.context.device_id
+                        && current.context.grant_revision == admitted.context.grant_revision
+                        && !current.session.ended()
+                })
+    }
+    /// `x/-/ops` or `x/-/digest/<range>`, only when reads are configured.
+    fn read_route(&self, path: &str) -> Option<Target> {
+        self.reads.as_ref()?;
+        Target::route(path.strip_prefix(&self.base)?.strip_prefix("-/")?)
+    }
+    /// The composed shell's admission: a live owner-device session, rechecked after the
+    /// read, else the generic 404.
+    fn read_reply(&self, request: &Request, target: Target) -> Reply {
+        if header(&request.headers, "sec-fetch-site") == Some("cross-site") {
+            return Reply::empty(403);
+        }
+        let Some(admitted) = self.sessions.context(request.cookie.as_deref()) else {
+            return Reply::empty(404);
+        };
+        let Some(reads) = &self.reads else {
+            return Reply::empty(404);
+        };
+        let body = reads.body(target);
+        if !self.still_admitted(&admitted, request) {
+            return Reply::empty(404);
+        }
+        let mut reply = Reply::empty(200);
+        reply
+            .headers
+            .push(("content-type".into(), "application/json".into()));
+        reply.body = body.to_vec();
+        reply
+    }
     fn shell_reply(&self, request: &Request) -> Reply {
         if header(&request.headers, "sec-fetch-site") == Some("cross-site") {
             return Reply::empty(403);
@@ -783,16 +845,7 @@ impl Mounts {
             .collect();
         let value = self.shell.snapshot(sources, &self.origin, deadline);
         // Recheck the admitted session after waiting; cached display data never bypasses revocation.
-        if admitted.session.ended()
-            || !self
-                .sessions
-                .context(request.cookie.as_deref())
-                .is_some_and(|current| {
-                    current.context.device_id == admitted.context.device_id
-                        && current.context.grant_revision == admitted.context.grant_revision
-                        && !current.session.ended()
-                })
-        {
+        if !self.still_admitted(&admitted, request) {
             return Reply::empty(404);
         }
         let mut reply = Reply::empty(200);
