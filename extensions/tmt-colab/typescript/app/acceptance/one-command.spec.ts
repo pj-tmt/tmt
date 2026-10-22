@@ -154,7 +154,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     };
     expect(linked.link).toBe(new URL(linked.path, door.origin).href);
     expect(linked.paired).toBe(true);
-    expect(linked.shortLink).toBe(`${door.origin}/p/${linked.pageId.slice(0, 8)}`);
+    expect(linked.shortLink).toBe(`${door.origin}/colab/p/${linked.pageId.slice(0, 8)}`);
     const linkedPage = await device.context.newPage();
     expect((await linkedPage.goto(linked.link))?.status()).toBe(200);
     // The link renders the page, not just an HTTP 200: the sandboxed frame shows its body.
@@ -167,7 +167,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     await expect(shortPage.frameLocator('iframe').locator('#body')).toHaveText(
       'Opened from the printed link.',
     );
-    expect(shortPage.url()).toBe(linked.shortLink);
+    expect(shortPage.url()).toBe(new URL(`/colab/pages/${linked.pageId}`, door.origin).href);
     await shortPage.reload();
     await expect(shortPage.frameLocator('iframe').locator('#body')).toHaveText(
       'Opened from the printed link.',

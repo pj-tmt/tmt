@@ -145,7 +145,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
       'accepted',
     );
     await expect(askEntry(first, sent.operationId).getByTestId('ask-state')).toHaveText(
-      `✓ sent · ${agent.name}'s activity is not reported`,
+      '✓ Delivered',
     );
     const requestId = agent.received()[0].requestId as string;
     fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');

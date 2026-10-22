@@ -231,7 +231,9 @@ test('principals: owner, a second paired device and a read-only link read; a rev
       '--json',
     ]);
     await second.reload();
-    await expect(second.getByRole('heading', { name: 'Pair this browser first' })).toBeVisible({
+    await expect(
+      second.getByText("This browser's pairing was removed.", { exact: true }),
+    ).toBeVisible({
       timeout: 30_000,
     });
     await expect(second.getByTestId('file-row')).toHaveCount(0);

@@ -119,7 +119,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(managementStatus(dialog)).toContainText('Done.');
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Create a sharing link…', exact: true }).click();
-    await expect(dialog).toContainText('Create a read-only link to this page.');
+    await expect(dialog).toContainText('People with this link can read this page.');
     const captureCopy = async (phase: 'confirm' | 'verified') => {
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 900 });

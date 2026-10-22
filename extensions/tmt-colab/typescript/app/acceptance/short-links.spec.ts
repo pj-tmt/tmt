@@ -22,6 +22,7 @@ test('real Colab keeps public short entries across admission, reload and history
     const shown = JSON.parse(
       run(world, world.binaries.colab, ['show', created.pageId, '--json']),
     ) as { link: string; shortLink: string; path: string; spaceId: string };
+    const canonical = new URL(`/colab/pages/${created.pageId}`, door.origin).href;
     expect(shown.link).toBe(shown.shortLink);
     expect(new URL(shown.link).pathname).toBe(created.path);
     expect(new URL(shown.link).hash).toBe('');
@@ -29,10 +30,10 @@ test('real Colab keeps public short entries across admission, reload and history
     const page = await openPage(door, device, created);
     const proof = () => page.frameLocator('iframe').locator('#proof');
     await expect(proof()).toHaveText('Short route content');
-    expect(page.url()).toBe(shown.link);
+    expect(page.url()).toBe(canonical);
     await page.reload();
     await expect(proof()).toHaveText('Short route content');
-    expect(page.url()).toBe(shown.link);
+    expect(page.url()).toBe(canonical);
     await selectInRenderer(page, '#proof');
     await page.getByTestId('selection-ask').click();
     const compose = page.getByRole('dialog', { name: 'Annotate selection' });
@@ -44,7 +45,7 @@ test('real Colab keeps public short entries across admission, reload and history
     await expect(thread.locator('.comment-body')).toHaveText('Short thread proof');
     const threadId = await thread.getAttribute('data-thread-id');
     expect(threadId).not.toBeNull();
-    const threadUrl = `${shown.link}#t=${threadId}`;
+    const threadUrl = `${canonical}#t=${threadId}`;
     await page.goto(threadUrl);
     await expect(page.getByTestId('comment-thread').locator('.comment-body')).toHaveText(
       'Short thread proof',
@@ -60,7 +61,7 @@ test('real Colab keeps public short entries across admission, reload and history
     expect(new URL(page.url()).pathname).toBe('/colab/');
     await page.goBack();
     await expect(proof()).toHaveText('Short route content');
-    expect(page.url()).toBe(shown.link);
+    expect(page.url()).toBe(canonical);
     await page.goForward();
     await expect(
       page.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
@@ -70,10 +71,10 @@ test('real Colab keeps public short entries across admission, reload and history
       `${door.mounts}colab/#space=${shown.spaceId}&path=%2Fpages%2F${created.pageId}`,
     );
     await expect(proof()).toHaveText('Short route content');
-    expect(page.url()).toBe(shown.link);
+    expect(page.url()).toBe(canonical);
     await page.reload();
     await expect(proof()).toHaveText('Short route content');
-    expect(page.url()).toBe(shown.link);
+    expect(page.url()).toBe(canonical);
     for (const route of ['/colab', '/colab/']) {
       await page.goto(new URL(route, door.origin).href);
       // Choosing a tab rewrites the address to `/colab/`, so check it once the list is up and
@@ -90,10 +91,10 @@ test('real Colab keeps public short entries across admission, reload and history
       await restart(world, door);
       await page.goto(shown.link);
       await expect(proof()).toHaveText('Short route content');
-      expect(page.url()).toBe(shown.link);
+      expect(page.url()).toBe(canonical);
       await page.reload();
       await expect(proof()).toHaveText('Short route content');
-      expect(page.url()).toBe(shown.link);
+      expect(page.url()).toBe(canonical);
     }
     const colab = (args: string[]) =>
       JSON.parse(run(world, world.binaries.colab, [...args, '--json'])) as Record<string, unknown>;

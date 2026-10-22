@@ -62,7 +62,19 @@ test('the served Agents view reads the admitted directory without sending or reo
               };
             }),
         };
-    expect(manifest.distAssets).toHaveLength(11);
+    const paths = manifest.distAssets.map((asset) => asset.path);
+    expect(new Set(paths).size).toBe(paths.length);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        'index.html',
+        'renderer.html',
+        'reader.html',
+        'THIRD-PARTY-NOTICES.txt',
+        'assets/colab-module.js',
+        'assets/colab-runtime.js',
+        'assets/colab-runtime.css',
+      ]),
+    );
     const mount = new URL(`${door.mounts}colab/`);
     for (const asset of manifest.distAssets) {
       const served = await browser.context.request.get(new URL(asset.path, mount).href);

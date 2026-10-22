@@ -175,7 +175,7 @@ old reference is stale, and subsequent reads leave the single swap unchanged.
 checks its served asset hashes and CSP, and injects a labelled context-read refusal
 without sending or reopening. By default it compares every served asset with the app's
 current `dist` build. For a relocated frozen binary run, set `COLAB_STATUS_ASSET_MANIFEST`
-to an independently retained build report containing all eleven `distAssets` paths and SHA256
+to an independently retained build report containing all current `distAssets` paths and SHA256
 digests, including `THIRD-PARTY-NOTICES.txt`; optional
 `COLAB_STATUS_NATIVE_CAPTURE_DIR` saves 1440/390 light/dark originals. Its injected
 refusal does not diagnose an existing browser's session failure.
