@@ -17,7 +17,7 @@ fn supplied(held: serde_json::Value, stale: bool) -> crate::labels::Supplied {
                 "options":[{"label":"Default (Auto)","value":"default"},
                     {"label":"Auto","value":"auto"},{"label":"Off","value":"off"}],
                 "current":"default"
-            }},{"text":"When idle","colorClass":"muted"}]
+            }},{"text":"Latest in 4:58","colorClass":"muted"}]
             }]
         }),
         stale,

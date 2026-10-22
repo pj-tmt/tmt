@@ -278,3 +278,55 @@ fn the_global_switch_is_reported_with_the_default_it_would_restore() {
         json!({"enabled":true,"default":"10m","text":"Digest: on (10m)"})
     );
 }
+
+#[test]
+fn an_auto_row_counts_down_to_its_own_caps_and_is_due_at_the_count_cap() {
+    let auto = |source: &str, held: u64, age: u64| {
+        let settings = DigestConfig::parse(source.as_bytes()).unwrap();
+        let observation = Observation {
+            held,
+            delivered: None,
+            observed: 100_000_000,
+            age: Some(age),
+        };
+        member(&settings, ID, "worker", Some(observation), 100_000_000).unwrap()
+    };
+    let text = |row: &Value| row["labels"].as_array().unwrap().last().unwrap().clone();
+    let member_row = |keys: &str| format!("[members.{ID}]\nmode = 'auto'\n{keys}");
+
+    // The defaults: five messages or five minutes, 62 s into the hold.
+    let row = auto(&member_row(""), 2, 62_000);
+    assert_eq!(row["autoCaps"], json!({"maxWaitMs":300_000,"maxCount":5}));
+    assert_eq!(row["timeToSendMs"], 238_000);
+    assert_eq!(
+        text(&row),
+        json!({"text":"Latest in 3:58","colorClass":"muted","action":null})
+    );
+
+    // A member's caps win, and a global cap fills in the rest.
+    let row = auto(
+        &format!(
+            "maxWait = '1h'\nmaxCount = 9\n{}",
+            member_row("maxCount = 3\n")
+        ),
+        1,
+        0,
+    );
+    assert_eq!(row["autoCaps"], json!({"maxWaitMs":3_600_000,"maxCount":3}));
+    assert_eq!(text(&row)["text"], "Latest in 1:00:00");
+
+    // The count cap makes it due now, whatever the wait left.
+    let row = auto(&member_row("maxCount = 3\n"), 3, 1000);
+    assert_eq!(row["timeToSendMs"], 0);
+    assert_eq!(
+        text(&row),
+        json!({"text":"Due now","colorClass":"waiting","action":null})
+    );
+
+    // Only auto rows carry caps.
+    assert!(row_without_caps().get("autoCaps").is_none());
+}
+
+fn row_without_caps() -> Value {
+    row("5m", None, 1000)
+}

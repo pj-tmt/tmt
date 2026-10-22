@@ -4,6 +4,21 @@ const MEMBER: &str = "10000000-0000-4000-8000-000000000001";
 const SETTER: &str = "20000000-0000-4000-8000-000000000001";
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
+/// Save one member's setting without caps.
+fn set(
+    path: &Path,
+    id: &str,
+    setting: &MemberSetting,
+    setter: Option<&str>,
+    now: i64,
+) -> Result<(Mode, i64), Error> {
+    set_caps(path, id, setting, &Caps::default(), setter, now)
+}
+
+fn set_default(path: &Path, mode: &Mode, setter: Option<&str>, now: i64) -> Result<(), Error> {
+    set_default_caps(path, mode, &Caps::default(), setter, now)
+}
+
 #[test]
 fn exact_positive_subminute_durations_and_overflow_admission() {
     for (text, expected) in [
@@ -43,7 +58,7 @@ fn default_inheritance_is_distinct_from_explicit_auto_and_zero_count_is_invalid(
     let mut settings = DigestConfig::parse(source.as_bytes()).unwrap();
     assert_eq!(settings.effective(MEMBER).unwrap(), Mode::Auto);
     settings
-        .edit(MEMBER, &MemberSetting::Default, None, 2)
+        .edit(MEMBER, &MemberSetting::Default, &Caps::default(), None, 2)
         .unwrap();
     assert_eq!(settings.effective(MEMBER).unwrap().text(), "30m");
     assert!(!settings.document.to_string().contains(SETTER));
@@ -111,6 +126,7 @@ fn inline_member_tables_accept_new_rows_without_losing_unknown_fields() {
         .edit(
             MEMBER,
             &MemberSetting::Override(Mode::Auto),
+            &Caps::default(),
             Some(SETTER),
             1,
         )
@@ -120,7 +136,7 @@ fn inline_member_tables_accept_new_rows_without_losing_unknown_fields() {
     let mut reloaded = DigestConfig::parse(bytes.as_bytes()).unwrap();
     assert_eq!(reloaded.effective(MEMBER).unwrap(), Mode::Auto);
     reloaded
-        .edit(MEMBER, &MemberSetting::Default, None, 2)
+        .edit(MEMBER, &MemberSetting::Default, &Caps::default(), None, 2)
         .unwrap();
     assert!(!reloaded.document.to_string().contains(SETTER));
 }
@@ -278,5 +294,214 @@ fn setting_the_switch_or_a_default_through_the_file_helpers_keeps_the_rest() {
     );
     set_enabled(&path, true).unwrap();
     assert_eq!(DigestConfig::load(&path).unwrap().default, Mode::Auto);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn auto_caps_default_to_five_messages_and_five_minutes_and_a_member_value_beats_the_global_one() {
+    let none = DigestConfig::parse(b"").unwrap();
+    assert_eq!(
+        none.auto_caps(MEMBER).unwrap(),
+        AutoCaps {
+            max_wait_ms: 300_000,
+            max_count: 5
+        }
+    );
+    let source = format!(
+        "maxWait = '90s'\nmaxCount = 8\n[members.{MEMBER}]\nmode = 'auto'\nmaxWait = '45s'\n[members.{OTHER}]\nmode = 'auto'\n"
+    );
+    let settings = DigestConfig::parse(source.as_bytes()).unwrap();
+    // One field at a time: the member's wait, the global count.
+    assert_eq!(
+        settings.auto_caps(MEMBER).unwrap(),
+        AutoCaps {
+            max_wait_ms: 45_000,
+            max_count: 8
+        }
+    );
+    assert_eq!(
+        settings.auto_caps(OTHER).unwrap(),
+        AutoCaps {
+            max_wait_ms: 90_000,
+            max_count: 8
+        }
+    );
+    // A member that inherits an auto default uses the global caps as well.
+    assert_eq!(
+        settings
+            .auto_caps("10000000-0000-4000-8000-000000000003")
+            .unwrap()
+            .max_count,
+        8
+    );
+}
+
+#[test]
+fn auto_caps_are_refused_outside_their_bounds_and_on_a_member_that_is_not_auto() {
+    assert!(caps_wait("30s").is_ok() && caps_wait("1h").is_ok());
+    assert!(caps_wait("3600s").is_ok());
+    for text in ["29s", "29999ms", "3601s", "1h1s", "0s", "soon", "-5s"] {
+        let error = caps_wait(text).unwrap_err();
+        assert!(
+            text == "soon"
+                || text == "-5s"
+                || error.message.contains("30s") && error.message.contains("1h"),
+            "{text}: {}",
+            error.message
+        );
+    }
+    assert!(max_count(1).is_ok() && max_count(100).is_ok());
+    for count in [0, 101, 1000] {
+        let error = max_count(count).unwrap_err();
+        assert!(
+            error.message.contains("1") && error.message.contains("100"),
+            "{count}"
+        );
+    }
+    for source in [
+        "maxWait = '10s'",
+        "maxWait = 90",
+        "maxCount = 0",
+        "maxCount = 101",
+        "maxCount = '5'",
+        // Caps belong to auto: a hand-written row for another mode is refused.
+        "[members.10000000-0000-4000-8000-000000000001]\nmode = '5m'\nmaxCount = 3\n",
+        "[members.10000000-0000-4000-8000-000000000001]\nmode = 'off'\nmaxWait = '60s'\n",
+    ] {
+        assert!(DigestConfig::parse(source.as_bytes()).is_err(), "{source}");
+    }
+}
+
+fn caps_wait(text: &str) -> Result<u64, Error> {
+    max_wait(text)
+}
+
+#[test]
+fn saving_caps_keeps_them_until_another_value_or_a_non_auto_mode_replaces_them() {
+    let directory = std::env::temp_dir().join(format!(
+        "tmt-digest-settings-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&directory).unwrap();
+    let path = directory.join("digest.toml");
+    let caps = |wait: Option<&str>, count: Option<u64>| Caps {
+        max_wait_ms: wait.map(|text| max_wait(text).unwrap()),
+        max_count: count.map(|count| max_count(count).unwrap()),
+    };
+    // Global: auto with both caps, then auto again with only one keeps the other.
+    set_default_caps(&path, &Mode::Auto, &caps(Some("90s"), Some(3)), None, 1).unwrap();
+    set_default_caps(&path, &Mode::Auto, &caps(None, Some(4)), None, 2).unwrap();
+    let settings = DigestConfig::load(&path).unwrap();
+    assert_eq!(
+        settings.auto_caps(MEMBER).unwrap(),
+        AutoCaps {
+            max_wait_ms: 90_000,
+            max_count: 4
+        }
+    );
+    // A new global interval keeps the caps: members that are auto still use them.
+    set_default_caps(
+        &path,
+        &Mode::parse("10m").unwrap(),
+        &Caps::default(),
+        None,
+        3,
+    )
+    .unwrap();
+    assert_eq!(
+        DigestConfig::load(&path)
+            .unwrap()
+            .auto_caps(MEMBER)
+            .unwrap()
+            .max_count,
+        4
+    );
+    // Caps with a mode that is not auto are refused and write nothing.
+    let before = fs::read(&path).unwrap();
+    assert!(
+        set_default_caps(
+            &path,
+            &Mode::parse("10m").unwrap(),
+            &caps(Some("60s"), None),
+            None,
+            4
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(&path).unwrap(), before);
+    // Member: caps ride with auto, survive a bare auto, and vanish with another mode.
+    set_caps(
+        &path,
+        MEMBER,
+        &MemberSetting::Override(Mode::Auto),
+        &caps(Some("60s"), Some(2)),
+        None,
+        5,
+    )
+    .unwrap();
+    assert_eq!(
+        DigestConfig::load(&path)
+            .unwrap()
+            .auto_caps(MEMBER)
+            .unwrap(),
+        AutoCaps {
+            max_wait_ms: 60_000,
+            max_count: 2
+        }
+    );
+    set_caps(
+        &path,
+        MEMBER,
+        &MemberSetting::Override(Mode::Auto),
+        &Caps::default(),
+        None,
+        6,
+    )
+    .unwrap();
+    assert_eq!(
+        DigestConfig::load(&path)
+            .unwrap()
+            .auto_caps(MEMBER)
+            .unwrap()
+            .max_count,
+        2
+    );
+    set_caps(
+        &path,
+        MEMBER,
+        &MemberSetting::Override(Mode::parse("5m").unwrap()),
+        &Caps::default(),
+        None,
+        7,
+    )
+    .unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(
+        !text.contains(
+            "members.10000000-0000-4000-8000-000000000001]\nmode = \"5m\"\nsetAtMs = 7\nmaxWait"
+        ),
+        "{text}"
+    );
+    assert_eq!(
+        DigestConfig::load(&path)
+            .unwrap()
+            .auto_caps(MEMBER)
+            .unwrap()
+            .max_count,
+        4,
+        "back to the global caps"
+    );
+    assert!(
+        set_caps(
+            &path,
+            MEMBER,
+            &MemberSetting::Override(Mode::Off),
+            &caps(None, Some(2)),
+            None,
+            8
+        )
+        .is_err()
+    );
     fs::remove_dir_all(directory).unwrap();
 }

@@ -38,6 +38,10 @@ impl TickPort for Port {
                 Mode::parse("20s").unwrap()
             },
             flush_count: 10,
+            auto_caps: AutoCaps {
+                max_wait_ms: 300_000,
+                max_count: 5,
+            },
             held_count: if !self.held {
                 0
             } else if self.threshold {
@@ -107,6 +111,7 @@ fn restart_needs_no_last_sent_state_and_auto_has_no_interval_deadline() {
         identity_id: "member".into(),
         mode: Mode::Auto,
         flush_count: 10,
+        auto_caps: AutoCaps::default(),
         held_count: 50,
         oldest_held_at_ms: Some(60_000),
     };
@@ -128,6 +133,7 @@ fn thirty_due_members_are_serialized_and_no_delivery_starts_after_the_boundary()
                         identity_id: i.to_string(),
                         mode: Mode::parse("20s").unwrap(),
                         flush_count: 10,
+                        auto_caps: AutoCaps::default(),
                         held_count: 10,
                         oldest_held_at_ms: Some(60_000),
                     })
@@ -178,6 +184,7 @@ fn rollback_does_not_extend_the_monotonic_budget_and_started_work_may_finish() {
                     identity_id: "member".into(),
                     mode: Mode::parse("20s").unwrap(),
                     flush_count: 10,
+                    auto_caps: AutoCaps::default(),
                     held_count: 10,
                     oldest_held_at_ms: Some(60_000),
                 },
@@ -185,6 +192,7 @@ fn rollback_does_not_extend_the_monotonic_budget_and_started_work_may_finish() {
                     identity_id: "next".into(),
                     mode: Mode::parse("20s").unwrap(),
                     flush_count: 10,
+                    auto_caps: AutoCaps::default(),
                     held_count: 10,
                     oldest_held_at_ms: Some(60_000),
                 },
@@ -219,6 +227,7 @@ fn row(mode: &str, held: u64, oldest: Option<u64>) -> TickObservation {
         identity_id: "member".into(),
         mode: Mode::parse(mode).unwrap(),
         flush_count: 10,
+        auto_caps: AutoCaps::default(),
         held_count: held,
         oldest_held_at_ms: oldest,
     }
@@ -265,4 +274,53 @@ fn a_postponed_member_is_reported_until_its_deadline_and_never_after_delivery() 
     port.off_at = Some(0);
     run(&mut clock, &mut port).unwrap();
     assert!(port.postponed.is_empty());
+}
+
+#[test]
+fn an_auto_member_is_due_at_its_own_caps_not_the_defaults() {
+    let observation = |caps: AutoCaps, held_count: u64, waited: u64| TickObservation {
+        identity_id: "member".into(),
+        mode: Mode::Auto,
+        flush_count: 10,
+        auto_caps: caps,
+        held_count,
+        oldest_held_at_ms: Some(1_000_000 - waited),
+    };
+    let tight = AutoCaps {
+        max_wait_ms: 90_000,
+        max_count: 3,
+    };
+    let default = AutoCaps {
+        max_wait_ms: 300_000,
+        max_count: 5,
+    };
+    // 3 held and 100 s old: past a 90 s / 3 cap, well inside the 300 s / 5 default.
+    assert_eq!(
+        observation(tight, 3, 10_000).rule(1_000_000),
+        Some(Rule::AutoCap)
+    );
+    assert_eq!(
+        observation(tight, 1, 100_000).rule(1_000_000),
+        Some(Rule::AutoCap)
+    );
+    assert_eq!(
+        observation(tight, 2, 89_000).rule(1_000_000),
+        Some(Rule::AutoHold)
+    );
+    assert_eq!(
+        observation(default, 3, 10_000).rule(1_000_000),
+        Some(Rule::AutoHold)
+    );
+    assert_eq!(
+        observation(default, 1, 100_000).rule(1_000_000),
+        Some(Rule::AutoHold)
+    );
+    assert_eq!(
+        observation(default, 5, 0).rule(1_000_000),
+        Some(Rule::AutoCap)
+    );
+    assert_eq!(
+        observation(default, 1, 300_000).rule(1_000_000),
+        Some(Rule::AutoCap)
+    );
 }

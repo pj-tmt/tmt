@@ -1,6 +1,10 @@
 //! One bounded minute of scheduling; Core alone admits and settles delivery.
 
-use crate::{core::Error, history::Rule, settings::Mode};
+use crate::{
+    core::Error,
+    history::Rule,
+    settings::{AutoCaps, Mode},
+};
 use nix::fcntl::{Flock, FlockArg};
 use std::{
     fs::{self, OpenOptions},
@@ -21,11 +25,6 @@ const MINUTE_MS: u64 = 60_000;
 const OBSERVATION_MS: u64 = 1000;
 /// A hold lasts this long after its renewal at least, so one missed minute releases nothing.
 pub const HOLD_FLOOR_MS: u64 = 120_000;
-/// An `auto` member reaches its cap with this many messages held...
-pub const AUTO_CAP_COUNT: u64 = 5;
-/// ...or when the oldest has waited this long. Constants, not settings.
-pub const AUTO_CAP_MS: u64 = 300_000;
-
 /// Starts one `tmt digest tick` now, detached, so a switch change applies without waiting for
 /// the next minute. A tick that is already running exits this one at once, and it re-reads
 /// the settings every second, so either way the change lands. False when none could start.
@@ -128,6 +127,8 @@ pub struct TickObservation {
     pub identity_id: String,
     pub mode: Mode,
     pub flush_count: u64,
+    /// The member's `auto` caps: this many held, or the oldest this old, and it is due.
+    pub auto_caps: AutoCaps,
     pub held_count: u64,
     pub oldest_held_at_ms: Option<u64>,
 }
@@ -159,7 +160,9 @@ impl TickObservation {
                     .oldest_held_at_ms
                     .map_or(0, |oldest| now.saturating_sub(oldest));
                 Some(
-                    if self.held_count >= AUTO_CAP_COUNT || waited >= AUTO_CAP_MS {
+                    if self.held_count >= self.auto_caps.max_count
+                        || waited >= self.auto_caps.max_wait_ms
+                    {
                         Rule::AutoCap
                     } else {
                         Rule::AutoHold

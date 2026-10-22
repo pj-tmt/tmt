@@ -50,8 +50,7 @@ intervals or restart deadlines.
 ## Auto delivery
 
 An `auto` member's hold lets Core keep its automatic messages while the agent is busy.
-Three parties deliver them, and none needs a setting: the constants below are the
-tick's.
+Three parties deliver them; only the cap has settings (`maxWait`, `maxCount`).
 
 - **Turn end: Core and the provider.** At an admitted turn boundary Core claims
   everything held and the provider hook delivers it once as one checklist. This
@@ -63,14 +62,14 @@ tick's.
   Core answers `not_idle` for a busy member, which stays held for its turn end, or
   `delivered`. A message that arrives while the agent is idle therefore waits for the
   next once-a-second look rather than for a turn end that will not come.
-- **Cap: the tick.** When five messages are held, or the oldest has waited five
-  minutes, the same offer is made with `whenBusy: true`. Core then skips only its
+- **Cap: the tick.** When the member's `maxCount` messages are held (default 5), or
+  the oldest has waited its `maxWait` (default 5 minutes), the same offer is made with `whenBusy: true`. Core then skips only its
   live-idle evidence ([flush](../../../contracts/extension-api.md#digest-policy-and-checklist));
   the verified live binding and session, approval and host checks, claim, seal and
   settlement all stay. The cap is what keeps a member that never reports idle, or
   has no turn-end hook, from being held for ever; its worst case is an ordinary
-  message today. The count and the five minutes are constants, not `digest.toml`
-  keys, and `flushCount` stays interval-only.
+  message today. The two caps are `digest.toml` settings of `auto` only
+  ([digest-v1](digest-v1.md#auto-caps)); `flushCount` stays interval-only.
 
 Urgent sends and the policy owner bypass the hold as for interval mode. An uncertain
 or failed offer is reported after the minute and that member is not offered again
@@ -115,8 +114,8 @@ sender, and changes no setting, policy or delivery admission.
 
 The rule is decided by the same reading that decides delivery. A member holding
 nothing has no decision. An `off` member holding messages is offered Core's normal
-delivery opportunity (`off`). An `auto` member is `auto_cap` when five messages are
-held or the oldest has waited five minutes, and `auto_hold` otherwise; `outcome` is
+delivery opportunity (`off`). An `auto` member is `auto_cap` when its `maxCount` messages are
+held or the oldest has waited its `maxWait`, and `auto_hold` otherwise; `outcome` is
 Core's answer to the offer, which for `auto_cap` never says `not_idle` for a live
 member. `auto_idle_point` is what a tick wrote before `auto` held messages: stored
 rows keep it, and no tick writes it now. An interval member

@@ -502,7 +502,11 @@ impl Member {
         }
         let next_send_at_ms = nullable(row, "nextSendAtMs")?;
         let time_to_send_ms = nullable(row, "timeToSendMs")?;
-        if mode != Mode::Interval && (next_send_at_ms.is_some() || time_to_send_ms.is_some()) {
+        let held_count = nullable(row, "heldCount")?;
+        // Off holds nothing, and a member holding nothing has no deadline.
+        if (mode == Mode::Off || held_count == Some(0))
+            && (next_send_at_ms.is_some() || time_to_send_ms.is_some())
+        {
             return None;
         }
         Some(Self {
@@ -513,7 +517,7 @@ impl Member {
             setting_value: setting_value.to_owned(),
             set_by_identity_id: set_by_identity_id.map(str::to_owned),
             set_at_ms,
-            held_count: nullable(row, "heldCount")?,
+            held_count,
             stats_observed_at_ms: nullable(row, "statsObservedAtMs")?,
             next_send_at_ms,
             time_to_send_ms,
