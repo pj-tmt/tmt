@@ -135,17 +135,52 @@ fn socket_permission_denied(cause: &CommandError) -> bool {
             error.raw_os_error(),
             Some(nix::libc::EACCES | nix::libc::EPERM)
         ),
-        Ok(metadata) if metadata.file_type().is_socket() => matches!(
-            nix::unistd::faccessat(
-                nix::fcntl::AT_FDCWD,
-                path,
-                nix::unistd::AccessFlags::W_OK,
-                nix::fcntl::AtFlags::AT_EACCESS
-            ),
-            Err(Errno::EACCES | Errno::EPERM)
-        ),
+        Ok(metadata) if metadata.file_type().is_socket() => {
+            matches!(
+                nix::unistd::faccessat(
+                    nix::fcntl::AT_FDCWD,
+                    path,
+                    nix::unistd::AccessFlags::W_OK,
+                    nix::fcntl::AtFlags::AT_EACCESS
+                ),
+                Err(Errno::EACCES | Errno::EPERM)
+            ) || matches!(
+                socket_connect_error(path, None),
+                Some(Errno::EACCES | Errno::EPERM)
+            )
+        }
         _ => false,
     }
+}
+
+/// Observe only connect's kernel error, without sending protocol bytes or waiting
+/// for a listener. Setup failure or an expired budget supplies no evidence.
+fn socket_connect_error(path: &std::path::Path, deadline: Option<Instant>) -> Option<Errno> {
+    use nix::{
+        fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
+        sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket},
+    };
+    use std::os::fd::AsRawFd;
+
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return None;
+    }
+    let address = UnixAddr::new(path).ok()?;
+    let fd = socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    )
+    .ok()?;
+    // Darwin lacks atomic socket flags. The owned descriptor closes on every
+    // return, including setup failure, successful connect and EINPROGRESS.
+    fcntl(&fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).ok()?;
+    fcntl(&fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).ok()?;
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return None;
+    }
+    connect(fd.as_raw_fd(), &address).err()
 }
 
 impl fmt::Display for TmuxError {

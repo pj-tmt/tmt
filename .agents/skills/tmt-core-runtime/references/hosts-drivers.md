@@ -23,8 +23,9 @@ channels and the driver protocol. The owner map is in
 - tmux deadline, I/O, spawn, output-limit and signal failures during target resolution stay
   `RECONCILIATION_FAILED` (exit 1), not `PANE_NOT_FOUND`; a completed lookup with no valid
   pane ID is "no target". Socket denial is `TMUX_PERMISSION_DENIED`, confirmed from the
-  socket path's metadata and effective-user write access, never from localized stderr. The
-  adapter preserves every child locale variable. The single `Tmux::run` owner adds
+  socket path's metadata, effective-user write access or one nonblocking, zero-byte connect
+  after a connect failure. Only kernel EACCES/EPERM proves denial, never localized stderr.
+  The adapter preserves every child locale variable. The single `Tmux::run` owner adds
   one global `-u` client flag, including bootstrap, evidence, transport and option
   migration calls, so a C-locale client preserves literal UTF-8 output. This changes
   neither server options nor shell selection; command-local option unsets remain
