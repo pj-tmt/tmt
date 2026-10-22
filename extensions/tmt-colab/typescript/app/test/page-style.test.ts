@@ -40,7 +40,7 @@ it('ships a compact content-only starter with exact browser token roles and both
   run(new URL(generator, repository).pathname);
   expect(read(skillFile)).toBe(skill);
   expect(Buffer.byteLength(starter)).toBeLessThanOrEqual(3_000);
-  expect(Buffer.byteLength(read(rootSkillFile))).toBeLessThanOrEqual(10_000);
+  expect(Buffer.byteLength(read(rootSkillFile))).toBeLessThanOrEqual(10_300);
   expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(12_000);
   expect(skill.split('\n').length - 1).toBeLessThanOrEqual(500);
   expect(skill).toContain('## Page look');

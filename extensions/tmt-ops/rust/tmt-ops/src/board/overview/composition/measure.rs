@@ -7,6 +7,10 @@ use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
 
 const DIGEST_ROWS: u16 = 5;
+/// The rule, the header and two agents.
+const EXCHANGE_ROWS_MIN: u16 = 4;
+/// Agents the pane shows before Timers and Digest take their share.
+const EXCHANGE_LIMIT: usize = 6;
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let Some(snapshot) = app.workspace_snapshot() else {
@@ -159,6 +163,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
         y += crate::board::stat_tiles::ROWS + 1;
     }
+    // Who talks to whom: the shared exchange matrix for this squad (or every agent), over the
+    // shared range. A section paints only when it fits whole.
+    if bottom.saturating_sub(y) >= EXCHANGE_ROWS_MIN && area.width >= 40 {
+        y += exchanges(
+            frame,
+            app,
+            snapshot,
+            selected_squad,
+            Rect::new(area.x, y, area.width, bottom - y),
+        );
+    }
     // Timers: the three soonest, `c` opens all of them.
     if bottom.saturating_sub(y) >= timers.height as u16 {
         for row in 0..timers.height {
@@ -212,4 +227,101 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ),
         );
     }
+}
+
+/// The `Exchanges · <range>` section; returns the rows it took, with one blank row after.
+fn exchanges(
+    frame: &mut Frame,
+    app: &App,
+    snapshot: &crate::board::workspace::observe::OpsWorkspaceSnapshot,
+    squad: Option<&crate::board::workspace::OpsSquad>,
+    area: Rect,
+) -> u16 {
+    use crate::board::{exchange_matrix, usage_report::View};
+    let look = app.look();
+    let ids: Vec<&str> = match squad {
+        Some(squad) => squad.members.iter().map(String::as_str).collect(),
+        None => snapshot
+            .roster
+            .squads
+            .iter()
+            .filter(|squad| {
+                app.workspace
+                    .visibility
+                    .shows_squad(&squad.room_id, &snapshot.preferences)
+            })
+            .flat_map(|squad| squad.members.iter().map(String::as_str))
+            .collect(),
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    let participants = ids
+        .into_iter()
+        .filter(|id| seen.insert(*id))
+        .filter_map(|id| {
+            Some(exchange_matrix::ExchangeParticipant {
+                id: id.to_owned(),
+                name: snapshot.roster.members.get(id)?.name.clone(),
+            })
+        })
+        .collect();
+    let report = match app.usage_report.view_for(app.tok_range()) {
+        View::Report(report) => Some(report),
+        _ => None,
+    };
+    let traffic = report.and_then(|report| report.exchange.as_ref());
+    let ranked = exchange_matrix::by_traffic(participants, traffic);
+    let selected = match app.workspace.selected.as_ref() {
+        Some(OpsTarget::Member { identity_id, .. }) => Some(identity_id.as_str()),
+        _ => None,
+    };
+    section_rule::paint(
+        frame.buffer_mut(),
+        Rect::new(area.x, area.y, area.width, 1),
+        &format!("Exchanges · {}", app.tok_range().argument()),
+        Line::default(),
+        app.focused() == crate::config::Pane::Replies,
+        look,
+    );
+    // Rows sit one column in, like every other pane row; only the rule spans the width.
+    let body = Rect::new(
+        area.x + 1,
+        area.y + 1,
+        area.width.saturating_sub(1),
+        area.height.saturating_sub(1).min(EXCHANGE_LIMIT as u16 + 1),
+    );
+    if ranked.is_empty() {
+        crate::board::empty_state::paint(
+            frame.buffer_mut(),
+            body,
+            "No agents observed.",
+            None,
+            look,
+        );
+        return 3;
+    }
+    let hits = exchange_matrix::paint_with(
+        frame.buffer_mut(),
+        body,
+        &ranked,
+        selected,
+        traffic,
+        look,
+        exchange_matrix::Options {
+            limit: EXCHANGE_LIMIT,
+            sum: true,
+        },
+    );
+    // The rule, the header and one row per agent shown, as far as the body holds them.
+    let rows = 1 + (body.height).min(1 + ranked.len().min(EXCHANGE_LIMIT) as u16);
+    let mut strips = app.workspace_strip_hits.borrow_mut();
+    strips.extend(hits.into_iter().map(|hit| {
+        (
+            hit.area,
+            crate::board::app::Choice::ExchangeCell {
+                sender: hit.sender,
+                recipient: hit.recipient,
+            },
+        )
+    }));
+    rows + 1
 }

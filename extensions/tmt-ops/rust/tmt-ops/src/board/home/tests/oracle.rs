@@ -548,6 +548,35 @@ fn captures() -> Value {
                 }
             }
         }
+        // Measure's `Exchanges · <range>` section with one, a few and many agents: additive scenes.
+        for (look_name, look) in looks() {
+            for (scene, extra, flows) in [
+                ("measure-exchanges-one", 0, &[][..]),
+                (
+                    "measure-exchanges-three",
+                    2,
+                    &[(1, 2, 7), (2, 0, 3), (0, 1, 12)][..],
+                ),
+                (
+                    "measure-exchanges-many",
+                    8,
+                    &[(8, 7, 90), (7, 8, 80), (1, 2, 1), (0, 3, 4000), (3, 0, 2)][..],
+                ),
+            ] {
+                for width in [200, 160, 140] {
+                    let mut app = capture_case("agents", look);
+                    crate::board::app::workspace::tests::measure_exchanges(&mut app, extra, flows);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        51,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         // Paste attachments and forms share their scene owner with decoded review.
         for (look_name, look) in looks() {
             for state in crate::board::composer::paste::tests::SCENES {
