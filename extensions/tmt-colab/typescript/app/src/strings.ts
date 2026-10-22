@@ -865,6 +865,7 @@ export const text = {
     unpinItem: 'Unpin',
     /** Told under the control that was refused. */
     pinFull: 'At most 20 pages can be pinned. Unpin one first.',
+    pinNoticeClose: 'Close',
     pinFailures: {
       DENIED: 'This device is not allowed to pin pages. Reopen your paired session.',
       EXPIRED: 'The request expired. Try again.',

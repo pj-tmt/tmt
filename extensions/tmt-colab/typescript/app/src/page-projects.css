@@ -76,7 +76,7 @@
   z-index: 1;
   display: inline-flex;
 }
-/* A phone's title needs the room (the chips are hidden there too): the Home row pins. */
+/* A phone's title needs the room: the same pin action lives in More below 640px. */
 @media (max-width: 639px) {
   .page-header-pin {
     display: none;
@@ -89,4 +89,16 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+/* When an update row shares the shell bar, the refusal follows it in the same flow. */
+.tmt-ui-shell-bar > .page-pin-notice {
+  order: 2;
+}
+.page-pin-notice-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.page-pin-notice-content > span {
+  flex: 1;
 }

@@ -1,12 +1,17 @@
-import { BrowserIconAction, BrowserMenu } from '@tmt/browser-ui/react';
-import { Pin, Tag } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { BrowserIconAction, BrowserMenu, useShellBar } from '@tmt/browser-ui/react';
+import { Alert, AlertDescription, UiTheme } from '@tmt/browser-ui/ui';
+import '@tmt/browser-ui/ui.css';
+import { Pin, Tag, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { rememberPages, rememberedPages } from './quick-switcher-source.js';
 import { NewProjectDialog, projectFailureText, type ProjectWriting } from './project-dialogs.js';
 import { pageTitle } from './page-index.js';
-import { pinFailureText } from './pins.js';
+import { pinFailureText, type PagePinRequest, type PagePinState } from './pins.js';
 import { applyProjectChanges, projectCounts, withProject } from './projects.js';
 import { text } from './strings.js';
+import { getTheme, subscribeTheme } from './theme.js';
+import { useMedia } from './use-media.js';
 import type { PageSummary, PageTransport, SpaceHome } from './transport.js';
 import './page-projects.css';
 
@@ -15,6 +20,36 @@ const t = text.pageList;
 const PAGE_LIMIT = 8;
 /** The chips beside the title; the rest are a count, the picker names them all. */
 const CHIPS = 3;
+
+/** The phone keeps the header mark and also tells the refused action in readable words. */
+export function PagePinNotice({ failure, close }: { failure?: string; close(): void }) {
+  const phone = useMedia('(max-width: 479px)');
+  const bar = useShellBar();
+  const theme = useSyncExternalStore(subscribeTheme, getTheme);
+  if (!phone || failure === undefined) return null;
+  const notice = (
+    <div className="page-pin-notice">
+      <UiTheme theme={theme}>
+        <Alert>
+          <AlertDescription>
+            <div className="page-pin-notice-content">
+              <span>{failure}</span>
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label={t.pinNoticeClose}
+                icon={<X />}
+                onActivate={close}
+              />
+            </div>
+          </AlertDescription>
+        </Alert>
+      </UiTheme>
+    </div>
+  );
+  // The shell bar owns the row above its phone sub-bar, so its growth moves both navigation and page.
+  return bar ? createPortal(notice, bar) : notice;
+}
 
 /** One page's project picker: the list row's and the page header's are this one menu. */
 export function PageProjectsMenu({
@@ -76,6 +111,8 @@ export function PageProjects({
   request,
   from,
   open,
+  pinRequest,
+  onPinState,
 }: {
   transport: PageTransport;
   space: string | undefined;
@@ -87,13 +124,18 @@ export function PageProjects({
    * opens under (right-aligned like the More menu itself) instead of under the chips. */
   from?: { top: number; left: number; width: number; height: number };
   open(): void;
+  /** A new request from the phone's More menu uses the header pin's existing write. */
+  pinRequest?: PagePinRequest;
+  onPinState?(state: PagePinState | undefined): void;
 }) {
   const port = transport.management;
   const [home, setHome] = useState<SpaceHome>();
-  const [failure, setFailure] = useState<string>();
+  const [failure, setFailure] = useState<{ kind: 'project' | 'pin'; message: string }>();
   const [saved, setSaved] = useState(false);
   const [creating, setCreating] = useState(false);
   const [pinning, setPinning] = useState(false);
+  const phone = useMedia('(max-width: 479px)');
+  useEffect(() => setFailure(undefined), [pageId]);
   // The picker opens once its data is here: this counts those openings, not the requests.
   const [opened, setOpened] = useState(0);
   // A new transport (a refreshed session) is read through, never a reason to read the list again.
@@ -152,8 +194,28 @@ export function PageProjects({
     // Only a new request opens the picker: the data it finds is read as it stands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request]);
+  const listedPage = known?.find((candidate) => candidate.id === pageId);
+  const pinned =
+    port && listedPage && !listedPage.archived ? listedPage.pinned === true : undefined;
+  useEffect(() => {
+    onPinState?.(
+      pinned === undefined
+        ? undefined
+        : { pinned, busy: pinning, failure: failure?.kind === 'pin' ? failure.message : undefined },
+    );
+  }, [pinned, pinning, failure, onPinState]);
+  const firstPin = useRef(pinRequest);
+  useEffect(() => {
+    if (pinRequest === firstPin.current) return;
+    firstPin.current = pinRequest;
+    if (pinRequest?.action === 'dismiss')
+      setFailure((current) => (current?.kind === 'pin' ? undefined : current));
+    else if (pinRequest?.action === 'toggle' && pinned !== undefined) void togglePin();
+    // Only a new action asks for a write, never a state projection or owner-list refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinRequest]);
   if (!port) return null;
-  const page: PageSummary = known?.find((candidate) => candidate.id === pageId) ?? {
+  const page: PageSummary = listedPage ?? {
     id: pageId,
     title,
     sharing: 'private',
@@ -179,14 +241,18 @@ export function PageProjects({
   };
   async function toggle(target: PageSummary, name: string) {
     const change = withProject(target, name, !target.projects?.includes(name));
-    if (change === 'capacity') return setFailure(t.pageFull);
+    if (change === 'capacity') return setFailure({ kind: 'project', message: t.pageFull });
     const outcome = await writing.save([change]);
-    setFailure(outcome.failure === undefined ? undefined : projectFailureText(outcome.failure));
+    setFailure(
+      outcome.failure === undefined
+        ? undefined
+        : { kind: 'project', message: projectFailureText(outcome.failure) },
+    );
     setSaved(outcome.failure === undefined);
   }
   /** Pins the page to the top of Home, or takes the pin away; the owner list is read again after. */
   async function togglePin() {
-    if (pinning) return;
+    if (pinning || pinned === undefined) return;
     setPinning(true);
     try {
       await port!.setPinned(page.id, !page.pinned);
@@ -194,7 +260,7 @@ export function PageProjects({
       setSaved(false);
       await load();
     } catch (error) {
-      setFailure(pinFailureText(error));
+      setFailure({ kind: 'pin', message: pinFailureText(error) });
     }
     setPinning(false);
   }
@@ -236,7 +302,7 @@ export function PageProjects({
           />
         </span>
         {/* A page the owner list does not name, or an archived one, has nothing to pin. */}
-        {known?.some((candidate) => candidate.id === pageId) && !page.archived && (
+        {pinned !== undefined && (
           <span className="page-header-pin">
             <BrowserIconAction
               type="button"
@@ -250,9 +316,13 @@ export function PageProjects({
           </span>
         )}
         {failure !== undefined && (
-          <span className="page-attention" data-attention="projects" role="alert">
+          <span
+            className="page-attention"
+            data-attention="projects"
+            role={phone && failure.kind === 'pin' ? undefined : 'alert'}
+          >
             <span aria-hidden="true">△</span>
-            <span className="page-attention-word">{failure}</span>
+            <span className="page-attention-word">{failure.message}</span>
           </span>
         )}
         <span className="page-header-projects-status" role="status">

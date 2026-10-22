@@ -4,6 +4,8 @@ import { useSyncExternalStore } from 'react';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
+import { pinMenuItem, type PagePinState } from './pins.js';
+import { useMedia } from './use-media.js';
 
 export type PageHeaderAction =
   | 'chat'
@@ -86,6 +88,7 @@ export function PageHeaderActions({
   readOnly = false,
   canFiles,
   canProjects,
+  pin,
   access,
   onSelect,
 }: {
@@ -100,13 +103,16 @@ export function PageHeaderActions({
   canFiles: boolean;
   /** The viewer can set the page's projects (the picker is beside the title). */
   canProjects: boolean;
+  pin?: PagePinState;
   readOnly?: boolean;
   /** The page's sharing and connection words, the secondary text of the Share… item. */
   access: string;
-  onSelect(action: PageHeaderAction | 'projects'): void;
+  onSelect(action: PageHeaderAction | 'projects' | 'pin'): void;
 }) {
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
   const remoteAvailable = useRemoteHeaderSource();
+  const compact = useMedia('(max-width: 639px)');
+  const pinItem = pinMenuItem(pin, compact, canProjects, readOnly);
   const more = {
     items: [
       {
@@ -121,6 +127,7 @@ export function PageHeaderActions({
         disabled: !canManage,
       },
       ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
+      ...(pinItem ? [pinItem] : []),
       // A page that cannot hold a file and holds none has nothing to open; a writer keeps the entry,
       // which is where files are added.
       ...(files > 0 || canFiles
@@ -139,6 +146,7 @@ export function PageHeaderActions({
     onSelect: (key: string) => {
       if (key === 'share') onSelect('manage');
       else if (key === 'projects') onSelect('projects');
+      else if (key === 'pin') onSelect('pin');
       else if (
         key === 'manage' ||
         key === 'about' ||

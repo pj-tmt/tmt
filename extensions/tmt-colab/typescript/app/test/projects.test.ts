@@ -1,3 +1,4 @@
+import { pinMenuItem } from '../src/pins.js';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
 import {
@@ -303,5 +304,28 @@ describe('project requests', () => {
     );
     expect(all).toEqual([64, 64, 2]);
     expect(ok).toEqual({ updated: 130, total: 130 });
+  });
+});
+
+describe('the phone page-header pin item', () => {
+  const state = { pinned: false, busy: false };
+  it('follows the admitted pin state and disables a pending write', () => {
+    expect(pinMenuItem(state, true, true, false)).toEqual({
+      key: 'pin',
+      label: 'Pin to top',
+      disabled: false,
+    });
+    expect(pinMenuItem({ pinned: true, busy: false }, true, true, false)).toEqual({
+      key: 'pin',
+      label: 'Unpin',
+      disabled: false,
+    });
+    expect(pinMenuItem({ ...state, busy: true }, true, true, false)?.disabled).toBe(true);
+  });
+  it('offers nothing at desktop width, before the owner list, archived, or without write access', () => {
+    expect(pinMenuItem(state, false, true, false)).toBeUndefined();
+    expect(pinMenuItem(undefined, true, true, false)).toBeUndefined();
+    expect(pinMenuItem(state, true, false, false)).toBeUndefined();
+    expect(pinMenuItem(state, true, true, true)).toBeUndefined();
   });
 });
