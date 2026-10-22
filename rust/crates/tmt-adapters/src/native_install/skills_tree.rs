@@ -3,7 +3,10 @@
 //! authenticated by the archive checksum, and digested file by file in the
 //! receipt. Any violation rejects the whole release; nothing is partial.
 
-use super::{Product, invalid};
+use super::{
+    Product, invalid,
+    pr_catalog::{MAX_SCHEMA_SOURCE_FILES, MAX_SCHEMA_SOURCE_PATH_BYTES},
+};
 use crate::skill_installation::{
     MAXIMUM_FILE_BYTES, MAXIMUM_FILES, MAXIMUM_SKILLS, valid_skill_file, valid_skill_name,
 };
@@ -16,8 +19,13 @@ use std::{
 pub(super) const ROOT: &str = "skills";
 
 /// The CLI has no skills; its PR receipt carries two bounded application-schema
-/// source closures (at most 64 paths/digests each) and one admission snapshot.
-pub(super) const CLI_RECEIPT_BYTES: usize = 64 * 1024;
+/// source closures and one admission snapshot. Reserve the existing base plus
+/// both largest closures; paths are ASCII without JSON escapes. The punctuation
+/// includes the deepest pretty-printed entry's indentation and trailing comma.
+const SCHEMA_SOURCE_ENTRY_BYTES: usize = MAX_SCHEMA_SOURCE_PATH_BYTES + 64
+    + b"              {\n                \"path\": \"\",\n                \"sha256\": \"\"\n              },\n".len();
+pub(super) const CLI_RECEIPT_BYTES: usize =
+    64 * 1024 + 2 * MAX_SCHEMA_SOURCE_FILES * SCHEMA_SOURCE_ENTRY_BYTES;
 
 /// The largest receipt entry for one skill file: its quoted key
 /// (`skills/<name ≤ 64>/<path ≤ 512>`), a SHA-256 digest and JSON punctuation
@@ -137,7 +145,7 @@ mod tests {
 
     #[test]
     fn only_extension_receipts_get_room_for_the_largest_skill_tree() {
-        assert_eq!(receipt_limit(Product::Cli), 64 * 1024);
+        assert_eq!(receipt_limit(Product::Cli), 275_456);
         let largest_entry = format!(
             "    \"skills/{}/{}\": \"{}\",\n",
             "n".repeat(64),
@@ -148,7 +156,7 @@ mod tests {
         for product in [Product::Remote, Product::Ops] {
             assert_eq!(
                 receipt_limit(product),
-                64 * 1024 + MAXIMUM_SKILLS * MAXIMUM_FILES * RECEIPT_ENTRY_BYTES
+                CLI_RECEIPT_BYTES + MAXIMUM_SKILLS * MAXIMUM_FILES * RECEIPT_ENTRY_BYTES
             );
         }
     }

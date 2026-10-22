@@ -120,6 +120,10 @@ The existing expected-current UUID fence and installation lock protect local
 publication; local schema is checked again before publication. GitHub and SQLite
 are not a distributed transaction. Later close, disable or expiry leaves installed
 bytes and channel intent intact and makes further acquisition unavailable.
+The CLI receipt byte cap is 275,456: the existing 64 KiB base plus two closures
+of 256 entries, each with a 256-byte path, 64-hex digest and worst-case pretty-JSON
+punctuation/indentation (90 bytes). The schema export cap stays 1 MiB.
+
 Historical receipt reads judge the captured admission, not today's remote state.
 
 CLI PR installation and return use separately probed handoff version 2. Probe
