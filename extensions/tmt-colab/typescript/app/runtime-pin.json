@@ -4,13 +4,14 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "htm": "3.1.1",
-    "@tailwindcss/browser": "4.3.3"
+    "@tailwindcss/browser": "4.3.3",
+    "lucide-react": "1.52.0"
   },
   "files": [
     {
       "path": "assets/colab-runtime.js",
-      "sha256": "df76141bcad9e02be9c9afaed1a3909ccadc1b0e90dbda434ba5ed524fb288a6",
-      "length": 473386
+      "sha256": "1fa72f198e9fd60fd1fa640d563377b89c242ead0f77d245c79748795022a037",
+      "length": 504804
     }
   ]
 }

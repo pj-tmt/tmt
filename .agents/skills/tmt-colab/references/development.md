@@ -49,7 +49,8 @@ option (`vp build --base / --outDir dist-hosted` in `extensions/tmt-colab/typesc
 native mounted distributions retain their relative base. Both distributions also carry the bundled
 page runtime (`assets/colab-runtime.js`, build mode `runtime`): the `build`, `build:bundles` and
 `build:hosted` scripts run it and fail when it differs from `typescript/app/runtime-pin.json`. After a
-deliberate change of React, htm or `@tailwindcss/browser` (including a dependency bump), run
+deliberate change of React, htm, `@tailwindcss/browser`, `lucide-react` or the icon list in
+`typescript/app/src/runtime/icons.ts` (including a dependency bump), run
 `node ../../scripts/verify-runtime.mjs dist --update` in the app directory and review the pin diff.
 
 The generator copies Remote's output, never editing it, to three reserved routes: the committed
