@@ -577,11 +577,10 @@ fn captures() -> Value {
                 }
             }
         }
-        // Paste attachments belong only to the Agents conversation. #4100
-        // carries these scenes into Talk when it migrates the shell.
+        // Paste attachments and forms share their scene owner with decoded review.
         for (look_name, look) in looks() {
             for state in crate::board::composer::paste::tests::SCENES {
-                let height = if *state == "paste-tiny" { 8 } else { 36 };
+                let height = crate::board::composer::paste::tests::capture_height(state);
                 for width in [160, 100, 80] {
                     let app = crate::board::composer::paste::tests::capture_case(
                         state, look, width, height,
