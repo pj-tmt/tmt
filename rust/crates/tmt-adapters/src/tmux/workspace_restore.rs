@@ -627,6 +627,22 @@ impl<R: CommandRunner> Restore<'_, R> {
             self.remember_pane(&old, &new);
             self.verify_cwd(&new.pane, &pane.cwd)?;
         }
+        // Observe the live server, not the client version. Only this invocation's
+        // created window is queried, behind the same native-incarnation fence.
+        let live_layout = self.guard(
+            Some(&created.pane),
+            &[format!("#{{==:#{{window_id}},{}}}", created.window)],
+            vec![
+                "display-message".into(),
+                "-p".into(),
+                "-t".into(),
+                created.window.clone(),
+                "#{window_layout}".into(),
+            ],
+        )?;
+        let layout = saved
+            .layout_for_server(live_layout.strip_suffix('\n').unwrap_or(&live_layout))
+            .map_err(|_| invalid())?;
         self.guard(
             Some(&created.pane),
             &[],
@@ -634,7 +650,7 @@ impl<R: CommandRunner> Restore<'_, R> {
                 "select-layout".into(),
                 "-t".into(),
                 created.window.clone(),
-                saved.window.layout.clone(),
+                layout,
             ],
         )?;
         let active = self

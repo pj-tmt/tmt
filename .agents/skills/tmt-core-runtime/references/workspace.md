@@ -148,8 +148,9 @@ provider capability, availability and binding admission are rechecked at launch.
 `tmt workspace restore [<name>] --layout-only [--socket PATH] [--json]` reads the selected
 snapshot for the exact selected socket through the same bounded, no-follow reader.
 It bypasses identity learning, provider observation, SQLite and advisory capture.
-Core validates every saved layout's checksum, bounded tree, dimensions, leaf
-correspondence, selection and zoom before the adapter permits host effects.
+Core parses legacy checksum and tiled JSON v2 layouts into one geometry model,
+validating the [layout grammar](../../../../contracts/workspace-v1.md#restore-authority),
+bounded tree, dimensions, leaf correspondence, selection and zoom before host effects.
 Historical IDs are correspondence keys, never live targets.
 
 The built-in tmux adapter owns a finite 30-second creation budget and native
@@ -160,6 +161,10 @@ pass no command and inherit tmux's `default-command`/`default-shell`, entering
 recorded directories checked before creation and read back afterwards. No saved
 identity, provider session or external command is replayed or bound. Window-local
 geometry and border settings affect only created windows; existing server options and pre-existing resources are preserved.
+A fenced layout read from a created window determines the live server encoding.
+Compatible encoding and assignment order keep the saved bytes; adaptation uses
+only validated geometry and invocation creation order.
+Client versions never stand in for server evidence, and snapshots need no migration.
 
 Outside tmux, select the socket explicitly. The first `new-session` starts an
 absent server and initializes a fresh TMT server UUID; snapshot server identity

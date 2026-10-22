@@ -209,8 +209,8 @@ bindings (`identity`, `ls`, `add`, `name`/`this`, `marked`, `whoami`, `unbind`,
 `workspace`); `focus`; local extension interfaces (`api`, `mcp`); native
 installation (`upgrade`/`update`, `uninstall`, `extension`, `driver`). Hidden
 internal commands are not a public surface.
-Core owns workspace geometry/generations; adapters, atomic publication/fenced
-creation; CLI, consent/output. Guarded restore pins bytes; full restore uses ordinary
+Core owns [workspace geometry/codecs](contracts/workspace-v1.md#restore-authority) and generations; adapters, atomic publication/fenced
+creation; CLI, consent/output. Restore pins bytes; full restore uses ordinary
 resume/external dispatch in created panes. Layout-only grants no launch authority.
 One typed result serves human and JSON output; `identity show`
 without a name uses the shared verified-caller selector and never falls back to
