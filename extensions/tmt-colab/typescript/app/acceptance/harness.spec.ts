@@ -1,11 +1,26 @@
 import { text } from '../src/strings.js';
 import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { expectLive } from './harness/ask.js';
+import { expectLive, run } from './harness/ask.js';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
+
+test('harness: pairing targets its form when shell controls precede it', async () => {
+  test.setTimeout(30_000);
+  await withWorld(async (world) => {
+    await startDoor(world);
+    const browser = await pairBrowser(world, 'pair-submit');
+    await expect(
+      browser.page.getByRole('button', { name: 'Open navigation', includeHidden: true }),
+    ).toHaveCount(1);
+    const devices = JSON.parse(run(world, world.binaries.remote, ['devices', '--json'])) as {
+      devices: { name: string }[];
+    };
+    expect(devices.devices.map((device) => device.name)).toContain(browser.name);
+  });
+});
 
 /** These controls can reach only this stub, never an installed tmux executable. */
 async function withStubTmux(
