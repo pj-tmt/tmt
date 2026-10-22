@@ -476,6 +476,11 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             if flag(m, "detach") && timeout.is_some() {
                 return Err("Use either --timeout or --detach, not both.".into());
             }
+            if flag(m, "passthrough")
+                && (timeout.is_some() || text(m, "room").is_some() || flag(m, "no-preamble"))
+            {
+                return Err("--passthrough sends the message as typed and returns at once; it takes no --timeout, --room or --no-preamble.".into());
+            }
             if timeout.is_some_and(|value| !is_valid_observer_timeout_seconds(value)) {
                 return Err(
                     "Talk timeout must be finite, positive, and no greater than 24 hours.".into(),
@@ -490,10 +495,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 originator: text(m, "identity"),
                 options: TalkOptions {
                     urgent: flag(m, "urgent"),
+                    passthrough: flag(m, "passthrough"),
                     digest_kind: tmt_core::request::digest::DigestKind::parse(&required(m, "kind"))
                         .expect("validated purpose"),
                     room: text(m, "room"),
-                    inbox: flag(m, "inbox"),
                     force: flag(m, "force"),
                     detach: flag(m, "detach"),
                     delay_seconds: delay,

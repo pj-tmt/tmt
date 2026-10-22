@@ -101,6 +101,10 @@ pub(super) fn hourly(app: &App, values: &[Option<u64>], selected: bool) -> Vec<S
         })
         .collect()
 }
+/// Shown instead of the price note while the pane is too narrow for the share, price and
+/// recipient columns.
+pub(super) const NARROW_HINT: &str = "Widen to 94 columns for share, price and recipients.";
+
 pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let mut inside =
         crate::board::pane_chrome::paint(frame, app, area, Pane::Rows, "Agents by TOK");
@@ -139,6 +143,18 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             footer,
             Line::styled(
                 "Input tokens at list price; not a bill.",
+                app.look().role(Role::Muted),
+            ),
+        );
+        inside.height -= 1;
+    } else if inside.height > 1 && !inside.is_empty() {
+        // A narrow pane drops whole columns; say which, so a missing price is not a missing feature.
+        let footer = Rect::new(inside.x, inside.bottom() - 1, inside.width, 1);
+        strip::paint_left(
+            frame.buffer_mut(),
+            footer,
+            Line::styled(
+                fit(NARROW_HINT, usize::from(inside.width)),
                 app.look().role(Role::Muted),
             ),
         );

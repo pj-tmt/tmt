@@ -68,7 +68,7 @@ impl TransitionError {
                 OwnerFault::Conflict => Code::Conflict,
                 OwnerFault::StaleHead => Code::StaleHead,
                 OwnerFault::WrongOwner => Code::Denied,
-                OwnerFault::Invalid => Code::Invalid,
+                OwnerFault::Invalid | OwnerFault::PageArchived => Code::Invalid,
                 OwnerFault::Capacity | OwnerFault::PageCapacity(_) | OwnerFault::FoldList => {
                     Code::Capacity
                 }
@@ -180,6 +180,30 @@ impl Engine {
         changes: &[(String, Vec<String>)],
     ) -> std::result::Result<tmt_colab_model::statement::Head, TransitionError> {
         self.change_projects(store, key, |tx| tx.set_projects(changes))
+    }
+    /// Pin or unpin one page (contract: Pins), display-only like projects. An archived or deleted
+    /// page cannot be pinned; unpinning always works.
+    pub fn set_pinned(
+        &self,
+        store: &mut Store,
+        key: &Keyring,
+        page: &str,
+        pinned: bool,
+    ) -> std::result::Result<tmt_colab_model::statement::Head, TransitionError> {
+        self.change_projects(store, key, |tx| {
+            if pinned {
+                let log = tx.log()?;
+                let (states, _) = crate::fold::verify_log(&log, key, page)?;
+                let policy = &states.last().ok_or(OwnerFault::Invalid)?.policy;
+                if policy.archived {
+                    return Err(OwnerFault::PageArchived.into());
+                }
+                if policy.deleted {
+                    return Err(OwnerFault::Invalid.into());
+                }
+            }
+            tx.set_pinned(page, pinned).map(|_| ())
+        })
     }
     /// Create, rename or delete one project.
     pub fn manage_project(

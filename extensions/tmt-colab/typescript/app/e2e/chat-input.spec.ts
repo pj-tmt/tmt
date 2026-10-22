@@ -66,6 +66,9 @@ test('the row menu sits in the byline row, appears on hover and focus, and keeps
   const row = page.getByTestId('row');
   const trigger = page.getByRole('button', { name: 'Message actions' });
   const before = await row.boundingBox();
+  // The row sits at the page's corner, where a Linux pointer starts: move it off before checking
+  // the resting state.
+  await page.mouse.move(before!.x + before!.width + 100, before!.y + before!.height + 100);
   await expect(trigger).toHaveCSS('opacity', '0');
   await row.hover();
   await expect(trigger).toHaveCSS('opacity', '1');

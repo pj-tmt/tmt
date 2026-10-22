@@ -27,6 +27,7 @@ use std::{
     collections::BTreeSet,
     ffi::{OsStr, OsString},
     fs, io,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     sync::{
         Mutex, OnceLock,
@@ -128,7 +129,17 @@ fn read_consents(path: &Path) -> Result<Vec<Consent>, ExtensionHookError> {
         }
         Err(error) => return Err(ExtensionHookError::Io(io::Error::other(error.to_string()))),
     };
-    let document: ConsentDocument = serde_json::from_slice(&bytes).map_err(|_| {
+    let extensions = decode_consents(Some(&bytes))?;
+    #[cfg(test)]
+    tests::after_consent_read();
+    Ok(extensions)
+}
+
+fn decode_consents(bytes: Option<&[u8]>) -> Result<Vec<Consent>, ExtensionHookError> {
+    let Some(bytes) = bytes else {
+        return Ok(Vec::new());
+    };
+    let document: ConsentDocument = serde_json::from_slice(bytes).map_err(|_| {
         ExtensionHookError::Invalid("The extension hook settings are not valid.".into())
     })?;
     if document.version != 1 {
@@ -139,17 +150,102 @@ fn read_consents(path: &Path) -> Result<Vec<Consent>, ExtensionHookError> {
     Ok(document.extensions)
 }
 
-/// Private, atomic replacement: a crash leaves the previous file or the new one.
-fn write_consents(path: &Path, extensions: &[Consent]) -> Result<(), ExtensionHookError> {
-    if path.parent().is_none() {
-        return Err(ExtensionHookError::Invalid("No settings directory.".into()));
-    }
-    let bytes = serde_json::to_vec_pretty(&ConsentDocument {
+fn encode_consents(extensions: &[Consent]) -> Result<Vec<u8>, ExtensionHookError> {
+    serde_json::to_vec_pretty(&ConsentDocument {
         version: 1,
         extensions: extensions.to_vec(),
     })
-    .map_err(|error| ExtensionHookError::Io(io::Error::other(error)))?;
-    crate::private_file::replace(path, &bytes).map_err(ExtensionHookError::Io)
+    .map_err(|error| ExtensionHookError::Io(io::Error::other(error)))
+}
+
+#[derive(Clone, Copy)]
+enum ConsentChange<'a> {
+    Enable(&'a Consent),
+    Disable(&'a str),
+}
+
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// Document preserves existing permissions; consent publications must stay private.
+fn private_consent(path: &Path, retry: &str) -> Result<bool, ExtensionHookError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.is_file()
+        && metadata.uid() == nix::unistd::Uid::effective().as_raw()
+        && metadata.mode() & 0o777 != 0o600
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "{} must have mode 0600; the change was not started. Fix: chmod 600 {}. Retry: {retry}",
+                path.display(),
+                quoted(&path.to_string_lossy()),
+            ),
+        )
+        .into());
+    }
+    Ok(true)
+}
+
+/// Preflight grants no publication: only current bytes under Document's lock do.
+fn apply_consent(
+    paths: &ConfigPaths,
+    change: ConsentChange<'_>,
+) -> Result<bool, ExtensionHookError> {
+    use tmt_extension_state::{Document, UpdateError};
+
+    enum ChangeError {
+        Unchanged,
+        Invalid(ExtensionHookError),
+    }
+    let (operation, name) = match change {
+        ConsentChange::Enable(consent) => ("enable", consent.name.as_str()),
+        ConsentChange::Disable(name) => ("disable", name),
+    };
+    let retry = format!("tmt extension hooks {operation} {}", quoted(name));
+    let state_root = std::path::absolute(&paths.global_dir)?;
+    let path = consent_path(&state_root);
+    let present = private_consent(&path, &retry)?;
+    read_consents(&path)?;
+    if !present && matches!(change, ConsentChange::Disable(_)) {
+        return Ok(false);
+    }
+    if matches!(change, ConsentChange::Enable(_)) {
+        fs::create_dir_all(&state_root)?;
+    }
+    let state_error = |error| ExtensionHookError::Io(io::Error::other(error));
+    let document =
+        Document::new(&state_root, &path, CONSENT_LIMIT as u64, &retry).map_err(state_error)?;
+    let result = document.update(|current| {
+        private_consent(&path, &retry).map_err(ChangeError::Invalid)?;
+        let mut extensions = decode_consents(current).map_err(ChangeError::Invalid)?;
+        match change {
+            ConsentChange::Enable(consent) => {
+                extensions.retain(|existing| existing.name != consent.name);
+                extensions.push(consent.clone());
+                extensions.sort_by(|left, right| left.name.cmp(&right.name));
+            }
+            ConsentChange::Disable(name) => {
+                let before = extensions.len();
+                extensions.retain(|existing| existing.name != name);
+                if extensions.len() == before {
+                    return Err(ChangeError::Unchanged);
+                }
+            }
+        }
+        encode_consents(&extensions).map_err(ChangeError::Invalid)
+    });
+    match result {
+        Ok(()) => Ok(true),
+        Err(UpdateError::Change(ChangeError::Unchanged)) => Ok(false),
+        Err(UpdateError::Change(ChangeError::Invalid(error))) => Err(error),
+        Err(UpdateError::State(error)) => Err(state_error(error)),
+    }
 }
 
 pub fn list_consents(paths: &ConfigPaths) -> Result<Vec<Consent>, ExtensionHookError> {
@@ -157,15 +253,7 @@ pub fn list_consents(paths: &ConfigPaths) -> Result<Vec<Consent>, ExtensionHookE
 }
 
 pub fn disable(paths: &ConfigPaths, name: &str) -> Result<bool, ExtensionHookError> {
-    let path = consent_path(&paths.global_dir);
-    let mut extensions = read_consents(&path)?;
-    let before = extensions.len();
-    extensions.retain(|consent| consent.name != name);
-    if extensions.len() == before {
-        return Ok(false);
-    }
-    write_consents(&path, &extensions)?;
-    Ok(true)
+    apply_consent(paths, ConsentChange::Disable(name))
 }
 
 /// Resolves, verifies and probes `tmt-<name>`, then records consent.
@@ -193,12 +281,7 @@ pub fn enable(
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_millis() as u64),
     };
-    let path = consent_path(&paths.global_dir);
-    let mut extensions = read_consents(&path)?;
-    extensions.retain(|existing| existing.name != name);
-    extensions.push(consent.clone());
-    extensions.sort_by(|left, right| left.name.cmp(&right.name));
-    write_consents(&path, &extensions)?;
+    apply_consent(paths, ConsentChange::Enable(&consent))?;
     Ok(consent)
 }
 

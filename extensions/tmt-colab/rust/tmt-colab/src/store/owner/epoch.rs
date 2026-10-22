@@ -142,6 +142,7 @@ impl OwnerTransaction<'_> {
             "DELETE FROM epoch_secrets WHERE page=?",
             "DELETE FROM page_projects WHERE page=?",
             "DELETE FROM page_titles WHERE page=?",
+            "DELETE FROM page_pins WHERE page=?",
         ] {
             self.tx.execute(sql, [page])?;
         }

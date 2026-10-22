@@ -84,7 +84,7 @@ pub fn operation(value: &str) -> Result<()> {
 pub const SPACE_SCOPE_PAGE: &str = "00000000-0000-4000-8000-000000000000";
 /// The management operations that change owner-store state without a log statement.
 fn display_only(operation: &str) -> bool {
-    matches!(operation, "page.projects" | "project.manage")
+    matches!(operation, "page.projects" | "project.manage" | "page.pin")
 }
 /// A device-signed management request names a log operation or one of the display-only operations
 /// that change owner-store state without a log statement. Statements never use the second kind.

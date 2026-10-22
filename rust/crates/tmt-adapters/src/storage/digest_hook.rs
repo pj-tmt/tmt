@@ -17,6 +17,7 @@ impl Storage {
         expected: &IdentityContextSnapshot,
         id: String,
         token: String,
+        through_limit: Option<u64>,
     ) -> Result<Option<DigestChecklist>, RequestError<StorageError>> {
         with_immediate_transaction(self, "launch checklist", |transaction| {
             let rows = BindingRows(transaction);
@@ -40,7 +41,13 @@ impl Storage {
             }
             let mut requests = TransactionRequests(transaction);
             RequestService::new(&mut requests, crate::request_runtime::wall_time_ms)
-                .claim_digest_checklist(identity, id, token, DigestOpportunity::TurnBoundary)
+                .claim_digest_checklist(
+                    identity,
+                    id,
+                    token,
+                    DigestOpportunity::TurnBoundary,
+                    through_limit,
+                )
         })
     }
 }
@@ -77,6 +84,7 @@ mod tests {
                 expected,
                 tmt_core::operation::new_operation_id(),
                 tmt_core::operation::new_operation_id(),
+                None,
             )
             .unwrap()
     }

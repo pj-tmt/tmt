@@ -5,6 +5,7 @@ import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { describe, expect, it } from 'vite-plus/test';
 import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
+import { requestAttempts } from './request-state-oracle.js';
 
 interface TalkResult {
   status?: string;
@@ -198,6 +199,38 @@ describe('TMT-39 durable talk contract', { concurrent: false }, () => {
       },
       { replyDelayMs: 150 }
     );
+  });
+
+  it('refuses --inbox and always notifies a bound recipient (#4302)', async () => {
+    await withE2EFixture(async (fixture) => {
+      expect((await fixture.runJsonCli(['name', 'Alice'])).code).toBe(0);
+      for (const args of [
+        ['talk', 'Alice', 'must reach the pane', '--inbox', '--detach'],
+        ['room', 'send', 'Design', 'hello', '--inbox'],
+      ]) {
+        const refused = await fixture.runJsonCli<{ error: { code: string; message: string } }>(
+          args
+        );
+        expect(refused.code, refused.stdout).toBe(1);
+        expect(refused.json?.error.code).toBe('USAGE_ERROR');
+        expect(refused.json?.error.message).toContain("unexpected argument '--inbox'");
+      }
+      // The refused commands stored and sent nothing.
+      expect(requestAttempts(fixture)).toEqual([]);
+      expect(fixture.events().filter((event) => event.event === 'submitted')).toEqual([]);
+      // Plain talk attempts live delivery: the bound mock agent receives and answers it.
+      const sent = await fixture.runJsonCli<TalkResult>([
+        'talk',
+        'Alice',
+        'reaches the pane',
+        '--no-preamble',
+        '--detach',
+      ]);
+      expect(sent.code, sent.stderr || sent.stdout).toBe(0);
+      expect(sent.json).toMatchObject({ status: 'sent', requestId: expect.any(String) });
+      expect(sent.json).not.toHaveProperty('notification');
+      await waitForSubmitted(fixture, sent.json!.requestId!);
+    });
   });
 
   it('makes a late reply available after the observer times out', async () => {

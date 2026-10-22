@@ -167,6 +167,18 @@ impl Editor {
         }
         true
     }
+    /// Replaces the label of the collapsed range over exactly `source`, when there is one.
+    pub fn relabel_fold(&mut self, source: std::ops::Range<usize>, label: String) -> bool {
+        let Some(fold) = self.folds.iter_mut().find(|fold| fold.source == source) else {
+            return false;
+        };
+        if fold.label == label {
+            return false;
+        }
+        fold.label = label;
+        *self.geometry.get_mut() = None;
+        true
+    }
     /// Toggle the range at or immediately before the caret. Applications may
     /// also address an explicit ID through `set_expanded` for pointer actions.
     pub fn toggle_fold(&mut self) -> bool {

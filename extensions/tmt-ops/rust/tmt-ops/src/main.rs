@@ -26,6 +26,7 @@ mod id;
 mod idle_alert;
 mod labels;
 mod layout;
+mod limits_command;
 mod links;
 mod look;
 mod management;
@@ -270,6 +271,7 @@ fn grammar() -> Command {
                 .subcommand(build(specs::HOTKEYS_SHOW)),
         )
         .subcommand(playbook::grammar())
+        .subcommand(build(specs::LIMITS))
         .subcommand(
             build(specs::SKILL)
                 .subcommand_required(true)
@@ -512,6 +514,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
         "cron" => cron_command::text(document, terminal),
+        "limits" => limits_command::text(document, terminal),
         "digest" => digest_command::text(document, terminal),
         "checklist" => checklist_command::text_output(document, terminal),
         "jump" => {
@@ -815,6 +818,10 @@ fn run(
 ) -> Result<Outcome, SquadError> {
     if command == "playbook" {
         return playbook_command(matches, interaction);
+    }
+    // One local cache file: no core, config or storage discovery.
+    if command == "limits" {
+        return Ok(limits_command::run().into());
     }
     // Offline authoring check: no core, config or storage discovery.
     if command == "layout" {
@@ -1509,7 +1516,9 @@ mod tests {
         assert_eq!(complete(&words("-- s")), ["skill", "squad"]);
         assert_eq!(
             complete(&words("-- ")),
-            ["help", "hotkeys", "playbook", "skill", "squad", "ui"]
+            [
+                "help", "hotkeys", "limits", "playbook", "skill", "squad", "ui"
+            ]
         );
         assert_eq!(complete(&words("-- squad l")), ["layout", "lead", "ls"]);
         assert_eq!(complete(&words("-- sq l")), ["layout", "lead", "ls"]);

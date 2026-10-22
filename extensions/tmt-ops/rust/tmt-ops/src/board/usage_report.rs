@@ -6,6 +6,7 @@ pub(in crate::board) mod model;
 mod reader;
 #[cfg(test)]
 mod tests;
+pub(in crate::board) mod valuation;
 
 pub(super) use acquire::Request;
 pub(super) use model::{Report, Since};

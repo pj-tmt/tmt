@@ -1,4 +1,7 @@
-use super::{responses::first_final_refusal, *};
+use super::{
+    responses::{answer_refusal, store_final},
+    *,
+};
 use crate::request::{
     attention::AttentionRejection,
     correlation,
@@ -10,23 +13,23 @@ fn open_items<E>(
     query: &OpenQuery,
     now: u64,
 ) -> Result<Vec<OpenRequest>, RequestError<E>> {
-    Ok(records
-        .list_open_requests(query, now)?
-        .into_iter()
+    let mut open = Vec::new();
+    for row in records.list_open_requests(query, now)? {
         // Storage only narrows; the acceptance rule decides.
-        .filter(|row| first_final_refusal(&row.attention.attempt, now).is_none())
-        .map(|row| {
-            let attempt = row.attention.attempt;
-            OpenRequest {
-                request_id: attempt.request_id,
-                room_id: attempt.room_id,
-                originator: attempt.originator,
-                prepared_at_ms: attempt.prepared_at_ms,
-                delivery: attempt.status,
-                preview: row.preview,
-            }
-        })
-        .collect())
+        if answer_refusal(records, &row.attention.attempt, now)?.is_some() {
+            continue;
+        }
+        let attempt = row.attention.attempt;
+        open.push(OpenRequest {
+            request_id: attempt.request_id,
+            room_id: attempt.room_id,
+            originator: attempt.originator,
+            prepared_at_ms: attempt.prepared_at_ms,
+            delivery: attempt.status,
+            preview: row.preview,
+        });
+    }
+    Ok(open)
 }
 
 fn query(recipient: &str, originator: Option<&str>, limit: u64, now: u64) -> OpenQuery {
@@ -36,6 +39,42 @@ fn query(recipient: &str, originator: Option<&str>, limit: u64, now: u64) -> Ope
         window_start_ms: now.saturating_sub(RESPONSE_ACCEPTANCE_WINDOW_MS),
         limit,
     }
+}
+
+/// A person's typed text, once it is in the agent's pane, is also the answer to the
+/// oldest request that agent has open to them. The final is stored as any other but
+/// never announced to the agent, which already holds the text. With nothing open,
+/// or no retained text to store, nothing is recorded.
+pub(super) fn answer_oldest_open<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    passthrough: &RequestAttempt,
+    now: u64,
+) -> Result<(), RequestError<E>> {
+    let (
+        Some(person),
+        RequestRoute::Inbox {
+            recipient_identity_id: agent,
+        },
+    ) = (passthrough.originator.identity_id(), &passthrough.route)
+    else {
+        return Ok(());
+    };
+    let query = query(person, Some(agent), INBOX_LIMIT, now);
+    let Some(oldest) = open_items(records, &query, now)?.into_iter().next() else {
+        return Ok(());
+    };
+    let Some(RequestContext {
+        prompt: RequestPrompt::Retained(text),
+        ..
+    }) = context(records, &passthrough.request_id, now)?
+    else {
+        return Ok(());
+    };
+    let open = records
+        .find_request(&oldest.request_id)?
+        .ok_or(RequestError::StateInvalid)?;
+    store_final(records, &open, text.message, now)?;
+    Ok(())
 }
 
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {

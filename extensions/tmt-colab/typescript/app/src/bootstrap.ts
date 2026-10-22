@@ -25,6 +25,9 @@ const PROJECTS_PER_SPACE = 1000;
 
 /** Page summary limits; the contract's Page summary section holds the same numbers. */
 export const AUTHOR_BYTES = 128;
+/** The most code points of a parent task's title a row carries; `work_links.rs`
+ * (`PARENT_TITLE_POINTS`) holds the same number. */
+export const PARENT_TITLE_POINTS = 32;
 /** Assignees a list row names; `work.rs` (`ROW_WORKING`) holds the same number. */
 export const ROW_WORKING = 3;
 /** A row's assignee label, as long as the task's own (`work.ts`). */
@@ -81,8 +84,9 @@ export interface PageActivity {
   author?: string;
   /** The page's tasks; omitted for a page with no work, so a fresh summary without it is in discussion. */
   work?: PageWorkRow;
-  /** The task that follows this page; omitted when none does. */
-  parent?: { page: string; task: string };
+  /** The task that follows this page; omitted when none does. `title` is that task's own title,
+   * clipped by the owner (`PARENT_TITLE_POINTS`), and is absent from an older owner. */
+  parent?: { page: string; task: string; title?: string };
 }
 export interface PageInfo extends ExpiryInfo {
   pageId: string;
@@ -92,6 +96,9 @@ export interface PageInfo extends ExpiryInfo {
   archived: boolean;
   /** Display-only projects the page is in; sorted by the owner store, at most 8. */
   projects: readonly string[];
+  /** Display-only pin (contract: Pins): present and true for a pinned page; the owner lists pinned
+   * pages first, in pin order. */
+  pinned?: true;
   /** Display-only and unsigned; absent until the owner has derived it for the page's current state. */
   summary?: PageActivity;
   /** The owner's local plaintext title, current for the page's state; absent until the owner has folded it
@@ -181,8 +188,15 @@ export function activity(value: unknown): asserts value is PageActivity {
   if ('parent' in value) {
     const parent = value.parent;
     requireValue(parent !== null && typeof parent === 'object' && !Array.isArray(parent));
-    exactKeys(parent, ['page', 'task']);
+    exactKeys(parent, ['page', 'task', ...('title' in parent ? ['title'] : [])]);
     requireValue(typeof parent.page === 'string' && typeof parent.task === 'string');
+    if ('title' in parent)
+      requireValue(
+        typeof parent.title === 'string' &&
+          [...parent.title].length >= 1 &&
+          [...parent.title].length <= PARENT_TITLE_POINTS &&
+          !/\p{Cc}/u.test(parent.title),
+      );
     generatedId(parent.page);
     requireValue(taskNumber(parent.task) !== undefined);
   }
@@ -235,9 +249,11 @@ export async function discover(
       'expiresAtMs',
       'warnings',
       'projects',
+      ...(page !== null && typeof page === 'object' && 'pinned' in page ? ['pinned'] : []),
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
       ...(page !== null && typeof page === 'object' && 'title' in page ? ['title'] : []),
     ]);
+    if ('pinned' in page) requireValue(page.pinned === true && page.archived === false);
     if ('summary' in page) activity(page.summary);
     // Untrusted display text: one line of plain text, as the owner's store keeps it.
     if ('title' in page)

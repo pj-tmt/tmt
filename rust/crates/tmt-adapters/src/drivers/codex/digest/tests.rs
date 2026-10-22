@@ -265,7 +265,7 @@ fn only_unrecursive_main_stop_with_turn_and_session_can_continue() {
         json!({"decision":"block","reason":"digest"})
     );
     assert!(encode("").is_none());
-    assert!(encode(&"x".repeat(CONTEXT_LIMIT + 1)).is_none());
+    assert!(encode(&"x".repeat(crate::digest::DIGEST_BYTES + 1)).is_none());
 }
 
 #[test]

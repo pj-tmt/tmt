@@ -69,6 +69,18 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
 - `tmt extension hooks enable <name>` records path, SHA-256, stat fingerprint and capabilities
   in `<global>/extension-hooks.json` (0600, atomic replace); ownership and fingerprint are
   re-checked before every delivery and a change skips the extension until re-enabled.
+- Enable probes before locking. Enable/disable decode and change the current document in
+  `tmt_extension_state::Document::update`, using the caller's global directory as state root.
+  Its stable directory-identity lock waits up to five seconds for admission; callbacks are
+  never replayed. Existing destinations must be owned regular 0600 files for mutation;
+  a mode refusal names the path, `chmod 600` fix and exact retry command. Invalid schemas
+  retain `EXTENSION_HOOKS_INVALID`; lock/storage failures and uncertain publication retain
+  `EXTENSION_HOOKS_UNAVAILABLE` with the shared cause and retry. Never infer rollback from
+  an uncertain publication. Missing-file disable creates nothing; existing-file no-ops
+  check under the lock without replacing bytes. The shared leaf owns staging and recovery.
+- Lifecycle observers keep their once-per-process consent snapshot; context contributions
+  read fresh consent. Neither reader takes the writer lock, and disabling does not cancel
+  an observer already captured by the current process.
 - Capture installs temporary triggers in `Storage::open` only for the `tmt` CLI with an
   enabled `lifecycle_observations_v1` observer; the temporary table follows the transaction,
   so a rollback leaves no evidence. Delivery runs after the command under one aggregate

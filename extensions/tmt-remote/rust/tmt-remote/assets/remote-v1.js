@@ -19,7 +19,7 @@ var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 function requireValue$1(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
 }
-function text(value) {
+function text$1(value) {
 	requireValue$1(typeof value === "string", "text");
 	for (let index = 0; index < value.length; index++) {
 		const unit = value.charCodeAt(index);
@@ -50,7 +50,7 @@ function concat(parts) {
 function lp(value) {
 	return concat([count$1(value.length), value]);
 }
-var lpText = (value) => lp(text(value));
+var lpText = (value) => lp(text$1(value));
 function uuid(value) {
 	requireValue$1(value.length === 36 && UUID$3.test(value), "UUIDv4");
 }
@@ -64,7 +64,7 @@ function doorOrigin(value) {
 	return port !== void 0 && Number(port) <= 65535;
 }
 function origin(value) {
-	requireValue$1(text(value).length <= 128 && (value === "cli" || addonOrigin(value) || doorOrigin(value)), "origin");
+	requireValue$1(text$1(value).length <= 128 && (value === "cli" || addonOrigin(value) || doorOrigin(value)), "origin");
 }
 /** Hash the exact supplied payload bytes, without parsing or reserializing them. */
 async function envelopeSigningBytes(value) {
@@ -97,7 +97,7 @@ async function envelopeSigningBytes(value) {
 	}
 	requireValue$1(Number.isSafeInteger(value.timestampMs) && value.timestampMs >= 0, "timestampMs");
 	origin(value.origin);
-	requireValue$1(text(value.operation).length > 0, "operation");
+	requireValue$1(text$1(value.operation).length > 0, "operation");
 	requireValue$1(value.payload instanceof Uint8Array, "payload bytes");
 	const payload = new Uint8Array(value.payload);
 	const fields = [
@@ -129,7 +129,7 @@ function enrollmentSigningBytes(value) {
 	]) uuid(id);
 	origin(value.origin);
 	requireValue$1(value.kind === "addon" && addonOrigin(value.origin) || value.kind === "browser" && doorOrigin(value.origin) || value.kind === "cli" && value.origin === "cli", "kind/origin");
-	const name = text(value.name);
+	const name = text$1(value.name);
 	requireValue$1(name.length >= 1 && name.length <= 64 && value.name.trim().length > 0 && !Array.from(value.name).some((character) => {
 		const point = character.codePointAt(0);
 		return point <= 31 || point >= 127 && point <= 159;
@@ -412,7 +412,43 @@ function reason(value) {
 	valid$6(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
+var USER_NAME_REASONS = [
+	"USER_NAME_UNAVAILABLE",
+	"USER_NAME_INVALID",
+	"USER_NAME_TAKEN"
+];
+function text(value) {
+	return typeof value === "string" && value.length > 0 && utf8$1.encode(value).length <= 512;
+}
+/** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
+function identity$1(value) {
+	if (value.identity === void 0) return {};
+	const notice = record(value.identity);
+	const keys = Object.keys(notice).sort().join();
+	if (notice.state === "anonymous") {
+		valid$6(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
+		valid$6(text(notice.message));
+		return { identity: {
+			state: "anonymous",
+			reason: notice.reason,
+			message: notice.message
+		} };
+	}
+	valid$6(notice.state === "person" && keys === "name,renamedFrom,state");
+	valid$6(text(notice.name) && text(notice.renamedFrom));
+	return { identity: {
+		state: "person",
+		name: notice.name,
+		renamedFrom: notice.renamedFrom
+	} };
+}
 function sendState(value, id) {
+	return {
+		...sendStateBase(value, id),
+		...identity$1(record(value))
+	};
+}
+function sendStateBase(value, id) {
 	const state = record(value);
 	valid$6(state.operationId === id);
 	switch (state.state) {

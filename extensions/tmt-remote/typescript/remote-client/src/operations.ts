@@ -7,7 +7,17 @@ export interface SendInput {
   agentId: string;
   message: string;
 }
-export type SendState =
+/** How the serve attributed a send, present only when there is something to say (#4255): it went
+ * out anonymously because Core refused the person's name (the message is Core's own and names the
+ * fix), or Core resolved the person under a `-user` name because an agent holds the plain one. */
+export type SendIdentity =
+  | {
+      state: 'anonymous';
+      reason: 'USER_NAME_UNAVAILABLE' | 'USER_NAME_INVALID' | 'USER_NAME_TAKEN';
+      message: string;
+    }
+  | { state: 'person'; name: string; renamedFrom: string };
+export type SendState = (
   | { state: 'held'; operationId: string }
   | { state: 'accepted'; operationId: string; requestId: string }
   | { state: 'uncertain'; operationId: string; requestId?: string }
@@ -18,7 +28,8 @@ export type SendState =
       limit?: number;
       settingsUrl?: string;
       scope?: 'talk';
-    };
+    }
+) & { identity?: SendIdentity };
 export type ResultState =
   | { state: 'pending'; requestId: string }
   | { state: 'replied'; requestId: string; message: string }
@@ -145,7 +156,34 @@ function reason(value: Record<string, unknown>): { reason?: string } {
   valid(typeof value.reason === 'string' && utf8.encode(value.reason).length <= 256);
   return { reason: value.reason };
 }
+const USER_NAME_REASONS = ['USER_NAME_UNAVAILABLE', 'USER_NAME_INVALID', 'USER_NAME_TAKEN'];
+function text(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && utf8.encode(value).length <= 512;
+}
+/** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
+function identity(value: Record<string, unknown>): { identity?: SendIdentity } {
+  if (value.identity === undefined) return {};
+  const notice = record(value.identity);
+  const keys = Object.keys(notice).sort().join();
+  if (notice.state === 'anonymous') {
+    valid(keys === 'message,reason,state' && USER_NAME_REASONS.includes(notice.reason as string));
+    valid(text(notice.message));
+    return {
+      identity: {
+        state: 'anonymous',
+        reason: notice.reason as 'USER_NAME_UNAVAILABLE' | 'USER_NAME_INVALID' | 'USER_NAME_TAKEN',
+        message: notice.message,
+      },
+    };
+  }
+  valid(notice.state === 'person' && keys === 'name,renamedFrom,state');
+  valid(text(notice.name) && text(notice.renamedFrom));
+  return { identity: { state: 'person', name: notice.name, renamedFrom: notice.renamedFrom } };
+}
 function sendState(value: unknown, id: string): SendState {
+  return { ...sendStateBase(value, id), ...identity(record(value)) };
+}
+function sendStateBase(value: unknown, id: string): SendState {
   const state = record(value);
   valid(state.operationId === id);
   switch (state.state) {

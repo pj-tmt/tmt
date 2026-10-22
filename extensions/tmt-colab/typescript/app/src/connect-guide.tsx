@@ -1,13 +1,11 @@
-import { useState } from 'react';
 import type { Root } from 'react-dom/client';
-import { BrowserAction, BrowserCommand, BrowserHeader } from '@tmt/browser-ui/react';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { BrowserAction, BrowserHeader } from '@tmt/browser-ui/react';
+import { CopyCommand } from './copy-command.js';
 import { digest } from '@tmt/colab-client';
 import type { HostedAuth } from '../../../../tmt-remote/typescript/remote-client/src/firebase-auth.js';
 import type { HostedRemoteSdk } from './hosted-bootstrap.js';
 import { remoteSdk, responseBytes } from './registration.js';
 import { hex } from './export.js';
-import { text } from './strings.js';
 
 export interface ConnectGuideState {
   phase: 'checking' | 'sign-in' | 'signing-in' | 'signed-in' | 'failed';
@@ -111,35 +109,6 @@ export function createConnectGuide(link: string, options: Options) {
   };
 }
 
-/** Clipboard feedback says only what copying did, never that a machine step ran. */
-function GuideCommand({ command, enabled }: { command: string; enabled: boolean }) {
-  const [feedback, setFeedback] = useState('');
-  return (
-    <BrowserCommand
-      text={command}
-      action={
-        <button
-          type="button"
-          className={ui.commandCopy}
-          disabled={!enabled}
-          onClick={async (event) => {
-            if (!event.isTrusted) return;
-            try {
-              await navigator.clipboard.writeText(command);
-              setFeedback(text.shellCommandCopied);
-            } catch {
-              setFeedback(text.shellCommandCopyFailed);
-            }
-          }}
-        >
-          Copy
-        </button>
-      }
-      feedback={feedback}
-    />
-  );
-}
-
 export function ConnectGuide({ state, signIn }: { state: ConnectGuideState; signIn(): void }) {
   const label = {
     checking: 'Checking connection…',
@@ -184,7 +153,7 @@ export function ConnectGuide({ state, signIn }: { state: ConnectGuideState; sign
             <li>
               <h3>Add the remote</h3>
               <p>Copy this command to remember the remote on this machine.</p>
-              <GuideCommand
+              <CopyCommand
                 command={
                   state.remoteLink
                     ? `tmt remote add team '${state.remoteLink}'`
@@ -196,7 +165,7 @@ export function ConnectGuide({ state, signIn }: { state: ConnectGuideState; sign
             <li>
               <h3>Sign in</h3>
               <p>Copy this command to sign this machine in. No account is needed.</p>
-              <GuideCommand
+              <CopyCommand
                 command="tmt remote --remote team sync sign-in"
                 enabled={state.remoteLink !== undefined}
               />

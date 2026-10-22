@@ -311,7 +311,13 @@ impl Registration {
                 page["summary"]["work"] = work;
             }
             if let Some((parent, task)) = parents.get(&id) {
-                page["summary"]["parent"] = serde_json::json!({"page": parent, "task": task});
+                let mut value = serde_json::json!({"page": parent, "task": task});
+                // Additive: the parent task's own title, so the crumb names it without reading
+                // the parent page.
+                if let Some(title) = graph.task_title(parent, task) {
+                    value["title"] = serde_json::json!(title);
+                }
+                page["summary"]["parent"] = value;
             }
         }
         if let Some(open) = &self.summary_source {
@@ -503,6 +509,15 @@ impl Registration {
     {
         self.engine
             .set_projects(&mut self.store, &self.keyring, changes)
+    }
+    pub fn set_pinned(
+        &mut self,
+        page: &str,
+        pinned: bool,
+    ) -> std::result::Result<tmt_colab_model::statement::Head, crate::transitions::TransitionError>
+    {
+        self.engine
+            .set_pinned(&mut self.store, &self.keyring, page, pinned)
     }
     pub fn manage_project(
         &mut self,
@@ -1668,7 +1683,7 @@ mod describe_tests {
         );
         assert_eq!(
             list[leaf]["summary"]["parent"],
-            json!({"page":top,"task":"T-1"})
+            json!({"page":top,"task":"T-1","title":"Leaf"})
         );
         // A fresh page without work has a summary and neither field; a page without a fresh summary
         // has no summary at all.

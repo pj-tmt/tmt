@@ -1141,7 +1141,11 @@ returned sequence cursor. Canonical retention still applies.
 
 A successful claim returns `{claimed:true,checklist,page,text}`; the checklist
 contains `checklistId`, `identityId`, `attemptToken`, `throughSequence`, `state`,
-`createdAtMs`. A competing or empty claim returns no transport permission. The
+`createdAtMs`. `text` is the whole paste (every sealed item with its complete message
+or reply body, at most 32 KiB; [request-response](request-response-v1.md#digest-delivery-windows)
+owns the framing), and `page` lists exactly the sealed items. A claim seals only the
+ordered prefix that fits that cap, so `throughSequence` can be below the newest held
+item. A competing or empty claim returns no transport permission. The
 `idle` path verifies actual live idle evidence. While Digest is active it may claim
 only the range previously marked by `digest.checklist.dueNow`; that operation
 captures the current retained, unclaimed range atomically without changing policy

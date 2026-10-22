@@ -113,7 +113,9 @@ async function containment(page: Page) {
   const result = await page.evaluate(() => {
     const nested = Array.from(document.querySelectorAll<HTMLElement>('body *'))
       .filter((node) => {
-        if (!node.getClientRects().length) return false;
+        // The page list is one screen whose rows scroll inside it (page-index.spec.ts owns that).
+        if (!node.getClientRects().length || node.classList.contains('page-list-scroll'))
+          return false;
         const style = getComputedStyle(node);
         return /^(auto|scroll)$/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
       })
@@ -314,7 +316,7 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   ).toHaveCount(0);
   const rows = page.locator('#chrome-fixture ul.pages li');
   await expect(rows.first()).toContainText('Release notes');
-  const all = page.locator('#chrome-fixture').getByRole('tab', { name: 'All', exact: true });
+  const all = page.locator('#chrome-fixture').getByRole('tab', { name: /^All \d+$/ });
   const archived = page.locator('#chrome-fixture').getByRole('tab', { name: /^Archived/ });
   await expect(all).toHaveAttribute('aria-selected', 'true');
   await archived.click();

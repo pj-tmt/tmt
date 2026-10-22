@@ -141,6 +141,13 @@ const MIGRATIONS: &[&str] = &[
         title TEXT NOT NULL CHECK(length(CAST(title AS BLOB)) BETWEEN 1 AND 512),
         FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 17: the owner's pinned pages (#4356), one row per pinned page; `seq` is the pin order.
+    // Display-only like projects: never a log statement, never synced, published, exported or
+    // shared. Archive and delete remove the row; unarchive does not bring it back.
+    r#"
+    CREATE TABLE page_pins(page TEXT PRIMARY KEY, seq INTEGER NOT NULL,
+        FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// How many pre-update copies stay: the newest by the schema they were taken at, so two upgrades in

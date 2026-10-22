@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
@@ -17,22 +13,11 @@
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "types": [
-      "vite/client",
-      "mdx",
-      "node"
-    ],
+    "types": ["vite/client", "mdx", "node"],
     "paths": {
-      "react": [
-        "./node_modules/@types/react"
-      ],
-      "react/jsx-runtime": [
-        "./node_modules/@types/react/jsx-runtime"
-      ]
+      "react": ["./node_modules/@types/react"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"]
     }
   },
-  "include": [
-    "src",
-    "vite.config.ts"
-  ]
+  "include": ["src", "vite.config.ts"]
 }

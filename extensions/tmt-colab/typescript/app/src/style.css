@@ -67,13 +67,21 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   font: 11px var(--f-mono);
 }
 main {
-  min-height: calc(100dvh - var(--colab-header-height) - 57px);
+  min-height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
 }
 footer {
   padding: 16px 32px;
   color: var(--c-muted);
   border-top: 1px solid var(--c-rule);
   font-size: 12px;
+}
+/* main's height counts the footer as one line (57px), so a phone cuts a long note rather than wrap. */
+@media (max-width: 479px) {
+  footer {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
 }
 .home {
   max-width: 1080px;

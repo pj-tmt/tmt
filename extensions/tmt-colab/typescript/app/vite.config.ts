@@ -1,6 +1,7 @@
 import { lintConfig } from '../../../../typescript/scripts/lint-config.mjs';
 import { defineConfig } from 'vite-plus';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
 
@@ -17,9 +18,47 @@ export default defineConfig(({ mode }) => ({
   // The decoder worker is the first importer of `yjs` in dev. Pre-bundling it up front keeps
   // Vite from discovering it mid-run and reloading the page under a running test.
   optimizeDeps: { include: ['yjs'] },
+  // The page runtime's compiler is a prebuilt browser script, so the lib build appends it as text
+  // instead of bundling it (see src/runtime/entry.ts and scripts/verify-runtime.mjs).
   plugins: [
     react(),
     designTokens(),
+    {
+      // The frame has no `process`, so React must be its production build, fixed at build time.
+      // Library builds do not take `define` for this, so it is replaced where it is read.
+      name: 'colab-runtime-production',
+      apply: () => mode === 'runtime',
+      enforce: 'pre',
+      transform: {
+        filter: { code: 'process.env.NODE_ENV' },
+        handler: (code) => ({
+          code: code.replaceAll('process.env.NODE_ENV', '"production"'),
+          map: null,
+        }),
+      },
+    },
+    {
+      name: 'colab-runtime-tailwind',
+      apply: () => mode === 'runtime',
+      generateBundle(_options, bundle) {
+        const compiler = readFileSync(
+          createRequire(import.meta.url).resolve('@tailwindcss/browser'),
+          'utf8',
+        );
+        const entry = Object.values(bundle).find(
+          (output) => output.type === 'chunk' && output.isEntry,
+        );
+        if (entry?.type !== 'chunk') throw new Error('Missing runtime entry chunk');
+        entry.code = `${entry.code}\n${compiler}`;
+        // The theme is Tailwind source for a `<style type="text/tailwindcss">` block, not compiled
+        // CSS; scripts/generate-runtime-theme.mjs writes it from the design tokens.
+        this.emitFile({
+          type: 'asset',
+          fileName: 'assets/colab-runtime.css',
+          source: readFileSync(new URL('./src/runtime/theme.css', import.meta.url), 'utf8'),
+        });
+      },
+    },
     {
       name: 'colab-renderer-policy',
       configureServer(server) {
@@ -90,16 +129,27 @@ export default defineConfig(({ mode }) => ({
               cssFileName: 'assets/colab-module',
             },
           }
-        : mode === 'reader'
+        : mode === 'runtime'
           ? {
               emptyOutDir: false,
               copyPublicDir: false,
               lib: {
-                entry: new URL('./src/reader-main.tsx', import.meta.url).pathname,
-                formats: ['es'],
-                fileName: () => 'assets/reader.js',
-                cssFileName: 'assets/reader',
+                entry: new URL('./src/runtime/entry.ts', import.meta.url).pathname,
+                formats: ['iife'],
+                name: 'colabRuntime',
+                fileName: () => 'assets/colab-runtime.js',
               },
             }
-          : { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
+          : mode === 'reader'
+            ? {
+                emptyOutDir: false,
+                copyPublicDir: false,
+                lib: {
+                  entry: new URL('./src/reader-main.tsx', import.meta.url).pathname,
+                  formats: ['es'],
+                  fileName: () => 'assets/reader.js',
+                  cssFileName: 'assets/reader',
+                },
+              }
+            : { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
 }));

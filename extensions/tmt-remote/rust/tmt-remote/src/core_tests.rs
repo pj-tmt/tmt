@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 #[path = "../tests/support/executable_fixture.rs"]
-mod executable_fixture;
+pub(crate) mod executable_fixture;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 #[test]

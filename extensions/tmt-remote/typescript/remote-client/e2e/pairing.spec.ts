@@ -1464,6 +1464,10 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                     size: font.fontSize,
                     weight: font.fontWeight,
                     left: element.getBoundingClientRect().left,
+                    // A visually hidden part keeps its node and name but clips its box away.
+                    clipped:
+                      getComputedStyle(element.closest('.tmt-ui-brand') ?? element).clipPath !==
+                      'none',
                   };
                 };
                 return {
@@ -1561,7 +1565,11 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             weight: headerTokens['title-weight'],
           });
           expect(header.mark.left).toBeLessThan(header.wordmark.left);
-          expect(header.wordmark.left).toBeLessThan(header.title.left);
+          // A phone's shell gives the title the row: the module crumb keeps its link for assistive
+          // technology but no box (shell.css), so only wider rows order it before the title.
+          const phoneShell = width < 480 && state !== 'error';
+          expect(header.wordmark.clipped).toBe(phoneShell);
+          if (!phoneShell) expect(header.wordmark.left).toBeLessThan(header.title.left);
           await captureState(
             page,
             state,

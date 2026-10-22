@@ -12,6 +12,7 @@ use tmt_cli_style::{
 use tmt_core::request::{
     RequestPrompt,
     attention::{Exchange, FinalState},
+    digest::DeliveryMode,
 };
 
 fn final_document<T>(state: &FinalState<T>, content: impl FnOnce(&T) -> Option<Value>) -> Value {
@@ -64,6 +65,7 @@ fn exchange_document<T>(
         "requestId": exchange.request_id,
         "urgent": exchange.delivery_policy.urgent,
         "digestKind": exchange.delivery_policy.kind.as_str(),
+        "mode": exchange.delivery_policy.mode.as_str(),
         "recipientIdentityId": exchange.recipient_identity_id,
         "preparedAtMs": exchange.prepared_at_ms,
         "delivery": exchange.delivery.as_str(),
@@ -201,20 +203,22 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
         }
         ResultKind::Show { detail, receipt } => {
             let item = &detail.exchange;
-            tmt_cli_style::detail::write(
-                &mut stdout,
-                terminal,
-                &item.request_id,
-                &[
-                    ("delivery", item.delivery.as_str().to_owned()),
-                    ("urgent", item.delivery_policy.urgent.to_string()),
-                    ("digest kind", item.delivery_policy.kind.as_str().to_owned()),
-                    ("final", item.final_state.as_str().to_owned()),
-                    ("revision", item.revision.to_string()),
-                    ("acknowledged", item.acknowledged.to_string()),
-                    ("settled", item.settled.to_string()),
-                ],
-            )?;
+            let mut rows = vec![
+                ("delivery", item.delivery.as_str().to_owned()),
+                ("urgent", item.delivery_policy.urgent.to_string()),
+                ("digest kind", item.delivery_policy.kind.as_str().to_owned()),
+            ];
+            // A request is the default; only the exception needs a row.
+            if item.delivery_policy.mode == DeliveryMode::Passthrough {
+                rows.push(("mode", item.delivery_policy.mode.as_str().to_owned()));
+            }
+            rows.extend([
+                ("final", item.final_state.as_str().to_owned()),
+                ("revision", item.revision.to_string()),
+                ("acknowledged", item.acknowledged.to_string()),
+                ("settled", item.settled.to_string()),
+            ]);
+            tmt_cli_style::detail::write(&mut stdout, terminal, &item.request_id, &rows)?;
             writeln!(
                 stdout,
                 "{} {}",

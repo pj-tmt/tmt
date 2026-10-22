@@ -538,7 +538,8 @@ export const text = {
       count === 1 ? '1 waiting for sign-off' : `${count} waiting for sign-off`,
     showTasks: (count: number) => (count === 1 ? 'Show 1 task' : `Show ${count} tasks`),
     hideTasks: 'Hide tasks',
-    parentTask: (title: string, taskId: string) => `${title} › ${taskId}`,
+    parentTask: (title: string, taskId: string, taskTitle?: string) =>
+      `${title} › ${taskId}${taskTitle ? ` · ${taskTitle}` : ''}`,
     followsPage: 'Follows its own page →',
     detailLabel: (id: string) => `Task ${id}`,
     close: 'Close',
@@ -717,7 +718,17 @@ export const text = {
     tabInProgress: (count: number) => `In progress ${count}`,
     tabDiscussion: (count: number) => `Discussion ${count}`,
     tabDone: (count: number) => `Done ${count}`,
-    tabAll: 'All',
+    tabAllCount: (count: number) => `All ${count}`,
+    tabNeedsYou: (count: number) => `Needs you ${count}`,
+    tabNeedsYouWaiting: 'waiting',
+    newPage: 'New page',
+    newPageVisible: '+ New page',
+    newPageTitle: 'New page',
+    newPageBody: 'Pages are created on your machine. Run this in a terminal there:',
+    newPageCommand: 'tmt colab page create --title "Notes" --layout column',
+    /** The list's count line: how many rows are drawn of how many match. */
+    showing: (shown: number, total: number) =>
+      shown < total ? `Showing ${shown} of ${total}` : `${total} ${total === 1 ? 'page' : 'pages'}`,
     tabArchived: (count: number) => `Archived ${count}`,
     /** The stage names the `stage:` search token takes, with their tab labels. */
     stageNames: {
@@ -755,8 +766,6 @@ export const text = {
     filters: 'Filters',
     needsYou: 'Needs you',
     needsYouFilter: (count: number) => `Needs you, ${count} ${count === 1 ? 'page' : 'pages'}`,
-    projectFilter: (name: string, count: number) =>
-      `${name}, ${count} ${count === 1 ? 'page' : 'pages'}`,
     removeFilter: (name: string) => `Remove project filter ${name}`,
     removeAuthorFilter: (name: string) => `Remove author filter ${name}`,
     byAuthor: (name: string) => `by ${name}`,
@@ -837,6 +846,21 @@ export const text = {
         count === 1 ? 'was' : 'were'
       } skipped.`,
     nothingToChange: 'Nothing to change.',
+    pinPage: (title: string) => `Pin ${title} to the top`,
+    unpinPage: (title: string) => `Unpin ${title}`,
+    pinned: (title: string) => `Pinned “${title}”.`,
+    unpinned: (title: string) => `Unpinned “${title}”.`,
+    pinItem: 'Pin to top',
+    unpinItem: 'Unpin',
+    /** Told under the control that was refused. */
+    pinFull: 'At most 20 pages can be pinned. Unpin one first.',
+    pinFailures: {
+      DENIED: 'This device is not allowed to pin pages. Reopen your paired session.',
+      EXPIRED: 'The request expired. Try again.',
+      INVALID: 'The owner refused this pin. An archived page cannot be pinned.',
+      UNAVAILABLE: 'The owner cannot do this now. Nothing was changed.',
+      UNKNOWN: 'The result is unknown: the pin may have changed. Reload the list to see.',
+    },
     archiveItem: 'Archive…',
     restoreItem: 'Restore…',
     deleteItem: 'Delete…',

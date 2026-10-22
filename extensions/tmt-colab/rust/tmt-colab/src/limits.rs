@@ -156,6 +156,9 @@ pub const PROJECT_POINTS: usize = 32;
 pub const PAGE_PROJECTS: usize = 8;
 pub const SPACE_PROJECTS: usize = 256;
 pub const SPACE_PROJECT_PAGES: usize = 1000;
+/// Pinned pages (contract: Pins): at most this many in the space, so the owner list stays short and
+/// the `/api/pages` reply stays under its cap.
+pub const SPACE_PINS: usize = 20;
 /// Pages one `page.projects` request may change, in one store transaction (the payload stays under
 /// the 16 KiB management cap for ordinary names; a larger batch is several requests).
 pub const PROJECT_REQUEST_PAGES: usize = 64;

@@ -76,7 +76,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 &attempt.route,
                 &input.proof,
             )?;
-            if let Some(refusal) = first_final_refusal(&attempt, now) {
+            if let Some(refusal) = answer_refusal(records, &attempt, now)? {
                 return Err(RequestError::Response(refusal));
             }
             // Only an accepted first final may release a proven-dead waiter.
@@ -91,29 +91,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 records.release_wait(&attempt.attempt_id, now)?;
                 attempt.wait_active = false;
             }
-            let response = FinalResponse {
-                request_id: input.request_id,
-                attempt_id: attempt.attempt_id.clone(),
-                route: attempt.route.clone(),
-                body_bytes: input.body.len() as u64,
-                body: input.body,
-                submitted_at_ms: now,
-                response_expires_at_ms: retention_deadline(now, attempt.retention_days)
-                    .ok_or(RequestError::Invalid("Invalid response deadline."))?,
-            };
-            records.create_response(&response)?;
-            flow::record(
-                records,
-                &attempt,
-                super::super::flow::FlowKind::Reply,
-                true,
-                response.body_bytes,
-                now,
-            )?;
-            if let Some(id) = attempt.originator.identity_id() {
-                let revision = reserve_revision(records, id)?;
-                records.set_attention_revision(&response.request_id, revision)?;
-            }
+            let response = store_final(records, &attempt, input.body, now)?;
             let hint = if claim_hint {
                 notification::claim(
                     records,
@@ -227,7 +205,10 @@ pub(super) fn response_lookup<E>(
         if let Some(withdrawal) = attempt.withdrawal {
             return Ok(ResponseLookup::Withdrawn(withdrawal));
         }
-        if attempt.kind == RequestKind::Announcement {
+        if attempt.kind == RequestKind::Announcement
+            || records.delivery_policy(request_id)?.mode
+                == crate::request::digest::DeliveryMode::Passthrough
+        {
             return Ok(ResponseLookup::NotRequired);
         }
     }
@@ -271,6 +252,21 @@ pub(super) fn prefix_range<E>(input: &str) -> Result<Option<(String, String)>, R
         lower,
         String::from_utf8(upper).expect("ASCII successor"),
     )))
+}
+
+/// `first_final_refusal` plus the delivery mode: typed text is not a request, so it never
+/// takes a reply even from a caller that can derive the proof.
+pub(super) fn answer_refusal<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    attempt: &RequestAttempt,
+    now: u64,
+) -> Result<Option<ResponseRejection>, RequestError<E>> {
+    if records.delivery_policy(&attempt.request_id)?.mode
+        == crate::request::digest::DeliveryMode::Passthrough
+    {
+        return Ok(Some(ResponseRejection::NotRequired));
+    }
+    Ok(first_final_refusal(attempt, now))
 }
 
 /// Why `attempt` cannot take a first final at `now`, if it cannot. Final
@@ -319,6 +315,40 @@ fn validate_proof<E>(
         }
     }
     Ok(())
+}
+
+/// Record the first final of an open request and give its originator the attention
+/// revision. The caller has already decided that the request accepts a final.
+pub(super) fn store_final<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    attempt: &RequestAttempt,
+    body: String,
+    now: u64,
+) -> Result<FinalResponse, RequestError<E>> {
+    let response = FinalResponse {
+        request_id: attempt.request_id.clone(),
+        attempt_id: attempt.attempt_id.clone(),
+        route: attempt.route.clone(),
+        body_bytes: body.len() as u64,
+        body,
+        submitted_at_ms: now,
+        response_expires_at_ms: retention_deadline(now, attempt.retention_days)
+            .ok_or(RequestError::Invalid("Invalid response deadline."))?,
+    };
+    records.create_response(&response)?;
+    flow::record(
+        records,
+        attempt,
+        super::super::flow::FlowKind::Reply,
+        true,
+        response.body_bytes,
+        now,
+    )?;
+    if let Some(id) = attempt.originator.identity_id() {
+        let revision = reserve_revision(records, id)?;
+        records.set_attention_revision(&response.request_id, revision)?;
+    }
+    Ok(response)
 }
 
 #[cfg(test)]

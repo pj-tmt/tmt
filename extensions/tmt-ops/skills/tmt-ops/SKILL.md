@@ -320,6 +320,11 @@ A sum of percents needs one shared interval and a sum of costs one price table;
 otherwise it reads `— (intervals differ)` or `— (prices differ)`. The `savings-unit`
 action has no default key: bind one under `[bind]` and its hint appears beside a
 painted estimate, or choose `Savings unit` from the Actions menu.
+The Agents TOK figures follow the same unit. Click a TOK figure to switch every figure
+between tokens and the list price of the input tokens behind them (`≈$0.42`, `≈$12.3`,
+`≈$123`, `≈$1.2k`; the heading reads `≈$ 1d`). The click skips percent, a squad sums its
+members, and a figure is `—` until the usage report covers all of them completely, never a
+partial sum. It is an estimate at list price, not a bill; the heading still sorts by tokens.
 The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2` as input.
@@ -379,9 +384,12 @@ rewriting authored config.
 Digest has a range summary, an Allowance block, Agents by TOK, Exchanges and selection details.
 Allowance shows one row per provider whose weekly window the board has sampled: LEFT, NEED %/h (the
 even burn, in percent per hour, that lasts exactly until the reset; shown as `>99` above 99 and as `—`
-in the last hour before the reset), what each of four rates leaves
-at the reset if it holds (the last 3h, 6h and 1d, and the average since the window last reset, SINCE RESET)
-and RESETS. A rate the history does not cover is `—`; a line that empties the window first shows
+in the last hour before the reset), what each of five rates leaves
+at the reset if it holds (the last 3h, 6h and 1d, TOKENS, and the average since the window last reset, SINCE RESET)
+and RESETS. TOKENS is the last 3 hours of the provider's members' tokens (input + output, cache not
+counted, from the Digest usage report's hourly cells) at the points per token the last 24 hours cost.
+A rate the history does not cover, a provider whose members have no complete fresh day of
+tokens and a day without tokens are `—`; a line that empties the window first shows
 `✗ <weekday hh:mm>` in the attention colour. At 80 columns a row is one line with the worst
 projection. It is hidden when no provider has been sampled or the table would be left too short.
 A reading older than two hours is not quoted; the percent is whole-number sampling, an unsampled
@@ -402,7 +410,8 @@ columns; self is blank, `·` observed none and `—` unavailable.
 Enter opens the selected member's Agents conversation. D uses the existing
 Digest chooser; e toggles details, u opens usage controls and w stays Snapshots.
 Hints follow configured bindings. The `≈ $ in` column requires full input-model
-attribution and held quotes: input tokens at list price; not a bill. Avoided
+attribution and held quotes: input tokens at list price; not a bill. A table narrower
+than 94 columns drops SHARE, `≈ $ in` and TALKS TO whole and says so on its last line. Avoided
 estimates remain supplier-owned and show unavailable when their window differs
 from the selected TOK range. Source windows and prices remain in details.
 Usage and traffic come from bounded background Core reads, even without Digest;
@@ -1201,15 +1210,30 @@ that request. Refusal without a retained request keeps the draft. Sent turns and
 exactly correlated replies are bounded session feedback, not durable history.
 
 Bracketed paste never submits. Message text is limited to 1 MiB, with exact text and
-newlines preserved. In direct messages, paste over 500 Unicode characters or
-10 logical lines becomes an inline chip; exactly 500 characters or 10 lines stays
-ordinary text. Click its body or press Ctrl-P at the chip to open a read-only,
-scrollable preview above it (below when there is no room above). Esc or an outside
-click closes the preview and keeps the draft. Click ×, or use Backspace/Delete at
-the chip, to remove the whole pasted range. Multiple chips can sit between typed
-text; sending uses every original byte. With ASCII glyphs or NO_COLOR, the chip
-reads `[Pasted … x]`. Other message forms retain their inline fold preview with
-Ctrl-P for paste over 500 characters or eight lines.
+newlines preserved. Paste over 500 Unicode characters or 10 content lines becomes
+an inline fold; exactly 500 characters or 10 lines stays ordinary text. CRLF is one
+break, and one terminal LF, CRLF or CR does not add a content line; further blank
+lines count. Direct-message folds show a chip: click its body or press Ctrl-P at
+the chip to open a read-only, scrollable preview above it (below when there is no
+room above). Esc or an outside click closes the preview and keeps the draft.
+Pasting with a preview open closes it and inserts once at the kept caret/selection;
+a size refusal keeps the exact draft and shows a notice. Click ×, or use
+Backspace/Delete at the chip, to remove the whole pasted range. Multiple chips can
+sit between typed text; sending uses every original byte. With ASCII glyphs or
+NO_COLOR, the chip reads `[Pasted … x]`. Draftless message forms and cron message
+prefill/re-entry use the same counts and label body; Ctrl-P expands their folds
+inline and keyboard deletion removes them atomically, with no × or popup preview.
+Dropping files onto the pane pastes their paths (quoted, escaped or `file://`); a paste that
+is only existing regular files, at most 16, becomes one chip per file, such as
+`screenshot.png · 1200×800 · 312 KB ×` (ASCII `[screenshot.png 1200x800 312 KB x]`). With no composer
+open it starts a message to the selected member; with nobody selected it says
+`Select an agent to send files` and inserts nothing. The chip shows the size at once; an
+image's size from its header and the popup's text fill in from a background read, and a
+file that cannot be read keeps the chip without them. Click the chip for a popup with the
+full path, size, type and a text file's first lines; × removes it. Sending carries each
+file's absolute path, in single quotes when it holds a space, quote or backslash so the
+boundary between files is clear; only an agent on this machine can read it. A paste of any other
+text, or of a path that does not exist, stays ordinary text.
 Name/configuration/search fields keep their smaller bounds and do not gain message
 completion. The status reason keeps its 4,000-byte bound and explicit Apply step.
 
@@ -1230,8 +1254,18 @@ Common pool quotations use Talk to the same UUID; squad notes keep their actual
 recipient. The quote carries the response/request identity and source byte
 range. Selecting text never acknowledges a request. If the source changes or the
 agent disappears, the retained text can still be read/copied but cannot be attached
-to another response. The composer shows a readable author/excerpt quote caption;
-its remove control removes the most recent quote while keeping message text.
+to another response. Quotes appear as inline folds after the line containing
+the composer caret, with an empty line after each fold for the answer. An empty
+draft starts with the quote and answer line. Quote, answer, then quote again to
+address several passages in one message; existing text and later lines stay in place.
+Quoted CRLF and lone CR breaks become LF, and one terminal break is removed before
+insertion; additional empty lines remain. Original response identity and source
+byte ranges still fence exact quotations.
+Click a quote for its full-source preview; × or Backspace/Delete at its boundary
+removes that fold only, and caret motion skips collapsed folds. There is no undo.
+Sending expands each quote where it sits: literal rendered selections keep the
+flattened excerpt of at most 200 characters, while exact response selections keep
+full multiline Markdown blockquotes. Preview shows the complete admitted quote text.
 Alt-Backspace deletes the word before the draft cursor. Details shows bounded, frozen provenance only for quotes matching
 both the selected source UUID and the draft's actual recipient UUID, including
 full request/identity and exact byte range.

@@ -1,11 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
-/** The list opens on In progress; these specs are about rows, so a link that names no tab gets All. */
-const onAll = (hash: string) =>
-  /[?&](stage=(in-progress|discussion|done|all)|archived=true)(&|$)/.test(hash)
-    ? hash
-    : `${hash}${hash.includes('?') ? '&' : '?'}stage=all`;
 async function mount(
   page: Page,
   size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' | 'shells' = 'few',
@@ -24,7 +19,7 @@ async function mount(
       const path = '/test/page-list-browser.tsx';
       await (await import(path)).mountPageList(size, hash);
     },
-    { size, hash: onAll(hash) },
+    { size, hash },
   );
 }
 /** The fixture mounts beside the hidden app, which renders the same route; scope to the fixture. */
@@ -56,14 +51,36 @@ async function scopeTo(page: Page, name: string) {
     })
     .click();
 }
+/**
+ * Filter by a project the way the list offers it: a `project:` token picked from the search's
+ * suggestions, then applied with Enter (the list has no project chip row; projects scope from the
+ * module menu).
+ */
+async function filterProject(page: Page, name: string) {
+  await search(page).click();
+  await page.keyboard.type(`project:${name.split(' ')[0]}`);
+  await page.getByRole('option', { name: new RegExp(`^${name} \\(\\d+\\)$`) }).click();
+  await page.keyboard.press('Enter');
+  await expect(app(page).locator(`[data-project-filter="${name}"]`)).toBeVisible();
+}
+/** A project's row in the module menu, with its count of active pages. */
+const menuProject = (page: Page, name: string) =>
+  scopeRows(page).filter({
+    has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${name}$`) }),
+  });
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
-/** A page's project crumb links to the scoped list, which opens on In progress like any bare link. */
-const showAll = (page: Page) => app(page).getByRole('tab', { name: 'All', exact: true }).click();
+/** A page's project crumb links to the scoped list, which opens on All like any bare link. */
+const showAll = (page: Page) =>
+  app(page)
+    .getByRole('tab', { name: /^All \d+$/ })
+    .click();
 
-test('a project button filters the list, adds a token and removes it again', async ({ page }) => {
+test("a page's project button filters the list, adds a token and removes it again", async ({
+  page,
+}) => {
   await mount(page);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  const design = app(page).getByRole('button', { name: 'design, 2 pages' });
+  const design = rows(page).nth(1).getByRole('button', { name: 'design', exact: true });
   await expect(design).toHaveAttribute('aria-pressed', 'false');
   await design.click();
   await expect(design).toHaveAttribute('aria-pressed', 'true');
@@ -73,7 +90,7 @@ test('a project button filters the list, adds a token and removes it again', asy
   await app(page).getByRole('button', { name: 'Remove project filter design' }).click();
   await expect(titles(page)).toHaveCount(4);
   await expect(design).toHaveAttribute('aria-pressed', 'false');
-  // A page's own chip filters too.
+  // Each of a page's projects filters.
   await rows(page).first().getByRole('button', { name: 'q4 plan' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan']);
 });
@@ -110,7 +127,7 @@ test('keyboard removing a filter token keeps editor focus and applies the token 
   page,
 }) => {
   await mount(page);
-  await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
+  await filterProject(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   const remove = app(page).getByRole('button', { name: 'Remove project filter design' });
   await remove.focus();
@@ -118,7 +135,7 @@ test('keyboard removing a filter token keeps editor focus and applies the token 
   await expect(app(page).locator('[data-project-filter="design"]')).toHaveCount(0);
   await expect(titles(page)).toHaveCount(4);
   await expect(search(page)).toBeFocused();
-  await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
+  await filterProject(page, 'design');
   await remove.focus();
   await remove.press('Space');
   await expect(app(page).locator('[data-project-filter="design"]')).toHaveCount(0);
@@ -167,6 +184,69 @@ test('typing project: suggests names, Enter takes one, Enter again applies free 
   await expect(app(page).locator('[data-project-filter]')).toHaveCount(0);
   expect(new URL(page.url()).hash).not.toContain('project');
 });
+
+test('a pin leads the list in pin order, an unpin puts the page back, and a refusal is told', async ({
+  page,
+}) => {
+  await mount(page);
+  const order = async () => (await titles(page).allTextContents()).map((title) => title.trim());
+  const before = await order();
+  const [first, second] = [before[2], before[1]];
+  const pin = (title: string, name: 'Pin' | 'Unpin') =>
+    rows(page)
+      .filter({ hasText: title })
+      .getByRole('button', { name: new RegExp(`^${name} `) });
+  await pin(first, 'Pin').click();
+  await expect(pin(first, 'Unpin')).toHaveAttribute('aria-pressed', 'true');
+  await pin(second, 'Pin').click();
+  await expect(pin(second, 'Unpin')).toBeVisible();
+  expect((await order()).slice(0, 2)).toEqual([first, second]);
+  expect(await page.evaluate(() => window.__pinRequests)).toEqual([
+    { pageId: expect.any(String), pinned: true },
+    { pageId: expect.any(String), pinned: true },
+  ]);
+  await pin(first, 'Unpin').click();
+  await expect(pin(first, 'Pin')).toHaveAttribute('aria-pressed', 'false');
+  expect((await order())[0]).toBe(second);
+  // The owner refuses a pin over its limit: the list is unchanged and the words say what to do.
+  await page.evaluate(() => (window.__pinRefusal = 'CAPACITY'));
+  await pin(first, 'Pin').click();
+  await expect(app(page).getByRole('alert')).toContainText('At most 20 pages can be pinned');
+  await expect(pin(first, 'Pin')).toHaveAttribute('aria-pressed', 'false');
+});
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`pinned rows lead the list and stay in one scroll axis at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      for (const title of ['Gamma notes', 'Beta review'])
+        await rows(page)
+          .filter({ hasText: title })
+          .getByRole('button', { name: new RegExp(`^Pin ${title}`) })
+          .click();
+      await expect(titles(page).first()).toHaveText('Gamma notes');
+      await expect(rows(page).nth(1)).toContainText('Beta review');
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({ path: await capturePath(`4356-pinned-list-${width}-${theme}.png`) });
+      await page.evaluate(() => (window.__pinRefusal = 'CAPACITY'));
+      await rows(page)
+        .filter({ hasText: 'Alpha plan' })
+        .getByRole('button', { name: /^Pin Alpha plan/ })
+        .click();
+      await expect(app(page).getByRole('alert')).toContainText('Unpin one first');
+      await page.screenshot({ path: await capturePath(`4356-pin-refused-${width}-${theme}.png`) });
+    });
 
 test('a row shows the creator, the comment count and a proposal waiting for you', async ({
   page,
@@ -217,7 +297,7 @@ test('typing by: suggests creators, a token filters by creator and free text mat
   await expect(titles(page)).toHaveText(['Alpha plan']);
   expect(new URL(page.url()).hash).toContain('by');
   // Creators combine with projects as an AND, and several creators as an OR.
-  await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
+  await filterProject(page, 'ops');
   await expect(titles(page)).toHaveCount(0);
   await app(page).getByRole('button', { name: 'Remove project filter ops' }).click();
   await app(page).getByRole('button', { name: 'Remove author filter Studio agent' }).click();
@@ -277,7 +357,7 @@ test('free text matches titles and projects, a miss says so and clears', async (
 
 test('the list keeps its filter in the address and restores it on reload', async ({ page }) => {
   await mount(page);
-  await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
+  await filterProject(page, 'design');
   await expect(titles(page)).toHaveCount(2);
   const hash = new URL(page.url()).hash;
   await page.evaluate((hash) => {
@@ -288,11 +368,12 @@ test('the list keeps its filter in the address and restores it on reload', async
   await expect(app(page).locator('[data-project-filter="design"]')).toBeVisible();
 });
 
-test('the home is the list: no Today or view tabs, and an old /all link lands on it with its search', async ({
+test('the home is the list: no hero, no Today or view tabs, and an old /all link lands on it with its search', async ({
   page,
 }) => {
   await mount(page);
-  await expect(app(page).locator('section.home h1')).toHaveText('Studio pages');
+  // The space's name is the header's; the list starts with its search.
+  await expect(app(page).locator('section.home').locator('h1, .eyebrow, .intro')).toHaveCount(0);
   await expect(app(page).getByRole('navigation', { name: 'Home views' })).toHaveCount(0);
   await expect(
     app(page).getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
@@ -305,32 +386,27 @@ test('the home is the list: no Today or view tabs, and an old /all link lands on
   // Search it cannot read is dropped and the address is the plain home.
   await mount(page, 'few', '/all?project=design&q=123');
   await expect(titles(page)).toHaveCount(4);
-  expect(new URL(page.url()).hash).toBe('#/?stage=all');
+  expect(new URL(page.url()).hash).toBe('#/');
 });
 
-test('the needs-you chip keeps the pages waiting on the viewer, combines with a project and survives reload', async ({
+test('the Needs you tab keeps the pages waiting on the viewer, combines with a project and survives reload', async ({
   page,
 }) => {
   await mount(page);
-  const needs = app(page).getByRole('button', { name: 'Needs you, 1 page' });
-  await expect(needs).toHaveAttribute('aria-pressed', 'false');
+  const needs = app(page).getByRole('tab', { name: /Needs you 1/ });
+  await expect(needs).toHaveAttribute('aria-selected', 'false');
   await needs.click();
-  await expect(needs).toHaveAttribute('aria-pressed', 'true');
+  await expect(needs).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Alpha plan']);
   expect(new URL(page.url()).hash).toContain('needs=true');
-  // Pressed is neutral, even under the pointer that just clicked it; colour stays on the diamond.
-  const look = await needs.evaluate((node) => {
-    const style = getComputedStyle(node);
-    return {
-      text: style.color,
-      border: style.borderTopColor,
-      mark: getComputedStyle(node.querySelector('.needs-filter-mark')!).color,
-    };
-  });
-  expect(look.border).toBe(look.text);
+  // Selected is neutral like every tab; colour stays on the diamond.
+  const look = await needs.evaluate((node) => ({
+    text: getComputedStyle(node).color,
+    mark: getComputedStyle(node.querySelector('.tmt-ui-tab-mark')!).color,
+  }));
   expect(look.mark).not.toBe(look.text);
   // It combines with the project filter: the waiting page is not in `ops`.
-  await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
+  await filterProject(page, 'ops');
   await expect(titles(page)).toHaveCount(0);
   await expect(app(page).getByText('No pages match.')).toBeVisible();
   await app(page).getByRole('button', { name: 'Remove project filter ops' }).click();
@@ -341,8 +417,11 @@ test('the needs-you chip keeps the pages waiting on the viewer, combines with a 
     location.hash = hash;
   }, hash);
   await expect(titles(page)).toHaveText(['Alpha plan']);
-  await expect(needs).toHaveAttribute('aria-pressed', 'true');
-  await needs.click();
+  await expect(needs).toHaveAttribute('aria-selected', 'true');
+  // Another tab leaves it.
+  await app(page)
+    .getByRole('tab', { name: /^All \d+$/ })
+    .click();
   await expect(titles(page)).toHaveCount(4);
   expect(new URL(page.url()).hash).not.toContain('needs');
 });
@@ -369,7 +448,7 @@ test('sort orders by title; the Archived tab shows archived pages and counts the
   await app(page).getByRole('button', { name: 'Sort: Title' }).click();
   await app(page).getByRole('menuitemradio', { name: 'Recently updated' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  const all = app(page).getByRole('tab', { name: 'All', exact: true });
+  const all = app(page).getByRole('tab', { name: /^All \d+$/ });
   const archived = app(page).getByRole('tab', { name: 'Archived 1' });
   await expect(all).toHaveAttribute('aria-selected', 'true');
   await expect(archived).toHaveAttribute('aria-selected', 'false');
@@ -377,9 +456,11 @@ test('sort orders by title; the Archived tab shows archived pages and counts the
   await expect(archived).toHaveAttribute('aria-selected', 'true');
   expect(new URL(page.url()).hash).toContain('archived=true');
   await expect(titles(page)).toHaveText(['Archived spec']);
-  // The project row counts only what the tab shows.
-  await expect(app(page).getByRole('button', { name: 'design, 1 page' })).toBeVisible();
-  await expect(app(page).getByRole('button', { name: 'ops, 1 page' })).toHaveCount(0);
+  // The project suggestions count only what the tab shows.
+  await search(page).click();
+  await page.keyboard.type('project:');
+  await expect(page.getByRole('option')).toHaveText(['design (1)']);
+  await page.keyboard.press('Escape');
   await all.click();
   await expect(titles(page)).toHaveCount(4);
   expect(new URL(page.url()).hash).not.toContain('archived');
@@ -400,11 +481,11 @@ test('a page waiting on the viewer shows the ◆ in the waiting colour with the 
     return {
       rowMark: colour('[data-waiting] .page-waiting-mark'),
       word: colour('[data-waiting]'),
-      chipMark: colour('.needs-filter-mark'),
+      tabMark: colour('.tmt-ui-tab-mark'),
     };
   });
-  // The row's mark is the chip's mark; the word beside it is plain text colour.
-  expect(colours.rowMark).toBe(colours.chipMark);
+  // The row's mark is the Needs you tab's mark; the word beside it is plain text colour.
+  expect(colours.rowMark).toBe(colours.tabMark);
   expect(colours.word).not.toBe(colours.rowMark);
   // A row that waits is not otherwise marked: no rule, nothing that reads as a selection.
   await expect(rows(page).filter({ hasText: 'Alpha plan' })).not.toHaveAttribute('data-needs-you');
@@ -792,7 +873,7 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await mount(page, 'unmanaged');
   await expect(app(page).getByRole('tab')).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
-  await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
+  await filterProject(page, 'ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
   await expect(scopeRows(page)).toHaveCount(4);
   await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toHaveCount(0);
@@ -882,7 +963,7 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-test('choosing a project scopes the list, the filter chips and the needs-you chip', async ({
+test('choosing a project scopes the list, the project suggestions and the Needs you count', async ({
   page,
 }) => {
   await mount(page);
@@ -890,15 +971,20 @@ test('choosing a project scopes the list, the filter chips and the needs-you chi
   await expect(scopeTrigger(page, 'ops')).toBeVisible();
   expect(new URL(page.url()).hash).toContain('scope=ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
-  // Only the scope's pages feed the chips: no design chip, and nothing waits in ops.
-  await expect(app(page).getByRole('button', { name: /^design/ })).toHaveCount(0);
-  await expect(app(page).getByRole('button', { name: /^Needs you/ })).toHaveCount(0);
+  // Only the scope's pages feed the suggestions and the count: no design, and nothing waits in ops.
+  await search(page).click();
+  await page.keyboard.type('project:');
+  await expect(page.getByRole('option')).toHaveText(['ops (1)']);
+  // Escape closes the suggestions, then clears the draft.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(search(page)).toHaveText('');
+  await expect(app(page).getByRole('tab', { name: 'Needs you 0' })).toBeVisible();
   await scopeTo(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
-  await expect(app(page).getByRole('button', { name: 'Needs you, 1 page' })).toBeVisible();
-  await expect(app(page).getByRole('button', { name: 'q4 plan, 1 page' })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: /Needs you 1/ })).toBeVisible();
   // A project: token filters inside the scope; a project outside it matches nothing.
-  await app(page).getByRole('button', { name: 'q4 plan, 1 page' }).click();
+  await filterProject(page, 'q4 plan');
   await expect(titles(page)).toHaveText(['Alpha plan']);
   await search(page).fill('ops');
   await search(page).press('Enter');
@@ -1047,7 +1133,7 @@ test('a new project needs only a name; ticked pages land in it in one request', 
     { pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['fresh start'] },
   ]);
   expect(await manageRequests(page)).toEqual([]);
-  await expect(app(page).getByRole('button', { name: 'fresh start, 2 pages' })).toBeVisible();
+  await expect(menuProject(page, 'fresh start')).toHaveText(/^fresh start\s*2$/);
 });
 
 test('a project with no page is one request, is listed everywhere, and takes pages later', async ({
@@ -1069,12 +1155,17 @@ test('a project with no page is one request, is listed everywhere, and takes pag
     { action: 'create', name: 'backlog' },
   ]);
   expect(await requests(page)).toEqual([]);
-  // No page is in it, so the filter row does not list it; the page menu and the manager do.
-  await expect(app(page).getByRole('button', { name: /^backlog/ })).toHaveCount(0);
+  // No page is in it, so the search does not suggest it; the module menu, the page menu and the
+  // manager list it.
+  await search(page).click();
+  await page.keyboard.type('project:back');
+  await expect(page.getByRole('option')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*0$/);
   const gamma = app(page).locator('[data-page-id="c0000003-1111-4111-8111-000000000001"]');
   await gamma.getByRole('button', { name: 'Projects for Gamma notes' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'backlog' }).click();
-  await expect(app(page).getByRole('button', { name: 'backlog, 1 page' })).toBeVisible();
+  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*1$/);
   expect((await requests(page)).at(-1)!.changes).toEqual([
     { pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['backlog'] },
   ]);
@@ -1133,7 +1224,8 @@ test('rename is one request for every page in the project, archived included, an
   ]);
   expect(await requests(page)).toEqual([]);
   await dialog.getByRole('button', { name: 'Done' }).click();
-  await expect(app(page).getByRole('button', { name: 'current, 130 pages' })).toBeVisible();
+  // The menu caps its count at 99+.
+  await expect(menuProject(page, 'current')).toHaveText(/^current\s*99\+$/);
 });
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
@@ -1150,8 +1242,8 @@ test('renaming onto an existing project says it merges', async ({ page }) => {
   await expect(dialog.getByRole('status')).toHaveText('Project updated.');
   expect(await manageRequests(page)).toEqual([{ action: 'rename', name: 'ops', to: 'design' }]);
   await dialog.getByRole('button', { name: 'Done' }).click();
-  await expect(app(page).getByRole('button', { name: 'design, 3 pages' })).toBeVisible();
-  await expect(app(page).getByRole('button', { name: /^ops/ })).toHaveCount(0);
+  await expect(menuProject(page, 'design')).toHaveText(/^design\s*3/);
+  await expect(menuProject(page, 'ops')).toHaveCount(0);
 });
 
 test('delete removes the project in one request and keeps the pages', async ({ page }) => {
@@ -1222,14 +1314,18 @@ for (const width of [1440, 390])
       } else await page.goBack();
       await scopeTo(page, 'All pages');
       await expect(titles(page)).toHaveCount(4);
-      await app(page).getByRole('button', { name: 'Needs you, 1 page' }).click();
+      await app(page)
+        .getByRole('tab', { name: /Needs you 1/ })
+        .click();
       await expect(titles(page)).toHaveCount(1);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3647-needs-${width}-${theme}.png`) });
-      await app(page).getByRole('button', { name: 'Needs you, 1 page' }).click();
+      await showAll(page);
       await expect(titles(page)).toHaveCount(4);
-      await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
-      await app(page).getByRole('combobox', { name: 'Search pages' }).click();
+      // The search keeps focus after Enter applies the token; a phone's field is narrow enough that
+      // a click on it would land on the token, so typing goes on from the caret.
+      await filterProject(page, 'design');
+      await expect(search(page)).toBeFocused();
       await page.keyboard.type('project:o');
       await expect(page.getByRole('option')).toHaveText(['ops (1)']);
       expect(await flat()).toBe(true);
@@ -1257,7 +1353,9 @@ for (const width of [1440, 390])
       await expect(titles(page)).toHaveText(['Archived spec']);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3746-archived-tab-${width}-${theme}.png`) });
-      await app(page).getByRole('tab', { name: 'All', exact: true }).click();
+      await app(page)
+        .getByRole('tab', { name: /^All \d+$/ })
+        .click();
       await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
       await fromScopeMenu(page, 'Manage projects…');
       await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
@@ -1355,9 +1453,7 @@ async function insideViewport(page: Page) {
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);
-    const rows = [
-      ...document.querySelectorAll('#list-fixture .project-filters, #list-fixture .page-projects'),
-    ]
+    const rows = [...document.querySelectorAll('#list-fixture .page-projects')]
       .flatMap((row) => [...row.querySelectorAll('button')].map((b) => b.getBoundingClientRect()))
       .filter((box) => box.right > column.right + 0.5 || box.left < column.left - 0.5).length;
     return { outside, rows, scroll: document.documentElement.scrollWidth - width };
@@ -1367,7 +1463,7 @@ async function insideViewport(page: Page) {
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`the search field, its tokens and the project rows stay inside ${width}px ${theme} with the longest names`, async ({
+    test(`the search field, its tokens and the row projects stay inside ${width}px ${theme} with the longest names`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -1377,9 +1473,9 @@ for (const width of [1440, 390, 320])
         document.documentElement.dataset.theme = theme;
       }, theme);
       await expect(titles(page)).toHaveCount(5);
-      // The long projects are filter buttons and row chips before any filter is typed.
+      // The long projects are row buttons before any filter is typed.
       for (const name of ['W'.repeat(32), '漢'.repeat(32)])
-        await expect(app(page).getByRole('button', { name: `${name}, 1 page` })).toBeVisible();
+        await expect(rows(page).getByRole('button', { name, exact: true }).first()).toBeVisible();
       await insideViewport(page);
       await search(page).click();
       for (const [typed, option] of [
@@ -1480,7 +1576,9 @@ test('restoring an Archived row confirms and returns it to the active list after
     { operation: 'page.unarchive', pageId: 'c0000005-1111-4111-8111-000000000001' },
   ]);
   await expect(titles(page)).toHaveCount(0);
-  await app(page).getByRole('tab', { name: 'All', exact: true }).click();
+  await app(page)
+    .getByRole('tab', { name: /^All \d+$/ })
+    .click();
   await expect(titles(page)).toHaveCount(5);
   await expect(titles(page).filter({ hasText: 'Archived spec' })).toBeVisible();
 });

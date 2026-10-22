@@ -51,6 +51,14 @@ configuration. The owner map is in
   `open_requests` applies it, so "waiting on you" is an open-request question, not an attention
   one. `answer_target` selects one open request by recipient and originator, never guessing, and
   derives the route proof in process.
+- A request's delivery mode (`request` or `passthrough`, in `request_delivery_policies`) decides
+  what the recipient is handed. A passthrough is a person's typed text: Core refuses it unless the
+  originator carries the `user` mark, queues it without publishing recipient attention, keeps it
+  out of `open_requests` and `answer_refusal`, and reports its final as `not_required`. The
+  mode joins the row's change-cursor comparison. `settle_request_delivery(Sent)` of a passthrough
+  runs `answer_oldest_open` in the same transaction: the retained original text becomes the first
+  final (`store_final`, shared with `submit_response`, no originator hint) of the oldest open
+  request from that agent to the sender; any other settlement stores nothing.
 - Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
   metadata stays on the attempt, separate from delivery and the final-submission marker;
   same-reason retries retain the first timestamp. It releases waiters without a recipient
@@ -156,7 +164,7 @@ owns event cardinality, direction, window rounding, `--bucket` summing
 
 ## Reply notices
 
-- A request opts in only through its notification policy; historical, anonymous and queue-only
+- A request opts in only through its notification policy; historical, anonymous and API-dispatched
   requests have none. First-final acceptance reserves a callback only without a live blocking
   waiter, with process evidence observed outside the transaction and matched against stored waiter
   ownership inside it.
@@ -291,7 +299,7 @@ legacy facts remain unknown. The local API contract owns pagination and coverage
 
 The ordinary request wake and existing reply-frame/joined-fallback writer claims
 admit Digest before granting new external input. Owner UUID and urgent bypass only
-this gate. Existing explicit inbox publication remains pull-only. A provider owns
+this gate. A request already stored as queue-only remains pull-only. A provider owns
 turn/launch admission; talk/check and the UUID-pinned `digest.checklist.flush` API
 use fresh matching live idle evidence and the ordinary channel-first delivery owner.
 There is no Core Digest timer, detached worker,

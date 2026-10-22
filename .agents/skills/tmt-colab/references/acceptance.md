@@ -51,6 +51,23 @@ both the PR head and tested merge SHA in each shard's `tested-head.txt`. It reta
 without private error values, traces or profiles. An unexpected outcome also prints this
 bounded summary even if the list reporter's detailed failure is absent from the job log;
 selection and concurrency are owned by the [CI reference](../../tmt-release/references/ci-selection.md#advisory-browser-selection).
+The acceptance job records its start timestamp before checkout. The ordinary suite is interrupted
+at +1,560 seconds on shard 1 or +1,740 seconds on shard 2, including setup/build time. The runner
+owns a new process group: SIGINT allows up to 30 seconds for final JSON and cleanup, then SIGKILL
+bounds that group only. Deadline and job-signal interruption remain nonzero even if the child
+exits zero. Shard 1 reserves a further 180 seconds for the hosted-reader proof; both shards reserve
+30 seconds for public reporting/upload before the unchanged 30-minute job ceiling. A forced group
+kill does not reach harness-detached browser/tmux groups and is not proof of clean world teardown;
+the hosted runner's job lifetime bounds those groups. These are CI budgets, not spec timeouts.
+
+The public `outcomes.json` includes a closed `run` status (`passed`, `failed` or `incomplete`)
+and reason alongside sanitized test rows. Missing, malformed, empty or interrupted final JSON,
+missing execution evidence and deadline/startup failures are explicitly incomplete, including when
+no test rows flushed. Never infer a green run from an empty inventory or only the passing rows of
+an interrupted report. The private execution verdict, raw JSON, traces and generic errors are not
+uploaded. Weight provenance lives in `acceptance/shard-weights.json`; its balance is a model until
+an actual hosted run measures the new split.
+
 An own-publication timeout may also retain its closed diagnostic: record root/kind, own stream
 ID, submitted/admitted sequence numbers and whether a leader receipt arrived. A replayed receipt
 may have no retained submitted sequence. The failure hook reads only this typed parent attribute

@@ -17,6 +17,18 @@ use tmt_remote::{
     pairing::{Pairing, Timing},
     store::uuid_v4,
 };
+/// A hold dispatches nothing. Core has only been asked who the person is, once, when the send was
+/// frozen (#4255).
+fn assert_undispatched(core: &Core) {
+    assert_eq!(core.sends(), 0);
+    assert!(
+        core.calls()
+            .iter()
+            .all(|call| call["operation"] == "user.identity"),
+        "{:?}",
+        core.calls()
+    );
+}
 fn input(id: &str, recipient: &str, message: &str) -> Value {
     json!({"version":1,"operation":"dispatch.create","originator":"anonymous","input":{"operationId":id,"recipientIds":[recipient],"message":message,"kind":"request"}})
 }
@@ -42,7 +54,7 @@ fn append(owner: &OwnerDoor, operations: Arc<Operations>, wire: &Value) -> Value
     let transport =
         MessageService::new(Arc::clone(&owner.sessions), 65536).with_operations(operations);
     let bytes = transport
-        .append(None, &serde_json::to_vec(wire).unwrap())
+        .append(owner.request_origin(), &serde_json::to_vec(wire).unwrap())
         .unwrap();
     owner.verify_reply(&serde_json::from_slice(&bytes).unwrap(), wire)
 }
@@ -145,7 +157,7 @@ fn restart_hold(preview_first: bool) {
         fs::read(owner._serving.layout().directory.join("remote.db")).unwrap(),
         before
     );
-    assert!(core.calls().is_empty());
+    assert_undispatched(&core);
     if !preview_first {
         writeln!(approval, "{}", json!({"op":"approve","operationId":id})).unwrap();
         assert_eq!(line(&mut events)["event"], "held");
@@ -168,7 +180,7 @@ fn line(reader: &mut BufReader<std::os::unix::net::UnixStream>) -> Value {
 }
 #[test]
 fn direct_exact_retry_keeps_one_core_acceptance_and_frozen_provenance() {
-    let owner = OwnerDoor::new();
+    let owner = OwnerDoor::owner_browser("direct");
     let core = Core::new();
     let operations = core.operations();
     let session = owner.open();
@@ -202,10 +214,21 @@ fn direct_exact_retry_keeps_one_core_acceptance_and_frozen_provenance() {
         .iter()
         .find(|call| call["operation"] == "dispatch.create")
         .unwrap();
-    assert_eq!(create["originator"], "anonymous");
+    // The paired owner device's send is attributed to the person's own identity (#4255), never to
+    // the device; the frozen bytes in the journal stay the anonymous form the client sent.
+    assert_eq!(create["identity"], Core::PERSON);
+    assert!(create.get("originator").is_none(), "{create}");
     assert_eq!(
         create["input"]["message"],
         "[remote: Test device]\nexact ! bytes\nsecond line"
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| call["operation"] == "user.identity")
+            .count(),
+        1,
+        "the retry reads the saved receipt and asks Core for nothing"
     );
     let owned = owner
         .store
@@ -229,6 +252,160 @@ fn direct_exact_retry_keeps_one_core_acceptance_and_frozen_provenance() {
     assert_eq!(core.sends(), 1);
 }
 #[test]
+fn only_the_owners_own_browser_is_attributed_and_no_other_grant_asks_core_who_it_is() {
+    for (kind, name) in [
+        ("browser", "the owner's browser on this door"),
+        (
+            "cli",
+            "a cli device, which may be an agent on another machine",
+        ),
+        ("addon", "a browser addon outside the door origin"),
+    ] {
+        let scopes = tmt_remote::store::SUPPORTED_SCOPES
+            .iter()
+            .map(|s| (*s).into())
+            .collect();
+        let owner = OwnerDoor::with_device(scopes, "direct", "all".into(), None, kind);
+        let core = Core::new();
+        let operations = core.operations();
+        let session = owner.open();
+        let id = uuid_v4().unwrap();
+        let recipient = uuid_v4().unwrap();
+        let sent = wire(&owner, &session, 1, &id, &recipient, "who sent this");
+        let accepted = append(&owner, operations, &sent);
+        assert_eq!(accepted["state"], "accepted", "{name}: {accepted}");
+        let calls = core.calls();
+        let asked = calls
+            .iter()
+            .filter(|call| call["operation"] == "user.identity")
+            .count();
+        let create = calls
+            .iter()
+            .find(|call| call["operation"] == "dispatch.create")
+            .unwrap();
+        if kind == "browser" {
+            assert_eq!(asked, 1, "{name}");
+            assert_eq!(create["identity"], Core::PERSON, "{name}");
+            assert!(create.get("originator").is_none(), "{name}: {create}");
+        } else {
+            assert_eq!(asked, 0, "{name}: {calls:?}");
+            assert_eq!(create["originator"], "anonymous", "{name}: {create}");
+            assert!(create.get("identity").is_none(), "{name}: {create}");
+            assert!(accepted.get("identity").is_none(), "{name}: {accepted}");
+        }
+    }
+}
+#[test]
+fn a_held_send_is_attributed_when_it_is_frozen_and_replays_as_frozen() {
+    let owner = OwnerDoor::owner_browser("hold");
+    let core = Core::new();
+    let operations = core.operations();
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    let recipient = uuid_v4().unwrap();
+    let held = wire(&owner, &session, 1, &id, &recipient, "held for the owner");
+    assert_eq!(
+        append(&owner, Arc::clone(&operations), &held),
+        json!({"state":"held","operationId":id})
+    );
+    let asked = |core: &Core| {
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"] == "user.identity")
+            .count()
+    };
+    assert_undispatched(&core);
+    assert_eq!(
+        asked(&core),
+        1,
+        "the person is read once, when the send is frozen"
+    );
+    // The person changes while the send waits: the hold still replays what it froze.
+    core.identity_renamed();
+    let control = control(&owner, operations);
+    let mut stream = control::connect(owner._serving.layout().directory.as_path()).unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    writeln!(stream, "{}", json!({"op":"approve","operationId":id})).unwrap();
+    let mut events = BufReader::new(stream.try_clone().unwrap());
+    assert_eq!(line(&mut events)["event"], "held");
+    writeln!(stream, "{}", json!({"op":"confirm"})).unwrap();
+    assert_eq!(line(&mut events)["state"], "accepted");
+    assert_eq!(asked(&core), 1, "approval never resolves the person again");
+    let calls = core.calls();
+    let create = calls
+        .iter()
+        .find(|call| call["operation"] == "dispatch.create")
+        .unwrap();
+    assert_eq!(create["identity"], Core::PERSON);
+    assert!(create.get("originator").is_none(), "{create}");
+    control.stop();
+}
+#[test]
+fn a_user_identity_failure_keeps_the_send_anonymous_and_says_why_with_the_typed_error() {
+    for code in [
+        "USER_NAME_UNAVAILABLE",
+        "USER_NAME_INVALID",
+        "USER_NAME_TAKEN",
+    ] {
+        let owner = OwnerDoor::owner_browser("direct");
+        let core = Core::new();
+        let message = format!("{code}: set one with tmt config set user.name <name>");
+        core.identity_fails(code, &message);
+        let operations = core.operations();
+        let session = owner.open();
+        let id = uuid_v4().unwrap();
+        let recipient = uuid_v4().unwrap();
+        let sent = wire(&owner, &session, 1, &id, &recipient, "still sent");
+        let accepted = append(&owner, operations, &sent);
+        assert_eq!(accepted["state"], "accepted", "{code}: {accepted}");
+        assert_eq!(
+            accepted["identity"],
+            json!({"state":"anonymous","reason":code,"message":message}),
+            "{code}"
+        );
+        let calls = core.calls();
+        let create = calls
+            .iter()
+            .find(|call| call["operation"] == "dispatch.create")
+            .unwrap();
+        assert_eq!(create["originator"], "anonymous", "{code}");
+        assert!(create.get("identity").is_none(), "{code}: {create}");
+        assert_eq!(core.sends(), 1, "{code}");
+    }
+}
+#[test]
+fn a_renamed_person_is_sent_as_that_identity_and_says_so() {
+    let owner = OwnerDoor::owner_browser("direct");
+    let core = Core::new();
+    core.identity_renamed();
+    let operations = core.operations();
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    let recipient = uuid_v4().unwrap();
+    let sent = wire(
+        &owner,
+        &session,
+        1,
+        &id,
+        &recipient,
+        "as the renamed person",
+    );
+    let accepted = append(&owner, operations, &sent);
+    assert_eq!(accepted["state"], "accepted");
+    assert_eq!(
+        accepted["identity"],
+        json!({"state":"person","name":"owner-user","renamedFrom":"owner"})
+    );
+    let calls = core.calls();
+    let create = calls
+        .iter()
+        .find(|call| call["operation"] == "dispatch.create")
+        .unwrap();
+    assert_eq!(create["identity"], Core::PERSON);
+}
+#[test]
 fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_approved() {
     let owner = OwnerDoor::with_policy(
         tmt_remote::store::SUPPORTED_SCOPES
@@ -250,7 +427,7 @@ fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_appr
         ),
         json!({"state":"held","operationId":id})
     );
-    assert!(core.calls().is_empty());
+    assert_undispatched(&core);
     let denied = owner.wire(
         &session,
         "2",
@@ -261,7 +438,7 @@ fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_appr
         append(&owner, Arc::clone(&operations), &denied)["error"]["code"],
         "REMOTE_INPUT_INVALID"
     );
-    assert!(core.calls().is_empty());
+    assert_undispatched(&core);
     let control = control(&owner, operations);
     let mut stream = control::connect(owner._serving.layout().directory.as_path()).unwrap();
     stream
@@ -274,7 +451,7 @@ fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_appr
     assert_eq!(preview["clientId"], owner.grant.client_id);
     assert_eq!(preview["recipientId"], recipient);
     assert_eq!(preview["message"], "[remote: Test device]\nfrozen");
-    assert!(core.calls().is_empty());
+    assert_undispatched(&core);
     writeln!(stream, "{}", json!({"op":"confirm"})).unwrap();
     let ended = line(&mut events);
     assert_eq!(ended["event"], "ended");
@@ -335,7 +512,7 @@ fn cancel_refuse_and_shutdown_never_dispatch_a_hold() {
         if action == "stop" {
             assert_eq!(line(&mut events)["state"], "cancelled");
         }
-        assert!(core.calls().is_empty());
+        assert_undispatched(&core);
         assert_eq!(
             owner
                 .store
@@ -404,9 +581,11 @@ fn lost_acceptance_and_definitive_absence_recover_only_the_same_operation() {
         assert_eq!(recovered["state"], "accepted");
         assert_eq!(recovered["operationId"], id);
         assert_eq!(core.sends(), if accepted_before_loss { 1 } else { 2 });
+        // The person lookup before an effect names no operation; everything else is this one.
         assert!(
             core.calls()
                 .iter()
+                .filter(|call| call["operation"] != "user.identity")
                 .all(|call| call["input"]["operationId"] == id)
         );
     }
@@ -1053,7 +1232,7 @@ fn session_eviction_preserves_grant_owned_holds_and_uncertainty() {
     let uncertain = store.owned(&owner.grant, &uncertain_id, now).unwrap();
     assert_eq!(uncertain.phase, "uncertain");
     assert!(uncertain.frozen.is_some());
-    assert!(core.calls().is_empty());
+    assert_undispatched(&core);
     drop(store);
     assert!(
         owner

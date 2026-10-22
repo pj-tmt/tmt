@@ -38,6 +38,7 @@ pub mod operations;
 pub mod pages;
 pub mod pairing;
 pub mod readiness;
+pub mod reads;
 pub mod remote_catalog;
 pub mod remote_link;
 pub mod remote_selector;

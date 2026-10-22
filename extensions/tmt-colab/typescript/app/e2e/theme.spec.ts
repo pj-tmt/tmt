@@ -142,10 +142,12 @@ for (const width of [1440, 390]) {
         await page.emulateMedia({ colorScheme: os === 'dark' ? 'light' : 'dark' });
         await palette(page, theme);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        await page
-          .locator('#layout-fixture')
-          .getByRole('link', { name: /^Colab · local/ })
-          .click();
+        // Back to the list: the module crumb, or under 480px (where the shell clips that crumb) the
+        // module menu's All pages.
+        const fixture = page.locator('#layout-fixture');
+        if (width < 480)
+          await fixture.locator('.tmt-ui-module-menu a', { hasText: 'All pages' }).click();
+        else await fixture.getByRole('link', { name: /^Colab · local/ }).click();
         await expect(frame).toHaveCount(0);
         await page
           .locator('#layout-fixture')

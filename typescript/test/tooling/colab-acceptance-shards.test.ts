@@ -63,7 +63,7 @@ describe('Colab acceptance shards', () => {
     // The heaviest spec (a 2 MiB page) bounds what any shard count can reach.
     const heaviest = Math.max(...Object.values<number>(weights.files));
     const [first, second] = splitAcceptanceFiles(files, 2, weights);
-    expect(Math.max(first.seconds, second.seconds)).toBeLessThan(1000);
+    expect(Math.max(first.seconds, second.seconds)).toBeLessThan(1200);
     expect(heaviest).toBeGreaterThan(400);
   });
 
