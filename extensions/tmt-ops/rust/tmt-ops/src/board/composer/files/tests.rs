@@ -371,8 +371,8 @@ fn a_drop_into_the_open_composer_inserts_one_chip_per_file_and_sends_their_paths
     let text = app.input.as_ref().unwrap().text.as_str().to_owned();
     assert_eq!(
         text,
-        format!("look at {image} {notes} thanks"),
-        "the editor text is what Send carries"
+        format!("look at {image} '{notes}' thanks"),
+        "the editor text is what Send carries; a path with a space is quoted so each file's boundary is clear"
     );
     assert_eq!(
         chips(&app),
@@ -381,13 +381,54 @@ fn a_drop_into_the_open_composer_inserts_one_chip_per_file_and_sends_their_paths
                 image.clone(),
                 format!("screenshot.png · {} ×", size(png(1440, 900).len() as u64))
             ),
-            (notes.clone(), "my notes.md · 8 B ×".to_owned()),
+            (format!("'{notes}'"), "my notes.md · 8 B ×".to_owned()),
         ]
     );
     let screen = draw(&mut app, 100, 36);
     assert!(screen.contains("screenshot.png · 29 B ×"), "{screen}");
     assert!(screen.contains("my notes.md · 8 B ×"), "{screen}");
     assert!(!screen.contains(&image), "the path is behind the chip");
+}
+
+#[test]
+fn a_chip_quotes_a_path_only_when_its_boundary_would_blur() {
+    for (path, sent) in [
+        ("/tmp/a.png", "/tmp/a.png"),
+        ("/tmp/my notes.md", "'/tmp/my notes.md'"),
+        ("/tmp/it's.md", r"'/tmp/it'\''s.md'"),
+        ("/tmp/say \"hi\".md", "'/tmp/say \"hi\".md'"),
+    ] {
+        assert_eq!(send_text(path), sent);
+        assert_eq!(path_of(sent).as_deref(), Some(path), "{sent}");
+    }
+    assert_eq!(
+        path_of("/tmp/a.png /tmp/b.png"),
+        None,
+        "two paths are not one chip"
+    );
+}
+
+#[test]
+fn a_probe_finds_a_quoted_chip_by_its_raw_path() {
+    let dir = Scratch::new("quoted-probe");
+    let image = dir.file("my shot.png", &png(640, 480));
+    let mut app = open_composer();
+    app.paste(&format!("'{image}'"));
+    assert_eq!(chips(&app)[0].0, format!("'{image}'"));
+    assert!(app.apply_file_info(Delivery {
+        path: image.clone(),
+        head: head_of(&png(640, 480))
+    }));
+    let screen = draw(&mut app, 100, 36);
+    assert!(
+        screen.contains("my shot.png · 640×480 · 29 B ×"),
+        "{screen}"
+    );
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("'{image}' "),
+        "the send text stays the quoted path"
+    );
 }
 
 #[test]

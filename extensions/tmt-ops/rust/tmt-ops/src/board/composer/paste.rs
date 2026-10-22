@@ -209,11 +209,12 @@ impl App {
                     .as_str()
                     .get(fold.source.clone())
                     .filter(|_| !fold.label.starts_with('⧉'))
+                    .and_then(super::files::path_of)
                     .and_then(|path| {
                         let table = self.composer.files.borrow();
                         table
-                            .get(path)
-                            .map(|info| super::files::content(path, info, ascii))
+                            .get(&path)
+                            .map(|info| super::files::content(&path, info, ascii))
                     });
                 let (label, remove) = match file {
                     Some(content) => fit_chip(&content, usize::from(rect.width), ascii),
@@ -281,7 +282,9 @@ impl App {
         let Some(source) = input.text.as_str().get(source) else {
             return Effect::None;
         };
-        let file = !source.contains('\n') && self.composer.files.borrow().get(source).is_some();
+        let file = !source.contains('\n')
+            && super::files::path_of(source)
+                .is_some_and(|path| self.composer.files.borrow().get(&path).is_some());
         *self.composer.paste_preview.get_mut() = Some(Preview {
             key,
             id,
@@ -416,16 +419,16 @@ impl App {
             .saturating_sub(anchor.x)
             .min(64)
             .saturating_sub(4);
-        let (shown, title): (Editor, String) = match self
-            .composer
-            .files
-            .borrow()
-            .get(&preview.source)
-            .filter(|_| preview.file)
-        {
-            Some(info) => (
-                super::files::popup(&preview.source, info).as_str().into(),
-                format!("File · {}", super::files::name(&preview.source)),
+        let file_path = super::files::path_of(&preview.source).filter(|_| preview.file);
+        let (shown, title): (Editor, String) = match file_path.as_deref().and_then(|path| {
+            let table = self.composer.files.borrow();
+            table
+                .get(path)
+                .map(|info| (path.to_owned(), super::files::popup(path, info)))
+        }) {
+            Some((path, popup)) => (
+                popup.as_str().into(),
+                format!("File · {}", super::files::name(&path)),
             ),
             None => {
                 let (chars, lines) = counts(preview.text.as_str());
@@ -490,11 +493,13 @@ impl App {
 
 /// Gives every collapsed file chip over `path` the label its facts now call for.
 pub(super) fn relabel(editor: &mut Editor, path: &str, label: &str) -> bool {
+    let sent = super::files::send_text(path);
     let ranges: Vec<_> = editor
         .folds()
         .iter()
         .filter(|fold| {
-            !fold.label.starts_with('⧉') && editor.as_str().get(fold.source.clone()) == Some(path)
+            !fold.label.starts_with('⧉')
+                && editor.as_str().get(fold.source.clone()) == Some(sent.as_str())
         })
         .map(|fold| fold.source.clone())
         .collect();
@@ -542,7 +547,10 @@ impl App {
             }
         }
         let input = self.input.as_mut()?;
-        let extra: usize = files.iter().map(|file| file.path.len() + 2).sum();
+        let extra: usize = files
+            .iter()
+            .map(|file| super::files::send_text(&file.path).len() + 2)
+            .sum();
         if input.text.as_str().len() + extra > MESSAGE_LIMIT {
             return Some(self.say(format!(
                 "Files exceed {MESSAGE_LIMIT} bytes; draft unchanged."
@@ -565,7 +573,9 @@ impl App {
                 .map(|info| super::files::label(&file.path, info))
                 .unwrap_or_default();
             drop(table);
-            input.text.insert_folded(&file.path, label, MESSAGE_LIMIT);
+            input
+                .text
+                .insert_folded(&super::files::send_text(&file.path), label, MESSAGE_LIMIT);
             input.text.insert(" ", MESSAGE_LIMIT);
         }
         if let Some(probe) = &self.composer.probe {

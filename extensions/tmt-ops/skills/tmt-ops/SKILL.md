@@ -1210,7 +1210,8 @@ open it starts a message to the selected member; with nobody selected it says
 image's size from its header and the popup's text fill in from a background read, and a
 file that cannot be read keeps the chip without them. Click the chip for a popup with the
 full path, size, type and a text file's first lines; × removes it. Sending carries each
-file's absolute path, so only an agent on this machine can read it. A paste of any other
+file's absolute path, in single quotes when it holds a space, quote or backslash so the
+boundary between files is clear; only an agent on this machine can read it. A paste of any other
 text, or of a path that does not exist, stays ordinary text.
 Name/configuration/search fields keep their smaller bounds and do not gain message
 completion. The status reason keeps its 4,000-byte bound and explicit Apply step.

@@ -118,6 +118,25 @@ impl Probe {
     }
 }
 
+/// What a chip puts in the message for `path`: the path itself, shell-quoted when whitespace, a
+/// quote or a backslash would blur where it ends next to the other chips.
+pub(super) fn send_text(path: &str) -> String {
+    if path
+        .chars()
+        .any(|ch| ch.is_whitespace() || matches!(ch, '\'' | '"' | '\\'))
+    {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    } else {
+        path.to_owned()
+    }
+}
+
+/// The path a chip's message text stands for; None unless the text is exactly one path.
+pub(super) fn path_of(source: &str) -> Option<String> {
+    let mut tokens = tokens(source)?;
+    (tokens.len() == 1).then(|| tokens.remove(0))
+}
+
 /// Splits a paste with the shell's quoting: `'single'`, `"double"` and backslash escapes, so
 /// every way a terminal writes a path with spaces reads back as one token. None when a quote
 /// is left open.
