@@ -35,7 +35,8 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
   lifecycle rather than writing or exiting from domain logic. Pure core code
   must not depend on console, filesystem or process exit.
 - Extend the typed parser and dispatcher together. Do not slice argv again in a
-  handler, guess an omitted identity, or add a parallel name/pane resolver.
+  handler, reinterpret payload text as flags, guess an omitted identity, or add a
+  parallel name/pane resolver.
 - Specify and test JSON shape, stdout/stderr, exit codes, human output, defaults
   and units for changed commands. Prefer one structured result/error in JSON mode
   without progress text mixed into it. Uniformity is a target with known gaps;
