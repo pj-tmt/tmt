@@ -182,15 +182,16 @@
     transparent
   );
 }
-/* The list is one screen: the title, search, sort, stage tabs, chips and status stay put, and only
- * the rows scroll, inside the content pane. The section fills what main's own height leaves (the
- * header, the shell's lead row and the 57px footer), so the window has nothing to scroll. */
+/* The list is one screen. Its top block stays put: search, Sort and New page; the view tabs; the
+ * status line (projects filter from the module menu and `project:`). Only the rows scroll, inside
+ * the content pane. The section fills what main's own height leaves (the header, the shell's lead row and the 57px footer), so the
+ * window has nothing to scroll. The space's name is in the breadcrumb, so the list has no hero. */
 .home[data-page-list] {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
-  padding-top: 32px;
+  padding-top: 16px;
   padding-bottom: 0;
 }
 .home[data-page-list] > *,
@@ -199,8 +200,8 @@
 .home[data-page-list] .page-list-status {
   flex: none;
 }
-.home[data-page-list] .intro {
-  margin: 8px 0 0;
+.home[data-page-list] .page-list-controls {
+  margin-top: 0;
 }
 .home[data-page-list] > .page-stage-tabs,
 .home[data-page-list] .page-stage-tabs > .tmt-ui-tabs,
@@ -210,10 +211,18 @@
   flex-direction: column;
   min-height: 0;
 }
+.home[data-page-list] .page-stage-tabs {
+  margin-top: 8px;
+}
+/* An empty status line takes no height; it stays rendered, so it still announces. */
+.home[data-page-list] .page-list-status:empty {
+  min-height: 0;
+  margin: 0;
+}
 .home[data-page-list] .page-list-scroll {
   flex: 1 1 0;
   min-height: 0;
-  margin-top: 4px;
+  margin-top: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -224,12 +233,21 @@
   font-size: var(--tmt-ui-caption-size);
   line-height: var(--tmt-ui-caption-line-height);
 }
-/* A phone keeps its height for rows: the intro line goes, and the title sits closer. */
+/* A phone keeps the top block to two lines: search, Sort and New page share one row, and the tabs
+ * are one line that scrolls sideways instead of wrapping. */
 @media (max-width: 479px) {
   .home[data-page-list] {
-    padding-top: 20px;
+    padding-top: 12px;
   }
-  .home[data-page-list] .intro {
+  .home[data-page-list] .page-list-controls {
+    flex-wrap: nowrap;
+  }
+  .home[data-page-list] .page-list-search {
+    flex: 1 1 0;
+    min-width: 7em;
+  }
+  /* Sort keeps its name and chevron; the chosen order shows in the menu. */
+  .home[data-page-list] .page-list-controls .tmt-ui-menu-value {
     display: none;
   }
 }

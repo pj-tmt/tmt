@@ -58,7 +58,11 @@ for (const width of [1440, 390])
       const header = (await bar.boundingBox())!;
       expect(rect?.y).toBe(header.y + header.height + lead);
       expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
-      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(900);
+      // The frame ends the document: a page taller than the room grows it (window scroll mode), so
+      // the bottom is the frame's, not a fixed 900 that depends on the runner's fonts.
+      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(
+        Math.max(900, Math.round(rect!.y + rect!.height)),
+      );
       await expect(frame).toHaveAttribute('scrolling', 'no');
       await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);

@@ -102,7 +102,7 @@ for (const width of [1440, 390])
       const list = page.locator('#index-fixture .page-list-scroll');
       const search = page.locator('#index-fixture .page-list-search');
       await expect(rows).toHaveCount(50);
-      await expect(count).toHaveText('Showing 50 of 200 pages');
+      await expect(count).toHaveText('Showing 50 of 200');
       await expect(rows.first().getByRole('link')).toHaveText('Page 001');
       await expect(rows.first()).toHaveCSS('box-shadow', 'none');
       await expect(rows.first()).toHaveCSS('border-bottom-width', '1px');

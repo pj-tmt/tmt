@@ -703,7 +703,7 @@ cache and the local title projection (`page_titles`, schema 16); it starts no re
 subscription or write, and only selects from that projection.
 Both counts exclude archived
 pages: Pages counts the remaining pages, and `needsYou` counts waiting pages, matching the
-in-app Needs-you chip (two waiting items on one page count once). An empty catalog has known
+in-app Needs you tab (two waiting items on one page count once). An empty catalog has known
 zero counts. The Pages count comes from the catalog alone and stays known when summaries
 are unavailable. If any non-archived summary is missing or stale, the answer keeps its rail
 and menu but omits `needsYou`, never inventing zero. An unavailable catalog
@@ -6301,9 +6301,10 @@ no download and follows the create-only rules above.
 
 The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
-the same dialog; local samples remain read-only. Home offers the tabs In progress, Discussion
-and Done (the stage of each row's `summary.work`, a fresh summary without work being in
-discussion), Archived and All, and opens on In progress (a link with `stage=all` opens on All; a mounted address is the list and no more, so a reload,
+the same dialog; local samples remain read-only. Home offers the tabs All, Needs you (the
+active pages waiting on the viewer, `needs=true`), Discussion, In progress and Done (the stage of
+each row's `summary.work`, a fresh summary without work being in discussion) and Archived, and
+opens on All (a link with `stage=in-progress` opens on In progress; a mounted address is the list and no more, so a reload,
 Back and Forward return to the tab the entry was left on); an
 archived page counts only under Archived, and a page whose summary has not arrived is in no stage
 tab. An empty In progress says so and points to Discussion and All, and never opens another tab by

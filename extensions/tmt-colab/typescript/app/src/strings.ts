@@ -718,12 +718,17 @@ export const text = {
     tabInProgress: (count: number) => `In progress ${count}`,
     tabDiscussion: (count: number) => `Discussion ${count}`,
     tabDone: (count: number) => `Done ${count}`,
-    tabAll: 'All',
+    tabAllCount: (count: number) => `All ${count}`,
+    tabNeedsYou: (count: number) => `Needs you ${count}`,
+    tabNeedsYouWaiting: 'waiting',
+    newPage: 'New page',
+    newPageVisible: '+ New page',
+    newPageTitle: 'New page',
+    newPageBody: 'Pages are created on your machine. Run this in a terminal there:',
+    newPageCommand: 'tmt colab page create --title "Notes" --layout column',
     /** The list's count line: how many rows are drawn of how many match. */
     showing: (shown: number, total: number) =>
-      shown < total
-        ? `Showing ${shown} of ${total} pages`
-        : `${total} ${total === 1 ? 'page' : 'pages'}`,
+      shown < total ? `Showing ${shown} of ${total}` : `${total} ${total === 1 ? 'page' : 'pages'}`,
     tabArchived: (count: number) => `Archived ${count}`,
     /** The stage names the `stage:` search token takes, with their tab labels. */
     stageNames: {
@@ -761,8 +766,6 @@ export const text = {
     filters: 'Filters',
     needsYou: 'Needs you',
     needsYouFilter: (count: number) => `Needs you, ${count} ${count === 1 ? 'page' : 'pages'}`,
-    projectFilter: (name: string, count: number) =>
-      `${name}, ${count} ${count === 1 ? 'page' : 'pages'}`,
     removeFilter: (name: string) => `Remove project filter ${name}`,
     removeAuthorFilter: (name: string) => `Remove author filter ${name}`,
     byAuthor: (name: string) => `by ${name}`,

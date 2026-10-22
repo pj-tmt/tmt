@@ -7,10 +7,18 @@
   white-space: nowrap;
 }
 .page-list-search-field.rich-input-field {
+  position: relative;
   min-height: 0;
   max-height: none;
   overflow: hidden;
   white-space: normal;
+}
+/* A narrow field cuts its hint at one line rather than wrap it under the field. */
+.page-list-search-field.rich-input-field::before {
+  max-width: calc(100% - 2 * var(--tmt-ui-space-s));
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .project-filter-host {
   display: inline;

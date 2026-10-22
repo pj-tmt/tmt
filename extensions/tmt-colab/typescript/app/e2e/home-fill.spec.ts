@@ -96,7 +96,8 @@ test('a page that loses its summary later gets a fresh set of tries', async ({ p
 });
 
 // The router scrolls the window to the top when a load renders; a re-read must not move a reader
-// who is part-way down the list (#4226: it reset the page-scroll checks of the chrome spec too).
+// who is part-way down the list (#4226), nor take back the rows the list has drawn so far. The rows
+// scroll inside the list (one screen), so the list's own offset is the reader's place.
 for (const width of [1440, 390, 320])
   test(`a re-read keeps the reader where they scrolled: ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 700 });
@@ -107,15 +108,19 @@ for (const width of [1440, 390, 320])
       await (await import(path)).mountPageList('bulk', '/?stage=all');
     });
     const list = page.locator('#list-fixture');
-    await expect(list.locator('.pages > li').first()).toBeVisible();
-    await page.evaluate(() => {
-      scrollTo(0, (document.documentElement.scrollHeight - innerHeight) / 2);
+    const rows = list.locator('.pages > li');
+    const scroller = list.locator('.page-list-scroll');
+    await expect(rows.first()).toBeVisible();
+    await scroller.evaluate((node) => (node.scrollTop = node.scrollHeight));
+    await expect(rows).toHaveCount(100);
+    await scroller.evaluate((node) => {
+      node.scrollTop = (node.scrollHeight - node.clientHeight) / 2;
       // The lowest offset a scroll event ever reports: a reset to the top would show as 0.
-      const seen = { lowest: scrollY };
-      window.addEventListener('scroll', () => (seen.lowest = Math.min(seen.lowest, scrollY)));
+      const seen = { lowest: node.scrollTop };
+      node.addEventListener('scroll', () => (seen.lowest = Math.min(seen.lowest, node.scrollTop)));
       (window as unknown as { seen: typeof seen }).seen = seen;
     });
-    const before = await page.evaluate(() => scrollY);
+    const before = await scroller.evaluate((node) => node.scrollTop);
     expect(before).toBeGreaterThan(100);
     const reads = await page.evaluate(() => window.__listReads);
     // The first re-read is done once the second one starts: it is scheduled after the render.
@@ -125,7 +130,8 @@ for (const width of [1440, 390, 320])
     expect(
       await page.evaluate(() => (window as unknown as { seen: { lowest: number } }).seen.lowest),
     ).toBe(before);
-    expect(await page.evaluate(() => scrollY)).toBe(before);
+    expect(await scroller.evaluate((node) => node.scrollTop)).toBe(before);
+    await expect(rows).toHaveCount(100);
   });
 
 test('a reader who scrolls while a re-read is pending keeps the new position', async ({ page }) => {
