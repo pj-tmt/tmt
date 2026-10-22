@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, type ComponentPropsWithoutRef, type Ref } from 'react';
 import { browserUiClasses as c } from './static';
-import { assignRefs } from './ui/utils.js';
 
 export interface BrowserCheckboxProps extends Omit<
   ComponentPropsWithoutRef<'input'>,
@@ -27,7 +26,12 @@ export function BrowserCheckbox({
   return (
     <input
       {...attributes}
-      ref={(node) => assignRefs(node, own, ref)}
+      // The static leaf keeps off the ui layer's helpers: the two refs are set here.
+      ref={(node) => {
+        own.current = node;
+        if (typeof ref === 'function') return ref(node);
+        if (ref) ref.current = node;
+      }}
       type="checkbox"
       className={c.checkbox}
     />

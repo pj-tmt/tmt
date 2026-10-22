@@ -775,6 +775,23 @@ svg.tmt-ui-mark {
 .tmt-ui-shell-open {
   display: none;
 }
+/* A narrow phone gives the page title the row: the module crumb (`<module> /`) steps aside, as a
+   standalone header drops its wordmark there; the menu button still opens the rail. */
+@media (max-width: 479px) {
+  /* The module's link stays for assistive technology (it names the connection); only its box goes. */
+  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-header > .tmt-ui-brand {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
+  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true']:first-child {
+    display: none;
+  }
+}
 /* Phone (the shell's own breakpoint, under the rail plus module menu plus a readable column):
    the rail becomes a top-left menu button that opens it as a drawer; the module menu
    becomes tabs under the title bar. */
