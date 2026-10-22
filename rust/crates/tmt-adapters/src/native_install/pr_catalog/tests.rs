@@ -184,3 +184,23 @@ fn digest_catalog_requires_one_consistent_generation_for_all_targets() {
     catalog["candidates"][1]["version"] = Value::from("0.1.0-alpha.2");
     assert!(parse(&serde_json::to_vec(&catalog).unwrap()).is_err());
 }
+
+#[test]
+fn application_schema_accepts_the_bounded_source_closure_and_refuses_overflow() {
+    let value: Value = serde_json::from_slice(FIXTURE).unwrap();
+    let mut schema: ApplicationSchema =
+        serde_json::from_value(value["candidates"][0]["application_schema"].clone()).unwrap();
+    for count in [255, 256, 257] {
+        schema.source_files = (0..count)
+            .map(|index| SourceFile {
+                path: format!("rust/schema/{index:03}.sql"),
+                sha256: "b".repeat(64),
+            })
+            .collect();
+        assert_eq!(
+            schema.validate("cli", HEAD).is_ok(),
+            count <= 256,
+            "{count}"
+        );
+    }
+}

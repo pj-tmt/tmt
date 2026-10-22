@@ -64,7 +64,7 @@ manifest/archive/expanded bounds remain 4/64/128 MiB.
 The candidate catalog and its manifest's `tmt_application_schema` must contain
 the same application-schema v1 record: schema_version, product, source_sha,
 sorted unique databases (`domain`, `version`) and sorted unique source_files
-(`path`, `sha256`). Records contain at most eight known domains and 64 source
+(`path`, `sha256`). Records contain at most eight known domains and 256 source
 files. Paths are canonical repository-relative ASCII components, at most 256
 bytes; digests are lowercase SHA-256. This is application schema, independent
 of executable SemVer and the receipt format version.

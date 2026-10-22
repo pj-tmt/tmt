@@ -78,7 +78,7 @@ impl ApplicationSchema {
             || self.databases.is_empty()
             || self.databases.len() > 8
             || self.source_files.is_empty()
-            || self.source_files.len() > 64
+            || self.source_files.len() > 256
         {
             return Err(invalid("Invalid PR application-schema evidence."));
         }
