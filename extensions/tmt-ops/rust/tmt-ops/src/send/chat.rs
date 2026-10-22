@@ -145,7 +145,8 @@ mod tests {
                 model["members"][0]["metadata"]["user"] = json!("true");
                 model["dispatchWake"] = json!("sent");
                 model["requestShowFailure"] = json!(fails);
-                model["requestShow"] = json!({"messageState":{"reason":{"text":text}}});
+                model["requestShow"] =
+                    json!({"messageState":{"canSendNow":true,"reason":{"text":text}}});
             });
             let accepted = chat(
                 &fixture.core,
@@ -159,6 +160,10 @@ mod tests {
             assert_eq!(
                 accepted.message_state_label.as_deref(),
                 (!fails).then_some(text)
+            );
+            assert_eq!(
+                accepted.can_send_now, !fails,
+                "the chip's input comes from the same read as the words, and a failed read offers nothing"
             );
             assert_eq!(accepted.disposition, Disposition::Sent);
             let model = fixture.model();

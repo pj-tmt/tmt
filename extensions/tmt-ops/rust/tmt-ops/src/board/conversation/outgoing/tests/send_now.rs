@@ -247,3 +247,34 @@ fn in_the_editor_ctrl_s_is_the_chip_and_elsewhere_an_authored_binding_wins() {
     );
     assert_eq!(app.conversation.borrow().send_now_pending, None);
 }
+
+/// The refresh after a send re-reads Core's state for it: the chip follows that, even for a
+/// message this session sent itself.
+#[test]
+fn when_core_moves_the_state_on_the_chip_goes_even_for_a_send_made_here() {
+    use crate::board::refresh::SelectedRead;
+    let mut app = board();
+    held(&mut app, true);
+    frame(&mut app, 120);
+    assert!(app.conversation.borrow().send_now_hit.is_some());
+
+    if let Some(SelectedRead::Finals(finals)) = app.selected_read() {
+        app.apply_finals(finals, Ok(vec![]));
+        frame(&mut app, 120);
+    }
+    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+        panic!("sends are read");
+    };
+    app.apply_sent(
+        key,
+        Ok(vec![
+            json!({"requestId":"req_held","preparedAtMs":crate::status::now_ms(),
+            "text":"run the picker tests","truncated":false,
+            "messageState":{"state":"delivered","canSendNow":false,"reason":{"text":"delivered"}}}),
+        ]),
+    );
+    let painted = text(&frame(&mut app, 120));
+    assert!(painted.contains("✓ delivered"), "{painted}");
+    assert!(!painted.contains("Send now"), "{painted}");
+    assert!(app.conversation.borrow().send_now_hit.is_none());
+}
