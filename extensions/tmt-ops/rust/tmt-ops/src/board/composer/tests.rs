@@ -1333,3 +1333,29 @@ fn chat_chips_follow_uuid_drafts_and_success_clears_only_the_sent_revision() {
     open(&mut app, "auth-fix");
     assert!(app.input.as_ref().unwrap().chat_quotes.is_empty());
 }
+
+#[test]
+fn inline_quote_inserts_below_caret_line_and_keeps_a_blank_answer_line() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for (source, steps, expected, cursor) in [
+        ("", 0, "full\nquote\n", 11),
+        ("aaaa", 0, "aaaa\nfull\nquote\n", 16),
+        ("aaaa\nlater", 7, "aaaa\nfull\nquote\n\nlater", 16),
+    ] {
+        let mut app = app();
+        open(&mut app, "auth-fix");
+        let editor = &mut app.input.as_mut().unwrap().text;
+        *editor = source.into();
+        for _ in 0..steps {
+            editor.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), 80, usize::MAX);
+        }
+        app.add_chat_quote("worker".into(), "full\nquote".into());
+        let editor = &app.input.as_ref().unwrap().text;
+        assert_eq!(editor.as_str(), expected, "source {source:?}");
+        assert_eq!(editor.cursor(), cursor);
+        assert_eq!(editor.folds().len(), 1);
+        let fold = &editor.folds()[0];
+        assert_eq!(&editor.as_str()[fold.source.clone()], "full\nquote");
+        assert!(!fold.expanded);
+    }
+}
