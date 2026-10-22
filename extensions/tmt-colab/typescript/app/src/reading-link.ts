@@ -1,5 +1,6 @@
 import { validShellAnchor } from './shell.js';
 import { validPagePrefix } from './short-links.js';
+import { taskNumber } from './work.js';
 /** Cosmetic navigation for owner/paired pages only. It never carries reader admission. */
 const readingId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function validReadingId(value: string): boolean {
@@ -18,17 +19,48 @@ export function readingSearch(search: Record<string, unknown>): { read?: string 
     : {};
 }
 
-/** A page opens at one cosmetic target: a reading, or one exact element of a shell item. Never
- * both, and never anything else. */
-export type PageHint = { read: string } | { anchor: string };
-export function pageSearch(search: Record<string, unknown>): { read?: string; anchor?: string } {
-  const read = readingSearch(search).read;
-  const anchor =
-    typeof search.anchor === 'string' && validShellAnchor(search.anchor)
-      ? search.anchor
-      : undefined;
-  if (read !== undefined && anchor !== undefined) return {};
-  return read !== undefined ? { read } : anchor !== undefined ? { anchor } : {};
+/** A page opens at one cosmetic target: a reading, one exact element of a shell item, or one task of
+ * the page's own work list. Never more than one, and never anything else. It only picks what the
+ * page shows; it admits nothing. */
+export type PageHint = { read: string } | { anchor: string } | { task: string };
+const HINT_KEYS = ['read', 'anchor', 'task'] as const;
+type HintKey = (typeof HINT_KEYS)[number];
+/** The valid value of one hint key, or undefined: each key keeps its own shape. */
+function hintValue(key: HintKey, value: unknown): string | undefined {
+  if (typeof value !== 'string') return;
+  const valid =
+    key === 'read'
+      ? validReadingId(value)
+      : key === 'anchor'
+        ? validShellAnchor(value)
+        : taskNumber(value) !== undefined;
+  return valid ? value : undefined;
+}
+function hintOf(key: HintKey, value: string): PageHint {
+  return key === 'read' ? { read: value } : key === 'anchor' ? { anchor: value } : { task: value };
+}
+/** The one key and value a hint carries, for every location form. */
+function hintPair(hint: PageHint): [HintKey, string] {
+  return 'read' in hint
+    ? ['read', hint.read]
+    : 'anchor' in hint
+      ? ['anchor', hint.anchor]
+      : ['task', hint.task];
+}
+/** A hint as router search (`?task=T-4`) or as a public fragment (`#task=T-4`). */
+export const hintSearch = (hint: PageHint): string => '?' + hintPair(hint).join('=');
+export const hintFragment = (hint: PageHint): string => '#' + hintPair(hint).join('=');
+export function pageSearch(search: Record<string, unknown>): {
+  read?: string;
+  anchor?: string;
+  task?: string;
+} {
+  const found = HINT_KEYS.flatMap((key) => {
+    const value = hintValue(key, search[key]);
+    return value === undefined ? [] : [[key, value] as const];
+  });
+  // Two valid hints together are no hint at all.
+  return found.length === 1 ? { [found[0][0]]: found[0][1] } : {};
 }
 
 /** The shell chapter whose panel is open (`?open=<pageId>`): a page ID and nothing else, so a stray
@@ -43,15 +75,11 @@ export function openSearch(search: Record<string, unknown>): { open?: string } {
 export function splitPageHint(path: string): { route: string; hint?: PageHint } {
   const [route, query] = path.split('?');
   const search = new URLSearchParams(query);
+  const key = HINT_KEYS.find((name) => search.has(name));
+  const value = key === undefined ? undefined : hintValue(key, search.get(key));
   const hint: PageHint | undefined =
-    search.size === 1 && validPath(route)
-      ? search.has('read')
-        ? readingSearch({ read: search.get('read') }).read !== undefined
-          ? { read: search.get('read')! }
-          : undefined
-        : pageSearch({ anchor: search.get('anchor') }).anchor
-          ? { anchor: search.get('anchor')! }
-          : undefined
+    search.size === 1 && validPath(route) && key !== undefined && value !== undefined
+      ? hintOf(key, value)
       : undefined;
   return hint ? { route, hint } : { route: path };
 }
@@ -59,7 +87,7 @@ export function splitPageHint(path: string): { route: string; hint?: PageHint } 
 /** Router-internal paths carry the cosmetic hint as search; owner URLs keep it in the fragment. */
 export function ownerReadingHref(path: string, pathname: string, space: string): string {
   const { route: target, hint } = splitPageHint(path);
-  const tail = hint ? ('read' in hint ? `&read=${hint.read}` : `&anchor=${hint.anchor}`) : '';
+  const tail = hint ? `&${hintPair(hint).join('=')}` : '';
   return `${pathname}#space=${space}${target === '/' ? '' : `&path=${encodeURIComponent(target)}`}${tail}`;
 }
 
@@ -68,20 +96,17 @@ export function ownerPageHint(url: URL, space: string, page?: string): PageHint 
   if (url.search || url.pathname.endsWith('/read')) return;
   const fields = new URLSearchParams(url.hash.slice(1));
   const keys = [...fields.keys()].sort().join(',');
+  const key = HINT_KEYS.find((name) => keys === [name, 'path', 'space'].sort().join(','));
   if (
-    (keys !== 'path,read,space' && keys !== 'anchor,path,space') ||
+    key === undefined ||
     fields.get('space') !== space ||
     !validPath(fields.get('path') ?? '') ||
     (page !== undefined && fields.get('path') !== `/pages/${page}`)
   )
     return;
-  if (keys === 'path,read,space') {
-    const read = fields.get('read')!;
-    return validReadingId(read) ? { read } : undefined;
-  }
-  // A short link keeps its cosmetic anchor through resolution to the admitted full page.
-  const anchor = fields.get('anchor')!;
-  return validShellAnchor(anchor) ? { anchor } : undefined;
+  // A short link keeps its cosmetic hint through resolution to the admitted full page.
+  const value = hintValue(key, fields.get(key));
+  return value === undefined ? undefined : hintOf(key, value);
 }
 
 /** The reading hint alone; the anchor hint belongs to the page's own reveal. */

@@ -19,6 +19,8 @@ import {
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { carriesThreadFragment, shortPageId, validPagePrefix } from './short-links.js';
 import {
+  hintFragment,
+  hintSearch,
   ownerPageHint,
   ownerReadingHref,
   openSearch,
@@ -1628,7 +1630,7 @@ function Page() {
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
-  const { read: readingHint, anchor } = page.useSearch();
+  const { read: readingHint, anchor, task } = page.useSearch();
   // A shell item can open the page at one exact element; when it is not there, say so once.
   const [missingAnchor, setMissingAnchor] = useState<string>();
   const revealed = useRef('');
@@ -2050,9 +2052,11 @@ function Page() {
           transport={transport}
           space={space}
           pageId={snapshot.id}
-          pageHref={(pageId) =>
+          focusTask={task}
+          pageHref={(pageId, hint) =>
             router.history.createHref(
-              router.buildLocation({ to: '/pages/$pageId', params: { pageId } }).publicHref,
+              router.buildLocation({ to: '/pages/$pageId', params: { pageId }, search: hint })
+                .publicHref,
             )
           }
         />
@@ -2547,7 +2551,7 @@ let linkSpace: string | undefined;
 /**
  * Inside the TMT app Colab's routes are paths under `/colab/`. Links printed or saved before keep
  * working: the preview's `#/pages/<id>` and an owner fragment's `path=` become the same path, with
- * its reading or anchor hint as search keys. The module runs it before anything reads the location
+ * its reading, anchor or task hint as search keys. The module runs it before anything reads the location
  * (the paired bootstrap keeps only a canonical fragment).
  */
 export function shellLocation() {
@@ -2567,7 +2571,7 @@ export function shellLocation() {
   }
   if (!path) return;
   const keys = new URLSearchParams(location.search);
-  for (const key of ['read', 'anchor', 'open'])
+  for (const key of ['read', 'anchor', 'task', 'open'])
     if (fragment.has(key)) keys.set(key, fragment.get(key)!);
   const search = keys.size ? `?${keys}` : '';
   if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))
@@ -2603,7 +2607,7 @@ export function createAppRouter(
                     : `/short/${prefix}`;
                 // A thread names a place inside the page; a reading or shell anchor is a page hint.
                 if (target && !('thread' in target) && path !== '/') hint = target;
-                if (hint && 'anchor' in hint && path === '/') hint = undefined;
+                if (hint && !('read' in hint) && path === '/') hint = undefined;
               } catch {
                 path = '/blocked';
               }
@@ -2614,9 +2618,7 @@ export function createAppRouter(
             if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
               path = '/blocked';
             const search = hint
-              ? 'read' in hint
-                ? `?read=${hint.read}`
-                : `?anchor=${hint.anchor}`
+              ? hintSearch(hint)
               : path === '/'
                 ? storedListSearch(window.history.state)
                 : '';
@@ -2649,9 +2651,7 @@ export function createAppRouter(
                   )
               : id;
             const tail = hint
-              ? 'read' in hint
-                ? `#read=${hint.read}`
-                : `#anchor=${hint.anchor}`
+              ? hintFragment(hint)
               : target === current && location.hash.startsWith('#t=')
                 ? location.hash
                 : '';
