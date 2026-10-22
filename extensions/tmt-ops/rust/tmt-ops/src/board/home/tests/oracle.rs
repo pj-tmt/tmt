@@ -643,6 +643,24 @@ fn captures() -> Value {
                 }
             }
         }
+        // The Talk pane's live screen of the selected agent, in each state it can be in.
+        for (look_name, look) in looks() {
+            for state in crate::board::conversation::screen::tests::SCENES {
+                for width in [160, 100, 60] {
+                    let app = crate::board::conversation::screen::tests::capture_case(
+                        state, look, width, 40,
+                    );
+                    frames.push(capture_frame(
+                        &app,
+                        state,
+                        look_name,
+                        width,
+                        40,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

@@ -274,12 +274,18 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         // exchange rule yields too, keeping one gap below the focus title.
         blank(area, &mut y);
     } else {
+        let shown = recipient
+            .as_ref()
+            .filter(|_| app.screen_mode() && retained.is_none());
         rule(
             frame,
             app,
             area,
             &mut y,
-            "Exchanges with you",
+            &shown.map_or_else(
+                || "Exchanges with you".to_owned(),
+                |target| conversation::screen::title(app, target, usize::from(area.width)),
+            ),
             Line::default(),
         );
     }
@@ -308,14 +314,24 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         0
     };
     let gap = u16::from(input > 0 && available > input);
-    let height = conversation::exchange::desired_height(app, area.width, &surface)
-        .min(available.saturating_sub(input + gap));
-    conversation::exchange::render(
-        frame,
-        app,
-        Rect::new(area.x, y, area.width, height),
-        &surface,
-    );
+    if app.screen_mode() && retained.is_none() {
+        // The live screen takes the exchanges' place; the composer below stays.
+        conversation::screen::render(
+            frame,
+            app,
+            Rect::new(area.x, y, area.width, available.saturating_sub(input + gap)),
+            &surface.target,
+        );
+    } else {
+        let height = conversation::exchange::desired_height(app, area.width, &surface)
+            .min(available.saturating_sub(input + gap));
+        conversation::exchange::render(
+            frame,
+            app,
+            Rect::new(area.x, y, area.width, height),
+            &surface,
+        );
+    }
     if admitted_input {
         app.input_band.set(Some(Rect::new(
             area.x + area.width.min(input_field::GUTTER),
