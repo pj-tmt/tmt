@@ -256,7 +256,8 @@ pub trait RuntimeLifecycle {
         Some(observed.clone())
     }
 
-    /// A prompt submission does not establish or replace a session binding.
+    /// Decode the exact session from a prompt. The hook owner may initially
+    /// adopt it after native verification, but never replaces an observed key.
     fn decode_prompt(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
         None
     }

@@ -330,3 +330,133 @@ fn tool_completions_probe_only_when_storage_reports_waiting_and_never_write_the_
         }
     }
 }
+
+/// Initial learning is one binding/preferences CAS, not a replacement path.
+/// Even saved channel and preferred-driver choices survive learning a session.
+#[test]
+fn initial_session_adoption_preserves_preferences_and_loses_to_concurrent_changes() {
+    use tmt_core::binding::session::{
+        BindingSessionState, ObservedSessionKey, RuntimeState, SessionTransition,
+    };
+    for case in [
+        "unchanged",
+        "preferences",
+        "binding",
+        "observed",
+        "ended",
+        "remembered",
+    ] {
+        let directory = Directory::new();
+        let database = directory.0.join("state.db");
+        let mut storage = Storage::open(&database).unwrap();
+        let identity = create_or_resolve(&mut storage, "Worker", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let server = ServerEvidence {
+            host: tmt_core::host::HostKind::Tmux,
+            server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
+            socket_path: "/tmp/test.sock".into(),
+            server_pid: 10,
+            server_start_time: "server".into(),
+        };
+        let pane = PaneObservation {
+            agent_name: None,
+            id: "%1".into(),
+            target: None,
+            cwd: None,
+            command: "claude".into(),
+            pane_pid: 11,
+            pane_incarnation: Some("pane".into()),
+            suggested_name: None,
+            marker: None,
+            location: None,
+        };
+        let harness = HarnessId::new("claude").unwrap();
+        let session = ProviderSessionId::new("s-1").unwrap();
+        let mode = RuntimeMode::new("default").unwrap();
+        let mut preferences = SessionPreferences {
+            channel: Some(false),
+            preferred_harness: Some(HarnessId::new("codex").unwrap()),
+            remembered: None,
+        };
+        let next = BindingSessionState::default()
+            .admit(
+                ObservedSessionKey {
+                    incarnation: ProcessIncarnation::new(20, "runtime").unwrap(),
+                    provider_session: Some(session.clone()),
+                },
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                let binding = records.insert_binding(&identity, &server, &pane)?;
+                if matches!(case, "observed" | "ended") {
+                    let mut old = next.clone();
+                    if case == "ended" {
+                        old.state = RuntimeState::Ended;
+                        old.last_transition = Some(SessionTransition::Ended);
+                    }
+                    records.set_session_state(&binding.id, &binding.session, &old)?;
+                }
+                if case == "remembered" {
+                    preferences.remember(
+                        harness.clone(),
+                        mode.clone(),
+                        ProviderSessionId::new("old").unwrap(),
+                    );
+                }
+                records.set_session_preferences(&identity.id, &preferences)
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let stored = Storage::context_by_identity(&database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        let mut proposed_preferences = stored.preferences.clone();
+        proposed_preferences.remember(harness, mode, session);
+        let mut storage = Storage::open(&database).unwrap();
+        storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                match case {
+                    "preferences" => {
+                        let mut changed = preferences.clone();
+                        changed.channel = Some(true);
+                        records.set_session_preferences(&identity.id, &changed)?;
+                    }
+                    "binding" => {
+                        records.detach_binding(&stored.entry.binding.as_ref().unwrap().id)?;
+                        records.insert_binding(&identity, &server, &pane)?;
+                    }
+                    _ => (),
+                }
+                Ok(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let before = Storage::context_by_identity(&database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        let mut storage = Storage::open(&database).unwrap();
+        let changed =
+            commit_initial_session(&mut storage, &stored, &next, &proposed_preferences).unwrap();
+        storage.close().unwrap();
+        let after = Storage::context_by_identity(&database, &identity.id, 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(changed, case == "unchanged", "{case}");
+        if changed {
+            assert_eq!(after.entry.binding.unwrap().session, next);
+            assert_eq!(after.preferences, proposed_preferences);
+            assert_eq!(after.preferences.channel, Some(false));
+            assert_eq!(
+                after.preferences.preferred_harness.unwrap().as_str(),
+                "codex"
+            );
+        } else {
+            assert_eq!(after.entry, before.entry, "{case}");
+            assert_eq!(after.preferences, before.preferences, "{case}");
+        }
+    }
+}

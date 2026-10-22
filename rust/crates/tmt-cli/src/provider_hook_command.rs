@@ -121,6 +121,91 @@ pub fn execute(
     Ok(u8::from(worker && failed))
 }
 
+/// The first prompt/Stop after a hand-started provider was bound can supply
+/// its initial session. Native admission is already the starting hook's; this
+/// never replaces an observation or an identity's incumbent resume preferences.
+fn adopt_initial_session(
+    bound: &mut BoundCaller,
+    harness: &HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    session: &ProviderSessionId,
+    deadline: Instant,
+) -> Result<(), ()> {
+    use tmt_core::binding::session::{BindingSessionState, ObservedSessionKey, SessionTransition};
+    let binding = bound.stored.entry.binding.as_ref().ok_or(())?;
+    if binding.session != BindingSessionState::default()
+        || bound.stored.preferences.remembered.is_some()
+        || bound.host.shared()
+    {
+        return Ok(());
+    }
+    if !matches!(
+        evaluate_binding(
+            &bound.stored.entry,
+            &EndpointProbe::Live(bound.snapshot.clone())
+        ),
+        BindingEvidence::Active(_)
+    ) {
+        return Err(());
+    }
+    let Some(mode) = lifecycle.mode(bound.host) else {
+        return Ok(());
+    };
+    let next = binding
+        .session
+        .admit(
+            ObservedSessionKey {
+                incarnation: bound.process.clone(),
+                provider_session: Some(session.clone()),
+            },
+            SessionTransition::Started,
+            RuntimeLiveness::Alive,
+        )
+        .ok_or(())?;
+    let mut preferences = bound.stored.preferences.clone();
+    preferences.remember(harness.clone(), mode, session.clone());
+    let mut storage = Storage::open_hook(&bound.paths.database, deadline).map_err(|_| ())?;
+    let changed = commit_initial_session(&mut storage, &bound.stored, &next, &preferences);
+    let closed = storage.close();
+    if !changed.map_err(|_| ())? || closed.is_err() {
+        return Err(());
+    }
+    bound.stored.entry.binding.as_mut().ok_or(())?.session = next;
+    bound.stored.preferences = preferences;
+    Ok(())
+}
+
+fn commit_initial_session(
+    storage: &mut Storage,
+    stored: &IdentityContextSnapshot,
+    next: &tmt_core::binding::session::BindingSessionState,
+    preferences: &tmt_core::binding::session::SessionPreferences,
+) -> Result<bool, StorageError> {
+    let Some(binding) = stored.entry.binding.as_ref().filter(|binding| {
+        binding.session == tmt_core::binding::session::BindingSessionState::default()
+            && stored.preferences.remembered.is_none()
+    }) else {
+        return Ok(false);
+    };
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            if records
+                .entry_by_id(&binding.identity_id)?
+                .and_then(|entry| entry.binding)
+                .as_ref()
+                != Some(binding)
+                || records.session_preferences(&binding.identity_id)? != stored.preferences
+            {
+                return Ok(false);
+            }
+            if !records.set_session_state(&binding.id, &binding.session, next)? {
+                return Ok(false);
+            }
+            records.set_session_preferences(&binding.identity_id, preferences)
+        })
+        .map_err(|error| storage.hook_allowance(error))
+}
+
 /// A turn end refreshes only the remembered session's driver state (#519).
 /// It needs the same verified, active binding as a lifecycle event, and the
 /// binding's current conversation must be the remembered one it names: a late
@@ -142,7 +227,7 @@ fn observe_turn(
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(Observation::default());
     }
-    let Caller::Bound(bound) = verified_caller(
+    let Caller::Bound(mut bound) = verified_caller(
         provider,
         lifecycle,
         host,
@@ -154,6 +239,9 @@ fn observe_turn(
     else {
         return Ok(Observation::default());
     };
+    if !turn.interrupted {
+        adopt_initial_session(&mut bound, harness, lifecycle, &turn.session, deadline)?;
+    }
     let BoundCaller {
         paths,
         stored,
@@ -878,7 +966,7 @@ fn observe_main_event(
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(Observation::default());
     }
-    let Caller::Bound(bound) = verified_caller(
+    let Caller::Bound(mut bound) = verified_caller(
         provider,
         lifecycle,
         host,
@@ -890,6 +978,9 @@ fn observe_main_event(
     else {
         return Ok(Observation::default());
     };
+    if payload.is_some() {
+        adopt_initial_session(&mut bound, harness, lifecycle, session, deadline)?;
+    }
     let BoundCaller {
         paths,
         stored,

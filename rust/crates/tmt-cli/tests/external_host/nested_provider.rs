@@ -505,3 +505,181 @@ fn a_codex_options_context_notice_cannot_replace_session_admission() {
     assert_eq!(provider.seen(), Seen::Ended);
     assert_drivers_ended(&fixture);
 }
+
+/// A hand-started provider has no launch owner and missed SessionStart before
+/// its pane was bound. Its first installed prompt/Stop supplies the exact ID.
+fn assert_first_hook_adopts(provider: &'static str, event: &str) {
+    const SESSION: &str = "4f8c2a7e-0d3b-4c61-9a52-7b1e6d0c9f13";
+    register();
+    let fixture = Fixture::new(&format!("first-hook-{provider}-{event}"));
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let mut agent = SteppedProvider::start(&fixture, provider, "agent-steps");
+    let process = live_provider(&agent);
+    assert_eq!(
+        runtime(&fixture),
+        (String::new(), 0, String::new(), "unknown".into())
+    );
+    let pid = pid_of(&process);
+    let environment = if provider == "claude" {
+        vec![("CLAUDE_PID", pid.as_slice())]
+    } else {
+        vec![]
+    };
+    let mut payload = codex_event(event, Some("turn-a"));
+    payload["session_id"] = SESSION.into();
+    let (status, _, stderr) = agent.hook_with_env(payload, &environment);
+    assert_eq!(status, 0, "{stderr}");
+    assert!(stderr.is_empty() || stderr == HOOK_UNAVAILABLE, "{stderr}");
+    assert_eq!(
+        runtime(&fixture),
+        (
+            SESSION.into(),
+            process.incarnation.pid() as i64,
+            process.incarnation.start_identity().into(),
+            "running".into()
+        )
+    );
+    let stored =
+        Storage::context_by_provider_session(&fixture.state().join("tmt.db"), provider, SESSION, 1)
+            .unwrap()
+            .expect("first hook remembers the session");
+    assert_eq!(stored.entry.binding.unwrap().session.launch_owner, None);
+    let remembered = stored.preferences.remembered.unwrap();
+    assert_eq!(remembered.harness.as_str(), provider);
+    assert_eq!(remembered.provider_session.as_str(), SESSION);
+    drop(agent);
+    assert_eq!(process.seen(), Seen::Ended);
+    // The public resume path consumes the coordinates learned by the hook.
+    // Replace our ended shell link with a bounded stand-in, never a real agent.
+    let executable = fixture.root.join("bin").join(provider);
+    fs::remove_file(&executable).unwrap();
+    fs::write(
+        &executable,
+        format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > resume.args\n{AGENT}\n"),
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut command = fixture.command_in(Some("f1"), &["resume", "worker"]);
+    command.env(
+        "PATH",
+        format!(
+            "{}:/usr/bin:/bin:/usr/sbin:/sbin",
+            fixture.root.join("bin").display()
+        ),
+    );
+    let mut resumed = Launched::start(&fixture, command);
+    wait_until("resume starts the fake provider or refuses", || {
+        fixture.root.join("agent.pid").exists()
+            || resumed
+                .child
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .unwrap()
+                .is_some()
+    });
+    assert!(
+        fixture.root.join("agent.pid").exists(),
+        "resume refused: {}",
+        fs::read_to_string(fixture.root.join("launched.err")).unwrap()
+    );
+    resumed.adopt("agent.pid", false);
+    let args = fs::read_to_string(fixture.root.join("resume.args")).unwrap();
+    let args: Vec<_> = args.lines().collect();
+    if provider == "claude" {
+        assert_eq!(&args[..2], &["--resume", SESSION]);
+    } else {
+        assert_eq!(args.first(), Some(&"resume"));
+        assert!(
+            args.windows(2).any(|pair| pair == [SESSION, "--no-daemon"]),
+            "{args:?}"
+        );
+    }
+    let (code, stderr) = resumed.finish();
+    assert_eq!(code, Some(7), "{stderr}");
+    assert_drivers_ended(&fixture);
+}
+
+#[test]
+fn first_hook_adopts_hand_started_claude_on_prompt() {
+    assert_first_hook_adopts("claude", "UserPromptSubmit");
+}
+#[test]
+fn first_hook_adopts_hand_started_claude_on_stop() {
+    assert_first_hook_adopts("claude", "Stop");
+}
+#[test]
+fn first_hook_adopts_hand_started_codex_on_prompt() {
+    assert_first_hook_adopts("codex", "UserPromptSubmit");
+}
+#[test]
+fn first_hook_adopts_hand_started_codex_on_stop() {
+    assert_first_hook_adopts("codex", "Stop");
+}
+
+/// Optional first-hook learning grants nothing to nested or unverified callers.
+#[test]
+fn first_hook_adoption_requires_the_main_native_provider() {
+    register();
+    for provider in ["claude", "codex"] {
+        for event in ["UserPromptSubmit", "Stop"] {
+            for case in ["nested", "unverified"] {
+                let fixture = Fixture::new(&format!("first-hook-{provider}-{event}-{case}"));
+                let record = fixture.approve();
+                bind(&fixture, record);
+                let mut agent = if case == "nested" {
+                    SteppedProvider::start_nested(&fixture, provider, "steps", &[provider])
+                } else {
+                    SteppedProvider::start(&fixture, provider, "steps")
+                };
+                let rows = stored_rows(&fixture);
+                let payload = codex_event(event, Some("turn-a"));
+                // A real main-provider ancestor grants nothing without a
+                // verified bound pane for this hook invocation.
+                let output = if case == "unverified" {
+                    agent.hook_with_env(payload, &[("FAKE_PANE_ID", b"missing")])
+                } else {
+                    agent.hook(payload)
+                };
+                assert_eq!(output.0, 0, "{provider}/{event}/{case}: {output:?}");
+                assert_eq!(stored_rows(&fixture), rows, "{provider}/{event}/{case}");
+                drop(agent);
+                assert_drivers_ended(&fixture);
+            }
+        }
+    }
+}
+
+/// A prompt/Stop may fill only a never-observed binding. It neither swaps
+/// conversations nor revives one whose SessionEnd was already admitted.
+#[test]
+fn first_hook_adoption_never_replaces_or_resurrects_an_observed_session() {
+    register();
+    for provider in ["claude", "codex"] {
+        for event in ["UserPromptSubmit", "Stop"] {
+            for case in ["different-session", "ended"] {
+                let fixture = Fixture::new(&format!("first-hook-{provider}-{event}-{case}"));
+                let record = fixture.approve();
+                bind(&fixture, record);
+                let mut agent = SteppedProvider::start(&fixture, provider, "steps");
+                let output = agent.hook(codex_event("SessionStart", None));
+                assert_eq!((output.0, output.2.as_str()), (0, ""));
+                if case == "ended" {
+                    let mut end = codex_event("SessionEnd", None);
+                    end["reason"] = "other".into();
+                    assert_eq!(agent.hook(end).0, 0);
+                }
+                let before = runtime(&fixture);
+                let mut payload = codex_event(event, Some("turn-a"));
+                if case == "different-session" {
+                    payload["session_id"] = "other-session".into();
+                }
+                assert_eq!(agent.hook(payload).0, 0);
+                assert_eq!(runtime(&fixture), before, "{provider}/{event}/{case}");
+                drop(agent);
+                assert_drivers_ended(&fixture);
+            }
+        }
+    }
+}
