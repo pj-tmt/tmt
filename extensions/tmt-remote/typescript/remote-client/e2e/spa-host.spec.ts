@@ -384,12 +384,32 @@ test.describe('the app in a browser', () => {
         .locator('[aria-current="page"]')
         .evaluateAll((items) => items.map((item) => item.getAttribute('data-id')));
     await expect.poll(lit).toEqual(['settings']);
-    // A section of the settings page lights its own row, not Remote settings.
+    // A part of the settings page lights its own row, not Remote settings, and opens at that part
+    // without a URL fragment (Remote's pages erase any fragment as untrusted input).
     for (const id of ['devices', 'machine']) {
       await menu.locator(`a[data-id="${id}"]`).click();
       await expect.poll(lit, id).toEqual([id]);
+      expect(new URL(page.url()).hash, id).toBe('');
     }
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.getElementById('opening-title')!.getBoundingClientRect().top),
+      )
+      .toBeGreaterThanOrEqual(56);
     await menu.locator('a[data-id="settings"]').click();
+    await expect.poll(lit).toEqual(['settings']);
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+    // A part chosen from another page opens there, lit; reaching the page another way opens it
+    // at the top with the page row lit.
+    await page.locator('nav.tmt-ui-rail a[data-id="remote"]').click();
+    await menu.locator('a[data-id="devices"]').click();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute(
+      'data-route',
+      'remote-settings',
+    );
+    await expect.poll(lit).toEqual(['devices']);
+    await page.locator('nav.tmt-ui-rail a[data-id="home"]').click();
+    await page.goBack();
     await expect.poll(lit).toEqual(['settings']);
     // The menu has no Remotes heading; This machine's group keeps its own.
     await expect(menu.locator('.tmt-ui-module-menu-group')).not.toContainText(['Remotes']);

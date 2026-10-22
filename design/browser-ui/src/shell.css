@@ -402,6 +402,7 @@
   }
   .tmt-ui-module-menu-items {
     display: flex;
+    padding-block: 0;
   }
   .tmt-ui-module-menu-item {
     /* Two thirds of the screen at most, so a long name ellipsizes and the next tab peeks in. */

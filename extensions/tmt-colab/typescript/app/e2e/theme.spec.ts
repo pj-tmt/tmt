@@ -71,7 +71,7 @@ for (const width of [1280, 1440, 1800, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ colorScheme: 'light' });
     await mount(page, sample);
-    const column = (await page.locator('.tmt-ui-shell-bar').boundingBox())!.width;
+    const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!.width;
     const child = page.frameLocator('#layout-fixture iframe');
     const geometry = await child.locator('body').evaluate((body) => {
       const bounds = body.getBoundingClientRect();
