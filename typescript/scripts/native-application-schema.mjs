@@ -45,7 +45,7 @@ export function parseCompiledSchema(text) {
   assert(
     Array.isArray(record.source_files) &&
       record.source_files.length > 0 &&
-      record.source_files.length <= 64,
+      record.source_files.length <= 256,
     'Compiled source closure bound'
   );
   let previous = '';

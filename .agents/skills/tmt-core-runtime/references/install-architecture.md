@@ -210,7 +210,7 @@ the move is a bootstrap reinstall.
   skills of at most 64 files, 1 MiB each, with a `SKILL.md` per skill. Any violation rejects the
   release before publication; an unrecorded file, link or special entry fails with "Installed
   release inventory has changed". Extension receipts are bounded by a limit derived from the skill
-  bounds; the CLI receipt stays at 16 KiB.
+  bounds; the CLI bound is owned by the [PR-channel contract](../../../../contracts/native-pr-channel.md#admission-receipt-and-activation).
 - After activation `native_install::release_skills` re-reads the tree under the installation lock
   against the receipt. Install and upgrade refresh the owner's tree skills and remove by name the
   ones a new release dropped; `uninstall` removes every skill the owner holds, with one consent
@@ -254,8 +254,8 @@ the move is a bootstrap reinstall.
   admission, protected-main producer trust and protocol 2 are defined once in [the PR channel contract](../../../../contracts/native-pr-channel.md).
   `pr_catalog`, `pr_json`, `pr_zip`, `pr_resolver` and `pr_receipt` are acquisition/receipt
   modules within the existing native installer; they do not create another publisher. Ordinary
-  release provenance and protocol 1 remain readable. The CLI receipt bound is 64 KiB, including
-  the two bounded schema source closures and captured admission evidence.
+  release provenance and protocol 1 remain readable. The [PR-channel contract](../../../../contracts/native-pr-channel.md#admission-receipt-and-activation) owns the derived CLI receipt bound, including
+  both schema source closures and captured admission evidence.
 
 - The running binary verifies release metadata, product/tag/target identity, manifest and archive
   digests and bounded archive safety (canonical relative paths, regular files, no links,

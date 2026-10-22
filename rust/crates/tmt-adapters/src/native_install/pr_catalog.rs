@@ -52,6 +52,9 @@ pub(super) struct DatabaseSchema {
     pub version: u32,
 }
 
+pub(super) const MAX_SCHEMA_SOURCE_FILES: usize = 256;
+pub(super) const MAX_SCHEMA_SOURCE_PATH_BYTES: usize = 256;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SourceFile {
@@ -78,7 +81,7 @@ impl ApplicationSchema {
             || self.databases.is_empty()
             || self.databases.len() > 8
             || self.source_files.is_empty()
-            || self.source_files.len() > 64
+            || self.source_files.len() > MAX_SCHEMA_SOURCE_FILES
         {
             return Err(invalid("Invalid PR application-schema evidence."));
         }
@@ -95,7 +98,7 @@ impl ApplicationSchema {
         let mut previous = None;
         for source in &self.source_files {
             if source.path.is_empty()
-                || source.path.len() > 256
+                || source.path.len() > MAX_SCHEMA_SOURCE_PATH_BYTES
                 || source.path.split('/').any(|part| {
                     part.is_empty()
                         || part == "."
