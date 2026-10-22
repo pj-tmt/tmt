@@ -1,6 +1,7 @@
 use super::*;
 use crate::board::settings::host_action::Selection;
 use crate::config::OpsKeyScope;
+use ratatui::crossterm::event::MouseEventKind;
 
 fn open(f: &mut Fixture, board_pane: Option<&str>) {
     f.app.open_host_action(Config::read(f.path.clone()).unwrap(), Selection {
@@ -513,10 +514,59 @@ fn typed_destination_keeps_host_masking_visible_and_conflict_keeps_the_draft() {
     );
 }
 
+#[test]
+fn preview_inventory_pages_and_wheels_without_changing_command_text() {
+    let mut f = fixture(
+        "binding-scroll",
+        "[bind]\nj='run echo {board_pane} {name}'\n",
+    );
+    open(&mut f, Some("%9"));
+    let overlay = f.app.settings.as_mut().unwrap();
+    overlay.surface.borrow_mut().select("pick:host-custom");
+    overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let mut screen = Terminal::new(TestBackend::new(60, 12)).unwrap();
+    screen
+        .draw(|frame| render(frame, overlay, crate::look::Look::default(), frame.area()))
+        .unwrap();
+    let draft = overlay.editing.clone();
+    assert!(overlay.prompt.borrow().picker.list.scroll.limit() > 0);
+    assert!(matches!(
+        overlay.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
+        Input::Preview
+    ));
+    let offset = overlay.prompt.borrow().picker.list.scroll.offset();
+    assert!(offset > 0);
+    assert_eq!(overlay.editing, draft);
+    let area = overlay.prompt.borrow().picker.list.scroll.viewport();
+    overlay.mouse(MouseEvent {
+        kind: MouseEventKind::ScrollUp,
+        column: area.x,
+        row: area.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert!(overlay.prompt.borrow().picker.list.scroll.offset() < offset);
+    overlay.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(
+        overlay.editing.as_ref().unwrap().1,
+        format!("{}j", draft.as_ref().unwrap().1)
+    );
+    overlay.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        overlay.prompt.borrow().picker.list.scroll.offset(),
+        0,
+        "a newly opened command starts with its preview visible"
+    );
+    assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
+}
+
 /// Actual board/editor captures share the production owner; no command is executed or saved.
 pub(in crate::board) fn capture_case(
     state: &str,
     look: crate::look::Look,
+    width: u16,
+    height: u16,
 ) -> crate::board::app::App {
     use crate::board::{
         app::workspace::tests::{MEMBER, ROOM},
@@ -558,7 +608,10 @@ pub(in crate::board) fn capture_case(
         "bindings-punctuation" => {
             overlay.surface.borrow_mut().select("bind..");
         }
-        "bindings-preview" | "bindings-unavailable" | "bindings-masked" => {
+        "bindings-preview"
+        | "bindings-unavailable"
+        | "bindings-masked"
+        | "bindings-inventory-scrolled" => {
             overlay.surface.borrow_mut().select("bind..");
             overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
             overlay.editing.as_mut().unwrap().1 = if state == "bindings-unavailable" {
@@ -577,6 +630,20 @@ pub(in crate::board) fn capture_case(
             overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         }
         _ => unreachable!("known binding fixture"),
+    }
+    if state == "bindings-inventory-scrolled" {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &f.app))
+            .unwrap();
+        assert!(matches!(
+            f.app
+                .settings
+                .as_mut()
+                .unwrap()
+                .key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)),
+            Input::Preview
+        ));
     }
     std::mem::replace(&mut f.app, crate::board::app::App::new(None))
 }

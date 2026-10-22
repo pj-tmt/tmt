@@ -549,7 +549,8 @@ the parameter name. Receipts, request bodies and replies are never parameters.
 Existing shorthand and custom field names keep their meanings.
 
 The editor and Help show the same held parameter inventory, including type,
-source and availability. `{ops:/runningDriver}`, `{ops:/driverSupport}` and
+source and availability. Page keys or the mouse wheel scroll the preview without
+changing the command; opening another command starts at its preview. `{ops:/runningDriver}`, `{ops:/driverSupport}` and
 `{ops:/resume/observedModel/model}` preserve the documented public Core
 observations; they do not prove a live runtime or current model. Selected-occurrence
 `{ops:/squad/name}`, `{ops:/squad/roomId}` and

@@ -260,6 +260,8 @@ keep scalar types; missing/null/failed/nonscalar values refuse by name. Root
 annotation, waiting-question and receipt containers never supply parameters.
 Custom metadata names are not a body denylist. Preview uses the opening sample;
 dispatch uses the current admitted row and held observations, not saved argv.
+The command editor routes navigation keys and wheel input to its existing prompt
+ScrollState; letters remain command input, and a new edit resets that scroll.
 Esc cancels; a file conflict retains the unsaved draft/error without retry.
 Other keys and nested configuration remain file-owned; `config show` retains
 independent values/provenance. Ordinary Settings and Theme openings do not

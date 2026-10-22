@@ -472,6 +472,27 @@ impl Overlay {
         }
     }
     pub fn key(&mut self, key: KeyEvent) -> Input {
+        if self.host_action.is_some()
+            && self.editing.is_some()
+            && matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
+            )
+            && self
+                .prompt
+                .borrow_mut()
+                .picker
+                .list
+                .scroll
+                .input(&Event::Key(key))
+        {
+            return Input::Preview;
+        }
         if self.editing.is_some()
             && key.code == KeyCode::Tab
             && let Some(host) = &mut self.host_action
@@ -556,10 +577,7 @@ impl Overlay {
                         host.pick(self.selected_pick().expect("selected pick").id, current)
                     {
                         self.editing = Some(("bind.j".into(), line));
-                        self.host_action
-                            .as_mut()
-                            .unwrap()
-                            .begin(self.config.as_ref().unwrap(), "j");
+                        self.begin_binding("j");
                         self.preview();
                         return Input::Preview;
                     }
@@ -591,11 +609,8 @@ impl Overlay {
                     } else {
                         crate::settings::display(&entry.value)
                     };
-                    if let Some(host) = &mut self.host_action {
-                        host.begin(
-                            self.config.as_ref().unwrap(),
-                            key.strip_prefix("bind.").unwrap(),
-                        );
+                    if self.host_action.is_some() {
+                        self.begin_binding(key.strip_prefix("bind.").unwrap());
                     }
                     self.editing = Some((key, text));
                     self.preview();
@@ -609,6 +624,19 @@ impl Overlay {
             .input(&Event::Key(key), PickerField::List);
         Input::None
     }
+    fn begin_binding(&mut self, event: &str) {
+        self.host_action
+            .as_mut()
+            .unwrap()
+            .begin(self.config.as_ref().unwrap(), event);
+        self.prompt
+            .borrow_mut()
+            .picker
+            .list
+            .scroll
+            .step(tmt_tui::components::Step::Top);
+    }
+
     /// The selected on/off setting that this squad may change: Space flips it.
     fn selected_toggle(&self) -> Option<(String, bool)> {
         let entry = self.selected_entry()?;
@@ -736,7 +764,14 @@ impl Overlay {
         }
     }
     pub fn mouse(&self, event: MouseEvent) {
-        if self.editing.is_none() {
+        if self.host_action.is_some() && self.editing.is_some() {
+            self.prompt
+                .borrow_mut()
+                .picker
+                .list
+                .scroll
+                .input(&Event::Mouse(event));
+        } else if self.editing.is_none() {
             self.surface
                 .borrow_mut()
                 .input(&Event::Mouse(event), PickerField::List);

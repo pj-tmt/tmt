@@ -455,11 +455,13 @@ fn captures() -> Value {
                 "bindings-unavailable",
                 "bindings-masked",
                 "bindings-j-preset",
+                "bindings-inventory-scrolled",
             ] {
                 for width in [160, 100, 80, 60] {
                     for height in [36, 8] {
-                        let app =
-                            crate::board::settings::tests::host_action::capture_case(state, look);
+                        let app = crate::board::settings::tests::host_action::capture_case(
+                            state, look, width, height,
+                        );
                         frames.push(capture_frame(
                             &app,
                             state,

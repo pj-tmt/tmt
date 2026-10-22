@@ -136,7 +136,7 @@ impl HostAction {
                 template: crate::board::picker_surface::compile(super::FILE, &markup, schema),
             });
         }
-        overlay.prompt.borrow_mut().render_modal(super::FILE, &cache.as_ref().unwrap().template, json!({"rows":[],"query":format!("{text}▏"),"meaning":meaning,"command":command,"parameters":parameters.into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(),"status":error,"footer":if readonly {"s save · Esc cancel"} else {"Enter save · Tab scope · Esc cancel · Ctrl-U clear"}}), frame, look, body);
+        overlay.prompt.borrow_mut().render_modal(super::FILE, &cache.as_ref().unwrap().template, json!({"rows":[],"query":format!("{text}▏"),"meaning":meaning,"command":command,"parameters":parameters.into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(),"status":error,"footer":if readonly {"s save · Tab scope · PgUp/PgDn scroll · Esc cancel"} else {"Enter save · Tab scope · PgUp/PgDn scroll · Esc cancel"}}), frame, look, body);
     }
 
     pub fn settings(&mut self, config: &Config) -> Result<BoardSettings, SquadError> {
