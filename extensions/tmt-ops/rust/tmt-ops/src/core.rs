@@ -1,4 +1,4 @@
-//! The only door to TMT: public `--json` commands and `tmt api`, run through the
+//! The only door to TMT: public JSON output and `tmt api`, run through the
 //! invoking executable. Squad never opens TMT storage or configuration itself.
 
 use crate::runner::{self, RunError};
@@ -164,6 +164,20 @@ impl Core {
         Ok(self
             .finish(&argv, b"", TIMEOUT, tmt_invoke::EnvironmentPolicy::Inherit)?
             .success)
+    }
+
+    /// `resume --show` emits JSON itself and rejects the generic --json flag.
+    pub(crate) fn resume_show(&self, identity: &str) -> Result<Value, SquadError> {
+        self.call_within(
+            &[
+                "resume".into(),
+                "--show".into(),
+                "--".into(),
+                identity.into(),
+            ],
+            b"",
+            Duration::from_secs(5),
+        )
     }
 
     /// Runs `tmt <args> --json` and returns its document, or core's own error.

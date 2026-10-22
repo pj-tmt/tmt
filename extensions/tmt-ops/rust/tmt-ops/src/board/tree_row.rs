@@ -24,6 +24,7 @@ pub(in crate::board) struct Row<'a> {
     pub state: Line<'static>,
     pub state_primary_width: Option<usize>,
     pub tokens: String,
+    pub session: String,
     pub model: String,
     pub timers: Option<u32>,
     pub selected: bool,
@@ -137,6 +138,9 @@ pub(in crate::board) fn paint(
                 }
                 state
             }
+            AgentsField::Session => {
+                Line::styled(fit(&row.session, Align::Left), look.role(Role::Muted))
+            }
             AgentsField::Tokens => {
                 painted.tokens = Some(cell);
                 Line::styled(
@@ -229,6 +233,7 @@ mod tests {
                     state: Line::default(),
                     state_primary_width: None,
                     tokens: "—".into(),
+                    session: String::new(),
                     model: "gpt-6.1-sol".into(),
                     timers: None,
                     selected: false,
@@ -287,6 +292,7 @@ mod tests {
                     .unwrap(),
                     state_primary_width: Some(10),
                     tokens: "12.3K".into(),
+                    session: String::new(),
                     model: "gpt-6.1-sol".into(),
                     timers: Some(0),
                     selected: true,
@@ -355,6 +361,7 @@ mod tests {
                         .unwrap(),
                         state_primary_width: Some(10),
                         tokens: "—".into(),
+                        session: String::new(),
                         model: String::new(),
                         timers: None,
                         selected,

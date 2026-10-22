@@ -80,6 +80,19 @@ square shared modal. Incidental frame cells remain Dim; receiving focus and
 selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.
 
+`board/member_session` owns the selected member's public host/session projection and
+Session dialog. It reuses the global identity inventory and typed activity; its bounded
+`resume --show -- UUID` read runs on the ordered action lane (that command already
+emits JSON and rejects `--json`). A remembered full-driver session is described as
+checked on launch, never promised resumable. Missing, stale, basic or failed evidence
+stays unavailable. Host / Session drops whole before other Agents tracks.
+Resume/Move review freezes the UUID and observed session. A changed selection or
+observation invalidates it; confirmation requires fully painted review text and choices.
+Copy uses the exact shell-quoted foreground argv without leaving the board. A confirmed
+handoff refuses named drafts or pending effects; the board restores its terminal and
+stops workers before execing the public CLI with inherited stdio in this pane. Core
+alone revalidates and owns launch/move/refusal; no detached Run or new pane is used.
+
 `board/recovery` owns the saved-snapshot modal's selection, private public-JSON
 projections, read coalescing, exact digest/mode confirmation and retained reports.
 Core's public workspace commands own capture, storage, live checks and effects.

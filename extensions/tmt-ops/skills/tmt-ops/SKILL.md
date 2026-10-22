@@ -339,7 +339,19 @@ by oldest proven request, then unknown age and name/UUID; no waiting duration is
 shown. Blocked state alone does not imply waiting. A squad selection messages its
 observed lead; an agent selection uses that exact member. Missing evidence refuses
 rather than choosing another recipient. Search and refresh retain hidden UUID
-anchors. `e` opens full observed member values. Authored sort changes the current
+anchors. `e` opens full observed member values. `R` opens Session for the selected
+agent in either list or conversation focus. Host / Session shows the observed host
+and remembered/unavailable state and yields first at narrow widths. Session shows
+full host coordinates, remembered driver/session and last activity when observed.
+“Session remembered · checked on launch” is not a resumability promise; stale,
+basic-driver or missing evidence stays unavailable, including scanned members whose
+sessions Core has not remembered. Resume here and Move here require a separate
+confirmation naming the UUID, exact command and this board pane; the board closes
+before running Core in the foreground. Move may stop the verified old agent (one
+TERM, up to three seconds, no force). Core revalidates and may refuse; nothing is
+retried or freshly launched automatically. Drafts and pending actions block handoff
+with an explanation. In confirmation, `c copy command` copies one shell-quoted
+command line and keeps the board open; Esc cancels without starting anything. Authored sort changes the current
 layer within unread/waiting/other groups. Retired summaries, Recent exchanges and
 the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows

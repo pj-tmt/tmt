@@ -269,6 +269,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("o", "open"),
             ("D", "digest"),
             ("c", "timers"),
+            ("R", "member-session"),
             ("v", "view-reply"),
             ("p", "pin"),
         ]
@@ -294,6 +295,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("ctrl-r", "refresh"),
             (",", "settings"),
             ("c", "timers"),
+            ("R", "member-session"),
             ("t", "talk-measure"),
             ("n", "create-squad"),
             ("u", "usage-controls"),

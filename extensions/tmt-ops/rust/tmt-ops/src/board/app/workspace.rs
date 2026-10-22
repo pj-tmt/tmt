@@ -1069,6 +1069,7 @@ impl App {
                 next.digest_panels = Some(crate::config::PanelSetting::configured(panels));
                 return self.workspace_save(next);
             }
+            MemberSession => return self.open_member_session(),
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),
