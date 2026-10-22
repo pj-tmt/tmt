@@ -288,6 +288,16 @@ impl App {
             return Some(detail.additional(visible));
         }
         detail.finals = self.finals(row, squad, id, sender.as_deref(), now);
+        // An agent answers by sending the user a new request as often as by replying to one
+        // of the user's, so its open request belongs in the thread at the time it was sent.
+        if let Some(question) = self.pending_question(target, None) {
+            let at = detail
+                .finals
+                .iter()
+                .position(|held| held.at_ms > question.at_ms)
+                .unwrap_or(detail.finals.len());
+            detail.finals.insert(at, question);
+        }
         detail.reply = detail.finals.last().cloned();
         detail.sent = self.sent(id, sender.as_deref());
         detail.agent = sender.map(|sender| FinalsKey {
