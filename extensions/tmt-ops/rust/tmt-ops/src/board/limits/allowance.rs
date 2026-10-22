@@ -17,18 +17,27 @@ pub enum Line {
     Hours3,
     Hours6,
     Hours24,
+    /// The last 3 h of tokens at the points the last 24 h cost per token.
+    Tokens,
     /// The average since the window last refilled.
     SinceReset,
 }
 
 impl Line {
-    pub const ALL: [Self; 4] = [Self::Hours3, Self::Hours6, Self::Hours24, Self::SinceReset];
+    pub const ALL: [Self; 5] = [
+        Self::Hours3,
+        Self::Hours6,
+        Self::Hours24,
+        Self::Tokens,
+        Self::SinceReset,
+    ];
 
     pub fn caption(self) -> &'static str {
         match self {
             Self::Hours3 => "3h",
             Self::Hours6 => "6h",
             Self::Hours24 => "1d",
+            Self::Tokens => "TOKENS",
             Self::SinceReset => "SINCE RESET",
         }
     }
@@ -61,12 +70,40 @@ impl Rates {
         }
     }
 
+    /// Percent per hour the last 3 h of tokens would burn at the points per token the last 24 h
+    /// cost: `None` without a 24 h rate to calibrate on or without tokens spent in them. Both
+    /// token counts are the usage report's input + output, so the unit cancels.
+    pub fn tokens(&self, spent: Option<Spent>) -> Option<f64> {
+        let spent = spent.filter(|spent| spent.day > 0)?;
+        let points_per_token = self.hours24? * 24.0 / spent.day as f64;
+        Some(spent.last_3h as f64 / 3.0 * points_per_token)
+    }
+
     pub fn get(&self, line: Line) -> Option<f64> {
         match line {
             Line::Hours3 => self.hours3,
             Line::Hours6 => self.hours6,
             Line::Hours24 => self.hours24,
+            // Needs the tokens spent, which sampled history does not hold: see `tokens`.
+            Line::Tokens => None,
             Line::SinceReset => self.since_reset,
+        }
+    }
+}
+
+/// Tokens (input + output) the members on one provider spent over the last 3 h and over
+/// the last 24 h, from complete hourly cells only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Spent {
+    pub last_3h: u64,
+    pub day: u64,
+}
+
+impl Spent {
+    pub fn plus(self, other: Self) -> Self {
+        Self {
+            last_3h: self.last_3h.saturating_add(other.last_3h),
+            day: self.day.saturating_add(other.day),
         }
     }
 }
@@ -163,7 +200,7 @@ pub struct Weekly {
     pub resets_at_ms: u64,
     /// Percent per hour that lasts exactly until the reset.
     pub need_per_hour: f64,
-    pub lines: [Outcome; 4],
+    pub lines: [Outcome; 5],
 }
 
 impl Weekly {
@@ -187,30 +224,33 @@ pub struct Row {
 
 /// The rows of `standings`: every provider that has been sampled, in the shown
 /// order.
-pub fn rows(standings: &[Standing], now_ms: u64) -> Vec<Row> {
+pub fn rows(
+    standings: &[Standing],
+    now_ms: u64,
+    spent: &dyn Fn(&Provider) -> Option<Spent>,
+) -> Vec<Row> {
     standings
         .iter()
         .filter(|standing| standing.latest.is_some())
         .map(|standing| Row {
             provider: standing.provider.clone(),
-            weekly: weekly(standing, now_ms),
+            weekly: weekly(standing, now_ms, spent(&standing.provider)),
         })
         .collect()
 }
 
-fn weekly(standing: &Standing, now_ms: u64) -> Option<Weekly> {
+fn weekly(standing: &Standing, now_ms: u64, spent: Option<Spent>) -> Option<Weekly> {
     let estimate::Outlook::Known(figures) = standing.outlook(now_ms) else {
         return None;
     };
     let left = figures.weekly;
     let hours = left.resets_in_ms as f64 / HOUR_MS as f64;
     let lines = Line::ALL.map(|line| {
-        project(
-            left.percent,
-            left.resets_in_ms,
-            now_ms,
-            standing.rates.get(line),
-        )
+        let rate = match line {
+            Line::Tokens => standing.rates.tokens(spent),
+            line => standing.rates.get(line),
+        };
+        project(left.percent, left.resets_in_ms, now_ms, rate)
     });
     Some(Weekly {
         left: left.percent,

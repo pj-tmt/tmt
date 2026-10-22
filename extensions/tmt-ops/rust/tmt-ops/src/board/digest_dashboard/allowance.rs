@@ -3,22 +3,23 @@
 //! the reset. Numbers come from `limits::allowance`; this file only places them.
 use crate::board::{
     app::App,
-    limits::{Line as ProjectionLine, Outcome, Row, Weekly},
+    limits::{Line as ProjectionLine, Outcome, Provider, Row, Spent, Weekly},
     overview::cron_counts::GlyphSet,
     section_rule,
+    usage_report::{View, model::Seat},
 };
 use ratatui::{
     Frame,
     layout::Rect,
     text::{Line, Span},
 };
+use std::collections::BTreeMap;
 use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthStr;
 
 /// Rows the table below keeps when the block takes its share.
 const BODY_MINIMUM: u16 = 10;
 const SOURCE: usize = 8;
-const PLAN: usize = 4;
 const LEFT: usize = 5;
 const NEED: usize = 8;
 const CELL: usize = 10;
@@ -26,11 +27,73 @@ const SINCE: usize = 11;
 const RESETS: usize = 8;
 const GAP: usize = 2;
 /// All columns and their gaps, plus a one-cell margin each side.
-const WIDE: u16 = (SOURCE + PLAN + LEFT + NEED + CELL * 3 + SINCE + RESETS + GAP * 8 + 2) as u16;
+const WIDE: u16 = (SOURCE + LEFT + NEED + CELL * 4 + SINCE + RESETS + GAP * 8 + 2) as u16;
+
+/// Tokens each provider's members spent over the last 3 h and 24 h, from the usage report the
+/// Digest tab already holds: one 24-cell hourly series per seat, a seat counted for the driver
+/// its member is on now. Nothing is read for this; a missing or stale report, a seat with no
+/// known driver or an incomplete cell leaves the provider out, never as zero.
+fn spent(app: &App, now: u64) -> BTreeMap<Provider, Spent> {
+    let View::Report(report) = app.usage_report.view_for(app.tok_range()) else {
+        return BTreeMap::new();
+    };
+    let Some(view) = app.view.as_ref() else {
+        return BTreeMap::new();
+    };
+    let drivers: BTreeMap<&str, &str> = view
+        .home_rate
+        .iter()
+        .filter(|(_, rate)| rate.settings.enabled)
+        .filter_map(|(name, _)| app.home_meter(name))
+        .flat_map(|meter| {
+            let rate = meter.history();
+            report
+                .seats
+                .iter()
+                .filter_map(|seat| seat.who.id.as_deref())
+                .filter_map(|id| Some((id, rate.current_driver_of(id)?)))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    // A provider with any seat lacking a usable series has no honest total.
+    let mut totals: BTreeMap<&str, Option<Spent>> = BTreeMap::new();
+    for seat in &report.seats {
+        let Some(driver) = seat.who.id.as_deref().and_then(|id| drivers.get(id)) else {
+            continue;
+        };
+        let entry = totals
+            .entry(driver)
+            .or_insert(Some(Spent { last_3h: 0, day: 0 }));
+        *entry = entry.and_then(|total| seat_spent(seat, now).map(|spent| total.plus(spent)));
+    }
+    totals
+        .into_iter()
+        .filter_map(|(driver, spent)| Some((Provider::from_driver(driver)?, spent?)))
+        .collect()
+}
+
+/// One seat's tokens over the last 3 h and 24 h, only from a fresh series of complete cells.
+fn seat_spent(seat: &Seat, now: u64) -> Option<Spent> {
+    const HOUR: u64 = 3_600_000;
+    let ends = seat.series.from_ms.checked_add(24 * HOUR)?;
+    if seat.series.is_empty() || now.saturating_sub(ends) >= 2 * HOUR {
+        return None;
+    }
+    let points: Vec<_> = seat.series.iter().collect();
+    if points.len() != 24 || points.iter().any(|point| !point.complete) {
+        return None;
+    }
+    let sum = |from: usize| points[from..].iter().map(|point| point.tokens).sum::<u64>();
+    Some(Spent {
+        last_3h: sum(21),
+        day: sum(0),
+    })
+}
 
 fn rows(app: &App, now: u64) -> Vec<Row> {
+    let spent = spent(app, now);
     app.limits.as_deref().map_or_else(Vec::new, |standings| {
-        crate::board::limits::rows(standings, now)
+        crate::board::limits::rows(standings, now, &|provider| spent.get(provider).copied())
     })
 }
 
@@ -112,12 +175,12 @@ fn header(look: crate::look::Look) -> Line<'static> {
     let mut text = String::from(" ");
     for (caption, width, right) in [
         ("SOURCE", SOURCE, false),
-        ("PLAN", PLAN, false),
         ("LEFT", LEFT, true),
         ("NEED %/h", NEED, true),
         (ProjectionLine::Hours3.caption(), CELL, false),
         (ProjectionLine::Hours6.caption(), CELL, false),
         (ProjectionLine::Hours24.caption(), CELL, false),
+        (ProjectionLine::Tokens.caption(), CELL, false),
         (ProjectionLine::SinceReset.caption(), SINCE, false),
         ("RESETS", RESETS, false),
     ] {
@@ -170,10 +233,7 @@ fn wide_row(
     look: crate::look::Look,
 ) -> Line<'static> {
     let label = row.provider.label();
-    let mut cells = vec![
-        (label, SOURCE, false, Role::Text),
-        ("week".into(), PLAN, false, Role::Muted),
-    ];
+    let mut cells = vec![(label, SOURCE, false, Role::Text)];
     let Some(weekly) = &row.weekly else {
         cells.extend([
             ("—".into(), LEFT, true, Role::Dim),
@@ -213,10 +273,7 @@ fn narrow_row(
     look: crate::look::Look,
 ) -> Line<'static> {
     let label = row.provider.label();
-    let mut cells = vec![
-        (label, SOURCE, false, Role::Text),
-        ("week".into(), PLAN, false, Role::Muted),
-    ];
+    let mut cells = vec![(label, SOURCE, false, Role::Text)];
     let Some(weekly) = &row.weekly else {
         cells.push(("—".into(), LEFT, true, Role::Dim));
         return spans(cells, look);

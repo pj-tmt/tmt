@@ -378,9 +378,12 @@ rewriting authored config.
 
 Digest has a range summary, an Allowance block, Agents by TOK, Exchanges and selection details.
 Allowance shows one row per provider whose weekly window the board has sampled: LEFT, NEED %/h (the
-even burn, in percent per hour, that lasts exactly until the reset), what each of four rates leaves
-at the reset if it holds (the last 3h, 6h and 1d, and the average since the window last reset, SINCE RESET)
-and RESETS. A rate the history does not cover is `—`; a line that empties the window first shows
+even burn, in percent per hour, that lasts exactly until the reset), what each of five rates leaves
+at the reset if it holds (the last 3h, 6h and 1d, TOKENS, and the average since the window last reset, SINCE RESET)
+and RESETS. TOKENS is the last 3 hours of the provider's members' tokens (input + output, cache not
+counted, from the Digest usage report's hourly cells) at the points per token the last 24 hours cost.
+A rate the history does not cover, a provider whose members have no complete fresh day of
+tokens and a day without tokens are `—`; a line that empties the window first shows
 `✗ <weekday hh:mm>` in the attention colour. At 80 columns a row is one line with the worst
 projection. It is hidden when no provider has been sampled or the table would be left too short.
 A reading older than two hours is not quoted; the percent is whole-number sampling, an unsampled

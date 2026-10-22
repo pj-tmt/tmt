@@ -63,6 +63,7 @@ fn each_span_averages_the_drop_over_its_own_hours() {
 #[test]
 fn a_steady_burn_gives_the_same_rate_on_every_line() {
     let rates = rates(&history(26, 80.0, 0.75, NOW + 40 * HOUR));
+    // The tokens line has no spent tokens here: its own tests cover it.
     for line in [Line::Hours3, Line::Hours6, Line::Hours24, Line::SinceReset] {
         assert!(close(rates.get(line).unwrap(), 0.75), "{line:?}");
     }
@@ -143,13 +144,14 @@ fn a_row_needs_the_even_burn_and_projects_every_line() {
     let readings = history(26, 80.0, 0.75, NOW + 40 * HOUR);
     let standing = standing(&readings);
     let left = standing.latest.unwrap().weekly.left;
-    let rows = rows(&[standing], NOW);
+    let rows = rows(&[standing], NOW, &|_| None);
     let weekly = rows[0].weekly.unwrap();
     assert!(close(weekly.left, left));
     assert!(close(weekly.need_per_hour, left / 40.0));
     assert_eq!(weekly.resets_at_ms, NOW + 40 * HOUR);
     // 0.75 pt/h from `left` over 40 h, on every line.
     let expected = project(left, 40 * HOUR, NOW, Some(0.75));
+    // The tokens line has no spent tokens here: its own tests cover it.
     for line in [Line::Hours3, Line::Hours6, Line::Hours24, Line::SinceReset] {
         let at = Line::ALL.iter().position(|l| *l == line).unwrap();
         assert_eq!(weekly.lines[at], expected, "{line:?}");
@@ -170,16 +172,17 @@ fn the_worst_line_is_the_earliest_empty_time_else_the_least_left() {
             Lasts(20.0),
             RunsOut(NOW + 30 * HOUR),
             RunsOut(NOW + 20 * HOUR),
+            Unknown,
             Lasts(5.0)
         ])
         .worst(),
         RunsOut(NOW + 20 * HOUR)
     );
     assert_eq!(
-        weekly([Lasts(20.0), Unknown, Lasts(5.0), Lasts(9.0)]).worst(),
+        weekly([Lasts(20.0), Unknown, Lasts(5.0), Unknown, Lasts(9.0)]).worst(),
         Lasts(5.0)
     );
-    assert_eq!(weekly([Unknown; 4]).worst(), Unknown);
+    assert_eq!(weekly([Unknown; 5]).worst(), Unknown);
 }
 
 #[test]
@@ -195,7 +198,43 @@ fn a_stale_or_unsampled_provider_has_a_row_without_numbers_or_no_row() {
         trend: None,
         rates: Rates::default(),
     };
-    let rows = rows(&[stale, unsampled], NOW);
+    let rows = rows(&[stale, unsampled], NOW, &|_| None);
     assert_eq!(rows.len(), 1, "a provider never sampled has no row");
     assert_eq!(rows[0].weekly, None, "an old reading is not quoted");
+}
+
+fn spent(last_3h: u64, day: u64) -> Option<Spent> {
+    Some(Spent { last_3h, day })
+}
+
+#[test]
+fn tokens_rate_is_the_three_hour_tokens_at_the_points_a_token_cost_over_a_day() {
+    // 2.4 points over 24 h = 24 000 tokens: 0.0001 points a token. 3 000 tokens in the
+    // last 3 h are 1 000 an hour: 0.1 points an hour.
+    let rates = Rates::measured(None, None, Some(0.1), None);
+    let rate = rates.tokens(spent(3_000, 24_000)).unwrap();
+    assert!(close(rate, 0.1), "{rate}");
+    // A quiet last 3 h is a real zero, not a dash.
+    assert_eq!(rates.tokens(spent(0, 24_000)), Some(0.0));
+    // Missing sides are unknown: no tokens in the day, none reported, no 24 h rate.
+    assert_eq!(rates.tokens(spent(0, 0)), None);
+    assert_eq!(rates.tokens(None), None);
+    assert_eq!(Rates::default().tokens(spent(3_000, 24_000)), None);
+}
+
+#[test]
+fn the_tokens_line_projects_like_the_others_and_stays_unknown_without_tokens() {
+    let readings = history(26, 80.0, 0.75, NOW + 40 * HOUR);
+    let mut standing = standing(&readings);
+    standing.rates = Rates::measured(Some(0.75), Some(0.75), Some(0.75), Some(0.75));
+    let left = standing.latest.unwrap().weekly.left;
+    // 0.75 points an hour over 24 h = 18 points for 18 000 tokens: 0.001 points a token. 6 000
+    // tokens in 3 h are 2 000 an hour: 2 points an hour.
+    let weekly = rows(&[standing.clone()], NOW, &|_| spent(6_000, 18_000))[0]
+        .weekly
+        .unwrap();
+    let at = Line::ALL.iter().position(|l| *l == Line::Tokens).unwrap();
+    assert_eq!(weekly.lines[at], project(left, 40 * HOUR, NOW, Some(2.0)));
+    let none = rows(&[standing], NOW, &|_| None)[0].weekly.unwrap();
+    assert_eq!(none.lines[at], Outcome::Unknown);
 }
