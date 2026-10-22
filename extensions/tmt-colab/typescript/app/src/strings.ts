@@ -418,20 +418,9 @@ export const text = {
   sendNowSending: 'Sending now…',
   sendNowUnconfirmed: 'It may have been sent, delivery unconfirmed, do not resend',
   sendNowUnavailable: 'Your machine did not answer. Nothing was sent.',
-  sendNowNotSent: (reason: string) => `Could not send now: ${reason}`,
-  /** One reason per code Core refuses with (request-response-v1, Send now). A code a newer Core
-   * adds reads as `sendNowRefusedUnknown`, never as a bare code. */
-  sendNowReasons: {
-    SEND_NOW_UNREACHABLE: 'the agent could not be reached',
-    DELIVERY_AWAITING_APPROVAL: 'the agent is waiting for approval on its machine',
-    DELIVERY_CHANNEL_UNAVAILABLE: "the agent's channel is not available",
-    SEND_NOW_NOT_AVAILABLE: 'sending early is not available for it right now',
-    SEND_NOW_CLOSED: 'it already has an answer, or was withdrawn or expired',
-    SEND_NOW_NOT_APPLICABLE: 'it is not waiting in a batch',
-    SEND_NOW_NOT_ALLOWED: 'only the person who sent it can send it early',
-    SEND_NOW_UNCONFIRMED: 'an earlier delivery is unconfirmed, do not resend',
-    REMOTE_SCOPE_DENIED: 'only the browser that sent it can send it early',
-  } as Readonly<Record<string, string>>,
+  /** Remote's own refusal of a device that did not send the message: it has no Core sentence. */
+  sendNowScopeDenied: 'Could not send now: only the browser that sent it can send it early',
+  /** For a refusal that arrives without Core's sentence and without a code of Colab's own. */
   sendNowRefusedUnknown: 'Could not send now. It stays batched.',
   agentQueued: (elapsed: string) => `is finishing an earlier turn · ${elapsed}`,
   agentFinished: (elapsed: string) => `finished without replying · ${elapsed} ago`,

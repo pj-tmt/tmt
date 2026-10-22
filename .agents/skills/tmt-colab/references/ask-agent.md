@@ -224,6 +224,7 @@ and writes nothing to the ledger. It puts its progress on the same observed stat
 unchanged, and then reads the state again with `recover`. `ask-remote.ts` verifies the reply (an
 unknown state or a failure that may have reached Core is `unconfirmed`). `AskPanel` draws the
 action from `canSendNow` alone (never for Colab's `held`) and `AgentActivityLine` the progress,
-with the per-code sentences in `strings.ts`. The contract's
+with Core's own sentence for a refusal (`reasonText`, as given; Colab keeps no table of codes) and
+`strings.ts` only for the cases Core has none. The contract's
 [Send now](../../../../extensions/tmt-colab/contracts/colab-v1.md#send-now-4136) owns the
 behavior and wording.

@@ -145,10 +145,17 @@ export const SEND_NOW_STATES = [
 export interface SendNowReply {
   state: (typeof SEND_NOW_STATES)[number];
   reason?: string;
+  /** Core's own sentence for `reason`, drawn as it is: Colab keeps no table of Core's codes. */
+  reasonText?: string;
   messageState?: MessageState;
 }
 /** Core's fault codes are upper-case words (`SEND_NOW_UNREACHABLE`, `DELIVERY_AWAITING_APPROVAL`). */
 const SEND_NOW_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const oneLine = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  !/\p{Cc}/u.test(value) &&
+  new TextEncoder().encode(value).length <= 256;
 export interface RemoteContext {
   machineId: string;
   deviceId: string;
@@ -187,6 +194,7 @@ export interface OperationsSdk {
       state: string;
       requestId?: string;
       reason?: string;
+      reasonText?: unknown;
       messageState?: unknown;
     }>;
     listAgents(): Promise<
@@ -444,10 +452,14 @@ export async function createRemoteClient(
         typeof reply?.reason === 'string' && SEND_NOW_CODE.test(reply.reason)
           ? reply.reason
           : undefined;
+      // Core's sentence is one plain line for the code it travels with, drawn as text; any other
+      // value, or one without its code, is not shown.
+      const reasonText = reason && oneLine(reply?.reasonText) ? reply.reasonText : undefined;
       const messageState = parseMessageState(reply?.messageState);
       return {
         state: known ?? 'unconfirmed',
         ...(reason ? { reason } : {}),
+        ...(reasonText ? { reasonText } : {}),
         ...(messageState ? { messageState } : {}),
       };
     },
