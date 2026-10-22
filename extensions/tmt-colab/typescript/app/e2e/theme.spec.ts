@@ -64,11 +64,14 @@ async function choose(page: Page, theme: 'light' | 'dark') {
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 }
 
-for (const width of [1280, 1440, 390]) {
+// The page's column is the shell's main area, beside the rail and module menu (the whole window
+// on a phone), so the 1280 px cap shows from a 1730 px window up.
+for (const width of [1280, 1440, 1800, 390]) {
   test(`starter container ${width}: centred cap and shared content width`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ colorScheme: 'light' });
     await mount(page, sample);
+    const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!.width;
     const child = page.frameLocator('#layout-fixture iframe');
     const geometry = await child.locator('body').evaluate((body) => {
       const bounds = body.getBoundingClientRect();
@@ -87,11 +90,12 @@ for (const width of [1280, 1440, 390]) {
         content,
       };
     });
-    expect(geometry.viewport).toBe(width);
-    expect(geometry.width).toBe(Math.min(width, 1280));
-    expect(geometry.x).toBe((width - geometry.width) / 2);
+    expect(column).toBe(width < 900 ? width : width - 450);
+    expect(geometry.viewport).toBe(column);
+    expect(geometry.width).toBe(Math.min(column, 1280));
+    expect(geometry.x).toBe((column - geometry.width) / 2);
     expect(geometry.gutter).toBe(16);
-    expect(geometry.scrollWidth).toBe(width);
+    expect(geometry.scrollWidth).toBe(column);
     for (const block of geometry.content) {
       expect(block.x, block.selector).toBe(geometry.x + geometry.gutter);
       expect(block.width, block.selector).toBe(geometry.width - 2 * geometry.gutter);
@@ -138,10 +142,12 @@ for (const width of [1440, 390]) {
         await page.emulateMedia({ colorScheme: os === 'dark' ? 'light' : 'dark' });
         await palette(page, theme);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        await page
-          .locator('#layout-fixture')
-          .getByRole('link', { name: /^Colab · local/ })
-          .click();
+        // Back to the list: the module crumb, or under 480px (where the shell clips that crumb) the
+        // module menu's All pages.
+        const fixture = page.locator('#layout-fixture');
+        if (width < 480)
+          await fixture.locator('.tmt-ui-module-menu a', { hasText: 'All pages' }).click();
+        else await fixture.getByRole('link', { name: /^Colab · local/ }).click();
         await expect(frame).toHaveCount(0);
         await page
           .locator('#layout-fixture')

@@ -160,6 +160,21 @@ pub(crate) enum Revocation {
     MembershipChanged,
 }
 
+/// A projected title (already one line of display text) cut to a card's length, ending in an
+/// ellipsis when cut.
+fn card_title(title: &str) -> String {
+    if title.chars().count() <= CARD_TITLE_SCALARS {
+        return title.to_owned();
+    }
+    let kept: String = title.chars().take(CARD_TITLE_SCALARS - 1).collect();
+    format!("{}\u{2026}", kept.trim_end())
+}
+
+/// Recent pages Colab offers the TMT web shell's Home.
+const HOME_CARDS: usize = 5;
+/// A Home card's title, in Unicode scalars, ellipsis included.
+const CARD_TITLE_SCALARS: usize = 40;
+
 /// What one browser catalog read holds, read in one store transaction.
 struct CatalogRead {
     catalog: serde_json::Value,
@@ -425,12 +440,57 @@ impl Registration {
             "version":1,
             "rail":{"label":"Colab","icon":"file-text","path":"/","order":100},
             "menu":[{"id":"pages","label":"Pages","path":"/","count":{"value":pages.len(),"kind":"plain"}}],
-            "settings":[]
+            "settings":[],
+            // The one TMT app imports this module from the owner's mount (#3937).
+            "entry":"/assets/colab-module.js"
         });
         if let Some(needs_you) = needs_you {
             answer["needsYou"] = serde_json::json!(needs_you);
         }
+        let home = self.home_cards(&pages);
+        if !home.is_empty() {
+            answer["home"] = serde_json::json!(home);
+        }
         serde_json::to_vec(&answer).map_err(|_| Code::Unavailable)
+    }
+    /// Home's "Recent pages": the most recently active open pages that have a title in the local
+    /// projection (#4218), newest first. Grant rule: describe answers only the owner's own socket,
+    /// and Remote composes it only for a live owner-device session, so every viewer can already read
+    /// these pages; a page without a current title gets no card rather than a placeholder. This read
+    /// only selects; the owner's folds keep the projection.
+    fn home_cards(&self, pages: &[&serde_json::Value]) -> Vec<serde_json::Value> {
+        let Ok(stored) =
+            self.store
+                .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                    tx.page_titles()
+                })
+        else {
+            return Vec::new();
+        };
+        let recency = |page: &serde_json::Value| {
+            page["lastActivityAtMs"]
+                .as_u64()
+                .max(page["lastUpdateAtMs"].as_u64())
+        };
+        let mut recent: Vec<_> = pages
+            .iter()
+            .filter_map(|page| {
+                let id = page["pageId"].as_str()?;
+                Some((recency(page), id, stored.get(id)?))
+            })
+            .collect();
+        recent.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+        recent
+            .into_iter()
+            .take(HOME_CARDS)
+            .map(|(_, id, title)| {
+                serde_json::json!({
+                    "id": id.replace('-', ""),
+                    "title": card_title(title),
+                    "path": format!("/pages/{id}"),
+                })
+            })
+            .collect()
     }
     /// The caller serializes management with sync before taking this mutex.
     pub fn apply_owner(
@@ -1638,6 +1698,89 @@ mod describe_tests {
         assert_eq!(list[top]["summary"]["work"]["stage"], "in-progress");
         assert_eq!(list[top]["summary"]["work"]["done"], 1);
         assert!(list[leaf].get("summary").is_none());
+    }
+
+    #[test]
+    fn describe_offers_home_cards_only_for_pages_with_a_current_projected_title() {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "colab-home-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let store = Store::open(&layout).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let mut service =
+            Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap();
+        let pages: Vec<String> = (2..=8)
+            .map(|n| format!("00000000-0000-4000-8000-00000000000{n}"))
+            .collect();
+        for page in &pages {
+            service.store.create_page(page).unwrap();
+        }
+        service.genesis().unwrap();
+        let space = service.keyring.space_id.clone();
+        let owner = service.keyring.owner_public();
+        service
+            .store
+            .device_transaction(&space, &owner, |tx| {
+                for page in &pages {
+                    tx.put_epoch_secret(page, 1, &[1; 32])?;
+                }
+                Ok(b"open".to_vec())
+            })
+            .unwrap();
+        let (_, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
+        let home = |service: &Registration| -> serde_json::Value {
+            serde_json::from_slice::<serde_json::Value>(&service.describe().unwrap())
+                .unwrap()
+                .get("home")
+                .cloned()
+                .unwrap_or_default()
+        };
+        // No projected title yet: no card and no placeholder.
+        assert_eq!(home(&service), serde_json::Value::Null);
+        let long = "A title that runs well past the forty scalars a card shows";
+        for (n, page) in pages.iter().enumerate().skip(1) {
+            let title = if n == 1 {
+                long.to_owned()
+            } else {
+                format!("Page {n}")
+            };
+            let recorded = service
+                .store
+                .project_transaction(&space, &owner, |tx| {
+                    tx.record_page_title(page, &fingerprints[page.as_str()], &title)
+                })
+                .unwrap();
+            assert!(recorded, "{page}");
+        }
+        let cards = home(&service);
+        let cards = cards.as_array().unwrap();
+        // At most five cards; the page without a title (pages[0]) is never one.
+        assert_eq!(cards.len(), HOME_CARDS);
+        assert!(
+            cards
+                .iter()
+                .all(|card| card["path"] != format!("/pages/{}", pages[0]))
+        );
+        for card in cards {
+            let title = card["title"].as_str().unwrap();
+            assert!(title.chars().count() <= CARD_TITLE_SCALARS, "{title}");
+            let id = card["path"].as_str().unwrap().trim_start_matches("/pages/");
+            assert_eq!(card["id"], id.replace('-', ""));
+        }
+        assert_eq!(card_title(long).chars().count(), CARD_TITLE_SCALARS);
+        assert!(card_title(long).ends_with('\u{2026}'));
+        assert_eq!(card_title("Page 3"), "Page 3");
     }
 
     #[test]

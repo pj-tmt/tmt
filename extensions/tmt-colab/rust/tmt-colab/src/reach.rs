@@ -46,7 +46,7 @@ impl Reach {
     pub fn short_link(&self, path: &str) -> Option<String> {
         let id = self.short_id(path)?;
         match &self.lookup {
-            Lookup::Running(door) => Some(format!("{}/p/{id}", door.origin())),
+            Lookup::Running(door) => Some(format!("{}/colab/p/{id}", door.origin())),
             _ => None,
         }
     }
@@ -66,7 +66,7 @@ impl Reach {
     pub fn link(&self, path: &str) -> Option<String> {
         match &self.lookup {
             Lookup::Running(door) => Some(match self.short_id(path) {
-                Some(id) => format!("{}/p/{id}", door.origin()),
+                Some(id) => format!("{}/colab/p/{id}", door.origin()),
                 None if path.starts_with("/read/") => format!("{}{}", door.origin(), path),
                 None => format!("{}/colab/", door.origin()),
             }),
@@ -78,7 +78,7 @@ impl Reach {
         if let Some(id) = self.short_id(path) {
             return self
                 .short_link(path)
-                .unwrap_or_else(|| self.hint(&format!("/p/{id}")));
+                .unwrap_or_else(|| self.hint(&format!("/colab/p/{id}")));
         }
         self.link(path).unwrap_or_else(|| {
             self.hint(if path.starts_with("/read/") {
@@ -102,7 +102,7 @@ impl Reach {
     pub fn annotate_link(&self, value: &mut Value, path: &str) {
         value["path"] = json!(
             self.short_id(path)
-                .map(|id| format!("/p/{id}"))
+                .map(|id| format!("/colab/p/{id}"))
                 .unwrap_or_else(|| "/colab/".to_owned())
         );
         value["link"] = json!(self.link(path));

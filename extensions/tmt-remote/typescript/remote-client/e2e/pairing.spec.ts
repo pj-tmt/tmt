@@ -516,7 +516,8 @@ test('native automatic opening is single-use, strips history and reuses a paired
   expect(response?.headers()['referrer-policy']).toBe('no-referrer');
   expect(response?.headers()['content-security-policy']).toContain("'sha256-");
   expect(response?.headers()['content-security-policy']).not.toContain("'unsafe-inline'");
-  await page.waitForURL(`${origin}/p/abcd`);
+  // The short page link now redirects into the one TMT app.
+  await page.waitForURL(`${origin}/colab/p/abcd`);
   const list = () =>
     JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })) as {
       devices: { clientId: string; origin: string; issuedAtMs: number; scopes: string[] }[];
@@ -650,41 +651,50 @@ test('short public entries preserve the browser URL and map the SDK mount withou
   const network: string[] = [];
   const mount = `${new URL(mounts).pathname}colab/`;
   page.on('request', (request) => network.push(request.url()));
-  for (const path of ['/colab', '/colab/', '/p/abcd#t=thread-canary', '/read/abcd#read-canary']) {
-    const address = `${origin}${path}`;
-    const response = await page.goto(address);
-    expect(response?.status()).toBe(200);
-    expect(response?.request().redirectedFrom()).toBeNull();
-    expect(page.url()).toBe(address);
-    await expect(page.locator('#context')).toHaveText('none');
-    const lookup = await page.evaluate(() =>
+  const lookup = () =>
+    page.evaluate(() =>
       fetch('/sdk/mount', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: location.pathname }),
       }).then((reply) => reply.json()),
     );
-    expect(lookup).toEqual({
-      machineId: expect.any(String),
-      windowId: expect.any(String),
-      address: mounts.slice(0, -3),
-      extension: 'colab',
-      mount,
-    });
-    expect((await page.reload())?.status()).toBe(200);
+  const colab = {
+    machineId: expect.any(String),
+    windowId: expect.any(String),
+    address: mounts.slice(0, -3),
+    extension: 'colab',
+    mount,
+  };
+  // `/colab/...` is a route of the one TMT app: the door serves the app document itself and
+  // forwards nothing; `/sdk/mount` still names Colab's mount for it.
+  for (const path of ['/colab', '/colab/']) {
+    const address = `${origin}${path}`;
+    const response = await page.goto(address);
+    expect(response?.status()).toBe(200);
+    expect(response?.request().redirectedFrom()).toBeNull();
     expect(page.url()).toBe(address);
-    await expect(page.locator('#context')).toHaveText('none');
+    await expect(page.locator('.tmt-ui-shell')).toBeVisible();
+    expect(await lookup()).toEqual(colab);
   }
-  expect(publicHeads.map((head) => head.split(' ')[1])).toEqual([
-    '/',
-    '/',
-    '/',
-    '/',
-    '/p/abcd',
-    '/p/abcd',
-    '/read/abcd',
-    '/read/abcd',
-  ]);
+  // A short page link redirects into the app; the browser keeps its fragment.
+  const short = await page.goto(`${origin}/p/abcd#t=thread-canary`);
+  expect(short?.status()).toBe(200);
+  expect(short?.request().redirectedFrom()?.url()).toBe(`${origin}/p/abcd`);
+  expect(page.url()).toBe(`${origin}/colab/p/abcd#t=thread-canary`);
+  expect(await lookup()).toEqual(colab);
+  // The reader stays the forwarded public entry, its URL untouched.
+  const address = `${origin}/read/abcd#read-canary`;
+  const response = await page.goto(address);
+  expect(response?.status()).toBe(200);
+  expect(response?.request().redirectedFrom()).toBeNull();
+  expect(page.url()).toBe(address);
+  await expect(page.locator('#context')).toHaveText('none');
+  expect(await lookup()).toEqual(colab);
+  expect((await page.reload())?.status()).toBe(200);
+  expect(page.url()).toBe(address);
+  await expect(page.locator('#context')).toHaveText('none');
+  expect(publicHeads.map((head) => head.split(' ')[1])).toEqual(['/read/abcd', '/read/abcd']);
   for (const head of publicHeads) {
     expect(head).toContain(`tmt-mount: ${mount}\r\n`);
     expect(head).not.toMatch(/^cookie:|^tmt-device-context:|^tmt-origin:|^upgrade:/im);
@@ -693,10 +703,10 @@ test('short public entries preserve the browser URL and map the SDK mount withou
   expect(network.every((url) => !url.includes('#'))).toBe(true);
   // BFCache restoration need not return a new network response.
   await page.goBack();
-  expect(page.url()).toBe(`${origin}/p/abcd#t=thread-canary`);
-  await expect(page.locator('#context')).toHaveText('none');
+  expect(page.url()).toBe(`${origin}/colab/p/abcd#t=thread-canary`);
   await page.goForward();
-  expect(page.url()).toBe(`${origin}/read/abcd#read-canary`);
+  expect(page.url()).toBe(address);
+  await expect(page.locator('#context')).toHaveText('none');
   await page.close();
 });
 
@@ -901,7 +911,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   // The page removed the fragment before anything else ran.
   await page.waitForFunction(() => location.hash === '');
   await page.fill('#name', 'E2E browser');
-  await page.click('button');
+  await page.click('button[type="submit"]');
   await expect(page.locator('#words')).toBeVisible();
   const candidate = await events.next();
   expect(candidate.event).toBe('candidate');
@@ -1005,6 +1015,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'pairingPage',
     'remoteRegistry',
     'reopenSession',
+    'shellApp',
     'syncDocumentPath',
     'transportUrl',
     'validateSyncDiscovery',
@@ -1357,7 +1368,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
   );
   const testInfo = test.info();
   const favicon = await readFile(
-    new URL('../../../../../design/browser-ui/src/favicon.svg', import.meta.url),
+    new URL('../../../../../design/browser-ui/generated/favicon.svg', import.meta.url),
   );
   const iconEvidence: { scheme: string; sha256: string; path: string }[] = [];
   const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
@@ -1398,14 +1409,13 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             context.fillRect(0, 0, 32, 32);
             context.drawImage(image, 0, 0, 32, 32);
             return {
-              pixel: [...context.getImageData(10, 4, 1, 1).data],
+              // Inside the mark's terminal panel, above the prompt: the panel keeps one colour.
+              pixel: [...context.getImageData(3, 10, 1, 1).data],
               corner: [...context.getImageData(0, 0, 1, 1).data],
               png: canvas.toDataURL('image/png').split(',')[1]!,
             };
           });
-          expect(icon.pixel).toEqual(
-            colorScheme === 'light' ? [17, 17, 17, 255] : [255, 255, 255, 255],
-          );
+          expect(icon.pixel).toEqual([14, 17, 22, 255]);
           expect(icon.corner).toEqual(
             colorScheme === 'light' ? [255, 255, 255, 255] : [17, 17, 17, 255],
           );
@@ -1438,7 +1448,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             await expect(page.locator('#notice')).not.toContainText('tmt remote pair');
           }
           await expect(page.locator('.state-mark')).toHaveText(
-            { landing: '○', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
+            { landing: '', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
           );
           const look = await page.evaluate(() => {
             const sheet = document.querySelector('.sheet')!;
@@ -1454,10 +1464,14 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                     size: font.fontSize,
                     weight: font.fontWeight,
                     left: element.getBoundingClientRect().left,
+                    // A visually hidden part keeps its node and name but clips its box away.
+                    clipped:
+                      getComputedStyle(element.closest('.tmt-ui-brand') ?? element).clipPath !==
+                      'none',
                   };
                 };
                 return {
-                  width: box.width,
+                  width: Math.round(box.width),
                   height: box.height,
                   top: box.top,
                   position: getComputedStyle(header).position,
@@ -1515,18 +1529,25 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             state === 'pairing' || state === 'confirmation' ? [pairingBootstrap] : [],
           );
           expect(look.shadow).toBe('none');
-          await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
-          // Colab's header, from the same tokens: mark, product, then the page title.
+          // The landing page states connection in words only, in the neutral tone.
+          if (state !== 'landing')
+            await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
+          // Colab's header, from the same tokens: mark, product, then the page title. Inside the
+          // shell it follows the TMT mark in the one header row (TMT · Remote / …); the refusal
+          // page keeps the fixed full-width header.
           const header = look.header;
+          const brand = page.locator('.tmt-ui-shell-brand');
+          const beside = width <= 900 || state === 'error' ? 0 : (await brand.boundingBox())!.width;
           expect(header).toMatchObject({
-            width,
+            width: state === 'error' ? width : Math.round(width - beside),
             height: parseFloat(headerTokens[width < 480 ? 'compact-height' : 'height']!),
             top: 0,
-            position: 'fixed',
+            position: state === 'error' ? 'fixed' : 'static',
             rule: '1px',
             background: tokenRgb('surface', 'sheet', colorScheme),
             markViewBox: '0 0 96 96',
-            markPaths: 1,
+            // The static brand mark (design/browser-ui/generated/brand-mark-static.svg).
+            markPaths: 5,
             wordmarkText: 'Remote',
             headings: 1,
           });
@@ -1534,8 +1555,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             size: headerTokens['mark-size'],
             weight: headerTokens['mark-weight'],
           });
+          // In the shell the breadcrumb's segments share the title's size (TMT · Remote / …).
           expect(header.wordmark).toMatchObject({
-            size: headerTokens['wordmark-size'],
+            size: headerTokens[state === 'error' ? 'wordmark-size' : 'title-size'],
             weight: headerTokens['wordmark-weight'],
           });
           expect(header.title).toMatchObject({
@@ -1543,7 +1565,11 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             weight: headerTokens['title-weight'],
           });
           expect(header.mark.left).toBeLessThan(header.wordmark.left);
-          expect(header.wordmark.left).toBeLessThan(header.title.left);
+          // A phone's shell gives the title the row: the module crumb keeps its link for assistive
+          // technology but no box (shell.css), so only wider rows order it before the title.
+          const phoneShell = width < 480 && state !== 'error';
+          expect(header.wordmark.clipped).toBe(phoneShell);
+          if (!phoneShell) expect(header.wordmark.left).toBeLessThan(header.title.left);
           await captureState(
             page,
             state,
@@ -1580,7 +1606,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
         expect(candidate.event).toBe('candidate');
         await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'waiting');
-        await expect(page.locator('.words-label')).toHaveText('Words to compare');
+        await expect(page.locator('.words-label')).toHaveText('Four words to compare');
         await expect(page.locator('#status')).toHaveText(
           'Waiting for confirmation in your terminal. Compare these words and confirm only if they match.',
         );
@@ -1592,6 +1618,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           outerOutline: getComputedStyle(document.getElementById('comparison')!).outlineStyle,
           wordsBorder: getComputedStyle(document.getElementById('words')!).borderTopWidth,
           wordsOutline: getComputedStyle(document.getElementById('words')!).outlineStyle,
+          wordsEdge: getComputedStyle(document.getElementById('words')!).borderTopColor,
           labelInside: document
             .getElementById('words')!
             .contains(document.querySelector('.words-label')),
@@ -1602,7 +1629,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
         expect(confirmation.labelInside).toBe(false);
         expect(confirmation.outerOutline).toBe('none');
         expect(confirmation.wordsBorder).toBe('1px');
-        expect(confirmation.wordsOutline).toBe('solid');
+        // Keyboard focus recolours the words' 1px rule, as a field's focus does.
+        expect(confirmation.wordsOutline).toBe('none');
+        expect(confirmation.wordsEdge).toBe(tokenRgb('color', 'focus', colorScheme));
         await inspect('confirmation');
         await page.locator('#heading').click();
         const pointerComparison = await page.locator('#words').evaluate((words) => {
@@ -1686,14 +1715,9 @@ test('the native entry checks once and presents all seven evidenced states witho
       );
   };
   const captureEntry = async (state: string): Promise<void> => {
-    await expect(page.locator('#notice')).toHaveAttribute(
-      'data-tone',
-      state === 'connected'
-        ? 'working'
-        : ['not-paired', 'checking', 'different-machine'].includes(state)
-          ? 'waiting'
-          : 'blocked',
-    );
+    // Remote connection states are words only, in the neutral tone (the agent marks' tones mean
+    // agent states, not these).
+    await expect(page.locator('#notice')).toHaveAttribute('data-tone', 'neutral');
     await expect(page.locator('#command-pair, #command-devices, #command-status')).toHaveCount(0);
     const commands = page.locator('.entry-steps:visible code');
     const expected = ['not-accepted', 'pairing-unreadable', 'checking', 'connected'].includes(state)
@@ -2227,7 +2251,7 @@ test('bare pairing is read only and settings explicitly enables audited sending'
   const page = await context.newPage();
   await page.goto(offer.link as string);
   await page.fill('#name', 'Settings browser');
-  await page.click('button');
+  await page.click('button[type="submit"]');
   await expect(page.locator('#words')).toBeVisible();
   await events.next();
   pair.stdin.write('confirm\n');
@@ -2354,7 +2378,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   const page = await context.newPage();
   await page.goto(offer.link as string);
   await page.fill('#name', 'Settings browser');
-  await page.click('button');
+  await page.click('button[type="submit"]');
   await expect(page.locator('#words')).toBeVisible();
   await events.next();
   pair.stdin.write('confirm\n');
@@ -2800,7 +2824,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     release();
   }
   await expect(page.locator('#outcome')).toHaveText(
-    'This change could not be confirmed. Check its original result before making another change.',
+    'This change could not be confirmed. Check the saved value before making another change.',
   );
   await expect(name).toHaveValue('Unsent next name');
   expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
@@ -2812,7 +2836,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   );
   await name.press('Enter');
   expect(renameCalls).toBe(1);
-  await expect(page.locator('#original')).toHaveText(/^Original operation [0-9a-f-]{36}$/);
+  await expect(page.locator('#original')).toHaveText(/^Original change [0-9a-f-]{36}$/);
   try {
     await page.click('#recover');
     await recovery.reached;
@@ -2910,7 +2934,7 @@ test('settings pagination retains later-page drafts across refresh and guards na
   const page = await context.newPage();
   await page.goto(offer.link as string);
   await page.fill('#name', 'Pagination browser');
-  await page.click('button');
+  await page.click('button[type="submit"]');
   await expect(page.locator('#words')).toBeVisible();
   await events.next();
   pair.stdin.write('confirm\n');
@@ -2957,7 +2981,7 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await chooseSetting(page, 'opening', 'on');
   await page.click('#opening-form button[type=submit]');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'unknown');
-  await expect(page.locator('#original')).toHaveText(/^Original operation [0-9a-f-]{36}$/);
+  await expect(page.locator('#original')).toHaveText(/^Original change [0-9a-f-]{36}$/);
   await page.click('#recover');
   await expect(page.locator('#opening-value')).toHaveText('On · settings.json');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
@@ -3080,7 +3104,7 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
   const page = await context.newPage();
   await page.goto(offer.link as string);
   await page.fill('#name', 'Crash browser');
-  await page.click('button');
+  await page.click('button[type="submit"]');
   await expect(page.locator('#words')).toBeVisible();
   await events.next();
   pair.stdin.write('confirm\n');
@@ -3148,7 +3172,7 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
     'settings-crash-unknown',
     'Actual joined serve SIGKILL with original unknown; no resubmission',
   );
-  await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
+  await expect(page.locator('#original')).toHaveText(`Original change ${originalId}`);
   // The killed task is joined above. Only this disposable root/owned serve restarts.
   serve = spawn(BINARY, ['serve', '--json'], { env });
   const restarted = await lines(serve).next();
@@ -3258,7 +3282,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   const page = await context.newPage();
   await page.goto(offer.link as string);
   await page.fill('#name', 'Firestore browser');
-  await page.click('button');
+  await page.click('button[type="submit"]');
   await expect(page.locator('#words')).toBeVisible();
   await events.next();
   pair.stdin.write('confirm\n');
@@ -3677,7 +3701,7 @@ async function feedbackFixture(width: number, theme: 'light' | 'dark') {
   const page = await context.newPage();
   await page.goto(offer.link as string);
   await page.fill('#name', 'Feedback browser');
-  await page.click('button');
+  await page.click('button[type="submit"]');
   await expect(page.locator('#words')).toBeVisible();
   await events.next();
   pair.stdin.write('confirm\n');
@@ -3978,12 +4002,14 @@ for (const [width, theme] of [
           ),
         });
       }
-      await page.locator('#remote-switcher .remote-chip').click();
-      await expect(page.getByRole('menuitemradio', { name: /^Open foreign/ })).toBeDisabled();
-      await expect(page.locator('#remote-menu-reason')).toHaveText(
+      await page.mouse.move(1000, 600);
+      await page.locator('.tmt-ui-module-menu').hover();
+      const foreign = page.locator('.tmt-ui-module-menu a', { hasText: /^Open foreign/ });
+      await expect(foreign).toHaveAttribute('aria-disabled', 'true');
+      await expect(foreign).toHaveAttribute(
+        'title',
         'A request is in progress. Wait for its outcome.',
       );
-      await page.keyboard.press('Escape');
       await name.focus();
       await expect(name).toBeFocused();
       await name.fill('Unsent next draft');
@@ -3993,30 +4019,36 @@ for (const [width, theme] of [
     }
     await joined.reached;
     await expect(slot).toHaveText(
-      'This change could not be confirmed. Check its original result before making another change.',
+      'This change could not be confirmed. Check the saved value before making another change.',
     );
     await expect(slot).toHaveAttribute('data-state', 'unknown');
     await expect(name).toBeFocused();
     await expect(name).toHaveValue('Unsent next draft');
-    await page.locator('#remote-switcher .remote-chip').click();
-    await expect(page.getByRole('menuitemradio', { name: /^Open foreign/ })).toBeDisabled();
-    await expect(page.locator('#remote-menu-reason')).toHaveText(
-      'Another change is still unconfirmed. Check its original result first.',
+    await page.locator('.tmt-ui-module-menu').hover();
+    const foreign = page.locator('.tmt-ui-module-menu a', { hasText: /^Open foreign/ });
+    await expect(foreign).toHaveAttribute('aria-disabled', 'true');
+    await expect(foreign).toHaveAttribute(
+      'title',
+      'Another change is still unconfirmed. Check the saved value first.',
     );
-    await expect(page.getByRole('menuitem', { name: 'Add remote…' })).toBeEnabled();
-    await expect(page.getByRole('menuitem', { name: 'Manage remotes' })).toBeEnabled();
-    await page.keyboard.press('Escape');
+    const menu = page.locator('.tmt-ui-module-menu');
+    await expect(menu.getByRole('link', { name: 'Add remote…' })).not.toHaveAttribute(
+      'aria-disabled',
+    );
+    await expect(menu.getByRole('link', { name: 'Remote settings' })).toBeVisible();
+    // On a phone the module menu is tabs at the top; hovering it scrolled there, so return.
+    await row.evaluate((form) => scrollTo(0, form.getBoundingClientRect().top + scrollY - 70));
     await name.focus();
     const originalId = writes.at(-1)!.input.operationId;
-    await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
+    await expect(page.locator('#original')).toHaveText(`Original change ${originalId}`);
     await expect(row.locator(`#device-reason-${targetId}`)).toBeEmpty();
     await expect(row.locator(`#device-reason-${targetId}`)).toBeHidden();
     for (const otherId of [clientId, '00000000-0000-4000-8000-000000000002'])
       await expect(page.locator(`#device-reason-${otherId}`)).toHaveText(
-        'Another change is still unconfirmed. Check its original result first.',
+        'Another change is still unconfirmed. Check the saved value first.',
       );
     await expect(
-      row.getByRole('button', { name: 'Check original result', exact: true }),
+      row.getByRole('button', { name: 'Check the saved value', exact: true }),
     ).toBeVisible();
     await captureState(
       page,
@@ -4202,7 +4234,7 @@ for (const [width, theme] of [
     await page.locator('#pair button').press('Enter');
     await expect(page.locator('#comparison')).toBeVisible();
     await expect(page.locator('#comparison')).toBeFocused();
-    await expect(page.locator('#comparison')).toHaveAccessibleName('Words to compare');
+    await expect(page.locator('#comparison')).toHaveAccessibleName('Four words to compare');
     await captureState(
       page,
       'a11y-pair-waiting',
@@ -4414,7 +4446,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await sdk('add', ['desk', `${secondOrigin}/`]);
       await page.reload();
       await expect(page.locator('#state-label')).toHaveText('Connected');
-      await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('● Connected');
+      await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('Connected');
       await expect(
         page.locator('[data-remote="studio"]').getByRole('button', { name: 'Open' }),
       ).toHaveCount(0);
@@ -4437,7 +4469,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.locator('#remote-add')).toBeFocused();
       await page.locator('#remote-add').click();
       await page.getByLabel('Remote name').fill('spare');
-      await page.getByLabel('Door address or remote link').fill('http://127.0.0.1:9876/');
+      await page.getByLabel('Remote address or link').fill('http://127.0.0.1:9876/');
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Add remote spare?' })).toBeVisible();
       await page.getByRole('button', { name: 'Add', exact: true }).click();
@@ -4612,7 +4644,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
   );
 });
 
-test('static remote switcher preserves menu focus and settings drafts across two origins', async () => {
+test('the Remote module menu lists both origins and keeps settings drafts across them', async () => {
   await withRegistryWorld(async ({ page, secondOrigin, secondEnv, pairAt, identity, sdk }) => {
     await pairAt(secondEnv, 'Registry B');
     await page.goto(`${secondOrigin}/remote/`);
@@ -4622,164 +4654,77 @@ test('static remote switcher preserves menu focus and settings drafts across two
     await page.goto(`${origin}/remote/`);
     await expect(page.locator('#state-label')).toHaveText('Connected');
     const first = await identity();
-    await expect(
-      page.getByRole('button', { name: 'Remote: this machine, connected', exact: true }),
-    ).toBeVisible();
+    const menu = page.locator('.tmt-ui-module-menu');
+    await expect(menu.getByRole('link', { name: 'This machine · connected' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     await sdk('add', ['studio', `${origin}/`]);
     await sdk('add', ['desk', `${secondOrigin}/`]);
     await page.reload();
     await expect(page.locator('#state-label')).toHaveText('Connected');
-    const chip = page.getByRole('button', { name: 'Remote: studio, connected', exact: true });
-    // Safari/iOS and Firefox-mac clicks do not focus buttons. Reproduce that deterministically.
-    await chip.evaluate((button) => {
-      (document.activeElement as HTMLElement | null)?.blur();
-      button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-    const menu = page.getByRole('menu', { name: 'Remotes', exact: true });
-    await expect(menu).toBeVisible();
-    await expect(menu).toHaveAttribute('popover', 'auto');
-    const currentItem = menu.getByRole('menuitemradio', { name: /studio/ });
-    const foreignItem = menu.getByRole('menuitemradio', { name: /^Open desk/ });
-    await expect(currentItem).toHaveAttribute('aria-checked', 'true');
-    await expect(currentItem.locator('[aria-hidden="true"]')).toHaveText('✓');
-    await expect(currentItem).toBeFocused();
-    // Real pointer input must toggle an open auto popover closed, not light-dismiss and reopen.
-    await chip.evaluate((button) => {
-      // Count synchronous open attempts so a transient hidden interval cannot pass this control.
-      const original = indexedDB.open;
-      button.dataset.testRegistryOpens = '0';
-      indexedDB.open = function (...args) {
-        button.dataset.testRegistryOpens = String(Number(button.dataset.testRegistryOpens) + 1);
-        return original.apply(indexedDB, args);
-      };
-      button.addEventListener(
-        'click',
-        () => {
-          queueMicrotask(() => {
-            indexedDB.open = original;
-          });
-        },
-        { once: true },
-      );
-      button.addEventListener(
-        'pointerdown',
-        () => {
-          button.dataset.testPointerdownOpen = String(
-            document.getElementById('remote-menu')!.matches(':popover-open'),
-          );
-        },
-        { once: true },
-      );
-    });
-    await chip.click();
-    await expect(chip).toHaveAttribute('data-test-pointerdown-open', 'true');
-    await expect(chip).toHaveAttribute('data-test-registry-opens', '0');
-    await expect(menu).toBeHidden();
-    await expect(chip).toHaveAttribute('aria-expanded', 'false');
-    await expect(chip).toBeFocused();
-    await chip.click();
-    await expect(menu).toBeVisible();
-    await expect(currentItem).toBeFocused();
-    await expect(menu.locator('button[tabindex="0"]')).toHaveCount(1);
-    await currentItem.press('ArrowDown');
-    await expect(foreignItem).toBeFocused();
-    await foreignItem.press('Home');
-    await expect(currentItem).toBeFocused();
-    await currentItem.press('d');
-    await expect(foreignItem).toBeFocused();
-    await page.keyboard.press('Escape');
-    await chip.press('Enter');
-    await currentItem.press('End');
-    await expect(menu.getByRole('menuitem', { name: 'Manage remotes', exact: true })).toBeFocused();
-    await page.keyboard.press('a');
-    await expect(menu.getByRole('menuitem', { name: 'Add remote…', exact: true })).toBeFocused();
-    await page.keyboard.press('Escape');
-    await expect(menu).toBeHidden();
-    await expect(chip).toBeFocused();
-    await chip.press('ArrowUp');
-    await expect(menu.getByRole('menuitem', { name: 'Manage remotes', exact: true })).toBeFocused();
-    await page.keyboard.press('Home');
-    await page.keyboard.press('Space');
-    await expect(menu).toBeHidden();
-    await chip.press('Enter');
-    await expect(menu).toBeVisible();
-    await page.keyboard.press('Tab');
-    await expect(menu).toBeHidden();
-    expect(
-      await page.locator('#remote-menu').evaluate((node) => node.contains(document.activeElement)),
-    ).toBe(false);
-    await chip.click();
-    await expect(menu).toBeVisible();
-    await page.locator('#check').click();
-    await expect(menu).toBeHidden();
-    await expect(page.locator('#check')).toBeFocused();
-    await expect(page.locator('#state-label')).toHaveText('Connected');
-    await chip.click();
-    await expect(menu).toBeVisible();
-    await page.evaluate(() => {
-      const other = document.createElement('div');
-      other.id = 'other-popover';
-      other.popover = 'auto';
-      document.body.append(other);
-      other.showPopover();
-    });
-    await expect(menu).toBeHidden();
-    await page.evaluate(() => document.getElementById('other-popover')!.remove());
+    const currentItem = menu.getByRole('link', { name: 'studio · connected' });
+    const foreignItem = menu.locator('a', { hasText: /^Open desk/ });
+    await expect(currentItem).toHaveAttribute('aria-current', 'page');
+    await expect(foreignItem).toBeVisible();
+    await expect(foreignItem).not.toHaveAttribute('aria-current');
     const switchCapture = process.env.TMT_REMOTE_SWITCHER_CAPTURE_DIR;
     async function switchShot(state: string, lookAt: string) {
       await captureState(page, state, lookAt, [1440], ['light'], undefined, switchCapture);
       await captureState(page, state, lookAt, [390], ['dark'], undefined, switchCapture);
     }
-    await chip.click();
-    await expect(menu).toBeVisible();
-    await expect(currentItem).toHaveCSS('color', tokenRgb('color', 'working', 'light'));
-    await expect(chip).toHaveCSS('color', tokenRgb('color', 'working', 'light'));
     await switchShot(
       'remote-menu',
-      'Current origin verified; foreign Open neutral; static popover menu roles and actions.',
+      'Current origin verified; foreign Open neutral; module menu rows and actions.',
     );
-    await page.keyboard.press('Escape');
     const ownerDevices = JSON.parse(
       execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
     );
     execFileSync(BINARY, ['devices', 'designate', ownerDevices.devices[0].clientId, '--json'], {
       env,
     });
-    await chip.click();
-    await menu.getByRole('menuitem', { name: 'Manage remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'Remote settings', exact: true }).click();
     await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
     await expect(page.locator('#remotes')).toBeVisible();
-    await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('● Connected');
+    await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('Connected');
+    await expect(menu.getByRole('link', { name: 'Remote settings', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     await switchShot(
       'settings-remotes',
       'Same B1 registry controller reused in settings; no browser default or signed projection.',
     );
-    const settingsChip = page.getByRole('button', {
-      name: 'Remote: studio, connected',
-      exact: true,
-    });
     const ownName = page.getByRole('textbox', { name: /^Device name for Registry A$/ });
     await ownName.fill('Unsent Remote name');
-    await settingsChip.click();
-    await expect(page.getByRole('menuitemradio', { name: /^Open desk/ })).toBeDisabled();
-    await expect(page.locator('#remote-menu-reason')).toHaveText(
+    // The settings route opened in the same document, so the pointer is still on the menu; leave
+    // it, as a person does to type the name, then come back.
+    await page.mouse.move(1000, 600);
+    await menu.hover();
+    await expect(foreignItem).toHaveAttribute('aria-disabled', 'true');
+    await expect(foreignItem).toHaveAttribute(
+      'title',
       'Save or restore the unsent device name before changing pages.',
     );
-    await page.keyboard.press('Escape');
+    // Playwright refuses aria-disabled targets; press it anyway to prove it stays put.
+    await foreignItem.click({ force: true });
+    await expect(page).toHaveURL(`${origin}/remote/settings`);
     await ownName.fill('Registry A');
-    await settingsChip.click();
-    await expect(page.getByRole('menuitemradio', { name: /^Open desk/ })).toBeEnabled();
-    await page.keyboard.press('Escape');
-    await settingsChip.click();
-    await page.getByRole('menuitemradio', { name: /^Open desk/ }).press('Enter');
+    await page.mouse.move(1000, 600);
+    await menu.hover();
+    await expect(foreignItem).not.toHaveAttribute('aria-disabled');
+    await foreignItem.click();
     await expect(
       page.getByRole('heading', { name: 'Add these remotes to this browser?' }),
     ).toBeVisible();
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(page.locator('#state-label')).toHaveText('Connected');
     expect(await identity()).toEqual(second);
-    await page.getByRole('button', { name: 'Remote: desk, connected', exact: true }).click();
-    await page.getByRole('menuitemradio', { name: /^Open studio/ }).press('Space');
+    await expect(menu.getByRole('link', { name: 'desk · connected' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await menu.locator('a', { hasText: /^Open studio/ }).click();
     await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(page.locator('#state-label')).toHaveText('Connected');
@@ -4799,9 +4744,8 @@ test('static remote switcher preserves menu focus and settings drafts across two
     });
     await page.reload();
     await expect(page.locator('#state-label')).toHaveText('Not paired');
-    await page.getByRole('button', { name: 'Remote: studio, not paired', exact: true }).click();
-    await expect(page.getByRole('menuitemradio', { name: /studio/ })).toBeDisabled();
-    await page.getByRole('menuitem', { name: 'Pair again', exact: true }).click();
+    await expect(menu.getByRole('link', { name: 'studio · not paired' })).toBeVisible();
+    await menu.getByRole('link', { name: 'Pair again', exact: true }).click();
     await expect(page.locator('#copy-missing-pair')).toBeFocused();
   });
 });
@@ -4856,48 +4800,150 @@ test('legacy pair redirect retains the auto fragment and erases it before every 
   }
 });
 
-test('Home and TMT settings are navigation-only and fit both sizes and themes', async () => {
+test('Home and TMT settings render in the shell and fit both sizes and themes', async () => {
   const page = await browser.newPage();
   const calls: string[] = [];
   page.on('request', (request) => calls.push(request.url()));
   try {
     await page.goto(`${origin}/`);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Home');
-    await expect(page.getByText('Open a TMT app.', { exact: true })).toBeVisible();
-    for (const [name, href] of [
-      ['Colab', '/colab/'],
-      ['Remote', '/remote/'],
-      ['TMT settings', '/settings/'],
-    ] as const)
-      await expect(page.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
-    expect(await page.locator('script').count()).toBe(0);
-    await captureState(
-      page,
-      'home-scaffold',
-      'Navigation only, approved copy and no dashboard claims',
-      [1440, 390],
-      ['light', 'dark'],
+    const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+    await expect(rail.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
     );
-    await page.getByRole('link', { name: 'TMT settings', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('TMT settings');
-    await expect(
-      page.getByText('Choose an app to open its settings.', { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Remote settings', exact: true })).toHaveAttribute(
+    await expect(rail.getByRole('link', { name: 'Remote', exact: true })).toHaveAttribute(
       'href',
-      '/remote/settings',
+      `${origin}/remote/`,
     );
-    expect(await page.locator('script').count()).toBe(0);
+    await expect(rail.getByRole('link', { name: 'TMT settings', exact: true })).toHaveAttribute(
+      'href',
+      `${origin}/settings/`,
+    );
+    await expect(page.getByRole('heading', { name: '◆ Needs you' })).toBeVisible();
+    await expect(page.locator('#home-needs-note')).not.toHaveText('Checking…');
+    await expect(page.locator('#home-recent-block')).toBeHidden();
+    expect(await page.locator('script').count()).toBe(1);
     await captureState(
       page,
-      'tmt-settings-scaffold',
-      'Visible Remote-settings link and no unsupplied setting',
+      'home-shell',
+      'Rail with Home current; Needs-you rows only from described counts; no recent pages',
       [1440, 390],
       ['light', 'dark'],
     );
-    expect(calls.some((url) => new URL(url).pathname.startsWith('/r/'))).toBe(false);
-    await page.getByRole('link', { name: 'Home', exact: true }).click();
+    await rail.getByRole('link', { name: 'TMT settings', exact: true }).click();
+    // The settings page is sectioned: the module menu lists the sections and the title names
+    // the current one.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('General');
+    const sections = page.locator('.tmt-ui-module-menu');
+    await expect(sections).toHaveAttribute('aria-label', 'TMT settings');
+    for (const label of ['General', 'Identities', 'Modules', 'Drivers & hooks'])
+      await expect(sections.getByRole('link', { name: label, exact: true })).toBeVisible();
+    await expect(sections.getByRole('link', { name: 'General', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(rail.getByRole('link', { name: 'TMT settings', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await captureState(
+      page,
+      'tmt-settings-shell',
+      'Sectioned TMT settings: theme choice; empty until the settings read exists',
+      [1440, 390],
+      ['light', 'dark'],
+    );
+    // The theme is a per-browser choice that applies at once and can return to the device.
+    const themes = page.getByRole('tablist', { name: 'Theme' });
+    await expect(themes.getByRole('tab', { selected: true })).toHaveText('System');
+    await themes.getByRole('tab', { name: 'Dark', exact: true }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await themes.getByRole('tab', { name: 'System', exact: true }).click();
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme');
+    // Without a browser read each section names the terminal command and shows no values.
+    await expect(page.locator('#tmt-settings-section')).toContainText(
+      'TMT settings is not in the browser yet. Run tmt config show in a terminal.',
+    );
+    await expect(page.locator('#tmt-settings-section code')).toHaveText('tmt config show');
+    await expect(page.locator('#tmt-settings-note')).toBeHidden();
+    await expect(page.locator('#tmt-settings-section .tmt-ui-list-row')).toHaveCount(0);
+    // The only route-prefixed read is the owner's composed shell (display data).
+    expect(
+      calls
+        .map((url) => new URL(url).pathname)
+        .filter((path) => path.startsWith('/r/'))
+        .every((path) => path.endsWith('/x/-/shell')),
+    ).toBe(true);
+    await rail.getByRole('link', { name: 'Home', exact: true }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Home');
+  } finally {
+    await page.close();
+  }
+});
+
+test('the rail shows the same items in the same order on every page', async () => {
+  const page = await browser.newPage();
+  try {
+    const rails: string[][] = [];
+    for (const path of ['/', '/remote/', '/remote/settings', '/ops/', '/digest/', '/settings/']) {
+      await page.goto(`${origin}${path}`);
+      const items = page.locator('.tmt-ui-rail .tmt-ui-rail-item');
+      await expect(items).toHaveCount(6);
+      rails.push(await items.evaluateAll((nodes) => nodes.map((node) => node.dataset.id!)));
+    }
+    for (const rail of rails)
+      expect(rail).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
+  } finally {
+    await page.close();
+  }
+});
+
+test('Digest and Ops say which read they wait for and show no invented numbers', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${origin}/digest/`);
+    const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Digest');
+    await expect(rail.getByRole('link', { name: 'Digest', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    // No browser read of usage yet: the page names the terminal command and shows no rows.
+    const usage = page.locator('#usage-note');
+    await expect(usage).toHaveText('Usage is not in the browser yet. Open Digest in tmt ops ui.');
+    await expect(usage.locator('code')).toHaveText('tmt ops ui');
+    await expect(usage.locator('a')).toHaveCount(0);
+    await expect(page.getByRole('tab')).toHaveText(['5m', '1h', '6h', '1d', '7d', '30d']);
+    await expect(page.locator('#usage-rows tr')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('Sample data');
+    await captureState(
+      page,
+      'digest-web',
+      'Empty until the usage read exists',
+      [1440, 390],
+      ['light', 'dark'],
+    );
+    await rail.getByRole('link', { name: 'Ops', exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agents');
+    await expect(page.locator('#ops-note')).toHaveText(
+      'The Ops board is not in the browser yet. Run tmt ops ui in a terminal.',
+    );
+    await expect(page.locator('#ops-note code')).toHaveText('tmt ops ui');
+    await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
+    // The sections stay in the module menu; each is empty the same way.
+    const menu = page.locator('.tmt-ui-module-menu');
+    await menu.getByRole('link', { name: 'Squads', exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Squads');
+    await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('Sample data');
+    await captureState(
+      page,
+      'ops-web',
+      'Empty until the board read exists',
+      [1440, 390],
+      ['light', 'dark'],
+    );
   } finally {
     await page.close();
   }

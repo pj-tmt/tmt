@@ -3,16 +3,31 @@ import { isHostedOrigin } from './hosted-location.js';
 import { validReadingId, type PageHint } from './reading-link.js';
 import { validShellAnchor } from './shell.js';
 
+/** Colab inside the one TMT web app at `/colab/...` (Remote's shell host): the paired mount its
+ * reads go to, or none for the local preview. Set once by the module entry before it renders. */
+let shellMount: URL | null | undefined;
+export function hostInShell(mount: URL | null): void {
+  shellMount = mount;
+}
+/** Whether Colab runs as a route of the one TMT web app (path routes under `/colab/`). */
+export function inShell(): boolean {
+  return shellMount !== undefined;
+}
+
 /** Remote supplies the internal mount; public location carries only a display target. The hosted
- * static origin serves the same paths with no Remote mount, so it is never a public entry. */
+ * static origin serves the same paths with no Remote mount, so it is never a public entry. Inside
+ * the TMT app a paired Colab reads through its mount exactly as a public entry does. */
 export function publicEntry(path = location.pathname, origin = location.origin): boolean {
+  if (shellMount !== undefined) return shellMount !== null;
   return (
     !isHostedOrigin(origin) &&
     (path === '/colab' || path === '/colab/' || /^\/(?:p|read)\/[A-Za-z0-9_-]{4,64}$/.test(path))
   );
 }
 export function entryMount(): URL {
-  const supplied = document.querySelector<HTMLMetaElement>('meta[name="tmt-colab-mount"]')?.content;
+  const supplied =
+    shellMount?.pathname ??
+    document.querySelector<HTMLMetaElement>('meta[name="tmt-colab-mount"]')?.content;
   const url = new URL(supplied ?? location.pathname, location.origin);
   if (
     url.origin !== location.origin ||

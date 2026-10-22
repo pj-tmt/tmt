@@ -8,6 +8,8 @@ import {
   BrowserListRow,
   BrowserMenu,
   BrowserTabs,
+  BrowserCheckbox,
+  type BrowserTab,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import { Archive, ArchiveRestore, ExternalLink, Pin } from 'lucide-react';
@@ -34,6 +36,7 @@ import {
 } from './projects.js';
 import {
   DEFAULT_VIEW,
+  type HomeView,
   HOME_STAGES,
   pageStage,
   stageCounts,
@@ -43,14 +46,16 @@ import {
 } from './list-stage.js';
 import { AUTHOR_BYTES } from './bootstrap.js';
 import { HeaderSlot } from './header-slot.js';
-import { ProjectScopeMenu } from './project-scope-menu.js';
-import { inScope, knownScope, scopeRows, writeScope } from './project-scope.js';
+import { ProjectMenuActionsSlot } from './project-menu-actions.js';
+import { inScope, knownScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
 import { runPageOperations, type PageOperation } from './page-operations.js';
 import { operationStatus } from './page-operation-status.js';
 import { usePageListKeys } from './page-list-keys.js';
+import { useShownRows } from './page-list-rows.js';
 import { BulkBar } from './bulk-bar.js';
+import { NewPageDialog } from './new-page-dialog.js';
 import { pageTitle, pageUpdate } from './page-index.js';
 import {
   editFromSearch,
@@ -335,8 +340,9 @@ function StageEmpty({
 
 export function Home() {
   const space = homeRoute.useLoaderData();
-  const { transport, space: spaceId } = rootRoute.useRouteContext();
+  const { transport } = rootRoute.useRouteContext();
   const slot = useContext(HeaderSlot);
+  const offerProjectActions = useContext(ProjectMenuActionsSlot);
   const search = homeRoute.useSearch();
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
@@ -350,11 +356,13 @@ export function Home() {
   );
   const archived = !!port && search.archived === true;
   // Only the owner app has tabs; a list without them is every active page, as All is.
-  const view: HomeStage | 'archived' = archived
+  const view: HomeView = archived
     ? 'archived'
-    : port
-      ? (search.stage ?? DEFAULT_VIEW)
-      : 'all';
+    : port && search.needs === true
+      ? 'needs'
+      : port
+        ? (search.stage ?? DEFAULT_VIEW)
+        : 'all';
   const sort: PageSort = search.sort ?? 'updated';
   const filter = {
     projects: search.project ?? [],
@@ -383,22 +391,32 @@ export function Home() {
   );
   const stages = stageCounts(activeInScope);
   const unreported = activeInScope.filter((p) => pageStage(p) === undefined).length;
-  const tab = (id: HomeStage | 'archived', label: string) => ({
+  const tab = (id: HomeView, label: string, state?: BrowserTab['state']) => ({
     id,
     tabId: `page-list-tab-${id}`,
     panelId: `page-list-panel-${id}`,
     label,
+    ...(state ? { state } : {}),
   });
+  const waitingInScope = waitingCount(activeInScope);
+  // All first; Needs you is a view of every active page, marked while any waits.
   const viewTabs = [
-    tab('in-progress', t.tabInProgress(stages['in-progress'])),
+    tab('all', t.tabAllCount(activeInScope.length)),
+    tab(
+      'needs',
+      t.tabNeedsYou(waitingInScope),
+      waitingInScope ? { mark: '◆', tone: 'waiting', word: t.tabNeedsYouWaiting } : undefined,
+    ),
     tab('discussion', t.tabDiscussion(stages.discussion)),
+    tab('in-progress', t.tabInProgress(stages['in-progress'])),
     tab('done', t.tabDone(stages.done)),
     tab('archived', t.tabArchived(archivedInScope)),
-    tab('all', t.tabAll),
   ];
   const tabsHost = useRef<HTMLDivElement>(null);
   useScrollEdges(tabsHost, `${Boolean(port)}|${viewTabs.map((item) => item.label).join('|')}`);
   const pages = filterPages(scoped, filter, sort);
+  const listScroll = useRef<HTMLDivElement>(null);
+  const drawn = useShownRows(listScroll, pages.length, JSON.stringify([view, filter, sort, scope]));
   const counts = projectCounts(scoped);
   const waiting = waitingCount(scoped);
   const showNeeds = waiting > 0 || filter.needsYou;
@@ -411,10 +429,15 @@ export function Home() {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
   }
   /** The choice is the default the next visit opens on; All pages removes it. */
-  function chooseScope(name: string | undefined) {
-    writeScope(spaceId, name);
-    setSearch({ scope: name });
-  }
+  // The shell's module menu offers the project dialogs while this list can manage them.
+  useEffect(() => {
+    if (!offerProjectActions || !port) return;
+    offerProjectActions({
+      newProject: () => setDialog({ kind: 'new', initial: [] }),
+      manage: () => setDialog({ kind: 'manage' }),
+    });
+    return () => offerProjectActions(undefined);
+  }, [offerProjectActions, port]);
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
   const lastApplied = useRef(applied);
@@ -448,14 +471,16 @@ export function Home() {
     }
   }
   /** The route search of a tab: the default is the absence of both, and a stage leaves Archived. */
-  function stageSearch(stage: HomeStage | 'archived'): Partial<HomeSearch> {
+  function stageSearch(stage: HomeView): Partial<HomeSearch> {
     return {
-      stage: stage === 'archived' || stage === DEFAULT_VIEW ? undefined : stage,
+      stage:
+        stage === 'archived' || stage === 'needs' || stage === DEFAULT_VIEW ? undefined : stage,
       archived: stage === 'archived' ? true : undefined,
+      needs: stage === 'needs' ? true : undefined,
     };
   }
   /** A tab click rewrites the stage: a `stage:name` still typed in the draft goes, so there is one. */
-  function chooseView(id: HomeStage | 'archived') {
+  function chooseView(id: HomeView) {
     const typed = searchFromEdit(edit);
     const { q, stage } = takeStage(typed.q);
     if (stage) {
@@ -477,6 +502,7 @@ export function Home() {
   >();
   const [operation, setOperation] = useState<{ kind: PageOperation; pages: PageSummary[] }>();
   const [operating, setOperating] = useState(false);
+  const [newPage, setNewPage] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   // Only pages the list shows count: a filter, a tab or a refresh drops the rest from the selection.
   const chosen = pages.filter((page) => selectedIds.has(page.id));
@@ -596,50 +622,32 @@ export function Home() {
     filter.needsYou;
   const content = (
     <>
-      {(counts.length > 0 || showNeeds) && (
+      {/* Projects filter from the module menu and `project:` in the search; a list without tabs
+          (no management port) keeps Needs you here, as the one chip. */}
+      {showNeeds && !port && (
         <ul className="project-filters" aria-label={t.filters}>
-          {showNeeds && (
-            <li>
-              <button
-                type="button"
-                className="project-filter-button needs-filter-button"
-                data-needs-filter
-                aria-pressed={filter.needsYou}
-                aria-label={t.needsYouFilter(waiting)}
-                onClick={(event) => {
-                  if (event.isTrusted) setSearch({ needs: filter.needsYou ? undefined : true });
-                }}
-              >
-                <span>
-                  <span className="needs-filter-mark" aria-hidden="true">
-                    ◆
-                  </span>{' '}
-                  {t.needsYou}
-                </span>
-                <span className="project-count" aria-hidden="true">
-                  {waiting}
-                </span>
-              </button>
-            </li>
-          )}
-          {counts.map(({ name, count }) => (
-            <li key={name}>
-              <button
-                type="button"
-                className="project-filter-button"
-                aria-pressed={filter.projects.includes(name)}
-                aria-label={t.projectFilter(name, count)}
-                onClick={(event) => {
-                  if (event.isTrusted) replaceDraft(toggleProject(edit, name));
-                }}
-              >
-                <span>{name}</span>
-                <span className="project-count" aria-hidden="true">
-                  {count}
-                </span>
-              </button>
-            </li>
-          ))}
+          <li>
+            <button
+              type="button"
+              className="project-filter-button needs-filter-button"
+              data-needs-filter
+              aria-pressed={filter.needsYou}
+              aria-label={t.needsYouFilter(waiting)}
+              onClick={(event) => {
+                if (event.isTrusted) setSearch({ needs: filter.needsYou ? undefined : true });
+              }}
+            >
+              <span>
+                <span className="needs-filter-mark" aria-hidden="true">
+                  ◆
+                </span>{' '}
+                {t.needsYou}
+              </span>
+              <span className="project-count" aria-hidden="true">
+                {waiting}
+              </span>
+            </button>
+          </li>
         </ul>
       )}
       <p
@@ -650,112 +658,119 @@ export function Home() {
         {status?.text}
       </p>
       {pages.length ? (
-        <BrowserList label={text.pages} className="pages">
-          {pages.map((p) => {
-            const updated = pageUpdate(p.lastUpdateAtMs, now);
-            return (
-              <BrowserListRow
-                key={p.id}
-                data-page-id={p.id}
-                data-selected={selectedIds.has(p.id) ? '' : undefined}
-                leading={
-                  port ? (
-                    <input
-                      type="checkbox"
-                      className="page-select"
-                      aria-label={t.selectPage(pageTitle(p))}
-                      checked={selectedIds.has(p.id)}
-                      onChange={() => toggleSelected(p.id)}
-                    />
-                  ) : undefined
-                }
-                title={
-                  <>
-                    {p.pinned && !p.archived ? (
-                      // Display only: the pin button beside the row says it, with its state.
-                      <span className="page-pinned-mark" aria-hidden="true">
-                        <Pin size={14} />
-                      </span>
-                    ) : null}
-                    <HomeTitleLink page={p} hints={titleHints} scope={scope} />
-                    {p.summary?.work ? <PageWork work={p.summary.work} /> : null}
-                    {p.summary?.waiting ? (
-                      <span className="page-waiting" data-waiting>
-                        <span className="page-waiting-mark" aria-hidden="true">
-                          ◆
-                        </span>{' '}
-                        {t.waitingForYou}
-                        {p.summary.needsYou > 0 ? ` · ${p.summary.needsYou}` : ''}
-                      </span>
-                    ) : null}
-                    {p.projects?.length ? (
-                      <ul className="page-projects" aria-label={t.projects}>
-                        {p.projects.map((name) => (
-                          <li key={name}>
-                            <button
-                              type="button"
-                              className="page-project"
-                              aria-pressed={filter.projects.includes(name)}
-                              onClick={(event) => {
-                                if (event.isTrusted) replaceDraft(toggleProject(edit, name));
-                              }}
-                            >
-                              {name}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </>
-                }
-                metadata={
-                  <PageMetadata
-                    author={p.summary?.author}
-                    comments={p.summary?.comments}
-                    updated={updated}
-                  />
-                }
-                state={
-                  p.archived ? text.archived : p.sharing === 'private' ? text.private : text.shared
-                }
-                actions={
-                  port ? (
+        <div className="page-list-scroll" ref={listScroll}>
+          <BrowserList label={text.pages} className="pages">
+            {pages.slice(0, drawn).map((p) => {
+              const updated = pageUpdate(p.lastUpdateAtMs, now);
+              return (
+                <BrowserListRow
+                  key={p.id}
+                  data-page-id={p.id}
+                  data-selected={selectedIds.has(p.id) ? '' : undefined}
+                  leading={
+                    port ? (
+                      <BrowserCheckbox
+                        aria-label={t.selectPage(pageTitle(p))}
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => toggleSelected(p.id)}
+                      />
+                    ) : undefined
+                  }
+                  title={
                     <>
-                      <OpenInNewTabAction page={p} />
-                      <PagePinAction
-                        page={p}
-                        busy={pinning === p.id}
-                        toggle={() => void togglePin(p)}
-                      />
-                      <PageProjectsMenu
-                        page={p}
-                        openRequest={
-                          projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
-                        }
-                        names={projectNames}
-                        toggle={(page, name) => void toggleOnPage(page, name)}
-                        create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
-                      />
-                      <PageArchiveAction
-                        page={p}
-                        operate={() =>
-                          setOperation({
-                            kind: p.archived ? 'page.unarchive' : 'page.archive',
-                            pages: [p],
-                          })
-                        }
-                      />
-                      <PageListActions
-                        page={p}
-                        operate={(kind, page) => setOperation({ kind, pages: [page] })}
-                      />
+                      {p.pinned && !p.archived ? (
+                        // Display only: the pin button beside the row says it, with its state.
+                        <span className="page-pinned-mark" aria-hidden="true">
+                          <Pin size={14} />
+                        </span>
+                      ) : null}
+                      <HomeTitleLink page={p} hints={titleHints} scope={scope} />
+                      {p.summary?.work ? <PageWork work={p.summary.work} /> : null}
+                      {p.summary?.waiting ? (
+                        <span className="page-waiting" data-waiting>
+                          <span className="page-waiting-mark" aria-hidden="true">
+                            ◆
+                          </span>{' '}
+                          {t.waitingForYou}
+                          {p.summary.needsYou > 0 ? ` · ${p.summary.needsYou}` : ''}
+                        </span>
+                      ) : null}
+                      {p.projects?.length ? (
+                        <ul className="page-projects" aria-label={t.projects}>
+                          {p.projects.map((name) => (
+                            <li key={name}>
+                              <button
+                                type="button"
+                                className="page-project"
+                                aria-pressed={filter.projects.includes(name)}
+                                onClick={(event) => {
+                                  if (event.isTrusted) replaceDraft(toggleProject(edit, name));
+                                }}
+                              >
+                                {name}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </>
-                  ) : undefined
-                }
-              />
-            );
-          })}
-        </BrowserList>
+                  }
+                  metadata={
+                    <PageMetadata
+                      author={p.summary?.author}
+                      comments={p.summary?.comments}
+                      updated={updated}
+                    />
+                  }
+                  state={
+                    p.archived
+                      ? text.archived
+                      : p.sharing === 'private'
+                        ? text.private
+                        : text.shared
+                  }
+                  actions={
+                    port ? (
+                      <>
+                        <OpenInNewTabAction page={p} />
+                        <PagePinAction
+                          page={p}
+                          busy={pinning === p.id}
+                          toggle={() => void togglePin(p)}
+                        />
+                        <PageProjectsMenu
+                          page={p}
+                          openRequest={
+                            projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
+                          }
+                          names={projectNames}
+                          toggle={(page, name) => void toggleOnPage(page, name)}
+                          create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
+                        />
+                        <PageArchiveAction
+                          page={p}
+                          operate={() =>
+                            setOperation({
+                              kind: p.archived ? 'page.unarchive' : 'page.archive',
+                              pages: [p],
+                            })
+                          }
+                        />
+                        <PageListActions
+                          page={p}
+                          operate={(kind, page) => setOperation({ kind, pages: [page] })}
+                        />
+                      </>
+                    ) : undefined
+                  }
+                />
+              );
+            })}
+          </BrowserList>
+          <p className="page-list-count" data-page-list-count>
+            {t.showing(Math.min(drawn, pages.length), pages.length)}
+          </p>
+        </div>
       ) : (
         <div className="page-list-empty">
           {filter.stage && scoped.length === 0 && space.pages.length ? (
@@ -783,7 +798,7 @@ export function Home() {
             <p>{t.noActive}</p>
           ) : (
             <p>
-              {text.empty}
+              {text.intro} {text.empty}
               <code className="tmt-ui-code">
                 tmt colab page create --title "Notes" --layout column
               </code>
@@ -795,10 +810,7 @@ export function Home() {
     </>
   );
   return (
-    <section className="home" ref={section}>
-      <p className="eyebrow">{text.pages}</p>
-      <h1>{space.title}</h1>
-      <p className="intro">{text.intro}</p>
+    <section className="home" data-page-list ref={section}>
       {chosen.length > 0 ? (
         <BulkBar
           count={chosen.length}
@@ -836,7 +848,8 @@ export function Home() {
                   return;
                 }
                 replaceDraft(editFromSearch([], ''));
-                if (filter.needsYou) setSearch({ needs: undefined });
+                // With tabs, Needs you is a tab and clearing the search leaves it.
+                if (filter.needsYou && !port) setSearch({ needs: undefined });
               }}
             />
           </div>
@@ -851,8 +864,16 @@ export function Home() {
             }))}
             onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
           />
+          <BrowserAction
+            type="button"
+            variant="primary"
+            label={t.newPage}
+            visibleLabel={t.newPageVisible}
+            onActivate={() => setNewPage(true)}
+          />
         </div>
       )}
+      <NewPageDialog open={newPage} onClose={() => setNewPage(false)} />
       {port ? (
         <div className="page-stage-tabs" ref={tabsHost}>
           <BrowserTabs
@@ -860,7 +881,7 @@ export function Home() {
             variant="flush"
             tabs={viewTabs}
             selected={view}
-            onSelect={(id) => chooseView(id as HomeStage | 'archived')}
+            onSelect={(id) => chooseView(id as HomeView)}
           >
             {(current) => (current.id === view ? content : null)}
           </BrowserTabs>
@@ -895,23 +916,13 @@ export function Home() {
         </>
       )}
       {slot &&
-        (port || projectNames.length > 0) &&
+        scope !== undefined &&
         createPortal(
           <>
             <span className="colab-title-divider" aria-hidden="true">
               /
             </span>
-            <ProjectScopeMenu
-              rows={scopeRows(shown, projectNames)}
-              scope={scope}
-              onScope={chooseScope}
-              {...(port
-                ? {
-                    onNew: () => setDialog({ kind: 'new', initial: [] }),
-                    onManage: () => setDialog({ kind: 'manage' }),
-                  }
-                : {})}
-            />
+            <span className="colab-scope-title">{scope}</span>
           </>,
           slot,
         )}

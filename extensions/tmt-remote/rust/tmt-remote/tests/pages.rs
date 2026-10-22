@@ -70,6 +70,22 @@ fn get(h: &Harness, path: &str, headers: &str) -> Reply {
         &format!("GET {path} HTTP/1.1\r\nHost: {}\r\n{headers}\r\n", h.addr),
     )
 }
+/// The one TMT web app document every app route serves, and its policy.
+const SHELL_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+/// An app route: the door answers the shell document; the route's markup is the page asset the
+/// app adopts, so the markup checks below read that asset.
+fn app_page(h: &Harness, path: &str, page: &str) -> Reply {
+    let mut reply = get(h, path, "");
+    assert_eq!(reply.status, 200, "{path}");
+    assert_eq!(reply.body, include_str!("../assets/shell.html"), "{path}");
+    assert_eq!(
+        reply.header("content-security-policy"),
+        Some(SHELL_CSP),
+        "{path}"
+    );
+    reply.body = page.to_owned();
+    reply
+}
 fn mount(h: &Harness, body: &str, origin: Option<&str>) -> Reply {
     let origin = origin
         .map(|o| format!("Origin: {o}\r\n"))
@@ -224,7 +240,8 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
             "mount": colab,
         })
     );
-    for path in ["/colab", "/colab/", "/p/aB_0", "/read/Z9_-"] {
+    // The reader entry and the Colab routes of the one web app both belong to Colab's mount.
+    for path in ["/read/Z9_-", "/colab", "/colab/", "/colab/pages/x?read=y"] {
         let answer: Value =
             serde_json::from_str(&mount(&h, &json!({"path":path}).to_string(), origin).body)
                 .unwrap();
@@ -241,7 +258,7 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
         &other,
         &bare,
         "/",
-        "/colab/other",
+        "/colab/a.b",
         "/p/abc",
         "/read/abcd/",
         "/p/abcd?next=1",
@@ -272,9 +289,7 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
 #[test]
 fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     let h = Harness::new(FAST);
-    let landing = get(&h, "/remote/", "");
-    assert_eq!(landing.status, 200);
-    assert_eq!(landing.body, include_str!("../assets/landing.html"));
+    let landing = app_page(&h, "/remote/", include_str!("../assets/landing.html"));
     assert!(
         landing
             .body
@@ -380,8 +395,8 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         landing.header("content-type"),
         Some("text/html; charset=utf-8")
     );
-    let policy = landing.header("content-security-policy").unwrap();
-    assert!(policy.contains("style-src 'self'"));
+    assert!(SHELL_CSP.contains("style-src 'self'"));
+    let policy = PAGE_CSP;
     let css = get(&h, "/sdk/pages.css", "");
     assert_eq!(css.status, 200);
     assert_eq!(
@@ -390,6 +405,8 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
             include_str!("../../../../../design/browser-ui/generated/static.css"),
             "\n",
             include_str!("../assets/pages.css"),
+            "\n",
+            include_str!("../assets/tmt-settings.css"),
         )
     );
     assert!(!css.body.contains("@import"));
@@ -472,7 +489,7 @@ fn pages_consume_shared_presentation_without_a_second_projection() {
         if page != include_str!("../assets/landing.html") {
             assert!(classes.contains(&"tmt-ui-notice-eyebrow"));
         }
-        let mark = page.find("header-mark tmt-ui-mark").unwrap();
+        let mark = page.find("header-mark tmt-brand-mark tmt-ui-mark").unwrap();
         let product = page.find("header-wordmark tmt-ui-wordmark").unwrap();
         let title = page.find("header-title tmt-ui-title").unwrap();
         assert!(mark < product && product < title);
@@ -540,13 +557,17 @@ fn short_public_entry_without_colab_returns_a_generic_page_without_cookies() {
             format!("Origin: {}\r\n", h.origin),
             "Cookie: tmt_door=untrusted\r\n".to_owned(),
         ] {
+            // A short page link redirects into the app without reaching Colab.
             let reply = get(&h, &format!("/p/{id}"), &headers);
-            assert_eq!(reply.status, 404, "{id}");
-            assert_eq!(reply.header("location"), None);
+            assert_eq!(reply.status, 308, "{id}");
+            assert_eq!(
+                reply.header("location"),
+                Some(format!("/colab/p/{id}").as_str())
+            );
             assert_eq!(reply.header("cache-control"), Some("no-store"));
             assert_eq!(reply.header("referrer-policy"), Some("no-referrer"));
             assert_eq!(reply.header("set-cookie"), None);
-            assert_eq!(reply.body, include_str!("../assets/error.html"));
+            assert_eq!(reply.body, "");
         }
     }
     assert_eq!(h.grants(), 0);
@@ -570,7 +591,8 @@ fn malformed_short_page_aliases_return_the_generic_page_404() {
         assert_eq!(reply.status, 404, "{path}");
         assert_eq!(
             reply.header("content-type"),
-            Some("text/html; charset=utf-8")
+            Some("text/html; charset=utf-8"),
+            "{path}"
         );
         assert_eq!(reply.body, include_str!("../assets/error.html"));
         assert_eq!(reply.header("location"), None);
@@ -586,19 +608,19 @@ fn malformed_short_page_aliases_return_the_generic_page_404() {
     assert_eq!(upgrade.body, include_str!("../assets/error.html"));
     assert_eq!(upgrade.header("location"), None);
     // Invalid HTTP targets still fail at the shared framing boundary.
-    for path in [
-        "/p/ab%63d",
-        "/p/abcd?next=other",
-        "/p/abcd#fragment",
-        "/p/../abcd",
-        "/p//abcd",
-    ] {
+    for path in ["/p/ab%63d", "/p/abcd#fragment", "/p/../abcd", "/p//abcd"] {
         let reply = get(&h, path, "");
         assert_eq!(reply.status, 400, "{path}");
         assert_eq!(reply.body, "{}");
         assert_eq!(reply.header("location"), None);
     }
-    for method in ["POST", "HEAD"] {
+    // HEAD redirects like GET; other methods refuse.
+    let head = exchange(
+        &h,
+        &format!("HEAD /p/abcd HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
+    );
+    assert_eq!(head.status, 308);
+    for method in ["POST", "PUT"] {
         let reply = exchange(
             &h,
             &format!("{method} /p/abcd HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
@@ -630,9 +652,11 @@ fn short_public_entry_refuses_cross_origin_requests_before_forwarding() {
 #[test]
 fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     let h = Harness::new(FAST);
-    let page = get(&h, "/remote/settings", "");
-    assert_eq!(page.status, 200);
-    assert_eq!(page.body, include_str!("../assets/settings.html"));
+    let page = app_page(
+        &h,
+        "/remote/settings",
+        include_str!("../assets/settings.html"),
+    );
     assert!(
         page.body
             .contains("Recorded setup, not a live Firebase check.")
@@ -658,10 +682,10 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
         3
     );
     assert!(page.body.contains("No changes to save."));
-    assert!(page.body.contains("Check original result"));
+    assert!(page.body.contains("Check the saved value"));
 
     assert!(page.body.contains(
-        "<p>“This device” identifies a pairing. It does not grant settings authority.</p>"
+        "<p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>"
     ));
     assert_eq!(
         page.header("content-type"),
@@ -680,7 +704,7 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     assert!(
         script
             .body
-            .contains("Another change is still unconfirmed. Check its original result first.")
+            .contains("Another change is still unconfirmed. Check the saved value first.")
     );
     assert!(
         !script
@@ -714,7 +738,12 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
 #[test]
 fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
     let h = Harness::new(FAST);
-    let html = get(&h, "/remote/settings", "").body;
+    let html = app_page(
+        &h,
+        "/remote/settings",
+        include_str!("../assets/settings.html"),
+    )
+    .body;
     for class in [
         "tmt-ui-header",
         "tmt-ui-brand",
@@ -755,12 +784,14 @@ fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
 }
 
 #[test]
-fn remote_static_headers_pin_the_approved_aperture_mark() {
-    // Approved static-host projection of design/browser-ui/src/header.tsx (#2608).
-    // This literal adds no native input dependency on the leaf's source module.
-    const MARK: &str = r#"<svg class="header-mark tmt-ui-mark" viewBox="0 0 96 96" aria-hidden="true" fill="currentColor">
-          <path fill-rule="evenodd" d="M20 0H76C87.05 0 96 8.95 96 20V76C96 87.05 87.05 96 76 96H20C8.95 96 0 87.05 0 76V20C0 8.95 8.95 0 20 0ZM58.84 33.59C58.79 33.69 58.73 33.8 58.68 33.89C57.54 33.12 56.48 32.2 55.25 31.56C46.86 27.14 37.03 27.23 28.91 32.34C23.71 35.61 21.76 38.08 17.37 42.47C16.62 41.79 13 39.01 13.32 38.11C13.7 37.06 14.61 36.29 15.35 35.45C18.89 31.49 23.35 28.11 28.44 26.41C37.06 23.55 46.41 23.82 54.01 29.23C55.77 30.48 57.23 32.14 58.84 33.59ZM19.87 45.28C23.1 41.07 23.78 39.67 28.6 36.24C39.52 28.46 53 30.15 62.58 39.04C60.76 39.95 62.99 38.95 58.06 36.71C55.69 35.63 52.11 34.82 49.49 34.68C38.21 34.06 31.29 41.34 23.92 48.71C20.8 46.56 22.11 47.74 19.87 45.28ZM26.73 49.96C28.44 48.14 30.07 46.23 31.87 44.49C38.49 38.13 48.26 35.69 56.97 38.89C58.46 39.43 59.77 40.34 61.17 41.07C59.72 41.55 61.43 41.09 58.06 40.29C56.98 40.03 55.89 39.87 54.79 39.83C51.29 39.68 47.84 40.21 44.65 41.69C43.37 42.29 42.08 42.92 40.91 43.72C38.41 45.43 32.68 51.65 28.44 50.89C27.8 50.77 27.3 50.27 26.73 49.96ZM34.84 52.29C41.1 54.64 48.12 54.44 53.85 50.57C57.98 47.8 61.25 42.94 66.16 42.16C66.68 42.08 67.23 42 67.72 42.16C68.93 42.53 70.01 43.2 71.15 43.72C69.91 45.02 68.78 46.45 67.41 47.61C60.76 53.33 52.48 57.88 43.41 56.19C40.15 55.58 37.3 54.45 34.84 52.29ZM44.81 45.59C47.1 40.44 53.13 42.19 52.45 47.61C50.85 51.33 45.61 51.64 44.81 47.46C44.69 46.85 44.81 46.21 44.81 45.59ZM34.21 54.79C35.56 55.56 36.86 56.46 38.27 57.12C48.99 62.18 59.4 57.68 67.88 50.57C69.85 48.93 71.63 47.05 73.49 45.28C76.04 46.41 74.51 45.57 77.7 48.4C68.28 62.53 46.56 68.68 34.21 54.79ZM38.11 60.4C42.39 62.97 42.53 63.47 47.15 64.76C56.3 67.32 66.34 63.41 73.49 57.75C75.88 55.85 78.06 53.69 80.35 51.67C81.23 52.6 82.12 53.54 83 54.48C75.91 65.11 61 72.45 48.4 67.72C46.11 66.87 42.48 65.01 40.44 63.05C39.6 62.23 38.89 61.28 38.11 60.4Z" />
-        </svg>"#;
+fn remote_static_headers_carry_the_shared_static_mark() {
+    // The browser leaf's static-host copy of its header mark, with the header-mark class.
+    let shared = include_str!("../../../../../design/browser-ui/generated/brand-mark-static.svg");
+    let mark = shared.trim().replacen(
+        r#"class="tmt-brand-mark tmt-ui-mark""#,
+        r#"class="header-mark tmt-brand-mark tmt-ui-mark""#,
+        1,
+    );
     let normalize = |markup: &str| {
         markup
             .split_whitespace()
@@ -769,29 +800,33 @@ fn remote_static_headers_pin_the_approved_aperture_mark() {
             .replace(" >", ">")
             .replace("> <", "><")
     };
-    let expected = normalize(MARK);
+    let expected = normalize(&mark);
     for page in [
         include_str!("../assets/landing.html"),
         include_str!("../assets/pair.html"),
         include_str!("../assets/error.html"),
         include_str!("../assets/settings.html"),
-        include_str!("../assets/home.html"),
-        include_str!("../assets/tmt-settings.html"),
     ] {
         let normalized = normalize(page);
         assert!(normalized.contains(&expected));
-        assert_eq!(page.matches("class=\"header-mark tmt-ui-mark\"").count(), 1);
-        let brand = if page.contains("data-tmt-page=\"home\"")
-            || page.contains("data-tmt-page=\"tmt-settings\"")
-        {
-            "TMT"
-        } else {
-            "Remote"
-        };
-        assert!(page.contains(&format!(
-            "class=\"header-wordmark tmt-ui-wordmark\">{brand}</span>"
-        )));
+        assert_eq!(page.matches("class=\"header-mark ").count(), 1);
+        assert!(page.contains("class=\"header-wordmark tmt-ui-wordmark\">Remote</span>"));
     }
+    // TMT's own pages render only inside the web shell, whose breadcrumb starts with the TMT mark
+    // ("TMT · Home"): their headers carry the title alone, never a second TMT.
+    for page in [
+        include_str!("../assets/home.html"),
+        include_str!("../assets/tmt-settings.html"),
+        include_str!("../assets/digest.html"),
+    ] {
+        assert!(!page.contains("header-mark"));
+        assert!(!page.contains("header-wordmark"));
+        assert!(page.contains("class=\"header-title tmt-ui-title\">"));
+    }
+    assert!(
+        include_str!("../assets/ops.html")
+            .contains("class=\"header-wordmark tmt-ui-wordmark\">Ops</span>")
+    );
 }
 
 #[test]
@@ -822,6 +857,8 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
         assert_eq!(links.len(), 1, "{path}");
         let policy = if path == "/remote/pair" {
             pairing_policy(&reply.body)
+        } else if status == 200 {
+            SHELL_CSP.to_owned()
         } else {
             PAGE_CSP.to_owned()
         };
@@ -843,7 +880,7 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
             .unwrap();
         assert_eq!(
             bytes,
-            include_bytes!("../../../../../design/browser-ui/src/favicon.svg"),
+            include_bytes!("../../../../../design/browser-ui/generated/favicon.svg"),
             "{path}"
         );
     }
@@ -898,41 +935,95 @@ fn door_routes_legacy_pair_redirect_is_fixed_and_admitted_before_location() {
 }
 
 #[test]
-fn door_routes_home_and_tmt_settings_are_navigation_only_and_remote_pages_move() {
+fn door_routes_app_routes_keep_the_app_plain_query() {
     let h = Harness::new(FAST);
-    let home = get(&h, "/", "");
-    assert_eq!(home.status, 200);
-    assert!(home.body.contains("Open a TMT app."));
-    for path in ["/colab/", "/remote/", "/settings/"] {
-        assert!(home.body.contains(&format!("href=\"{path}\"")), "{path}");
-    }
-    let settings = get(&h, "/settings", "");
-    assert_eq!(settings.status, 200);
-    assert_eq!(settings.body, get(&h, "/settings/", "").body);
-    assert!(
-        settings
-            .body
-            .contains("Choose an app to open its settings.")
-    );
-    assert!(settings.body.contains("href=\"/remote/settings\""));
-    for page in [&home, &settings] {
-        assert_eq!(page.header("content-security-policy"), Some(PAGE_CSP));
-        assert_eq!(page.header("set-cookie"), None);
-        assert!(!page.body.contains("<script"));
-        assert!(!page.body.contains(&h.prefix));
-    }
-    for (path, marker) in [
-        ("/remote/", "Remote connection"),
-        ("/remote/settings", "Browser opening"),
-        ("/remote/pair", "__TMT_PAIR_BOOTSTRAP__"),
+    // A short link's query follows its redirect to an app route, which serves the shell with it.
+    let short = get(&h, "/p/abcd?open=1", "");
+    assert_eq!(short.status, 308);
+    let location = short.header("location").unwrap().to_owned();
+    assert_eq!(location, "/colab/p/abcd?open=1");
+    app_page(&h, &location, "");
+    // The app writes its own keys onto its routes; a reload asks the door for the same address.
+    for path in [
+        "/colab/pages/abcd?read=x",
+        "/colab/pages/abcd?anchor=a-1&read=r_2",
+        "/settings?tab=one",
     ] {
-        let reply = get(&h, path, "");
-        assert_eq!(reply.status, 200, "{path}");
-        if path == "/remote/pair" {
-            assert!(!reply.body.contains(marker));
-            assert!(reply.body.contains("history.replaceState"));
-        } else {
-            assert!(reply.body.contains(marker));
-        }
+        app_page(&h, path, "");
     }
+    // The same plain byte set as a short link: no escapes, session key or other separators.
+    for path in [
+        "/colab/pages/abcd?read=%2F",
+        "/colab/pages/abcd?tmt-session=x",
+        "/colab/pages/abcd?read=x&tmt-session=y",
+        "/colab/pages/abcd?read=a/b",
+        "/colab/pages/abcd?",
+        "/home?read=x",
+        "/colab/a.b?read=x",
+    ] {
+        assert_ne!(get(&h, path, "").status, 200, "{path}");
+    }
+    // A key named like the session hand-off inside a value is plain text, not the hand-off.
+    app_page(&h, "/colab/pages/abcd?read=tmt-session", "");
+    // Mount paths keep their strict grammar: an app key on a module mount is a malformed target.
+    for path in [
+        format!("{}/x/colab/?read=a", h.prefix),
+        format!("{}/x/colab/pages/abcd?open=a", h.prefix),
+        "/x/colab/p/abcd?open=a".to_owned(),
+    ] {
+        assert_eq!(get(&h, &path, "").status, 400, "{path}");
+    }
+}
+
+#[test]
+fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move() {
+    let h = Harness::new(FAST);
+    // Every app route is the same shell document; the rail and Home's rows come from its script.
+    for path in [
+        "/",
+        "/settings",
+        "/settings/",
+        "/remote",
+        "/remote/",
+        "/ops",
+        "/digest/",
+        "/colab/pages/x",
+    ] {
+        let shell = app_page(&h, path, include_str!("../assets/shell.html"));
+        assert_eq!(shell.header("set-cookie"), None, "{path}");
+        assert_eq!(shell.body.matches("<script").count(), 1);
+        assert!(
+            shell
+                .body
+                .contains("<script type=\"module\" src=\"/sdk/shell.js\"></script>")
+        );
+        assert!(shell.body.contains("class=\"tmt-ui-shell\""));
+        assert!(!shell.body.contains(&h.prefix));
+    }
+    // The explicit list never becomes a catch-all.
+    for path in ["/home", "/ops/x", "/colab/a.b", "/remote/other"] {
+        assert_eq!(get(&h, path, "").status, 404, "{path}");
+    }
+    let home = app_page(&h, "/", include_str!("../assets/home.html"));
+    assert!(home.body.contains("id=\"home-needs\""));
+    let settings = app_page(&h, "/settings", include_str!("../assets/tmt-settings.html"));
+    assert!(settings.body.contains(">TMT settings</h1>"));
+    let entry = get(&h, "/sdk/shell.js", "");
+    assert_eq!(entry.status, 200);
+    assert_eq!(entry.body, include_str!("../assets/shell.js"));
+    assert_eq!(entry.header("cache-control"), Some("no-store"));
+    assert_eq!(
+        entry.header("content-type"),
+        Some("text/javascript; charset=utf-8")
+    );
+    assert_eq!(
+        get(&h, "/sdk/shell.js", "Origin: https://example.com\r\n").status,
+        403
+    );
+    let pair = get(&h, "/remote/pair", "");
+    assert_eq!(pair.status, 200);
+    assert!(!pair.body.contains("__TMT_PAIR_BOOTSTRAP__"));
+    assert!(pair.body.contains("history.replaceState"));
+    assert!(include_str!("../assets/landing.html").contains("Remote connection"));
+    assert!(include_str!("../assets/settings.html").contains("Browser opening"));
 }

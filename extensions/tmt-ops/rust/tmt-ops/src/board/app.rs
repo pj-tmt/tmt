@@ -282,6 +282,13 @@ pub enum Choice {
     },
     /// A visible but disabled dropdown choice, with the reason it is unavailable.
     Unavailable(String),
+    /// A link's popover: open the address, copy it, or show all of it.
+    LinkOpen(String),
+    LinkCopy(String),
+    LinkShow {
+        url: String,
+        anchor: ratatui::layout::Rect,
+    },
     AgentsFilter(super::workspace::AgentsFilter),
     /// A click on a Talk/Measure chip selects that pane; the `t` key toggles.
     RightTab(super::shell::RightTab),
@@ -297,6 +304,8 @@ pub enum Choice {
     SquadSettings(String),
     /// A rule between menu groups: painted, never chosen.
     Rule,
+    /// The muted line above a menu's rows: painted, never chosen, not counted.
+    Heading,
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
     /// The shared saved TOK range for Agents and Digest.
@@ -365,7 +374,7 @@ impl Menu {
                     break;
                 }
                 next = moved;
-                if !matches!(self.entries[next].choice, Choice::Rule) {
+                if !matches!(self.entries[next].choice, Choice::Rule | Choice::Heading) {
                     at = next;
                     break;
                 }
@@ -2867,6 +2876,9 @@ impl App {
                 self.member_link_command(&target, &action)
             }
             Choice::Unavailable(reason) => self.say(reason),
+            Choice::LinkOpen(url) => self.link_open(url),
+            Choice::LinkCopy(url) => self.link_copy(url),
+            Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),
             Choice::WorkspaceTarget(target) => {
@@ -2900,7 +2912,7 @@ impl App {
             } => self.workspace_choose_room(kind, &identity_id, &room_id),
             Choice::HostAction => Effect::HostAction,
             Choice::SquadSettings(squad) => Effect::SquadSettings(squad),
-            Choice::Rule => Effect::None,
+            Choice::Rule | Choice::Heading => Effect::None,
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::TokRange(range) => self.select_tok_range(range),
@@ -3425,6 +3437,11 @@ impl App {
             return Effect::None;
         }
 
+        if key.code == KeyCode::Esc
+            && let Some((url, anchor)) = self.link_full_menu()
+        {
+            return self.link_popover(&url, anchor);
+        }
         let Some(menu) = &mut self.menu else {
             return Effect::None;
         };

@@ -38,13 +38,24 @@ export function Chip({ item, onRemove, readOnly, busy, stateLabel, removeRef }: 
   const reason = useId();
   const blocked = readOnly || busy || item.disabled;
   return (
-    <Badge variant="outline" className="tmt:max-w-full tmt:whitespace-normal tmt:break-words">
-      <span>{item.label}</span>
+    // The remove control is a full-height square segment flush with the badge's inner edges: its
+    // fill meets them, a left rule separates it, and focus recolours its own border.
+    <Badge
+      variant="outline"
+      className="tmt:max-w-full tmt:whitespace-normal tmt:break-words tmt:p-0 tmt:gap-0 tmt:items-stretch"
+    >
+      <span className="tmt:self-center tmt:px-2 tmt:py-0.5">{item.label}</span>
+      {stateLabel && (
+        <span id={reason} className="tmt:self-center tmt:pe-2">
+          {stateLabel}
+        </span>
+      )}
       <Button
         asChild
         ref={removeRef}
         variant="ghost"
         size="icon-sm"
+        className="tmt:h-auto tmt:min-h-8 tmt:border-l-border tmt:focus-visible:outline-none"
         disabled={item.disabled || busy}
       >
         <button
@@ -77,7 +88,6 @@ export function Chip({ item, onRemove, readOnly, busy, stateLabel, removeRef }: 
           <XIcon aria-hidden="true" />
         </button>
       </Button>
-      {stateLabel && <span id={reason}>{stateLabel}</span>}
     </Badge>
   );
 }

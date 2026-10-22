@@ -239,6 +239,125 @@ fn verify(
         assert!(m.get(key).is_none());
     }
 }
+/// A page that asks for the bundled runtime (#1693) also exports a standalone copy, right after
+/// its HTML, described as derived; any other page exports exactly as before.
+#[test]
+fn a_page_that_opts_in_exports_a_derived_standalone_copy_and_any_other_page_does_not() {
+    use tmt_colab::export::standalone::{self, Runtime};
+    let runtime = Runtime {
+        script: "window.tmt={};",
+        style: "@theme inline{}",
+    };
+    let capture = |f: &Fixture, runtime: Option<&Runtime>| {
+        Bundle::capture_with_runtime(
+            &f.store,
+            &f.key,
+            PAGE,
+            &mut Decoder::with_config(support::decoder_config(BINARY.into())).unwrap(),
+            1234,
+            &Unserved,
+            runtime,
+        )
+        .unwrap()
+    };
+    let names = |value: &Value| {
+        value["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["name"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+
+    let source = "<meta name=\"tmt-colab-runtime\" content=\"react tailwind\">\r\n<p>雪🦀\0</p>";
+    let mut f = Fixture::new();
+    f.append(source, "Opted in");
+    let published = capture(&f, Some(&runtime)).publish(&f.root).unwrap();
+    assert_eq!(
+        published.standalone,
+        Some(standalone::Outcome {
+            included: true,
+            reason: None
+        })
+    );
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(published.directory.join("manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        names(&manifest),
+        [
+            "page.html",
+            "page.standalone.html",
+            "conversations.json",
+            "conversations.md"
+        ]
+    );
+    let row = &manifest["files"][1];
+    assert_eq!(row["derivedFrom"], "page.html");
+    assert!(manifest["files"][0].get("derivedFrom").is_none());
+    let copy = fs::read(published.directory.join("page.standalone.html")).unwrap();
+    assert_eq!(
+        copy,
+        standalone::document(source, &runtime).unwrap(),
+        "the exact admitted source sits in the body"
+    );
+    assert_eq!(row["sizeBytes"], copy.len());
+    assert_eq!(
+        row["sha256"],
+        Sha256::digest(&copy)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    );
+    // page.html stays the exact source, whatever the copy adds around it.
+    assert_eq!(
+        fs::read(published.directory.join("page.html")).unwrap(),
+        source.as_bytes()
+    );
+    assert_eq!(
+        published
+            .files
+            .iter()
+            .map(|file| file.name.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "page.html",
+            "page.standalone.html",
+            "conversations.json",
+            "conversations.md",
+            "manifest.json"
+        ]
+    );
+
+    // A build with no runtime still exports the page and says why there is no copy.
+    let without = capture(&f, None).publish(&f.root).unwrap();
+    assert_eq!(
+        without.standalone,
+        Some(standalone::Outcome {
+            included: false,
+            reason: Some("runtime-unavailable")
+        })
+    );
+    assert!(!without.directory.join("page.standalone.html").exists());
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(without.directory.join("manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        names(&manifest),
+        ["page.html", "conversations.json", "conversations.md"]
+    );
+
+    // A page that does not ask exports as before, with the runtime on offer or not.
+    let mut plain = Fixture::new();
+    plain.append("<p>plain</p>", "Plain");
+    for offered in [Some(&runtime), None] {
+        let published = capture(&plain, offered).publish(&plain.root).unwrap();
+        assert_eq!(published.standalone, None);
+        assert!(!published.directory.join("page.standalone.html").exists());
+        let json = serde_json::to_string(&published).unwrap();
+        assert!(!json.contains("standalone") && !json.contains("derivedFrom"));
+    }
+}
 #[test]
 fn exact_authenticated_bytes_survive_export_reopen_and_baseline_rotation() {
     for (source, title) in [
@@ -421,6 +540,54 @@ fn inactive_and_unknown_pages_are_denied_without_changing_state() {
         )
         .is_err()
     );
+}
+/// The command offers the build's own page runtime: whichever way this test binary was built,
+/// the result agrees with the files, and a refusal names its reason in JSON and in words.
+#[test]
+fn the_command_reports_the_standalone_copy_of_a_page_that_opts_in() {
+    let source = "<meta name=\"tmt-colab-runtime\" content=\"react\"><p>CLI</p>";
+    let mut f = Fixture::new();
+    f.append(source, "Opted in");
+    let output = f
+        .command()
+        .args(["export", PAGE, "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let directory = PathBuf::from(result["directory"].as_str().unwrap());
+    let copy = directory.join("page.standalone.html");
+    let standalone = &result["standalone"];
+    if standalone["included"] == true {
+        assert!(standalone.get("reason").is_none());
+        let text = String::from_utf8(fs::read(&copy).unwrap()).unwrap();
+        assert!(text.starts_with("<!doctype html><html><head><meta http-equiv="));
+        assert!(text.ends_with(&format!("<body>{source}</body></html>")));
+        assert!(result["files"].as_array().unwrap().iter().any(|file| {
+            file["name"] == "page.standalone.html" && file["derivedFrom"] == "page.html"
+        }));
+    } else {
+        assert_eq!(
+            *standalone,
+            json!({"included": false, "reason": "runtime-unavailable"})
+        );
+        assert!(!copy.exists());
+        let human = f.command().args(["export", PAGE]).output().unwrap();
+        let text = String::from_utf8(human.stdout).unwrap();
+        assert!(
+            text.contains("STANDALONE COPY") && text.contains("this build carries no page runtime")
+        );
+    }
+    // A page that does not ask says nothing about it.
+    let mut plain = Fixture::new();
+    plain.append("<p>plain</p>", "Plain");
+    let output = plain
+        .command()
+        .args(["export", PAGE, "--json"])
+        .output()
+        .unwrap();
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(result.get("standalone").is_none());
 }
 #[test]
 fn cli_help_defaults_disclosure_json_and_read_only_failures() {

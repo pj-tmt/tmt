@@ -42,6 +42,9 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly pinned?: boolean;
   /** The owner's display-only summary (comment count, pending-item count, the creator); absent until derived. */
   readonly summary?: PageActivity;
+  /** `shell` for a shell page; absent on an ordinary page and where the list does not say (the
+   * owner list does not carry it yet, so only fixtures fill it). */
+  readonly pageType?: Projection['pageType'];
 }
 export interface PageSnapshot extends PageSummary {
   /** The page's chosen layout (`meta.layout`); absent is `freeform`. */
@@ -50,7 +53,6 @@ export interface PageSnapshot extends PageSummary {
   readonly layoutReason?: Projection['layoutReason'];
   /** As on the view: the threads and asks follow through the binding once verified. */
   readonly discussionPending?: boolean;
-  readonly pageType?: Projection['pageType'];
   readonly shell?: Projection['shell'];
   /** The page's summary and task list (`meta.work`); never on a dashboard. */
   readonly work?: Projection['work'];
@@ -140,7 +142,12 @@ export function localTransport(title: string, input: readonly PageSnapshot[]): P
     async spaceHome() {
       return {
         title,
-        pages: [...pages.values()].map(({ id, title, sharing }) => ({ id, title, sharing })),
+        pages: [...pages.values()].map(({ id, title, sharing, pageType }) => ({
+          id,
+          title,
+          sharing,
+          ...(pageType ? { pageType } : {}),
+        })),
       };
     },
     async page(id) {

@@ -1,10 +1,13 @@
 .tmt-ui-notifications {
   position: fixed;
-  inset: calc(var(--tmt-ui-header-height) + 8px + env(safe-area-inset-top))
-    max(8px, env(safe-area-inset-right)) auto auto;
+  inset: calc(var(--tmt-ui-header-height) + var(--tmt-ui-space-s) + env(safe-area-inset-top))
+    max(var(--tmt-ui-space-s), env(safe-area-inset-right)) auto auto;
   box-sizing: border-box;
-  width: min(360px, calc(100vw - 16px));
-  max-height: calc(100dvh - var(--tmt-ui-header-height) - 16px - env(safe-area-inset-bottom));
+  /* 360px: the notification column's reading width. */
+  width: min(360px, calc(100vw - 2 * var(--tmt-ui-space-s)));
+  max-height: calc(
+    100dvh - var(--tmt-ui-header-height) - 2 * var(--tmt-ui-space-s) - env(safe-area-inset-bottom)
+  );
   margin: 0;
   padding: 0;
   overflow: auto;
@@ -14,15 +17,24 @@
   pointer-events: none;
   font-family: var(--tmt-ui-font-body);
 }
+.tmt-ui-notifications:popover-open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-xs);
+}
 .tmt-ui-notifications::backdrop {
   pointer-events: none;
   background: transparent;
 }
 .tmt-ui-notification {
   position: relative;
-  padding: 12px;
-  margin-bottom: 4px;
-  border: 1px solid var(--tmt-ui-surface-rule);
+  /* Heading, lines and action stack with one token gap. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-m);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: 0;
   background: var(--tmt-ui-surface-sheet);
   box-shadow: none;
@@ -40,6 +52,7 @@
   z-index: 1;
 }
 .tmt-ui-notification-heading {
+  align-self: stretch;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -55,17 +68,17 @@
   -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
-  margin: 4px 0 8px;
+  margin: 0;
 }
 .tmt-ui-notification-quote {
-  padding-left: 8px;
-  border-left: 1px solid var(--tmt-ui-surface-rule);
+  padding-left: var(--tmt-ui-space-s);
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   color: var(--tmt-ui-color-secondary);
 }
 .tmt-ui-notification-waiting {
   margin: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--tmt-ui-surface-rule);
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   background: var(--tmt-ui-surface-sheet);
   font-size: 12px;
 }
@@ -79,8 +92,10 @@
 }
 @media (max-width: 480px) {
   .tmt-ui-notifications {
-    inset-block-start: calc(var(--tmt-ui-header-height) + 4px + env(safe-area-inset-top));
-    inset-inline-end: max(4px, env(safe-area-inset-right));
-    width: min(360px, calc(100vw - 8px));
+    inset-block-start: calc(
+      var(--tmt-ui-header-height) + var(--tmt-ui-space-xs) + env(safe-area-inset-top)
+    );
+    inset-inline-end: max(var(--tmt-ui-space-xs), env(safe-area-inset-right));
+    width: min(360px, calc(100vw - 2 * var(--tmt-ui-space-xs)));
   }
 }

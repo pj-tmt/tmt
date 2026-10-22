@@ -61,8 +61,13 @@
 }
 .project-filter-button:focus-visible,
 .page-project:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  /* It rests on the edge colour, which the light focus colour equals: focus recolours the border
+     and doubles it, with 1px less padding, so the one frame shows in both themes and nothing moves
+     (#3998). No ring. */
+  padding: 0 5px;
+  border: calc(2 * var(--tmt-ui-focus-width)) solid var(--tmt-ui-color-focus);
+  outline: 0;
+  box-shadow: none;
 }
 .project-count {
   color: var(--tmt-ui-color-secondary);
@@ -98,7 +103,7 @@
 }
 .page-empty-link:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .pages .tmt-ui-list-title > a {
   display: block;
@@ -156,12 +161,6 @@
     display: none;
   }
 }
-.page-select {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--tmt-ui-color-text);
-}
 .pages > li[data-selected] {
   background: var(--tmt-ui-surface-selection);
 }
@@ -182,6 +181,75 @@
     #000 calc(100% - 16px),
     transparent
   );
+}
+/* The list is one screen. Its top block stays put: search, Sort and New page; the view tabs; the
+ * status line (projects filter from the module menu and `project:`). Only the rows scroll, inside
+ * the content pane. The section fills what main's own height leaves (the header, the shell's lead row and the 57px footer), so the
+ * window has nothing to scroll. The space's name is in the breadcrumb, so the list has no hero. */
+.home[data-page-list] {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
+  padding-top: 16px;
+  padding-bottom: 0;
+}
+.home[data-page-list] > *,
+.home[data-page-list] .page-list-controls,
+.home[data-page-list] .project-filters,
+.home[data-page-list] .page-list-status {
+  flex: none;
+}
+.home[data-page-list] .page-list-controls {
+  margin-top: 0;
+}
+.home[data-page-list] > .page-stage-tabs,
+.home[data-page-list] .page-stage-tabs > .tmt-ui-tabs,
+.home[data-page-list] .tmt-ui-tab-panel:not([hidden]) {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+}
+.home[data-page-list] .page-stage-tabs {
+  margin-top: 8px;
+}
+/* An empty status line takes no height; it stays rendered, so it still announces. */
+.home[data-page-list] .page-list-status:empty {
+  min-height: 0;
+  margin: 0;
+}
+.home[data-page-list] .page-list-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.page-list-count {
+  margin: 0;
+  padding: 12px 0 24px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-caption-line-height);
+}
+/* A phone keeps the top block to two lines: search, Sort and New page share one row, and the tabs
+ * are one line that scrolls sideways instead of wrapping. */
+@media (max-width: 479px) {
+  .home[data-page-list] {
+    padding-top: 12px;
+  }
+  .home[data-page-list] .page-list-controls {
+    flex-wrap: nowrap;
+  }
+  .home[data-page-list] .page-list-search {
+    flex: 1 1 0;
+    min-width: 7em;
+  }
+  /* Sort keeps its name and chevron; the chosen order shows in the menu. */
+  .home[data-page-list] .page-list-controls .tmt-ui-menu-value {
+    display: none;
+  }
 }
 
 /* A pinned row shows it without hover: a small mark before its title, in the muted colour. The

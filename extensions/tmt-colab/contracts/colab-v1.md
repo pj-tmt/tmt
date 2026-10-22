@@ -49,7 +49,15 @@ After sync hello, an `object` frame carries the current sync scope, a generated
 `discard`, `verify`, `read`, `history`, `historynext` or `historycancel`. Responses
 are correlated `object-result` frames in that same scope, containing only `ok` or
 `error`. Eight outstanding requests are allowed per peer; queue failure is a bare
-unavailable response and never a retry. Missing channels do not activate storage.
+unavailable response and never a retry. Missing channels do not activate storage. A
+connection upgraded without an origin (Remote's object setup missed its budget) has no peer
+object handle: every object request on it answers the typed `no-object-channel`, while its page
+sync is unaffected. Only that case does; any other missing handle (no channel client behind a
+valid origin, or an origin that is not a UUID) stays the bare `unavailable`, which a reconnect
+cannot fix. The app reconnects once per attachment attempt, through its ordinary
+connection-loss path and no earlier than Remote's 1 s cool-down after the refusal; a repeat is a
+typed refusal that keeps the unsent message. A page that never attaches never reconnects for
+this.
 An immutable absolute deadline includes queueing, callbacks, I/O and final delivery.
 No late data is disclosed; a possibly effected mutation answers unknown. A sent
 callback timeout ends its generation rather than leaving outstanding authority.
@@ -699,15 +707,28 @@ revocation and certificate expiry.
 
 The reserved owner-socket `GET /.tmt/remote/describe` implements Remote's
 [module-description contract](../../../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell).
-It reads only the existing bounded owner catalog/fingerprint projection and fresh page-summary
-cache; it starts no refresh, fold, subscription or new state. Both counts exclude archived
+It reads only the existing bounded owner catalog/fingerprint projection, the fresh page-summary
+cache and the local title projection (`page_titles`, schema 16); it starts no refresh, fold,
+subscription or write, and only selects from that projection.
+Both counts exclude archived
 pages: Pages counts the remaining pages, and `needsYou` counts waiting pages, matching the
-in-app Needs-you chip (two waiting items on one page count once). An empty catalog has known
+in-app Needs you tab (two waiting items on one page count once). An empty catalog has known
 zero counts. The Pages count comes from the catalog alone and stays known when summaries
 are unavailable. If any non-archived summary is missing or stale, the answer keeps its rail
 and menu but omits `needsYou`, never inventing zero. An unavailable catalog
-projection or a count above the descriptor bound returns a typed refusal. The reply is
-display-only and does not change page admission. Browser mount traffic cannot call it.
+projection or a count above the descriptor bound returns a typed refusal. Optional `home`
+lists up to five recent pages, newest activity first (the later of last activity and last
+update), each a non-archived page with a projected title: `id` is the page ID without
+hyphens, `title` the projected title as opaque display text cut to 40 Unicode scalars (an
+ellipsis ends a cut title), and `path` `/pages/<pageId>`. A page without a current projected
+title gets no card, never a placeholder. Titles go only to the owner:
+this socket answers only the owner's Remote, which composes it only for a live owner-device
+session. The reply is display-only and does not change page admission. Browser mount traffic
+cannot call it.
+
+An owner `GET <mount>/pages/<pageId>` for a generated page ID is the card's deep link: static
+markup that sends the browser to the mounted app with `#path=/pages/<pageId>`, the fragment
+target the app already accepts. Any other viewer, or a malformed ID, gets the plain not-found.
 
 The exact reserved socket `POST /.tmt/remote/device-events` consumes remote's
 [local device events](../../../contracts/remote-channel-v1.md#extension-channel-api)
@@ -2936,7 +2957,7 @@ one. The page markup check owns complete admission rules and ID-holder ordering.
 
 All question forms render compact lines without tabs. Each line is a trusted
 button with the admitted plain-text title, state word and chevron: waiting uses
-`◆` and `Waiting for you`; answered uses `✓` and `Answered: <short answer>` with
+`◆` and `Needs you`; answered uses `✓` and `Answered: <short answer>` with
 one-line ellipsis. Only the mark carries the state colour; title, state text and
 chevron remain neutral. Two or more adjacent questions have one muted
 `Questions from <agent> · N of M waiting` header; a question placed alone has none.
@@ -3468,7 +3489,7 @@ the storage transaction completed. Source-editor text is outside this record.
 
 ### Owner page and space-home header
 
-Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row that starts with the TMT mark and Colab (below 480px the mark only, the wordmark kept in the brand link's name), an original-author caption next to the title, and compact actions in More. The display-only Remote identity (`local · <device>`) names and titles the brand link; it never supplies connection state or authority, and the connection chip retains its existing owner (below 480px its words lead the More menu as a non-interactive line instead of a visible header chip).
+Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row that starts with the TMT mark and Colab (below 480px the mark only, the wordmark kept in the brand link's name; inside the TMT web shell the row sits in the shell's header slot and the rail carries the mark), an original-author caption next to the title, and compact actions in More. The display-only Remote identity (`local · <device>`) names and titles the brand link; it never supplies connection state or authority, and the connection chip retains its existing owner (below 480px its words lead the More menu as a non-interactive line instead of a visible header chip).
 
 ### Transient reply notifications (#2726, #2727)
 
@@ -4135,17 +4156,18 @@ permission copy. No Ask identity, record shape or retry rule changes.
 Every command that names a page tells a person where to open it, from one door and pairing
 lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
 runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
-print the **short owner link**, `<origin>/p/<shortId>`, while a door runs. Remote owns that
-in-place public forwarding; it does not bypass pairing or grant admission.
-Colab retains the short location and uses validated Remote `tmt-mount` only for its internal
-transport, as defined below. Without a door they print root-relative `/p/<shortId>` and the
+print the **short owner link**, `<origin>/colab/p/<shortId>`, while a door runs: a route of the
+[one TMT web app](#colab-in-the-tmt-web-app-3937), which does not bypass pairing or grant
+admission. The older `<origin>/p/<shortId>` keeps working: the door redirects it there.
+Colab uses validated Remote `tmt-mount` only for its internal transport, as defined below.
+Without a door they print root-relative `/colab/p/<shortId>` and the
 reason: the install line when Remote gave no answer; Remote's own message for an error envelope,
 with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
 this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the `serve` row then only says `(Remote serve is outdated; see warning)`; else `run tmt colab
 serve to get a full link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
 as `serve` follows (`pair for page access: tmt remote pair`, or `if this browser is new, pair for page access: ...`).
 
-`--json` results that name a page carry `path` (root-relative `/p/<prefix>`), `link`
+`--json` results that name a page carry `path` (root-relative `/colab/p/<prefix>`), `link`
 and `shortLink` (the same short owner URL, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
 `path`, `link` and `shortLink` on each page and `paired`/`next` once; its human rows lead with
 the title (`Untitled page` when empty), then its shortest unique catalog prefix (at least eight characters) and the
@@ -4167,9 +4189,33 @@ retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` 
 `opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab
 adds `tmt colab serve` to `next`. Browser navigation still undergoes existing admission.
 
+### Colab in the TMT web app (#3937)
+
+The door serves one TMT web app document for its routes
+([remote-channel-v1](../../../contracts/remote-channel-v1.md#public-browser-routes)); Colab is
+the route `/colab/…`. Colab describes its module script as `entry`
+(`/assets/colab-module.js` under its mount); the app loads it only from an owner's composed
+shell, mounts it into the shared shell and unmounts it, closing its Remote session, page bindings
+and timers, when another route opens. Without an owner session the route says, in plain words,
+to pair the browser and loads no Colab code; a module that cannot load says Colab could not start.
+The renderer stays its own sandboxed frame under the mount, with its own policy. The reader
+(`/read/<id>`) and the hosted bundle stay outside the app.
+
+Inside the app Colab's locations are paths: `/colab/` (home), `/colab/pages/<pageId>`,
+`/colab/settings` and `/colab/p/<shortId>` (the printed short link, resolved like `/p/<shortId>`
+below). Every older link form keeps working and lands on the same route, its display hint carried
+as a search key, before anything else reads the location:
+
+- `/p/<shortId>[?query][#fragment]`: the door answers 308 to `/colab/p/<shortId>` with the query;
+  the browser keeps the fragment.
+- The mount root `<mount>` with an owner fragment (`#space=…&path=/pages/<id>&read=<id>` or
+  `anchor=`/`open=`) or a preview fragment (`#/pages/<id>`): the mounted document moves to
+  `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `open`).
+- `#t=<threadId>` stays a fragment.
+
 ### Short owner-page aliases (#1688)
 
-Remote forwards `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` without device context.
+Remote forwards `/read/<id>` without device context.
 Colab validates Remote's absolute `tmt-mount` and returns catalog-independent bootstrap
 bytes, never a redirect or existence-dependent response. Missing/invalid mount refuses.
 Page and link identifiers use the Remote entry grammar; actual page-prefix resolution
@@ -4223,7 +4269,7 @@ failing opener warns once and keeps the printed link without undoing creation.
 still emits exactly one JSON document with the short-link fallback.
 
 When Colab decides to open, it calls Remote's hidden `tmt remote launch <short-target> --open`
-once through the invoking core (target `/colab/` or `/p/<id>`; 15-second deadline), and
+once through the invoking core (target `/colab/` or `/colab/p/<id>`; 15-second deadline), and
 Remote opens the browser and connects an unpaired one. The launch URL and its code never reach
 Colab, its output or its logs. The answer `{version:1,link,opened,state}` with `state` one of
 `opened`, `skipped`, `no-opener` or `failed` sets `opened` and the row; `failed` warns once.
@@ -5409,8 +5455,8 @@ signing; revoked devices receive nothing. These wraps confer no new Remote right
 
 JSON success is `{spaceId,pageId,title,path,operationId,membershipHead,warnings}` with
 `membershipHead:{revision,statementHash}` (decimal text and canonical base64url
-hash32), and `warnings` the [page markup check](#page-markup-check-2753) findings of the source (`[]` when clean). `path` is the root-relative short alias
-`/p/<shortId>`; it carries no space and pins nothing. The CLI learns the door only through
+hash32), and `warnings` the [page markup check](#page-markup-check-2753) findings of the source (`[]` when clean). `path` is the root-relative short link
+`/colab/p/<shortId>`; it carries no space and pins nothing. The CLI learns the door only through
 Remote's public `tmt remote status --json` (`{running,origin,path}`, one call with a
 three-second cap, run through the invoking core executable), never Remote's files. See
 [page links](#page-links-and-opening-the-browser-1614) for what is printed with and without a door.
@@ -5938,11 +5984,13 @@ image sizes need payloads of tens of KiB, and reference resolution needs a page'
 
 Export v1 emits `page.html`, `conversations.json`, `conversations.md`, one
 `attachments/<attachmentId>` file for each attachment it could read, and `manifest.json` (see
-[Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)). Native captures one
+[Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)).
+A page that opts in to the bundled runtime also gets `page.standalone.html` (see
+[Standalone copy of a page that uses the runtime](#standalone-copy-of-a-page-that-uses-the-runtime-1693)). Native captures one
 owner-authenticated read snapshot through its isolated decoder; the mounted
 browser captures one admitted committed projection through its connection executor.
 HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
-inject renderer CSP/bootstrap, normalize source or execute it. The title, epoch
+inject renderer CSP/bootstrap into `page.html`, normalize source or execute it. The title, epoch
 and verified membership head MUST belong to that same snapshot. A later write
 cannot change an already captured bundle. This head is locally verified, not a
 claim of globally current membership.
@@ -5957,24 +6005,24 @@ All other snapshot, privacy, file-publication and failure rules are unchanged.
 
 The manifest is UTF-8 JSON with these fields:
 
-| Field               | Value / meaning                                                                                                                                                             |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `format`            | `tmt-colab-page-export`                                                                                                                                                     |
-| `version`           | JSON integer `1`                                                                                                                                                            |
-| `spaceId`           | Pinned space ID                                                                                                                                                             |
-| `pageId`            | Exported page UUID                                                                                                                                                          |
-| `title`             | Exact admitted title                                                                                                                                                        |
-| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                                                               |
-| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                         |
-| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                           |
-| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                            |
-| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                               |
-| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                                                        |
-| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                                                                   |
-| `plaintext`         | `true`                                                                                                                                                                      |
-| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                                                       |
-| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                                                           |
-| `files`             | `page.html` (or `shell.json`), `work.json` when the page has work, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+| Field               | Value / meaning                                                                                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`            | `tmt-colab-page-export`                                                                                                                                                                                                                                          |
+| `version`           | JSON integer `1`                                                                                                                                                                                                                                                 |
+| `spaceId`           | Pinned space ID                                                                                                                                                                                                                                                  |
+| `pageId`            | Exported page UUID                                                                                                                                                                                                                                               |
+| `title`             | Exact admitted title                                                                                                                                                                                                                                             |
+| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                                                                                                                                                    |
+| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                                                                                                              |
+| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                                                                                                                |
+| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                                                                                                                 |
+| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                                                                                                                    |
+| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                                                                                                                                             |
+| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                                                                                                                                                        |
+| `plaintext`         | `true`                                                                                                                                                                                                                                                           |
+| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                                                                                                                                            |
+| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                                                                                                                                                |
+| `files`             | `page.html` (or `shell.json`), `work.json` when the page has work, `page.standalone.html` when it was made, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}` (plus `derivedFrom` on the standalone copy); bytes and lowercase hex SHA-256 |
 
 Export copies the optional creation preference from the same captured admitted view
 before asynchronous work; it does not acquire or infer a new recipient.
@@ -6029,10 +6077,50 @@ of the same frozen bytes. A requested download is not confirmation that a file
 was saved; the user checks browser downloads. Failure exposes no new download
 request. Native create-only filesystem and permission guarantees do not apply
 to browser-managed downloads. Parent-owned Blob URLs use attachment filenames
-`page.html`, `conversations.json`, `conversations.md` and `manifest.json`, never source/title paths. Revoke each URL after
+`page.html`, `page.standalone.html` (when the bundle has it), `conversations.json`, `conversations.md` and `manifest.json`, never source/title paths. Revoke each URL after
 bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export is not supported; deleted pages remain denied.
+
+### Standalone copy of a page that uses the runtime (#1693)
+
+`page.html` is the exact admitted source and never changes. For an ordinary page whose source opts
+in to the bundled runtime (the page runtime's marker rule: the first `<meta name="tmt-colab-runtime">`
+in document order, found by parsing, with a `react` or `tailwind` token), the export also writes
+`page.standalone.html`, listed right after `page.html` (after `work.json` when the page has work) and
+before `conversations.json`. It is the document the renderer frame builds for the page, with the
+runtime written into its head, so the page works when the file is opened from disk with no Colab and
+no network. Its bytes are this template around the exact source, in UTF-8, with the text between
+braces written verbatim and nothing else added:
+
+```text
+<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8"><style type="text/tailwindcss">{style}</style><script>{themeSwitch}</script><script>{script}</script></head><body>{source}</body></html>
+```
+
+- `{policy}` is the renderer frame's response policy without its `sandbox allow-scripts` directive:
+  a `<meta>` cannot carry `sandbox`, so the copy has the same no-network policy (nothing loads or
+  leaves) but is not sandboxed; opened from disk it runs with the origin the browser gives a local
+  file, like any HTML file.
+- `{themeSwitch}` is one fixed script that sets `data-theme` on the root from the system colour
+  scheme and follows its changes, because the runtime theme reads `data-theme` only.
+- `{script}` and `{style}` are the bytes of `assets/colab-runtime.js` and `assets/colab-runtime.css`
+  of the same build. A runtime text that contains `<!--`, or `</script` / `</style` in any ASCII case,
+  is not written (the build already refuses them).
+
+The manifest row of the copy is `{name, sizeBytes, sha256, derivedFrom:"page.html"}`; `derivedFrom`
+appears on no other row. A page that does not opt in, and every dashboard, exports byte for byte as
+before: no file, no new field.
+
+When a page opts in but no copy can be made, the export still succeeds without the file and says
+why. The reasons are `runtime-unavailable` (the build carries no runtime, or the browser could not
+load it), `runtime-unusable` (a runtime text could escape its element) and, for native export only,
+`page-too-deep` (the page nests past the parse depth, so its marker cannot be judged). The CLI JSON
+result has `standalone: {included, reason?}` (absent for a page that does not opt in) and the human
+output prints a line naming the reason; the browser's Export panel does the same. Native export
+reads the marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides
+pass the same cases (`vectors/runtime-marker-v1.json`). Native and browser export write identical
+bytes: `vectors/export-v1.json` has a `standalone` section with a tiny stand-in runtime that pins the
+copy, its policy, theme switch, hash and the manifest.
 
 ### Attachments in an export (#1867)
 
@@ -6061,7 +6149,7 @@ never opens storage or a backend, so with no serve every row is `unavailable`. T
 browser reads through its existing admitted read, then offers each included file as a download
 under its own filename beside the page files, and lists the other rows with their outcome.
 Both build the same rows and `manifest.json` bytes (`vectors/export-v1.json`); the file list
-published is the three page files, the included attachments in row order, then the manifest.
+published is the page files, the included attachments in row order, then the manifest.
 Archived and deleted pages stay denied as above.
 
 ### Attachment read command (#1867, #2464)
@@ -6337,9 +6425,10 @@ no download and follows the create-only rules above.
 
 The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
-the same dialog; local samples remain read-only. Home offers the tabs In progress, Discussion
-and Done (the stage of each row's `summary.work`, a fresh summary without work being in
-discussion), Archived and All, and opens on In progress (a link with `stage=all` opens on All; a mounted address is the list and no more, so a reload,
+the same dialog; local samples remain read-only. Home offers the tabs All, Needs you (the
+active pages waiting on the viewer, `needs=true`), Discussion, In progress and Done (the stage of
+each row's `summary.work`, a fresh summary without work being in discussion) and Archived, and
+opens on All (a link with `stage=in-progress` opens on In progress; a mounted address is the list and no more, so a reload,
 Back and Forward return to the tab the entry was left on); an
 archived page counts only under Archived, and a page whose summary has not arrived is in no stage
 tab. An empty In progress says so and points to Discussion and All, and never opens another tab by

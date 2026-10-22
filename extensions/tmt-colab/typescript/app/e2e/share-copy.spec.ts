@@ -132,7 +132,7 @@ for (const width of [1440, 390]) {
       await dialog.getByRole('button', { name: 'Create a sharing link…', exact: true }).click();
       await dialog.getByRole('button', { name: 'Create a sharing link', exact: true }).click();
       await expect(dialog.getByRole('alert')).toHaveText(
-        'The owner accepted the change, but it is not confirmed yet. Check again before relying on it.',
+        'Your machine accepted the change, but it is not confirmed yet. Check again before relying on it.',
       );
       await expect(dialog).toContainText(
         'Closing forgets this request and any new link; the change may already be saved.',

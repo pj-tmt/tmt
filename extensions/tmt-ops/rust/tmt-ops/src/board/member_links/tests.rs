@@ -279,22 +279,20 @@ mod interaction_tests {
             .collect();
         assert!(!text.contains("#tmt:worker"));
         assert!(text.contains("#tmt:missing"));
+        let links: Vec<_> = mapped.mentions.iter().flatten().collect();
+        // The ordinary URL opens a link popover, never a member menu.
         assert!(
-            mapped
-                .mentions
+            links
                 .iter()
-                .flatten()
-                .all(|link| link.identity == crate::board::app::workspace::tests::MEMBER)
+                .any(|link| link.target == Target::Url("https://example.com".into()))
         );
-        assert_eq!(
-            mapped
-                .mentions
-                .iter()
-                .flatten()
-                .map(|link| link.width)
-                .sum::<usize>(),
-            6
-        );
+        let members: Vec<_> = links
+            .iter()
+            .filter(|link| matches!(link.target, Target::Member(_)))
+            .collect();
+        assert!(members.iter().all(|link| link.target
+            == Target::Member(crate::board::app::workspace::tests::MEMBER.into())));
+        assert_eq!(members.iter().map(|link| link.width).sum::<usize>(), 6);
     }
     fn painted_reader() -> App {
         let mut app = app();
@@ -569,7 +567,7 @@ mod frozen_membership_tests {
         app.open_member_link(Hit {
             surface: Rect::default(),
             area: Rect::new(4, 10, 6, 1),
-            identity: MEMBER.into(),
+            target: Target::Member(MEMBER.into()),
             reader: true,
             occurrence: 0,
         });
@@ -652,7 +650,7 @@ mod named_surface_tests {
         app.open_member_link(Hit {
             area: Rect::new(5, 5, 7, 1),
             surface: Rect::new(0, 5, 100, 1),
-            identity: MEMBER.into(),
+            target: Target::Member(MEMBER.into()),
             reader: false,
             occurrence: 0,
         });
@@ -1101,7 +1099,7 @@ mod named_surface_tests {
                             .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                             .collect();
                         let cells:Vec<_> = buffer.content.iter().map(|cell| serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect();
-                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":hit.identity,"reader":hit.reader})).collect();
+                        let hits:Vec<_> = app.member_links.borrow().hits.iter().map(|hit|serde_json::json!({"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height,"identity":match &hit.target { Target::Member(id) | Target::Url(id) => id },"reader":hit.reader})).collect();
                         frames.push(serde_json::json!({"scene":scene,"width":width,"height":36,"base":base,"depth":format!("{depth:?}"),"lines":lines,"cells":cells,"memberHits":hits}));
                     }
                 }

@@ -2,15 +2,20 @@ import assert from 'node:assert/strict';
 import { test } from 'vite-plus/test';
 import { remoteState, currentRemote } from '../src/remote-state.js';
 
-test('list and header use one current-origin state and the shared success role', () => {
+test('list and header use one current-origin state in words only and the neutral tone', () => {
   assert.deepEqual(remoteState('Connected'), {
-    text: '● Connected',
+    text: 'Connected',
     word: 'connected',
-    mark: '●',
-    tone: 'working',
+    mark: '',
+    tone: 'neutral',
     action: '',
   });
   assert.equal(remoteState('Checking').word, 'connecting');
+  assert.equal(remoteState('Checking').text, 'Checking…');
+  for (const state of ['Connected', 'Checking', 'Not paired', 'Unconfirmed', 'Different machine']) {
+    assert.equal(remoteState(state).mark, '');
+    assert.equal(remoteState(state).tone, 'neutral');
+  }
   assert.equal(remoteState('Access ended').action, 'Pair again');
   for (const state of ['Not accepted', 'Unconfirmed']) {
     assert.equal(remoteState(state).word, 'unreachable');

@@ -2703,7 +2703,7 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
         let id = created["pageId"].as_str().unwrap();
         tmt_colab_model::values::generated_id(id).unwrap();
         assert_eq!(created["title"], "Fresh 🐈");
-        assert_eq!(created["path"], format!("/p/{}", &id[..8]));
+        assert_eq!(created["path"], format!("/colab/p/{}", &id[..8]));
         assert_eq!(created["membershipHead"]["revision"], "2");
         let read = pilot.call(&["page", "read", id, "--json"]);
         assert_eq!(read["source"], source);
@@ -5096,11 +5096,11 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
             .is_none()
     );
     let path = created["path"].as_str().unwrap();
-    assert!(path.starts_with("/p/"));
+    assert!(path.starts_with("/colab/p/"));
     assert_eq!(
         created["shortLink"],
         format!(
-            "http://127.0.0.1:53253/p/{}",
+            "http://127.0.0.1:53253/colab/p/{}",
             &created["pageId"].as_str().unwrap()[..8]
         )
     );
@@ -5123,7 +5123,7 @@ fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
         "{human:?}"
     );
     let text = String::from_utf8(human.stdout).unwrap();
-    assert!(text.contains("http://127.0.0.1:53253/p/"), "{text}");
+    assert!(text.contains("http://127.0.0.1:53253/colab/p/"), "{text}");
     assert!(!text.contains("start tmt remote serve"));
     // A stopped opt-in is exact; an extra field is malformed rather than evidence of stopping.
     let stopped = pilot
@@ -5260,7 +5260,7 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
     assert!(created["link"].is_null() && created["shortLink"].is_null());
     assert!(created["paired"].is_null());
     assert_eq!(created["next"], json!([]));
-    assert!(created["path"].as_str().unwrap().starts_with("/p/"));
+    assert!(created["path"].as_str().unwrap().starts_with("/colab/p/"));
 }
 
 #[test]
@@ -6736,7 +6736,7 @@ fn a_paired_space_with_a_page_prints_its_link_and_no_pairing_step() {
     assert_eq!(ready["pages"], 1);
     assert_eq!(
         ready["page"],
-        format!("http://127.0.0.1:53253/p/{}", &page[..8])
+        format!("http://127.0.0.1:53253/colab/p/{}", &page[..8])
     );
     assert_eq!(ready["next"], json!([]));
     assert!(ready["warning"].is_null());
@@ -6745,7 +6745,7 @@ fn a_paired_space_with_a_page_prints_its_link_and_no_pairing_step() {
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
     let text = Serving::wait_for(&serving.out, "yes (1 device)");
     assert!(!text.contains("pair this browser"), "{text}");
-    assert!(text.contains(&format!("/p/{}", &page[..8])), "{text}");
+    assert!(text.contains(&format!("/colab/p/{}", &page[..8])), "{text}");
     serving.stop(Signal::SIGTERM);
 }
 impl Pilot {
@@ -7067,7 +7067,7 @@ fn serve_opens_the_single_page_and_the_setting_is_overridden_by_flags_only() {
     serving.stop(Signal::SIGTERM);
     let opened = pilot.opened();
     assert_eq!(opened.len(), 1);
-    assert!(opened[0].starts_with("http://127.0.0.1:53253/p/"));
+    assert!(opened[0].starts_with("http://127.0.0.1:53253/colab/p/"));
     assert!(opened[0].ends_with(&page[..8]), "{opened:?}");
 }
 #[test]
@@ -7189,7 +7189,7 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                     );
                     if expected {
                         assert!(
-                            calls[0].starts_with("http://127.0.0.1:53253/p/"),
+                            calls[0].starts_with("http://127.0.0.1:53253/colab/p/"),
                             "{calls:?}"
                         );
                     }
@@ -7201,7 +7201,7 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                             result["shortLink"]
                                 .as_str()
                                 .unwrap()
-                                .starts_with("http://127.0.0.1:53253/p/")
+                                .starts_with("http://127.0.0.1:53253/colab/p/")
                         );
                     } else if expected {
                         assert!(
@@ -7250,8 +7250,7 @@ fn page_create_without_terminal_opens_once_and_failure_or_no_door_keeps_creation
         }
     }
 }
-const LAUNCH_OPENED: &str =
-    r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":true,"state":"opened"}"#;
+const LAUNCH_OPENED: &str = r#"{"version":1,"link":"http://127.0.0.1:53253/colab/p/12345678","opened":true,"state":"opened"}"#;
 /// Creates a page with the door answering and `launch` replying `(exit, reply)`; returns the output.
 fn create_with_launch(
     pilot: &Pilot,
@@ -7278,7 +7277,10 @@ fn a_page_opens_through_remotes_launch_seam_with_only_the_short_target() {
     let result: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(result["opened"], true);
     let short = result["shortLink"].as_str().unwrap();
-    assert!(short.starts_with("http://127.0.0.1:53253/p/"), "{short}");
+    assert!(
+        short.starts_with("http://127.0.0.1:53253/colab/p/"),
+        "{short}"
+    );
     // Remote opened the browser; Colab did not use the plain opener or learn any launch URL.
     assert!(pilot.opened().is_empty());
     let target = short.strip_prefix("http://127.0.0.1:53253").unwrap();
@@ -7300,17 +7302,17 @@ fn a_page_opens_through_remotes_launch_seam_with_only_the_short_target() {
 fn remotes_other_launch_states_keep_the_short_link_and_never_open_twice() {
     for (reply, opened, shows) in [
         (
-            r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":false,"state":"skipped"}"#,
+            r#"{"version":1,"link":"http://127.0.0.1:53253/colab/p/12345678","opened":false,"state":"skipped"}"#,
             false,
             None,
         ),
         (
-            r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":false,"state":"no-opener"}"#,
+            r#"{"version":1,"link":"http://127.0.0.1:53253/colab/p/12345678","opened":false,"state":"no-opener"}"#,
             false,
             None,
         ),
         (
-            r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":false,"state":"failed"}"#,
+            r#"{"version":1,"link":"http://127.0.0.1:53253/colab/p/12345678","opened":false,"state":"failed"}"#,
             false,
             Some(
                 "Could not open the browser. Remote could not start the browser. Open the link above yourself",
@@ -7326,7 +7328,7 @@ fn remotes_other_launch_states_keep_the_short_link_and_never_open_twice() {
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
-        assert!(text.contains("http://127.0.0.1:53253/p/"), "{text}");
+        assert!(text.contains("http://127.0.0.1:53253/colab/p/"), "{text}");
         assert_eq!(text.contains("opened in your browser"), opened, "{text}");
         if let Some(shows) = shows {
             assert!(text.contains(shows), "{text}");
@@ -7345,7 +7347,7 @@ fn remotes_other_launch_states_keep_the_short_link_and_never_open_twice() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(text.contains("http://127.0.0.1:53253/p/"), "{text}");
+    assert!(text.contains("http://127.0.0.1:53253/colab/p/"), "{text}");
     assert!(
         text.contains("Could not open the browser. A manual pairing is still open. Finish or cancel it first. Open the link above yourself"),
         "{text}"
@@ -7359,11 +7361,11 @@ fn a_remote_without_the_seam_leaves_the_plain_opener_and_never_a_guessed_url() {
         (2, ""),
         (
             0,
-            r#"{"version":2,"link":"http://127.0.0.1:53253/p/12345678","opened":true,"state":"opened"}"#,
+            r#"{"version":2,"link":"http://127.0.0.1:53253/colab/p/12345678","opened":true,"state":"opened"}"#,
         ),
         (
             0,
-            r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":true,"state":"launched"}"#,
+            r#"{"version":1,"link":"http://127.0.0.1:53253/colab/p/12345678","opened":true,"state":"launched"}"#,
         ),
         (0, "not json"),
     ] {
@@ -7416,7 +7418,7 @@ fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
     assert_eq!(opened[0], "http://127.0.0.1:53253/colab/");
     assert_eq!(
         opened[1],
-        format!("http://127.0.0.1:53253/p/{}", &PAGE[..8])
+        format!("http://127.0.0.1:53253/colab/p/{}", &PAGE[..8])
     );
     assert_eq!(fs::read(&database).unwrap(), before);
     serving.stop(Signal::SIGTERM);
@@ -7450,7 +7452,7 @@ fn explicit_open_hands_the_short_target_to_remotes_launch_seam() {
         pilot.launch_calls(),
         [
             "remote launch /colab/ --open".to_owned(),
-            format!("remote launch /p/{} --open", &PAGE[..8])
+            format!("remote launch /colab/p/{} --open", &PAGE[..8])
         ]
     );
     // Suppressed or JSON-only requests create no offer.
@@ -7492,7 +7494,7 @@ fn explicit_open_reports_facts_without_launching_for_json_no_open_or_unavailable
     assert_eq!(facts["opened"], false);
     assert_eq!(
         facts["shortLink"],
-        format!("http://127.0.0.1:53253/p/{}", &PAGE[..8])
+        format!("http://127.0.0.1:53253/colab/p/{}", &PAGE[..8])
     );
     for (door, args) in [
         (DOOR, vec!["open", PAGE, "--no-open"]),
@@ -7545,7 +7547,7 @@ fn explicit_open_failure_keeps_the_link_and_warns_once() {
     );
     assert!(
         String::from_utf8_lossy(&result.stdout)
-            .contains(&format!("http://127.0.0.1:53253/p/{}", &PAGE[..8]))
+            .contains(&format!("http://127.0.0.1:53253/colab/p/{}", &PAGE[..8]))
     );
     assert!(!String::from_utf8_lossy(&result.stdout).contains("opened in your browser"));
     assert_eq!(pilot.opened().len(), 1);
@@ -7867,7 +7869,7 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
                     format!("    {list_expiry}\n")
                 };
                 assert!(list_text.contains(&line), "{list_text:?}");
-                let link = format!("/p/{}", &id[..8]);
+                let link = format!("/colab/p/{}", &id[..8]);
                 assert!(
                     list_text.contains(&link),
                     "short link survives narrow output: {list_text}"
@@ -7942,8 +7944,8 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
         "page", "create", "--title", "Notes", "--layout", "column", "--json",
     ]);
     let page = created["pageId"].as_str().unwrap();
-    let path = format!("/p/{}", &page[..8]);
-    let full = format!("http://127.0.0.1:53253/p/{}", &page[..8]);
+    let path = format!("/colab/p/{}", &page[..8]);
+    let full = format!("http://127.0.0.1:53253/colab/p/{}", &page[..8]);
     let human = |door: Option<&str>, args: &[&str]| {
         let mut cmd = pilot.command();
         if let Some(status) = door {
@@ -8028,7 +8030,7 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
         serde_json::from_slice::<Value>(&out.stdout).unwrap()
     };
     let shown = json_of(Some(DOOR), &["show", page]);
-    let short_path = format!("/p/{}", &page[..8]);
+    let short_path = format!("/colab/p/{}", &page[..8]);
     let short_link = format!("http://127.0.0.1:53253{short_path}");
     assert_eq!(shown["link"], short_link);
     assert_eq!(shown["shortLink"], full);
@@ -8102,7 +8104,7 @@ fn human_ls_uses_the_link_prefix_even_when_a_collision_is_archived_or_deleted() 
             .unwrap();
         assert!(row.contains("10000000-0"), "{listing}");
         assert!(
-            listing.contains("http://127.0.0.1:53253/p/10000000-0"),
+            listing.contains("http://127.0.0.1:53253/colab/p/10000000-0"),
             "{listing}"
         );
         if action.is_none() {

@@ -626,6 +626,23 @@ fn captures() -> Value {
                 }
             }
         }
+        // A link in the chat opens a small popover; the address is fixed and synthetic.
+        for (look_name, look) in looks() {
+            for state in crate::board::member_links::popover::SCENES {
+                for width in [160, 100, 60] {
+                    let app =
+                        crate::board::member_links::popover::capture_case(state, look, width, 36);
+                    frames.push(capture_frame(
+                        &app,
+                        state,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         // The Talk pane's live screen of the selected agent, in each state it can be in.
         for (look_name, look) in looks() {
             for state in crate::board::conversation::screen::tests::SCENES {

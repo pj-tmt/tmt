@@ -1,4 +1,4 @@
-import { BrowserAction, BrowserDrawer, BrowserField } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserCheckbox, BrowserDrawer, BrowserField } from '@tmt/browser-ui/react';
 import { useEffect, useId, useRef, useState } from 'react';
 import {
   projectNameError,
@@ -187,8 +187,7 @@ function NewProjectForm({
           {pages.map((page) => (
             <li key={page.id}>
               <label className="checkbox-label">
-                <input
-                  type="checkbox"
+                <BrowserCheckbox
                   checked={ticked.has(page.id)}
                   onChange={(event) => {
                     const next = new Set(ticked);

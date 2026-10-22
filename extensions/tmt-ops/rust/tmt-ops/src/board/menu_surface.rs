@@ -41,6 +41,10 @@ pub(in crate::board) struct MenuSurface {
     rows: Vec<ListRow>,
     state: picker_surface::State,
     room_picker_footer: Option<String>,
+    /// Entries before the first row: a heading line that is no row and counts for nothing.
+    heading: usize,
+    /// A link's popover or full address: its position line shows only when rows scroll.
+    link: bool,
 }
 
 /// What the pointer asked of the menu.
@@ -102,8 +106,25 @@ impl MenuSurface {
             let action = super::notes::sanitize(action).to_ascii_lowercase();
             Some(format!("Enter {action} · Esc cancel"))
         });
+        let heading = usize::from(
+            entries
+                .first()
+                .is_some_and(|entry| matches!(entry.choice, Choice::Heading)),
+        );
         let room_picker_footer = if anchored && matches!(presentation, Presentation::Actions) {
-            Some(FOOTER.into())
+            // A list of lines of one address: Enter copies it, Esc goes back to the popover.
+            Some(
+                if entries.len() > 1
+                    && entries
+                        .iter()
+                        .all(|entry| matches!(&entry.choice, Choice::LinkCopy(_)))
+                {
+                    "Enter copies · Esc back"
+                } else {
+                    FOOTER
+                }
+                .into(),
+            )
         } else {
             room_picker_footer
         };
@@ -123,8 +144,13 @@ impl MenuSurface {
             &title
         };
         let key_role = if anchored { "text" } else { "accent" };
+        let heading_node = if heading == 1 {
+            r#"<tmt-text id="heading" bind="$.heading" token="muted"/>"#
+        } else {
+            ""
+        };
         let markup = format!(
-            r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="{placement}" class="w-{width} h-{}"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="{key_role}"/><tmt-cell bind="row.cursor" class="w-{cursor_width} shrink-0" token="text"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="{placement}" class="w-{width} h-{}"><tmt-scroll id="body">{heading_node}<tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="{key_role}"/><tmt-cell bind="row.cursor" class="w-{cursor_width} shrink-0" token="text"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
             entries.len() + CHROME
         );
         let markup = if matches!(presentation, Presentation::Dropdown) {
@@ -132,7 +158,7 @@ impl MenuSurface {
         } else {
             markup
         };
-        let rows: Vec<ListRow> = (0..entries.len())
+        let rows: Vec<ListRow> = (heading..entries.len())
             .map(|index| ListRow {
                 id: row_id(index),
                 disabled: matches!(entries[index].choice, Choice::Rule),
@@ -143,7 +169,10 @@ impl MenuSurface {
                 Presentation::Actions => Template::Modal(picker_surface::compile(
                     FILE,
                     &markup,
-                    picker_surface::schema(&["key", "cursor", "label"]),
+                    picker_surface::schema_with(
+                        &["key", "cursor", "label"],
+                        if heading == 1 { &["heading"] } else { &[] },
+                    ),
                 )),
                 Presentation::Dropdown => {
                     let parsed = tmt_tui::parse(FILE, &markup).expect("embedded dropdown markup");
@@ -163,6 +192,13 @@ impl MenuSurface {
             state: picker_surface::State::new(None, rows.clone(), None),
             rows,
             room_picker_footer,
+            heading,
+            link: entries.iter().any(|entry| {
+                matches!(
+                    entry.choice,
+                    Choice::LinkOpen(_) | Choice::LinkCopy(_) | Choice::LinkShow { .. }
+                )
+            }),
         }
     }
 
@@ -223,16 +259,35 @@ impl MenuSurface {
         }
         let rows: Vec<_> = entries
             .iter()
+            .skip(self.heading)
             .zip(&self.rows)
             .map(|(entry, row)| {
                 serde_json::json!({"id": row.id, "disabled": matches!(entry.choice, Choice::Unavailable(_)), "key": if matches!(self.template, Template::Dropdown { .. }) { format!(" {}",entry.key) } else { entry.key.clone() }, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": entry.label})
             })
             .collect();
         let footer = self.room_picker_footer.as_deref().unwrap_or(FOOTER);
-        let value = serde_json::json!({"rows": rows, "query": "", "footer": footer, "status": "", "notes": []});
+        let mut value = serde_json::json!({"rows": rows, "query": "", "footer": footer, "status": "", "notes": []});
+        if self.heading == 1 {
+            value["heading"] = serde_json::json!(entries[0].label);
+        }
         match &mut self.template {
             Template::Modal(template) => {
-                self.state.render(FILE, template, value, frame, look, body)
+                self.state.render(FILE, template, value, frame, look, body);
+                // The position line says nothing while every row is in view.
+                if self.link
+                    && let Some(map) = &self.state.frame
+                    && map
+                        .list
+                        .as_ref()
+                        .is_some_and(|list| list.geometry.len() >= self.rows.len())
+                {
+                    let area = map.areas.position;
+                    for y in area.y..area.bottom() {
+                        for x in area.x..area.right() {
+                            frame.buffer_mut()[(x, y)].set_symbol(" ");
+                        }
+                    }
+                }
             }
             Template::Dropdown {
                 template,

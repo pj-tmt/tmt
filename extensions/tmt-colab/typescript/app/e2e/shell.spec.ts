@@ -53,7 +53,7 @@ for (const width of [1440, 390])
       await expect(page.locator('header')).toContainText('Release shell');
       // The greeting names the local time of day and the number waiting (1 + 2), spelled out.
       await expect(page.locator('.shell-greeting')).toHaveText(
-        /^Good (morning|afternoon|evening)\. Three things are waiting for you\.$/,
+        /^Good (morning|afternoon|evening)\. Three things need you\.$/,
       );
       await expect(page.locator('.shell-summary-line1')).toHaveText('Release is on track');
       await expect(page.locator('.shell-summary-line2')).toHaveText(
@@ -64,7 +64,7 @@ for (const width of [1440, 390])
       const counts = page.locator('.shell-counts li');
       await expect(counts.locator('.shell-count-number')).toHaveText(['3', '1', '3']);
       await expect(counts.locator('.shell-count-label')).toHaveText([
-        '◆ Waiting for you',
+        '◆ Needs you',
         'In progress',
         'Updated today',
       ]);
@@ -151,7 +151,7 @@ test('each count jumps to the first row it counts and a zero count is plain text
   await expect(page.locator('[data-today] a').first()).toBeFocused();
   await page.unroute('**/src/main.tsx');
   await openShell(page, 'settled');
-  await expect(page.locator('.shell-greeting')).toHaveText(/Nothing is waiting for you\.$/);
+  await expect(page.locator('.shell-greeting')).toHaveText(/Nothing needs you\.$/);
   await expect(page.locator('.shell-counts li').first().getByRole('button')).toHaveCount(0);
   await expect(page.locator('.shell-counts li').nth(1).getByRole('button')).toHaveCount(1);
 });
@@ -372,7 +372,7 @@ test('an empty shell, one without a summary and a failed page list stay readable
 }) => {
   await openShell(page, 'empty');
   await expect(page.getByText(text.shellPage.empty, { exact: true })).toBeVisible();
-  await expect(page.locator('.shell-greeting')).toHaveText(/Nothing is waiting for you\.$/);
+  await expect(page.locator('.shell-greeting')).toHaveText(/Nothing needs you\.$/);
   await expect(page.locator('.shell-chapter')).toHaveCount(0);
   await page.unroute('**/src/main.tsx');
   await openShell(page, 'no-summary');

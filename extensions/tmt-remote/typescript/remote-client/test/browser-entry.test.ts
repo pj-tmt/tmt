@@ -146,7 +146,7 @@ async function fixture(mode = 'success') {
     arrive = resolve;
   });
   let click: () => void | Promise<void> = () => {};
-  let hide = () => {};
+  const lifetime = new AbortController();
   const nodes = new Map<
     string,
     {
@@ -222,9 +222,7 @@ async function fixture(mode = 'success') {
     getElementById: (id: string) => (id === 'check' ? button : nodes.get(id)),
   });
   vi.stubGlobal('window', {
-    addEventListener: (_: string, listener: () => void) => {
-      hide = listener;
-    },
+    addEventListener: () => {},
   });
   vi.stubGlobal('location', { origin: new URL(door.descriptor.address).origin, pathname: '/' });
   vi.stubGlobal('indexedDB', {
@@ -325,9 +323,10 @@ async function fixture(mode = 'success') {
     counts: () => ({ mounts, admissions }),
     release,
     click: () => click(),
-    // The two departures are separate predicates: a connected page that receives pagehide, and
-    // a check button detached without one.
-    pagehide: () => hide(),
+    // The two departures are separate predicates: the route unmounting (its lifetime aborts), and
+    // a check button detached without that.
+    lifetime: lifetime.signal,
+    unmount: () => lifetime.abort(),
     detach: () => {
       button.isConnected = false;
     },
@@ -452,10 +451,7 @@ test('missing and unreadable pairing send nothing', async () => {
         f.nodes.get('state-label')!.textContent,
         state === 'missing' ? 'Not paired' : 'Pairing unreadable',
       );
-      assert.equal(
-        f.nodes.get('notice')!.dataset.tone,
-        state === 'missing' ? 'waiting' : 'blocked',
-      );
+      assert.equal(f.nodes.get('notice')!.dataset.tone, 'neutral');
       assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
       assert.deepEqual(f.door.calls, []);
     } finally {
@@ -526,11 +522,7 @@ test('entry separates signed refusal from opaque, mismatched and unverifiable re
             ? 'Not accepted'
             : "Can't reach Remote",
       );
-      assert.equal(
-        f.nodes.get('notice')!.dataset.tone,
-        mode === 'other-machine' ? 'waiting' : 'blocked',
-        mode,
-      );
+      assert.equal(f.nodes.get('notice')!.dataset.tone, 'neutral', mode);
       assert.deepEqual(f.counts(), {
         mounts: ['refused', 'stale'].includes(mode) ? 2 : 1,
         admissions: ['transport', 'other-machine'].includes(mode) ? 0 : 1,
@@ -544,11 +536,11 @@ test('entry separates signed refusal from opaque, mismatched and unverifiable re
 });
 
 for (const [mode, departure] of ['delayed', 'signing', 'pending-admission'].flatMap((mode) =>
-  (['pagehide', 'detach'] as const).map((departure) => [mode, departure] as const),
+  (['unmount', 'detach'] as const).map((departure) => [mode, departure] as const),
 )) {
   test(`departure by ${departure} during ${mode} prevents late painting and new requests`, async () => {
     const f = await fixture(mode);
-    const pending = landingPage();
+    const pending = landingPage(f.lifetime);
     try {
       if (mode === 'delayed') await vi.waitFor(() => assert.equal(f.counts().mounts, 1));
       else await f.reached;

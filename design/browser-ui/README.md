@@ -12,9 +12,12 @@ release readiness are separate consumer work.
 
 There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `generated/static.css`; `@tmt/browser-ui/static` exports the frozen
-`browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
-exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
+`browserUiClasses` and presentation types without React; `@tmt/browser-ui/shell` exports the
+[Shell](../gui-style.md#shell) model (`shellRail`, `describedMenu`, `shellCount`), its reader
+`loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
+(`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/react`
+exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot), `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
+`BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
@@ -40,10 +43,16 @@ outer toggle, command/copy and icon tooltip frames share the light rule. The
 toggle indicator keeps `--tmt-ui-color-edge`; selected indicators and keyboard
 focus retain their stronger roles. These frame choices do not change token values.
 
-`src/favicon.svg` owns the light/dark TMT tab icon. Site, Colab and Remote HTML
-embed data-URI copies; their tests decode those copies and compare the exact SVG
-bytes with this source. Updating the icon requires refreshing these literals;
-no icon request or runtime generator is involved.
+`scripts/generate-brand.mjs` writes the static brand assets from the mark's one definition
+(`src/brand-mark-svg.ts`), `src/brand-mark.css` and the mark-only `brand.mark` roles in
+`tokens.json`; `pnpm check:generated` fails when they are stale. `generated/favicon.svg` is the
+TMT tab icon: the small form of the 04D-1 mark on its dark rounded-square tile, the same in light
+and dark browser chrome. Site, Colab and Remote HTML embed data-URI copies; their tests decode
+those copies and compare the exact SVG bytes with this file. Updating the icon requires refreshing
+these literals; no icon request or runtime generator is involved. `generated/app-icon-light.svg`
+and `generated/app-icon-dark.svg` are the 512 px app icons: the full mark on the same dark tile,
+in each theme's mark roles. Colab's design-geometry browser test rasterises the favicon at 16, 24
+and 32 px and the full mark at 256 px.
 
 ## Host metric inputs
 
@@ -85,16 +94,22 @@ full DOM copy and title association; the host supplies a visible full-caption
 read path. `brandLink` preserves a caller's native anchor. `disclosure` selects a
 caller-owned data attribute; the leaf does not choose or operate a menu.
 
-The header brand uses the TMT mark (a knocked-out rounded square, one even-odd
-path) mirrored in `site/src/home/assets/v9-0.svg`, rendered inline with the `0 0 96 96`
-viewBox, `aria-hidden="true"` and `fill="currentColor"`. The leaf neither imports
-the site nor fetches the mark. The product label and brand link use the normal
-text colour. Mark size and brand gap derive from the wordmark-size token using
-the handbook's 33/19 and 12/19 ratios (about 24.32px and 8.84px with a 14px label);
-they stay equal at compact and wide widths, within the 48px/56px header. The
-screen title follows the brand as plain text, without a divider.
-Static hosts supply their own inline SVG with the same class, viewBox and
-decorative attributes; the shared stylesheet does not replace a host's text mark.
+The brand is the 04D-1 "Beam / Window" mark (`BrandMark`, `src/brand-mark.tsx` and
+`.css`): a dark terminal panel with a `>_` prompt opening into an aurora beam. Every surface
+shows this one mark. Its stops carry aurora-light; dark themes switch to the brighter aurora-dark
+stops and give the panel a faint edge. Print swaps in a mono beam.
+Below 28 px the simplified form drops the perspective and the underscore. `BrandLockup`
+adds the `tmt` / `terminal team` words for marketing surfaces.
+
+The header brand renders the small form at the header's mark size, `aria-hidden="true"`.
+Mark size and brand gap derive from the wordmark-size token using the handbook's 33/19 and
+12/19 ratios (about 24.32px and 8.84px with a 14px label); they stay equal at compact and wide
+widths, within the 48px/56px header. The product label and brand link use the normal text
+colour. The screen title follows the brand as plain text, without a divider.
+`generated/brand-mark-static.svg` is the static-host copy of that header mark; static hosts embed it
+(with their own extra classes and gradient ids) and the shared stylesheet styles it. The
+header test compares React's output with that copy, ignoring only formatting whitespace and
+gradient ids.
 
 Notice tone, visible state label, mark and announcement are explicit. No state,
 health, permission or recovery inference occurs. Marks are decorative because
@@ -138,9 +153,9 @@ visible action and its accessible name. A host may supply `visibleLabel` for
 shorter action text; the full `label` must begin with that visible text and remains
 the accessible name.
 Text actions have a transparent background in ready and disabled states;
-disabled text is muted. Enabled hover and keyboard focus use selection colors.
-Field focus strengthens the same 1px edge to a contiguous 2px rule in the focus
-color, entirely inside the border box. Native fields and contenteditable controls
+disabled text is muted. Enabled hover and keyboard focus keep the text colour on the lighter `surface.hover` background; selection colors mark only the selected or pressed state.
+Field focus recolours the same 1px edge in the focus color (`--tmt-ui-focus-width`, the one
+focus width every control uses), entirely inside the border box. Native fields and contenteditable controls
 use the same `:focus-visible` treatment, without an outward ring, shadow or size
 change. The host's `focus-offset` applies to other controls, not field focus paint;
 field label spacing retains its existing host metrics.
@@ -152,6 +167,14 @@ visible label is a node or abbreviates a longer name.
 The leaf owns the symmetric 8px toggle inset through `toggle-gap`; hosts only
 supply the focus offset. Disabled styling cannot inherit hover/selected styling. Static hosts perform the
 same native semantics and ID associations themselves; CSS owns no effects.
+
+Checkbox is one drawing, `tmt-ui-checkbox` (`browserUiClasses.checkbox`), on a real
+`<input type="checkbox">`: a flat 1em square with a rule edge, a currentColor tick when
+checked, a short bar when indeterminate, the shared focus edge and the disabled roles.
+Static hosts put the class on their own input. `BrowserCheckbox` renders that input with
+native props (`checked`/`defaultChecked`, `onChange`, `disabled`, `name`) plus
+`indeterminate`; name it with a `<label>` or `aria-label`. The UI layer's Radix `Checkbox`
+uses the same class keyed on its `data-state`, so it needs `static.css` loaded.
 
 List uses a named native `ul`; each ListRow is a native `li` with title, updated
 metadata, state and optional trailing actions slots. The host owns title links,
@@ -271,7 +294,7 @@ with **Run lifecycle checks**, then retains interactive React controls.
 
 **Run field focus checks** in the static fixture and the React lifecycle checks
 both exercise native and textbox fields: contained focus paint, unchanged geometry
-within 1px, a visible contiguous 1px-to-2px edge change, and restoration on blur.
+within 1px, the 1px edge recoloured to the focus role, and restoration on blur.
 The React checks also measure linked/plain header brands against the same handbook
 mark/gap ratios at every viewport, their containment and neutral colour, and the
 absence of a title divider.
@@ -285,6 +308,24 @@ pnpm --filter @tmt/browser-ui --fail-if-no-match check
 pnpm --filter @tmt/browser-ui --fail-if-no-match test
 ```
 
+## Gallery
+
+`gallery/` is a dev-only living gallery of the real tokens and components. Run it with
+`pnpm --filter @tmt/browser-ui --fail-if-no-match gallery` from `typescript/` (Vite dev server on
+`http://127.0.0.1:5183/`, polling watcher; CSS updates in place, a source edit reloads the page). It imports `generated/static.css`,
+`generated/ui.css`, `src/react.ts`, `src/shell.ts`, `src/ui` and `../tokens/tokens.json` exactly
+as products do; nothing is redrawn. It shows each demo in a light and a dark column scoped with
+`data-theme`, and pins hover/focus by mirroring the leaf's own `:hover`/`:focus-visible` rules
+onto gallery attributes (`gallery/force-states.ts`). The shell, dialog, drawer, open menu and
+notifications render in iframes of the gallery itself (`?frame=<name>&theme=<theme>`), because
+they need a viewport or the top layer; the phone shell is a 390px frame. The gallery loads web
+fonts from Google Fonts and supplies Colab's host metrics.
+
+It is never built or exported: `package.json` exports do not name `gallery/`, and only
+`vite.gallery.config.ts` serves it. `gallery/covered.ts` maps every value export of
+`src/react.ts` to its section; `tsc` and `test/gallery.test.ts` fail when an export is missing
+from that map or is not rendered or called in the gallery source.
+
 ## Dialog
 
 `BrowserDialog` is a controlled, content-fitting native modal at every width.
@@ -292,7 +333,10 @@ It shares its private show/close/dismiss/focus-return lifetime with Drawer and
 renders in place, without a portal or body scroll lock. The opaque square surface
 has one 1px edge and no shadow or animation. Its width is at most 600px, with
 16px viewport/safe-area margins, reduced to 4px through 480px; its height is
-capped by the available viewport. The body scrolls with contained overscroll.
+capped by the available viewport. The body scrolls with contained overscroll and
+stacks its children with the `space-l` gap (a bare action, icon action or menu keeps
+its own width). Optional `actions` render an end-aligned footer row with the
+`space-s` gap; Drawer takes the same `actions` prop.
 
 The host supplies `open`, title, children and `onDismiss(reason, event)`.
 Children may consume Escape for a suggestion level before the dialog sees it.
@@ -395,6 +439,9 @@ product sources or navigation are wired by the fixture.
 ## Chips
 
 `BrowserChips` presents a controlled removable list and an Add search popup.
+Each chip's remove control is a square, full-height segment flush with the chip's inner
+top, right and bottom edges (a rule on its left); its hover/focus fill meets those edges
+and focus recolours its own border. The UI layer's `Chip` draws the same segment.
 The host supplies `label`, `items` (`id`, `label`, `removeLabel`, optional `disabled`),
 filtered `options` (`id`, `label`, optional `description`/`disabled`), `query` and
 `onQueryChange`, `onAdd(id, event)` and `onRemove(id, event)`. It also supplies

@@ -117,7 +117,17 @@ for (const reader of [false, true]) {
     ).toBeGreaterThan(0);
     await page.setViewportSize({ width: 390, height: 700 });
     await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('height', '48px');
-    await expect.poll(async () => (await frame.boundingBox())?.height).toBe(652);
+    // The frame fills the viewport below the header. In the TMT shell the header is the shell's bar
+    // (plus the module menu) and the frame fills the shell's main area; the reader has no shell,
+    // so its fixed header's 48px sit above the frame.
+    await expect
+      .poll(async () => {
+        const box = (await frame.boundingBox())!;
+        const shellMain = page.locator('.tmt-ui-shell-main');
+        const main = (await shellMain.count()) ? await shellMain.boundingBox() : null;
+        return [box.y + box.height, box.y - (main?.y ?? 48)];
+      })
+      .toEqual([700, 0]);
     await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
   });
 }

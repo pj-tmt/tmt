@@ -137,7 +137,7 @@ for (const kind of ['fast', 'slow'] as const)
     await command(page, 'setMode', 'pending');
     await page.clock.pauseAt(new Date(start.getTime() + 60_000));
     const recheck = panel.getByRole('button', { name: 'Recheck status' });
-    const marks = panel.locator('.tmt-ui-action-mark[data-busy="true"] svg');
+    const marks = panel.locator('.tmt-ui-action-mark[data-busy="true"] .tmt-ui-busy-mark');
     await recheck.click();
     // Fenced, not greyed, and the rows keep what they showed.
     await expect(recheck).toHaveAttribute('aria-busy', 'true');

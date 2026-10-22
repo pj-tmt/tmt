@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { Downloads, prepareExport, type ExportView } from '../src/export.js';
 import type { ExportAttachment } from '../src/export-attachments.js';
+import { META_POLICY, THEME_SWITCH } from '../src/standalone.js';
 
 const fixture = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/export-v1.json', import.meta.url), 'utf8'),
@@ -145,6 +146,89 @@ it('matches the shared native bundle byte for byte, including exact order and la
   const other = await prepareExport(reordered);
   for (const name of ['conversations.json', 'conversations.md', 'manifest.json'] as const)
     expect(await bytes(other.blob(name))).toEqual(await bytes(bundle.blob(name)));
+});
+
+it('adds the standalone copy of a page that opts in, byte for byte like native, and leaves page.html alone', async () => {
+  const vector = fixture.standalone;
+  expect(META_POLICY).toBe(vector.policy);
+  expect(THEME_SWITCH).toBe(vector.themeSwitch);
+  const bundle = await prepareExport({
+    ...input(),
+    source: vector.source,
+    standalone: { runtime: vector.runtime },
+  });
+  const file = await bytes(bundle.blob('page.standalone.html'));
+  const manifest = await bytes(bundle.blob('manifest.json'));
+  expect(file).toEqual(utf8(vector.fileUtf8));
+  expect(sha(file)).toBe(vector.fileSha256);
+  expect(manifest).toEqual(utf8(vector.manifestUtf8));
+  expect(sha(manifest)).toBe(vector.manifestSha256);
+  // The admitted source is untouched, and the copy sits right after it.
+  expect(await bytes(bundle.blob('page.html'))).toEqual(utf8(vector.source));
+  expect(bundle.files.slice(0, 4).map(({ name }) => name)).toEqual([
+    'page.html',
+    'page.standalone.html',
+    'conversations.json',
+    'conversations.md',
+  ]);
+  expect(bundle.files[1]).toEqual({
+    name: 'page.standalone.html',
+    sizeBytes: file.length,
+    sha256: sha(file),
+    derivedFrom: 'page.html',
+  });
+  expect(bundle.standalone).toEqual({ included: true });
+  expect(new TextDecoder().decode(file)).toContain(`<script>${vector.themeSwitch}</script>`);
+  // Work follows the HTML, then the copy.
+  const withWork = await prepareExport({
+    ...input(),
+    work: structuredClone(fixture.work),
+    standalone: { runtime: vector.runtime },
+  });
+  expect(withWork.files.slice(0, 3).map(({ name }) => name)).toEqual([
+    'page.html',
+    'work.json',
+    'page.standalone.html',
+  ]);
+});
+
+it('names why an opted-in page got no copy and never changes any other export', async () => {
+  const plain = await prepareExport(input());
+  expect(plain.standalone).toBeUndefined();
+  expect(plain.files.some((file) => file.derivedFrom !== undefined)).toBe(false);
+  const unavailable = await prepareExport({
+    ...input(),
+    standalone: { reason: 'runtime-unavailable' },
+  });
+  expect(unavailable.standalone).toEqual({ included: false, reason: 'runtime-unavailable' });
+  expect(() => unavailable.blob('page.standalone.html')).toThrow();
+  // Without a copy the export is byte for byte the plain one, manifest included.
+  expect(await bytes(unavailable.blob('manifest.json'))).toEqual(
+    await bytes(plain.blob('manifest.json')),
+  );
+  for (const runtime of [
+    { script: 'a</script><b>', style: '' },
+    { script: 'a</SCRIPT >', style: '' },
+    { script: '<!-- a', style: '' },
+    { script: '', style: 'a</style>' },
+    { script: '', style: 'a</STYLE >' },
+    { script: '', style: '<!-- a' },
+  ]) {
+    const refused = await prepareExport({ ...input(), standalone: { runtime } });
+    expect(refused.standalone).toEqual({ included: false, reason: 'runtime-unusable' });
+    expect(refused.files.map(({ name }) => name)).toEqual(plain.files.map(({ name }) => name));
+  }
+  // A shell has no HTML to derive from, whatever the caller passes.
+  const shell = await prepareExport({
+    ...input(),
+    source: '',
+    pageType: 'shell' as const,
+    shell: { version: 1 as const, items: {}, order: [] },
+    attachmentEntries: [],
+    standalone: { runtime: { script: 'x', style: 'y' } },
+  });
+  expect(shell.standalone).toBeUndefined();
+  expect(shell.files.map(({ name }) => name)).not.toContain('page.standalone.html');
 });
 
 it('exports only verified, in-scope conversations and keeps display text from forging structure', async () => {

@@ -53,7 +53,7 @@ for (const width of [1440, 390]) {
     await expect(options(page)).toHaveCount(3);
     await expect(options(page).filter({ hasText: 'Alpha brief' })).toHaveCount(1);
     const beta = options(page).filter({ hasText: 'Beta review' });
-    await expect(beta).toContainText('Waiting for you');
+    await expect(beta).toContainText('Needs you');
     expect(
       await page.evaluate(
         () => (window as unknown as { switcherStatuses: string[] }).switcherStatuses,

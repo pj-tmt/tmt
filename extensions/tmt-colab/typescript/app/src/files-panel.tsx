@@ -1,5 +1,4 @@
-import { BrowserAction, BrowserList, BrowserListRow } from '@tmt/browser-ui/react';
-import { LoaderCircle } from 'lucide-react';
+import { BrowserAction, BrowserList, BrowserListRow, BusyMark } from '@tmt/browser-ui/react';
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { attachment } from '@tmt/colab-client';
 import { AttachmentDraft } from './attachment-draft.js';
@@ -65,7 +64,7 @@ export function FilesList({
           // Work in flight on any file fences every action, without a grey: only the one at work
           // carries the mark, in a slot every action reserves.
           working = !!busy || !!removing,
-          mark = (active: boolean) => (active ? <LoaderCircle /> : <span />);
+          mark = (active: boolean) => (active ? <BusyMark /> : <span />);
         return (
           <Fragment key={d.attachmentId}>
             <BrowserListRow
@@ -243,7 +242,7 @@ export function FilesPanel({
                 variant="text"
                 label={text.filesAdd}
                 busy={adding}
-                busyMark={<LoaderCircle />}
+                busyMark={<BusyMark />}
                 disabled={!attachable || draft.uploading}
                 onActivate={(event) => {
                   if (event.isTrusted) void add();

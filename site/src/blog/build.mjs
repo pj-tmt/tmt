@@ -83,6 +83,12 @@ export async function blogBuild({ root, base, origin, development, demo }) {
     plugin: {
       name: "tmt-blog",
       enforce: "pre",
+      // The mark is the blog's tab icon and header image; keep it a file, never an inline data URL.
+      config: () => ({
+        build: {
+          assetsInlineLimit: (file) => (file.endsWith("/blog/mark.svg") ? false : undefined),
+        },
+      }),
       // Article modules are self-contained. Do not let a reviewed snippet pull
       // unapproved files or packages into its build from elsewhere in the repo.
       resolveId(source, importer) {

@@ -8,11 +8,17 @@ if (process.argv.length !== 3 || !['--write', '--check'].includes(mode)) {
   throw new Error('Use --write or --check');
 }
 const themed = (theme, indent = '  ') =>
-  ['color', 'surface']
-    .flatMap((group) =>
-      Object.entries(tokens.browser[group]).map(
-        ([name, value]) => `${indent}--tmt-ui-${group}-${name}: ${value[theme].toLowerCase()};`,
-      ),
+  [
+    ['color', tokens.browser.color],
+    ['surface', tokens.browser.surface],
+    ['brand-mark', tokens.brand.mark],
+  ]
+    .flatMap(([group, roles]) =>
+      Object.entries(roles)
+        .filter(([name]) => !name.startsWith('$'))
+        .map(
+          ([name, value]) => `${indent}--tmt-ui-${group}-${name}: ${value[theme].toLowerCase()};`,
+        ),
     )
     .join('\n');
 const fixed = [
@@ -25,11 +31,14 @@ const fixed = [
 const fragments = await Promise.all(
   [
     'header',
+    'brand-mark',
+    'shell',
     'notice',
     'field',
     'action',
     'icon-action',
     'toggle',
+    'checkbox',
     'list',
     'command',
     'drawer',

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from 'vite-plus/test';
 
 const canonical = readFileSync(
-  new URL('../../../../../design/browser-ui/src/favicon.svg', import.meta.url),
+  new URL('../../../../../design/browser-ui/generated/favicon.svg', import.meta.url),
 );
 for (const path of ['../index.html', '../public/reader.html']) {
   test(`${path} carries the exact shared favicon bytes`, () => {

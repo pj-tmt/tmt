@@ -83,11 +83,15 @@ Open while a request, unknown original outcome or unsent device name remains; th
 reason and original recovery stay on that page. Add/Manage open settings’s Remotes section.
 No optional signed catalog/default read or client factory is shipped.
 
-## Public short entries
+## The one web app and public entries
 
-Remote forwards the allowlisted `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` entries
-in place to Colab's public mount socket, with the Remote-computed `tmt-mount` header.
-It owns no Colab shell, catalog, capability or CSP; no cookie/session lookup occurs.
+Every app route (`/`, `/settings`, `/remote/`, `/remote/settings`, `/ops`, `/digest`, `/colab/…`)
+is the static `assets/shell.html`; `shell-app.ts` routes inside it, adopting each page's markup
+from `assets/*.html` and loading Colab's module from the composed shell's `entry`. The pairing
+page stays its own document and mounts the rail only. `/p/<id>` answers 308 to `/colab/p/<id>`.
+Remote forwards only `/read/<id>` in place to Colab's public mount socket, with the
+Remote-computed `tmt-mount` header.
+For that entry it owns no Colab catalog, capability or CSP; no cookie/session lookup occurs.
 The [contract](../../../../contracts/remote-channel-v1.md#transport-binding-loopback-http)
 owns grammar, admission and reply policy. Real-door tests pin exact extension paths,
 header isolation, generic unavailable refusals and unchanged SDK mapping. Browser seam

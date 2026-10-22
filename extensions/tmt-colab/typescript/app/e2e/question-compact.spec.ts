@@ -64,7 +64,7 @@ test('split Send publishes only its own question and keeps another passage draft
   await page.getByLabel('Your answer', { exact: true }).fill('Only this passage is sent.');
   await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
   await expect(rows.nth(1)).toContainText('Answered: Only this passage is sent.');
-  await expect(rows.first()).toContainText('Waiting for you');
+  await expect(rows.first()).toContainText('Needs you');
   const threads = await run(page, 'discussionProof');
   expect(threads).toHaveLength(1);
   expect(threads[0].anchor.exact).toBe('What should the introduction say?');
@@ -136,7 +136,7 @@ test('a split question cannot bypass the recipient read by pressing Enter', asyn
   ).toBeEnabled();
   await answer.press('Enter');
   await expect(rows.nth(1)).toContainText('Answered: Keep the directory admission fence.');
-  await expect(rows.first()).toContainText('Waiting for you');
+  await expect(rows.first()).toContainText('Needs you');
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });

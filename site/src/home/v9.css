@@ -124,6 +124,11 @@
     position: relative;
     z-index: 2;
   }
+  .hero-mark {
+    width: 112px;
+    height: 112px;
+    margin-bottom: 20px;
+  }
   .wordmark {
     display: flex;
     align-items: center;

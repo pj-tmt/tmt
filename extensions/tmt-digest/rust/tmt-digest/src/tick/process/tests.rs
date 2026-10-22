@@ -66,8 +66,16 @@ esac
     fn write(&self, file: &str, value: Value) {
         fs::write(self.0.join(file), serde_json::to_vec(&value).unwrap()).unwrap();
     }
+    /// What Core answers once the last `digest.policy.set` is stored.
+    fn recorded_hold(&self) -> Value {
+        self.writes()
+            .iter()
+            .rev()
+            .find(|row| row["operation"] != "digest.checklist.dueNow")
+            .map_or(Value::Null, |row| row["input"]["maxHoldMs"].clone())
+    }
     fn policy(&self, revision: u64, active: bool) {
-        self.write("policies.json", json!({"policies":[{"identityId":MEMBER,"revision":revision,"active":active,"ownerIdentityId":OWNER,"setterIdentityId":SETTER}]}));
+        self.write("policies.json", json!({"policies":[{"identityId":MEMBER,"revision":revision,"active":active,"ownerIdentityId":OWNER,"setterIdentityId":SETTER,"maxHoldMs":self.recorded_hold()}]}));
     }
     fn stats(&self, held: u64, age: u64) {
         self.observed(held, age, super::super::now_ms().unwrap());
@@ -754,7 +762,7 @@ fn an_inherited_auto_hold_is_owned_by_the_global_default_setter_and_none_means_t
     ] {
         let fixture = defaulted(&attribution);
         if revision > 0 {
-            fixture.write("policies.json", json!({"policies":[{"identityId":MEMBER,"revision":revision,"active":true,"ownerIdentityId":MEMBER,"setterIdentityId":MEMBER}]}));
+            fixture.write("policies.json", json!({"policies":[{"identityId":MEMBER,"revision":revision,"active":true,"ownerIdentityId":MEMBER,"setterIdentityId":MEMBER,"maxHoldMs":fixture.recorded_hold()}]}));
         } else {
             fixture.policy(0, false);
         }
@@ -775,12 +783,48 @@ fn an_inherited_auto_hold_is_owned_by_the_global_default_setter_and_none_means_t
     // ...but a pinned owner other than the member is never replaced, and an unchanged
     // adopted hold is not rewritten on every look.
     let fixture = defaulted(&format!("defaultSetByIdentityId = '{SETTER}'\n"));
+    // A hold from before the limit was recorded is rewritten once, and Core then reports it.
     fixture.policy(5, true);
     let mut port = fixture.port();
     port.observe().unwrap();
+    fixture.policy(6, true);
     port.observe().unwrap();
     let writes = fixture.writes();
     assert_eq!(writes.len(), 1, "one renewal for the invocation");
     assert_eq!(writes[0]["input"]["ownerIdentityId"], OWNER);
     assert_eq!(writes[0]["input"]["setterIdentityId"], SETTER);
+}
+
+#[test]
+fn every_hold_records_the_limit_of_the_rule_that_decides_it() {
+    // (setting, the limit the rule enforces on the oldest held message)
+    for (setting, limit) in [
+        ("auto", Some(super::super::AUTO_CAP_MS)),
+        ("20s", Some(20_000)),
+        ("1h", Some(3_600_000)),
+    ] {
+        let fixture = Fixture::new();
+        fixture.policy(0, false);
+        fixture.settings(setting, None);
+        let mut port = fixture.port();
+        port.observe().unwrap();
+        let sets: Vec<_> = fixture
+            .writes()
+            .into_iter()
+            .filter(|row| row["operation"] == "digest.policy.set")
+            .collect();
+        assert_eq!(sets.len(), 1, "{setting}");
+        assert_eq!(sets[0]["input"]["maxHoldMs"].as_u64(), limit, "{setting}");
+    }
+    // Off holds nothing, so there is nothing to bound.
+    let fixture = Fixture::new();
+    fixture.policy(3, true);
+    fixture.settings("off", None);
+    fixture.port().observe().unwrap();
+    let clear = fixture
+        .writes()
+        .into_iter()
+        .find(|row| row["operation"] == "digest.policy.clear")
+        .unwrap();
+    assert!(clear["input"].get("maxHoldMs").is_none());
 }

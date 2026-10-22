@@ -1,0 +1,7 @@
+/* The standalone gallery page only; the shell route module leaves the shell's own body alone. */
+body {
+  margin: 0;
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: 14px / 1.5 var(--tmt-ui-font-body);
+}

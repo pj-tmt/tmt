@@ -1,6 +1,7 @@
 import { RemoteHeaderChip, RemoteMoreMenu, useRemoteHeaderAvailable } from './remote-header.js';
 import type { ReactNode, Ref } from 'react';
-import { BrowserHeader } from '@tmt/browser-ui/react';
+import { BrowserHeader, useShellBar } from '@tmt/browser-ui/react';
+import { createPortal } from 'react-dom';
 import { text } from './strings.js';
 import './colab-header.css';
 import { QuickSwitcherControl } from './quick-switcher-control.js';
@@ -11,7 +12,8 @@ function BrandParts({ children }: { children: ReactNode }) {
   return <span className="colab-brand-parts">{children}</span>;
 }
 
-/** Colab supplies routing and content to the shared presentation. */
+/** Colab supplies routing and content to the shared presentation. Inside the TMT web shell the
+ * header renders into the shell's one header slot, wherever its route draws it. */
 export function ColabHeader({
   title,
   caption,
@@ -48,7 +50,8 @@ export function ColabHeader({
     remote === undefined
       ? undefined
       : text.brandIdentity(deviceName ? `local · ${deviceName}` : 'local');
-  return (
+  const bar = useShellBar();
+  const header = (
     <BrowserHeader
       productLabel={text.product}
       headingPrefix={
@@ -105,4 +108,5 @@ export function ColabHeader({
       headerRef={headerRef}
     />
   );
+  return bar ? createPortal(header, bar) : header;
 }

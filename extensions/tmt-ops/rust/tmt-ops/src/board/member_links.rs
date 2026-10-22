@@ -98,11 +98,18 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
     found
 }
 
+/// What a painted link stands for: a member by identity, or a web or mail address.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Target {
+    Member(String),
+    Url(String),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Link {
     pub column: usize,
     pub width: usize,
-    pub identity: String,
+    pub target: Target,
     pub occurrence: usize,
 }
 
@@ -122,7 +129,7 @@ use std::cell::RefCell;
 struct Hit {
     area: Rect,
     surface: Rect,
-    identity: String,
+    target: Target,
     reader: bool,
     occurrence: usize,
 }
@@ -281,26 +288,34 @@ pub(super) fn paint_hits(
                     width,
                     1,
                 ),
-                identity: link.identity.clone(),
+                target: link.target.clone(),
                 reader: presentation.reader,
                 occurrence: link.occurrence,
             };
             let focused = state.focused.as_ref().is_some_and(|focused| {
                 focused.reader == hit.reader
                     && focused.surface == hit.surface
-                    && focused.identity == hit.identity
+                    && focused.target == hit.target
                     && focused.occurrence == hit.occurrence
             });
             for x in hit.area.x..hit.area.right() {
                 let hover = state
                     .hovered
                     .as_ref()
-                    .is_some_and(|hover| hover.area == hit.area && hover.identity == hit.identity);
+                    .is_some_and(|hover| hover.area == hit.area && hover.target == hit.target);
                 let style = app
                     .look()
                     .role(presentation.role)
                     .remove_modifier(Modifier::BOLD)
                     .add_modifier(Modifier::UNDERLINED);
+                if matches!(hit.target, Target::Url(_)) {
+                    // A web link keeps the colour the renderer gave its label.
+                    if focused || hover {
+                        frame.buffer_mut()[(x, hit.area.y)]
+                            .set_style(app.look().selection().add_modifier(Modifier::UNDERLINED));
+                    }
+                    continue;
+                }
                 frame.buffer_mut()[(x, hit.area.y)]
                     .set_fg(style.fg.unwrap_or(ratatui::style::Color::Reset))
                     .set_style(ratatui::style::Style::new().remove_modifier(Modifier::BOLD));
@@ -475,11 +490,14 @@ impl App {
         self.perform_context(action, Some(target))
     }
     fn open_member_link(&mut self, hit: Hit) -> Effect {
-        let Some(target) = self.member_link_target(&hit.identity) else {
+        let Target::Member(identity) = &hit.target else {
+            return self.open_url_link(&hit);
+        };
+        let Some(target) = self.member_link_target(identity) else {
             return self.say("This member is unavailable; refresh the board.");
         };
         let jump = self.member_link_jump(&target);
-        let title = self.references.agents[&hit.identity].name.clone();
+        let title = self.references.agents[identity].name.clone();
         let mut entries = Vec::new();
         let command = |key: &str, label: &str, action| MenuEntry {
             key: key.into(),
@@ -695,7 +713,7 @@ impl App {
             .into_iter()
             .filter(|hit| {
                 seen.insert((
-                    hit.identity.clone(),
+                    hit.target.clone(),
                     hit.occurrence,
                     hit.surface.x,
                     hit.surface.y,
@@ -844,7 +862,7 @@ pub(super) fn paint_plain_hits(
             links.push(Link {
                 column: unicode_width::UnicodeWidthStr::width(&displayed[..start]) + source_column,
                 width: unicode_width::UnicodeWidthStr::width(&source[link.range.clone()]),
-                identity: link.identity.clone(),
+                target: Target::Member(link.identity.clone()),
                 occurrence,
             });
         }
@@ -898,5 +916,6 @@ pub(super) fn capture_menu(app: &mut App) {
     }
 }
 
+pub(in crate::board) mod popover;
 #[cfg(test)]
 mod tests;

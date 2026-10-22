@@ -156,8 +156,8 @@
   object-position: left top;
 }
 .attachment-thumbnail:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .attachment-more {
   font-size: 20px;

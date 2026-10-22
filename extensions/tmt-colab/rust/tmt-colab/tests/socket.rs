@@ -2482,44 +2482,13 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     }
     let guidance = server.request(&Running::get("/", ""));
     assert!(guidance.contains("Reopen the page to try again."));
-    // The browser leaf owns the mark. This test-only source read detects copy drift.
-    let shared_header = include_str!("../../../../../design/browser-ui/src/header.tsx");
-    let shared_mark = shared_header
-        .split_once("function HeaderMark() {")
-        .unwrap()
-        .1
-        .split_once("</svg>")
-        .unwrap()
-        .0;
-    let attribute = |source: &str, name: &str| {
-        source
-            .split_once(&format!("{name}=\""))
-            .unwrap()
-            .1
-            .split_once('"')
-            .unwrap()
-            .0
-            .to_owned()
-    };
-    let mark = guidance
-        .split_once(r#"<span class="tmt-ui-brand">"#)
-        .unwrap()
-        .1
-        .split_once("</svg>")
-        .unwrap()
-        .0;
-    assert_eq!(
-        attribute(mark, "viewBox"),
-        attribute(shared_mark, "viewBox")
-    );
-    assert_eq!(attribute(mark, "fill"), attribute(shared_mark, "fill"));
-    assert_eq!(
-        attribute(mark, "fill-rule"),
-        attribute(shared_mark, "fillRule")
-    );
-    assert_eq!(attribute(mark, "d"), attribute(shared_mark, "d"));
-    assert_eq!(mark.matches("<path ").count(), 1);
-    assert!(!mark.contains("<g"));
+    // The browser leaf owns the mark; the guidance page embeds its static-host copy exactly.
+    let shared_mark =
+        include_str!("../../../../../design/browser-ui/generated/brand-mark-static.svg");
+    assert!(guidance.contains(&format!(
+        r#"<span class="tmt-ui-brand">{}<span class="tmt-ui-wordmark">"#,
+        shared_mark.trim()
+    )));
     assert!(guidance.contains(r#"</svg><span class="tmt-ui-wordmark">Colab</span></span>"#));
     assert!(!guidance.contains(r#"<span class="tmt-ui-mark""#));
     assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
@@ -6731,6 +6700,21 @@ fn describe_keeps_navigation_without_unknown_counts_and_refuses_busy_catalog() {
         "unknown must never become zero"
     );
     assert_eq!(body["menu"][0]["count"]["value"], 1);
+    assert!(
+        body.get("home").is_none(),
+        "a page without a projected title has no card"
+    );
+    // The card's deep link is the owner's: it sends the app to the page's fragment target.
+    let owner_header = format!("{}\r\n", owner(DEVICE));
+    let link = running.request(&Running::get(&format!("/pages/{PAGE}"), &owner_header));
+    assert!(link.starts_with("HTTP/1.1 200"), "{link}");
+    assert!(link.contains(&format!("content=\"0;url=../#path=%2Fpages%2F{PAGE}\"")));
+    for refused in [
+        running.request(&Running::get(&format!("/pages/{PAGE}"), "")),
+        running.request(&Running::get("/pages/not-a-page", &owner_header)),
+    ] {
+        assert!(refused.starts_with("HTTP/1.1 404"), "{refused}");
+    }
     let held = running.registration.lock().unwrap();
     let answer = running.request(&callback);
     assert!(answer.starts_with("HTTP/1.1 503"), "{answer}");

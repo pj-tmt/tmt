@@ -585,7 +585,7 @@ for (const [width, theme] of [
       });
       expect(geometry.top).toBeGreaterThanOrEqual(geometry.header);
       expect(geometry.top).toBeLessThan(900);
-      expect(geometry.width).toBe('2px');
+      expect(geometry.width).toBe('1px');
       expect(geometry.style).toBe('solid');
       expect(geometry.color).toBe(geometry.token);
       await page.screenshot({

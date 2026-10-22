@@ -7,7 +7,7 @@ import { useLang } from "../lang/useLang";
 import { useStrings } from "../lang/useStrings";
 import { themeAtom, type ThemeChoice } from "../state/theme";
 import "./v9.css";
-import asset0 from "./assets/v9-0.svg";
+import { BrandLockup, BrandMark } from "../components/BrandMark";
 import asset1 from "./assets/v9-1.svg";
 import { HeroTunnel } from "./HeroTunnel";
 import asset3 from "./assets/v9-3.svg";
@@ -84,8 +84,7 @@ export function HomePage() {
     <main className="v9-home" lang={languageOf(lang).htmlLang}>
       <header className="site-header content">
         <LocalLink to="/" hash="top" className="wordmark">
-          <img src={asset0} alt="" width="33" height="33" />
-          <span>Terminal Tunnel</span>
+          <BrandLockup size={34} />
         </LocalLink>
         <nav aria-label="Primary navigation">
           <LocalLink to="/" hash="workflow">
@@ -110,6 +109,7 @@ export function HomePage() {
         <HeroTunnel />
         <div className="hero-inner content">
           <TopInstall id="install" />
+          <BrandMark className="hero-mark" size={112} />
           <p className="eyebrow">
             <span className="signal"></span>
             <span>{landing.eyebrow}</span>
@@ -570,7 +570,7 @@ export function HomePage() {
 
       <section id="start" className="start-section">
         <div className="content start-inner">
-          <img src={asset0} alt="" width="78" height="78" />
+          <BrandMark size={78} />
           <p className="eyebrow">02 / YOUR NEXT SESSION</p>
           <h2>{landing.nextTitle}</h2>
           <LocalLink className="button primary" to="/" hash="install">
@@ -581,8 +581,7 @@ export function HomePage() {
       </section>
       <footer className="content">
         <LocalLink to="/" hash="top" className="wordmark">
-          <img src={asset0} alt="" width="25" height="25" />
-          <span>Terminal Tunnel</span>
+          <BrandLockup size={26} />
         </LocalLink>
         <span>{landing.footer}</span>
         <a href="https://github.com/pj-tmt/tmt" target="_blank" rel="noreferrer">

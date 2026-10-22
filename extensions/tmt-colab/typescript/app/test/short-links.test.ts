@@ -1,5 +1,12 @@
 import { expect, it } from 'vite-plus/test';
-import { shortPageId, shortPageUrl, validPagePrefix } from '../src/short-links.js';
+import {
+  carriesThreadFragment,
+  shortLocation,
+  shortLocationPrefix,
+  shortPageId,
+  shortPageUrl,
+  validPagePrefix,
+} from '../src/short-links.js';
 import { FrozenAsk } from '../src/ask-intent.js';
 import { destination, selection } from './ask-fixtures.js';
 it('a historical Ask link becomes a chooser prefix after catalog growth', () => {
@@ -41,4 +48,24 @@ it('freezes the short public owner link while preserving full scope IDs and secr
       { operationId: '00000000-0000-4000-8000-000000000009', issuedAt: 1700000000000 },
     ),
   ).toThrow();
+});
+it('names the short location of a page by where it is opened', () => {
+  expect(shortLocation('12345678', false)).toBe('/p/12345678');
+  expect(shortLocation('12345678', true)).toBe('/colab/p/12345678');
+  expect(() => shortLocation('short', true)).toThrow();
+  expect(shortLocationPrefix('/p/12345678', false)).toBe('12345678');
+  expect(shortLocationPrefix('/colab/p/12345678', false)).toBeUndefined();
+  expect(shortLocationPrefix('/colab/p/12345678', true)).toBe('12345678');
+  expect(shortLocationPrefix('/p/12345678', true)).toBe('12345678');
+  expect(shortLocationPrefix('/colab/pages/12345678', true)).toBeUndefined();
+});
+it('carries a thread fragment on the short location, or on the page route inside the app', () => {
+  const page = '/colab/pages/12345678-0000-4000-8000-000000000001';
+  expect(carriesThreadFragment('/p/12345678', false)).toBe(true);
+  expect(carriesThreadFragment('/colab/p/12345678', false)).toBe(false);
+  expect(carriesThreadFragment(page, false)).toBe(false);
+  expect(carriesThreadFragment(page, true)).toBe(true);
+  expect(carriesThreadFragment('/colab/short/12345678', true)).toBe(true);
+  expect(carriesThreadFragment('/colab/', true)).toBe(false);
+  expect(carriesThreadFragment('/p/12345678', true)).toBe(false);
 });

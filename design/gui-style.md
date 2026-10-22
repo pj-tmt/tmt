@@ -26,7 +26,8 @@ named below; explicitly labelled design targets remain unshipped.
 5. **Mark plus word.** A state is a mark and a word (`◆ waiting`, `✗ failed`).
    Color is never the only signal.
 6. **Our controls only.** Use custom choices, toggles and icon help,
-   without native selects, date pickers, checkboxes or confirm dialogs. Clipped
+   without native selects, date pickers or confirm dialogs. A checkbox is the shared
+   drawn checkbox (`tmt-ui-checkbox`, `BrowserCheckbox`) over the real input. Clipped
    titles may retain native full-text hints.
 7. **One name per surface.** The header names the product once (`Colab`,
    `Remote`); the owner-header exception is defined under [Header](#header).
@@ -57,7 +58,10 @@ name and a visible tooltip.
   edge to edge.
 - **Header height:** 56 px, 48 px when compact (`header` tokens).
 - **Overlays** open over the page from the right without reflow; see [Overlay](#overlay) for geometry and focus.
-- **Spacing** steps are 4, 8, 12, 16, 24 and 32 px.
+- **Spacing** steps are 4, 8, 12, 16, 24 and 32 px (`space-xs` to `space-2xl`);
+  containers space their children with a token gap, never by margins alone.
+- **Focus** is one 1px edge in the focus color (`focus-width`) on every control;
+  fields and framed boxes recolour their own 1px rule instead of adding a ring.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows
@@ -91,14 +95,48 @@ status remains visible as mark plus word.
 - Primitive: shared Header; host-owned optional attribution and title-prefix slots.
 - Shipped as `ColabHeader` (`colab-header.tsx`). Basis: own.
 
-### Product switcher
+### Shell
 
-The product word in the header is a menu trigger (`Colab ▾`) listing every TMT
-browser surface: Colab, Remote and Settings (core), each with its state
-as mark plus word (`● running`, `○ not installed`) and one action (`Open`,
-`Set up`). The current product is selected. Products that aren't installed
-stay listed and open the setup guide. Same position on every product; compact
-width shows `tmt ▾`. Not shipped. Basis: Radix (Dropdown Menu).
+The one TMT web UI frame (#3937): one header row, then a global rail, an optional
+module menu and the host's content. Every Colab and Remote page except the refusal
+page renders in it.
+
+- **Rail:** one fixed list, identical on every page: the collapse toggle in its own
+  row, ruled off above Home, then Home,
+  Colab, Remote, Ops, Digest, any other module Remote's
+  [composed shell](../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell)
+  describes (in its order), and TMT settings at the bottom. A module the composed shell does not describe keeps its place, dimmed in
+  the disabled text colour with its reason as the tooltip (not paired, or not
+  installed); it is never removed. Every page paints the answer this browser read
+  last (session storage), then refreshes it once.
+  Each item is a Lucide icon plus its label; the current item has the selected
+  surface and a 3 px leading bar. Needs-you counts show `◆ n` in the waiting colour,
+  `99+` above 99; Home sums them only when every module reports one.
+- **Collapse:** the toggle collapses the rail to 56 px of icons and expands it again,
+  in one short slide (`--tmt-ui-rail-motion`, none under reduced motion); icons keep
+  their place. The choice is remembered on the device. Collapsed counts become
+  corner badges; hovering or focusing an item shows its label as a tooltip beside
+  the rail, and labels stay accessible names.
+- **Module menu:** the active module's own menu (Colab: All pages, then each project
+  with its page count and `◆` count, then New project and Manage projects; Remote:
+  each saved remote, Add remote, Remote settings). It replaces header dropdowns.
+- **Header:** one continuous sticky row: the TMT mark and word above the rail, then
+  the host's header (moved into the shell's bar) as `<module> / <page>`, with one
+  bottom rule and no divider between them: `TMT · <module> / <page>`, every segment
+  in the header title's face and size, separators lighter. Under 480 px the module
+  crumb steps aside (its link stays for assistive technology) so the page title
+  keeps the row. The bar paints the
+  module's name at once and keeps its height and rule while a route loads. The
+  module menu has no title of its own and shares the rail's surface, rows and
+  selection bar.
+- **Module content:** the shell adds no padding or width to a module's main area;
+  each module keeps its own layout. Shell page styles stay scoped to their own
+  pages (Remote: `.tmt-page`), since every module shares the one document. While a
+  route loads, its place shows the busy mark.
+- **Phone (≤ 900 px):** the rail becomes a top-left menu button that opens it as a
+  drawer; the module menu becomes tabs under the title bar.
+- Primitive: `mountShell` in `design/browser-ui/src/shell.ts` (static hosts) and
+  `BrowserShell` (React). Basis: own.
 
 ### Remote switcher
 
@@ -108,8 +146,8 @@ Remote owns the registry, registration, static header and Remotes view; Colab ow
 the React header glue and page-follow behavior. Use **remote** throughout UI, CLI help and
 handbook copy, **Local** / **Firebase** for kinds and **this machine** for the host.
 
-- **Header:** immediately after the logo, before the separate Product switcher:
-  `[● studio ▾] [Colab ▾] <page title>`. Show the current origin's live state:
+- **Module menu:** inside the [Shell](#shell), Remote's module menu lists the
+  remotes. Show the current origin's live state:
   `● connected`, `◌ connecting`, `○ unreachable`, `✗ access ended` (revoked/expired).
   Never show `not checked` in the chip. Compact width keeps the mark and a
   truncated name; tooltip and accessible name retain the full name and state
@@ -122,11 +160,10 @@ handbook copy, **Local** / **Firebase** for kinds and **this machine** for the h
   Connected, Revoked, Not paired or last seen for an unchecked remote. Attention
   rows this origin knows are broken cannot be selected until fixed:
   `Unreachable · Retry`, `Access ended · Pair again`, `Sign-in needed · Sign in`.
-  Retry only rechecks the current origin with its own keys. Footer actions are
-  `Add remote…` and `Manage remotes`, opening Remote settings' Remotes section.
-  No browser default mark; Manage remotes keeps
-  the copyable `tmt remote settings default-remote <ref|local>` command for the
-  separate CLI/API default. Never silently fall back.
+  Retry only rechecks the current origin with its own keys. The last entries are
+  `Add remote…` and `Remote settings`, whose Remotes section keeps the copyable
+  `tmt remote settings default-remote <ref|local>` command for the separate CLI/API
+  default. No browser default mark. Never silently fall back.
 - **Remotes list:** the current remote's observed connected state is
   `● Connected`; a foreign row is `not checked`, without a state mark or probe.
   Row actions are `Rename` and `Remove`, with full accessible names
@@ -174,17 +211,13 @@ handbook copy, **Local** / **Firebase** for kinds and **this machine** for the h
   `Your draft stays on <remote>.` with Switch / Cancel; the draft remains on return.
   Colab owns this draft confirmation and any message for an in-flight or uncertain
   send; the registry owns no send state. Drafts and keys never transfer across origins.
-- **Static menu:** Remote uses the leaf's static entry and shared class names,
-  without React. Its native popover and minimal script meet the BrowserMenu
-  keyboard/focus contract: roving focus, Escape restores focus, outside-click
-  dismissal and correct roles. A second static consumer moves this behavior into
-  the leaf's static entry. B1 needs only the landing page Remotes list; the header
-  chip/menu requirement binds at B2.
+- **Static menu:** Remote renders these rows through the leaf's shell renderer,
+  without React; disabled rows keep their place and say why in their tooltip.
 
 Look review at 1440 light / 390 dark covers the Remotes list (current connected
 and foreign not checked), Add remote (door address and remote link), catalog
 confirmation with a collision and nothing addable, remove confirmation, and the
-Remote header's four chip states, menu and unreachable-page notice.
+Remote module menu's four row states and unreachable-page notice.
 
 ### Quick switcher
 
@@ -225,8 +258,8 @@ Not shipped. Basis: own.
   (light, default for actions), **destructive** (text in the `blocked` role,
   always last in its group).
 - States follow the leaf
-  [Action contract](browser-ui/README.md#controlled-input-contracts): selection
-  colors on enabled hover/focus, visible focus, opaque muted disabled controls
+  [Action contract](browser-ui/README.md#controlled-input-contracts): neutral
+  hover/focus (same text colour on `surface.hover`, lighter than selection), visible focus, opaque muted disabled controls
   and a retained label with a caller-supplied mark while busy. Busy is not
   disabled: see [Transient states](#transient-states). Hosts supply disabled
   reasons.
@@ -586,6 +619,7 @@ the selection background. Every control has an accessible name; icons alone are
 ## Enforcement
 
 Colab's browser suite checks one window scrollbar, the sticky header metrics on
-every screen and the absence of native selects and checkboxes on the page list.
+every screen, the absence of native selects on the page list, and that its only
+checkboxes are the shared drawn row selection.
 A shared package should move these checks next to its components so every
 surface runs them.

@@ -7,7 +7,7 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
-    "rootDir": ".",
+    "rootDir": "../../../..",
     "types": ["node"]
   },
   "include": [

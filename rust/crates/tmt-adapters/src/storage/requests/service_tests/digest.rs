@@ -437,22 +437,23 @@ fn a_retired_snapshot_member_does_not_finish_its_untouched_reply_batch_peer() {
     f.storage.close().unwrap();
 }
 
-fn identity(f: &mut Fixture, name: &str) -> String {
+pub(super) fn identity(f: &mut Fixture, name: &str) -> String {
     create_or_resolve(&mut f.storage, name, Lifetime::Saved)
         .unwrap()
         .identity
         .id
 }
-fn policy(target: &str, owner: &str, revision: u64, until: u64) -> DigestPolicyWrite {
+pub(super) fn policy(target: &str, owner: &str, revision: u64, until: u64) -> DigestPolicyWrite {
     DigestPolicyWrite {
         identity_id: target.into(),
         owner_identity_id: owner.into(),
         setter_identity_id: owner.into(),
         expected_revision: revision,
         until_ms: until,
+        max_hold_ms: None,
     }
 }
-fn request(target: &str, sender: Option<&str>, id: &str) -> PrepareRequest {
+pub(super) fn request(target: &str, sender: Option<&str>, id: &str) -> PrepareRequest {
     PrepareRequest {
         origin: tmt_core::request::RequestOrigin::Person,
         room_id: None,
@@ -469,7 +470,7 @@ fn request(target: &str, sender: Option<&str>, id: &str) -> PrepareRequest {
         preamble: None,
     }
 }
-fn held(
+pub(super) fn held(
     f: &mut Fixture,
     target: &str,
     sender: &str,
@@ -489,7 +490,7 @@ fn held(
         )
         .unwrap()
 }
-fn start() -> (Fixture, String, String, String) {
+pub(super) fn start() -> (Fixture, String, String, String) {
     let mut f = Fixture::new();
     let target = f.identity_id.clone();
     let owner = identity(&mut f, "Digest Owner");
@@ -1380,7 +1381,7 @@ fn digest_counter_failure_rolls_back_settlement_and_non_delivery_never_counts() 
 }
 
 /// The reserved `user` entry, written the way `tmt identity meta set` stores it.
-fn mark_user(f: &Fixture, id: &str, value: &str) {
+pub(super) fn mark_user(f: &Fixture, id: &str, value: &str) {
     let db = rusqlite::Connection::open(&f.database).unwrap();
     db.execute(
         "INSERT INTO identity_metadata(identity_id, key, value) VALUES(?1, 'user', ?2)

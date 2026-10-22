@@ -5,6 +5,7 @@
 //! held.
 
 mod attention;
+mod delivery;
 mod digest;
 mod flow;
 mod history;
@@ -265,6 +266,13 @@ impl RequestRecords for RequestRows<'_> {
     }
     fn digest_oldest_held(&self, id: &str, now: u64) -> Result<Option<u64>, Self::Error> {
         digest::oldest_held(self.0, id, now)
+    }
+    fn delivery_facts(
+        &self,
+        attempt: &RequestAttempt,
+        now: u64,
+    ) -> Result<tmt_core::request::delivery::DeliveryFacts, Self::Error> {
+        delivery::facts(self.0, attempt, now)
     }
     fn digest_items(
         &self,

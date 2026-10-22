@@ -1,5 +1,4 @@
-import { BrowserAction } from '@tmt/browser-ui/react';
-import { LoaderCircle } from 'lucide-react';
+import { BrowserAction, BusyMark } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { AgentChip, agentSentence } from './components/agent-chip.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
@@ -201,7 +200,7 @@ export function useReadingLayer({
         variant="text"
         label={label}
         busy={working}
-        busyMark={marked ? <LoaderCircle /> : <span />}
+        busyMark={marked ? <BusyMark /> : <span />}
         disabled={disabled}
         onActivate={(event) => {
           if (event.isTrusted) action();

@@ -266,8 +266,10 @@ owner router and the owner's Ask and export modules are not part of this bundle.
 Remote keeps sessions and door cookies in memory, so after a restart a paired browser's
 reload receives Colab's private guidance page. That page loads the public `assets/recovery.js`
 (`src/guidance.ts`), which lets Remote's SDK check its paired key and call
-`reopenSession()` for that tab, then reloads. A short public link (`/p/<prefix>`) is served this
-entry too: after `reopenSession()` it loads the app in place, and a refusal that is the verified
+`reopenSession()` for that tab, then reloads. Inside the one TMT web app (`/colab/…`) the host
+route does the same before it loads the module: when the composed shell is missing it reopens the
+session from the pairing and reads the shell again (`shell-app.ts`). The public reader entry loads
+the app in place after `reopenSession()`, and a refusal that is the verified
 session limit (`sessionLimit()`, `session-limit-error.ts`) still loads the app, whose own open
 shows the limit card, never the unpaired guidance. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
@@ -395,7 +397,10 @@ page ending) and on route resolution, at most once a minute, the tab reads its o
 uncached and shows the non-blocking `Colab has been updated.` row with a Reload action only when
 the same bundle name has a different hash. The row sits directly under the fixed header and
 `--colab-update-height` (set by `data-colab-update` on the root) extends the header metric, so
-the page moves down instead of being covered. An offline read, an unreadable page, or a page of
+the page moves down instead of being covered. Inside the TMT web app the document is the shell's:
+the running build is the paired mount's entry, read once when Colab mounts, and later checks read
+that same mount; the row joins the shell's sticky bar under the header. The local preview, being
+unpaired, has no running build and shows no row. An offline read, an unreadable page, or a page of
 another kind (pairing guidance, the reader) never counts. There is no polling and no
 automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
 rules (device-stored per page, so a reload restores them when storage works; see
@@ -666,15 +671,15 @@ owners report lifetime separately from stale-outcome presentation fences.
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a draft until Enter
-applies it, and a chip click or token removal applies at once. `stage:` is a third suggestion kind that
+applies it, and a row's project button or a token removal applies at once. `stage:` is a third suggestion kind that
 is never a token (below). A row's `summary` (the contract's
 Page summary section; `bootstrap.ts` validates it, including the work row and parent, and holds
 `AUTHOR_BYTES` and the 2 MiB `DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
-`◆ Waiting for you` mark, and the `by:` filter and free text read the creator; a page without a
-summary shows only what the list already knows, with no placeholder. The `Needs you N` chip beside
-the project chips sets `needs=true` in that search and keeps the pages whose summary is `waiting`
-(`needsYou > 0`; an unknown summary is never counted); it combines with the project, creator and
-text filters, and the list's clear action removes it. `projects.ts` is pure: project grammar (the owner
+`◆ Needs you` mark, and the `by:` filter and free text read the creator; a page without a
+summary shows only what the list already knows, with no placeholder. The Needs you tab (a chip
+in a list without tabs) sets `needs=true` in that search and keeps the
+active pages whose summary is `waiting` (`needsYou > 0`; an unknown summary is never counted); it
+combines with the project, creator and text filters, and another tab leaves it. `projects.ts` is pure: project grammar (the owner
 store's), counts (`projectCounts` also lists the space's projects that no page is in), filtering and
 sorting, and the whole-set `withProject` change. `applyProjectChanges` sends `PROJECT_REQUEST_PAGES`
 (64) pages per request in ascending order, sequentially: each request is atomic on the owner,
@@ -686,15 +691,22 @@ verification: projects are display-only and the reply is only checked for shape)
 frame names `SPACE_SCOPE_PAGE`. The space's project names reach the list as `SpaceHome.projects`
 (the discovery reply's top-level `projects`), so an empty project shows in the page menu and the manager. Management controls (the Archived tab,
 row actions, project dialogs) render only when the transport has `management`; a reader
-keeps search, sort and filters because `projects` arrive in `/api/pages`. The project chips count
-the pages shown, while the manage dialog counts every page in the project and says how many of
-them are archived.
+keeps search, sort and filters because `projects` arrive in `/api/pages`. The list has no project
+chip row: projects scope from the module menu and filter by `project:` in the search, whose
+suggestions count the pages the tab shows, while the manage dialog counts every page in the project
+and says how many of them are archived.
 
-The views are the tabs In progress, Discussion, Done, Archived and All, in that order
+The list is one screen with no hero (the space's name is the header crumb): a fixed top block
+holds the search, Sort and `+ New page` (`new-page-dialog.tsx`: the browser creates no page, so it
+gives the `tmt colab page create` command with `CopyCommand`) and the view tabs; only `.page-list-scroll` scrolls, and `useShownRows` (`page-list-rows.ts`) draws 50 rows and 50 more
+each time the count line (`Showing N of M`) comes within a screen of the list's end. Under 480px the
+block is two lines: the controls, then the tabs as one line that scrolls sideways.
+
+The views are the tabs All, Needs you, Discussion, In progress, Done and Archived, in that order
 (`BrowserTabs variant="flush"`); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
-`DEFAULT_VIEW`, `pageStage`, `stageCounts`, `takeStage`). `stage` in the route search selects a stage or `all`, `archived`
-selects Archived and wins, and the absent key is `DEFAULT_VIEW`, In progress (a list without the
-management port has no tabs and is every active page; a link that wants every page carries `stage=all`). A mounted address names the list as `/colab/` and carries none of this search, so `keepListSearch` (`list-history.ts`) stores it in the history entry's state and `parseLocation` reads it back: a reload, Back and Forward return to the list as it was left, and a fresh visit opens `DEFAULT_VIEW`. Each label counts what the scope holds: an archived page
+`DEFAULT_VIEW`, `HomeView`, `pageStage`, `stageCounts`, `takeStage`). `stage` in the route search selects a stage or `all`, `archived`
+selects Archived and wins over `needs`, which selects Needs you, and the absent key is `DEFAULT_VIEW`, All (a list without the
+management port has no tabs and is every active page). A mounted address names the list as `/colab/` and carries none of this search, so `keepListSearch` (`list-history.ts`) stores it in the history entry's state and `parseLocation` reads it back: a reload, Back and Forward return to the list as it was left, and a fresh visit opens `DEFAULT_VIEW`. Each label counts what the scope holds: an archived page
 counts only under Archived, and a page whose summary has not arrived (`pageStage` is `undefined`; a
 fresh summary without `work` is in discussion) under no stage, so it is in All only. A stage is one
 state with the search: a typed `stage:<name>` (`takeStage`, applied with Enter) or a suggestion pick
@@ -704,7 +716,7 @@ assignees from `summary.work`, the rest counted); an empty stage tab names its s
 In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
 `Reading page details…` while `useSummaryFill` is still reading (at most 15 re-reads) and a page in
 the scope has not reported, so a cold start never claims a tab is empty. A page waiting on the viewer
-shows `◆ Waiting for you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
+shows `◆ Needs you · N`: only the ◆ is the waiting colour (the Needs you tab's mark), so the
 word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
 menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
 and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. Archive and
@@ -738,19 +750,20 @@ on an empty search it leaves the search. The keys fire only for a trusted unmodi
 target is the page or the list's own section: never in a text field, never above a menu or dialog,
 never in a hidden list.
 
-The header's `Project: <name>` crumb (the design system's `BrowserMenu variant="crumb"` in the
-`BrowserHeader` `headingSuffix` slot) scopes the whole list. `scope` in the route search is the base
-filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the chips, the Needs you
-chip and the free-text and creator filters, and a `project:` token narrows inside it
+The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `BrowserShell`) scopes
+the whole list. `scope` in the route search is the base
+filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the tab counts, the
+`project:` suggestions and the free-text and creator filters, and a `project:` token narrows inside it
 (intersection). The menu lists All pages and every project of the space (empty ones too, with the
-pages shown and how many wait on the viewer) as radio rows, then `New project…` and
-`Manage projects…`; those two replace the gear's entry and the chips row's button. The default
-scope is device-local: `readScope`/`writeScope` keep it per space in `localStorage` (a refused
-access means All pages), the home loader redirects an unscoped `/` to it with `replace`, and
-choosing All pages removes it. A scope the space no longer has (a stale link or a remembered
-project that was deleted) shows All pages and is neither redirected to nor rewritten. `AppHeader`
-provides the heading's element through `HeaderSlot` (`header-slot.ts`) and `Home` portals the menu
-into it, so the menu keeps the list's data and dialogs while the header stays the shell's. A page
+pages shown and how many wait on the viewer), then `New project…` and `Manage projects…`, which
+`Home` offers through `ProjectMenuActionsSlot` (`project-menu-actions.ts`) while it can manage
+projects, so the dialogs keep the list's data. The menu reads the list through `spaceHome` when the
+list opens. The default scope is device-local: `readScope`/`writeScope` keep it per space in
+`localStorage` (a refused access means All pages), the home loader redirects an unscoped `/` to it
+with `replace`, and choosing All pages removes it. A scope the space no longer has (a stale link or
+a remembered project that was deleted) shows All pages and is neither redirected to nor rewritten.
+`AppHeader` provides the heading's element through `HeaderSlot` (`header-slot.ts`), where `Home`
+names the current scope as plain text after the title. A page
 opened from a scoped list carries the scope in history state only, and its own header shows
 `Colab / <project> / <title>` with the project linking back to `/?scope=<project>`; a copied or
 reloaded page link has no crumb. A heading narrower than 200px (a container query on it) leaves the crumb and

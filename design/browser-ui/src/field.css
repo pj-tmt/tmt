@@ -1,10 +1,16 @@
+/* Label, control, description and error stack with one token gap; the control fills the field,
+   as in block flow (a contenteditable control has no width of its own). */
 .tmt-ui-field {
+  display: grid;
+  /* A track of `auto` grows to its widest child; the field stays as wide as its container. */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+  gap: var(--tmt-ui-space-xs);
   color: var(--tmt-ui-color-text);
   font-family: var(--tmt-ui-font-body);
 }
 .tmt-ui-field-label {
   display: block;
-  margin-block-end: calc(var(--tmt-ui-host-focus-offset) + var(--tmt-ui-focus-width));
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-host-field-label-weight)
     var(--tmt-ui-host-field-label-size)/var(--tmt-ui-host-field-label-line-height)
@@ -22,11 +28,9 @@
   opacity: 1;
 }
 .tmt-ui-field-control:focus-visible {
+  /* Focus recolours the field's own edge: one focus-width line, no layout change. */
   border-color: var(--tmt-ui-color-focus);
-  /* The border and adjacent inset pixel form one edge without changing layout. */
-  outline: calc(var(--tmt-ui-focus-width) - var(--tmt-ui-field-border-width)) solid
-    var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+  outline: 0;
 }
 .tmt-ui-field-control:disabled,
 .tmt-ui-field-control[aria-disabled='true'] {

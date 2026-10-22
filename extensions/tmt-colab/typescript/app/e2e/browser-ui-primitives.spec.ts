@@ -181,8 +181,9 @@ for (const width of [320, 390, 1440])
       await page.keyboard.press('Tab');
       await button.focus();
       expect(await button.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
-      await expect(button).toHaveCSS('outline-width', tokens.browser.metric['focus-width']);
-      await expect(button).toHaveCSS('outline-color', rgb(tokens.browser.color.focus[theme]));
+      // One focus frame (#3998): the button's own border takes the focus colour, no outline.
+      await expect(button).toHaveCSS('border-top-color', rgb(tokens.browser.color.focus[theme]));
+      await expect(button).toHaveCSS('outline-style', 'none');
       for (const name of ['Controlled input', 'Controlled textarea']) {
         const field = page.getByLabel(name);
         await expect(field).toHaveCSS('border-color', rgb(tokens.browser.surface.rule[theme]));
@@ -199,8 +200,8 @@ for (const width of [320, 390, 1440])
       await expect(alert).toHaveCSS('border-radius', '0px');
       const tab = page.getByRole('tab', { name: 'First', exact: true });
       await tab.focus();
-      await expect(tab).toHaveCSS('outline-width', tokens.browser.metric['focus-width']);
-      await expect(tab).toHaveCSS('outline-color', rgb(tokens.browser.color.focus[theme]));
+      await expect(tab).toHaveCSS('border-top-color', rgb(tokens.browser.color.focus[theme]));
+      await expect(tab).toHaveCSS('outline-style', 'none');
       await expect(tab).toHaveCSS('border-radius', '0px');
       await expect(page.getByRole('tab', { name: 'Second', exact: true })).toHaveCSS(
         'background-color',

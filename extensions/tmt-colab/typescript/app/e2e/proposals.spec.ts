@@ -102,7 +102,7 @@ for (const width of [1440, 390])
       );
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-width',
-        '2px',
+        '1px',
       );
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       const threads = await run(page, 'discussionProof');
@@ -447,7 +447,18 @@ for (const width of [1440, 390])
           decline: rect(named('Decline')),
         };
       });
-    const idle = await box();
+    // The page above the card can still be laying out when it first shows (a loaded runner once
+    // measured the card 133px higher than where it settled), so the idle place is the one two
+    // reads a frame apart agree on.
+    let idle = await box();
+    await expect
+      .poll(async () => {
+        const previous = JSON.stringify(idle);
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+        idle = await box();
+        return JSON.stringify(idle) === previous;
+      })
+      .toBe(true);
     await page.evaluate(() => {
       const watch = window as unknown as {
         steps: { step: string; height: number }[];
@@ -479,7 +490,7 @@ for (const width of [1440, 390])
     // mark on the pressed one, after the shared delay, is the only sign seen, and no line is added.
     const mark = approve.locator('.tmt-ui-action-mark');
     await expect(mark).toHaveAttribute('data-busy', 'true');
-    await expect(decline.locator('.tmt-ui-action-mark svg')).toBeHidden();
+    await expect(decline.locator('.tmt-ui-action-mark .tmt-ui-busy-mark')).toBeHidden();
     for (const button of [approve, decline]) {
       await expect(button).toHaveAttribute('aria-disabled', 'true');
       await expect(button).toHaveJSProperty('disabled', false);

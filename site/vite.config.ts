@@ -33,7 +33,10 @@ export default defineConfig(async ({ command }) => {
           },
         }
       : undefined,
+    // The shared brand mark lives in the browser leaf beside the tokens.
+    resolve: { dedupe: ["react", "react-dom"] },
     server: {
+      fs: { allow: [".", fileURLToPath(new URL("../design", import.meta.url))] },
       watch: process.env.VITE_COLAB_EMBED === "1" ? { usePolling: true, interval: 250 } : undefined,
     },
     plugins: lazyPlugins(() => [

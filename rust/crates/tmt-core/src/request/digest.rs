@@ -79,6 +79,9 @@ pub struct DigestPolicy {
     pub until_ms: u64,
     pub owner_identity_id: String,
     pub setter_identity_id: String,
+    /// How long the rule's owner keeps the oldest held message at most, recorded
+    /// with the hold so a message's latest send time is a Core fact.
+    pub max_hold_ms: Option<u64>,
 }
 impl DigestPolicy {
     pub fn active(&self, now: u64) -> bool {
@@ -99,6 +102,8 @@ pub struct DigestPolicyWrite {
     pub until_ms: u64,
     pub owner_identity_id: String,
     pub setter_identity_id: String,
+    /// Only with a set; a clear never records one.
+    pub max_hold_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

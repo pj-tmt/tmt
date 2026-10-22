@@ -16,6 +16,7 @@ COPY extensions/tmt-digest/skills/ ../extensions/tmt-digest/skills/
 COPY extensions/tmt-colab/skills/ ../extensions/tmt-colab/skills/
 COPY design/tokens/tokens.json ../design/tokens/tokens.json
 COPY design/browser-ui/generated/static.css ../design/browser-ui/generated/static.css
+COPY design/browser-ui/generated/brand-mark-static.svg ../design/browser-ui/generated/brand-mark-static.svg
 COPY extensions/tmt-colab/typescript/app/src/colab-header.css ../extensions/tmt-colab/typescript/app/src/colab-header.css
 COPY extensions/tmt-colab/typescript/app/src/reader-style.css ../extensions/tmt-colab/typescript/app/src/reader-style.css
 COPY extensions/tmt-colab/typescript/app/src/notice-card.css ../extensions/tmt-colab/typescript/app/src/notice-card.css

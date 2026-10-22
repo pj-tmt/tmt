@@ -36,6 +36,7 @@ import {
   type RichInputDocument,
 } from './components/rich-input.js';
 import {
+  $emptyRichInput,
   $replaceRichInput,
   $richInputCaret,
   $richInputText,
@@ -210,7 +211,7 @@ const extension = defineExtension({
   namespace: 'ColabPageListSearch',
   nodes: [FilterTokenNode],
   dependencies: [richInputExtension],
-  $initialEditorState: () => $replaceRichInput(''),
+  $initialEditorState: $emptyRichInput,
   onError: (error: Error) => {
     throw error;
   },

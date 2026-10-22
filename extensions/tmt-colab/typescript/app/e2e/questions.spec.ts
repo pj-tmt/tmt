@@ -32,7 +32,7 @@ async function send(page: Page) {
 for (const kind of ['single', 'multiple', 'short', 'long']) {
   test(`${kind} creates a normal quote thread and changing answers appends`, async ({ page }) => {
     const card = await mount(page, { kind, other: kind === 'single' || kind === 'multiple' });
-    await expect(card.locator('.question-line')).toContainText('Waiting for you');
+    await expect(card.locator('.question-line')).toContainText('Needs you');
     if (kind === 'single' || kind === 'multiple') {
       await card.getByLabel('Change it', { exact: true }).check();
       if (kind === 'multiple') await card.getByLabel('Keep it', { exact: true }).check();
@@ -257,7 +257,7 @@ test('a failed answer re-opens its folded card on the error row, Retry focused, 
     'Could not confirm this answer. Your draft is kept for the next Send.',
   );
   await expect(line).toHaveAttribute('aria-expanded', 'true');
-  await expect(line).toContainText('Waiting for you');
+  await expect(line).toContainText('Needs you');
   await expect(retry).toBeFocused();
   await expect(card.getByLabel('Keep it', { exact: true })).toBeChecked();
   expect(await run(page, 'discussionProof')).toHaveLength(0);
@@ -585,7 +585,7 @@ for (const width of [1440, 390])
           'outline-color',
           scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
         );
-        await expect(sendButton).toHaveCSS('outline-width', '2px');
+        await expect(sendButton).toHaveCSS('outline-width', '1px');
         await send(page);
         await expect(card.locator('.question-controls')).toHaveCSS(
           'background-color',
@@ -649,7 +649,7 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
         ),
     )
     .toBeGreaterThan(0);
-  await expect(card.locator('.question-line')).toContainText('Waiting for you');
+  await expect(card.locator('.question-line')).toContainText('Needs you');
   await expect(card.locator('.question-answer')).toHaveCount(0);
   await card.getByLabel('Keep it', { exact: true }).check();
   await expect(

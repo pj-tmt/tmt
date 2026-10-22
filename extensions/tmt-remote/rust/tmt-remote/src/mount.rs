@@ -73,10 +73,12 @@ struct PublicEntrySet {
     homes: &'static [&'static str],
     ids: &'static [&'static str],
 }
+// `/colab/...` is a route of the one TMT app and `/p/<id>` redirects into it (pages.rs); only
+// the shell-free reader entry stays an extension-forwarded public entry.
 const PUBLIC_ENTRIES: &[PublicEntrySet] = &[PublicEntrySet {
     extension: "colab",
-    homes: &["/colab", "/colab/"],
-    ids: &["/p/", "/read/"],
+    homes: &[],
+    ids: &["/read/"],
 }];
 fn public_entry(path: &str) -> Option<(&'static str, &str)> {
     for entries in PUBLIC_ENTRIES {
@@ -496,6 +498,20 @@ impl Mounts {
             .or_else(|| {
                 self.public_extension(path)
                     .map(|(extension, _)| (extension.name, self.mount(extension)))
+            })
+            .or_else(|| {
+                // A route of the one web app named for a mounted extension (`/colab/...`): the
+                // page the extension's module renders in.
+                let bare = path.split(['?', '#']).next().unwrap_or(path);
+                let name = bare.strip_prefix('/')?.split('/').next()?;
+                crate::pages::app_route(bare)
+                    .then(|| {
+                        self.extensions
+                            .iter()
+                            .find(|extension| extension.name == name)
+                    })
+                    .flatten()
+                    .map(|extension| (extension.name, self.mount(extension)))
             })
     }
     /// Recognized entry families, including malformed IDs which receive page refusals.

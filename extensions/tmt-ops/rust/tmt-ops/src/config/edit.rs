@@ -4,7 +4,7 @@ use crate::split::{Size, Split};
 
 impl Config {
     fn setting_key_in_scope(key: &str, squad: Option<&str>) -> bool {
-        if key == "board.startup_tab" {
+        if matches!(key, "board.startup_tab" | "opener") {
             return squad.is_none();
         }
         matches!(
@@ -87,7 +87,12 @@ impl Config {
         }
         if !matches!(
             key,
-            "board.sizes" | "board.panes" | "board.hidden_columns" | "tabs.order" | "tabs.hide"
+            "board.sizes"
+                | "board.panes"
+                | "board.hidden_columns"
+                | "tabs.order"
+                | "tabs.hide"
+                | "opener"
         ) {
             return Ok(value(text));
         }
@@ -108,7 +113,12 @@ impl Config {
                 )));
             }
         }
-        Ok(value(values))
+        let argv = value(values);
+        if key == "opener" {
+            // The same argv rules the file is read with.
+            super::program(&argv, "opener")?;
+        }
+        Ok(argv)
     }
 
     fn materialize_simple_split(&mut self, name: &str) -> Result<(), SquadError> {
@@ -172,6 +182,7 @@ impl Config {
     fn validate_setting_draft(&self, squad: Option<&str>, global: bool) -> Result<(), SquadError> {
         // Validate the global layer even if the chosen squad masks it.
         self.refresh("")?;
+        self.program("opener")?;
         self.ask_lead("")?;
         self.tabs()?;
         self.settings(squad, false, None)?;

@@ -28,8 +28,9 @@ test('an old short link opens a chooser after a new page collides and never gues
   await expect(page.getByRole('link', { name: /Later proposal/ })).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.locator('#short-fixture header')).toHaveCount(1);
+  // Inside the shell the rail carries the TMT mark; the header keeps its mark markup hidden.
   const mark = page.locator('#short-fixture .tmt-ui-header svg.tmt-ui-mark');
-  await expect(mark).toBeVisible();
+  await expect(mark).toBeHidden();
   await expect(mark).toHaveAttribute('aria-hidden', 'true');
   await expect(mark).toHaveText('');
   await expect(page.getByTestId('short-page-choice').locator('section')).toHaveAttribute(

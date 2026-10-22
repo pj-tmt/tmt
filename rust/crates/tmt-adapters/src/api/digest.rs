@@ -60,6 +60,8 @@ struct Write {
     expected_revision: u64,
     #[serde(default)]
     until_ms: Option<u64>,
+    #[serde(default)]
+    max_hold_ms: Option<u64>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -140,6 +142,7 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 setter_identity_id: v.setter_identity_id,
                 expected_revision: v.expected_revision,
                 until_ms: until,
+                max_hold_ms: v.max_hold_ms,
             })
         }
         "digest.policy.show" | "digest.stats.show" => {
@@ -228,7 +231,7 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
 }
 fn view(value: &DigestPolicyView) -> Value {
     let policy = value.policy.as_ref();
-    json!({"identityId":policy.map(|p|p.identity_id.as_str()),"revision":policy.map_or(0,|p|p.revision),"active":policy.is_some_and(|p|p.active(value.observed_at_ms)),"digestUntilMs":policy.map_or(0,|p|p.until_ms),"remainingMs":policy.map_or(0,|p|p.remaining_ms(value.observed_at_ms)),"heldCount":value.held_count,"activeChecklist":value.active_checklist.as_ref().map(digest::checklist_value),"ownerIdentityId":policy.map(|p|p.owner_identity_id.as_str()),"setterIdentityId":policy.map(|p|p.setter_identity_id.as_str())})
+    json!({"identityId":policy.map(|p|p.identity_id.as_str()),"revision":policy.map_or(0,|p|p.revision),"active":policy.is_some_and(|p|p.active(value.observed_at_ms)),"digestUntilMs":policy.map_or(0,|p|p.until_ms),"remainingMs":policy.map_or(0,|p|p.remaining_ms(value.observed_at_ms)),"heldCount":value.held_count,"activeChecklist":value.active_checklist.as_ref().map(digest::checklist_value),"ownerIdentityId":policy.map(|p|p.owner_identity_id.as_str()),"setterIdentityId":policy.map(|p|p.setter_identity_id.as_str()),"maxHoldMs":policy.and_then(|p|p.max_hold_ms)})
 }
 pub(super) fn execute(
     storage: &mut Storage,

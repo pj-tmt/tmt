@@ -224,7 +224,7 @@ for (const width of [1440, 390])
         if (!before) {
           await expect(submit).toHaveAttribute('aria-busy', 'true');
           await expect(
-            submit.locator('.tmt-ui-action-mark[data-busy="true"] .lucide-loader-circle'),
+            submit.locator('.tmt-ui-action-mark[data-busy="true"] .tmt-ui-busy-mark'),
           ).toBeVisible();
         }
         expect(await run(page, 'windowWriteProof')).toEqual({ writes: 1, captured: [draft] });
