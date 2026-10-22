@@ -191,7 +191,7 @@ export class SoakCollector {
     ]);
     const lastError = [...this.logs].reverse().find((record) => record.event === 'error');
     const error =
-      reference !== null || this.page
+      reference !== null
         ? { code: reference, message: reference }
         : { code: lastError?.code, message: lastError?.message };
     if (reference !== null) this.error('colab', error);

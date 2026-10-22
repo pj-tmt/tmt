@@ -163,6 +163,46 @@ describe('soak failure collection before world cleanup', () => {
     expect(attachments).toBe(0);
   });
 
+  it('keeps the last allowlisted error when a page has no failure reference', async () => {
+    const root = realpathSync(mkdtempSync(path.join(realpathSync('/tmp'), 'tmt-acc-collector-')));
+    let observe: (() => Promise<void>) | undefined;
+    let body: Buffer | undefined;
+    const world = {
+      root,
+      dataRoot: path.join(root, 'data'),
+      enableSoakDiagnostics() {},
+      onFailure(callback: () => Promise<void>) {
+        observe = callback;
+      },
+      soakLogs: () => ({
+        records: [{ source: 'core', code: 'PANE_NOT_FOUND', atMs: Date.now() }],
+        truncated: false,
+      }),
+      soakChildren: () => [],
+    } as unknown as ConstructorParameters<typeof SoakCollector>[0];
+    const info = {
+      attach: async (_name: string, attachment: { body: Buffer }) => {
+        body = attachment.body;
+      },
+    } as unknown as ConstructorParameters<typeof SoakCollector>[1];
+    const page = {
+      isClosed: () => false,
+      locator: () => ({ first: () => ({ getAttribute: async () => null }) }),
+    } as unknown as Parameters<SoakCollector['phase']>[1];
+    try {
+      const collector = new SoakCollector(world, info);
+      collector.phase('directory', page);
+      await observe!();
+      expect(JSON.parse(body!.toString()).error).toEqual({
+        code: 'PANE_NOT_FOUND',
+        message: null,
+        unrecognized: false,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([false, true])(
     'captures setup failure and owned listener liveness=%s without a browser',
     async (listening) => {
