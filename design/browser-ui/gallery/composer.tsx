@@ -12,7 +12,7 @@ export function AgentInputSection() {
         title="Chat input · desktop"
         note="Type, then @ for the agent list (↑ ↓ choose, Enter picks, Esc closes). Attach opens a file picker; a file named refuse… is refused."
         frame="agent-input"
-        width={1080}
+        width={880}
         height={520}
         params={{ state: 'idle' }}
       />
@@ -20,7 +20,7 @@ export function AgentInputSection() {
         title="Multi-line draft"
         note="A long message with line breaks keeps the chip, the attachments and the send row in view."
         frame="agent-input"
-        width={480}
+        width={440}
         height={520}
         params={{ state: 'draft' }}
       />
@@ -28,7 +28,7 @@ export function AgentInputSection() {
         title="Sending: the write is held"
         note="Press Send. The message shows at once and the input stays free while the write is held."
         frame="agent-input"
-        width={480}
+        width={440}
         height={520}
         params={{ state: 'busy' }}
       />
@@ -36,7 +36,7 @@ export function AgentInputSection() {
         title="Refused: the write fails"
         note="Press Send. The message stays as a failed row; Retry sends it again, Edit brings it back."
         frame="agent-input"
-        width={480}
+        width={440}
         height={520}
         params={{ state: 'refused' }}
       />
