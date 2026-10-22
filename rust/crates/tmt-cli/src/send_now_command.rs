@@ -6,6 +6,7 @@ use crate::{
     identity_context,
     invocation::{Invocation, OutputMode},
     output::{Failure, after_cleanup},
+    response_command::selection_failure,
 };
 use serde_json::json;
 use std::{
@@ -15,12 +16,13 @@ use std::{
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     delivery::Delivery,
+    request_runtime::wall_time_ms,
     send_now::{self, SendNow},
     storage::{Storage, StorageError},
 };
 use tmt_cli_style::message;
 use tmt_core::request::{
-    RequestError,
+    RequestError, RequestService,
     delivery::{DeliveryState, SendNowRejection},
 };
 
@@ -46,6 +48,7 @@ fn rejection(reason: SendNowRejection, request_id: &str) -> Failure {
 
 fn failure(error: RequestError<StorageError>, request_id: &str) -> Failure {
     match error {
+        RequestError::ResultSelection(_) => selection_failure(error),
         RequestError::SendNow(reason) => rejection(reason, request_id),
         RequestError::NotFound => Failure::new(
             "SEND_NOW_NOT_FOUND",
@@ -71,7 +74,8 @@ fn delivery_failure(delivery: Delivery, request_id: &str) -> Failure {
     }
 }
 
-fn run(request: Invocation) -> Result<Report, Failure> {
+/// The full request ID the command acted on, with what happened.
+fn run(request: Invocation) -> Result<(String, Report), Failure> {
     let Invocation::SendNow {
         request_id,
         identity,
@@ -99,11 +103,15 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let pending = (|| {
         let me = identity_context::resolve(&mut storage, selected)?;
         let delay = Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0);
+        // The same short prefix `tmt result` accepts; reports below name the full ID.
+        let request_id = RequestService::new(&mut storage, wall_time_ms)
+            .select_request_id(&request_id)
+            .map_err(|error| failure(error, &request_id))?;
         match send_now::send_now(&mut storage, &request_id, &me.id, delay)
             .map_err(|error| failure(error, &request_id))?
         {
-            SendNow::Typed => Ok(Report::Sent),
-            SendNow::Already(state) => Ok(Report::Already(state)),
+            SendNow::Typed => Ok((request_id, Report::Sent)),
+            SendNow::Already(state) => Ok((request_id, Report::Already(state))),
             SendNow::Untyped(other) => Err(delivery_failure(other, &request_id)),
             SendNow::Closed => Err(rejection(SendNowRejection::Closed, &request_id)),
         }
@@ -112,12 +120,8 @@ fn run(request: Invocation) -> Result<Report, Failure> {
 }
 
 pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let request_id = match &request {
-        Invocation::SendNow { request_id, .. } => request_id.clone(),
-        _ => unreachable!("send-now dispatch only accepts send-now"),
-    };
-    let report = match run(request) {
-        Ok(report) => report,
+    let (request_id, report) = match run(request) {
+        Ok(done) => done,
         Err(error) => return error.publish(mode),
     };
     let (status, state, line) = match &report {

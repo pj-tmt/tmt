@@ -99,6 +99,34 @@ fn the_originator_sends_a_held_message_now_and_it_is_never_typed_twice() {
     assert!(shown.status.success(), "{shown:?}");
 }
 
+#[test]
+fn a_unique_short_prefix_names_the_message_and_a_too_short_one_types_nothing() {
+    let (fixture, _) = world("send-now-prefix");
+    let request = held_request(&fixture, "Review by prefix");
+    // The prefix `tmt result` accepts: eight hex digits of the ID.
+    let prefix = &request["req_".len().."req_".len() + 8];
+
+    let (code, short) = send_now(&fixture, &prefix[..7], "lead");
+    assert_eq!(code, Some(1), "{short:#}");
+    assert_eq!(short["error"]["code"], "USAGE_ERROR", "{short:#}");
+    assert!(fixture.requests("prompted").is_empty());
+
+    let (code, sent) = send_now(&fixture, prefix, "lead");
+    assert_eq!(
+        (code, sent["status"].as_str(), sent["requestId"].as_str()),
+        (Some(0), Some("sent"), Some(request.as_str())),
+        "{sent:#}"
+    );
+    assert_eq!(fixture.requests("prompted").len(), 1);
+
+    let (code, unknown) = send_now(&fixture, "aaaaaaaa", "lead");
+    assert_eq!(code, Some(3), "{unknown:#}");
+    assert_eq!(
+        unknown["error"]["code"], "SEND_NOW_NOT_FOUND",
+        "{unknown:#}"
+    );
+}
+
 fn held_references(fixture: &Fixture, request: &str) -> i64 {
     rusqlite::Connection::open(fixture.state().join("tmt.db"))
         .unwrap()

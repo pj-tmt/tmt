@@ -801,8 +801,9 @@ retained, so `not_sent` carries one of the two generic reasons.
 
 ### Send now
 
-`tmt send-now <request-id> [--identity <name>]` takes one message out of the recipient's Digest
-hold and types it now. Core decides, in one transaction, from the message's `messageState`:
+`tmt send-now <request-id> [--identity <name>]` (the unique prefix `tmt result` accepts also
+works; the reply names the full ID) takes one message out of the recipient's Digest hold and types
+it now. Core decides, in one transaction, from the message's `messageState`:
 
 - Only the request's originator, or a person (the reserved `user` mark), may ask
   (`SEND_NOW_NOT_ALLOWED`). Only an ordinary request to an identified recipient qualifies: not a
