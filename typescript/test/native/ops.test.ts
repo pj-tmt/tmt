@@ -5016,7 +5016,7 @@ describe('large board responsiveness', () => {
           '-c',
           sandbox.root,
           '-x',
-          '160',
+          String(width),
           '-y',
           '36',
           '/bin/sh',
@@ -5046,7 +5046,8 @@ describe('large board responsiveness', () => {
           await vi.waitFor(
             () => {
               expect(screen()).toContain('TMT');
-              expect(screen()).toContain('No current recipient observed.');
+              expect(screen()).toContain('SQUAD / AGENT');
+              if (width >= 100) expect(screen()).toContain('No current recipient observed.');
             },
             { timeout: 30_000, interval: 50 }
           );
@@ -5056,21 +5057,13 @@ describe('large board responsiveness', () => {
             interval: 50,
           });
           tmux(['send-keys', '-t', pane, 'End']);
+          // Start at the final geometry: tmux's resize does not prove that
+          // the board has repainted its pointer targets.
+          if (width < 100) tmux(['send-keys', '-t', pane, 'Tab']);
           await vi.waitFor(() => expect(screen()).toContain('second line'), {
             timeout: 30_000,
             interval: 50,
           });
-          if (width !== 160) {
-            tmux(['resize-window', '-t', 'source', '-x', String(width), '-y', '36']);
-            await vi.waitFor(
-              () =>
-                expect(tmux(['display-message', '-p', '-t', pane, '#{pane_width}'])).toBe(
-                  String(width)
-                ),
-              { timeout: 10_000, interval: 50 }
-            );
-          }
-          if (width < 100) tmux(['send-keys', '-t', pane, 'Tab']);
           let location = { x: 0, y: 0 };
           await vi.waitFor(
             () => {
