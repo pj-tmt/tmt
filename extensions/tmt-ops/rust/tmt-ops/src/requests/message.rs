@@ -2,6 +2,9 @@
 //! source identity and byte ranges. Exact row framing preserves every admitted
 //! byte; compact chat insertion has an explicit character bound and no authority.
 
+/// Maximum source bytes in one composed message, including selected context.
+pub(crate) const MESSAGE_LIMIT: usize = 1024 * 1024;
+
 /// The retained row-annotation prefix, including its comment separator.
 pub fn tag(squad: &str, row: &str) -> String {
     format!("[{squad} · {row}] ")

@@ -260,6 +260,7 @@ impl Session {
         self.observe_finals(detail.finals);
         if self.sent != detail.sent {
             self.sent = detail.sent;
+            self.observe_captures();
             self.stale = true;
         }
         self.update(detail.reply);

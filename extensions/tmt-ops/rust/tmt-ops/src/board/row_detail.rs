@@ -40,6 +40,7 @@ pub(super) struct State {
     finals_failed: Vec<FinalsKey>,
     /// The same agent's durable sends from this user, read after its finals.
     agent_sent: Vec<(SentKey, Vec<Value>)>,
+    sent_stale: bool,
     pub reader: Option<Reader>,
 }
 
@@ -121,6 +122,58 @@ pub(super) struct Sent {
     pub text: String,
     /// Only the listed preview survives: the full prompt is no longer retained.
     pub truncated: bool,
+    pub capture: Option<Capture>,
+    pub message_state_label: Option<String>,
+}
+
+/// Core's captured turn, independent of ordinary replies and pane observations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Capture {
+    Pending,
+    Bound,
+    Answered {
+        text: String,
+        truncated: bool,
+        provider: String,
+        ended_ms: u64,
+    },
+    NoAnswer,
+}
+impl Capture {
+    fn read(send: &Value) -> Option<Self> {
+        if send["mode"] != "passthrough" {
+            return None;
+        }
+        let capture = &send["passthrough"];
+        match capture["state"].as_str()? {
+            "pending" => Some(Self::Pending),
+            "bound" => Some(Self::Bound),
+            "answered" => Some(Self::Answered {
+                text: capture["answer"]["text"]
+                    .as_str()
+                    .filter(|text| text.len() <= 8192)?
+                    .to_owned(),
+                truncated: capture["answer"]["truncated"].as_bool()?,
+                provider: capture["answer"]["provider"].as_str()?.to_owned(),
+                ended_ms: capture["answer"]["endedMs"].as_u64()?,
+            }),
+            "no_answer" => Some(Self::NoAnswer),
+            _ => None,
+        }
+    }
+    pub(super) fn markdown(&self) -> String {
+        match self {
+            Self::Pending | Self::Bound => "⠹ working…".into(),
+            Self::NoAnswer => "No turn output was captured for this message.".into(),
+            Self::Answered {
+                text, truncated, ..
+            } => format!(
+                "turn output{}\n\n{}",
+                if *truncated { " · truncated" } else { "" },
+                super::notes::sanitize(text).trim_end_matches('\n')
+            ),
+        }
+    }
 }
 
 /// A collapsed field suppresses detail only if its complete text survives the
@@ -328,6 +381,8 @@ impl App {
                     at_ms: send["preparedAtMs"].as_u64()?,
                     text: send["text"].as_str()?.into(),
                     truncated: send["truncated"].as_bool().unwrap_or(false),
+                    capture: Capture::read(send),
+                    message_state_label: crate::requests::message_state_label(send),
                 })
             })
             .collect()
@@ -594,16 +649,31 @@ impl App {
             .iter()
             .any(|(read, _)| sent_key(read) == key);
         (finals_in
-            && !self
-                .row_details
-                .agent_sent
-                .iter()
-                .any(|(read, _)| read == &key))
+            && (self.row_details.sent_stale
+                || !self
+                    .row_details
+                    .agent_sent
+                    .iter()
+                    .any(|(read, _)| read == &key)))
         .then_some(key)
     }
+    pub(super) fn refresh_sent(&mut self) {
+        self.row_details.sent_stale = true;
+    }
+
     pub(super) fn apply_sent(&mut self, key: SentKey, result: Result<Vec<Value>, String>) {
         if self.conversation_finals().as_ref().map(sent_key).as_ref() != Some(&key) {
             return;
+        }
+        self.row_details.sent_stale = false;
+        if result.is_err()
+            && self
+                .row_details
+                .agent_sent
+                .iter()
+                .any(|(current, _)| current == &key)
+        {
+            return; // A failed refresh cannot erase an already acquired capture.
         }
         self.row_details
             .agent_sent

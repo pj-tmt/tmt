@@ -393,7 +393,9 @@ fn captures() -> Value {
                     for height in [36, 8] {
                         let app = if state == "header-usage" {
                             metered(look)
-                        } else if state.starts_with("sent-") {
+                        } else if crate::board::conversation::outgoing::tests::captures::SCENES
+                            .contains(&state)
+                        {
                             crate::board::conversation::outgoing::tests::captures::fixture(
                                 state, look, NOW,
                             )
@@ -402,6 +404,23 @@ fn captures() -> Value {
                         };
                         let captured =
                             capture_frame(&app, state, look_name, width, height, &mut styles);
+                        if state.starts_with("chat-") && width == 160 && height == 36 {
+                            let text = captured["lines"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|line| line.as_str().unwrap())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            assert!(
+                                text.contains(
+                                    crate::board::conversation::outgoing::tests::captures::expected(
+                                        state
+                                    )
+                                ),
+                                "missing capture state {state}: {text}"
+                            );
+                        }
                         frames.push(captured);
                     }
                 }
@@ -764,6 +783,46 @@ fn dump_home_oracle() {
     fs::write(
         path,
         serde_json::to_string_pretty(&captures()).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "exports only the 32 chat-fallback frames to HOME_ORACLE_OUT; never records fixtures"]
+fn dump_chat_fallback_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let captured = crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut styles = Styles::default();
+        let mut frames = Vec::new();
+        for (name, look) in looks() {
+            for width in [160, 100, 80, 60] {
+                for height in [36, 8] {
+                    let app = crate::board::conversation::outgoing::tests::captures::fixture(
+                        "chat-fallback",
+                        look,
+                        1_791_600_000_000,
+                    );
+                    frames.push(capture_frame(
+                        &app,
+                        "chat-fallback",
+                        name,
+                        width,
+                        height,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles":styles, "frames":frames})
+    });
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&captured).unwrap() + "\n",
     )
     .unwrap();
 }

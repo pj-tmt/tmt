@@ -3542,7 +3542,7 @@ if [ "$1" = api ]; then
   printf '%s\n' "$request" >> '{}'
   case "$request" in
     *requests.list*)
-      printf '%s\n' '{{"items":[{{"requestId":"req-new","kind":"request","sender":{{"identityId":"owner"}},"recipientId":"agent","preparedAtMs":30,"preview":"new pre"}},{{"requestId":"req-other","kind":"request","sender":{{"identityId":"someone"}},"recipientId":"agent","preparedAtMs":25,"preview":"not mine"}},{{"requestId":"req-gone","kind":"request","sender":{{"identityId":"owner"}},"recipientId":"agent","preparedAtMs":10,"preview":"gone pre"}}],"nextBefore":null}}';;
+      printf '%s\n' '{{"items":[{{"requestId":"req-new","kind":"request","sender":{{"identityId":"owner"}},"recipientId":"agent","preparedAtMs":30,"preview":"new pre","messageState":{{"state":"working","reason":{{"text":"Core changes this exact sentence."}}}}}},{{"requestId":"req-other","kind":"request","sender":{{"identityId":"someone"}},"recipientId":"agent","preparedAtMs":25,"preview":"not mine"}},{{"requestId":"req-gone","kind":"request","sender":{{"identityId":"owner"}},"recipientId":"agent","preparedAtMs":10,"preview":"gone pre"}}],"nextBefore":null}}';;
     *req-new*)
       printf '%s\n' '{{"requestId":"req-new","prompt":{{"status":"retained","message":"the whole new message"}}}}';;
     *)
@@ -3576,7 +3576,7 @@ printf '%s\n' '{{}}'
             result.unwrap(),
             [
                 json!({"requestId":"req-gone","preparedAtMs":10,"truncated":true,"text":"gone pre"}),
-                json!({"requestId":"req-new","preparedAtMs":30,"truncated":false,"text":"the whole new message"}),
+                json!({"requestId":"req-new","preparedAtMs":30,"truncated":false,"text":"the whole new message","messageState":{"state":"working","reason":{"text":"Core changes this exact sentence."}}}),
             ]
         );
         assert!(!cancellation.cancelled());

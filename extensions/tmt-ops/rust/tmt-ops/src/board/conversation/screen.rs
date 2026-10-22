@@ -433,6 +433,9 @@ pub(in crate::board) mod tests {
     #[test]
     fn colours_survive_to_the_painted_cells_and_depth_none_keeps_attributes() {
         let mut app = reader();
+        let view = app.view.as_mut().unwrap();
+        view.look = crate::look::Look::default();
+        view.home.as_mut().unwrap().workspace.squad_looks.clear();
         press_l(&mut app);
         app.apply_pane_screen(
             key_of(&app),

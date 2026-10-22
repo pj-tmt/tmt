@@ -15,6 +15,7 @@ fn settled_final_after_older_pane_text_is_its_own_message_with_exact_lines_and_a
         app.apply_pane_output(
             key,
             Observation::Observed(vec![Item {
+                provider: "codex".into(),
                 text: "Earlier pane first\nEarlier pane second".into(),
                 ended_ms: 1_200_000,
                 truncated: false,
@@ -80,6 +81,7 @@ fn identical_capture_and_final_remain_two_blocks_with_only_the_final_as_source()
         app.apply_pane_output(
             key,
             Observation::Observed(vec![Item {
+                provider: "codex".into(),
                 text: "Same exact answer\n第二 line".into(),
                 ended_ms: 1_200_000,
                 truncated: false,
@@ -272,6 +274,7 @@ fn capture_settled_reply_packet() {
                         .pane_output_read()
                         .expect("selected member output scope");
                     app.apply_pane_output(key, Observation::Observed(vec![Item {
+                        provider: "codex".into(),
                         text: "Earlier pane text.\nA captured bullet list:\n- first item\n- second item".into(),
                         ended_ms: 1_200_000, truncated: false,
                     }]));

@@ -170,23 +170,18 @@ pub enum Request {
         to: String,
         text: String,
     },
-    DirectTalk {
+    Chat {
         sender: String,
         recipient: String,
+        name: String,
         text: String,
+        fallback: String,
     },
     Annotate {
         me: String,
         squad: String,
         to: String,
         row: String,
-        text: String,
-    },
-    Reply {
-        me: String,
-        squad: String,
-        request: String,
-        from: String,
         text: String,
     },
     Status(Box<super::status_update::Action>),
@@ -219,10 +214,7 @@ impl Request {
             Self::Digest(_) => "Saving digest…",
             Self::DigestSwitch(_) => "Switching Digest…",
             Self::Copy { .. } => "Copying…",
-            Self::Talk { .. }
-            | Self::DirectTalk { .. }
-            | Self::Annotate { .. }
-            | Self::Reply { .. } => "Sending…",
+            Self::Talk { .. } | Self::Chat { .. } | Self::Annotate { .. } => "Sending…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
@@ -237,9 +229,8 @@ impl Request {
         matches!(
             self,
             Self::Talk { .. }
-                | Self::DirectTalk { .. }
+                | Self::Chat { .. }
                 | Self::Annotate { .. }
-                | Self::Reply { .. }
                 | Self::WorkspacePreferences { .. }
                 | Self::WorkspaceOperation(_)
                 | Self::Cron(_)
@@ -405,12 +396,6 @@ pub enum Compose {
         to: String,
         row: String,
     },
-    /// A resolved submission snapshot, never an editor mode. The request is
-    /// selected from current data at Enter and is not retained in the editor.
-    Reply {
-        request: String,
-        from: String,
-    },
     Status,
     /// One step of a cron form; its draft lives in `App::cron_draft`.
     Cron,
@@ -465,12 +450,14 @@ pub(super) struct RowSend {
 
 impl RowSend {
     pub(super) fn valid(&self, app: &App, input: &Input) -> bool {
-        if matches!(input.compose, Compose::Talk { .. } | Compose::Reply { .. }) {
+        if matches!(input.compose, Compose::Talk { .. }) {
             return app
                 .view
                 .as_ref()
                 .and_then(|view| view.me.as_ref())
                 .is_some()
+                && app.view.as_ref().and_then(|view| view.me_id.as_ref())
+                    == self.sender_id.as_ref()
                 && app.target_row(&self.target).is_some();
         }
         if app.loading()
@@ -490,7 +477,7 @@ impl RowSend {
         }
         match &input.compose {
             Compose::Status => true,
-            Compose::Talk { .. } | Compose::Reply { .. } => {
+            Compose::Talk { .. } => {
                 unreachable!("member admission handled above")
             }
             Compose::Annotate { .. } => {
@@ -542,7 +529,6 @@ impl Input {
                     format!("→ {to} ({})", self.squad)
                 }
             }
-            Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
             Compose::Annotate { to, row } if to != row => {
                 format!("→ {to} ({}) · note · about {row}", self.squad)
             }
@@ -563,7 +549,7 @@ impl Input {
 /// Small form field budget, in UTF-8 bytes.
 pub(super) const INPUT_LIMIT: usize = 4000;
 /// Session message limit, in UTF-8 bytes; reject oversized insertions atomically.
-pub(super) const MESSAGE_LIMIT: usize = 1024 * 1024;
+pub(super) use crate::requests::message::MESSAGE_LIMIT;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
@@ -1553,6 +1539,7 @@ impl App {
         self.digest_rows.get_mut().clear();
         self.overview_rows.borrow_mut().clear();
         self.conversation.borrow_mut().refresh_pane_output();
+        self.refresh_sent();
         if let Some(timing) = &mut self.timing {
             let accepted =
                 snapshot.view.is_ok() && (self.current.is_none() || self.current == snapshot.squad);
@@ -3213,7 +3200,7 @@ impl App {
         if input.text.as_str().trim().is_empty() {
             return self.say("Nothing sent.");
         }
-        if matches!(input.compose, Compose::Talk { .. } | Compose::Reply { .. })
+        if matches!(input.compose, Compose::Talk { .. })
             && let Some(send) = input.row_send.as_ref()
         {
             let Some(row) = self.target_row(&send.target) else {
@@ -3232,20 +3219,8 @@ impl App {
             {
                 return self.say(self.unknown_sender());
             }
-            let newest = row["waitingOnYou"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|item| item["requestId"].is_string())
-                .max_by_key(|item| item["preparedAtMs"].as_u64().unwrap_or(0));
-            input.compose = match newest {
-                Some(item) => Compose::Reply {
-                    request: item["requestId"].as_str().unwrap().to_owned(),
-                    from: name.to_owned(),
-                },
-                None => Compose::Talk {
-                    to: name.to_owned(),
-                },
+            input.compose = Compose::Talk {
+                to: name.to_owned(),
             };
             input.squad = self.target_squad(&send.target).unwrap_or_default();
             input.row_send.as_mut().unwrap().name = name.to_owned();
@@ -3293,20 +3268,12 @@ impl App {
             let valid = self.view.as_ref().and_then(|view| view.me.as_ref()) == Some(sender)
                 && !self.loading()
                 && self.current.as_deref() == Some(&input.squad)
-                && row.is_some_and(|row| match &input.compose {
+                && row.is_some_and(|_| match &input.compose {
                     Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
                     Compose::Cron | Compose::Workspace | Compose::Status | Compose::Digest(_) => {
                         false
-                    }
-                    Compose::Reply { request, from } => {
-                        from == member
-                            && row["waitingOnYou"].as_array().is_some_and(|items| {
-                                items
-                                    .iter()
-                                    .any(|item| item["requestId"].as_str() == Some(request))
-                            })
                     }
                 });
             if !valid {
@@ -3314,6 +3281,27 @@ impl App {
             }
         }
 
+        let chat = input
+            .row_send
+            .as_ref()
+            .filter(|_| matches!(input.compose, Compose::Talk { .. }))
+            .and_then(|send| {
+                let recipient = match &send.target {
+                    RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                        identity_id,
+                        ..
+                    }) => identity_id.clone(),
+                    RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => id.clone(),
+                    _ => return None,
+                };
+                Some((send.sender_id.clone()?, recipient, send.name.clone()))
+            });
+        let fallback = text;
+        let text = if chat.is_some() {
+            input.quoted_message()
+        } else {
+            fallback.clone()
+        };
         let Some(me) = self.view.as_ref().and_then(|view| view.me.clone()) else {
             return Effect::None;
         };
@@ -3332,28 +3320,20 @@ impl App {
 
                 inline_quotes: Default::default(),
 
-                compose: match &input.compose {
-                    Compose::Reply { from, .. } => Compose::Talk { to: from.clone() },
-                    compose => compose.clone(),
-                },
+                compose: input.compose.clone(),
                 ..input.clone()
             });
         }
-        let direct = input.row_send.as_ref().and_then(|send| match &send.target {
-            RowTarget::Workspace(super::workspace::OpsTarget::Member {
-                room_id: None,
-                identity_id,
-            }) => Some((self.view.as_ref()?.me_id.clone()?, identity_id.clone())),
-            _ => None,
-        });
         let squad = input.squad;
         Effect::Act(match input.compose {
-            Compose::Talk { .. } if direct.is_some() => {
-                let (sender, recipient) = direct.unwrap();
-                Request::DirectTalk {
+            Compose::Talk { .. } if chat.is_some() => {
+                let (sender, recipient, name) = chat.unwrap();
+                Request::Chat {
                     sender,
                     recipient,
+                    name,
                     text,
+                    fallback,
                 }
             }
             Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
@@ -3374,13 +3354,6 @@ impl App {
                 unreachable!("form steps are submitted before this match")
             }
             Compose::Digest(_) => unreachable!("a digest value is submitted before this match"),
-            Compose::Reply { request, from } => Request::Reply {
-                me,
-                squad,
-                request,
-                from,
-                text,
-            },
         })
     }
 
@@ -4837,8 +4810,8 @@ pub(crate) mod tests {
                 panic!("plain Enter must submit the retained multiline draft");
             };
             match request {
-                Request::Talk { text, .. } | Request::DirectTalk { text, .. } => {
-                    assert_eq!(text, "[product · auth-fix] first\nsecond");
+                Request::Talk { text, .. } | Request::Chat { text, .. } => {
+                    assert_eq!(text, "first\nsecond");
                 }
                 other => panic!("expected Talk, got {other:?}"),
             }
@@ -4948,7 +4921,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn message_aliases_answer_the_newest_request_and_notes_stay_explicit() {
+    fn message_aliases_leave_settlement_to_core_and_notes_stay_explicit() {
         for verb in ["talk", "reply"] {
             let mut app = workspace_composer();
             app.view.as_mut().unwrap().me = Some("Ben".into());
@@ -4965,12 +4938,12 @@ pub(crate) mod tests {
             typed(&mut app, "q j -rf; $(x)");
             assert_eq!(
                 press(&mut app, KeyCode::Enter),
-                Effect::Act(Request::Reply {
-                    me: "Ben".into(),
-                    squad: "product".into(),
-                    request: "new".into(),
-                    from: "auth-fix".into(),
-                    text: "[product · auth-fix] q j -rf; $(x)".into(),
+                Effect::Act(Request::Chat {
+                    sender: app.view.as_ref().unwrap().me_id.clone().unwrap(),
+                    recipient: super::workspace::tests::MEMBER.into(),
+                    name: "auth-fix".into(),
+                    text: "q j -rf; $(x)".into(),
+                    fallback: "[product · auth-fix] q j -rf; $(x)".into(),
                 })
             );
             app.finish_draft(true);
@@ -4997,8 +4970,8 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.input.as_ref().unwrap().text, "draft");
         assert!(
-            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { request, text, .. })
-            if request == "q" && text == "[product · auth-fix] draft")
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Chat { text, .. })
+            if text == "draft")
         );
         assert!(app.notice.is_none(), "submission is not completion");
         app.finished(Err("delivery uncertain".into()));
@@ -5131,8 +5104,8 @@ pub(crate) mod tests {
         );
         assert_eq!(app.input.as_ref().unwrap().text, "keep");
         assert!(
-            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { request, from, text, .. })
-            if request == "q" && from == "auth-fix" && text == "[product · auth-fix] keep")
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Chat { name, text, .. })
+            if name == "auth-fix" && text == "keep")
         );
     }
 
@@ -5155,8 +5128,8 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.input.as_ref().unwrap().text, "hi");
         assert!(
-            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Talk { to, text, .. })
-            if to == "auth-fix" && text == "[product · auth-fix] hi")
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Chat { name, text, .. })
+            if name == "auth-fix" && text == "hi")
         );
     }
 
@@ -5294,16 +5267,59 @@ pub(crate) mod tests {
                 assert_eq!(app.input.as_ref().unwrap().text, "yes");
             } else if change == "request" {
                 assert!(
-                    matches!(effect, Effect::Act(Request::Talk { to, text, .. }) if to == "auth-fix" && text == "[product · auth-fix] yes")
+                    matches!(effect, Effect::Act(Request::Chat { name, text, .. }) if name == "auth-fix" && text == "yes")
                 );
             } else {
                 assert_eq!(app.row_target(app.selected).as_ref(), Some(&target));
                 assert!(
-                    matches!(effect, Effect::Act(Request::Reply { request, from, .. }) if request == "q" && from == "auth-fix"),
+                    matches!(effect, Effect::Act(Request::Chat { name, .. }) if name == "auth-fix"),
                     "{change}"
                 );
             }
         }
+    }
+
+    #[test]
+    fn chat_freezes_the_sender_uuid_and_uses_the_typed_recipient() {
+        use super::workspace::tests::MEMBER;
+        for change_sender in [false, true] {
+            let mut app = workspace_composer();
+            app.perform(&Action::parse("talk").unwrap());
+            let sender = app.view.as_ref().unwrap().me_id.clone().unwrap();
+            typed(&mut app, "kept draft");
+            // Display JSON cannot retarget a frozen workspace member UUID.
+            composer_row(app.view.as_mut().unwrap(), MEMBER)["id"] = json!("display-only-id");
+            if change_sender {
+                app.view.as_mut().unwrap().me_id = Some("another-person".into());
+            }
+            let effect = press(&mut app, KeyCode::Enter);
+            if change_sender {
+                assert_eq!(effect, Effect::None);
+                assert_eq!(app.input.as_ref().unwrap().text, "kept draft");
+            } else {
+                assert!(
+                    matches!(effect, Effect::Act(Request::Chat { sender: actual, recipient, text, .. })
+                    if actual == sender && recipient == MEMBER && text == "kept draft")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn chat_keeps_plain_text_and_does_not_answer_the_newest_question() {
+        use super::workspace::tests::MEMBER;
+        let mut app = workspace_composer();
+        composer_row(app.view.as_mut().unwrap(), MEMBER)["waitingOnYou"] = json!([
+            {"requestId":"old", "preparedAtMs":1, "preview":"First?"},
+            {"requestId":"new", "preparedAtMs":2, "preview":"Second?"}
+        ]);
+        app.perform(&Action::parse("reply").unwrap());
+        typed(&mut app, "/yes!");
+        let effect = press(&mut app, KeyCode::Enter);
+        assert!(
+            matches!(effect, Effect::Act(Request::Chat { text, .. }) if text == "/yes!"),
+            "plain chat must leave question settlement to Core and preserve the typed body"
+        );
     }
 
     #[test]
@@ -5326,10 +5342,6 @@ pub(crate) mod tests {
                 Compose::Annotate {
                     to: "sol".into(),
                     row: "auth-fix".into(),
-                },
-                Compose::Reply {
-                    request: "q1".into(),
-                    from: "auth-fix".into(),
                 },
             ] {
                 app.input = Some(Input {
@@ -6081,10 +6093,6 @@ mod token_window_tests {
         app.searching = false;
         for compose in [
             Compose::Talk { to: "a".into() },
-            Compose::Reply {
-                request: "q".into(),
-                from: "a".into(),
-            },
             Compose::Annotate {
                 to: "a".into(),
                 row: "a".into(),

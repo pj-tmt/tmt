@@ -1979,17 +1979,18 @@ fn the_pm_row_composer_never_copies_the_squad_lead() {
     );
     assert_eq!(
         key(&mut app, KeyCode::Enter),
-        Effect::Act(Request::Talk {
-            me: "Owner".into(),
-            squad: "product".into(),
-            to: "tmt-core-pm".into(),
-            text: "[product · tmt-core-pm] PM only".into(),
+        Effect::Act(Request::Chat {
+            sender: app.view.as_ref().unwrap().me_id.clone().unwrap(),
+            recipient: MEMBER.into(),
+            name: "tmt-core-pm".into(),
+            text: "PM only".into(),
+            fallback: "[product · tmt-core-pm] PM only".into(),
         })
     );
 }
 
 #[test]
-fn a_newer_request_arriving_mid_draft_is_the_only_one_answered() {
+fn a_newer_request_arriving_mid_draft_does_not_gain_local_settlement_authority() {
     let mut app = board();
     let selected = app.workspace.selected.clone().unwrap();
     app.focus_composer();
@@ -2010,12 +2011,12 @@ fn a_newer_request_arriving_mid_draft_is_the_only_one_answered() {
     ]);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
-        Effect::Act(Request::Reply {
-            me: "Owner".into(),
-            squad: "product".into(),
-            request: "newest".into(),
-            from: "worker".into(),
-            text: "[product · worker] Answer the current request".into(),
+        Effect::Act(Request::Chat {
+            sender: app.view.as_ref().unwrap().me_id.clone().unwrap(),
+            recipient: MEMBER.into(),
+            name: "worker".into(),
+            text: "Answer the current request".into(),
+            fallback: "[product · worker] Answer the current request".into(),
         })
     );
     assert_eq!(
@@ -2071,11 +2072,12 @@ fn a_request_settling_while_drafting_still_sends_to_the_member() {
     );
     assert_eq!(
         key(&mut app, KeyCode::Enter),
-        Effect::Act(Request::Talk {
-            me: "Owner".into(),
-            squad: "product".into(),
-            to: "worker".into(),
-            text: "[product · worker] The exact draft stays deliverable.".into(),
+        Effect::Act(Request::Chat {
+            sender: app.view.as_ref().unwrap().me_id.clone().unwrap(),
+            recipient: MEMBER.into(),
+            name: "worker".into(),
+            text: "The exact draft stays deliverable.".into(),
+            fallback: "[product · worker] The exact draft stays deliverable.".into(),
         })
     );
 }
@@ -2136,12 +2138,12 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
         key(&mut app, KeyCode::Char('y'));
         assert_eq!(
             key(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Reply {
-                me: "Owner".into(),
-                squad: "product".into(),
-                request: REQUEST.into(),
-                from: "worker".into(),
-                text: "[product · worker] y".into(),
+            Effect::Act(Request::Chat {
+                sender: app.view.as_ref().unwrap().me_id.clone().unwrap(),
+                recipient: MEMBER.into(),
+                name: "worker".into(),
+                text: "y".into(),
+                fallback: "[product · worker] y".into(),
             })
         );
         assert_eq!(app.workspace.selected.as_ref(), Some(&selected));

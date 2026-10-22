@@ -65,10 +65,7 @@ impl App {
         self.input
             .as_ref()
             .is_some_and(|input| match input.compose {
-                Compose::Talk { .. }
-                | Compose::Reply { .. }
-                | Compose::Annotate { .. }
-                | Compose::AskLead { .. } => true,
+                Compose::Talk { .. } | Compose::Annotate { .. } | Compose::AskLead { .. } => true,
                 Compose::Status => self.reference_editor().is_some(),
                 Compose::Cron => self
                     .cron_draft
@@ -170,7 +167,6 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 Compose::Talk { to }
                 | Compose::AskLead { to, .. }
                 | Compose::Annotate { to, .. } => Some(to.as_str()),
-                Compose::Reply { from, .. } => Some(from.as_str()),
                 _ => None,
             });
             Line::styled(

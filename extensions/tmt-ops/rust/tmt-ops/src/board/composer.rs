@@ -245,7 +245,7 @@ impl App {
         }
         let send = input.row_send.as_ref()?;
         let recipient = match &input.compose {
-            Compose::Talk { .. } | Compose::Reply { .. } => match &send.target {
+            Compose::Talk { .. } => match &send.target {
                 RowTarget::Workspace(super::workspace::OpsTarget::Member {
                     identity_id, ..
                 }) => identity_id.clone(),
@@ -276,7 +276,6 @@ impl App {
         {
             let recipient = match &input.compose {
                 Compose::Talk { to } | Compose::Annotate { to, .. } => to.as_str(),
-                Compose::Reply { from, .. } => from.as_str(),
                 _ => return None,
             };
             return Some(Projection {

@@ -78,8 +78,22 @@ fn begin(app: &mut App, text: &str) -> (Ticket, crate::board::app::Request) {
     assert!(app.reload_blocked());
     (ticket, request)
 }
+fn ordinary_request(app: &App, request: Request) -> Request {
+    match request {
+        Request::Chat { name, text, .. } => Request::Talk {
+            me: app.view.as_ref().unwrap().me.clone().unwrap(),
+            squad: "product".into(),
+            to: name,
+            text,
+        },
+        request => request,
+    }
+}
 fn send(app: &mut App, fake: &Fake, text: &str) -> Completed {
     let (ticket, request) = begin(app, text);
+    // These tests isolate ordinary request feedback. Plain chat's mode selection
+    // and durable API send are covered by send::chat's public-port tests.
+    let request = ordinary_request(app, request);
     let BoardEvent::Acted {
         outcome: Ok(ActionOutcome::Send(completed)),
         sends: true,
@@ -113,14 +127,25 @@ fn row_context_reaches_the_worker_and_outgoing_ticket_exactly_once() {
         else {
             panic!("{action}: explicit row message");
         };
-        let expected = "[product · auth-fix]   about this row\nkeep the exact comment  ";
+        let expected = if action == "talk" {
+            "  about this row\nkeep the exact comment  "
+        } else {
+            "[product · auth-fix]   about this row\nkeep the exact comment  "
+        };
         let ticket = app.outgoing_ticket(&request).unwrap();
         assert_eq!(ticket.text, expected, "{action}: optimistic body");
         let fake = Fake::new(json!({"requestId":"context-note","status":"queued"}), false);
         let BoardEvent::Acted {
             outcome: Ok(ActionOutcome::Send(completed)),
             ..
-        } = lane::run(&fake.core, None, lane::Job::Send { request, ticket })
+        } = lane::run(
+            &fake.core,
+            None,
+            lane::Job::Send {
+                request: ordinary_request(&app, request),
+                ticket,
+            },
+        )
         else {
             panic!("{action}: typed send result");
         };
@@ -201,12 +226,24 @@ fn exact_passage_precedes_the_comment_in_the_delivered_row_message() {
             panic!("{action}: exact source should remain admissible");
         };
         let ticket = app.outgoing_ticket(&request).unwrap();
-        assert_eq!(ticket.text, EXPECTED, "{action}: exact optimistic body");
+        let expected = if action == "talk" {
+            EXPECTED.strip_prefix("[product · auth-fix]\n").unwrap()
+        } else {
+            EXPECTED
+        };
+        assert_eq!(ticket.text, expected, "{action}: exact optimistic body");
         let fake = Fake::new(json!({"requestId":"quoted-note","status":"queued"}), false);
         let BoardEvent::Acted {
             outcome: Ok(ActionOutcome::Send(completed)),
             ..
-        } = lane::run(&fake.core, None, lane::Job::Send { request, ticket })
+        } = lane::run(
+            &fake.core,
+            None,
+            lane::Job::Send {
+                request: ordinary_request(&app, request),
+                ticket,
+            },
+        )
         else {
             panic!("{action}: typed send result");
         };
@@ -218,11 +255,11 @@ fn exact_passage_precedes_the_comment_in_the_delivered_row_message() {
             "auth-fix"
         };
         assert!(
-            args.windows(2).any(|pair| pair == [recipient, EXPECTED]),
+            args.windows(2).any(|pair| pair == [recipient, expected]),
             "{action}: the frozen body reaches only the admitted recipient"
         );
         assert_eq!(
-            args.iter().filter(|arg| *arg == EXPECTED).count(),
+            args.iter().filter(|arg| *arg == expected).count(),
             1,
             "{action}: literal delivered body"
         );
@@ -297,10 +334,7 @@ fn five_dispositions_preserve_delivery_and_never_infer_activity_from_task_state(
                 .count(),
             1
         );
-        assert_eq!(
-            arguments.last().unwrap(),
-            "[product · auth-fix] exact outgoing text"
-        );
+        assert_eq!(arguments.last().unwrap(), "exact outgoing text");
         assert!(app.input.as_ref().unwrap().text.is_empty());
     }
 }
@@ -605,14 +639,7 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     let rendered = session.rendered.as_ref().unwrap();
     let lines = &rendered.mapped.lines;
     let text: Vec<_> = lines.iter().map(ToString::to_string).collect();
-    assert_eq!(
-        &text[..3],
-        [
-            "You · now",
-            "[product · auth-fix] literal auth-fix · now",
-            ""
-        ]
-    );
+    assert_eq!(&text[..3], ["You · now", "literal auth-fix · now", ""]);
     assert!(
         text[3].contains("auth-fix")
             && text[3].contains("→")
@@ -678,7 +705,7 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
         for index in 0..3 {
             let message = lines
                 .iter()
-                .position(|line| line == &format!("[product · auth-fix] message {index}"))
+                .position(|line| line == &format!("message {index}"))
                 .unwrap();
             assert_eq!(lines[message + 1], "", "{lines:?}");
             assert_eq!(
@@ -834,10 +861,10 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
             assert!(
                 matches!(
                     &session.outgoing.front().unwrap().outcome,
-                    Some(Outcome::Send(Ok(Accepted {
+                    Some(Ok(Accepted {
                         disposition: Disposition::Sent,
                         ..
-                    })))
+                    }))
                 ),
                 "{source}: delivery stays the typed acceptance fact"
             );
@@ -849,7 +876,7 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
 #[test]
 fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
     let mut app = fixture();
-    let payload = "x".repeat(crate::board::app::MESSAGE_LIMIT - "[product · auth-fix] ".len());
+    let payload = "x".repeat(crate::board::app::MESSAGE_LIMIT);
     let mut oldest = None;
     for _ in 0..6 {
         if app.input.is_some() {
@@ -862,13 +889,17 @@ fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
             panic!("expected explicit send");
         };
         let ticket = app.outgoing_ticket(&request).unwrap();
-        assert_eq!(ticket.text, format!("[product · auth-fix] {payload}"));
+        assert_eq!(ticket.text, payload);
         assert_eq!(ticket.text.len(), crate::board::app::MESSAGE_LIMIT);
         let completed = Completed {
             ticket: Some(ticket),
             outcome: Ok(Accepted {
                 request: format!("budget-request-{}", app.conversation.borrow().sequence),
                 disposition: Disposition::Queued,
+                passthrough: false,
+                message_state_label: None,
+                fallback: None,
+                warning: None,
             }),
             what: "Message".into(),
             to: "worker".into(),
@@ -913,7 +944,7 @@ fn outgoing_preserves_exact_effect_bytes_without_painting_terminal_controls() {
     );
     let mut app = fixture();
     let text = "You · now\nalpha · now\nraw\u{1b}[2J\u{7} 漢字 e\u{301}";
-    let delivered = format!("[product · auth-fix] {text}");
+    let delivered = text.to_owned();
     let completed = send(&mut app, &fake, text);
     assert!(
         fake.arguments()
@@ -934,97 +965,6 @@ fn outgoing_preserves_exact_effect_bytes_without_painting_terminal_controls() {
     assert!(!painted.contains("delivered"));
     assert!(!painted.contains('\u{1b}') && !painted.contains('\u{7}'));
     assert!(painted.contains("queued · inbox"));
-}
-
-#[test]
-fn answers_use_the_existing_worker_once_and_keep_the_question_and_reply_in_one_group() {
-    use crate::board::{
-        app::workspace::tests::{board, observe_waiting_member},
-        shell::OpsTab,
-    };
-    for failure in [false, true] {
-        let mut app = board();
-        observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        let target = app.workspace.selected.clone().unwrap();
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .rows
-            .get_mut(&target)
-            .unwrap()["waitingOnYou"] = json!([{"requestId":"req_99999999-9999-4999-8999-999999999999","preview":"Question retained","preparedAtMs":crate::status::now_ms()-1_000}]);
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(matches!(
-            app.input.as_ref().unwrap().compose,
-            Compose::Talk { .. }
-        ));
-        app.paste("Exact answer");
-        let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-        else {
-            panic!("explicit answer");
-        };
-        let expected = match &request {
-            Request::Reply { request, .. } => request.clone(),
-            _ => panic!("answer owns request identity"),
-        };
-        let ticket = app.outgoing_ticket(&request).unwrap();
-        let fake = Fake::new(
-            if failure {
-                json!({"error":{"code":"REFUSED","message":"Not submitted."}})
-            } else {
-                json!({"status":"submitted","requestId":expected})
-            },
-            failure,
-        );
-        let BoardEvent::Acted {
-            outcome: Ok(ActionOutcome::Answer(completed)),
-            sends: true,
-            ..
-        } = lane::run(&fake.core, None, lane::Job::Send { request, ticket })
-        else {
-            panic!("typed answer completion");
-        };
-        assert_eq!(completed.outcome.is_err(), failure);
-        let frozen = completed.ticket.clone();
-        app.finished_answer(*completed);
-        assert_eq!(
-            fake.arguments(),
-            [
-                "answer",
-                "--identity",
-                "Owner",
-                "--request",
-                &expected,
-                "--json",
-                "--",
-                "worker",
-                "[product · worker] Exact answer"
-            ]
-        );
-        let state = app.conversation.borrow();
-        let session = &state.sessions[&(Some(frozen.key.0), frozen.key.1)];
-        assert!(
-            session.text.contains("Question retained") && session.text.contains("Exact answer")
-        );
-        assert!(session.text.contains(if failure {
-            "reply failed"
-        } else {
-            "✓ replied"
-        }));
-        drop(state);
-        assert_eq!(app.composer.has_drafts(), failure);
-        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert_eq!(
-            app.reload_blocked(),
-            failure,
-            "only the retained failed draft blocks reload after leaving the editor"
-        );
-    }
 }
 
 #[test]
@@ -1063,6 +1003,10 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
         outcome: Ok(Accepted {
             request: "sent".into(),
             disposition: Disposition::Queued,
+            passthrough: false,
+            message_state_label: None,
+            fallback: None,
+            warning: None,
         }),
         what: "Message".into(),
         to: "auth-fix".into(),
@@ -1120,98 +1064,6 @@ fn header_shows_core_activity_and_feedback_never_infers_it_from_task_state() {
             !screen.contains("✗ worker") && !screen.contains("worker is working"),
             "the task never picks the feedback glyph or phase: {screen}"
         );
-    }
-}
-
-#[test]
-fn a_settled_answer_falls_back_once_and_keeps_the_actual_talk_acceptance() {
-    use crate::board::app::workspace::tests::board;
-    for uncertain in [false, true] {
-        let mut app = board();
-        let target = app.workspace.selected.clone().unwrap();
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .rows
-            .get_mut(&target)
-            .unwrap()["waitingOnYou"] = json!([
-            {"requestId":"settled-request", "preparedAtMs":20}
-        ]);
-        app.focus_composer();
-        let text = "Keep the exact first line.\nAnd the second.";
-        app.paste(text);
-        let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-        else {
-            panic!("member message must dispatch");
-        };
-        let ticket = app.outgoing_ticket(&request).unwrap();
-        let expected = ticket.text.clone();
-        let fake = Fake::new(json!({}), false);
-        let document = if uncertain {
-            json!({"requestId":"accepted-fallback", "error":{"code":"TALK_DELIVERY_FAILED", "message":"Delivery unknown."}})
-        } else {
-            json!({"requestId":"accepted-fallback", "status":"queued"})
-        };
-        let document = document.to_string().replace('\'', "'\"'\"'");
-        let script = format!(
-            r#"#!/bin/sh
-printf '%s\0' "$@" >> '{calls}'
-if [ "$1" = answer ]; then
-  printf '%s\n' '{{"error":{{"code":"RESPONSE_CONFLICT","message":"Settled meanwhile."}}}}'
-  exit 1
-fi
-printf '%s\n' '{document}'
-exit {status}
-"#,
-            calls = fake.calls.display(),
-            status = usize::from(uncertain)
-        );
-        crate::test_support::write_ready_executable(&fake.root.join("tmt"), &script);
-        let BoardEvent::Acted {
-            outcome: Ok(ActionOutcome::Send(completed)),
-            sends: true,
-            ..
-        } = lane::run(&fake.core, None, lane::Job::Send { request, ticket })
-        else {
-            panic!("the fallback must retain Talk completion, not answer completion");
-        };
-        assert!(
-            completed.accepted(),
-            "retained acceptance must not offer a resend"
-        );
-        if uncertain {
-            assert_eq!(
-                completed.outcome.as_ref().unwrap_err().request.as_deref(),
-                Some("accepted-fallback")
-            );
-        } else {
-            assert_eq!(
-                completed.outcome.as_ref().unwrap().request,
-                "accepted-fallback"
-            );
-        }
-        app.finished_send(*completed);
-        assert!(app.input.as_ref().unwrap().text.is_empty());
-        let args = fake.arguments();
-        assert_eq!(
-            args.iter().filter(|arg| arg.as_str() == "answer").count(),
-            1
-        );
-        assert_eq!(args.iter().filter(|arg| arg.as_str() == "talk").count(), 1);
-        assert_eq!(
-            args.iter().filter(|arg| *arg == &expected).count(),
-            2,
-            "both operations receive the identical multiline body"
-        );
-        assert!(app.notice.as_deref().unwrap().contains(if uncertain {
-            "do not resend"
-        } else {
-            "Queued"
-        }));
     }
 }
 
@@ -1682,9 +1534,9 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
             },
             started_ms: sequence,
             outcome: None,
-            question: None,
             lead_in: None,
             reply: None,
+            capture: None,
             feedback: String::new(),
             feedback_clock: None,
             sending_shown_ms: None,
@@ -1926,8 +1778,81 @@ fn a_restored_send_is_dropped_once_a_live_entry_has_the_same_request() {
         at_ms: 1,
         text: "text".into(),
         truncated: false,
+        capture: None,
+        message_state_label: None,
     };
     session.sent = vec![sent("req-live"), sent("req-old")];
     let restored: Vec<_> = session.restored_sends().map(|send| &send.request).collect();
     assert_eq!(restored, ["req-old"]);
+}
+
+#[test]
+fn plain_chat_uses_the_public_dispatch_wire_and_keeps_core_questions_untouched() {
+    use crate::board::app::workspace::tests::board;
+    use crate::cron_service::test_support::{Fixture, USER};
+    let fixture = Fixture::new();
+    fixture.change_model(|model| {
+        model["members"][0]["metadata"]["user"] = json!("true");
+        model["canPassthrough"] = json!({"available":true});
+        model["dispatchWake"] = json!("sent");
+    });
+    let mut app = board();
+    app.view.as_mut().unwrap().me_id = Some(USER.into());
+    let target = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap()["waitingOnYou"] =
+        json!([{"requestId":"old","preparedAtMs":1},{"requestId":"new","preparedAtMs":2}]);
+    app.focus_composer();
+    app.paste("/literal!\n漢字");
+    let Effect::Act(request @ Request::Chat { .. }) =
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+    else {
+        panic!("chat send");
+    };
+    let ticket = app.outgoing_ticket(&request).unwrap();
+    let BoardEvent::Acted {
+        outcome: Ok(ActionOutcome::Send(completed)),
+        ..
+    } = lane::run(&fixture.core, None, lane::Job::Send { request, ticket })
+    else {
+        panic!("typed chat completion");
+    };
+    let accepted = completed.outcome.as_ref().unwrap();
+    assert!(accepted.passthrough);
+    assert_eq!(accepted.disposition, Disposition::Sent);
+    app.finished_send(*completed);
+    assert_eq!(
+        app.selected_row().unwrap()["waitingOnYou"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2,
+        "no local settlement"
+    );
+    let model = fixture.model();
+    let writes: Vec<_> = model["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|call| call["request"]["operation"] == "dispatch.create")
+        .collect();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0]["request"]["identity"], USER);
+    assert_eq!(writes[0]["request"]["input"]["mode"], "passthrough");
+    assert_eq!(writes[0]["request"]["input"]["message"], "/literal!\n漢字");
+    assert!(
+        !model["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|call| call["command"][0] == "answer")
+    );
 }

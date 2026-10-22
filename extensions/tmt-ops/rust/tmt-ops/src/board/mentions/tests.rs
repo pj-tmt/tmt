@@ -37,10 +37,6 @@ fn every_conversation_mode_names_the_actual_recipient_and_inserts_only_text() {
         Compose::Talk {
             to: "worker".into(),
         },
-        Compose::Reply {
-            request: "request-id".into(),
-            from: "questioner".into(),
-        },
         Compose::Annotate {
             to: "lead".into(),
             row: "worker".into(),
@@ -52,7 +48,6 @@ fn every_conversation_mode_names_the_actual_recipient_and_inserts_only_text() {
     ] {
         let recipient = match &compose {
             Compose::Talk { to } | Compose::Annotate { to, .. } | Compose::AskLead { to, .. } => to,
-            Compose::Reply { from, .. } => from,
             _ => unreachable!(),
         };
         let mut app = app();
@@ -300,14 +295,7 @@ fn message_surface(name: &str) -> App {
     match name {
         "talk" => {}
         "reply" => {
-            app.ask(
-                String::new(),
-                Compose::Reply {
-                    request: "request-id".into(),
-                    from: "questioner".into(),
-                },
-                "product".into(),
-            );
+            app.perform(&crate::action::Action::parse("reply").unwrap());
         }
         "annotation" => {
             app.ask(

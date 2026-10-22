@@ -84,6 +84,21 @@ impl Intent {
         if self.accepted {
             return Ok("Notification already accepted; nothing sent again.".into());
         }
+        self.submit(core, config).map(|(notice, _, _)| notice)
+    }
+
+    /// One frozen intent, with the accepted receipt for a typed caller. Recovery
+    /// reads the same operation before considering a retry of those exact bytes.
+    pub(super) fn submit(
+        &mut self,
+        core: &Core,
+        config: &Config,
+    ) -> Result<(String, Value, Option<String>), SquadError> {
+        if self.accepted {
+            return Err(refused(
+                "Notification already accepted; nothing sent again.",
+            ));
+        }
         let path = self.journal(config)?;
         let receipt = if self.recover {
             match core.api("dispatch.show", json!({"operationId":self.operation})) {
@@ -92,7 +107,7 @@ impl Intent {
                 // closed by Core's runner. A fresh submit may retry the same intent.
                 Err(error) if error.code == "DISPATCH_NOT_FOUND" => {
                     self.recover = false;
-                    return self.attempt(core, config);
+                    return self.submit(core, config);
                 }
                 Err(error) => return Err(self.uncertain(error, &path)),
             }
@@ -127,12 +142,13 @@ impl Intent {
             .as_array()
             .is_some_and(|items| items.iter().all(|item| item["acceptance"] == "queued"));
         if let Err(error) = fs::remove_file(&path) {
-            return Ok(format!(
-                "{outcome} Accepted operation {}; could not remove saved intent: {error}",
+            let warning = format!(
+                "Accepted operation {}; could not remove saved intent: {error}",
                 self.operation
-            ));
+            );
+            return Ok((format!("{outcome} {warning}"), receipt, Some(warning)));
         }
-        Ok(outcome)
+        Ok((outcome, receipt, None))
     }
     fn uncertain(&self, error: SquadError, path: &std::path::Path) -> SquadError {
         SquadError::new(

@@ -363,8 +363,8 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
     assert_eq!(app.view.as_ref().unwrap().document, before);
     assert!(matches!(
         press(&mut app, KeyCode::Enter),
-        Effect::Act(app::Request::DirectTalk { recipient, text, .. })
-            if recipient == MEMBER && text == "[Common pool · worker]\n> A **literal** response\n> 漢字 e\u{301}\n"
+        Effect::Act(app::Request::Chat { recipient, text, .. })
+            if recipient == MEMBER && text == "> A **literal** response\n> 漢字 e\u{301}\n"
     ));
 }
 
@@ -970,4 +970,157 @@ fn a_failed_or_stale_sent_read_is_not_retried_and_hides_nothing() {
     app.apply_sent(key, Err("storage unavailable".into()));
     assert!(app.sent_read().is_none(), "a failed read is kept as empty");
     assert!(!text(&draw(&app, 148, 51)).contains("elsewhere"));
+}
+
+#[test]
+fn capture_states_are_core_owned_and_never_regular_replies() {
+    for state in ["pending", "bound", "answered", "no_answer", "future"] {
+        let send = json!({"mode":"passthrough", "passthrough":{"state":state,
+            "answer":{"text":"Full **answer**\n", "truncated":true,"provider":"codex","endedMs":100}}});
+        let capture = Capture::read(&send);
+        match state {
+            "pending" | "bound" => assert_eq!(capture.unwrap().markdown(), "⠹ working…"),
+            "answered" => assert_eq!(
+                capture.unwrap().markdown(),
+                "turn output · truncated\n\nFull **answer**"
+            ),
+            "no_answer" => assert_eq!(
+                capture.unwrap().markdown(),
+                "No turn output was captured for this message."
+            ),
+            _ => assert!(capture.is_none()),
+        }
+        let mut request = send;
+        request["mode"] = json!("request");
+        assert!(Capture::read(&request).is_none());
+    }
+}
+// Public history records drive these scenes; no pane text or local timer decides capture.
+fn captured_history_app(state: &str) -> App {
+    use crate::board::{app::workspace::tests::board, refresh::SelectedRead};
+    let mut app = board();
+    draw(&app, 148, 51);
+    if let Some(SelectedRead::Finals(key)) = app.selected_read() {
+        app.apply_finals(key, Ok(vec![]));
+        draw(&app, 148, 51);
+    }
+    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+        panic!("history read");
+    };
+    let now = crate::status::now_ms();
+    let mut sent = own_send(
+        "captured-message",
+        now - 86_400_000,
+        "Check the scheduler",
+        false,
+    );
+    sent["mode"] = json!("passthrough");
+    sent["passthrough"] = json!({"state":state,"boundAtMs":now - 86_400_000,
+        "answer":{"text":"The scheduler is **ready**.","truncated":true,"provider":"codex","endedMs":now}});
+    app.apply_sent(key, Ok(vec![sent]));
+    app
+}
+fn captured_history_screen(state: &str) -> String {
+    text(&draw(&captured_history_app(state), 148, 51))
+}
+
+#[test]
+fn pending_capture_is_working_from_the_core_record() {
+    let screen = captured_history_screen("pending");
+    assert!(screen.contains("working…"), "{screen}");
+}
+#[test]
+fn bound_capture_remains_working_beyond_ten_minutes() {
+    let screen = captured_history_screen("bound");
+    assert!(screen.contains("working…"), "{screen}");
+    assert!(!screen.contains("No turn output was captured"));
+}
+#[test]
+fn answered_capture_survives_restart_as_turn_output_with_truncation() {
+    let screen = captured_history_screen("answered");
+    let prompt = screen.find("Check the scheduler").expect("own prompt");
+    let label = screen
+        .find("turn output · truncated")
+        .unwrap_or_else(|| panic!("{screen}"));
+    let answer = screen
+        .find("The scheduler is ready.")
+        .unwrap_or_else(|| panic!("{screen}"));
+    assert!(prompt < label && label < answer);
+}
+#[test]
+fn no_answer_is_not_a_reply_or_a_reason_to_resend() {
+    let screen = captured_history_screen("no_answer");
+    assert!(
+        screen.contains("No turn output was captured for this message."),
+        "{screen}"
+    );
+    assert!(!screen.contains("working…"));
+}
+
+#[test]
+fn a_failed_capture_refresh_keeps_the_acquired_answer_without_retrying_in_a_loop() {
+    let mut app = captured_history_app("answered");
+    assert!(text(&draw(&app, 148, 51)).contains("The scheduler is ready."));
+    app.refresh_sent();
+    let key = app
+        .sent_read()
+        .expect("next acquired refresh admits one history read");
+    app.apply_sent(key, Err("storage unavailable".into()));
+    assert!(app.sent_read().is_none());
+    assert!(text(&draw(&app, 148, 51)).contains("The scheduler is ready."));
+    app.refresh_sent();
+    assert!(app.sent_read().is_some());
+}
+
+#[test]
+fn only_the_exact_captured_observation_is_suppressed_from_recent_output() {
+    use crate::board::recent_responses::{Item, Observation};
+    let now = 1_791_600_000_160;
+    crate::status::with_now_ms(now, || {
+        let app = captured_history_app("answered");
+        draw(&app, 148, 51);
+        let key = app.pane_output_read().expect("visible selected agent");
+        app.apply_pane_output(
+            key,
+            Observation::Observed(vec![
+                Item {
+                    text: "The scheduler is **ready**.".into(),
+                    provider: "codex".into(),
+                    ended_ms: now,
+                    truncated: true,
+                },
+                Item {
+                    text: "Unrelated final remains visible".into(),
+                    provider: "codex".into(),
+                    ended_ms: now + 1,
+                    truncated: false,
+                },
+            ]),
+        );
+        let screen = text(&draw(&app, 148, 51));
+        assert_eq!(
+            screen.matches("The scheduler is ready.").count(),
+            1,
+            "{screen}"
+        );
+        assert!(
+            screen.contains("Unrelated final remains visible"),
+            "{screen}"
+        );
+    });
+}
+
+#[test]
+fn malformed_or_oversized_capture_never_invents_an_answer() {
+    for answer in [
+        json!({}),
+        json!({"text":"x".repeat(8193),"truncated":true,"provider":"codex","endedMs":1}),
+    ] {
+        assert!(
+            Capture::read(
+                &json!({"mode":"passthrough","passthrough":{"state":"answered","answer":answer}})
+            )
+            .is_none()
+        );
+    }
 }

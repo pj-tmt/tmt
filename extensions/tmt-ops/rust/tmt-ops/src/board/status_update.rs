@@ -357,7 +357,7 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
         if open.is_some_and(|open| !open.is_empty()) {
             lines.push((
                 Some(4),
-                "Message member (answers the newest open request)".into(),
+                "Message member (Core settles the oldest on direct delivery)".into(),
             ));
         } else {
             lines.push((
@@ -532,7 +532,7 @@ mod tests {
         assert_eq!(app.input.as_ref().unwrap().text, "Message draft");
     }
     #[test]
-    fn status_is_explicit_and_its_message_action_uses_the_newest_request() {
+    fn status_is_explicit_and_its_message_action_leaves_settlement_to_core() {
         let mut app = app();
         member_row(&mut app)["waitingOnYou"] = json!([
             {"requestId":"q1","preparedAtMs":10,"preview":"First?"},
@@ -550,7 +550,7 @@ mod tests {
         );
         app.paste("Dismissed explicitly");
         assert!(
-            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { request, .. }) if request == "q2")
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Chat { text, .. }) if text == "Dismissed explicitly")
         );
         assert_eq!(
             member_row(&mut app)["waitingOnYou"]
@@ -765,7 +765,7 @@ mod tests {
             for label in [
                 "Reason:",
                 "Apply and notify",
-                "Message member (answers the newest open request)",
+                "Message member (Core settles the oldest on direct delivery)",
             ] {
                 assert_eq!(press(&mut app, KeyCode::Down), Effect::None);
                 let text = draw(&app, width);

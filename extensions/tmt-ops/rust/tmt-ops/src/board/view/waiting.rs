@@ -398,7 +398,22 @@ fn final_input(
     let send = app
         .composer_info(&projection)
         .paint(frame.buffer_mut(), field_band, look);
-    if projection.focused
+    let fallback = projection
+        .key
+        .as_ref()
+        .and_then(|key| app.chat_fallback(key, projection.recipient));
+    if let Some(fallback) = fallback.as_ref().filter(|_| field_band.height >= 2) {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(field_band.x, field_band.bottom() - 1, field_band.width, 1),
+            Line::styled(
+                super::fit(fallback, usize::from(field_band.width)),
+                look.role(Role::Muted),
+            ),
+        );
+    }
+    if fallback.is_none()
+        && projection.focused
         && app.in_flight == 0
         && let (Some(area), Some(key)) = (send, projection.key.clone())
     {
