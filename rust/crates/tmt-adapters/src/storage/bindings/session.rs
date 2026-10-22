@@ -456,6 +456,87 @@ mod tests {
     }
 
     #[test]
+    fn delayed_launch_owner_attachment_preserves_the_committed_provider_end() {
+        use tmt_core::binding::session::RuntimeLiveness;
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let identity = create_or_resolve(&mut storage, "Delayed", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let key = ObservedSessionKey {
+            incarnation: ProcessIncarnation::new(500, "child-start").unwrap(),
+            provider_session: Some(ProviderSessionId::new("session-a").unwrap()),
+        };
+        let owner = ProcessIncarnation::new(400, "owner-start").unwrap();
+        let running = BindingSessionState::default()
+            .admit(
+                key.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        let ended = running
+            .transition(&key, SessionTransition::Ended, None)
+            .unwrap();
+        let binding = storage
+            .with_binding_transaction(|records| {
+                let binding = records.insert_binding(&identity, &server(), &pane("%6", 106))?;
+                assert!(records.set_session_state(
+                    &binding.id,
+                    &BindingSessionState::default(),
+                    &running
+                )?);
+                assert!(records.set_session_state(&binding.id, &running, &ended)?);
+                Ok::<_, StorageError>(binding)
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let mut storage = fixture.open();
+        storage
+            .with_binding_transaction(|records| {
+                let current = records
+                    .entry_by_id(&identity.id)?
+                    .unwrap()
+                    .binding
+                    .unwrap()
+                    .session;
+                assert_eq!(current, ended);
+                let attached = current
+                    .admit_launched(
+                        key.clone(),
+                        owner.clone(),
+                        SessionTransition::Started,
+                        RuntimeLiveness::Alive,
+                        RuntimeLiveness::Alive,
+                    )
+                    .unwrap();
+                assert!(!records.set_session_state(&binding.id, &running, &attached)?);
+                assert!(records.set_session_state(&binding.id, &current, &attached)?);
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+        storage.close().unwrap();
+        let mut storage = fixture.open();
+        let saved = storage
+            .with_binding_transaction(|records| {
+                Ok::<_, StorageError>(
+                    records
+                        .entry_by_id(&identity.id)?
+                        .unwrap()
+                        .binding
+                        .unwrap()
+                        .session,
+                )
+            })
+            .unwrap();
+        assert_eq!(saved.key, Some(key));
+        assert_eq!(saved.launch_owner, Some(owner));
+        assert_eq!(saved.state, RuntimeState::Unknown);
+        assert_eq!(saved.last_transition, Some(SessionTransition::Ended));
+        storage.close().unwrap();
+    }
+
+    #[test]
     fn session_compare_and_set_rejects_stale_events_on_the_same_binding() {
         use tmt_core::binding::session::RuntimeLiveness;
         let fixture = Fixture::new();
