@@ -729,57 +729,132 @@ impl Config {
         })
     }
 
-    /// Resolve j with the opening factory action and its concrete authored write owner.
-    pub fn host_action_binding(
+    /// Locations in precedence order for this exact selected occurrence.
+    pub fn binding_locations(
         &self,
-        scope: OpsKeyScope,
         row: Option<&Value>,
         recipient: Option<&Value>,
         squad: Option<&str>,
-        default_action: Option<&Action>,
-    ) -> Result<(Option<Action>, String), SquadError> {
-        let host = recipient.and_then(|row| row["pane"]["location"]["host"].as_str());
-        let sections = squad
-            .filter(|name| !name.is_empty())
-            .map(|name| self.sections(name))
-            .transpose()?
-            .unwrap_or_default();
-        let section = row.and_then(|row| {
-            sections
+    ) -> Result<Vec<super::BindingLocation>, SquadError> {
+        use super::BindingLocation;
+        let mut locations = vec![BindingLocation::Global];
+        if let Some(host) = recipient
+            .and_then(|row| row["pane"]["location"]["host"].as_str())
+            .filter(|host| super::valid_host(host))
+        {
+            locations.push(BindingLocation::Host(host.into()));
+        }
+        if let Some(squad) = squad.filter(|name| !name.is_empty())
+            && let Some((index, _)) = self
+                .sections(squad)?
                 .iter()
                 .enumerate()
-                .find(|(_, section)| section.includes(row))
-        });
-        let keys = self.workspace_keys(scope, host, section.map(|(_, section)| &section.bind))?;
-        let action = if keys
-            .sources
-            .get("j")
-            .is_some_and(|source| source == "workspace default")
+                .find(|(_, section)| row.is_some_and(|row| section.includes(row)))
         {
-            default_action.cloned()
-        } else {
-            keys.bindings.get("j").cloned()
-        };
-        // A retired authored override can mask a newly written global binding.
-        // Repair that owner even when dispatch currently falls back to a factory action.
-        let hosts = self.host_bindings()?;
-        let section_bindings = section.map(|(_, section)| &section.bind);
-        let mut source = if section_bindings.is_some_and(|bindings| bindings.contains_key("j"))
-            || host.is_some_and(|host| hosts.get(host).is_some_and(|keys| keys.contains_key("j")))
-            || self.configured_bindings()?.contains_key("j")
-        {
-            configured_binding_source("j", host, &hosts, section_bindings)
-        } else {
-            "workspace default".into()
-        };
-        if source == "selected squad section.bind" {
-            source = format!(
-                "squad.{}.section[{}].bind.j",
-                squad.expect("a section has a squad"),
-                section.expect("selected section source").0
-            );
+            locations.push(BindingLocation::Section {
+                squad: squad.into(),
+                index,
+            });
         }
-        Ok((action, source))
+        Ok(locations)
+    }
+
+    pub fn binding_at(
+        &self,
+        location: &super::BindingLocation,
+        event: &str,
+    ) -> Result<Option<Action>, SquadError> {
+        use super::BindingLocation;
+        Ok(match location {
+            BindingLocation::Global => self.configured_bindings()?.get(event).cloned(),
+            BindingLocation::Host(host) => self
+                .host_bindings()?
+                .get(host)
+                .and_then(|keys| keys.get(event))
+                .cloned(),
+            BindingLocation::Section { squad, index } => self
+                .sections(squad)?
+                .get(*index)
+                .and_then(|section| section.bind.get(event))
+                .cloned(),
+        })
+    }
+
+    pub fn binding_events(
+        &self,
+        locations: &[super::BindingLocation],
+    ) -> Result<Vec<String>, SquadError> {
+        use super::BindingLocation;
+        let mut events: std::collections::BTreeSet<_> =
+            crate::action::binding_events().into_iter().collect();
+        for location in locations {
+            let bindings = match location {
+                BindingLocation::Global => self.configured_bindings()?,
+                BindingLocation::Host(host) => {
+                    self.host_bindings()?.remove(host).unwrap_or_default()
+                }
+                BindingLocation::Section { squad, index } => self
+                    .sections(squad)?
+                    .get(*index)
+                    .map(|section| section.bind.clone())
+                    .unwrap_or_default(),
+            };
+            events.extend(bindings.into_keys());
+        }
+        Ok(events.into_iter().collect())
+    }
+
+    pub fn binding(
+        &self,
+        scope: OpsKeyScope,
+        locations: &[super::BindingLocation],
+        event: &str,
+        factory: &Bindings,
+    ) -> Result<super::ResolvedBinding, SquadError> {
+        let host = locations.iter().find_map(|location| match location {
+            super::BindingLocation::Host(host) => Some(host.as_str()),
+            _ => None,
+        });
+        let sections = locations
+            .iter()
+            .find_map(|location| match location {
+                super::BindingLocation::Section { squad, index } => Some((squad, *index)),
+                _ => None,
+            })
+            .map(|(squad, index)| {
+                self.sections(squad)
+                    .map(|sections| sections.get(index).cloned())
+            })
+            .transpose()?
+            .flatten();
+        let keys =
+            self.workspace_keys(scope, host, sections.as_ref().map(|section| &section.bind))?;
+        let mut owner = None;
+        let mut authored = None;
+        for location in locations {
+            if let Some(action) = self.binding_at(location, event)? {
+                owner = Some(location.clone());
+                authored = Some(action);
+            }
+        }
+        let effective = if owner.is_none()
+            || keys
+                .sources
+                .get(event)
+                .is_some_and(|source| source == "workspace default")
+        {
+            factory
+                .get(event)
+                .or_else(|| keys.bindings.get(event))
+                .cloned()
+        } else {
+            keys.bindings.get(event).cloned()
+        };
+        Ok(super::ResolvedBinding {
+            action: effective,
+            owner,
+            authored,
+        })
     }
 
     pub fn workspace_keys(

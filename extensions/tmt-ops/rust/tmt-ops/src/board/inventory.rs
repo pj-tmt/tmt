@@ -14,6 +14,8 @@ pub(super) struct Inventory {
 }
 #[derive(Clone, Debug, Default)]
 pub(super) struct Agent {
+    /// Unmodified documented Core observation fields; never request/capture bodies.
+    pub parameters: serde_json::Value,
     pub runtime: Option<String>,
     pub model: Option<String>,
     pub context: Option<ContextUsage>,
@@ -82,6 +84,14 @@ impl Inventory {
                 agents.insert(
                     id.to_owned(),
                     Agent {
+                        parameters: serde_json::Value::Object(
+                            ["runningDriver", "driverSupport", "resume", "location"]
+                                .into_iter()
+                                .filter_map(|key| {
+                                    row.get(key).map(|value| (key.to_owned(), value.clone()))
+                                })
+                                .collect(),
+                        ),
                         name: name.into(),
                         canonical: row["canonicalName"].as_str().unwrap_or("").into(),
                         runtime: text(&row["runningDriver"]),

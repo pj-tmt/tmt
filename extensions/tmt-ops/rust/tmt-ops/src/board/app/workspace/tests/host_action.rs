@@ -62,6 +62,7 @@ fn board_pane_run_defers_only_reserved_context_to_the_effect_lane() {
         key(&mut app, KeyCode::Char('j')),
         Effect::Act(Request::PreparedRun {
             action: crate::action::Action::parse("run echo {board_pane} {name}").unwrap(),
+            ops: app.parameter_observations(&row),
             row
         })
     );
@@ -174,4 +175,175 @@ fn host_editor_projects_the_same_factory_j_as_dispatch_in_each_pane() {
             assert!(!path.exists(), "opening the editor never authors a binding");
         }
     }
+}
+
+#[test]
+fn nested_parameters_dispatch_current_observations_not_the_opening_preview() {
+    let row = json!({"id":MEMBER,"name":"worker","fields":{"task":"opening", "runtime":"custom"},"pane":{"id":"%3","location":{"host":"tmux"}}});
+    let mut app = configured_member(
+        "[bind]\nf12='run echo {row:/fields/task} {ops:/runningDriver} {runtime}'\n",
+        row,
+    );
+    app.references.agents.insert(
+        MEMBER.into(),
+        crate::board::inventory::Agent {
+            parameters: json!({"runningDriver":"codex"}),
+            ..Default::default()
+        },
+    );
+    let opening = app.host_action_selection();
+    assert_eq!(opening.ops["runningDriver"], "codex");
+    let target = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap()["fields"]["task"] = json!("literal $(touch nope); two words");
+    app.references.agents.get_mut(MEMBER).unwrap().parameters = json!({"runningDriver":"claude"});
+    assert_eq!(
+        key(&mut app, KeyCode::F(12)),
+        Effect::Act(Request::Run(vec![
+            "echo".into(),
+            "literal $(touch nope); two words".into(),
+            "claude".into(),
+            "custom".into()
+        ]))
+    );
+    assert_eq!(opening.recipient.unwrap()["fields"]["task"], "opening");
+    app.references.agents.get_mut(MEMBER).unwrap().parameters = json!({});
+    assert_eq!(key(&mut app, KeyCode::F(12)), Effect::None);
+    assert!(app.notice.as_ref().unwrap().contains("ops:/runningDriver"));
+}
+
+#[test]
+fn the_editor_factory_sample_matches_reader_and_recipient_dependent_bindings() {
+    let row = json!({"id":MEMBER,"name":"worker","fields":{},"pane":{"id":"%3","location":{"host":"tmux"}}});
+    let mut app = configured_member("", row);
+    for focus in [0, 1] {
+        app.focus = focus;
+        let selection = app.host_action_selection();
+        let path = std::env::temp_dir().join(format!(
+            "ops-all-key-default-{}.toml",
+            crate::id::new_v4().unwrap()
+        ));
+        app.open_host_action(Config::read(path).unwrap(), selection, None)
+            .unwrap();
+        let overlay = app.settings.as_ref().unwrap();
+        for (event, action) in app
+            .bindings()
+            .into_iter()
+            .filter(|(event, _)| crate::action::valid_event(event))
+        {
+            assert_eq!(
+                overlay
+                    .settings
+                    .entries
+                    .iter()
+                    .find(|entry| entry.key == format!("bind.{event}"))
+                    .unwrap()
+                    .value,
+                action.text,
+                "{event}"
+            );
+        }
+        app.settings = None;
+    }
+}
+
+#[test]
+fn parameter_timers_follow_an_explicit_mention_occurrence_and_squad_names_come_from_roster() {
+    use crate::board::overview::cron_counts::{Job, Summary};
+    let row = json!({"id":MEMBER,"name":"worker","fields":{},"pane":{"id":"%3","location":{"host":"tmux"}}});
+    let mut app = configured_member("", row.clone());
+    app.cron.counts = Summary::of(Some(&[
+        Job {
+            room: ROOM,
+            id: "job-a",
+            owner: Some(MEMBER),
+            on: true,
+            owner_valid: true,
+        },
+        Job {
+            room: "other-room",
+            id: "job-b",
+            owner: Some(MEMBER),
+            on: true,
+            owner_valid: true,
+        },
+        Job {
+            room: "other-room",
+            id: "job-c",
+            owner: Some(MEMBER),
+            on: false,
+            owner_valid: true,
+        },
+    ]));
+    let other = OpsTarget::Member {
+        room_id: Some("other-room".into()),
+        identity_id: MEMBER.into(),
+    };
+    let mut other_squad = app.workspace_snapshot().unwrap().roster.squads[0].clone();
+    other_squad.room_id = "other-room".into();
+    other_squad.name = "other".into();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads
+        .push(other_squad);
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .insert(other.clone(), row.clone());
+    let action = crate::action::Action::parse("run echo {ops:/timers/total}").unwrap();
+    assert_eq!(
+        app.perform_member_host(&action, &other),
+        Effect::Act(Request::Run(vec!["echo".into(), "2".into()]))
+    );
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    let observation = app.parameter_observations(&row);
+    assert_eq!(observation["squad"]["name"], "product");
+    assert_eq!(observation["timers"]["total"], 1);
+    app.cron.counts = Summary::default();
+    assert!(app.parameter_observations(&row).get("timers").is_none());
+}
+
+#[test]
+fn opening_factory_table_never_bakes_authored_commands_into_reset_inheritance() {
+    let row = json!({"id":MEMBER,"name":"worker","fields":{},"pane":{"id":"%3","location":{"host":"tmux"}}});
+    let app = configured_member("[bind]\nf12='copy {name}'\n", row);
+    assert!(app.bindings().contains_key("f12"));
+    let selection = app.host_action_selection();
+    assert!(!selection.factory_bindings.contains_key("f12"));
+    let path = std::env::temp_dir().join(format!(
+        "ops-reset-factory-{}.toml",
+        crate::id::new_v4().unwrap()
+    ));
+    let config = Config::read(path).unwrap();
+    assert!(
+        config
+            .binding(
+                selection.scope,
+                &[crate::config::BindingLocation::Global],
+                "f12",
+                &selection.factory_bindings
+            )
+            .unwrap()
+            .action
+            .is_none()
+    );
 }

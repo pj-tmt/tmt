@@ -150,6 +150,7 @@ fn fixture(selected_name: &str, look: Look) -> App {
             inventory.agents.insert(
                 id.clone(),
                 Agent {
+                    parameters: json!({}),
                     runtime: Some("codex".into()),
                     model: Some("gpt-6.1-sol".into()),
                     name: (*name).into(),
