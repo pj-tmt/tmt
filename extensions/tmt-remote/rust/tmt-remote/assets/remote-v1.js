@@ -3891,8 +3891,10 @@ function notAvailable(note, text) {
 //#endregion
 //#region src/digest-page.ts
 /**
-* The Digest web view: the usage report as sections of charts and tables (allowance, tokens by
-* seat, who talks to whom, activity, a ranking and the method). It depends only on
+* The Digest web view: the usage report as sections of charts and tables, ordered by the questions
+* the PM reads it for (runway, who burns, idle or gate-bound, throughput, gates, cost per merged
+* PR), then who talks to whom and the method. A question the usage read cannot answer yet renders
+* its empty state and names the missing source. It depends only on
 * `DigestSource`; the product source says "not in the browser yet" until Core serves the read
 * (#4325), and a sample source is only ever passed in by tests, the gallery and dev.
 */
@@ -3934,6 +3936,10 @@ function table(head, rows) {
 	node.append(body);
 	return node;
 }
+/** A section whose data the usage read does not carry yet: say what is missing, never a zero. */
+function missingSection(title, id, missing) {
+	return section(title, id, el("p", "usage-note", `Not in the usage read yet: ${missing}.`));
+}
 function allowanceSection(doc) {
 	const rows = allowance(doc);
 	const body = [];
@@ -3954,7 +3960,7 @@ function allowanceSection(doc) {
 	const charts = historyCharts(doc);
 	for (const chart of charts) body.push(createSeriesChart(chart));
 	if (rows.length && !charts.length) body.push(el("p", "usage-note", "The weekly history is not served yet; this shows the latest window."));
-	return section("Allowance", "digest-allowance", ...body);
+	return section("Runway", "digest-allowance", ...body);
 }
 function tokensSection(doc) {
 	const data = tokenSeries(doc);
@@ -3981,11 +3987,11 @@ function tokensSection(doc) {
 		draw();
 	});
 	draw();
-	return section("Tokens over time", "digest-tokens", toggle, host, ...data.partial ? [el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors.")] : []);
+	return section("Who burns: tokens over time", "digest-tokens", toggle, host, ...data.partial ? [el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors.")] : []);
 }
 function exchangeSection(doc) {
 	const flow = exchange(doc);
-	return section("Who talks to whom", "digest-exchange", flow ? createMatrix({
+	return section("Interaction volume: who talks to whom", "digest-exchange", flow ? createMatrix({
 		title: `Messages, last ${doc.since}`,
 		participants: flow.participants,
 		value: flow.value,
@@ -3999,17 +4005,17 @@ function activitySection(doc) {
 		hour: "2-digit",
 		minute: "2-digit"
 	});
-	return section("Activity by seat", "digest-activity", createStrips({
+	return section("Idle, stalled or gate-bound", "digest-activity", createStrips({
 		title: "Tokens per hour, oldest on the left",
 		rows: view.rows,
 		slotCount: 24,
 		slotLabel: label,
 		ends: ["24 h ago", "now"]
-	}));
+	}), el("p", "usage-note", "Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet."));
 }
 function rankingSection(doc) {
 	const rows = rankRows(doc);
-	return section(`Last ${doc.since} by seat`, "digest-ranking", rows.length ? table([
+	return section(`Who burns: last ${doc.since} by seat`, "digest-ranking", rows.length ? table([
 		"Seat",
 		"Tokens",
 		"Share"
@@ -4071,9 +4077,13 @@ function digestPage(source = digestSource) {
 		panel.replaceChildren(...[
 			allowanceSection(doc),
 			tokensSection(doc),
-			exchangeSection(doc),
-			activitySection(doc),
 			rankingSection(doc),
+			activitySection(doc),
+			missingSection("Throughput", "digest-throughput", "merged pull requests per provider and publishes in flight (GitHub, from the PR Agent lines)"),
+			missingSection("Gates and queue", "digest-gates", "green-not-armed and review waits, merge-queue entries and merge-group failures (GitHub)"),
+			missingSection("Cost per merged PR", "digest-cost", "merged pull requests joined to the allowance points burned in the same window"),
+			exchangeSection(doc),
+			missingSection("Machine", "digest-machine", "load, free disk and the biggest worktrees with their owners"),
 			methodSection()
 		].filter((node) => node !== void 0));
 		if (report.sample) notAvailable(note, "Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers.");

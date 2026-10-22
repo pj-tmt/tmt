@@ -61,16 +61,27 @@ test('the sample report paints every section once, in order, with the sample not
   page,
 }) => {
   const errors = await open(page);
-  await expect(page.locator('#digest-sections .digest-section')).toHaveCount(6);
+  await expect(page.locator('#digest-sections .digest-section')).toHaveCount(10);
   const headings = await page.locator('#digest-sections h2').allTextContents();
   expect(headings).toEqual([
-    'Allowance',
-    'Tokens over time',
-    'Who talks to whom',
-    'Activity by seat',
-    'Last 24h by seat',
+    'Runway',
+    'Who burns: tokens over time',
+    'Who burns: last 24h by seat',
+    'Idle, stalled or gate-bound',
+    'Throughput',
+    'Gates and queue',
+    'Cost per merged PR',
+    'Interaction volume: who talks to whom',
+    'Machine',
     'Method and caveats',
   ]);
+  // A question the usage read cannot answer says what is missing instead of drawing a zero.
+  for (const id of ['throughput', 'gates', 'cost', 'machine']) {
+    await expect(page.locator(`#digest-${id} .usage-note`)).toContainText(
+      'Not in the usage read yet:',
+    );
+    await expect(page.locator(`#digest-${id} .tmt-ui-chart`)).toHaveCount(0);
+  }
   await expect(page.locator('#usage-note')).toContainText('Sample data');
   expect(errors).toEqual([]);
 });
@@ -132,7 +143,7 @@ test('only the 24 hour report has an activity view; 7d and 30d say nothing about
   await page.getByRole('tab', { name: '7d' }).click();
   await expect(page.locator('#digest-tokens')).toBeVisible();
   await expect(page.locator('#digest-activity')).toHaveCount(0);
-  await expect(page.locator('#digest-ranking h2')).toHaveText('Last 7d by seat');
+  await expect(page.locator('#digest-ranking h2')).toHaveText('Who burns: last 7d by seat');
 });
 
 test('the allowance shows the latest weekly window and the history chart when it is served', async ({
@@ -148,7 +159,7 @@ test('the allowance shows the latest weekly window and the history chart when it
 for (const width of [390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
     await open(page, '', { width, height: 900 });
-    await expect(page.locator('#digest-sections .digest-section')).toHaveCount(6);
+    await expect(page.locator('#digest-sections .digest-section')).toHaveCount(10);
     await page.waitForTimeout(200);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

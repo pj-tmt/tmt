@@ -1,6 +1,8 @@
 /**
- * The Digest web view: the usage report as sections of charts and tables (allowance, tokens by
- * seat, who talks to whom, activity, a ranking and the method). It depends only on
+ * The Digest web view: the usage report as sections of charts and tables, ordered by the questions
+ * the PM reads it for (runway, who burns, idle or gate-bound, throughput, gates, cost per merged
+ * PR), then who talks to whom and the method. A question the usage read cannot answer yet renders
+ * its empty state and names the missing source. It depends only on
  * `DigestSource`; the product source says "not in the browser yet" until Core serves the read
  * (#4325), and a sample source is only ever passed in by tests, the gallery and dev.
  */
@@ -78,6 +80,11 @@ function table(head: readonly string[], rows: readonly (readonly string[])[]): H
   return node;
 }
 
+/** A section whose data the usage read does not carry yet: say what is missing, never a zero. */
+function missingSection(title: string, id: string, missing: string): HTMLElement {
+  return section(title, id, el('p', 'usage-note', `Not in the usage read yet: ${missing}.`));
+}
+
 function allowanceSection(doc: UsageDocument): HTMLElement {
   const rows = allowance(doc);
   const body: Node[] = [];
@@ -106,7 +113,7 @@ function allowanceSection(doc: UsageDocument): HTMLElement {
       el('p', 'usage-note', 'The weekly history is not served yet; this shows the latest window.'),
     );
   }
-  return section('Allowance', 'digest-allowance', ...body);
+  return section('Runway', 'digest-allowance', ...body);
 }
 
 function tokensSection(doc: UsageDocument): HTMLElement {
@@ -139,13 +146,13 @@ function tokensSection(doc: UsageDocument): HTMLElement {
   const note = data.partial
     ? [el('p', 'usage-note', 'Some buckets are incomplete: they are lower bounds, not errors.')]
     : [];
-  return section('Tokens over time', 'digest-tokens', toggle, host, ...note);
+  return section('Who burns: tokens over time', 'digest-tokens', toggle, host, ...note);
 }
 
 function exchangeSection(doc: UsageDocument): HTMLElement {
   const flow = exchange(doc);
   return section(
-    'Who talks to whom',
+    'Interaction volume: who talks to whom',
     'digest-exchange',
     flow
       ? createMatrix({
@@ -164,7 +171,7 @@ function activitySection(doc: UsageDocument): HTMLElement | undefined {
   const label = (at: number) =>
     new Date(view.starts[at]!).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   return section(
-    'Activity by seat',
+    'Idle, stalled or gate-bound',
     'digest-activity',
     createStrips({
       title: 'Tokens per hour, oldest on the left',
@@ -173,13 +180,18 @@ function activitySection(doc: UsageDocument): HTMLElement | undefined {
       slotLabel: label,
       ends: ['24 h ago', 'now'],
     }),
+    el(
+      'p',
+      'usage-note',
+      'Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet.',
+    ),
   );
 }
 
 function rankingSection(doc: UsageDocument): HTMLElement {
   const rows = rankRows(doc);
   return section(
-    `Last ${doc.since} by seat`,
+    `Who burns: last ${doc.since} by seat`,
     'digest-ranking',
     rows.length
       ? table(
@@ -254,9 +266,29 @@ export function digestPage(source: DigestSource = digestSource): void {
       ...[
         allowanceSection(doc),
         tokensSection(doc),
-        exchangeSection(doc),
-        activitySection(doc),
         rankingSection(doc),
+        activitySection(doc),
+        missingSection(
+          'Throughput',
+          'digest-throughput',
+          'merged pull requests per provider and publishes in flight (GitHub, from the PR Agent lines)',
+        ),
+        missingSection(
+          'Gates and queue',
+          'digest-gates',
+          'green-not-armed and review waits, merge-queue entries and merge-group failures (GitHub)',
+        ),
+        missingSection(
+          'Cost per merged PR',
+          'digest-cost',
+          'merged pull requests joined to the allowance points burned in the same window',
+        ),
+        exchangeSection(doc),
+        missingSection(
+          'Machine',
+          'digest-machine',
+          'load, free disk and the biggest worktrees with their owners',
+        ),
         methodSection(),
       ].filter((node): node is HTMLElement => node !== undefined),
     );
