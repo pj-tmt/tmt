@@ -28,7 +28,7 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   discovery before replacement. API names/owners cannot authorize catalog replacement.
   Name claims are checked before publication;
   removal deletes only links into the owner's store.
-- Historical bundle inventories remain verification metadata only; retired guidance is no longer embedded or published by the bundled installer. The generic owner-supplied JSON API is unchanged. Refresh and default uninstall preserve existing retired links, owner records and immutable sources. Full inventory and digest admission still fences old Core-name replacement.
+- Historical bundle inventories remain verification metadata only; retired guidance is no longer embedded or published by the bundled installer. The generic owner-supplied JSON API is unchanged. Refresh and default uninstall preserve existing retired links, owner records and immutable sources, regardless of the recorded owner. Full inventory and digest admission still fences old Core-name replacement.
 
 ## Native installation
 

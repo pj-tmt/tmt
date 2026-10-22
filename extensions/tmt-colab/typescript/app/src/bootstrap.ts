@@ -9,7 +9,7 @@ import {
   requireValue,
   spaceId,
 } from '@tmt/colab-client';
-import { ownerPageHint } from './reading-link.js';
+import { hintFragment, ownerPageHint } from './reading-link.js';
 import { record } from './storage.js';
 import { shortPageId, validPagePrefix } from './short-links.js';
 import { jsonResponse } from './registration.js';
@@ -365,13 +365,8 @@ export async function discover(
     } else if (target?.startsWith('/short/') && validPagePrefix(target.slice(7))) {
       destination = `/p/${target.slice(7)}`;
     } else requireValue(target === null || target === '/');
-    // The owner's cosmetic reading or shell-anchor hint rides the short location.
-    const tail =
-      hint && destination !== '/colab/'
-        ? 'read' in hint
-          ? `#read=${hint.read}`
-          : `#anchor=${hint.anchor}`
-        : '';
+    // The owner's cosmetic reading, shell-anchor or task hint rides the short location.
+    const tail = hint && destination !== '/colab/' ? hintFragment(hint) : '';
     history.replaceState(history.state, '', destination + tail);
   }
   return {

@@ -14,6 +14,7 @@ import {
   type RemoteContext,
   type SessionEndCode,
   type ResultState,
+  type SendIdentity,
   type SendState,
 } from './ask-remote.js';
 import { AskRecordStore } from './ask-record-store.js';
@@ -53,6 +54,8 @@ export interface AskControllerOptions {
   observationUnavailable?(unavailable: boolean): void;
   activityRead?(): Promise<AskDirectoryObservation>;
   activityObserved?(observation: ActivityObservation): void;
+  /** How Remote attributed a send it just admitted; informational, never changes the send (#4255). */
+  identityNotice?(identity: SendIdentity): void;
 }
 /** Trusted parent composition: explicit Send is the only Remote write. All
  * state/result reads operate on the current device's admitted immutable ledger.
@@ -257,6 +260,11 @@ export class AskController {
           message: decodeText(preview.finalBytes()),
         });
         requireValue(result.operationId === id);
+        try {
+          if (result.identity) this.options.identityNotice?.(result.identity);
+        } catch {
+          // The notice is informational: it never changes the send.
+        }
         evicted = sessionEviction(result) ?? null;
         sessionEnd =
           (result.state === 'uncertain' && sessionEndedReason(result.reason)) ||

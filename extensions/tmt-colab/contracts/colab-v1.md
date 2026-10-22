@@ -956,8 +956,9 @@ before `root` and `role` existed, or more than 512 bytes, is not a reader link (
 form is about 300 bytes; the entry names a well-formed pre-`root` link as out of date and says to
 ask the owner for a new one, without any request). `root` is the owner's root public key: every reader rejects a link
 whose `root` does not derive `space`. `role` is only a hint for the one self-admission create of
-a hosted reader; the capability comes from the signed link statements, and a hosted reader stays
-read-only whatever `role` says. `share link add --role viewer|commenter|editor` (default `viewer`)
+a hosted reader; the capability comes from the signed link statements. A verified, live editor
+may send edit requests through its own stream for the owner to apply while Colab is running;
+it never seals page content. Viewer and commenter hosted readers remain read-only. `share link add --role viewer|commenter|editor` (default `viewer`)
 chooses the role the link statement carries, and `share link reset` keeps the replaced link's role.
 A link whose `role` is `editor` makes the `/read` entry offer the owner page's Source drawer and mark itself
 "Can edit" instead of "Read-only": a save is an `edit-request` record that the link's device seals into its own
@@ -2091,7 +2092,11 @@ The browser ledger publishes `dispatching` before one signed Remote
 originator, one agent UUID and exact unprefixed message. Remote owns dispatch
 admission and, once a send is admitted, its attribution to the person at the machine
 ([Identity attribution](../../../contracts/remote-channel-v1.md#operations)); the ledger
-still sends only the anonymous form. Core owns acceptance/advisory wake/final retention. Accepted is not
+still sends only the anonymous form. When Remote's send result carries the optional `identity` notice, the
+chat panel tells the person once per page session, in memory only, in a quiet dismissible line under the
+composer: `anonymous` reads "Sent without your name." followed by Core's own message, with the command it
+names shown as code; `person` reads "Sent as {name}: an agent already uses {renamedFrom}." An absent
+notice, including from an older Remote, shows nothing, and the line never blocks, retries or changes the send. Core owns acceptance/advisory wake/final retention. Accepted is not
 an agent final. Valid states are:
 
 ```text
@@ -4209,8 +4214,8 @@ as a search key, before anything else reads the location:
 - `/p/<shortId>[?query][#fragment]`: the door answers 308 to `/colab/p/<shortId>` with the query;
   the browser keeps the fragment.
 - The mount root `<mount>` with an owner fragment (`#space=…&path=/pages/<id>&read=<id>` or
-  `anchor=`/`open=`) or a preview fragment (`#/pages/<id>`): the mounted document moves to
-  `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `open`).
+  `anchor=`/`task=`/`open=`) or a preview fragment (`#/pages/<id>`): the mounted document moves to
+  `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `task`, `open`).
 - `#t=<threadId>` stays a fragment.
 
 ### Short owner-page aliases (#1688)
@@ -4225,8 +4230,13 @@ for them. Public recovery admits through the SDK before loading protected app as
 in place, retaining the visible short URL. Mounted legacy entry canonicalizes only
 after verified discovery and carries its owner reading or anchor hint over. Internal mount and
 space pins remain separate from visible location; reload and history use short paths, with at
-most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>` or
-`#anchor=<elementId>`; short-page resolution retains the anchor until the full page opens.
+most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>`,
+`#anchor=<elementId>` or `#task=<taskId>`; short-page resolution retains the anchor or task until the
+full page opens. A `task` is `T-` and a decimal number from 1 without a leading zero, and picks which
+task of the page's own work list the band opens with the list (once; a task the page does not have
+opens the page and nothing else). Like every hint it is cosmetic and admits nothing: at most one hint
+is read, a second or a malformed one is dropped, and the child page's breadcrumb links to its parent
+page with `task=` naming the parent task.
 A plain `#<elementId>` names the same element, and the location then
 keeps it as `#anchor=<elementId>`. A fragment that names no display target is ignored: the page
 opens at the top and the location drops the fragment. Only a fragment that carries `space`, `path`

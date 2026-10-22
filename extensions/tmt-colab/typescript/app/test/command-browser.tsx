@@ -10,6 +10,8 @@ const params = new URLSearchParams(location.search);
 const shareCopy = params.has('share-copy');
 // With `unconfirmed`, the first verification fails and a second one succeeds.
 const unconfirmed = params.has('unconfirmed');
+// A deliberately different artifact role proves results do not use the role picker.
+const artifactRole = params.get('artifact-role');
 let verifications = 0;
 const pageId = '11111111-1111-4111-8111-111111111111';
 const view: ManagementView = {
@@ -35,26 +37,36 @@ const view: ManagementView = {
 };
 const port: ManagementPort = {
   read: async () => view,
-  prepare: async (_, selection) => ({
-    body: 'fixture-only',
-    id: 'operation',
-    page: pageId,
-    context: view.page,
-    operation: selection.operation,
-    expiresAt: Date.now() + 60000,
-    expectedRevision: '1',
-    // Only a new link carries a secret to show.
-    artifact:
+  prepare: async (_, selection) => {
+    const link =
       selection.operation === 'link.add'
+        ? selection.value
+        : selection.operation === 'link.remove'
+          ? selection.value.replacement
+          : null;
+    return {
+      body: 'fixture-only',
+      id: 'operation',
+      page: pageId,
+      context: view.page,
+      operation: selection.operation,
+      expiresAt: Date.now() + 60000,
+      expectedRevision: '1',
+      // New and replacement links carry the captured role and a one-time secret.
+      artifact: link
         ? {
             linkId: '22222222-2222-4222-8222-222222222222',
             seed: 'A'.repeat(43),
             space: 'a'.repeat(32),
             root: 'A'.repeat(43),
-            role: 'viewer',
+            role:
+              artifactRole === 'viewer' || artifactRole === 'commenter' || artifactRole === 'editor'
+                ? artifactRole
+                : link.role,
           }
         : undefined,
-  }),
+    };
+  },
   send: async () => ({
     operationId: 'operation',
     membershipHead: { revision: '2', statementHash: 'A'.repeat(43) },

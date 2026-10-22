@@ -204,6 +204,8 @@ pub enum Request {
     DigestOpen(super::digest::Ask),
     /// Apply a digest value the user chose.
     Digest(super::digest::Set),
+    /// Turn Digest on (`true`) or off for everyone.
+    DigestSwitch(bool),
 }
 
 impl Request {
@@ -215,6 +217,7 @@ impl Request {
             Self::Open { .. } | Self::Run(_) | Self::PreparedRun { .. } => "Opening…",
             Self::DigestOpen(_) => "Checking digest access…",
             Self::Digest(_) => "Saving digest…",
+            Self::DigestSwitch(_) => "Switching Digest…",
             Self::Copy { .. } => "Copying…",
             Self::Talk { .. }
             | Self::DirectTalk { .. }
@@ -242,6 +245,7 @@ impl Request {
                 | Self::Cron(_)
                 | Self::Status(_)
                 | Self::Digest(_)
+                | Self::DigestSwitch(_)
         )
     }
 }
@@ -333,6 +337,8 @@ pub enum Choice {
     Digest(super::digest::Set),
     /// The dropdown's own entry: type a value instead.
     DigestCustom(Box<super::digest::Granted>),
+    /// The Digest tab's on/off chip: flip the one switch.
+    DigestSwitch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2283,6 +2289,13 @@ impl App {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }
+        // The Digest tab's `all` row is everybody: its digest is the one global switch.
+        if action.verb == Verb::Digest
+            && member.is_none()
+            && self.workspace.selected == Some(super::workspace::OpsTarget::DigestAll)
+        {
+            return self.digest_switch();
+        }
         // UI actions dispatch before resolving a row. A member action uses the
         // same verified occurrence as paint, including an observed squad lead.
         let target = member.cloned().or_else(|| self.workspace_message_target());
@@ -2935,6 +2948,7 @@ impl App {
             Choice::Dismiss => Effect::None,
             Choice::Digest(set) => Effect::Act(Request::Digest(set)),
             Choice::DigestCustom(granted) => self.digest_custom(*granted),
+            Choice::DigestSwitch => self.digest_switch(),
         }
     }
 

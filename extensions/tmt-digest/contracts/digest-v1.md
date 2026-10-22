@@ -11,13 +11,27 @@ exact UUID. Values are positional. Digest imposes no squad or lead restriction.
 the global default. Explicit `auto` remains an override even when the global default
 is a duration. `off` disables the member's configured digest mode.
 
+### Global switch
+
+`tmt digest global off` turns Digest off for everyone and `tmt digest global on` turns
+it back on, by writing `enabled = false` (absent means on, and a fresh install is on).
+While it is off every member is handled as `off`: nothing is held or merged, held
+messages are offered for delivery one by one, and no stored member setting or default is
+read or changed; they apply again when it is on, so a non-auto default survives off and
+on. The tick keeps running while it is off, so turning it on needs no restart. Both
+commands then start one `tmt digest tick` now, detached, so the change lands without
+waiting for the next minute (a tick that is already running re-reads the settings within
+a second). A legacy `default = "off"` also counts as off; `global on` rewrites it to
+`auto`. `enabled` must be a boolean, and a malformed file is refused without a change.
+
 The file is `digest.toml` beside the global configuration file reported by public
 `tmt config show --json` (normally `~/.config/tmt/digest.toml`). Missing files inherit
-the shipped defaults. `tmt digest global <duration>|auto|off` saves the global
-`default` and records who set it; `flushCount` is TOML-only, with no CLI flag:
+the shipped defaults. `tmt digest global <duration>|auto` saves the global
+`default`, records who set it and turns Digest on; `flushCount` is TOML-only, with no CLI flag:
 
 ```toml
 default = "auto"
+# enabled = false        # the global switch; absent means on
 defaultSetByIdentityId = "20000000-0000-4000-8000-000000000001"
 defaultSetAtMs = 1791629000000
 flushCount = 10
@@ -324,6 +338,13 @@ that document used ([Pricing file](#pricing-file)). `basis` is `standard-base-in
 assumption excludes cached input, cache writes, fast/regional/long-context
 modifiers, negotiated discounts, subscription allowances and historical price
 reconstruction. Updating rates requires a new verified file `version`.
+
+A successful status document also contains additive root `global: {enabled, default,
+text}`: the [global switch](#global-switch), the default it would restore and the label
+(`Digest: on (auto)` or `Digest: off`) the Ops board shows. Member rows show the mode
+that is applied, so every row reads `off` while the switch is off. Ops reads this field
+and flips the switch with `tmt digest global on|off`; only the recorded user may from
+the board.
 
 A successful status document also contains additive root `tick: {lastAtMs}`, the
 start time of the last tick that was admitted ([liveness record](digest-tick-v1.md#tick-liveness)),

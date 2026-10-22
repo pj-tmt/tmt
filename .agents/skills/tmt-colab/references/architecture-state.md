@@ -156,9 +156,12 @@ projects person read state from ordinary verified thread records; `reading-layer
 cosmetic navigation; `reading-actions.ts` records
 and resolves through the existing binding/coordinator, and answers `ready` for the same condition
 the click needs, so the layer disables `Mark read` until it can act and a click never does nothing. Its named-agent restriction excludes
-other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints; Ask capture
-accepts only that exact hint and removes it from the canonical admitted URL. Reader capabilities
-are unchanged.
+other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints (`read`, `anchor`
+and `task`, at most one, each with its own shape; `hintSearch`/`hintFragment` are the one spelling of a
+hint in a router search or a fragment); Ask capture accepts only that exact hint and removes it from the
+canonical admitted URL. A `task=T-n` hint picks which task of the page's own work list its band
+opens (`WorkBand` `focusTask`, once, and nothing for a task the page lacks); the child page's crumb
+links to its parent page with it. Reader capabilities are unchanged.
 
 `needs-you.ts` combines the admitted layers' pending navigation without a stored count;
 `needs-you-header.tsx` owns only its header menu. Layer-owned jumps scroll/focus existing

@@ -4899,7 +4899,7 @@ test('the rail shows the same items in the same order on every page', async () =
   }
 });
 
-test('Digest and Ops say which read they wait for and show no invented numbers', async () => {
+test('Digest and an unpaired Ops say what they wait for and show no invented numbers', async () => {
   const page = await browser.newPage();
   try {
     await page.goto(`${origin}/digest/`);
@@ -4926,10 +4926,11 @@ test('Digest and Ops say which read they wait for and show no invented numbers',
     );
     await rail.getByRole('link', { name: 'Ops', exact: true }).click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agents');
+    // Ops reads the owner's board (x/-/ops), which needs an owner session: this browser is not
+    // paired, so the page says so and shows no rows.
     await expect(page.locator('#ops-note')).toHaveText(
-      'The Ops board is not in the browser yet. Run tmt ops ui in a terminal.',
+      'This browser has no owner session for your machine. Pair it from Remote to see the board.',
     );
-    await expect(page.locator('#ops-note code')).toHaveText('tmt ops ui');
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     // The sections stay in the module menu; each is empty the same way.
     const menu = page.locator('.tmt-ui-module-menu');
@@ -4940,7 +4941,7 @@ test('Digest and Ops say which read they wait for and show no invented numbers',
     await captureState(
       page,
       'ops-web',
-      'Empty until the board read exists',
+      'Empty until this browser is paired',
       [1440, 390],
       ['light', 'dark'],
     );

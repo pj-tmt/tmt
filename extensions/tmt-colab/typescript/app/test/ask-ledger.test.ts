@@ -143,6 +143,84 @@ it('publishes immutable intent and dispatching before one effect, then reads an 
   expect((await reloaded.recover(preview.view.operationId)).reply?.body).toBe('');
   expect(remote.sends).toHaveLength(1);
 });
+it('a malformed attribution notice makes the reply unverifiable, as the SDK parse does (#4255)', async () => {
+  const good: unknown[] = [
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN', message: 'x'.repeat(512) },
+    { state: 'person', name: 'ben-user', renamedFrom: 'ben' },
+  ];
+  const bad: unknown[] = [
+    // a missing key, an extra key, an empty text, a text over 512 bytes (multi-byte counts as bytes)
+    { state: 'person', name: 'ben-user' },
+    { state: 'person', renamedFrom: 'ben' },
+    { state: 'person', name: 'ben-user', renamedFrom: 'ben', extra: 1 },
+    { state: 'person', name: '', renamedFrom: 'ben' },
+    { state: 'person', name: 'ben-user', renamedFrom: 'x'.repeat(513) },
+    { state: 'person', name: 'é'.repeat(257), renamedFrom: 'ben' },
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN' },
+    { state: 'anonymous', message: 'm' },
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN', message: '' },
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN', message: 'x'.repeat(513) },
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN', message: 'm', extra: true },
+    // an unknown state, a foreign reason, a non-text message, and shapes that are not notices
+    { state: 'stranger', name: 'a', renamedFrom: 'b' },
+    { state: 'anonymous', reason: 'REMOTE_CLOSED', message: 'm' },
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN', message: 7 },
+    null,
+    [],
+    'anonymous',
+  ];
+  const session = {
+    sessionId: id(7),
+    serverTimeMs: Date.now(),
+    grantRevision: 1,
+    expiresAtMs: null,
+  };
+  const adapter = async (identity: unknown) =>
+    createRemoteClient(
+      new URL('http://example.test/x/colab/'),
+      {
+        operations: () => ({
+          listAgents: async () => [],
+          send: async (input) =>
+            ({
+              state: 'accepted',
+              operationId: input.operationId,
+              requestId: `req_${id(8)}`,
+              ...(identity === undefined ? {} : { identity }),
+            }) as never,
+          operation: async (operationId) => ({ state: 'uncertain', operationId }),
+          result: async (requestId) => ({ state: 'replied', requestId, message: '' }),
+        }),
+      },
+      session,
+      async (url) =>
+        new Response(
+          JSON.stringify(
+            String(url).endsWith('/api/session')
+              ? { deviceId: id(4), publicKey: vector.publicKey, name: 'F', grantRevision: '1' }
+              : {
+                  machineId: id(5),
+                  windowId: id(7),
+                  address: 'http://example.test',
+                  extension: 'colab',
+                  mount: '/x/colab/',
+                },
+          ),
+        ),
+    );
+  const input = { operationId: id(9), agentId: id(6), message: 'hi' };
+  for (const value of good) {
+    const sent = await (await adapter(value)).send(input);
+    expect(sent, JSON.stringify(value)).toMatchObject({ state: 'accepted', identity: value });
+  }
+  expect(await (await adapter(undefined)).send(input)).not.toHaveProperty('identity');
+  for (const value of bad) {
+    const sent = await (await adapter(value)).send(input);
+    // Unverifiable: the notice never reaches the page, and nothing is presented as accepted.
+    expect(sent.state, JSON.stringify(value)).toBe('uncertain');
+    expect(sent, JSON.stringify(value)).not.toHaveProperty('identity');
+  }
+});
 it('same-operation concurrent controllers cannot dispatch twice and conflicts preserve original intent', async () => {
   const { controller, remote, store, key } = await setup();
   const second = new AskController({ store, remote, key, selection });

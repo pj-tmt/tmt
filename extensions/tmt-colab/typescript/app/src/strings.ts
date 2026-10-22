@@ -225,6 +225,9 @@ export const text = {
   messageAnother: 'Write another message',
   messageOpenRecorded: 'Open recorded thread',
   draftsNotSaved: 'Drafts are not saved on this device.',
+  sendAnonymous: 'Sent without your name.',
+  sendRenamed: (name: string, plain: string) => `Sent as ${name}: an agent already uses ${plain}.`,
+  sendIdentityDismiss: 'Dismiss',
   attachFiles: 'Attach files',
   messageAttach: 'Attach',
   attachDropTarget: { chat: 'Chat', thread: 'this thread' },
@@ -1052,5 +1055,5 @@ export const text = {
   readerNote:
     'You are reading a shared page. You cannot edit it or ask agents. Anyone who holds this link and can reach this address can read the page.',
   readerNoteEditor:
-    "You are editing a shared page through a link. Saves change the owner's page for everyone who can read it. You cannot ask agents.",
+    'You are editing a shared page through a link. Saves send edit requests. The owner applies edits while Colab is running. Applied edits change the page for everyone who can read it. You cannot ask agents.',
 } as const;

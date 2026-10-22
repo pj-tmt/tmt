@@ -4,13 +4,21 @@
 //! never by guessing from the recent finals.
 //!
 //! A capture is `pending` from the moment the text is typed, `bound` once a turn started with
-//! that prompt, then `answered` with that turn's final message or `no_answer`.
+//! that prompt, then `answered` with that turn's final message or `no_answer`. Neither wait is
+//! open-ended: a capture no turn started for, or whose bound turn never ended, reads and settles
+//! `no_answer` ([`BIND_WINDOW_MS`], [`BOUND_WINDOW_MS`]), and so does one whose turn a later turn
+//! of the same session overtook.
 
 use crate::driver::pane_input_text;
 
 /// A passthrough no turn started for within this long can no longer bind. Once bound, the
 /// turn is awaited however long it runs.
 pub const BIND_WINDOW_MS: u64 = 600_000;
+
+/// A bound turn that has not ended within this long is not awaited any more: a turn whose
+/// end the hooks never admitted (a killed agent, a closed pane) would otherwise stay `bound`
+/// for ever. Long enough for any single turn a person would still be waiting on.
+pub const BOUND_WINDOW_MS: u64 = 21_600_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureState {
@@ -83,13 +91,21 @@ impl PassthroughCapture {
             && now.saturating_sub(self.delivered_at_ms) <= BIND_WINDOW_MS
     }
 
-    /// The state to show at `now`: an unbound capture past its window reads `no_answer`
-    /// before anything has written that, so a read never needs a sweeper.
+    /// Whether the bound turn is still being awaited at `now`.
+    pub fn awaits_end(&self, now: u64) -> bool {
+        self.state == CaptureState::Bound
+            && self
+                .bound_at_ms
+                .is_some_and(|bound| now.saturating_sub(bound) <= BOUND_WINDOW_MS)
+    }
+
+    /// The state to show at `now`: a capture past its binding or bound window reads
+    /// `no_answer` before anything has written that, so a read never needs a sweeper.
     pub fn state_at(&self, now: u64) -> CaptureState {
-        if self.state == CaptureState::Pending && !self.can_bind(now) {
-            CaptureState::NoAnswer
-        } else {
-            self.state
+        match self.state {
+            CaptureState::Pending if !self.can_bind(now) => CaptureState::NoAnswer,
+            CaptureState::Bound if !self.awaits_end(now) => CaptureState::NoAnswer,
+            state => state,
         }
     }
 }
@@ -141,13 +157,33 @@ mod tests {
             capture.state_at(1_001 + BIND_WINDOW_MS),
             CaptureState::NoAnswer
         );
-        // Once bound, the turn is awaited however long it runs.
+        assert!(
+            !capture.awaits_end(1_000),
+            "only a bound capture awaits an end"
+        );
+    }
+
+    #[test]
+    fn a_bound_capture_awaits_its_turn_end_for_the_bound_window_and_then_reads_no_answer() {
         let bound = PassthroughCapture {
             state: CaptureState::Bound,
-            ..capture
+            bound_at_ms: Some(5_000),
+            ..PassthroughCapture::pending(1_000)
         };
-        assert_eq!(bound.state_at(u64::MAX / 2), CaptureState::Bound);
-        assert!(!bound.can_bind(1_000));
+        assert!(!bound.can_bind(5_000), "a bound capture never binds again");
+        let last = 5_000 + BOUND_WINDOW_MS;
+        assert_eq!(bound.state_at(last), CaptureState::Bound);
+        assert!(bound.awaits_end(last));
+        assert_eq!(bound.state_at(last + 1), CaptureState::NoAnswer);
+        assert!(!bound.awaits_end(last + 1));
+        // A settled capture keeps what it settled as, however old.
+        for state in [CaptureState::Answered, CaptureState::NoAnswer] {
+            let settled = PassthroughCapture {
+                state,
+                ..bound.clone()
+            };
+            assert_eq!(settled.state_at(u64::MAX / 2), state);
+        }
     }
 
     #[test]

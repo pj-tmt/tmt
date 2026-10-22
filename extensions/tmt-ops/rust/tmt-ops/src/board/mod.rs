@@ -336,6 +336,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 .map(|granted| ActionOutcome::Digest(Box::new(granted)));
         }
         Request::Digest(set) => digest::apply(core, set),
+        Request::DigestSwitch(on) => digest::switch(core, on),
         Request::Jump(member) => back::jump(core, &member)
             .map(|(focus, warning)| match warning {
                 None => format!("Showing {member} ({}).", focus.pane),

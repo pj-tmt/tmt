@@ -480,6 +480,36 @@ fn applying_runs_the_one_literal_argument_and_a_refusal_is_never_claimed_as_save
 }
 
 #[test]
+fn only_the_recorded_user_may_turn_digest_on_or_off_for_everyone() {
+    let f = Fixture::new();
+    let (core, log) = recording(&f);
+    // The fixture's caller is the recorded user.
+    assert_eq!(
+        switch(&core, false).unwrap(),
+        "Digest is off: messages are sent one by one."
+    );
+    assert_eq!(switch(&core, true).unwrap(), "Digest is on.");
+    assert_eq!(runs(&log), ["digest global off ", "digest global on "]);
+    // A squad lead may change one member's digest but not everybody's.
+    for caller in [Some(LEAD), Some(WORKER)] {
+        f.change_model(|m| m["caller"] = json!(caller));
+        let denied = switch(&core, false).unwrap_err();
+        assert_eq!(
+            denied,
+            "Only the recorded user can turn Digest on or off for everyone."
+        );
+    }
+    assert_eq!(runs(&log).len(), 2, "a denied switch ran nothing");
+    // A refusal from digest is never claimed as done.
+    f.change_model(|m| m["caller"] = json!(null));
+    fs::write(f.directory.join("fail"), "").unwrap();
+    assert_eq!(
+        switch(&core, false).unwrap_err(),
+        "Digest was not turned off."
+    );
+}
+
+#[test]
 fn access_is_checked_again_when_the_choice_is_applied() {
     let f = Fixture::new();
     let (core, log) = recording(&f);

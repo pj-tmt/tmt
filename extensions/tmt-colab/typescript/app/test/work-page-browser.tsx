@@ -139,8 +139,34 @@ export function mountWorkPage(
     },
     close() {},
   };
+  // The child scenario can open its parent: a page of its own with the task the crumb names.
+  const parentWork = work(false, true);
+  const parentBinding: PageBinding = {
+    subscribe(publish) {
+      publish({ title: 'Release plan', source: '<h1>Parent page</h1>', work: parentWork });
+      return () => {};
+    },
+    async edit() {
+      return { merged: false };
+    },
+    async export() {
+      throw new Error('No export in this fixture');
+    },
+    close() {},
+  };
   const transport = localTransport('Review space', [
     { id: 'notes', ...base, sharing: 'private', binding },
+    ...(scenario === 'child'
+      ? [
+          {
+            id: PARENT,
+            title: 'Release plan',
+            source: '<h1>Parent page</h1>',
+            sharing: 'private' as const,
+            binding: parentBinding,
+          },
+        ]
+      : []),
   ]);
   const listed = transport.spaceHome.bind(transport);
   const routed = {

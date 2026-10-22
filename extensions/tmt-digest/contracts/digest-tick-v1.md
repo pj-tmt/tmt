@@ -20,7 +20,7 @@ observations, without a last-sent timestamp or persistent scheduler state. Its s
 ## Settings and deadlines
 
 The [settings contract](digest-v1.md#settings) owns resolution and attribution.
-`off` means no Core hold. Interval and `auto` modes create or renew a Core hold each tick, so non-urgent automatic arrivals enter Core's checklist.
+`off` means no Core hold, and so does every member while the [global switch](digest-v1.md#global-switch) is off. Interval and `auto` modes create or renew a Core hold each tick, so non-urgent automatic arrivals enter Core's checklist.
 The hold expires at renewal time plus the greater of the interval and 120 seconds; an `auto` member has no interval, so its hold lasts 120 seconds.
 An unchanged active policy is renewed once per invocation; a changed setting or
 inactive policy is reconciled again. If ticks stop, the hold lapses within that

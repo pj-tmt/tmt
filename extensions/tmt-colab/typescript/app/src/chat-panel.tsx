@@ -10,6 +10,7 @@ import type { ComposerActivation, ComposerEdit } from './components/message-comp
 import type { CreationRecipient } from './fold-protocol.js';
 import { CommentExchange, MessageEchoTurn, useMessageEcho } from './thread-panel.js';
 import { MessageEchoContext } from './message-echo.js';
+import { SendIdentityLine } from './send-identity-line.js';
 import { isChatThread, type ThreadView } from './thread-records.js';
 import { conversationAsks, type ThreadBinding } from './thread-store.js';
 
@@ -182,6 +183,7 @@ export function ChatPanel({
               cancel={escape}
               committed={() => {}}
             />
+            {binding?.identity && <SendIdentityLine notice={binding.identity} />}
           </MessageEchoContext>
         }
       >

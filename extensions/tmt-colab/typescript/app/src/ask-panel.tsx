@@ -17,6 +17,7 @@ import { AskAgainAction, type AskAgainInput } from './ask-again.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
+import type { SendIdentityNotice } from './send-identity-notice.js';
 import { text } from './strings.js';
 import { agentSentence } from './components/agent-chip.js';
 import { MarkdownText } from './components/markdown-text.js';
@@ -26,6 +27,8 @@ import { conversationRecordKey } from './conversation-record-key.js';
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
 export interface AskBinding {
+  /** How Remote attributed this page session's first send worth saying; absent when none. */
+  identity?: SendIdentityNotice;
   /** Status-only read; never the effect-bearing Ask destination admission path. */
   observeDestinations?(): Promise<AgentDirectoryObservation>;
   destinations(): Promise<(AskDestination & { presence?: RemoteAgent['presence'] })[]>;

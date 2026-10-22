@@ -50,6 +50,11 @@ const roleOptions: readonly ManagementOption<payload.Role>[] = [
   { value: 'commenter', label: 'Comment' },
   { value: 'editor', label: 'Edit' },
 ];
+const linkRoleCopy: Record<payload.Role, string> = {
+  viewer: 'People with this link can read this page.',
+  commenter: 'People with this link can read this page. Commenting from it is not available yet.',
+  editor: 'People with this link can read this page and send edit requests that you apply.',
+};
 export function ShareDialog({
   port,
   pageId,
@@ -277,8 +282,8 @@ export function ShareDialog({
             {pending?.artifact && ack && (
               <div className="bearer">
                 <p>
-                  Copy this link now. It is shown only once and is not saved. Anyone with the link
-                  can open this page in a read-only view.
+                  {linkRoleCopy[pending.artifact.role]} Copy this link now. It is shown only once
+                  and is not saved.
                 </p>
                 <BearerArtifact
                   key={pending.artifact.linkId}
@@ -571,7 +576,7 @@ export function ShareDialog({
                   review(
                     { operation: 'link.add', value: newLink(role, [pageId]) },
                     'Create a sharing link',
-                    `${role === 'viewer' ? 'Create a read-only link to this page.' : `Create a link to this page with ${roleOptions.find((option) => option.value === role)!.label.toLowerCase()} access.`} Anyone you give it to can open it and sees ${view.page.history === 'shared' ? 'the page and recent history' : 'everything since the last history start'}${role === 'viewer' ? '' : '; the browser opens it read-only whatever its permission'}. You can copy the link once, right after it is created.`,
+                    `${linkRoleCopy[role]} Anyone you give it to can open it and sees ${view.page.history === 'shared' ? 'the page and recent history' : 'everything since the last history start'}. You can copy the link once, right after it is created.`,
                   )
                 }
               >
@@ -595,7 +600,7 @@ export function ShareDialog({
                           },
                         },
                         'Replace link',
-                        `This link and every device opened from it stop working on ${l.pages.join(', ')}. You get a new link; share it only with people you want to have access.`,
+                        `${linkRoleCopy[l.role]} This link and every device opened from it stop working on ${l.pages.join(', ')}. You get a new link; share it only with people you want to have access.`,
                       )
                     }
                   >

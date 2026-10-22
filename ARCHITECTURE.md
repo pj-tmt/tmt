@@ -149,8 +149,8 @@ The grammar (`rust/crates/tmt-cli/src/grammar.rs` and its `grammar/` modules) ow
 core command registration, option placement and rejection, and the help projection;
 each owner's parser turns its grammar into typed invocations and publishes through
 `tmt-command-output`. Hidden commands parse for internal workflows but never appear
-in help or completion. Handlers never search raw argv or reinterpret payload text
-as flags. Human/JSON share typed result/status contracts; [list](contracts/identity-status-v1.md#list-runtime-driver) owns runtime-driver proof.
+in help or completion. [Argument parsing](CONVENTIONS.md#commands-effects-and-contracts) stays with typed parsers.
+Human/JSON share typed result/status contracts; [list](contracts/identity-status-v1.md#list-runtime-driver) owns runtime-driver proof.
 Command dispatch, help and completion rules are in the
 [extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md).
 
@@ -171,9 +171,9 @@ ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
 stdout. It is neither an authentication boundary nor a daemon, batch or stream.
 `tmt-adapters::api` owns envelope admission and composition; the CLI owns bounded
 stdin, publication and exit status. Protocol major 1 accepts additive operations and
-fields; incompatible changes need a new major. `extensions.uses` answers an extension's optional use of another from installed
-receipts only (no network, storage or extension process); the extension checks it
-when the feature starts. Human-shaped operations remain their
+fields; incompatible changes need a new major.
+[Optional extension uses](contracts/extension-api.md#optional-cross-extension-uses) follow the receipt-only query contract.
+Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The
 [extension API contract](contracts/extension-api.md) owns the protocol and operation contracts.
 
@@ -261,8 +261,7 @@ layout owner and `tmt-adapters::notes` alone creates
 The file body, concurrency and retention are ordinary user-filesystem concerns:
 there is no SQLite copy, lock, size policy or secure deletion, and retirement leaves
 notebooks in place.
-Admitted compaction context reminds saved identities through global `notes.compactionReminder`
-(default true), within the existing hook budget and without notebook creation or content access.
+[Compaction reminders](.agents/skills/tmt-core-runtime/references/identity-bindings.md#hooks-setup-and-uninstall) follow the provider-hook owner.
 
 ### Settings and configuration
 
@@ -354,17 +353,12 @@ Managed agent guidance is a filesystem concern separate from application state.
 `tmt_core::skill_catalog` is the one list of bundled skill names; the bundle is
 embedded and materialized by digest under `skill_installation`, and the
 architecture test fails on a skill-name list anywhere else. Core install exposes
-only `tmt` and `tmt-inbox`. Retired bundle names are verification metadata only: full
-historical inventories and framed digests still prove old Core-name replacement.
-Refresh and default uninstall preserve retired skill links, owner records and backing
-generations regardless of the recorded owner; explicit generic owner removal retains
-its existing authority, and explicit `--purge` retains its existing semantics. No retired product
+only `tmt` and `tmt-inbox`.
+[Retired bundle verification and preservation](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills) follow the installer owner;
+explicit generic owner removal retains its existing authority, and explicit `--purge` retains its existing semantics. No retired product
 catalog, embedded source, installation or service cleanup remains. Skill installation never opens configuration,
-SQLite or tmux. Core bundled and verified official release publication replaces
-any existing leaf at a catalog skill name in selected roots, without prompt, flag, backup or prior target
-ownership/content checks. Other names and symlink destinations remain untouched;
-immutable source validation and overlap guards remain. Missing recorded targets
-stay missing during refresh.
+SQLite or tmux.
+[Catalog publication](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills) follows the installer owner.
 Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
 (explicit consent), are stored per owner and linked into the same roots; the first
 owner of a name keeps it until an explicit force and core names are reserved.
@@ -391,7 +385,7 @@ Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-
 discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.
 
 Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
-A `user`-marked identity is never held. An `auto` member is held through the same Core policy as an interval member: the tick renews the hold and offers idle and capped [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery), while Core and the provider's turn end deliver; Core's one cap option skips only the live-idle evidence.
+A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off. An `auto` member is held like an interval one: the tick renews the hold and offers [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery); Core and the turn end deliver.
 Prices are one [public file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file), embedded as the built-in table and refetched anonymously by status only.
 The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
@@ -421,7 +415,7 @@ own module/drawing boundaries and verification.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
-  The quiet cache lane publishes per-name view hints (default keeps its original path): destination/UUID anchors, expansion, committed filters/sort/search, chart controls, pane ratios and pane scroll. Shared Config preferences stay separate; exec carries the layer and session-only visibility. [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
+  The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.
   `labels::Reader` acquires Config-selected windows; `labels::digest` sums [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings) with cost and share valuations, not provider history. `board::savings` formats them; the price table is display-only.
   `usage_report::Reader` acquires public Core usage/traffic off-thread; `usage_report::valuation` is the one reader of its TOK and input price, for the Digest table and the Agents TOK figures alike;
@@ -608,7 +602,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. `object_channel::cloud_sync` publishes rows, authority and originals once Remote activates; hosted folds verify log anchors before checkpoint pairs. Native bootstrap installs a verified checkpoint pair; other verified originals use serve append ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
+- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. Native bootstrap installs a verified checkpoint pair; other verified originals use serve append ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`), and the Worker is resource
   containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Source/shell actions, thread status and proposals publish through it (offline or the local `page-publish` route), browser Save uses the owner sync socket, signed by the root-local writer.
