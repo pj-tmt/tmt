@@ -3,7 +3,7 @@
  * under the owner session, siblings of the composed shell's `x/-/shell`. One client for every page
  * that shows them (Ops, Digest), and the refresh timer that runs only while the route is visible.
  */
-import { shellAddress } from '../../../../../design/browser-ui/src/shell.js';
+import { shellAddress } from '@tmt/browser-ui/shell';
 
 export type OwnerReadRange = '24h' | '7d' | '30d';
 export type OwnerReadName = 'ops' | 'limits' | `digest/${OwnerReadRange}`;

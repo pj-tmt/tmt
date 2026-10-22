@@ -1,3 +1,3 @@
 import '@tmt/browser-ui/static.css';
-import '../../../../../design/browser-ui/test/fixtures/controls.css';
-import '../../../../../design/browser-ui/test/fixtures/tabs.js';
+import '@tmt/browser-ui/test-fixtures/controls.css';
+import '@tmt/browser-ui/test-fixtures/tabs.tsx';

@@ -1,6 +1,6 @@
 /** The design gallery's hosted-shell frame, mounted on its own page for a reload check. */
 import { createRoot } from 'react-dom/client';
-import { frameFor } from '../../../../../design/browser-ui/gallery/frames.js';
+import { frameFor } from '@tmt/browser-ui/gallery/frames';
 
 export function mountHostedFrame() {
   const host = document.createElement('div');

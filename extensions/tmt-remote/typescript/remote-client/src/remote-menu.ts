@@ -1,6 +1,6 @@
 /** Remote's module menu in the TMT web shell: one row per remote, then adding a remote and the
  * shared Remote settings. Navigation and observations remain page-owned. */
-import type { ShellMenuItem } from '../../../../../design/browser-ui/src/shell.js';
+import type { ShellMenuItem } from '@tmt/browser-ui/shell';
 import type { RemoteCatalog, RemoteReference } from './remote-registry.js';
 import { remoteState, currentRemote } from './remote-state.js';
 import { remoteShell, type RemoteShell } from './remote-shell.js';

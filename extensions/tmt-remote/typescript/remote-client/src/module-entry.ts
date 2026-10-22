@@ -5,7 +5,7 @@
  * (`.js`). Anything else is
  * refused, and the module's own link is the fallback.
  */
-import { moduleMount } from '../../../../../design/browser-ui/src/shell.js';
+import { moduleMount } from '@tmt/browser-ui/shell';
 
 export interface ModuleLoad {
   /** The module's own mount path, ending in `/`, when the answer's `rail.path` is a valid mount. */
