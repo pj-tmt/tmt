@@ -36,7 +36,7 @@ import { ThreadStatusCoordinator } from '../src/thread-status-coordinator.js';
 import { projectThreadPresentation } from '../src/thread-status-presentation.js';
 import { ThreadStatusSeen } from '../src/thread-status-view.js';
 import type { ThreadStatusView } from '../src/thread-status.js';
-import type { MessageState } from '../src/message-state.js';
+import type { MessageState, SendNowProgress } from '../src/message-state.js';
 import { destination, id, pageLink, RemoteDouble, selection } from './ask-fixtures.js';
 let root: Root | undefined;
 let appRouter: ReturnType<typeof createAppRouter> | undefined;
@@ -88,6 +88,17 @@ function emit() {
   publish?.(current);
 }
 let readRefusal: ConstructorParameters<typeof ReadRefusedError>[0] | undefined;
+let sendNowGate: Promise<void> | undefined;
+let releaseSendNow: (() => void) | undefined;
+/** The next Send now stays in flight, as a slow Remote would hold it, until `finishSendNow`. */
+export function holdSendNow() {
+  sendNowGate = new Promise((resolve) => (releaseSendNow = resolve));
+}
+export function finishSendNow() {
+  releaseSendNow?.();
+  releaseSendNow = undefined;
+  sendNowGate = undefined;
+}
 let prepareRelease: (() => void) | undefined;
 let preparing: Promise<void> | undefined;
 let finishDirectory: (() => void) | undefined;
@@ -396,6 +407,10 @@ export async function mount(
     async recheck(operationId) {
       actions.push(`recheck:${operationId}`);
       if (readRefusal) throw new ReadRefusedError(readRefusal);
+    },
+    async sendNow(operationId) {
+      actions.push(`sendNow:${operationId}`);
+      await sendNowGate;
     },
     async abandon(operationId) {
       actions.push(`abandon:${operationId}`);
@@ -1367,7 +1382,11 @@ export function conversationActivity(options: {
 
 /** Core's state of the first ask's message, published through the real router projection (#4317);
  * no `state` takes it away. `ageMs` is how long ago the page read it. */
-export function conversationMessageState(options: { state?: MessageState; ageMs?: number }) {
+export function conversationMessageState(options: {
+  state?: MessageState;
+  ageMs?: number;
+  sendNow?: SendNowProgress;
+}) {
   const record = current.asks![0];
   current = {
     ...current,
@@ -1375,6 +1394,7 @@ export function conversationMessageState(options: { state?: MessageState; ageMs?
       [record.operationId]: {
         ...options.state,
         receivedAt: performance.now() - (options.ageMs ?? 0),
+        ...(options.sendNow ? { sendNow: options.sendNow } : {}),
       },
     },
   };

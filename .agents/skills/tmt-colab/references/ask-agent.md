@@ -212,4 +212,18 @@ changes; it is cleared on a failed read, a reply, session end and when the obser
 `agentActivity`, `AgentActivityProvider` paints its countdown with the same page clock, and
 `AgentActivityLine` draws it. Nothing is written to the ledger. The contract's
 [message state](../../../../extensions/tmt-colab/contracts/colab-v1.md#message-state-of-a-sent-message-4317)
-owns the exact shape and wording; the Send now action (#4136) is separate.
+owns the exact shape and wording.
+
+## Send now
+
+`AskController.sendNow` is the only Remote write the observer's state drives: it asks only while
+the last read said `canSendNow`, is one call per ask however often it is pressed, never retries,
+and writes nothing to the ledger. It puts its progress on the same observed state
+(`ObservedMessageState.sendNow`: `sending`, or an `outcome` of `refused`, `unconfirmed` or
+`unavailable` with Core's code), which `#showMessage` keeps only while the state's name is
+unchanged, and then reads the state again with `recover`. `ask-remote.ts` verifies the reply (an
+unknown state or a failure that may have reached Core is `unconfirmed`). `AskPanel` draws the
+action from `canSendNow` alone (never for Colab's `held`) and `AgentActivityLine` the progress,
+with the per-code sentences in `strings.ts`. The contract's
+[Send now](../../../../extensions/tmt-colab/contracts/colab-v1.md#send-now-4136) owns the
+behavior and wording.

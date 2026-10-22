@@ -27,6 +27,7 @@ export function mountChat(identity?: SendIdentity) {
       throw new Error('Not used');
     },
     async recheck() {},
+    async sendNow() {},
     async abandon() {},
   };
   root = createRoot(main);

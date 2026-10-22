@@ -2337,8 +2337,39 @@ it), `?` unconfirmed, `✗` not sent. Only `✓` and the spinner use the working
 blocked colour; all text stays neutral. Colab's own states are not Core's and are unchanged:
 `dispatching`, `held` (waiting for approval on the machine, never `batched`), `uncertain` (the
 Remote send outcome is unknown) and the refused, failed, cancelled, expired and abandoned
-outcomes before Core. `canSendNow` is kept with the state and drawn nowhere here: the Send now
-action is separate (#4136).
+outcomes before Core. `canSendNow` is kept with the state and drives the Send now action below.
+
+### Send now (#4136)
+
+A text action "Send now" sits in the status line after the countdown, before Check again, for a
+message whose observed state has `canSendNow: true`, and for nothing else: not from the state's
+name, not for Colab's own `held` (an approval hold has no Core state, so it never has the action
+and Send now never shortens it), not for a state Core reports with `canSendNow: false`
+(delivered, working, unconfirmed, a refused or approval-gated message, and every device that is
+not the owner's own browser, for which Remote reports `false`). It is a 44 px target at 390 px
+wide, shown in the chat and the thread's ask line alike.
+
+A press makes one ask: `AskController.sendNow` calls Remote's `requests.sendNow` for the request
+only while the last read of the state said `canSendNow`, a second press while it runs returns the
+same ask, and Colab never repeats one (an uncertain answer is never asked again by Colab). While
+it runs the line reads "Sending now…" with the spinner and the action is disabled. The reply is
+verified by the SDK adapter: an unknown state, or any failure on the way that may have reached
+Core, is `unconfirmed`; only a refusal Remote signed, or an SDK without the carriage, is known to
+have typed nothing. Nothing is written to the signed ledger (Remote writes the audit row). Colab
+then reads the state again, and the line moves on from that read, not from the reply alone.
+
+What a press came to replaces Core's wording while the message stays in the state it was made in,
+and goes when the state changes. `sent` and `already` add nothing (the re-read state, such as
+"Delivered", is the answer). A refusal reads "Could not send now: <reason>" with one sentence per
+Core code (`SEND_NOW_UNREACHABLE`, `DELIVERY_AWAITING_APPROVAL`, `DELIVERY_CHANNEL_UNAVAILABLE`,
+`SEND_NOW_NOT_AVAILABLE`, `SEND_NOW_CLOSED`, `SEND_NOW_NOT_APPLICABLE`, `SEND_NOW_NOT_ALLOWED`,
+`SEND_NOW_UNCONFIRMED`, `REMOTE_SCOPE_DENIED`), a code Colab does not know reads "Could not send
+now. It stays batched." and a code is never drawn alone; the action becomes "Try again" while Core
+still says the message may be sent. "It may have been sent, delivery unconfirmed, do not resend"
+(Core's `unconfirmed`) offers no action, only Check again. "Your machine did not answer. Nothing
+was sent." (Remote could not ask or answer) offers "Try again". The ticking countdown and the
+agent's elapsed time are hidden from the status live region, so a screen reader announces a
+change of the state and not every second of it.
 
 Hosted currently has no `agents.list` operation and adds no call or native fallback;
 missing observation stays `Sent`. A future hosted inventory cadence is no faster

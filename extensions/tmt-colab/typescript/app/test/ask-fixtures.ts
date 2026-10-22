@@ -1,5 +1,11 @@
 import type { AdmittedSelection, AskDestination } from '../src/ask-intent.js';
-import type { RemoteClient, SendIdentity, SendInput, SendState } from '../src/ask-remote.js';
+import type {
+  RemoteClient,
+  SendIdentity,
+  SendInput,
+  SendNowReply,
+  SendState,
+} from '../src/ask-remote.js';
 export const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 /** The page's own mounted URL, the only link an Ask may carry. */
 export const pageLink = (space = 'a'.repeat(32), page = id(1)) =>
@@ -75,5 +81,12 @@ export class RemoteDouble implements RemoteClient {
   }
   async result(requestId: string): ReturnType<RemoteClient['result']> {
     return { state: 'replied' as const, requestId, message: '' };
+  }
+  /** The requests a send-now was asked for, and what Remote answers (#4136); set per test. */
+  sendNows: string[] = [];
+  sendNowAnswer: () => Promise<SendNowReply> = async () => ({ state: 'sent' });
+  async sendNow(requestId: string): Promise<SendNowReply> {
+    this.sendNows.push(requestId);
+    return this.sendNowAnswer();
   }
 }
