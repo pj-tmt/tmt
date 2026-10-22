@@ -1,6 +1,6 @@
 /** Read-only settings presentation; all evidence was validated on the signed SDK lane. */
 import { budget } from 'remote-browser-sdk';
-import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
+import { browserUiClasses } from '@tmt/browser-ui/static';
 import { firestoreTitles, firestoreItems, firestoreReasons } from './firestore.js';
 import type { FirestoreSettingsView } from './management.js';
 const states = {

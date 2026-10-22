@@ -2864,7 +2864,7 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-disclosure > summary:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .tmt-ui-disclosure[open] > summary {
   margin-bottom: var(--tmt-ui-space-m);

@@ -2,7 +2,7 @@
  * time from the module menu. Rows are the shared list rows; every state is a mark and a word. */
 import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
-import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
+import { browserUiClasses } from '@tmt/browser-ui/static';
 import { notAvailable, notInBrowser } from './not-available.js';
 import { AGENT_STATES, opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 import { whileVisible } from './owner-reads.js';

@@ -1,7 +1,7 @@
 import { remoteShell, type RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
 import { remoteState, currentRemote } from './remote-state.js';
-import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
+import { browserUiClasses } from '@tmt/browser-ui/static';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
 import {
   remoteRegistry,

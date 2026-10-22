@@ -5,14 +5,14 @@
  */
 import { pageLoading } from './page-loading.js';
 import { notAvailable } from './not-available.js';
-import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
-import type { ShellAnswer } from '../../../../../design/browser-ui/src/shell.js';
+import { browserUiClasses } from '@tmt/browser-ui/static';
+import type { ShellAnswer } from '@tmt/browser-ui/shell';
 import {
   THEMES,
   setStoredTheme,
   storedTheme,
   type ThemeChoice,
-} from '../../../../../design/browser-ui/src/theme.js';
+} from '@tmt/browser-ui/theme';
 import type { RemoteShell } from './remote-shell.js';
 import {
   settingsSource,

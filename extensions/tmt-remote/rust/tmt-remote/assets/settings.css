@@ -53,46 +53,6 @@
 .settings-fields {
   margin: 0;
 }
-.settings-page .settings-choice {
-  box-sizing: border-box;
-  position: relative;
-  justify-content: space-between;
-  text-align: left;
-  width: 100%;
-  margin: 0;
-  min-height: var(--tmt-ui-host-action-min-height);
-  padding: 7px 36px 7px 8px;
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--tmt-ui-color-text);
-  font: 14px/20px var(--tmt-ui-font-body);
-}
-/* A fixed collapsed arrow shares the approved native-select geometry. */
-.settings-choice > [aria-hidden] {
-  position: absolute;
-  right: 12px;
-  top: calc(50% - 4px);
-  width: 7px;
-  height: 7px;
-  border-right: 1px solid currentColor;
-  border-bottom: 1px solid currentColor;
-  transform: rotate(45deg);
-  font-size: 0;
-}
-.settings-page .settings-choice:disabled {
-  background: var(--tmt-ui-surface-disabled);
-  color: var(--tmt-ui-color-disabled-text);
-}
-.settings-page .settings-choice:focus-visible {
-  border-color: var(--tmt-ui-color-focus);
-  outline: 0;
-}
-.settings-page #remotes {
-  margin-top: 0;
-  padding-top: 22px;
-  border-top: 0;
-}
 .settings-fields > .tmt-ui-field {
   margin-top: 12px;
 }
@@ -153,12 +113,7 @@
     grid-template-columns: 1fr;
     gap: 8px;
   }
-  .settings-page .settings-choice {
-    padding-block: 11px;
-  }
-}
-@media (pointer: coarse) {
-  .settings-page .settings-choice {
+  .settings-page .tmt-ui-menu-trigger[data-variant='select'] {
     padding-block: 11px;
   }
 }
@@ -175,10 +130,6 @@
 .settings-page #firestore-content code {
   overflow-wrap: anywhere;
 }
-.settings-page #firestore-budget summary:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
-}
 
 .settings-page .change-feedback [data-outcome-slot] {
   margin: 0;
@@ -192,17 +143,3 @@
   overflow-wrap: anywhere;
 }
 
-.settings-options {
-  box-sizing: border-box;
-}
-.settings-options .tmt-ui-menu-item[aria-selected='true']::after {
-  content: '✓';
-}
-.settings-page .device-confirmation {
-  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
-  padding-left: 12px;
-  margin: 8px 0;
-}
-.settings-page .device-confirmation p {
-  margin: 8px 0;
-}

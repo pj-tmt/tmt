@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
-import type { ShellAnswer, ShellMenu } from '../../../../../design/browser-ui/src/shell.js';
+import type { ShellAnswer, ShellMenu } from '@tmt/browser-ui/shell';
 import { moduleLinks, settingsRows, tmtSettingsPage } from '../src/tmt-settings-page.js';
 import type { RemoteShell } from '../src/remote-shell.js';
 import { mockSettingsSource, type TmtSettings } from '../src/settings-source.js';
