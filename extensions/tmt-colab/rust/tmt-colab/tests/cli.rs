@@ -869,12 +869,15 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     let before = fs::read(&db).unwrap();
     let list = pilot.call(&["ls", "--json"]);
     let show = pilot.call(&["show", PAGE, "--json"]);
-    assert_eq!(list["pages"][0]["title"], "Encrypted π\u{1b}[31m");
-    // `ls` adds each page's `path` and `link`; everything else is the same record.
+    assert_eq!(list["pages"][0]["title"], "Encrypted π [31m");
+    assert_eq!(show["page"]["title"], "Encrypted π\u{1b}[31m");
+    // ls uses display titles and omits layout. The remaining verified metadata is the same.
     let mut listed = list["pages"][0].clone();
     for key in ["path", "link", "shortLink"] {
         listed.as_object_mut().unwrap().remove(key);
     }
+    listed["title"] = show["page"]["title"].clone();
+    listed["layout"] = show["page"]["layout"].clone();
     assert_eq!(show["page"], listed);
     assert_eq!(show["members"][0]["id"], MEMBER);
     assert_eq!(show["page"]["warnings"], json!([]));
@@ -2594,7 +2597,42 @@ fn work_commands_change_a_page_limit_each_agent_across_the_space_and_list() {
         let again = call(&pilot, &["task", "add", &one, "--title", "Again", "--json"]);
         assert_eq!(again["taskId"], "T-3");
 
-        // The list carries the work of the pages that have it, in JSON and under the row.
+        // The last write made one's work projection stale. ls omits it instead of folding.
+        let cold = call(&pilot, &["ls", "--json"]);
+        assert!(
+            cold["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|page| page["pageId"] == one)
+                .unwrap()
+                .get("work")
+                .is_none()
+        );
+        // Populate the derived index through its existing scan owner. The metadata list then
+        // carries the current work in JSON and under the row, without refreshing that index.
+        {
+            use tmt_colab::{
+                decoder::Decoder,
+                keyring::{Keyring, Layout},
+                store::Store,
+                work_index,
+            };
+            let layout = Layout::existing(&pilot.root.join("selected"))
+                .unwrap()
+                .unwrap();
+            let key = Keyring::read(&layout).unwrap();
+            let store = Store::read(&layout).unwrap();
+            let mut decoder = Decoder::new(PathBuf::from(BINARY)).unwrap();
+            work_index::scan(
+                &layout,
+                &store,
+                &key,
+                &mut decoder,
+                &[one.clone(), two.clone()],
+            )
+            .unwrap();
+        }
         let rows = call(&pilot, &["ls", "--json"]);
         let row = |id: &str| {
             rows["pages"]
@@ -4655,7 +4693,7 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
     assert!(!pilot.root.join("selected/colab").exists());
 }
 #[test]
-fn create_stores_each_layout_and_ls_and_show_report_it() {
+fn create_and_show_report_layout_while_ls_only_lists_metadata() {
     let pilot = Pilot::new(None);
     let reason = "  A status board draws its own cards  ";
     let cases: [(&[&str], &str, Option<&str>); 3] = [
@@ -4690,16 +4728,20 @@ fn create_stores_each_layout_and_ls_and_show_report_it() {
         ids.push(id);
     }
     let listed = pilot.call(&["ls", "--json"]);
-    for (id, (_, kind, _)) in ids.iter().zip(cases.iter()) {
+    for (index, id) in ids.iter().enumerate() {
         let page = listed["pages"]
             .as_array()
             .unwrap()
             .iter()
             .find(|page| page["pageId"] == id.as_str())
             .unwrap();
-        assert_eq!(page["layout"], *kind);
+        assert_eq!(page["title"], format!("Layout {index}"));
+        assert!(page.get("layout").is_none(), "{page}");
+        assert!(page.get("layoutReason").is_none(), "{page}");
     }
-    // The human views name the layout; a canvas names its whole reason on one line.
+    let listing = String::from_utf8(pilot.command().args(["ls"]).output().unwrap().stdout).unwrap();
+    assert!(!listing.contains("    layout "), "{listing}");
+    // The detail view names the layout; a canvas names its whole reason on one line.
     let human = pilot.command().args(["show", &ids[2]]).output().unwrap();
     let text = String::from_utf8(human.stdout).unwrap();
     assert!(text.contains("layout"), "{text}");
@@ -4713,14 +4755,6 @@ fn create_stores_each_layout_and_ls_and_show_report_it() {
         String::from_utf8(column.stdout)
             .unwrap()
             .contains("column (max 1280 px)")
-    );
-    let listing = pilot.command().args(["ls"]).output().unwrap();
-    let text = String::from_utf8(listing.stdout).unwrap();
-    assert!(text.contains("layout column"), "{text}");
-    assert!(text.contains("layout full"), "{text}");
-    assert!(
-        text.contains("layout canvas · reason A status board draws its own cards"),
-        "{text}"
     );
     // The human create result points at what to read before writing markup.
     let human = pilot
@@ -4888,8 +4922,8 @@ fn a_page_without_layout_metadata_reads_as_freeform() {
     let shown = pilot.call(&["show", PAGE, "--json"]);
     assert_eq!(shown["page"]["layout"], "freeform");
     assert!(shown["page"].get("layoutReason").is_none());
-    let human = pilot.command().args(["ls"]).output().unwrap();
-    assert!(String::from_utf8_lossy(&human.stdout).contains("layout freeform"));
+    let human = pilot.command().args(["show", PAGE]).output().unwrap();
+    assert!(String::from_utf8_lossy(&human.stdout).contains("freeform"));
 }
 #[test]
 fn page_layout_changes_only_the_layout_and_later_writes_keep_it() {
@@ -10698,4 +10732,66 @@ fn page_read_empty_and_huge_single_line_sources_have_exact_anchors() {
             "COLAB_READ_RANGE",
         );
     }
+}
+
+#[test]
+fn a_large_cached_list_reads_metadata_without_opening_page_content() {
+    use tmt_colab::{
+        keyring::{Keyring, Layout},
+        store::Store,
+    };
+    let pilot = Pilot::new(None);
+    let layout = Layout::open(&pilot.root.join("selected")).unwrap();
+    let key = Keyring::open(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    let pages: Vec<_> = (1..=200)
+        .map(|n| format!("10000000-0000-4000-8000-{n:012}"))
+        .collect();
+    // This is a metadata fixture: no page ciphertext or epoch secret is present. A list that
+    // tries to inspect page content cannot produce these already-projected titles.
+    for page in &pages {
+        store.create_page(page).unwrap();
+    }
+    store
+        .project_transaction(&key.space_id, &key.owner_public(), |tx| {
+            for (n, page) in pages.iter().enumerate() {
+                assert!(tx.record_page_title(
+                    page,
+                    "1:0:0:0",
+                    &format!("Cached page {}", n + 1)
+                )?);
+            }
+            Ok(())
+        })
+        .unwrap();
+    drop(store);
+    let stdout = pilot.root.join("list.json");
+    let stderr = pilot.root.join("list.err");
+    let started = Instant::now();
+    let mut child = pilot
+        .command()
+        .args(["ls", "--json"])
+        .stdout(fs::File::create(&stdout).unwrap())
+        .stderr(fs::File::create(&stderr).unwrap())
+        .spawn_owned()
+        .unwrap();
+    assert!(
+        child
+            .wait_until(started + Duration::from_secs(30))
+            .unwrap()
+            .success()
+    );
+    let elapsed = started.elapsed();
+    assert!(fs::read(stderr).unwrap().is_empty());
+    let listed: Value = serde_json::from_slice(&fs::read(stdout).unwrap()).unwrap();
+    let rows = listed["pages"].as_array().unwrap();
+    assert_eq!(rows.len(), 200);
+    for (n, row) in rows.iter().enumerate() {
+        assert_eq!(row["title"], format!("Cached page {}", n + 1));
+        assert!(row.get("error").is_none(), "{row}");
+        assert!(row.get("layout").is_none(), "{row}");
+    }
+    // Observation only: operation-count tests enforce the performance invariant without a
+    // flaky wall-clock threshold. The owned command's deadline bounds hangs, not performance.
+    eprintln!("200-page cached ls: {} us", elapsed.as_micros());
 }

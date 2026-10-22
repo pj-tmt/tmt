@@ -887,17 +887,20 @@ fn create_page_kind(
 /// the other pages stay listed and shown (#1627).
 fn title_or_error(store: &Store, key: &Keyring, page: &mut Value) -> Result<()> {
     if let Err(error) = inspection::title(store, key, page, std::env::current_exe()?) {
-        page["title"] = Value::Null;
         page["layout"] = Value::Null;
-        page["error"] = json!({
-            "code": crate::error_code(error.as_ref()),
-            "message": error.to_string(),
-        });
-        if let Some(warnings) = page["warnings"].as_array_mut() {
-            warnings.push(json!("page-unavailable"));
-        }
+        title_error(page, error.as_ref());
     }
     Ok(())
+}
+fn title_error(page: &mut Value, error: &(dyn std::error::Error + Send + Sync + 'static)) {
+    page["title"] = Value::Null;
+    page["error"] = json!({
+        "code": crate::error_code(error),
+        "message": error.to_string(),
+    });
+    if let Some(warnings) = page["warnings"].as_array_mut() {
+        warnings.push(json!("page-unavailable"));
+    }
 }
 /// Compare what was authorized, excluding the new capability material generated for an intent.
 fn confirmation_scope(
@@ -1029,24 +1032,24 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
                     .is_some_and(|held| held.iter().any(|name| name == project.as_str()))
             });
         }
+        let mut titles = inspection::ListTitles::new(&layout, &store, &key)?;
+        let program = std::env::current_exe()?;
         for page in pages {
-            title_or_error(&store, &key, page)?;
+            if let Err(error) = titles.attach(page, program.clone()) {
+                title_error(page, error.as_ref());
+            }
         }
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
-        // A page's work, folded only when the page changed since the last listing; a listing that
-        // cannot read work is a listing without it.
+        // Work is an optional derived display: ls reads only current entries, never folds for it.
         let listed: Vec<String> = catalog["pages"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
             .collect();
-        if let Ok(mut decoder) = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)
-            && let Ok(found) =
-                tmt_colab::work_index::scan(&layout, &store, &key, &mut decoder, &listed)
-        {
+        if let Ok(found) = tmt_colab::work_index::cached(&layout, &store, &key, &listed) {
             // A task that follows a page shows that page's stage; a page that is followed names the
             // task, so the list says it is part of another page's work.
             let graph = tmt_colab::work_links::Graph(&found);
@@ -1649,16 +1652,6 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             rows.write(&mut out, terminal)?;
             if let Some(text) = page["linkText"].as_str() {
                 writeln!(out, "    {}", escape(text))?;
-            }
-            if let Some(layout) = page["layout"].as_str() {
-                let reason = page["layoutReason"]
-                    .as_str()
-                    .map_or_else(String::new, |reason| format!(" · reason {reason}"));
-                writeln!(
-                    out,
-                    "    {}",
-                    terminal.paint(Token::Dim, &escape(&format!("layout {layout}{reason}")))
-                )?;
             }
             if page["work"].is_object() {
                 writeln!(
