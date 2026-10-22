@@ -3659,10 +3659,14 @@ describe('required CI gate', () => {
     expect(acceptance).not.toMatch(/-p tmt-cli[^\n]*--example/);
     // The fixture is built before the shard runs and recorded with the other tested binaries.
     expect(acceptance.indexOf('--example provider-script-fixture')).toBeLessThan(
-      acceptance.indexOf('test:acceptance --workers=1 --reporter=list,json')
+      acceptance.indexOf(
+        'test:acceptance --workers=1 --reporter=list,./acceptance/harness/soak-reporter.ts,json'
+      )
     );
     expect(acceptance).toContain('rust/target/debug/examples/provider-script-fixture >');
-    expect(acceptance).toContain('test:acceptance --workers=1 --reporter=list,json');
+    expect(acceptance).toContain(
+      'test:acceptance --workers=1 --reporter=list,./acceptance/harness/soak-reporter.ts,json'
+    );
     // Two shards run the one single-worker suite (#2827): each builds its own binaries and world,
     // keeps its own concurrency group and evidence, and neither cancels the other.
     expect(acceptance).toContain('fail-fast: false');
@@ -3684,6 +3688,21 @@ describe('required CI gate', () => {
     expect(upload).toContain('path: ${{ runner.temp }}/colab-acceptance-results');
     expect(upload).toContain('retention-days: 7');
     expect(upload).not.toContain('colab-acceptance-private');
+    expect(upload).not.toContain('colab-soak-diagnostics');
+    const soakUpload = acceptance.slice(
+      acceptance.indexOf('      - name: Upload synthetic soak failure projection'),
+      acceptance.indexOf('      - name: Upload public acceptance evidence')
+    );
+    expect(soakUpload).toBe(`      - name: Upload synthetic soak failure projection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colab-soak-failure-\${{ matrix.shard }}
+          path: \${{ runner.temp }}/colab-soak-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+`);
+
     expect(acceptance).toContain('node typescript/scripts/colab-acceptance-report.mjs');
     // The hosted inventory rides in the same single build (#2487): Remote's pinned Firebase client
     // and the hosted app are built first, then embedded by that one compile, never a second one.
