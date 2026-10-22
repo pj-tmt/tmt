@@ -370,7 +370,9 @@ Header counts, drafts, Send and recipient admission keep their current owners.
 Answer uses the question layer's checked thread association; Proposal uses its
 admitted thread. Card owners suppress replies already in open, visible history.
 Activation selects the answer tab or unfolds proposal history, scrolls and focuses
-the existing block; detached proposals use Comments. The explicit arrival outline
+the existing block; detached proposals use Comments. The page supplies its rendered header's
+live bottom through the notification context for reveal offsets and visible-record reporting.
+The explicit arrival outline
 uses the focus token and clears on blur or the next pointer/key interaction.
 Busy clicks wait behind the existing send fence for at most five seconds. Pending
 activation/reveal is cancelled on page change, withdrawal or timeout without late

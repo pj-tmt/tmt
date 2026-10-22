@@ -23,7 +23,7 @@ export function useNotificationBlock(
     if (!node) return;
     const report = () => {
       const rect = node.getBoundingClientRect();
-      const header = document.querySelector('.tmt-ui-header')?.getBoundingClientRect().bottom ?? 0;
+      const header = latest.current.headerBottom?.() ?? 0;
       const visible =
         open &&
         surface === latest.current.blockSurface &&
@@ -92,8 +92,7 @@ export function useNotificationBlock(
         )
           return;
         node.scrollIntoView({ block: 'start', behavior: 'instant' });
-        const header =
-          document.querySelector('.tmt-ui-header')?.getBoundingClientRect().bottom ?? 0;
+        const header = latest.current.headerBottom?.() ?? 0;
         const top = node.getBoundingClientRect().top;
         if (top < header + 6) window.scrollBy({ top: top - header - 6, behavior: 'instant' });
         node.focus({ preventScroll: true });

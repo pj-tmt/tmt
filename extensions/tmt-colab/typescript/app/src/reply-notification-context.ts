@@ -14,6 +14,8 @@ export interface ReplyReveal {
 /** Page-local presentation signals from the existing surface and scroll owners. */
 export const ReplyNotificationContext = createContext<{
   blockSurface?: 'page' | 'comments' | 'covered';
+  /** Live geometry of the header this page renders, not a document-wide placeholder. */
+  headerBottom(): number;
   modal(id: string, open: boolean): void;
   reading(id: string, destination: string, state: ConversationReading | null): void;
   reveal?: ReplyReveal;
@@ -44,6 +46,7 @@ export function useNotificationConversation(destination: string | undefined) {
   return {
     report,
     blockSurface: owner?.blockSurface ?? 'page',
+    headerBottom: owner?.headerBottom,
     reveal: request?.destination === destination ? request : undefined,
     revealed: owner?.revealed,
     current: owner?.current,
