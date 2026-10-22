@@ -58,6 +58,21 @@ pub fn web_link(link: &str) -> Result<&str, String> {
     Ok(link)
 }
 
+/// What the board may hand to an opener: a web link, or a `mailto:` address with no
+/// whitespace or control characters.
+pub fn openable(link: &str) -> Result<&str, String> {
+    match link.strip_prefix("mailto:") {
+        Some(address) if !address.is_empty() => {
+            if link.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                Err(format!("'{link}' is not a valid mail link."))
+            } else {
+                Ok(link)
+            }
+        }
+        _ => web_link(link),
+    }
+}
+
 /// The row's link for a bare `open`: `pr_link`, else `link`, else the first
 /// `*_link` field.
 pub fn default_link(row: &Value) -> Option<&str> {
@@ -86,19 +101,102 @@ pub fn resolve_open(action: &crate::action::Action, row: &Value) -> Result<Strin
     Ok(link)
 }
 
+/// The opener's argv for `link`. A `{url}` in an argument is replaced by the link, so the
+/// link stays one argument whatever it holds; an opener without one gets the link appended.
 pub fn open_argv(link: &str, opener: Option<&[String]>) -> Vec<String> {
-    let mut argv = match opener {
-        Some(opener) => opener.to_vec(),
-        None if cfg!(target_os = "macos") => vec!["open".into()],
-        None => vec!["xdg-open".into()],
+    let Some(opener) = opener else {
+        let program = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        return vec![program.into(), link.to_owned()];
     };
-    argv.push(link.to_owned());
-    argv
+    if opener.iter().any(|arg| arg.contains("{url}")) {
+        opener
+            .iter()
+            .map(|arg| arg.replace("{url}", link))
+            .collect()
+    } else {
+        let mut argv = opener.to_vec();
+        argv.push(link.to_owned());
+        argv
+    }
+}
+
+/// What decides whether this machine can show a link to the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenHost {
+    pub macos: bool,
+    pub wsl: bool,
+    pub ssh: bool,
+    /// A graphical session is reachable (`DISPLAY` or `WAYLAND_DISPLAY`).
+    pub display: bool,
+}
+
+impl OpenHost {
+    pub fn current() -> Self {
+        let set = |name: &str| std::env::var_os(name).is_some_and(|value| !value.is_empty());
+        Self {
+            macos: cfg!(target_os = "macos"),
+            wsl: cfg!(target_os = "linux")
+                && (set("WSL_DISTRO_NAME")
+                    || std::fs::read_to_string("/proc/version")
+                        .is_ok_and(|text| text.to_ascii_lowercase().contains("microsoft"))),
+            ssh: set("SSH_CONNECTION") || set("SSH_TTY"),
+            display: set("DISPLAY") || set("WAYLAND_DISPLAY"),
+        }
+    }
+}
+
+/// The opener to use when none is configured: `open` on macOS, `wslview` (else
+/// `cmd.exe /c start`) under WSL, `xdg-open` with a graphical session. Over SSH there is
+/// none, since the link would open on the remote machine, not in front of the user.
+pub fn detect_opener(host: &OpenHost, on_path: &dyn Fn(&str) -> bool) -> Option<Vec<String>> {
+    let argv = |words: &[&str]| Some(words.iter().map(|word| (*word).to_owned()).collect());
+    if host.ssh {
+        return None;
+    }
+    if host.macos {
+        return argv(&["open", "{url}"]);
+    }
+    if host.wsl {
+        if on_path("wslview") {
+            return argv(&["wslview", "{url}"]);
+        }
+        return on_path("cmd.exe").then(|| {
+            ["cmd.exe", "/c", "start", "", "{url}"]
+                .iter()
+                .map(|word| (*word).to_owned())
+                .collect()
+        });
+    }
+    (host.display && on_path("xdg-open")).then(|| vec!["xdg-open".into(), "{url}".into()])
+}
+
+/// Whether an executable of this name is on `PATH`.
+pub fn on_path(program: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| {
+            std::fs::metadata(dir.join(program))
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
+    })
+}
+
+/// `cmd.exe /c start` reads its argument as a command line, so a link holding any of its
+/// operators is refused rather than quoted.
+pub fn cmd_safe(link: &str) -> bool {
+    !link.contains(['&', '|', '<', '>', '^', '%', '"', '(', ')'])
 }
 
 pub fn open(link: &str, opener: Option<&[String]>) -> Result<(), String> {
-    let link = web_link(link)?;
+    let link = openable(link)?;
     let argv = open_argv(link, opener);
+    if argv.first().is_some_and(|program| program == "cmd.exe") && !cmd_safe(link) {
+        return Err("cmd.exe cannot open this link safely; copy it instead.".into());
+    }
     spawn(&argv)
 }
 
@@ -336,6 +434,96 @@ pub fn focus(core: &Core, target: &str) -> Result<Focus, SquadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn host(macos: bool, wsl: bool, ssh: bool, display: bool) -> OpenHost {
+        OpenHost {
+            macos,
+            wsl,
+            ssh,
+            display,
+        }
+    }
+    fn words(argv: &[&str]) -> Option<Vec<String>> {
+        Some(argv.iter().map(|word| (*word).to_owned()).collect())
+    }
+
+    #[test]
+    fn the_opener_is_detected_per_platform_and_never_over_ssh() {
+        let all = |_: &str| true;
+        let none = |_: &str| false;
+        assert_eq!(
+            detect_opener(&host(true, false, false, false), &all),
+            words(&["open", "{url}"])
+        );
+        assert_eq!(
+            detect_opener(&host(false, false, false, true), &all),
+            words(&["xdg-open", "{url}"])
+        );
+        // No graphical session or no xdg-open: nothing to show a link in.
+        assert_eq!(detect_opener(&host(false, false, false, false), &all), None);
+        assert_eq!(detect_opener(&host(false, false, false, true), &none), None);
+        assert_eq!(
+            detect_opener(&host(false, true, false, false), &all),
+            words(&["wslview", "{url}"])
+        );
+        assert_eq!(
+            detect_opener(&host(false, true, false, false), &|p| p == "cmd.exe"),
+            words(&["cmd.exe", "/c", "start", "", "{url}"])
+        );
+        assert_eq!(detect_opener(&host(false, true, false, false), &none), None);
+        for local in [
+            host(true, false, true, true),
+            host(false, false, true, true),
+            host(false, true, true, true),
+        ] {
+            assert_eq!(detect_opener(&local, &all), None, "{local:?}");
+        }
+    }
+
+    #[test]
+    fn a_link_with_spaces_quotes_and_semicolons_stays_one_argument() {
+        let link = "https://example.com/a b?x='1';y=\"2\"&z=$(rm -rf /)";
+        let template = vec!["firefox".to_owned(), "--new-tab={url}".to_owned()];
+        let argv = open_argv(link, Some(&template));
+        assert_eq!(argv, ["firefox".to_owned(), format!("--new-tab={link}")]);
+        let plain = vec!["open".to_owned(), "-a".to_owned(), "Safari".to_owned()];
+        assert_eq!(
+            open_argv(link, Some(&plain)),
+            ["open", "-a", "Safari", link].map(String::from)
+        );
+    }
+
+    #[test]
+    fn only_web_and_mail_links_open() {
+        for link in [
+            "https://example.com/x",
+            "http://example.com",
+            "mailto:a@example.com",
+            "mailto:a@example.com?subject=hi",
+        ] {
+            assert_eq!(openable(link), Ok(link));
+        }
+        for link in [
+            "javascript:alert(1)",
+            "tmt:jump/worker",
+            "file:///etc/passwd",
+            "ftp://example.com",
+            "mailto:",
+            "mailto:a b@example.com",
+            "https://",
+            "https://exa mple.com",
+            "/relative",
+        ] {
+            assert!(openable(link).is_err(), "{link}");
+        }
+    }
+
+    #[test]
+    fn cmd_exe_refuses_a_link_it_would_read_as_commands() {
+        assert!(cmd_safe("https://example.com/a?b=1;c"));
+        assert!(!cmd_safe("https://example.com/?a=1&b=2"));
+        assert!(!cmd_safe("https://example.com/%41"));
+    }
 
     #[test]
     fn swap_uses_only_the_core_focus_port_and_preserves_refusals() {

@@ -37,14 +37,30 @@ impl Renderer<'_> {
                 .trim_end_matches(char::is_whitespace)
                 .trim_end_matches(['.', ',', '!', ')', ']', ':', ';']);
             let label = issue_label(token);
+            let bare_url = self.link_url.is_none()
+                && token.starts_with("http")
+                && token.len() <= 4096
+                && crate::effects::web_link(token).is_ok();
             let numbered = token.strip_prefix('#').is_some_and(|number| {
                 !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
             });
-            if label.is_some() || numbered {
+            if label.is_some() || numbered || bare_url {
                 if offset > emitted {
                     self.push(&text[emitted..offset], style);
                 }
-                self.push(label.as_deref().unwrap_or(token), link);
+                if bare_url {
+                    let shown = label.as_deref().unwrap_or(token);
+                    let look = if label.is_some() {
+                        link
+                    } else {
+                        style
+                            .patch(self.look.role(Role::Accent))
+                            .add_modifier(Modifier::UNDERLINED)
+                    };
+                    self.push_url(shown, look, token);
+                } else {
+                    self.push(label.as_deref().unwrap_or(token), link);
+                }
                 emitted = offset + token.len();
             }
             offset += word.len();
