@@ -42,6 +42,12 @@ pub struct MessagePermit {
     pub(crate) busy: Arc<AtomicBool>,
 }
 impl MessagePermit {
+    /// The owner's own paired browser on this door: pairing was confirmed at this machine's
+    /// terminal. Management and the person's attribution (#4255) are for this grant alone; a `cli`
+    /// device may be an agent on another machine, and an add-on is outside the door origin.
+    pub(crate) fn owner_browser(&self) -> bool {
+        self.grant.kind == "browser" && self.grant.origin == self.sessions.door_origin()
+    }
     pub fn response(&self, payload: &Value) -> Result<Vec<u8>, RemoteError> {
         self.sessions.response(&self.message, payload)
     }

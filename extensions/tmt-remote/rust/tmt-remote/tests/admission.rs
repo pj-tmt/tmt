@@ -59,6 +59,14 @@ impl OwnerDoor {
     fn with_limits(scopes: Vec<String>, mode: &str, agents: String, expiry: Option<u64>) -> Self {
         Self::with_device(scopes, mode, agents, expiry, "cli")
     }
+    /// The owner's own paired browser on this door, with every scope and a direct policy.
+    fn owner_browser(mode: &str) -> Self {
+        let scopes = SUPPORTED_SCOPES
+            .iter()
+            .map(|scope| (*scope).into())
+            .collect();
+        Self::with_device(scopes, mode, "all".into(), None, "browser")
+    }
     fn browser() -> Self {
         Self::with_device(Vec::new(), "hold", "all".into(), None, "browser")
     }
@@ -82,10 +90,10 @@ impl OwnerDoor {
             client_id: uuid_v4().unwrap(),
             public_key: key.verifying_key().to_bytes(),
             kind: kind.into(),
-            origin: if kind == "browser" {
-                "http://127.0.0.1:32100"
-            } else {
-                "cli"
+            origin: match kind {
+                "browser" => "http://127.0.0.1:32100",
+                "addon" => "chrome-extension://pppppppppppppppppppppppppppppppp",
+                _ => "cli",
             }
             .into(),
             name: "Test device".into(),
@@ -168,7 +176,7 @@ impl OwnerDoor {
         strict_json(&payload).unwrap()
     }
     fn request_origin(&self) -> Option<&str> {
-        (self.grant.kind == "browser").then_some(self.grant.origin.as_str())
+        (self.grant.kind != "cli").then_some(self.grant.origin.as_str())
     }
     fn admit(&self, wire: &Value) -> Result<MessagePermit, MessageRefusal> {
         self.sessions.admit(

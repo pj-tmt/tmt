@@ -491,7 +491,7 @@ pub(crate) fn append(
     if permit.message.payload.len() > crate::limits::MANAGEMENT_INPUT_BYTES {
         return Err(invalid());
     }
-    if permit.grant.kind != "browser" || permit.grant.origin != permit.sessions.door_origin() {
+    if !permit.owner_browser() {
         return Err(invalid());
     }
     let envelope = permit.message.envelope();

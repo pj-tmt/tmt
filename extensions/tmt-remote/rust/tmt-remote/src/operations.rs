@@ -240,10 +240,7 @@ impl Operations {
                 "requests.show",
                 "result",
             ];
-            if self.management.is_some()
-                && permit.grant.kind == "browser"
-                && permit.grant.origin == permit.sessions.door_origin()
-            {
+            if self.management.is_some() && permit.owner_browser() {
                 supported.extend([
                     "remote.settings.show",
                     "remote.settings.set",
@@ -289,7 +286,7 @@ impl Operations {
                         store.owned(&permit.grant, &value.input.operation_id, now_ms()?)
                     })
                     .is_ok();
-                let (attributed, said) = if known {
+                let (attributed, said) = if known || !permit.owner_browser() {
                     (frozen.clone(), None)
                 } else {
                     self.attributed(&frozen)

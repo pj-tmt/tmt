@@ -54,7 +54,7 @@ fn append(owner: &OwnerDoor, operations: Arc<Operations>, wire: &Value) -> Value
     let transport =
         MessageService::new(Arc::clone(&owner.sessions), 65536).with_operations(operations);
     let bytes = transport
-        .append(None, &serde_json::to_vec(wire).unwrap())
+        .append(owner.request_origin(), &serde_json::to_vec(wire).unwrap())
         .unwrap();
     owner.verify_reply(&serde_json::from_slice(&bytes).unwrap(), wire)
 }
@@ -180,7 +180,7 @@ fn line(reader: &mut BufReader<std::os::unix::net::UnixStream>) -> Value {
 }
 #[test]
 fn direct_exact_retry_keeps_one_core_acceptance_and_frozen_provenance() {
-    let owner = OwnerDoor::new();
+    let owner = OwnerDoor::owner_browser("direct");
     let core = Core::new();
     let operations = core.operations();
     let session = owner.open();
@@ -252,14 +252,52 @@ fn direct_exact_retry_keeps_one_core_acceptance_and_frozen_provenance() {
     assert_eq!(core.sends(), 1);
 }
 #[test]
-fn a_held_send_is_attributed_when_it_is_frozen_and_replays_as_frozen() {
-    let owner = OwnerDoor::with_policy(
-        tmt_remote::store::SUPPORTED_SCOPES
+fn only_the_owners_own_browser_is_attributed_and_no_other_grant_asks_core_who_it_is() {
+    for (kind, name) in [
+        ("browser", "the owner's browser on this door"),
+        (
+            "cli",
+            "a cli device, which may be an agent on another machine",
+        ),
+        ("addon", "a browser addon outside the door origin"),
+    ] {
+        let scopes = tmt_remote::store::SUPPORTED_SCOPES
             .iter()
             .map(|s| (*s).into())
-            .collect(),
-        "hold",
-    );
+            .collect();
+        let owner = OwnerDoor::with_device(scopes, "direct", "all".into(), None, kind);
+        let core = Core::new();
+        let operations = core.operations();
+        let session = owner.open();
+        let id = uuid_v4().unwrap();
+        let recipient = uuid_v4().unwrap();
+        let sent = wire(&owner, &session, 1, &id, &recipient, "who sent this");
+        let accepted = append(&owner, operations, &sent);
+        assert_eq!(accepted["state"], "accepted", "{name}: {accepted}");
+        let calls = core.calls();
+        let asked = calls
+            .iter()
+            .filter(|call| call["operation"] == "user.identity")
+            .count();
+        let create = calls
+            .iter()
+            .find(|call| call["operation"] == "dispatch.create")
+            .unwrap();
+        if kind == "browser" {
+            assert_eq!(asked, 1, "{name}");
+            assert_eq!(create["identity"], Core::PERSON, "{name}");
+            assert!(create.get("originator").is_none(), "{name}: {create}");
+        } else {
+            assert_eq!(asked, 0, "{name}: {calls:?}");
+            assert_eq!(create["originator"], "anonymous", "{name}: {create}");
+            assert!(create.get("identity").is_none(), "{name}: {create}");
+            assert!(accepted.get("identity").is_none(), "{name}: {accepted}");
+        }
+    }
+}
+#[test]
+fn a_held_send_is_attributed_when_it_is_frozen_and_replays_as_frozen() {
+    let owner = OwnerDoor::owner_browser("hold");
     let core = Core::new();
     let operations = core.operations();
     let session = owner.open();
@@ -311,7 +349,7 @@ fn a_user_identity_failure_keeps_the_send_anonymous_and_says_why_with_the_typed_
         "USER_NAME_INVALID",
         "USER_NAME_TAKEN",
     ] {
-        let owner = OwnerDoor::new();
+        let owner = OwnerDoor::owner_browser("direct");
         let core = Core::new();
         let message = format!("{code}: set one with tmt config set user.name <name>");
         core.identity_fails(code, &message);
@@ -339,7 +377,7 @@ fn a_user_identity_failure_keeps_the_send_anonymous_and_says_why_with_the_typed_
 }
 #[test]
 fn a_renamed_person_is_sent_as_that_identity_and_says_so() {
-    let owner = OwnerDoor::new();
+    let owner = OwnerDoor::owner_browser("direct");
     let core = Core::new();
     core.identity_renamed();
     let operations = core.operations();

@@ -1366,13 +1366,14 @@ its own machine, `[remote: <device name> / <identity name>]`; that name is prese
 never mapped to an identity on the receiving machine. The core originator is set by the serve, not
 the caller: see **Identity attribution** below.
 
-**Identity attribution.** A paired owner device is the machine owner's own session, so once a send is admitted the serve asks
-core for the person at this machine (`user.identity`, [extension API](extension-api.md#the-persons-identity))
+**Identity attribution.** Only a `browser` grant from this door's origin, the owner's own paired browser, is
+attributed; `cli` and add-on grants stay anonymous and never ask core, because a `cli` device may be an agent on another
+machine. Once such a send is admitted the serve asks core for the person at this machine (`user.identity`, [extension API](extension-api.md#the-persons-identity))
 and freezes the core payload with `"identity":"<identityId>"` in place of `"originator":"anonymous"`,
 exactly one of the two. That makes core record the message as the person's own and keeps Digest from
 holding it. The journal holds the frozen form: a held send replays exactly what was frozen, a retry
 of a known operation ID asks core nothing, and a changed `user.name` takes effect on the next new
-send. Only paired owner-device sessions reach this step; no other session is attributed.
+send.
 
 A refusal of the person's name never blocks or retries the send: it is frozen anonymous. The send
 result then carries the optional field `identity`, defined here once and present only when there is
