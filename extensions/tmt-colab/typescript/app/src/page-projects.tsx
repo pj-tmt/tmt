@@ -1,8 +1,9 @@
-import { BrowserIconAction, BrowserMenu } from '@tmt/browser-ui/react';
+import { BrowserIconAction, BrowserMenu, useShellBar } from '@tmt/browser-ui/react';
 import { Alert, AlertDescription, UiTheme } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
 import { Pin, Tag, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { rememberPages, rememberedPages } from './quick-switcher-source.js';
 import { NewProjectDialog, projectFailureText, type ProjectWriting } from './project-dialogs.js';
 import { pageTitle } from './page-index.js';
@@ -23,9 +24,10 @@ const CHIPS = 3;
 /** The phone keeps the header mark and also tells the refused action in readable words. */
 export function PagePinNotice({ failure, close }: { failure?: string; close(): void }) {
   const phone = useMedia('(max-width: 479px)');
+  const bar = useShellBar();
   const theme = useSyncExternalStore(subscribeTheme, getTheme);
   if (!phone || failure === undefined) return null;
-  return (
+  const notice = (
     <div className="page-pin-notice">
       <UiTheme theme={theme}>
         <Alert>
@@ -45,6 +47,8 @@ export function PagePinNotice({ failure, close }: { failure?: string; close(): v
       </UiTheme>
     </div>
   );
+  // The shell bar owns the row above its phone sub-bar, so its growth moves both navigation and page.
+  return bar ? createPortal(notice, bar) : notice;
 }
 
 /** One page's project picker: the list row's and the page header's are this one menu. */

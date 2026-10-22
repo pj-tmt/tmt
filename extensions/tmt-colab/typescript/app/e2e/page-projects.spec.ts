@@ -327,10 +327,23 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   expect((await pins(page)).map((request) => request.pinned)).toEqual([true, false]);
 
   const header = await open(page, 390, 'light', { pinFail: 'CAPACITY' });
+  const layout = () =>
+    page.evaluate(() => {
+      const frame = document.querySelector('#ask-page-fixture iframe');
+      const menu = frame?.closest('.tmt-ui-shell')?.querySelector('.tmt-ui-module-menu');
+      if (!menu || !frame) throw new Error('The page fixture needs its sub-bar and frame.');
+      return { menu: menu.getBoundingClientRect().top, frame: frame.getBoundingClientRect().top };
+    });
+  const beforeNotice = await layout();
   await (await pageAction(host, text.pageList.pinItem)).click();
   const notice = page.locator('.page-pin-notice [role="alert"]');
   await expect(notice).toBeVisible();
   await expect(notice).toContainText(text.pageList.pinFull);
+  const noticeBox = await notice.boundingBox();
+  expect(noticeBox).not.toBeNull();
+  const withNotice = await layout();
+  expect(withNotice.menu).toBeCloseTo(beforeNotice.menu + noticeBox!.height);
+  expect(withNotice.frame).toBeCloseTo(beforeNotice.frame + noticeBox!.height);
   await expect(page.getByRole('alert')).toHaveCount(1);
   await expect(header.locator('.page-attention[data-attention="projects"]')).not.toHaveAttribute(
     'role',
@@ -355,6 +368,7 @@ test('at 390px More pins and unpins, hides archived/read-only actions, and keeps
   await notice.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(notice).toHaveCount(0);
   await expect(header.locator('.page-attention[data-attention="projects"]')).toHaveCount(0);
+  expect(await layout()).toEqual(beforeNotice);
 
   await open(page, 390, 'light', { pinFail: 'CAPACITY' });
   await (await pageAction(host, text.pageList.pinItem)).click();

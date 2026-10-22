@@ -90,12 +90,9 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-/* Host placement only; the shared inline Alert owns the notice's surface and type. */
-.page-pin-notice {
-  position: fixed;
-  inset-inline: 0;
-  top: calc(var(--colab-header-height) + env(safe-area-inset-top, 0px));
-  z-index: 40;
+/* When an update row shares the shell bar, the refusal follows it in the same flow. */
+.tmt-ui-shell-bar > .page-pin-notice {
+  order: 2;
 }
 .page-pin-notice-content {
   display: flex;

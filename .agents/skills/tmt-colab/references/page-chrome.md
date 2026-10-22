@@ -63,8 +63,8 @@ the page. The owner list is also read when the picker opens and after each write
 write projects shows none of it. The desktop pin beside the chips and the phone's More item use
 the same `PageProjects` write, owner-list refresh and refusal words; the menu only projects its
 confirmed pin state and pending write. Archived pages and non-writers have no pin item. Below 480px a pin
-refusal also appears in a closable shared inline Alert under the header, using the same refusal
-words. That notice alone announces the failure at that width; the header keeps its mark. Success,
+refusal also appears in a closable shared inline Alert in flow under the header, using the same refusal
+words. In the shell it joins the header slot, pushing the phone sub-bar and page down by its height. That notice alone announces the failure at that width; the header keeps its mark. Success,
 leaving the page or Close clears it; at 480px and wider the existing header alert is unchanged.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.

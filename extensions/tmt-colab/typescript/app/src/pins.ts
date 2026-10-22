@@ -20,9 +20,9 @@ export function pinMenuItem(
   state: PagePinState | undefined,
   compact: boolean,
   canWrite: boolean,
-  archived: boolean,
+  readOnly: boolean,
 ): { key: 'pin'; label: string; disabled: boolean } | undefined {
-  if (!compact || !canWrite || archived || !state) return;
+  if (!compact || !canWrite || readOnly || !state) return;
   return {
     key: 'pin' as const,
     label: state.pinned ? t.unpinItem : t.pinItem,
