@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "packages": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "htm": "3.1.1",
+    "@tailwindcss/browser": "4.3.3"
+  },
+  "files": [
+    {
+      "path": "assets/colab-runtime.js",
+      "sha256": "df76141bcad9e02be9c9afaed1a3909ccadc1b0e90dbda434ba5ed524fb288a6",
+      "length": 473386
+    }
+  ]
+}

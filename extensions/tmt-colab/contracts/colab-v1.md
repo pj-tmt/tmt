@@ -739,6 +739,18 @@ validation. Moving a binary with embedded assets requires no app directory, chec
 or pnpm at runtime. There is no sibling app directory or data-root copy. Native release
 activation and its archive/install proofs remain owned by infra's #1418.
 
+The app also builds the bundled page runtime (#1693) as one flat asset, `assets/colab-runtime.js`: React,
+ReactDOM and htm in one script that sets `window.tmt`, followed by the unmodified Tailwind browser
+script. It is an ordinary inventory file, and `/assets/colab-runtime.js` is on the anonymous list above
+so a reader can load it. No page loads it until the opt-in slice ships, and the renderer CSP is
+unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
+ReactDOM, htm and `@tailwindcss/browser` and the asset's SHA-256 and length, and `scripts/verify-runtime.mjs`
+fails the app build when the bytes or versions differ, when the script exceeds 1.5 MiB, ends a script
+tag, reads `process.env`, references a source map or uses `eval`/`new Function`, or when the notices lack
+any of those four packages. `scripts/runtime-notices.mjs` appends htm's and the Tailwind browser
+script's licenses to `THIRD-PARTY-NOTICES.txt`, since the default build bundles neither. A changed
+dependency or output is therefore a reviewed `runtime-pin.json` diff.
+
 Disk loading MUST admit only nonempty regular files through no-follow directory-
 anchored opens. Both disk and embedded inventories MUST have at most 128 files
 and 16 MiB total. The inventory requires
@@ -756,9 +768,9 @@ content type. Asset access MUST NOT require Colab registration, since the app
 performs that registration. Anonymous root GET retains private-space guidance.
 Without owner context, exactly these static files are served (GET only, the same
 policy headers as owner responses): `/read` (the bytes of `reader.html`),
-`/renderer.html`, `/assets/reader.js`, `/assets/reader.css`, `/assets/reader-fold.js` and
-`/assets/recovery.js`, plus the native `/assets/chrome.css` stylesheet, which is also available
-without an app build. They are public static bytes with no secret and no API. Every
+`/renderer.html`, `/assets/reader.js`, `/assets/reader.css`, `/assets/reader-fold.js`,
+`/assets/colab-runtime.js` and `/assets/recovery.js`, plus the native `/assets/chrome.css` stylesheet,
+which is also available without an app build. They are public static bytes with no secret and no API. Every
 other asset request without owner context, including `/index.html`, `/reader.html`,
 `/THIRD-PARTY-NOTICES.txt` and the hashed owner assets, returns 403. `/read` has no trailing
 slash so the entry's relative `./assets/` and `./renderer.html` references resolve under the mount. Unknown paths and owner
