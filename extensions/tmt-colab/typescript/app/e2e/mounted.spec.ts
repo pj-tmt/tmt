@@ -623,9 +623,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   expect(capability.get('seed')).toMatch(/^[A-Za-z0-9_-]{43}$/);
   expect(capability.get('page')).toBe(pageId);
   await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
-  await expect(dialog).toContainText(
-    'Anyone with the link can open this page in a read-only view.',
-  );
+  await expect(dialog).toContainText('People with this link can read this page.');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await choose(dialog, 'Who can open this page', 'Named members only');
   await expect(dialog).toContainText('Existing links stop working on these pages');
