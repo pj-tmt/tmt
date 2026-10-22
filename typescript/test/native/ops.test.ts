@@ -5092,8 +5092,8 @@ describe('large board responsiveness', () => {
           pointer(0, location.x + 12, 'm');
           await vi.waitFor(
             () => {
-              expect(readFileSync(copied, 'utf8')).toBe('first styled');
-              expect(screen()).toContain('Copied 12 characters');
+              expect(readFileSync(copied, 'utf8')).toBe('first **styled**');
+              expect(screen()).toContain('Copied 16 characters');
             },
             { timeout: 10_000, interval: 50 }
           );
@@ -5110,8 +5110,8 @@ describe('large board responsiveness', () => {
             () =>
               expect(screen()).toContain(
                 theme === 'NO_COLOR'
-                  ? '[Quote worker: first styled x]'
-                  : 'Quote · worker: first styled ×'
+                  ? '[Quote worker: first **styled** x]'
+                  : 'Quote · worker: first **styled** ×'
               ),
             {
               timeout: 10_000,
@@ -5127,13 +5127,13 @@ describe('large board responsiveness', () => {
           // The quote is an Editor fold on the preceding line. Moving to it
           // keeps the caret in the Editor and Ctrl-P previews its full source.
           tmux(['send-keys', '-t', pane, 'Home', 'Up', 'End', 'C-p']);
-          await vi.waitFor(() => expect(screen()).toContain('Quote · 12 chars · 1 line'), {
+          await vi.waitFor(() => expect(screen()).toContain('Quote · 16 chars · 1 line'), {
             timeout: 10_000,
             interval: 50,
           });
           capture('inline-quote-preview');
           tmux(['send-keys', '-t', pane, 'Escape']);
-          await vi.waitFor(() => expect(screen()).not.toContain('Quote · 12 chars · 1 line'), {
+          await vi.waitFor(() => expect(screen()).not.toContain('Quote · 16 chars · 1 line'), {
             timeout: 10_000,
             interval: 50,
           });
@@ -5176,7 +5176,7 @@ describe('large board responsiveness', () => {
           });
           capture('sent');
           expect(JSON.parse(delivered.stdout).prompt.message).toBe(
-            '[product · worker]\n> "first styled"\ntyped comment'
+            '[product · worker]\n> "first **styled**"\ntyped comment'
           );
           expect(
             JSON.parse((await runCli(sandbox, ['result', request, '--json'])).stdout).response
