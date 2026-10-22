@@ -785,7 +785,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         && legend.is_none()
         && app.error.is_none()
         && app.migration_notice.is_none()
-        && let Some(hint) = app.rendered_selection_hint()
+        && let Some(hint) = app.rendered_selection_hint(usize::from(footer.width))
     {
         strip::paint_left(
             frame.buffer_mut(),

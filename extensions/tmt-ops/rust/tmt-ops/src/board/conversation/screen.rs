@@ -199,15 +199,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, target:
 
 /// Paints the screen, or the one line that says why there is none, into `body`.
 pub(super) fn paint(frame: &mut Frame, app: &App, session: &mut Session, body: Rect, look: Look) {
+    // A message is drawn through the same scroll owner as a screen, so the pane
+    // counts as visible and the first read is requested.
     let say = |frame: &mut Frame, text: String| {
-        tmt_tui::components::strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(body.x, body.y, body.width, 1),
-            Line::styled(
-                crate::board::view::fit(&text, usize::from(body.width)),
-                look.role(Role::Muted),
-            ),
+        let line = Line::styled(
+            crate::board::view::fit(&text, usize::from(body.width)),
+            look.role(Role::Muted),
         );
+        app.scrolls
+            .show_with(frame, Pane::Replies, body, &[line], look, |_, line| {
+                line.clone()
+            });
     };
     match &session.screen {
         Observation::Pending => say(frame, "Reading the screen…".into()),
@@ -236,7 +238,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, session: &mut Session, body: R
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::board) mod tests {
     use super::*;
     use crate::board::{
         app::workspace::tests::{MEMBER, board},
@@ -248,6 +250,74 @@ mod tests {
         backend::TestBackend,
         crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
     };
+
+    pub(in crate::board) const SCENES: &[&str] = &[
+        "screen-live",
+        "screen-clipped",
+        "screen-reading",
+        "screen-gone",
+        "screen-stale",
+    ];
+
+    /// The Talk pane showing the selected agent's live screen; the read happened 3 s before
+    /// the scoped clock the oracle draws with, and the rows are fixed text.
+    pub(in crate::board) fn capture_case(
+        scene: &str,
+        look: crate::look::Look,
+        width: u16,
+        height: u16,
+    ) -> App {
+        const NOW: u64 = 1_791_600_000_000;
+        let mut app = board();
+        app.view.as_mut().unwrap().look = look;
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .clear();
+        app.focus = 1;
+        press_l(&mut app);
+        let read_ms = NOW - 3_000;
+        let live = "\u{1b}[1m$ cargo test\u{1b}[0m\n\
+            \u{1b}[32m   Compiling\u{1b}[0m tmt-ops v0.1.0\n\
+            \u{1b}[33mwarning\u{1b}[0m: unused variable: `x`\n\
+            \u{1b}[31merror[E0308]\u{1b}[0m: mismatched types\n\
+            \u{1b}[2m  --> src/lib.rs:12:5\u{1b}[0m\n\
+            \u{1b}[7m running 3 tests \u{1b}[0m\n\
+            test a ... \u{1b}[32mok\u{1b}[0m\n\
+            test b ... \u{1b}[31mFAILED\u{1b}[0m";
+        let observation = match scene {
+            "screen-live" => screen(live, read_ms),
+            "screen-clipped" => screen(&format!("{live}\n{}", "0123456789".repeat(24)), read_ms),
+            "screen-gone" => Observation::Gone,
+            "screen-stale" => screen(live, read_ms),
+            _ => Observation::Pending,
+        };
+        let key = key_of(&app);
+        // The pane has to be drawn before it can take a read, and the reads land on the
+        // scoped clock: the first at the time it was made, the failure at `NOW`.
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        crate::status::with_now_ms(read_ms, || {
+            app.apply_pane_screen(key.clone(), 0, observation);
+        });
+        if scene == "screen-stale" {
+            crate::status::with_now_ms(NOW, || {
+                app.apply_pane_screen(
+                    key,
+                    1,
+                    Observation::Unavailable("the host did not answer in time".into()),
+                );
+            });
+        }
+        app
+    }
 
     fn reader() -> App {
         let mut app = board();

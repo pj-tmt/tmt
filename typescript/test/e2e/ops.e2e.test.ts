@@ -1347,27 +1347,32 @@ renameSync(output+'.tmp',output);
       // Off by default: the chat, not the pane.
       expect(screen()).not.toContain('red words');
 
-      // v on the Talk pane shows the live screen.
-      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'v']);
+      // l on the Talk pane shows the live screen.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'l']);
       await fixture.waitForCapture((current) => current.includes('Live screen'), shell.pane);
-      await fixture.waitForCapture((current) => current.includes('red words plain'), shell.pane);
+      await fixture.waitFor(
+        () => screen().includes('red words plain'),
+        10_000,
+        `the pane screen:\n${screen()}`
+      );
       // The colour survived: the word sits after a colour escape that its neighbours lack.
       const row = colored()
         .split('\n')
         .find((line) => line.includes('red words'))!;
-      expect(row, row).toMatch(/\u001b\[[0-9;]*31m[^\u001b]*red words/);
-      expect(row).not.toMatch(/31m[^\u001b]*plain/);
+      expect(row, row).toMatch(/\u001b\[(?:[0-9;]*;)?(?:31|38;5;1)m[^\u001b]*red words/);
+      expect(row).not.toMatch(/(?:31|38;5;1)m[^\u001b]*plain/);
 
       // It follows the pane: the counter moves within a few polls.
-      const tick = () => /tick (\d+)/.exec(screen().split('Live screen').join(''))?.[1];
+      const tick = () => [...screen().matchAll(/tick (\d+)/g)].at(-1)?.[1];
       const first = await (async () => {
         await fixture.waitFor(() => tick() !== undefined, 10_000, `a tick:\n${screen()}`);
         return Number(tick());
       })();
       await fixture.waitFor(() => Number(tick()) > first, 10_000, `the screen moves:\n${screen()}`);
 
-      // v again returns to the chat and the reads stop.
-      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'v']);
+      // l again returns to the chat and the reads stop.
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'l']);
       await fixture.waitForCapture((current) => !current.includes('Live screen'), shell.pane);
       expect(screen()).not.toContain('red words');
       void member;
