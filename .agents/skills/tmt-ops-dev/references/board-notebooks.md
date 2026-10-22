@@ -114,7 +114,10 @@ capture by exact sender/recipient/request ID. Delivery labels keep `reason.text`
 verbatim, beside a mark from Core's state and its supplied countdown; capture and
 local activity never override that line. The ordered send worker also observes the
 accepted request once through `requests.show`. Missing state keeps the legacy
-local label. Answered captures show bounded safe Markdown as `turn output` (with
+local label. The same `messageState.canSendNow` of the newest own message drives the Send now
+chip on the conversation's footer row, with `Ctrl-S` (an authored binding wins outside the
+editor): one `tmt send-now` per press as the person, the chip disabled until Core answers, and
+the notice is Core's sentence or the re-read state label, never local wording. Answered captures show bounded safe Markdown as `turn output` (with
 Core's truncation flag), and `no_answer` names the missing output. A bound turn has
 no local ten-minute expiry. Captures never become ordinary replies or exact response attachments;
 no pane observation decides capture or settlement. The exact provider/time/body

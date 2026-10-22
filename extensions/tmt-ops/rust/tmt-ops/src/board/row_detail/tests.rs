@@ -940,6 +940,36 @@ fn a_restored_send_whose_record_is_gone_says_it_is_truncated_and_how_to_open_it(
     );
 }
 
+/// Core's `canSendNow` survives the restart: the restored send is the newest own message, and the
+/// chip follows Core's answer for it, not the text or the age.
+#[test]
+fn a_restored_send_offers_send_now_only_when_core_says_it_can_go() {
+    use crate::board::app::workspace::tests::board;
+    for can_send_now in [true, false] {
+        let mut app = board();
+        draw(&app, 148, 51);
+        if let Some(finals) = app.finals_read() {
+            app.apply_finals(finals, Ok(vec![]));
+            draw(&app, 148, 51);
+        }
+        let Some(key) = app.sent_read() else {
+            panic!("sends are read");
+        };
+        let mut send = own_send(
+            "req_held",
+            crate::status::now_ms() - 5_000,
+            "wait for me",
+            false,
+        );
+        send["messageState"] = json!({"state":"batched","canSendNow":can_send_now,
+            "reason":{"text":"batched to save usage, sends when the agent finishes this turn"}});
+        app.apply_sent(key, Ok(vec![send]));
+        let screen = text(&draw(&app, 148, 51));
+        assert!(screen.contains("batched to save usage"), "{screen}");
+        assert_eq!(screen.contains("Send now · "), can_send_now, "{screen}");
+    }
+}
+
 #[test]
 fn a_failed_or_stale_sent_read_is_not_retried_and_hides_nothing() {
     use crate::board::app::workspace::tests::board;
