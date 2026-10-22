@@ -1465,7 +1465,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                     weight: font.fontWeight,
                     left: element.getBoundingClientRect().left,
                     // A visually hidden part keeps its node and name but clips its box away.
-                    clipped: getComputedStyle(element.closest('.tmt-ui-brand') ?? element).clipPath !== 'none',
+                    clipped:
+                      getComputedStyle(element.closest('.tmt-ui-brand') ?? element).clipPath !==
+                      'none',
                   };
                 };
                 return {
