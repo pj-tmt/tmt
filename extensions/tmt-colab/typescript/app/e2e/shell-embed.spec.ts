@@ -191,9 +191,10 @@ test('with the page in the panel, @ opens the embedded page’s Chat and Esc clo
   await decideHere(page);
   await expect(panel(page).locator('iframe')).toBeVisible();
   // Typing in the panel, not in a field: the shell page behind it and the embedded page both listen
-  // on the document, and only the page in the panel may act.
+  // on the document, and only the page in the panel may act. The shell page cannot: its own panel is
+  // an open overlay to it, and a dashboard has no document to select from (so C does nothing there).
   await panel(page).getByRole('link', { name: t.openFullPage }).focus();
-  await page.keyboard.press('Shift+2');
+  await page.keyboard.type('@');
   const chat = page.getByRole('dialog', { name: text.chat });
   await expect(chat).toBeVisible();
   await expect(chat).toHaveCount(1);

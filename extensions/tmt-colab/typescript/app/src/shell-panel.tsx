@@ -76,11 +76,17 @@ export function ChapterPanel({
       {here && embed ? (
         <div className="shell-panel shell-panel-page">
           <div className="shell-panel-bar">
-            <button type="button" className="shell-open" onClick={() => setHere(false)}>
+            <button
+              type="button"
+              className="tmt-ui-action shell-open"
+              data-variant="text"
+              onClick={() => setHere(false)}
+            >
               {t.backToSummary}
             </button>
             <Link
-              className="shell-open"
+              className="tmt-ui-action shell-open"
+              data-variant="text"
               to="/pages/$pageId"
               params={{ pageId: chapter.pageId }}
               onClick={() => {
@@ -97,7 +103,12 @@ export function ChapterPanel({
       ) : (
         <div className="shell-panel">
           {embed && (
-            <button type="button" className="shell-open" onClick={() => setHere(true)}>
+            <button
+              type="button"
+              className="tmt-ui-action shell-open"
+              data-variant="text"
+              onClick={() => setHere(true)}
+            >
               {t.decideHere}
             </button>
           )}
@@ -121,7 +132,8 @@ export function ChapterPanel({
                   {need.why && <p className="shell-passage-why">{need.why}</p>}
                   {need.kind === 'reading' ? (
                     <Link
-                      className="shell-open"
+                      className="tmt-ui-action shell-open"
+                      data-variant="text"
                       to="/pages/$pageId"
                       params={{ pageId: chapter.pageId }}
                       search={{ read: need.id }}
@@ -132,7 +144,8 @@ export function ChapterPanel({
                     </Link>
                   ) : (
                     <Link
-                      className="shell-open"
+                      className="tmt-ui-action shell-open"
+                      data-variant="text"
                       to="/pages/$pageId"
                       params={{ pageId: chapter.pageId }}
                       onClick={onOpen}
@@ -154,7 +167,8 @@ export function ChapterPanel({
           {needs.length > 0 && latest && <LatestBlock latest={latest} now={now} />}
           {needs.length === 0 && chapter.anchor !== undefined && (
             <Link
-              className="shell-open"
+              className="tmt-ui-action shell-open"
+              data-variant="text"
               to="/pages/$pageId"
               params={{ pageId: chapter.pageId }}
               search={{ anchor: chapter.anchor }}
@@ -165,7 +179,8 @@ export function ChapterPanel({
             </Link>
           )}
           <Link
-            className="shell-open"
+            className="tmt-ui-action shell-open"
+            data-variant="text"
             to="/pages/$pageId"
             params={{ pageId: chapter.pageId }}
             onClick={onOpen}

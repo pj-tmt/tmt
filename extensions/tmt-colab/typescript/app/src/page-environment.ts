@@ -76,11 +76,27 @@ export const PageEnvironmentProvider = PageEnvironmentContext.Provider;
 export const usePageEnvironment = () => useContext(PageEnvironmentContext);
 
 /** The environment of a page hosted in a panel of another page: it names nothing in the tab (the host
- * page owns the title), carries no thread in the address, and otherwise reads the host's. */
-export function embeddedPageEnvironment(host: PageEnvironment): PageEnvironment {
+ * page owns the title), carries no thread in the address, and reads the host's otherwise, except that
+ * the panel it sits in is not an overlay over it: only a layer that does not contain `within()` is.
+ * `within` is an element of the hosted page. */
+export function embeddedPageEnvironment(
+  host: PageEnvironment,
+  within: () => Element | null,
+): PageEnvironment {
+  const outside = (node: Element) => {
+    const page = within();
+    return !page || !node.contains(page);
+  };
   return {
     ...host,
     setTitle: () => () => undefined,
     threadFragment: () => undefined,
+    modalOpen: () =>
+      [...document.querySelectorAll('dialog:modal')].some((dialog) => outside(dialog)),
+    overlayOpen: (except) =>
+      [...document.querySelectorAll<HTMLElement>('[role="menu"], dialog[open]')].some(
+        (node) =>
+          node.getClientRects().length > 0 && node.dataset.panel !== except && outside(node),
+      ),
   };
 }

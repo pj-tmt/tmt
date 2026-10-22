@@ -1148,32 +1148,33 @@ function EmbeddedPage({ pageId }: { pageId: string }) {
     () => ({ ...routePageRouting(router), home: (brand) => brand, scopeCrumb: () => null }),
     [router],
   );
-  const environment = useMemo(() => embeddedPageEnvironment(host), [host]);
-  if (loaded === undefined)
-    return (
-      <p className="shell-state" role="status">
-        <BusyMark /> {text.loading}
-      </p>
-    );
-  if (loaded === 'failed')
-    return (
-      <p className="shell-state" role="status">
-        {text.blocked}
-      </p>
-    );
+  const wrap = useRef<HTMLDivElement>(null);
+  const environment = useMemo(() => embeddedPageEnvironment(host, () => wrap.current), [host]);
   return (
-    <PageEnvironmentProvider value={environment}>
-      <OpenPage
-        key={pageId}
-        embedded
-        transport={transport}
-        space={space}
-        loaded={loaded}
-        search={{}}
-        scope={undefined}
-        routing={routing}
-      />
-    </PageEnvironmentProvider>
+    <div className="shell-embedded" ref={wrap}>
+      {loaded === undefined ? (
+        <p className="shell-state" role="status">
+          <BusyMark /> {text.loading}
+        </p>
+      ) : loaded === 'failed' ? (
+        <p className="shell-state" role="status">
+          {text.blocked}
+        </p>
+      ) : (
+        <PageEnvironmentProvider value={environment}>
+          <OpenPage
+            key={pageId}
+            embedded
+            transport={transport}
+            space={space}
+            loaded={loaded}
+            search={{}}
+            scope={undefined}
+            routing={routing}
+          />
+        </PageEnvironmentProvider>
+      )}
+    </div>
   );
 }
 
