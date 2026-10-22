@@ -17,11 +17,26 @@ use tmt_core::{
     endpoint::ProcessIncarnation,
 };
 
-/// Check the original attachment before binding reconciliation can discard its
-/// process key. The native read and captured row share the existing writer lock;
-/// binding and final launch admission still recheck their own current evidence.
+/// Capture the original attachment before binding reconciliation can discard its
+/// process key, then release the writer before probing it. Binding and final
+/// launch admission recheck current evidence after this read-only preflight.
 pub(super) fn preflight_attached(storage: &mut Storage, identity_id: &str) -> Result<(), Failure> {
-    storage
+    preflight_attached_with(storage, identity_id, |expected| {
+        tmt_adapters::process::runtime::observe_runtime_process(
+            &tmt_adapters::process::UnixCommandRunner,
+            expected.pid(),
+            std::time::Instant::now() + std::time::Duration::from_secs(3),
+        )
+        .unwrap_or(tmt_adapters::process::runtime::ProcessObservation::Unknown)
+    })
+}
+
+fn preflight_attached_with(
+    storage: &mut Storage,
+    identity_id: &str,
+    observe: impl FnOnce(&ProcessIncarnation) -> tmt_adapters::process::runtime::ProcessObservation,
+) -> Result<(), Failure> {
+    let captured = storage
         .with_binding_transaction::<_, StorageError>(|records| {
             let Some(entry) = records.entry_by_id(identity_id)? else {
                 return Ok(Err(Failure::new(
@@ -31,19 +46,18 @@ pub(super) fn preflight_attached(storage: &mut Storage, identity_id: &str) -> Re
                 )));
             };
             let preferences = records.session_preferences(identity_id)?;
-            let Some(binding) = entry.binding else { return Ok(Ok(())); };
-            let Some(session) = preferences.remembered else { return Ok(Ok(())); };
-            let Some(key) = binding.session.key.as_ref().filter(|key| {
+            let Some(binding) = entry.binding else { return Ok(Ok(None)); };
+            let Some(session) = preferences.remembered else { return Ok(Ok(None)); };
+            let Some(key) = binding.session.key.filter(|key| {
                 key.provider_session.as_ref() == Some(&session.provider_session)
-            }) else { return Ok(Ok(())); };
-            let observation = tmt_adapters::process::runtime::observe_runtime_process(
-                &tmt_adapters::process::UnixCommandRunner,
-                key.incarnation.pid(),
-                std::time::Instant::now() + std::time::Duration::from_secs(3),
-            ).unwrap_or(tmt_adapters::process::runtime::ProcessObservation::Unknown);
-            Ok(check_process(&entry.identity.name, &binding.pane_id, &key.incarnation, &observation))
+            }) else { return Ok(Ok(None)); };
+            Ok(Ok(Some((entry.identity.name, binding.pane_id, key.incarnation))))
         })
-        .map_err(storage_failure)?
+        .map_err(storage_failure)??;
+    let Some((name, pane, expected)) = captured else {
+        return Ok(());
+    };
+    check_process(&name, &pane, &expected, &observe(&expected))
 }
 
 pub(super) fn check_process(
@@ -414,6 +428,18 @@ mod exit_tests {
                 })
                 .unwrap();
             let remembered = preferences.remembered.clone().unwrap();
+            if case == "unchanged" {
+                let refusal = preflight_attached_with(&mut storage, &identity.id, |expected| {
+                    // An independent zero-wait hook writer must be admitted while
+                    // the process probe is in flight, without retry or delay.
+                    let writer = rusqlite::Connection::open(&paths.database).unwrap();
+                    writer.busy_timeout(std::time::Duration::ZERO).unwrap();
+                    writer.execute_batch("BEGIN IMMEDIATE; COMMIT;").unwrap();
+                    tmt_adapters::process::runtime::ProcessObservation::Live(expected.clone())
+                })
+                .unwrap_err();
+                assert_eq!(refusal.code, "RUNTIME_CONFLICT");
+            }
             storage
                 .with_binding_transaction::<_, StorageError>(|records| {
                     let mut changed = state.clone();
