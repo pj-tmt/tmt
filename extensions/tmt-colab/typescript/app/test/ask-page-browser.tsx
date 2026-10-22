@@ -36,6 +36,7 @@ import { ThreadStatusCoordinator } from '../src/thread-status-coordinator.js';
 import { projectThreadPresentation } from '../src/thread-status-presentation.js';
 import { ThreadStatusSeen } from '../src/thread-status-view.js';
 import type { ThreadStatusView } from '../src/thread-status.js';
+import type { MessageState } from '../src/message-state.js';
 import { destination, id, pageLink, RemoteDouble, selection } from './ask-fixtures.js';
 let root: Root | undefined;
 let appRouter: ReturnType<typeof createAppRouter> | undefined;
@@ -1315,7 +1316,13 @@ export function conversation(options: {
         : {}),
     },
   ];
-  current = { ...current, threads: [thread], asks: records, agentActivity: undefined };
+  current = {
+    ...current,
+    threads: [thread],
+    asks: records,
+    agentActivity: undefined,
+    messageStates: undefined,
+  };
   emit();
 }
 
@@ -1353,6 +1360,22 @@ export function conversationActivity(options: {
           elapsedMs: 185000,
         },
       ],
+    },
+  };
+  emit();
+}
+
+/** Core's state of the first ask's message, published through the real router projection (#4317);
+ * no `state` takes it away. `ageMs` is how long ago the page read it. */
+export function conversationMessageState(options: { state?: MessageState; ageMs?: number }) {
+  const record = current.asks![0];
+  current = {
+    ...current,
+    messageStates: options.state && {
+      [record.operationId]: {
+        ...options.state,
+        receivedAt: performance.now() - (options.ageMs ?? 0),
+      },
     },
   };
   emit();

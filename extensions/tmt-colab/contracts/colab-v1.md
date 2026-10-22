@@ -2308,6 +2308,38 @@ queued and unknown marks stay neutral. Reduced motion keeps working text static;
 words carry every state, and text and marks remain visible under forced colours.
 `NO_COLOR` is a terminal convention, not a browser setting.
 
+### Message state of a sent message (#4317)
+
+A pending `result` from Remote may carry Core's `messageState` for the message
+([Remote's carriage](../../../contracts/remote-channel-v1.md),
+[Message state](../../../contracts/request-response-v1.md#message-state)). Colab accepts it only
+as exactly `{state, reason:{code,text}, latestMs, remainingMs, canSendNow}`: `state` one of
+`sent`, `batched`, `delivered`, `working`, `unconfirmed`, `not_sent`; `reason.code` a lowercase
+token (an open set: an unknown code still shows its text); `reason.text` non-empty single-line
+plain text of at most 512 bytes; `latestMs` and `remainingMs` both null or both non-negative
+safe integers; `canSendNow` a boolean. Anything else, and a field on a replied or unavailable
+result, is no state and is never repaired or partly drawn. It is display only: with no state
+(an older Remote, a reply, an unavailable result, a field that does not parse) the ask shows the
+working-state line above, unchanged.
+
+The state is a live observation, never a ledger record: `AskController.recover` reads it with the
+result of each unresolved accepted ask, at the Ask observer's cadence, and reports it to the page
+only when it changes what is shown (the state, Core's wording, `canSendNow`, the deadline, or a
+remainder more than two seconds away from the page's own countdown). A failed read, a reply, an
+unavailable result, the end of the session and the end of the observation take it away. It does
+not touch the signed own-stream records, so a reload shows the plain line until the first read.
+
+With a state the line is one symbol, Core's `reason.text` with its first letter capitalized, and
+for a `batched` message with a remainder ` · in m:ss`, counted down by the page clock from the
+remainder at the read and never below `0:00`: `○` sent, `◌` batched, `✓` delivered, the working
+spinner for `working` (followed by the agent's elapsed `m:ss` when the activity observation has
+it), `?` unconfirmed, `✗` not sent. Only `✓` and the spinner use the working colour and `✗` the
+blocked colour; all text stays neutral. Colab's own states are not Core's and are unchanged:
+`dispatching`, `held` (waiting for approval on the machine, never `batched`), `uncertain` (the
+Remote send outcome is unknown) and the refused, failed, cancelled, expired and abandoned
+outcomes before Core. `canSendNow` is kept with the state and drawn nowhere here: the Send now
+action is separate (#4136).
+
 Hosted currently has no `agents.list` operation and adds no call or native fallback;
 missing observation stays `Sent`. A future hosted inventory cadence is no faster
 than 60 seconds, with a 120-second freshness bound and the same Ask horizon. These

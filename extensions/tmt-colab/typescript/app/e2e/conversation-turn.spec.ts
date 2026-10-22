@@ -971,6 +971,119 @@ for (const [width, theme] of [
     expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
   });
 
+/** Core's message state as Remote carries it (#4317); the wording is Core's own. */
+const core = (
+  state: string,
+  code: string,
+  text: string,
+  extra: { remainingMs?: number; canSendNow?: boolean } = {},
+) => ({
+  state,
+  reason: { code, text },
+  latestMs: extra.remainingMs === undefined ? null : 1_700_000_000_000 + extra.remainingMs,
+  remainingMs: extra.remainingMs ?? null,
+  canSendNow: extra.canSendNow ?? false,
+});
+for (const surface of ['chat', 'thread'] as const)
+  for (const theme of ['light', 'dark'] as const)
+    test(`Core's message state replaces the Sent line and counts down: ${surface} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'no-preference' });
+      await mount(page, surface);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const window =
+        surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+      const status = window.getByTestId('ask-state');
+      await expect(status).toHaveText('Sent');
+      const before = await run(page, 'proof');
+      for (const [state, expected, mark] of [
+        [
+          core('sent', 'waiting_for_delivery', 'waiting for delivery', { canSendNow: true }),
+          'Waiting for delivery',
+          '○',
+        ],
+        [
+          core(
+            'batched',
+            'held_to_save_usage',
+            'batched to save usage, sends when the agent finishes this turn',
+            { remainingMs: 151_000, canSendNow: true },
+          ),
+          /^◌ Batched to save usage, sends when the agent finishes this turn · in 2:[0-5]\d$/,
+          '◌',
+        ],
+        [core('delivered', 'reached_the_agent', 'delivered'), 'Delivered', '✓'],
+        [
+          core('working', 'agent_working', 'the agent has started on it'),
+          'The agent has started on it',
+          '',
+        ],
+        [
+          core(
+            'unconfirmed',
+            'handed_over',
+            'handed to the agent, delivery unconfirmed, do not resend',
+          ),
+          'Handed to the agent, delivery unconfirmed, do not resend',
+          '?',
+        ],
+        [
+          core('not_sent', 'unreachable', 'not sent, the agent could not be reached'),
+          'Not sent, the agent could not be reached',
+          '✗',
+        ],
+      ] as const) {
+        await run(page, 'conversationMessageState', { state });
+        const line = status.locator('.agent-activity');
+        await expect(line).toHaveAttribute('data-message-state', state.state);
+        if (typeof expected === 'string') await expect(status).toContainText(expected);
+        else await expect(status).toHaveText(expected);
+        if (mark) await expect(line.locator('.agent-activity-mark')).toHaveText(mark);
+        await expect(line.locator('.agent-activity-spinner')).toHaveCount(
+          state.state === 'working' ? 1 : 0,
+        );
+        // Core's wording is drawn as text and no button is offered by this state: Send now is #4136.
+        await expect(window.getByRole('button', { name: /send now/i })).toHaveCount(0);
+        const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
+        if (captures) {
+          mkdirSync(captures, { recursive: true });
+          await page.screenshot({
+            path: `${captures}/message-state-${surface}-${theme}-${state.state}.png`,
+          });
+        }
+      }
+      // A countdown ticks by itself, from the remainder Core gave when the page read it.
+      await run(page, 'conversationMessageState', {
+        state: core(
+          'batched',
+          'held_to_save_usage',
+          'batched to save usage, sends when the agent finishes this turn',
+          { remainingMs: 151_000 },
+        ),
+      });
+      const first = await status.textContent();
+      await expect.poll(async () => status.textContent()).not.toBe(first);
+      // It never goes below zero.
+      await run(page, 'conversationMessageState', {
+        state: core(
+          'batched',
+          'held_to_save_usage',
+          'batched to save usage, sends when the agent finishes this turn',
+          { remainingMs: 1_000 },
+        ),
+        ageMs: 60_000,
+      });
+      await expect(status).toContainText('· in 0:00');
+      // A state taken away leaves the line it was before.
+      await run(page, 'conversationMessageState', {});
+      await expect(status).toHaveText('Sent');
+      expect(await run(page, 'proof')).toEqual(before);
+    });
+
 for (const surface of ['chat', 'thread'] as const)
   for (const width of [1440, 390])
     for (const theme of ['light', 'dark'] as const)

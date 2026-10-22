@@ -19,6 +19,7 @@ import {
   refusalReason,
 } from '../src/ask-remote.js';
 import type { OwnState } from '../src/fold-protocol.js';
+import type { MessageState } from '../src/message-state.js';
 import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
 const draft = new Map<string, unknown>();
 let storageFailure: 'read' | 'write' | 'delete' | undefined;
@@ -51,7 +52,10 @@ const vector = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/send-preview-v1.json', import.meta.url), 'utf8'),
 );
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (v) => parseInt(v, 16));
-async function setup(onPublish?: (root: string) => void) {
+async function setup(
+  onPublish?: (root: string) => void,
+  options: Partial<AskControllerOptions> = {},
+) {
   draft.clear();
   storageFailure = undefined;
   const key = await crypto.subtle.importKey(
@@ -74,7 +78,7 @@ async function setup(onPublish?: (root: string) => void) {
     },
   });
   const remote = new RemoteDouble();
-  const controller = new AskController({ store, remote, key, selection });
+  const controller = new AskController({ store, remote, key, selection, ...options });
   return { key, own, store, remote, controller };
 }
 it('coalesces concurrent inventory reads and never gates Send on missing optional activity', async () => {
@@ -1887,4 +1891,159 @@ describe('active Ask observation', () => {
       await f.observing;
     }
   });
+});
+
+// Core's message state (#4317): a live observation of an accepted ask, read with its result and
+// never written to the signed ledger (the remainder changes every second).
+const batched = (remainingMs = 151_000) => ({
+  state: 'batched' as const,
+  reason: {
+    code: 'held_to_save_usage',
+    text: 'batched to save usage, sends when the agent finishes this turn',
+  },
+  latestMs: 1_700_000_150_000,
+  remainingMs,
+  canSendNow: true,
+});
+async function observedAsk() {
+  const seen: [string, unknown][] = [];
+  const parts = await setup(undefined, {
+    messageStateObserved: (operationId, observed) => seen.push([operationId, observed]),
+  });
+  await parts.controller.destinations();
+  const frozen = parts.controller.prepare(destination());
+  await parts.controller.send(frozen);
+  return { ...parts, seen, operationId: frozen.view.operationId };
+}
+
+it('an accepted ask reports the state Core gave with its result, and writes nothing to the ledger', async () => {
+  const { controller, remote, own, seen, operationId } = await observedAsk();
+  const before = structuredClone(own);
+  remote.result = async (requestId) => ({
+    state: 'pending',
+    requestId,
+    messageState: batched(),
+  });
+  await controller.recover(operationId);
+  expect(seen).toEqual([[operationId, { ...batched(), receivedAt: expect.any(Number) }]]);
+  expect(own).toEqual(before);
+});
+
+it('a read that shows nothing new reports nothing, and one that moved reports it', async () => {
+  const { controller, remote, seen, operationId } = await observedAsk();
+  let state: MessageState = batched();
+  remote.result = async (requestId) => ({ state: 'pending', requestId, messageState: state });
+  await controller.recover(operationId);
+  await controller.recover(operationId);
+  expect(seen).toHaveLength(1);
+  // Core's remainder agrees with the page's own countdown within a couple of seconds: still nothing.
+  state = batched(150_000);
+  await controller.recover(operationId);
+  expect(seen).toHaveLength(1);
+  // The message moved on, or Core's clock disagrees by more than the page's: report it.
+  state = {
+    ...batched(),
+    state: 'delivered',
+    reason: { code: 'reached_the_agent', text: 'delivered' },
+    latestMs: null,
+    remainingMs: null,
+    canSendNow: false,
+  };
+  await controller.recover(operationId);
+  expect(seen).toHaveLength(2);
+  expect(seen[1][1]).toMatchObject({ state: 'delivered', canSendNow: false });
+});
+
+it('takes the state away when the ask has its reply, the result is unavailable or the read fails', async () => {
+  const { controller, remote, seen, operationId } = await observedAsk();
+  const show = () => {
+    remote.result = async (requestId) => ({ state: 'pending', requestId, messageState: batched() });
+  };
+  show();
+  await controller.recover(operationId);
+  remote.result = async (requestId) => ({ state: 'unavailable', requestId, reason: 'gone' });
+  await controller.recover(operationId);
+  expect(seen.at(-1)).toEqual([operationId, undefined]);
+  expect(seen).toHaveLength(2);
+  // A read that fails cannot vouch for what was shown.
+  const failing = await observedAsk();
+  failing.remote.result = async (requestId) => ({
+    state: 'pending',
+    requestId,
+    messageState: batched(),
+  });
+  await failing.controller.recover(failing.operationId);
+  failing.remote.result = async () => {
+    throw new ReadRefusedError('REMOTE_CORE_UNAVAILABLE');
+  };
+  await expect(failing.controller.recover(failing.operationId)).rejects.toBeInstanceOf(
+    ReadRefusedError,
+  );
+  expect(failing.seen.at(-1)).toEqual([failing.operationId, undefined]);
+  // A reply ends it too.
+  const replied = await observedAsk();
+  replied.remote.result = async (requestId) => ({
+    state: 'pending',
+    requestId,
+    messageState: batched(),
+  });
+  await replied.controller.recover(replied.operationId);
+  replied.remote.result = async (requestId) => ({ state: 'replied', requestId, message: 'done' });
+  await replied.controller.recover(replied.operationId);
+  expect(replied.seen.at(-1)).toEqual([replied.operationId, undefined]);
+});
+
+it('takes a shown state away when a later pending read carries none', async () => {
+  // The adapter has already dropped a field that did not parse, so the controller sees none.
+  const { controller, remote, seen, operationId } = await observedAsk();
+  remote.result = async (requestId) => ({ state: 'pending', requestId });
+  await controller.recover(operationId);
+  expect(seen).toEqual([]);
+  remote.result = async (requestId) => ({ state: 'pending', requestId, messageState: batched() });
+  await controller.recover(operationId);
+  remote.result = async (requestId) => ({ state: 'pending', requestId });
+  await controller.recover(operationId);
+  expect(seen.map(([, observed]) => observed === undefined)).toEqual([false, true]);
+});
+
+it('stopping the observation takes every shown state away', async () => {
+  const { controller, remote, seen, operationId } = await observedAsk();
+  remote.result = async (requestId) => ({ state: 'pending', requestId, messageState: batched() });
+  await controller.recover(operationId);
+  const stop = new AbortController();
+  const done = controller.observe(stop.signal);
+  stop.abort();
+  await done;
+  expect(seen.at(-1)).toEqual([operationId, undefined]);
+});
+
+it('the SDK adapter parses the state a pending result carries and leaves any other result alone', async () => {
+  const valid = batched();
+  const results: Record<string, unknown> = {};
+  const adapter = await createRemoteClient(
+    new URL('http://example.test/x/colab/'),
+    {
+      operations: () => ({
+        listAgents: async () => [],
+        send: async () => ({ state: 'held' as const, operationId: id(9) }),
+        operation: async () => ({ state: 'held' as const, operationId: id(9) }),
+        result: async (requestId: string) => results[requestId] as never,
+      }),
+    },
+    { sessionId: id(7), serverTimeMs: Date.now(), grantRevision: 1, expiresAtMs: null },
+  );
+  const a = `req_${id(8)}`;
+  const b = `req_${id(10)}`;
+  results[a] = { state: 'pending', requestId: a, messageState: valid };
+  expect(await adapter.result(a)).toEqual({ state: 'pending', requestId: a, messageState: valid });
+  // A pending result from a Remote that has no state, or one that does not parse, is a plain pending.
+  results[a] = { state: 'pending', requestId: a };
+  expect(await adapter.result(a)).toEqual({ state: 'pending', requestId: a });
+  results[a] = { state: 'pending', requestId: a, messageState: { ...valid, state: 'queued' } };
+  expect(await adapter.result(a)).toEqual({ state: 'pending', requestId: a });
+  // After a reply or when unavailable there is no state, and nothing smuggled with it survives.
+  results[b] = { state: 'replied', requestId: b, message: 'done', messageState: valid };
+  expect(await adapter.result(b)).toEqual({ state: 'replied', requestId: b, message: 'done' });
+  results[b] = { state: 'unavailable', requestId: b, reason: 'gone', messageState: valid };
+  expect(await adapter.result(b)).toEqual({ state: 'unavailable', requestId: b, reason: 'gone' });
 });

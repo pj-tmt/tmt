@@ -143,7 +143,7 @@ export class Live implements PageBinding {
   }
   #replaceAsk(remote: RemoteClient | null) {
     this.#refreshOlderAsks = true;
-    this.#projection = { ...this.#projection, agentActivity: undefined };
+    this.#projection = { ...this.#projection, agentActivity: undefined, messageStates: undefined };
     this.#remote = remote;
     this.ask?.close();
     const { bootstrap, page, registration } = this;
@@ -216,6 +216,22 @@ export class Live implements PageBinding {
             )
               return;
             this.#projection = { ...this.#projection, agentActivity };
+            this.#listeners.forEach((value) => value.publish(structuredClone(this.#projection)));
+          },
+          messageStateObserved: (operationId, observed) => {
+            if (
+              this.#closed ||
+              this.#error ||
+              this.ask !== facade ||
+              this.registration !== registration
+            )
+              return;
+            const { [operationId]: _, ...others } = this.#projection.messageStates ?? {};
+            const messageStates = observed ? { ...others, [operationId]: observed } : others;
+            this.#projection = {
+              ...this.#projection,
+              messageStates: Object.keys(messageStates).length ? messageStates : undefined,
+            };
             this.#listeners.forEach((value) => value.publish(structuredClone(this.#projection)));
           },
           observationUnavailable: (unavailable) => {
@@ -391,6 +407,7 @@ export class Live implements PageBinding {
       discussionPending: true,
       askUnavailable: this.#projection.askUnavailable ?? false,
       agentActivity: this.#projection.agentActivity,
+      messageStates: this.#projection.messageStates,
     };
     this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
   }
@@ -440,6 +457,7 @@ export class Live implements PageBinding {
             ),
             askUnavailable: this.#projection.askUnavailable ?? false,
             agentActivity: this.#projection.agentActivity,
+            messageStates: this.#projection.messageStates,
           };
           this.#discussionVerified = true;
           this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
