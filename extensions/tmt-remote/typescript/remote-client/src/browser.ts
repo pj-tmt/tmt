@@ -41,7 +41,7 @@ export type {
   SealedObjectManifest,
 } from './sealed-sync.js';
 import { deviceObjects as store, request } from './browser-store.js';
-import { remoteRegistryPage } from './remote-registry-page.js';
+import { remoteRegistryPage, type RemoteRegistryPage } from './remote-registry-page.js';
 export { remoteRegistry, RemoteRegistryError } from './remote-registry.js';
 export { shellApp } from './shell-app.js';
 export type {
@@ -416,14 +416,18 @@ type EntryState =
   | 'unreadable';
 
 /** Landing-page observation uses the verified Session lane; it never dispatches work. */
-/** `lifetime` is the route's: once it aborts the page paints nothing and starts nothing more. */
-export async function landingPage(lifetime?: AbortSignal): Promise<void> {
+/** `lifetime` is the route's: once it aborts the page paints nothing and starts nothing more.
+ * `registry` is the route's one controller of the remotes section, shared with the settings views. */
+export async function landingPage(
+  lifetime?: AbortSignal,
+  registry?: RemoteRegistryPage,
+): Promise<void> {
   if (document.readyState === 'loading') {
     await new Promise<void>((resolve) =>
       document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }),
     );
   }
-  const registryState = remoteRegistryPage();
+  const registryState = registry ?? remoteRegistryPage();
   const button = element('check') as HTMLButtonElement;
   let attempt = 0;
   let departed = false;

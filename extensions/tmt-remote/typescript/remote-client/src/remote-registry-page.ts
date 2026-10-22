@@ -42,12 +42,20 @@ function kindLabel(entry: RemoteReference): string {
   return entry.kind === 'local' ? 'Local' : 'Firebase';
 }
 
+/** The page's registry controller: observations in, and the reason a switch is held (settings). */
+export type RemoteRegistryPage = ((state: string, address?: string) => void) & {
+  /** Replaces the reason a foreign Open waits (the settings page holds unsent work). */
+  blockedBy(reason: () => string): void;
+};
+
 export function remoteRegistryPage(
-  blocked: () => string = () => '',
+  initialBlocked: () => string = () => '',
   shell?: RemoteShell,
-): (state: string, address?: string) => void {
+): RemoteRegistryPage {
+  let heldBy = initialBlocked;
+  const blocked = (): string => heldBy();
   const root = document.getElementById('remotes');
-  if (!root) return () => {};
+  if (!root) return Object.assign(() => {}, { blockedBy: () => {} });
   // Remove the entire untrusted fragment synchronously, before any admission can begin.
   const fragment = location.hash;
   if (fragment) history.replaceState(null, '', location.pathname + location.search);
@@ -73,17 +81,23 @@ export function remoteRegistryPage(
           .catch((error: unknown) => showError(error, status));
       },
       add: () => {
-        if (document.documentElement.dataset.tmtPage === 'settings') add.click();
-        else location.assign(`${settings.href}#add-remote`);
+        // The registry lives on the settings view: go there (the same route, so the page only
+        // shows another view), then open the form.
+        if (document.documentElement.dataset.tmtPage !== 'settings')
+          (shell ?? remoteShell())?.navigate(settings.href);
+        add.click();
       },
       recover: (action) => {
+        const home = new URL('./', location.href).href;
         if (action === 'Retry') {
-          const retry = (document.getElementById('check') ??
-            document.getElementById('refresh')) as HTMLButtonElement | null;
+          // The retry control of the view showing: the connection check, or the settings read.
+          const retry = ['check', 'refresh']
+            .map((id) => document.getElementById(id) as HTMLButtonElement | null)
+            .find((button) => button && button.getClientRects().length > 0);
           if (retry && !retry.disabled) retry.click();
-          else location.assign(new URL('./', location.href).href);
+          else (shell ?? remoteShell())?.navigate(home);
         } else if (document.documentElement.dataset.tmtPage === 'settings')
-          location.assign(new URL('./', location.href).href);
+          (shell ?? remoteShell())?.navigate(home);
         else {
           const pair = [
             'copy-refused-pair',
@@ -117,6 +131,10 @@ export function remoteRegistryPage(
     end: () => void;
   } => {
     currentDialog?.close();
+    // The registry is the settings view's: a handoff that arrives on another view (a link to the
+    // landing) asks its questions where the remotes are.
+    if (document.documentElement.dataset.tmtPage !== 'settings')
+      (shell ?? remoteShell())?.navigate(settings.href);
     const box = node('dialog');
     box.className = browserUiClasses.dialog;
     const header = node('header');
@@ -371,7 +389,7 @@ export function remoteRegistryPage(
     },
     { signal: (shell ?? remoteShell())?.signal },
   );
-  return (state, checkedAddress) => {
+  const observe = (state: string, checkedAddress?: string): void => {
     observed = state;
     if (checkedAddress) address = checkedAddress;
     for (const row of list.querySelectorAll<HTMLElement>('[data-remote]')) {
@@ -390,4 +408,9 @@ export function remoteRegistryPage(
     }
     menu(catalog, observed, address ?? '');
   };
+  return Object.assign(observe, {
+    blockedBy: (reason: () => string): void => {
+      heldBy = reason;
+    },
+  });
 }

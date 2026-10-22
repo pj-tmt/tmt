@@ -85,10 +85,14 @@ No optional signed catalog/default read or client factory is shipped.
 
 ## The one web app and public entries
 
-Every app route (`/`, `/settings`, `/remote/`, `/remote/settings`, `/ops`, `/digest`, `/colab/…`)
+Every app route (`/`, `/settings`, `/remote/` with `/remote/devices`, `/remote/connect`, `/remote/machine` and `/remote/settings`, `/ops`, `/digest`, `/colab/…`)
 is the static `assets/shell.html`; `shell-app.ts` routes inside it, adopting each page's markup
 from `assets/*.html` and loading Colab's module from the composed shell's `entry`. The pairing
-page stays its own document and mounts the rail only. `/p/<id>` answers 308 to `/colab/p/<id>`.
+page stays its own document and mounts the rail only.
+Remote is one route (`remote-routes.ts` is its table of paths and rows). `remote-app.ts` mounts both
+pages' markup once and shows the view the path names (`data-view` on the markup), so a switch
+between Remote's rows swaps no slot and loads nothing; each page's code starts when its first view
+shows and shares one remotes controller. The module menu holds no position of its own. `/p/<id>` answers 308 to `/colab/p/<id>`.
 Remote forwards only `/read/<id>` in place to Colab's public mount socket, with the
 Remote-computed `tmt-mount` header.
 For that entry it owns no Colab catalog, capability or CSP; no cookie/session lookup occurs.
@@ -115,7 +119,7 @@ changed and gives each reason one sentence with what to do; Digest uses the same
 
 ## Settings page
 
-`/remote/settings` uses the same embedded shared CSS, Header/Notice/Field/Action classes and
+The settings views (`/remote/devices`, `/remote/machine`, `/remote/settings`) use the same embedded shared CSS, Header/Notice/Field/Action classes and
 Remote host metrics; its additional stylesheet owns settings layout and static listbox geometry.
 Normal settings use thin section rules, a desktop summary/control grid and a single-column
 narrow layout. Each setting keeps its unchanged hint and original-result feedback beside its

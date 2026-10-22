@@ -1,9 +1,12 @@
-/** Remote's module menu in the TMT web shell: one row per remote, then adding a remote and the
- * shared Remote settings. Navigation and observations remain page-owned. */
+/** Remote's module menu in the TMT web shell: one row per remote, the rows for this machine, then
+ * adding a remote and the shared Remote settings. Every row is a route of its own
+ * (`remote-routes.ts`) and the selected row is a function of the path: the menu keeps no state of
+ * its own about where the page is. Observations remain page-owned. */
 import type { ShellMenuItem } from '@tmt/browser-ui/shell';
 import type { RemoteCatalog, RemoteReference } from './remote-registry.js';
 import { remoteState, currentRemote } from './remote-state.js';
 import { remoteShell, type RemoteShell } from './remote-shell.js';
+import { REMOTE_ITEMS, remoteItem, type RemoteView } from './remote-routes.js';
 
 interface Actions {
   /** Re-read the registry (another tab may have changed it); the page repaints the menu. */
@@ -13,53 +16,14 @@ interface Actions {
   recover(action: string): void;
   blocked(): string;
 }
-/**
- * The menu rows that open a part of a page. Remote's pages treat any URL fragment as untrusted
- * input and erase it, so a part is never addressed by `#id`: the menu remembers the chosen part
- * for this tab and scrolls to it, on this page or once the other page mounts.
- */
-const PARTS = {
-  devices: { page: 'settings', target: 'devices-title' },
-  machine: { page: 'settings', target: 'opening-title' },
-  pair: { page: 'landing', target: 'heading' },
-} as const;
-type Part = keyof typeof PARTS;
-const PART_KEY = 'tmt.remote.menu.part';
-function chosenPart(): Part | undefined {
-  try {
-    const value = sessionStorage.getItem(PART_KEY);
-    return value && value in PARTS ? (value as Part) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-function choosePart(part: Part | undefined): void {
-  try {
-    if (part) sessionStorage.setItem(PART_KEY, part);
-    else sessionStorage.removeItem(PART_KEY);
-  } catch {
-    // The choice still applies to this page.
-  }
-}
-
-/** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
-function showPart(part: Part): void {
-  const target = document.getElementById(PARTS[part].target);
-  target?.scrollIntoView({ block: 'start' });
-}
-
 export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = remoteShell()) {
   if (!shell) return () => {};
-  const page = document.documentElement.dataset.tmtPage;
-  const landing = new URL('/remote/', location.href).href;
-  const settings = new URL('/remote/settings', location.href).href;
+  const href = (view: RemoteView) =>
+    new URL(REMOTE_ITEMS.find((item) => item.id === view)!.path, location.href).href;
   let catalog: RemoteCatalog = { version: 1, entries: [] };
   let state = 'Checking';
   let address = '';
   const run = new Map<string, () => void>();
-  const chosen = chosenPart();
-  choosePart(undefined);
-  let shownPart: Part | undefined = chosen && PARTS[chosen].page === page ? chosen : undefined;
   function paint() {
     run.clear();
     const view = remoteState(state);
@@ -68,18 +32,18 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
     const entries = [...catalog.entries].sort(
       (a, b) => Number(a.kind === 'firestore') - Number(b.kind === 'firestore'),
     );
+    const showing = remoteItem(location.pathname)?.id;
+    const item = (id: RemoteView): ShellMenuItem => {
+      const row = REMOTE_ITEMS.find((candidate) => candidate.id === id)!;
+      return { id, label: row.label, href: href(id), current: showing === id };
+    };
     const remotes: ShellMenuItem[] = [];
-    // The highlighted row is the part chosen on this page, else the page itself.
-    const onSettings = page === 'settings';
-    const here = shownPart;
-    const lit = (id: Part) => here === id;
-    const onLanding = !onSettings && !here;
     if (!selected)
       remotes.push({
-        id: 'current',
-        label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(' '),
-        href: landing,
-        current: onLanding,
+        id: 'status',
+        label: [view.mark, `Status · ${view.word}`].filter(Boolean).join(' '),
+        href: href('status'),
+        current: showing === 'status',
       });
     for (const entry of entries) {
       const here = currentRemote(entry, address, location.href);
@@ -91,8 +55,8 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
         label: here
           ? [shown.mark, `${entry.name} · ${shown.word}`].filter(Boolean).join(' ')
           : `Open ${entry.name} · ${entry.kind === 'local' ? 'Local' : `Firebase · ${entry.project}`} · not checked`,
-        href: here ? landing : '#',
-        current: here && onLanding,
+        href: here ? href('status') : '#',
+        current: here && showing === 'status',
         disabled: !here && !!reason,
         note: !here && reason ? reason : undefined,
       });
@@ -114,67 +78,26 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
         groups: [
           { items: remotes },
           // Managing the machine this page runs on, under its own heading (c5ccd17a: management
-          // sits under that remote); each item opens its part of the shared settings page.
+          // sits under that remote); each row is a route of its own.
           {
             label: 'This machine',
-            items: [
-              {
-                id: 'devices',
-                label: 'Devices',
-                href: settings,
-                current: lit('devices'),
-              },
-              {
-                id: 'pair',
-                label: 'Connect a device',
-                href: landing,
-                current: lit('pair'),
-              },
-              {
-                id: 'machine',
-                label: 'This machine’s settings',
-                href: settings,
-                current: lit('machine'),
-              },
-            ],
+            items: [item('devices'), item('connect'), item('machine')],
           },
           {
             items: [
               {
                 id: 'add',
                 label: 'Add remote…',
-                href: `${settings}#add-remote`,
+                href: href('settings'),
                 current: false,
               },
-              {
-                id: 'settings',
-                label: 'Remote settings',
-                href: settings,
-                current: onSettings && !here,
-              },
+              item('settings'),
             ],
           },
         ],
       },
       (id) => {
-        if (id in PARTS) {
-          const part = id as Part;
-          // Another page: the app opens it, and that page's menu scrolls to the part.
-          if (PARTS[part].page !== page) return (choosePart(part), false);
-          shownPart = part;
-          showPart(part);
-          paint();
-          return true;
-        }
-        if (id === 'settings' || id === 'current') {
-          if ((id === 'settings') === onSettings) {
-            shownPart = undefined;
-            window.scrollTo({ top: 0 });
-            paint();
-            return true;
-          }
-          return false;
-        }
+        // A row for a route returns false: the shell router navigates and the page follows the path.
         const action = run.get(id);
         if (!action) return false;
         // A request may have started since the last paint; a blocked row stays put.
@@ -185,12 +108,9 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
     );
   }
   paint();
-  // A part chosen on another page opens here once this page's markup is in place; the choice is
-  // spent, so reaching this page another way (the rail, Back) opens it at the top.
-  if (shownPart) {
-    const opening = shownPart;
-    requestAnimationFrame(() => showPart(opening));
-  }
+  // Back, forward, the rail and a click on a row all end in the path changing under the same
+  // mounted route; the shell announces it, and the menu follows it.
+  window.addEventListener('popstate', paint, { signal: shell.signal });
   // The registry and the blocked reason change outside this menu: refresh when the pointer or
   // keyboard reaches it, as the old switcher did on opening.
   // The shell renders the menu element and may replace it, so the page listens on the document
@@ -205,10 +125,6 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
   };
   document.addEventListener('pointerover', entered, { signal: shell.signal });
   document.addEventListener('focusin', entered, { signal: shell.signal });
-  // The rail fills from the owner's composed shell only once this page may send work: settings
-  // always talks to the door; the native entry waits until its own check connects, so an
-  // unpaired entry sends nothing.
-  if (page === 'settings') shell.describe();
   return (next: RemoteCatalog, observed: string, checkedAddress: string) => {
     catalog = next;
     state = observed;

@@ -1,6 +1,6 @@
 import { expect, test, chromium, type Browser, type Page, type Request } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -83,6 +83,9 @@ const APP_ROUTES = [
   '/settings/',
   '/remote',
   '/remote/',
+  '/remote/devices',
+  '/remote/connect',
+  '/remote/machine',
   '/remote/settings',
   '/ops',
   '/ops/',
@@ -342,7 +345,7 @@ test.describe('the app in a browser', () => {
       for (const path of ['/', '/remote/', '/remote/settings', '/settings', '/ops', '/digest']) {
         await page.goto(`${origin}${path}`);
         // The route's own markup is in place and no first read is still painting.
-        await expect(page.locator('.tmt-ui-shell-main > *').first()).toBeVisible();
+        await expect(page.locator('.tmt-ui-shell-main > :not([hidden])').first()).toBeVisible();
         await expect(page.locator('.tmt-page-loading')).toHaveCount(0);
         await page.locator('body').focus();
         const seen = new Set<string>();
@@ -385,43 +388,184 @@ test.describe('the app in a browser', () => {
     await page.close();
   });
 
-  test('the Remote menu highlights the row that is showing', async () => {
-    const { page } = await openApp('/remote/settings');
-    const menu = page.locator('nav.tmt-ui-module-menu');
-    const lit = () =>
-      menu
-        .locator('[aria-current="page"]')
-        .evaluateAll((items) => items.map((item) => item.getAttribute('data-id')));
-    await expect.poll(lit).toEqual(['settings']);
-    // A part of the settings page lights its own row, not Remote settings, and opens at that part
-    // without a URL fragment (Remote's pages erase any fragment as untrusted input).
-    for (const id of ['devices', 'machine']) {
-      await menu.locator(`a[data-id="${id}"]`).click();
-      await expect.poll(lit, id).toEqual([id]);
-      expect(new URL(page.url()).hash, id).toBe('');
+  /** Remote's rows: the path, the menu row, the page heading, a heading that shows and one that
+   * does not (the views share one document, so a hidden one is in the page but not shown). */
+  const REMOTE_VIEWS = [
+    {
+      path: '/remote/',
+      id: 'status',
+      h1: 'Remote connection',
+      shown: '#heading',
+      hidden: '#connect-heading',
+    },
+    {
+      path: '/remote/devices',
+      id: 'devices',
+      h1: 'Devices',
+      shown: '#devices-title',
+      hidden: '#opening-title',
+    },
+    {
+      path: '/remote/connect',
+      id: 'connect',
+      h1: 'Connect a device',
+      shown: '#connect-heading',
+      hidden: '#heading',
+    },
+    {
+      path: '/remote/machine',
+      id: 'machine',
+      h1: 'This machine’s settings',
+      shown: '#opening-title',
+      hidden: '#devices-title',
+    },
+    {
+      path: '/remote/settings',
+      id: 'settings',
+      h1: 'Remote settings',
+      shown: '#firestore-title',
+      hidden: '#opening-title',
+    },
+  ] as const;
+  const litRow = (page: Page) =>
+    page
+      .locator('nav.tmt-ui-module-menu [aria-current="page"]')
+      .evaluateAll((items) => items.map((item) => item.getAttribute('data-id')));
+  const expectView = async (page: Page, view: (typeof REMOTE_VIEWS)[number]) => {
+    expect(new URL(page.url()).pathname, view.id).toBe(view.path);
+    expect(new URL(page.url()).hash, view.id).toBe('');
+    await expect.poll(() => litRow(page), view.id).toEqual([view.id]);
+    await expect(page.locator('.tmt-ui-shell-bar h1'), view.id).toHaveText(view.h1);
+    await expect(page.locator(view.shown), view.id).toBeVisible();
+    await expect(page.locator(view.hidden), view.id).toBeHidden();
+    await expect(page, view.id).toHaveTitle(`${view.h1} · TMT`);
+  };
+
+  test('each Remote row is its own route and selection follows the URL', async () => {
+    for (const view of REMOTE_VIEWS) {
+      // A direct load, and a reload, land on the row the path names.
+      const { page } = await openApp(view.path);
+      await expectView(page, view);
+      await page.reload({ waitUntil: 'load' });
+      await expectView(page, view);
+      await page.close();
     }
-    await expect
-      .poll(() =>
-        page.evaluate(() => document.getElementById('opening-title')!.getBoundingClientRect().top),
-      )
-      .toBeGreaterThanOrEqual(56);
-    await menu.locator('a[data-id="settings"]').click();
-    await expect.poll(lit).toEqual(['settings']);
-    await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
-    // A part chosen from another page opens there, lit; reaching the page another way opens it
-    // at the top with the page row lit.
+  });
+
+  test('switching between Remote rows only swaps the content: no remount, no storage', async () => {
+    const { page } = await openApp('/remote/');
+    // Marks on what must survive a switch: the document, the shell's header slot and content slot,
+    // the rail and the module menu element. Mutations of the slots' own children are counted.
+    await page.evaluate(() => {
+      const w = window as unknown as { __kept: unknown; __swaps: number };
+      const bar = document.querySelector('.tmt-ui-shell-bar')!;
+      const main = document.querySelector('.tmt-ui-shell-main')!;
+      w.__kept = {
+        bar: bar.firstElementChild,
+        main: [...main.children],
+        rail: document.querySelector('nav.tmt-ui-rail'),
+        mark: 1,
+      };
+      w.__swaps = 0;
+      const watch = new MutationObserver((records) => {
+        for (const record of records) if (record.type === 'childList') w.__swaps++;
+      });
+      watch.observe(bar, { childList: true });
+      watch.observe(main, { childList: true });
+    });
+    const menu = page.locator('nav.tmt-ui-module-menu');
+    for (const view of REMOTE_VIEWS.slice(1).concat(REMOTE_VIEWS[0])) {
+      await menu.locator(`a[data-id="${view.id}"]`).click();
+      await expectView(page, view);
+    }
+    const kept = await page.evaluate(() => {
+      const w = window as unknown as {
+        __kept: { bar: Element; main: Element[]; rail: Element; mark: number };
+        __swaps: number;
+      };
+      const bar = document.querySelector('.tmt-ui-shell-bar')!;
+      const main = document.querySelector('.tmt-ui-shell-main')!;
+      return {
+        sameDocument: w.__kept.mark === 1,
+        bar: bar.firstElementChild === w.__kept.bar,
+        main:
+          main.children.length === w.__kept.main.length &&
+          [...main.children].every((child, index) => child === w.__kept.main[index]),
+        rail: document.querySelector('nav.tmt-ui-rail') === w.__kept.rail,
+        swaps: w.__swaps,
+        stored: Object.keys(sessionStorage).filter((key) => key.startsWith('tmt.remote.menu')),
+      };
+    });
+    expect(kept).toEqual({
+      sameDocument: true,
+      bar: true,
+      main: true,
+      rail: true,
+      swaps: 0,
+      stored: [],
+    });
+    await page.close();
+  });
+
+  test('Back and forward land on the same row, selected', async () => {
+    const { page } = await openApp('/remote/');
+    const menu = page.locator('nav.tmt-ui-module-menu');
+    const order = [REMOTE_VIEWS[1]!, REMOTE_VIEWS[3]!, REMOTE_VIEWS[4]!, REMOTE_VIEWS[2]!];
+    for (const view of order) {
+      await menu.locator(`a[data-id="${view.id}"]`).click();
+      await expectView(page, view);
+    }
+    for (const view of [...order.slice(0, -1).reverse(), REMOTE_VIEWS[0]!]) {
+      await page.goBack();
+      await expectView(page, view);
+    }
+    for (const view of order) {
+      await page.goForward();
+      await expectView(page, view);
+    }
+    await page.close();
+  });
+
+  test('captures every Remote row at 1440 and 390, light and dark', async () => {
+    // Evidence for review, written only when a directory is named (TMT_REMOTE_CAPTURE_DIR).
+    const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
+    test.skip(!directory, 'TMT_REMOTE_CAPTURE_DIR is not set');
+    await mkdir(directory!, { recursive: true });
+    for (const colorScheme of ['light', 'dark'] as const)
+      for (const width of [1440, 390]) {
+        const context = await browser.newContext({ colorScheme, viewport: { width, height: 900 } });
+        const page = await context.newPage();
+        await page.goto(`${origin}/remote/`, { waitUntil: 'load' });
+        await page.locator('.tmt-ui-shell-main[data-route="remote"]').waitFor();
+        for (const view of REMOTE_VIEWS) {
+          // Narrow screens keep the menu behind its button; the path is what is being shown.
+          await page.evaluate((path) => window.history.pushState(null, '', path), view.path);
+          await page.evaluate(() => window.dispatchEvent(new PopStateEvent('popstate')));
+          await expectView(page, view);
+          await page.screenshot({
+            path: join(directory!, `remote-${view.id}-${width}-${colorScheme}.png`),
+          });
+        }
+        await context.close();
+      }
+  });
+
+  test('the rail returns to Status and a menu click on the shown row stays put', async () => {
+    const { page } = await openApp('/remote/machine');
+    await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
     await page.locator('nav.tmt-ui-rail a[data-id="remote"]').click();
-    await menu.locator('a[data-id="devices"]').click();
-    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute(
-      'data-route',
-      'remote-settings',
-    );
-    await expect.poll(lit).toEqual(['devices']);
-    await page.locator('nav.tmt-ui-rail a[data-id="home"]').click();
-    await page.goBack();
-    await expect.poll(lit).toEqual(['settings']);
+    await expectView(page, REMOTE_VIEWS[0]!);
+    await page.locator('nav.tmt-ui-module-menu a[data-id="status"]').click();
+    await expectView(page, REMOTE_VIEWS[0]!);
     // The menu has no Remotes heading; This machine's group keeps its own.
-    await expect(menu.locator('.tmt-ui-module-menu-group')).not.toContainText(['Remotes']);
+    await expect(
+      page.locator('nav.tmt-ui-module-menu .tmt-ui-module-menu-group'),
+    ).not.toContainText(['Remotes']);
+    await expect(page.locator('nav.tmt-ui-module-menu')).toContainText('This machine');
+    await expect(page.locator('nav.tmt-ui-module-menu a[data-id="status"]')).toContainText(
+      'Status',
+    );
     await page.close();
   });
 
@@ -430,18 +574,12 @@ test.describe('the app in a browser', () => {
     const sheet = page.locator('head link[rel="stylesheet"][href="/sdk/settings.css"]');
     await expect(sheet).toHaveCount(1);
     // Its rules apply before the markup shows: the page's choice control keeps its arrow room.
-    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute(
-      'data-route',
-      'remote-settings',
-    );
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'remote');
     await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
     await expect(sheet).toHaveCount(0);
     await page.goBack();
-    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute(
-      'data-route',
-      'remote-settings',
-    );
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'remote');
     await expect(sheet).toHaveCount(1);
     await page.close();
   });

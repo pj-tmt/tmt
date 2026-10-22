@@ -674,7 +674,8 @@ test('Command block Copy actions have command-specific names and no trailing act
     assert.ok(action);
     assert.ok(action[1]!.includes(`aria-label="Copy tmt remote ${command}"`));
   }
-  assert.equal(html.match(/class="entry-command tmt-ui-command"/g)!.length, 6);
+  // Six for the connection states, one for the Connect view's `tmt remote pair`.
+  assert.equal(html.match(/class="entry-command tmt-ui-command"/g)!.length, 7);
   assert.ok(!/<\/span\s*>\s*\./.test(html));
   assert.ok(html.includes('run this on it:'));
 });

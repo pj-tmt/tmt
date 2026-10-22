@@ -158,50 +158,55 @@ function currentRemote(entry, address, pageUrl) {
 	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
 }
 //#endregion
+//#region src/remote-routes.ts
+var REMOTE_ITEMS = [
+	{
+		id: "status",
+		path: "/remote/",
+		label: "Status",
+		title: "Remote connection",
+		page: "landing"
+	},
+	{
+		id: "devices",
+		path: "/remote/devices",
+		label: "Devices",
+		title: "Devices",
+		page: "settings"
+	},
+	{
+		id: "connect",
+		path: "/remote/connect",
+		label: "Connect a device",
+		title: "Connect a device",
+		page: "landing"
+	},
+	{
+		id: "machine",
+		path: "/remote/machine",
+		label: "This machine’s settings",
+		title: "This machine’s settings",
+		page: "settings"
+	},
+	{
+		id: "settings",
+		path: "/remote/settings",
+		label: "Remote settings",
+		title: "Remote settings",
+		page: "settings"
+	}
+];
+[...REMOTE_ITEMS.filter((item) => item.id !== "status").map((item) => item.path)];
+/** The row a path names; `/remote` and `/remote/` are Status, anything else under it is none. */
+function remoteItem(pathname) {
+	const path = pathname === "/remote" ? "/remote/" : pathname.replace(/(?<=.)\/$/, "");
+	return REMOTE_ITEMS.find((item) => item.path === path || item.path === `${path}/`);
+}
+//#endregion
 //#region src/remote-menu.ts
-/**
-* The menu rows that open a part of a page. Remote's pages treat any URL fragment as untrusted
-* input and erase it, so a part is never addressed by `#id`: the menu remembers the chosen part
-* for this tab and scrolls to it, on this page or once the other page mounts.
-*/
-var PARTS = {
-	devices: {
-		page: "settings",
-		target: "devices-title"
-	},
-	machine: {
-		page: "settings",
-		target: "opening-title"
-	},
-	pair: {
-		page: "landing",
-		target: "heading"
-	}
-};
-var PART_KEY = "tmt.remote.menu.part";
-function chosenPart() {
-	try {
-		const value = sessionStorage.getItem(PART_KEY);
-		return value && value in PARTS ? value : void 0;
-	} catch {
-		return;
-	}
-}
-function choosePart(part) {
-	try {
-		if (part) sessionStorage.setItem(PART_KEY, part);
-		else sessionStorage.removeItem(PART_KEY);
-	} catch {}
-}
-/** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
-function showPart(part) {
-	document.getElementById(PARTS[part].target)?.scrollIntoView({ block: "start" });
-}
 function remoteMenu(actions, shell = void 0) {
 	if (!shell) return () => {};
-	const page = document.documentElement.dataset.tmtPage;
-	const landing = new URL("/remote/", location.href).href;
-	const settings = new URL("/remote/settings", location.href).href;
+	const href = (view) => new URL(REMOTE_ITEMS.find((item) => item.id === view).path, location.href).href;
 	let catalog = {
 		version: 1,
 		entries: []
@@ -209,25 +214,27 @@ function remoteMenu(actions, shell = void 0) {
 	let state = "Checking";
 	let address = "";
 	const run = /* @__PURE__ */ new Map();
-	const chosen = chosenPart();
-	choosePart(void 0);
-	let shownPart = chosen && PARTS[chosen].page === page ? chosen : void 0;
 	function paint() {
 		run.clear();
 		const view = remoteState(state);
 		const reason = actions.blocked();
 		const selected = catalog.entries.find((entry) => currentRemote(entry, address, location.href));
 		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
+		const showing = remoteItem(location.pathname)?.id;
+		const item = (id) => {
+			return {
+				id,
+				label: REMOTE_ITEMS.find((candidate) => candidate.id === id).label,
+				href: href(id),
+				current: showing === id
+			};
+		};
 		const remotes = [];
-		const onSettings = page === "settings";
-		const here = shownPart;
-		const lit = (id) => here === id;
-		const onLanding = !onSettings && !here;
 		if (!selected) remotes.push({
-			id: "current",
-			label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(" "),
-			href: landing,
-			current: onLanding
+			id: "status",
+			label: [view.mark, `Status · ${view.word}`].filter(Boolean).join(" "),
+			href: href("status"),
+			current: showing === "status"
 		});
 		for (const entry of entries) {
 			const here = currentRemote(entry, address, location.href);
@@ -237,8 +244,8 @@ function remoteMenu(actions, shell = void 0) {
 			remotes.push({
 				id,
 				label: here ? [shown.mark, `${entry.name} · ${shown.word}`].filter(Boolean).join(" ") : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
-				href: here ? landing : "#",
-				current: here && onLanding,
+				href: here ? href("status") : "#",
+				current: here && showing === "status",
 				disabled: !here && !!reason,
 				note: !here && reason ? reason : void 0
 			});
@@ -261,56 +268,19 @@ function remoteMenu(actions, shell = void 0) {
 				{
 					label: "This machine",
 					items: [
-						{
-							id: "devices",
-							label: "Devices",
-							href: settings,
-							current: lit("devices")
-						},
-						{
-							id: "pair",
-							label: "Connect a device",
-							href: landing,
-							current: lit("pair")
-						},
-						{
-							id: "machine",
-							label: "This machine’s settings",
-							href: settings,
-							current: lit("machine")
-						}
+						item("devices"),
+						item("connect"),
+						item("machine")
 					]
 				},
 				{ items: [{
 					id: "add",
 					label: "Add remote…",
-					href: `${settings}#add-remote`,
+					href: href("settings"),
 					current: false
-				}, {
-					id: "settings",
-					label: "Remote settings",
-					href: settings,
-					current: onSettings && !here
-				}] }
+				}, item("settings")] }
 			]
 		}, (id) => {
-			if (id in PARTS) {
-				const part = id;
-				if (PARTS[part].page !== page) return choosePart(part), false;
-				shownPart = part;
-				showPart(part);
-				paint();
-				return true;
-			}
-			if (id === "settings" || id === "current") {
-				if (id === "settings" === onSettings) {
-					shownPart = void 0;
-					window.scrollTo({ top: 0 });
-					paint();
-					return true;
-				}
-				return false;
-			}
 			const action = run.get(id);
 			if (!action) return false;
 			if (!id.startsWith("remote:") || !actions.blocked()) action();
@@ -319,10 +289,7 @@ function remoteMenu(actions, shell = void 0) {
 		});
 	}
 	paint();
-	if (shownPart) {
-		const opening = shownPart;
-		requestAnimationFrame(() => showPart(opening));
-	}
+	window.addEventListener("popstate", paint, { signal: shell.signal });
 	const refresh = () => {
 		paint();
 		actions.refresh();
@@ -333,7 +300,6 @@ function remoteMenu(actions, shell = void 0) {
 	};
 	document.addEventListener("pointerover", entered, { signal: shell.signal });
 	document.addEventListener("focusin", entered, { signal: shell.signal });
-	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;
 		state = observed;
@@ -909,9 +875,11 @@ function field(label, value) {
 function kindLabel(entry) {
 	return entry.kind === "local" ? "Local" : "Firebase";
 }
-function remoteRegistryPage(blocked = () => "", shell) {
+function remoteRegistryPage(initialBlocked = () => "", shell) {
+	let heldBy = initialBlocked;
+	const blocked = () => heldBy();
 	const root = document.getElementById("remotes");
-	if (!root) return () => {};
+	if (!root) return Object.assign(() => {}, { blockedBy: () => {} });
 	const fragment = location.hash;
 	if (fragment) history.replaceState(null, "", location.pathname + location.search);
 	const list = document.getElementById("remote-list");
@@ -932,15 +900,16 @@ function remoteRegistryPage(blocked = () => "", shell) {
 			remoteRegistry.navigation(entry).then((url) => location.assign(url)).catch((error) => showError(error, status));
 		},
 		add: () => {
-			if (document.documentElement.dataset.tmtPage === "settings") add.click();
-			else location.assign(`${settings.href}#add-remote`);
+			if (document.documentElement.dataset.tmtPage !== "settings") (shell ?? void 0)?.navigate(settings.href);
+			add.click();
 		},
 		recover: (action) => {
+			const home = new URL("./", location.href).href;
 			if (action === "Retry") {
-				const retry = document.getElementById("check") ?? document.getElementById("refresh");
+				const retry = ["check", "refresh"].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
 				if (retry && !retry.disabled) retry.click();
-				else location.assign(new URL("./", location.href).href);
-			} else if (document.documentElement.dataset.tmtPage === "settings") location.assign(new URL("./", location.href).href);
+				else (shell ?? void 0)?.navigate(home);
+			} else if (document.documentElement.dataset.tmtPage === "settings") (shell ?? void 0)?.navigate(home);
 			else {
 				const pair = [
 					"copy-refused-pair",
@@ -959,6 +928,7 @@ function remoteRegistryPage(blocked = () => "", shell) {
 	};
 	const dialog = (title, opener) => {
 		currentDialog?.close();
+		if (document.documentElement.dataset.tmtPage !== "settings") (shell ?? void 0)?.navigate(settings.href);
 		const box = node$1("dialog");
 		box.className = browserUiClasses.dialog;
 		const header = node$1("header");
@@ -1177,7 +1147,7 @@ function remoteRegistryPage(blocked = () => "", shell) {
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
 	}, { signal: (shell ?? void 0)?.signal });
-	return (state, checkedAddress) => {
+	const observe = (state, checkedAddress) => {
 		observed = state;
 		if (checkedAddress) address = checkedAddress;
 		for (const row of list.querySelectorAll("[data-remote]")) {
@@ -1196,6 +1166,9 @@ function remoteRegistryPage(blocked = () => "", shell) {
 		}
 		menu(catalog, observed, address ?? "");
 	};
+	return Object.assign(observe, { blockedBy: (reason) => {
+		heldBy = reason;
+	} });
 }
 //#endregion
 //#region src/firestore.ts
@@ -1619,9 +1592,10 @@ function createBusyMarkGate(onChange) {
 }
 //#endregion
 //#region src/settings-page.ts
-/** The Remote settings page (`/remote/settings`): run once per mount of its markup. This bundle
-* is loaded apart from the SDK, so the app hands it its part of the shell. */
-async function settingsPage(shell) {
+/** The Remote settings views (`/remote/devices`, `/machine`, `/settings`): run once per mount of
+* their markup. This bundle is loaded apart from the SDK, so the app hands it its part of the
+* shell and the route's one remotes controller. */
+async function settingsPage(shell, registry) {
 	function element(id) {
 		const found = document.getElementById(id);
 		if (!found) throw new Error(`Settings page lacks #${id}.`);
@@ -1680,7 +1654,8 @@ async function settingsPage(shell) {
 		return false;
 	}
 	let page;
-	const registryState = remoteRegistryPage(() => {
+	const registryState = registry ?? remoteRegistryPage(void 0, shell);
+	registryState.blockedBy(() => {
 		if (!page) return "";
 		if (page.busy) return "A request is in progress. Wait for its outcome.";
 		if (page.outcome?.state === "unknown") return "Another change is still unconfirmed. Check the saved value first.";
@@ -1689,7 +1664,7 @@ async function settingsPage(shell) {
 			if (name && name.value !== device.name) return "Save or restore the unsent device name before changing pages.";
 		}
 		return "";
-	}, shell);
+	});
 	/** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
 	function commandNotice(target, text) {
 		target.replaceChildren();
