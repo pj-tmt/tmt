@@ -137,8 +137,16 @@ for (const width of [1440, 390])
       await expect(thread.locator('.annotation-number')).toHaveText('1');
       const human = thread.locator('.conversation-turn[data-turn-role="user"]');
       const agent = thread.locator('.conversation-turn[data-turn-role="agent"]');
-      await expect(human.locator('header > .tmt-ui-avatar')).toBeVisible();
-      await expect(agent.locator('header > .tmt-ui-avatar')).toBeVisible();
+      // The avatar carries the kind: an agent's mark is drawn apart from a person's at a glance.
+      const personMark = human.locator('header > .tmt-ui-avatar');
+      const agentMark = agent.locator('header > .tmt-ui-avatar');
+      await expect(personMark).toBeVisible();
+      await expect(agentMark).toBeVisible();
+      await expect(personMark).toHaveAttribute('data-kind', 'person');
+      await expect(agentMark).toHaveAttribute('data-kind', 'agent');
+      const fill = (mark: Locator) =>
+        mark.evaluate((node) => getComputedStyle(node).backgroundColor);
+      expect(await fill(agentMark)).not.toBe(await fill(personMark));
       await expect(agent.locator('.comment-byline .lucide-bot')).toHaveCount(0);
       await expect(agent.locator('.conversation-agent-label')).toHaveCount(0);
       await expect(agent).toHaveCSS('border-left-width', '0px');

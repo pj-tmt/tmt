@@ -268,6 +268,13 @@ for (const width of [1440, 390]) {
           await expect(
             window.locator('.conversation-turn .tmt-ui-avatar[aria-hidden="true"]'),
           ).toHaveCount(surface === 'chat' ? 0 : state === 'replied' ? 2 : 1);
+          // The mark's kind follows the turn's role.
+          await expect(
+            window.locator('[data-turn-role="user"] .tmt-ui-avatar[data-kind="person"]'),
+          ).toHaveCount(surface === 'chat' ? 0 : 1);
+          await expect(
+            window.locator('[data-turn-role="agent"] .tmt-ui-avatar[data-kind="agent"]'),
+          ).toHaveCount(surface === 'chat' || state !== 'replied' ? 0 : 1);
           await expect(
             window.locator('[data-turn-role="agent"] .conversation-author .agent-chip'),
           ).toHaveCount(state === 'replied' ? 1 : 0);
