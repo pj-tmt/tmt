@@ -235,11 +235,14 @@ pub(super) fn run_bound(
             host,
             paths,
             pane,
-            existing
-                .as_ref()
-                .expect("a selected resume has an existing identity"),
-            &preferences,
-            lifecycle,
+            super::move_session::MoveRequest {
+                identity: existing
+                    .as_ref()
+                    .expect("a selected resume has an existing identity"),
+                preferences: &preferences,
+                lifecycle,
+            },
+            effect,
         )?
     } else {
         None

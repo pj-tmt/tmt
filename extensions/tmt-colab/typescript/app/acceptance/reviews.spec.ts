@@ -153,12 +153,10 @@ test('recommended reading records one person read and notification, survives rel
       expect(
         page.locator('[data-inline-reading][data-reading-state="unread"]:not([data-detached])'),
       ).toHaveCount(count);
-    // A reading hint in the owner URL opens the page at that reading; it only scrolls.
+    // The mounted shell carries a reading hint in route search; it only scrolls.
     const openReading = async (page: import('@playwright/test').Page, read: string) => {
       const url = new URL(page.url());
-      const fragment = new URLSearchParams(url.hash.slice(1));
-      fragment.set('read', read);
-      url.hash = fragment.toString();
+      url.searchParams.set('read', read);
       await page.goto(url.href);
     };
     await unread(first, 2);

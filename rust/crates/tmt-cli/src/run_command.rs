@@ -117,6 +117,7 @@ fn warn(message: &str, hint: Option<&str>) {
 enum LaunchEffect {
     #[default]
     NotLaunched,
+    OldStopped,
     BoundHere,
     Launched,
 }
@@ -380,6 +381,11 @@ mod tests {
                 "tmt resume --move -- '-Saved agent'",
             ),
             (
+                LaunchEffect::OldStopped,
+                "The old agent was stopped. No new agent was launched",
+                "tmt resume -- '-Saved agent'",
+            ),
+            (
                 LaunchEffect::BoundHere,
                 "No new agent was launched",
                 "tmt resume -- '-Saved agent'",
@@ -400,7 +406,11 @@ mod tests {
             assert!(error.message.contains(message));
             assert_eq!(
                 error.document()["error"]["suggestion"],
-                format!("After resolving this refusal, retry: {retry}")
+                if matches!(effect, LaunchEffect::OldStopped) {
+                    format!("To resume in this pane, run: {retry}")
+                } else {
+                    format!("After resolving this refusal, retry: {retry}")
+                }
             );
         }
     }

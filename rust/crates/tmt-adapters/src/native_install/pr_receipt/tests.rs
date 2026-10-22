@@ -477,3 +477,42 @@ fn a_pr_channel_installation_moves_to_the_new_prefix_with_its_provenance() {
     );
     assert!(prefix.join("lib/tmux-team").exists());
 }
+
+#[test]
+fn cli_receipt_round_trips_two_maximum_schema_closures_and_refuses_over_bound_bytes() {
+    use crate::native_install::{pr_catalog::SourceFile, skills_tree};
+    let directory = TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let (artifact, mut source) = fixture();
+    let Provenance::Pr(proof) = &mut source else {
+        panic!("PR evidence missing")
+    };
+    let files = (0..256)
+        .map(|index| SourceFile {
+            path: format!("{index:03}{}", "p".repeat(253)),
+            sha256: "b".repeat(64),
+        })
+        .collect::<Vec<_>>();
+    proof.candidate.application_schema.source_files = files.clone();
+    proof.admission.latest_alpha.application_schema.source_files = files;
+    let report = publish(&prefix, &artifact, source.clone(), None, true, 48).unwrap();
+    let receipt_path = report
+        .active_executable
+        .parent()
+        .unwrap()
+        .join("receipt.json");
+    let mut bytes = fs::read(&receipt_path).unwrap();
+    assert!(bytes.len() > 64 * 1024);
+    assert!(bytes.len() <= skills_tree::receipt_limit(Product::Cli));
+    assert_eq!(
+        inspect(&report.active_executable).unwrap().provenance,
+        Some(source)
+    );
+    // Valid JSON whitespace isolates the byte limit from schema validation.
+    bytes.resize(skills_tree::receipt_limit(Product::Cli), b' ');
+    fs::write(&receipt_path, &bytes).unwrap();
+    assert!(inspect(&report.active_executable).is_ok());
+    bytes.push(b' ');
+    fs::write(&receipt_path, &bytes).unwrap();
+    assert!(inspect(&report.active_executable).is_err());
+}

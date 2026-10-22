@@ -18,7 +18,9 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
       await page.setViewportSize({ width, height: 900 });
       await expect(header).toHaveCSS('height', width === 390 ? '48px' : '56px');
       await expect(attribution).toHaveAttribute('aria-label', fullName!);
-      await expect(header.locator('.tmt-ui-mark')).toBeVisible();
+      const mark = page.locator('.tmt-ui-shell-brand .tmt-brand-mark');
+      if (width === 1440) await expect(mark).toBeVisible();
+      else await expect(mark).toBeHidden();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       if (screen === 'page') {
         const connection = header.locator('.page-connection');

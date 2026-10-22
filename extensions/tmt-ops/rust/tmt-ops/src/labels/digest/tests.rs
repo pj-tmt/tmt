@@ -770,3 +770,35 @@ fn pricing_is_a_bounded_unique_table_and_an_unknown_shape_is_absent() {
         assert!(status.pricing.is_none());
     }
 }
+
+#[test]
+fn the_tick_record_is_a_time_null_or_absent_and_anything_else_refuses_the_status() {
+    let mut document = document();
+    assert_eq!(parse(&document).unwrap().tick, None, "older producers");
+    for (tick, expected) in [
+        (
+            json!({"lastAtMs": 1_790_000_000_000u64}),
+            Some(1_790_000_000_000u64),
+        ),
+        (json!({"lastAtMs": null}), None),
+    ] {
+        document["tick"] = tick;
+        assert_eq!(
+            parse(&document).unwrap().tick,
+            Some(Tick {
+                last_at_ms: expected
+            })
+        );
+    }
+    for malformed in [
+        json!(5),
+        json!(null),
+        json!({}),
+        json!({"lastAtMs": -1}),
+        json!({"lastAtMs": "5"}),
+        json!({"lastAtMs": 9_007_199_254_740_992u64}),
+    ] {
+        document["tick"] = malformed;
+        assert!(parse(&document).is_none(), "{}", document["tick"]);
+    }
+}

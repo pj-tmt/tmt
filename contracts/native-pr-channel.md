@@ -64,7 +64,7 @@ manifest/archive/expanded bounds remain 4/64/128 MiB.
 The candidate catalog and its manifest's `tmt_application_schema` must contain
 the same application-schema v1 record: schema_version, product, source_sha,
 sorted unique databases (`domain`, `version`) and sorted unique source_files
-(`path`, `sha256`). Records contain at most eight known domains and 64 source
+(`path`, `sha256`). Records contain at most eight known domains and 256 source
 files. Paths are canonical repository-relative ASCII components, at most 256
 bytes; digests are lowercase SHA-256. This is application schema, independent
 of executable SemVer and the receipt format version.
@@ -120,6 +120,10 @@ The existing expected-current UUID fence and installation lock protect local
 publication; local schema is checked again before publication. GitHub and SQLite
 are not a distributed transaction. Later close, disable or expiry leaves installed
 bytes and channel intent intact and makes further acquisition unavailable.
+The CLI receipt byte cap is 275,456: the existing 64 KiB base plus two closures
+of 256 entries, each with a 256-byte path, 64-hex digest and worst-case pretty-JSON
+punctuation/indentation (90 bytes). The schema export cap stays 1 MiB.
+
 Historical receipt reads judge the captured admission, not today's remote state.
 
 CLI PR installation and return use separately probed handoff version 2. Probe

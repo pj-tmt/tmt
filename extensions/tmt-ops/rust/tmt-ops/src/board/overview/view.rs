@@ -100,21 +100,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let paint = |frame: &mut Frame, slot: Rect, index: usize, widest: usize| match index {
         0 => crate::board::workspace::render::controls_rule(frame, app, slot),
         1 => {
-            let state = state_width(slot.width, widest);
-            let tok = Rect::new(
-                slot.x.saturating_add(AGENT_STATE_X as u16 + state + 1),
-                slot.y,
-                7,
-                1,
-            )
-            .intersection(slot);
-            if let Some(chip) =
-                crate::board::workspace::columns::tok_window_chip(tok, app.tok_heading())
-            {
-                app.workspace_strip_hits
-                    .borrow_mut()
-                    .push((chip, Choice::TokRange(app.tok_range().next())));
-            }
             let marks = crate::board::header_sort::Marks::new(
                 app.workspace_order(),
                 app.header_hover,
@@ -135,7 +120,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             header.plain(" ");
             header.tokens(
                 Header::Overview(OverviewColumn::TokensPerHour),
-                app.tok_heading().caption(),
+                app.tok_heading(),
                 7,
             );
             if model_width(slot.width, state_width(slot.width, widest)).is_some() {
@@ -146,7 +131,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             app.workspace_strip_hits.borrow_mut().extend(
                 sorts
                     .into_iter()
-                    .map(|(area, header)| (area, Choice::SortBy(header))),
+                    .map(|(area, control)| (area, app.control_choice(control))),
             );
             strip::paint_left(frame.buffer_mut(), slot, line)
         }

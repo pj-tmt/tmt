@@ -20,7 +20,7 @@ fn compiled_schema_export_matches_actual_source_bytes_and_the_storage_owner() {
     let fixture = Fixture::new();
     let mut storage = Storage::open(&fixture.database).unwrap();
     assert_eq!(compiled.version, storage.health().unwrap().schema_version);
-    assert!(compiled.sources.len() <= 64);
+    assert!(compiled.sources.len() <= 256);
     for source in &compiled.sources {
         assert_eq!(
             source.sha256,
