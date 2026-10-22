@@ -122,11 +122,10 @@ HTML: read [layout](references/layout.md) (`tmt colab skill layout`),
 
 ## HTML that renders
 
-Use inline styles/scripts and system fonts. Read [images](references/attachments.md)
-(`tmt colab skill attachments`); tiny `data:` icons only. Opaque sandbox denies
-external scripts/styles/images/frames/fonts and network APIs/forms; no parent
-authority/cookies/storage. Self-navigation can send requests:
-never put secrets in HTML.
+Use inline styles/scripts, system fonts; interactive pages: [runtime](references/runtime.md)
+(`tmt colab skill runtime`). Read [images](references/attachments.md) (`tmt colab skill attachments`);
+tiny `data:` icons only. The sandbox denies external resources, network, forms, parent authority,
+cookies, storage. Self-navigation can send requests: never put secrets in HTML.
 
 Verify stored bytes and rendering after writing.
 
@@ -134,8 +133,7 @@ Verify stored bytes and rendering after writing.
 
 A page that asks the reader to decide uses `tmt-question`; a must-read passage uses `tmt-read`.
 Put each beside its passage, in a `div`, `li` or `td`, with a fresh UUID per `data-id`. Copy the
-examples from the comment after the starter's `</style>` ([page-style](references/page-style.md),
-`tmt colab skill page-style`). A question inside `<tmt-questions>` must not carry `data-group`
+examples from the comment after the starter's `</style>` ([page-style](references/page-style.md)). A question inside `<tmt-questions>` must not carry `data-group`
 (`question-group-conflict`). Detail: [questions](references/questions.md) (`tmt colab skill questions`),
 [components](references/components.md#questions), [reading](references/reading.md)
 (`tmt colab skill reading`), [reviews](references/reviews.md) (`tmt colab skill reviews`).
