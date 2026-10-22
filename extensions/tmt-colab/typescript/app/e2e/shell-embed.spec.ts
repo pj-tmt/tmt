@@ -7,6 +7,15 @@ import { text } from '../src/strings.js';
  * for the real page, which owns one live binding, closed when the panel leaves it. The page's own
  * drawers and menus stay at viewport level (modal, top layer), as they are on the page route.
  */
+/** The look a capture run uses, `COLAB_LOOK=1440:dark`; the assertions hold in every look. */
+const look = process.env.COLAB_LOOK ?? '1440:light';
+const capture = async (page: Page, name: string) => {
+  if (process.env.COLAB_CAPTURE_DIR)
+    await page.screenshot({
+      path: capturePath(`shell-embed-${name}-${look.replace(':', '-')}.png`),
+    });
+};
+
 const PLAN = '10000000-0000-4000-8000-0000000000a1';
 const t = text.shellPage;
 
@@ -30,7 +39,9 @@ const bindings = (page: Page) =>
   }));
 
 async function decideHere(page: Page) {
-  await page.setViewportSize({ width: 1440, height: 900 });
+  const [width, scheme] = look.split(':');
+  await page.setViewportSize({ width: Number(width), height: 900 });
+  await page.emulateMedia({ colorScheme: scheme === 'dark' ? 'dark' : 'light' });
   await openShell(page);
   await trigger(page).click();
   await panel(page).getByRole('button', { name: t.decideHere }).click();
@@ -41,16 +52,18 @@ test('Decide here hosts the page in the panel without touching the tab title', a
   await openShell(page);
   const title = await page.title();
   await trigger(page).click();
+  await capture(page, 'summary');
   await panel(page).getByRole('button', { name: t.decideHere }).click();
   // The page's own document and header actions are in the panel; its brand and title are not (the
   // drawer already names the page), and the shell's own header is still the one on the page.
   await expect(panel(page).locator('section.page')).toBeVisible();
   await expect(panel(page).locator('iframe')).toBeVisible();
-  await expect(panel(page).getByRole('button', { name: /Comments/ })).toBeVisible();
+  await expect(panel(page).getByRole('navigation', { name: text.pageHeaderActions })).toBeVisible();
   await expect(panel(page).locator('.tmt-ui-brand')).toHaveCount(0);
   expect(await page.title()).toBe(title);
   await expect(page).toHaveURL(new RegExp(`\\?open=${PLAN}`));
   await expect(page).not.toHaveURL(/#t=/);
+  await capture(page, 'page');
   // Back to the summary shows the passage list again and lets the page go.
   await panel(page).getByRole('button', { name: t.backToSummary }).click();
   await expect(panel(page).locator('.shell-panel-needs li').first()).toBeVisible();
@@ -90,9 +103,9 @@ test('a page drawer opened from the embedded page sits at the right edge, closes
   page,
 }) => {
   await decideHere(page);
-  const comments = panel(page).getByRole('button', { name: /Comments/ });
-  await comments.click();
-  const drawer = page.getByRole('dialog', { name: 'Comments' });
+  const agents = panel(page).getByRole('button', { name: text.agentStatus });
+  await agents.click();
+  const drawer = page.getByRole('dialog', { name: text.agentStatus });
   await expect(drawer).toBeVisible();
   const box = (await drawer.boundingBox())!;
   const viewport = page.viewportSize()!;
@@ -103,19 +116,19 @@ test('a page drawer opened from the embedded page sits at the right edge, closes
   await expect(
     panel(page).getByRole('link', { name: t.openFullPage }).click({ trial: true, timeout: 1000 }),
   ).rejects.toThrow();
+  await capture(page, 'drawer');
   await page.keyboard.press('Escape');
   await expect(drawer).toBeHidden();
   await expect(panel(page)).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`\\?open=${PLAN}`));
-  await expect(comments).toBeFocused();
-  await page.screenshot({ path: capturePath('shell-embed-drawer-1440.png') });
+  await expect(agents).toBeFocused();
 });
 
 test('the More menu from the embedded bar anchors to its trigger and stays inside the viewport', async ({
   page,
 }) => {
   await decideHere(page);
-  const more = panel(page).getByRole('button', { name: /More/ });
+  const more = panel(page).getByRole('button', { name: text.more });
   await more.click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
@@ -127,9 +140,30 @@ test('the More menu from the embedded bar anchors to its trigger and stays insid
   expect(shown.y + shown.height).toBeLessThanOrEqual(viewport.height);
   // Beside or under the trigger, never far from it.
   expect(Math.abs(shown.y - (trigger.y + trigger.height))).toBeLessThan(80);
-  await page.screenshot({ path: capturePath('shell-embed-menu-1440.png') });
+  await capture(page, 'menu');
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
   await expect(panel(page)).toBeVisible();
   await expect(more).toBeFocused();
+});
+
+test('below 900 px the full page route keeps its own drawer and menu, which look the same', async ({
+  page,
+}) => {
+  const [, scheme] = look.split(':');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: scheme === 'dark' ? 'dark' : 'light' });
+  await openShell(page);
+  await page.evaluate((id) => (location.hash = `/pages/${id}`), PLAN);
+  const actions = page.getByRole('navigation', { name: text.pageHeaderActions });
+  await expect(actions).toBeVisible();
+  await actions.getByRole('button', { name: text.agentStatus }).click();
+  const drawer = page.getByRole('dialog', { name: text.agentStatus });
+  await expect(drawer).toBeVisible();
+  await capture(page, 'narrow-drawer');
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+  await actions.getByRole('button', { name: text.more }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await capture(page, 'narrow-menu');
 });

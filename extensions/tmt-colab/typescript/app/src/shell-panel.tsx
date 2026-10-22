@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
-import { BrowserDrawer } from '@tmt/browser-ui/react';
+import { useState, type ReactNode } from 'react';
+import { BrowserAction, BrowserDrawer } from '@tmt/browser-ui/react';
 import { AgentChip } from './components/agent-chip.js';
 import { compactRelativeTime } from './display-time.js';
 import { pageLinkKey } from './page-link.js';
@@ -8,6 +9,10 @@ import type { Chapter } from './shell-model.js';
 import { text } from './strings.js';
 
 const t = text.shellPage;
+
+/** Hosts a chapter's page itself in the panel. The page owns a live connection that closes when
+ * this leaves the panel, so the panel drops it before the reader goes to the full page. */
+export type EmbedPage = (pageId: string) => ReactNode;
 
 function LatestBlock({ latest, now }: { latest: LatestComment; now: number }) {
   return (
@@ -31,13 +36,17 @@ export function ChapterPanel({
   now,
   onDismiss,
   onOpen,
+  embed,
 }: {
   chapter: Chapter;
   details: ReadingDetails | undefined;
   now: number;
   onDismiss(): void;
   onOpen(): void;
+  embed: EmbedPage | undefined;
 }) {
+  /** The page itself in place of the passage list: "Decide here". Panel state, not the address. */
+  const [here, setHere] = useState(false);
   const ready = details?.state === 'ready' ? details : undefined;
   const needs = ready?.needs ?? [];
   const latest = ready?.latest;
@@ -64,80 +73,114 @@ export function ChapterPanel({
       }
       onDismiss={onDismiss}
     >
-      <div className="shell-panel">
-        {needs.length > 0 ? (
-          <ol className="shell-panel-needs" aria-label={t.panelNeeds}>
-            {needs.map((need) => (
-              <li key={`${need.kind}:${need.id}`} data-need={need.kind}>
-                <p className="shell-passage-lead">
-                  <span className="shell-mark" aria-hidden="true">
-                    ◆
-                  </span>{' '}
-                  {t.needKind[need.kind]}
-                  {need.agent && (
-                    <>
-                      {' · '}
-                      <AgentChip name={need.agent} />
-                    </>
+      {here && embed ? (
+        <div className="shell-panel shell-panel-page">
+          <div className="shell-panel-bar">
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={t.backToSummary}
+              onActivate={() => setHere(false)}
+            />
+            <Link
+              className="shell-open"
+              to="/pages/$pageId"
+              params={{ pageId: chapter.pageId }}
+              onClick={() => {
+                setHere(false);
+                onOpen();
+              }}
+              onKeyDown={pageLinkKey}
+            >
+              {t.openFullPage}
+            </Link>
+          </div>
+          {embed(chapter.pageId)}
+        </div>
+      ) : (
+        <div className="shell-panel">
+          {embed && (
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={t.decideHere}
+              onActivate={() => setHere(true)}
+            />
+          )}
+          {needs.length > 0 ? (
+            <ol className="shell-panel-needs" aria-label={t.panelNeeds}>
+              {needs.map((need) => (
+                <li key={`${need.kind}:${need.id}`} data-need={need.kind}>
+                  <p className="shell-passage-lead">
+                    <span className="shell-mark" aria-hidden="true">
+                      ◆
+                    </span>{' '}
+                    {t.needKind[need.kind]}
+                    {need.agent && (
+                      <>
+                        {' · '}
+                        <AgentChip name={need.agent} />
+                      </>
+                    )}
+                  </p>
+                  <p className="shell-passage-title">{need.title}</p>
+                  {need.why && <p className="shell-passage-why">{need.why}</p>}
+                  {need.kind === 'reading' ? (
+                    <Link
+                      className="shell-open"
+                      to="/pages/$pageId"
+                      params={{ pageId: chapter.pageId }}
+                      search={{ read: need.id }}
+                      onClick={onOpen}
+                      onKeyDown={pageLinkKey}
+                    >
+                      {t.openPassage}
+                    </Link>
+                  ) : (
+                    <Link
+                      className="shell-open"
+                      to="/pages/$pageId"
+                      params={{ pageId: chapter.pageId }}
+                      onClick={onOpen}
+                      onKeyDown={pageLinkKey}
+                    >
+                      {t.openOnPage}
+                    </Link>
                   )}
-                </p>
-                <p className="shell-passage-title">{need.title}</p>
-                {need.why && <p className="shell-passage-why">{need.why}</p>}
-                {need.kind === 'reading' ? (
-                  <Link
-                    className="shell-open"
-                    to="/pages/$pageId"
-                    params={{ pageId: chapter.pageId }}
-                    search={{ read: need.id }}
-                    onClick={onOpen}
-                    onKeyDown={pageLinkKey}
-                  >
-                    {t.openPassage}
-                  </Link>
-                ) : (
-                  <Link
-                    className="shell-open"
-                    to="/pages/$pageId"
-                    params={{ pageId: chapter.pageId }}
-                    onClick={onOpen}
-                    onKeyDown={pageLinkKey}
-                  >
-                    {t.openOnPage}
-                  </Link>
-                )}
-              </li>
-            ))}
-          </ol>
-        ) : latest ? (
-          <LatestBlock latest={latest} now={now} />
-        ) : (
-          <p className="shell-passage-note">
-            {chapter.passage.kind === 'note' ? chapter.passage.note : t.panelNothing}
-          </p>
-        )}
-        {needs.length > 0 && latest && <LatestBlock latest={latest} now={now} />}
-        {needs.length === 0 && chapter.anchor !== undefined && (
+                </li>
+              ))}
+            </ol>
+          ) : latest ? (
+            <LatestBlock latest={latest} now={now} />
+          ) : (
+            <p className="shell-passage-note">
+              {chapter.passage.kind === 'note' ? chapter.passage.note : t.panelNothing}
+            </p>
+          )}
+          {needs.length > 0 && latest && <LatestBlock latest={latest} now={now} />}
+          {needs.length === 0 && chapter.anchor !== undefined && (
+            <Link
+              className="shell-open"
+              to="/pages/$pageId"
+              params={{ pageId: chapter.pageId }}
+              search={{ anchor: chapter.anchor }}
+              onClick={onOpen}
+              onKeyDown={pageLinkKey}
+            >
+              {t.openPassage}
+            </Link>
+          )}
           <Link
             className="shell-open"
             to="/pages/$pageId"
             params={{ pageId: chapter.pageId }}
-            search={{ anchor: chapter.anchor }}
             onClick={onOpen}
             onKeyDown={pageLinkKey}
           >
-            {t.openPassage}
+            {t.openFullPage}
           </Link>
-        )}
-        <Link
-          className="shell-open"
-          to="/pages/$pageId"
-          params={{ pageId: chapter.pageId }}
-          onClick={onOpen}
-          onKeyDown={pageLinkKey}
-        >
-          {t.openFullPage}
-        </Link>
-      </div>
+        </div>
+      )}
     </BrowserDrawer>
   );
 }

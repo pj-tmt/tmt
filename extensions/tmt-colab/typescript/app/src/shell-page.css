@@ -307,3 +307,17 @@
   margin-top: 0;
   justify-self: start;
 }
+
+/* "Decide here": the page itself in the panel, under one row that goes back or on to the full page. */
+.shell-panel-page {
+  gap: var(--tmt-ui-space-s);
+}
+.shell-panel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-m);
+}
+.shell-panel-page .page {
+  min-height: 0;
+}

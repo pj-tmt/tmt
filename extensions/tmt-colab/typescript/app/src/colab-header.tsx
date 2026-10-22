@@ -26,6 +26,7 @@ export function ColabHeader({
   remoteChip = true,
   crumb,
   headingSuffix,
+  embedded = false,
 }: {
   title: string;
   caption?: string;
@@ -42,6 +43,9 @@ export function ColabHeader({
   crumb?: ReactNode;
   /** A crumb or control after the title, supplied with its own separator. */
   headingSuffix?: ReactNode;
+  /** The page is hosted inside another surface that already names it: only its actions and status
+   * remain, in place, never in the host's header slot. */
+  embedded?: boolean;
 }) {
   const remoteAvailable = useRemoteHeaderAvailable();
   const deviceName = remote?.deviceName?.trim();
@@ -51,6 +55,13 @@ export function ColabHeader({
       ? undefined
       : text.brandIdentity(deviceName ? `local · ${deviceName}` : 'local');
   const bar = useShellBar();
+  if (embedded)
+    return (
+      <header className="colab-embedded-bar" ref={headerRef} aria-label={title}>
+        {actions}
+        {status}
+      </header>
+    );
   const header = (
     <BrowserHeader
       productLabel={text.product}

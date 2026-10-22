@@ -74,3 +74,13 @@ const routeEnvironment = routePageEnvironment({
 const PageEnvironmentContext = createContext<PageEnvironment>(routeEnvironment);
 export const PageEnvironmentProvider = PageEnvironmentContext.Provider;
 export const usePageEnvironment = () => useContext(PageEnvironmentContext);
+
+/** The environment of a page hosted in a panel of another page: it names nothing in the tab (the host
+ * page owns the title), carries no thread in the address, and otherwise reads the host's. */
+export function embeddedPageEnvironment(host: PageEnvironment): PageEnvironment {
+  return {
+    ...host,
+    setTitle: () => () => undefined,
+    threadFragment: () => undefined,
+  };
+}

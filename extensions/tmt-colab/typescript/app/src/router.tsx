@@ -69,7 +69,11 @@ import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
 import { ColabShell, ShellHostSlot } from './colab-shell.js';
-import { usePageEnvironment } from './page-environment.js';
+import {
+  embeddedPageEnvironment,
+  PageEnvironmentProvider,
+  usePageEnvironment,
+} from './page-environment.js';
 import { ColabSettings } from './colab-settings.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
@@ -1110,6 +1114,68 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
   };
 }
 
+/** A chapter's page hosted in the shell's panel: it opens the page through the transport as the
+ * route would, and gives its live connection up when the panel leaves it (back to the summary, the
+ * full page, Esc), so one page never holds two. */
+function EmbeddedPage({ pageId }: { pageId: string }) {
+  const router = useRouter();
+  const { transport, space } = root.useRouteContext();
+  const host = usePageEnvironment();
+  const [loaded, setLoaded] = useState<PageSnapshot | 'failed'>();
+  useEffect(() => {
+    const abort = new AbortController();
+    let opened: PageSnapshot | undefined;
+    setLoaded(undefined);
+    transport.page(pageId, abort.signal).then(
+      (snapshot) => {
+        if (abort.signal.aborted) snapshot.binding?.close();
+        else {
+          opened = snapshot;
+          setLoaded(snapshot);
+        }
+      },
+      () => {
+        if (!abort.signal.aborted) setLoaded('failed');
+      },
+    );
+    return () => {
+      abort.abort();
+      opened?.binding?.close();
+    };
+  }, [transport, pageId]);
+  const routing = useMemo<PageRouting>(
+    () => ({ ...routePageRouting(router), home: (brand) => brand, scopeCrumb: () => null }),
+    [router],
+  );
+  const environment = useMemo(() => embeddedPageEnvironment(host), [host]);
+  if (loaded === undefined)
+    return (
+      <p className="shell-state" role="status">
+        <BusyMark /> {text.loading}
+      </p>
+    );
+  if (loaded === 'failed')
+    return (
+      <p className="shell-state" role="status">
+        {text.blocked}
+      </p>
+    );
+  return (
+    <PageEnvironmentProvider value={environment}>
+      <OpenPage
+        key={pageId}
+        embedded
+        transport={transport}
+        space={space}
+        loaded={loaded}
+        search={{}}
+        scope={undefined}
+        routing={routing}
+      />
+    </PageEnvironmentProvider>
+  );
+}
+
 function OpenPage({
   transport,
   space,
@@ -1117,6 +1183,7 @@ function OpenPage({
   search,
   scope,
   routing,
+  embedded = false,
 }: {
   transport: PageTransport;
   space: string | undefined;
@@ -1125,6 +1192,9 @@ function OpenPage({
   search: { read?: string; anchor?: string; task?: string };
   scope: string | undefined;
   routing: PageRouting;
+  /** The page is hosted in a panel of another page: its drawers and menus stay the app's, but the
+   * panel already names it, so it keeps only its actions and status. */
+  embedded?: boolean;
 }) {
   const environment = usePageEnvironment();
   // The renderer's thread handler outlives a render, so it reads the environment through a ref.
@@ -1635,6 +1705,7 @@ function OpenPage({
         isEligible={notifications.isEligible}
       />
       <ColabHeader
+        embedded={embedded}
         remoteMenu={false}
         remoteChip={false}
         headingSuffix={
@@ -2264,7 +2335,12 @@ function OpenPage({
                   remote={{ deviceName: transport.backendName }}
                 />
                 <main className="canvas">
-                  {(view.shell || !endedError) && <ShellPage shell={view.shell} />}
+                  {(view.shell || !endedError) && (
+                    <ShellPage
+                      shell={view.shell}
+                      embed={embedded ? undefined : (pageId) => <EmbeddedPage pageId={pageId} />}
+                    />
+                  )}
                   {endedError && <EndedBody error={endedError} action={endedAction} />}
                 </main>
               </section>

@@ -284,3 +284,14 @@ body:not(:has(.tmt-ui-shell)) {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
+
+/* A page hosted in a panel names itself there: its actions and status make one compact row. */
+.colab-embedded-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-xl);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
