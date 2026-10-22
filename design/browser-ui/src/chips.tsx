@@ -313,7 +313,9 @@ export function BrowserChips({
           aria-label={addLabel}
           onClose={(event) => {
             event.stopPropagation();
-            if (!event.currentTarget.open) close();
+            // Our own close() reaches here once its event is delivered, while the surface stays mounted
+            // for its exit; only a close the platform made while we are open is ours to handle.
+            if (open && !event.currentTarget.open) close();
           }}
           onCancel={(event) => {
             event.preventDefault();

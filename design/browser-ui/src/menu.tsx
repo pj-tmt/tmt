@@ -242,7 +242,9 @@ export function BrowserMenu<Key extends string>({
           aria-label={label}
           onClose={(event) => {
             event.stopPropagation();
-            if (event.currentTarget === dialog.current && !event.currentTarget.open) close();
+            // See BrowserChips: our own close() arrives here after the surface left `open`.
+            if (open && event.currentTarget === dialog.current && !event.currentTarget.open)
+              close();
           }}
           onCancel={(event) => {
             event.preventDefault();
