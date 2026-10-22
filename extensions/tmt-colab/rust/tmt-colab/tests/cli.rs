@@ -8977,7 +8977,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         include_bytes!("../../../skills/tmt-colab/SKILL.md")
     );
     let skill = std::str::from_utf8(&output.stdout).unwrap();
-    assert!(output.stdout.len() <= 10_000);
+    assert!(output.stdout.len() <= 10_300);
     for (name, expected) in [
         (
             "attachments",
@@ -9083,6 +9083,131 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
 }
 
 /// #3708: execute the shipped reference, not a second hand-copied command list.
+/// The comment after the starter's `</style>` in the page-style reference (#4311): the question
+/// group and the reading anchor an agent copies, which the skill's "Ask and flag" step points to.
+fn starter_examples() -> (&'static str, &'static str) {
+    let reference = include_str!("../../../skills/tmt-colab/references/page-style.md");
+    let comment = reference
+        .split("<!-- Examples to copy")
+        .nth(1)
+        .expect("the starter holds its examples")
+        .split("\n-->")
+        .next()
+        .unwrap();
+    let questions_at = comment.find("<tmt-questions").expect("the question group");
+    let read_at = comment.find("<tmt-read").expect("the reading anchor");
+    assert!(questions_at < read_at, "the group comes first");
+    (
+        comment[questions_at..read_at].trim_end(),
+        comment[read_at..].trim_end(),
+    )
+}
+#[test]
+fn the_starters_question_and_reading_examples_pass_the_check_and_publish_as_written() {
+    let (questions, read) = starter_examples();
+    let pilot = Pilot::new(None);
+    let page = format!("<div>\n{questions}\n</div>\n<div>\n{read}\n</div>\n");
+    let file = pilot.root.join("ask-and-flag.html");
+    fs::write(&file, &page).unwrap();
+    let path = file.to_str().unwrap();
+    let report = pilot.call(&["page", "check", path, "--json"]);
+    assert_eq!(report["ok"], true, "{report}");
+    assert_eq!(report["findings"], json!([]));
+    assert_eq!(report["questions"], json!({"admitted": 1, "ignored": 0}));
+    assert_eq!(report["readings"], json!({"admitted": 1, "ignored": 0}));
+    // The skill's own flow: an empty page, then a whole-page write fenced by its revision.
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Ask and flag",
+        "--layout",
+        "column",
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let empty = pilot.call(&["page", "read", id, "--json"]);
+    let written = pilot.call(&[
+        "page",
+        "write",
+        id,
+        "--file",
+        path,
+        "--expected-revision",
+        empty["revision"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(written["warnings"], json!([]), "{written}");
+    assert_eq!(pilot.call(&["page", "read", id, "--json"])["source"], page);
+}
+#[test]
+fn a_grouped_question_inside_a_question_wrapper_is_the_check_refusal_the_skill_names() {
+    let (questions, _) = starter_examples();
+    let pilot = Pilot::new(None);
+    // The wrapper's own question, now also carrying `data-group`.
+    let page = questions.replacen(
+        "<tmt-question ",
+        "<tmt-question data-group=\"20000000-0000-4000-8000-000000000002\" ",
+        1,
+    );
+    assert_ne!(page, questions);
+    let file = pilot.root.join("grouped.html");
+    fs::write(&file, &page).unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", file.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let codes: Vec<String> = finding_codes(&report["findings"])
+        .into_iter()
+        .map(|(code, _)| code)
+        .collect();
+    assert!(
+        codes.iter().any(|code| code == "question-group-conflict"),
+        "{codes:?}"
+    );
+}
+#[test]
+fn the_starters_examples_are_inert_in_a_created_page_and_create_no_question_or_reading() {
+    let reference = include_str!("../../../skills/tmt-colab/references/page-style.md");
+    let starter = reference
+        .split("<!-- BEGIN generated page style -->")
+        .nth(1)
+        .and_then(|region| region.split("```html\n").nth(1))
+        .and_then(|block| block.split("```").next())
+        .expect("the generated starter");
+    let (questions, read) = starter_examples();
+    assert!(starter.contains(questions) && starter.contains(read));
+    let pilot = Pilot::new(None);
+    // A page started from the bare starter, comment included, as the skill tells an agent to.
+    let page = format!("{starter}<section>\n  <h2>Summary</h2>\n  <p>Text.</p>\n</section>\n");
+    let file = pilot.root.join("from-starter.html");
+    fs::write(&file, &page).unwrap();
+    let path = file.to_str().unwrap();
+    let report = pilot.call(&["page", "check", path, "--json"]);
+    assert_eq!(report["ok"], true, "{report}");
+    assert_eq!(report["findings"], json!([]));
+    assert_eq!(report["questions"], json!({"admitted": 0, "ignored": 0}));
+    assert_eq!(report["readings"], json!({"admitted": 0, "ignored": 0}));
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "From the starter",
+        "--layout",
+        "column",
+        "--file",
+        path,
+        "--json",
+    ]);
+    assert_eq!(created["warnings"], json!([]), "{created}");
+    let id = created["pageId"].as_str().unwrap();
+    assert_eq!(pilot.call(&["page", "read", id, "--json"])["source"], page);
+    // No answer group or reading thread exists for it.
+    assert_eq!(pilot.call(&["threads", id, "--json"])["threads"], json!([]));
+}
 #[test]
 fn dashboard_skill_examples_publish_the_documented_data_without_changing_the_source() {
     let pilot = Pilot::new(None);

@@ -341,3 +341,45 @@ fn the_tokens_cell_is_a_dash_without_a_usable_report_or_complete_cells() {
         assert_eq!(claude_row(&mut app, 120), dash_row(), "{label}");
     }
 }
+
+fn resetting_in(ms: u64, left: f64) -> Standing {
+    let mut standing = standing("claude", left, 0, 10 * 60_000, Rates::default());
+    standing.latest.as_mut().unwrap().weekly.resets_at_ms = NOW + ms;
+    standing
+}
+
+#[test]
+fn need_is_hidden_a_minute_before_the_reset_and_capped_just_outside_the_last_hour() {
+    for (width, shown_hidden, shown_capped) in [
+        (
+            120,
+            vec!["Claude", "30%", "—"],
+            vec!["Claude", "100%", ">99"],
+        ),
+        (
+            80,
+            vec!["Claude", "30%", "—"],
+            vec!["Claude", "100%", "need", ">99%/h"],
+        ),
+    ] {
+        let mut app = digest(vec![resetting_in(60_000, 30.0)]);
+        let hidden = rows(&buffer(&mut app, width, 40));
+        let row = words(row_of(&hidden, "Claude"));
+        assert!(
+            shown_hidden.iter().all(|word| row.contains(word)),
+            "{width}: {row:?}"
+        );
+        assert!(
+            !row.iter()
+                .any(|word| word.contains('%') && word.contains('/')),
+            "{width}: no figure in the last hour: {row:?}"
+        );
+        let mut app = digest(vec![resetting_in(HOUR, 100.0)]);
+        let capped = rows(&buffer(&mut app, width, 40));
+        let row = words(row_of(&capped, "Claude"));
+        assert!(
+            shown_capped.iter().all(|word| row.contains(word)),
+            "{width}: {row:?}"
+        );
+    }
+}

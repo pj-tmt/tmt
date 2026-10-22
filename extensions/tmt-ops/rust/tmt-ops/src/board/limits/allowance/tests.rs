@@ -238,3 +238,20 @@ fn the_tokens_line_projects_like_the_others_and_stays_unknown_without_tokens() {
     let none = rows(&[standing], NOW, &|_| None)[0].weekly.unwrap();
     assert_eq!(none.lines[at], Outcome::Unknown);
 }
+
+#[test]
+fn need_is_capped_and_hidden_in_the_last_hour() {
+    let weekly = |left: f64, resets_in: u64| Weekly {
+        left,
+        resets_at_ms: NOW + resets_in,
+        need_per_hour: left / (resets_in as f64 / HOUR as f64),
+        lines: [Outcome::Unknown; 5],
+    };
+    // 30 % left a minute before the reset would read 1800 %/h: hidden through the last hour.
+    assert_eq!(weekly(30.0, 60_000).need(NOW), Need::Hidden);
+    assert_eq!(weekly(30.0, HOUR - 1).need(NOW), Need::Hidden);
+    // Just outside the last hour the figure is shown, capped above 99.
+    assert!(matches!(weekly(80.0, HOUR + 60_000).need(NOW), Need::Rate(rate) if rate < 99.0));
+    assert_eq!(weekly(100.0, HOUR + 30_000).need(NOW), Need::Over);
+    assert!(matches!(weekly(26.0, 40 * HOUR).need(NOW), Need::Rate(rate) if close(rate, 0.65)));
+}

@@ -3,7 +3,7 @@
 //! the reset. Numbers come from `limits::allowance`; this file only places them.
 use crate::board::{
     app::App,
-    limits::{Line as ProjectionLine, Outcome, Provider, Row, Spent, Weekly},
+    limits::{Line as ProjectionLine, Need, Outcome, Provider, Row, Spent, Weekly},
     overview::cron_counts::GlyphSet,
     section_rule,
     usage_report::{View, model::Seat},
@@ -143,9 +143,9 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let ascii = matches!(app.cron_glyphs, GlyphSet::Ascii);
     for row in rows(app, now) {
         lines.push(if wide {
-            wide_row(&row, &zone, ascii, look)
+            wide_row(&row, now, &zone, ascii, look)
         } else {
-            narrow_row(&row, &zone, ascii, look)
+            narrow_row(&row, now, &zone, ascii, look)
         });
     }
     for (offset, line) in lines.into_iter().enumerate() {
@@ -205,6 +205,16 @@ fn clock(at_ms: u64, zone: &jiff::tz::TimeZone) -> String {
         )
 }
 
+/// The NEED %/h cell: capped at `>99`, an em dash in the last hour before the reset.
+fn need(weekly: &Weekly, now: u64, lead: &str) -> String {
+    let unit = if lead.is_empty() { "" } else { "%/h" };
+    match weekly.need(now) {
+        Need::Hidden => "—".into(),
+        Need::Over => format!("{lead}>{}{unit}", crate::board::limits::NEED_CAP),
+        Need::Rate(rate) => format!("{lead}{rate:.2}{unit}"),
+    }
+}
+
 /// A projection's cell: percent left at the reset, or the time it runs out.
 fn outcome(outcome: Outcome, zone: &jiff::tz::TimeZone, ascii: bool) -> (String, bool) {
     match outcome {
@@ -228,6 +238,7 @@ fn spans(cells: Vec<(String, usize, bool, Role)>, look: crate::look::Look) -> Li
 
 fn wide_row(
     row: &Row,
+    now: u64,
     zone: &jiff::tz::TimeZone,
     ascii: bool,
     look: crate::look::Look,
@@ -242,12 +253,7 @@ fn wide_row(
         return spans(cells, look);
     };
     cells.push((format!("{:.0}%", weekly.left), LEFT, true, Role::Text));
-    cells.push((
-        format!("{:.2}", weekly.need_per_hour),
-        NEED,
-        true,
-        Role::Text,
-    ));
+    cells.push((need(weekly, now, ""), NEED, true, Role::Text));
     for (index, line) in ProjectionLine::ALL.iter().enumerate() {
         let (text, runs_out) = outcome(weekly.lines[index], zone, ascii);
         let width = if *line == ProjectionLine::SinceReset {
@@ -268,6 +274,7 @@ fn wide_row(
 
 fn narrow_row(
     row: &Row,
+    now: u64,
     zone: &jiff::tz::TimeZone,
     ascii: bool,
     look: crate::look::Look,
@@ -280,7 +287,7 @@ fn narrow_row(
     };
     cells.push((format!("{:.0}%", weekly.left), LEFT, true, Role::Text));
     cells.push((
-        format!("need {:.2}%/h", weekly.need_per_hour),
+        need(weekly, now, "need "),
         "need 0.00%/h".len(),
         false,
         Role::Text,

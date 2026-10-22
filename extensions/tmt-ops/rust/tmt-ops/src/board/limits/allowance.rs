@@ -193,6 +193,19 @@ pub fn project(left: f64, resets_in_ms: u64, now_ms: u64, rate: Option<f64>) -> 
     }
 }
 
+/// The even-burn figure beyond which the display only says "more than this".
+pub const NEED_CAP: f64 = 99.0;
+
+/// What the NEED %/h cell shows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Need {
+    /// Inside the last hour before the reset the figure only grows without meaning.
+    Hidden,
+    /// More than [`NEED_CAP`] percent an hour.
+    Over,
+    Rate(f64),
+}
+
 /// A weekly window as of now, with its projection lines.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Weekly {
@@ -204,6 +217,18 @@ pub struct Weekly {
 }
 
 impl Weekly {
+    /// The NEED %/h display at `now_ms`: hidden in the last hour before the reset, capped
+    /// above [`NEED_CAP`].
+    pub fn need(&self, now_ms: u64) -> Need {
+        if self.resets_at_ms.saturating_sub(now_ms) < HOUR_MS {
+            Need::Hidden
+        } else if self.need_per_hour > NEED_CAP {
+            Need::Over
+        } else {
+            Need::Rate(self.need_per_hour)
+        }
+    }
+
     /// The worst of the lines, for a row with no room for all five.
     pub fn worst(&self) -> Outcome {
         self.lines
