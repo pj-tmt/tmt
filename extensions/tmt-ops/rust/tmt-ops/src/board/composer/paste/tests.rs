@@ -964,14 +964,35 @@ fn preview_footer_omits_one_terminal_break_and_keeps_other_blank_lines() {
                     .collect::<Vec<_>>()
                     .join(separator)
                     + &separator.repeat(terminal_breaks);
+                key(&mut app, KeyCode::Enter);
+                let before_admission = app.input.as_ref().unwrap().clone();
                 if quote {
                     app.add_chat_quote("worker".into(), raw.clone());
+                    if separator == "\r" && terminal_breaks > 0 {
+                        // Adding LF after the source CR would join across the
+                        // fold boundary; this source must be refused atomically.
+                        let after = app.input.as_ref().unwrap();
+                        assert!(after.text == before_admission.text);
+                        assert_eq!(after.inline_quotes, before_admission.inline_quotes);
+                        assert!(app.notice.as_deref().unwrap().contains("draft unchanged"));
+                        continue;
+                    }
                 } else {
-                    key(&mut app, KeyCode::Enter);
                     app.paste(&raw);
                 }
                 draw(&mut app, 100, 36);
-                let hit = app.composer.paste_hits.borrow()[0].clone();
+                let hit = app
+                    .composer
+                    .paste_hits
+                    .borrow()
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "no fold: separator={separator:?}, terminal breaks={terminal_breaks}, quote={quote}; input={:?}",
+                            app.input.as_ref().map(|input| input.text.as_str())
+                        )
+                    });
                 app.mouse(click(hit.area), std::time::Instant::now());
                 let before = app.input.as_ref().unwrap().text.clone();
                 let mut terminal =

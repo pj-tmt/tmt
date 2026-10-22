@@ -18,8 +18,12 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> Event {
 
 #[test]
 fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
-    for case in ["attached", "changed", "limit"] {
-        let source = "exact **raw** 漢字 e\u{301}\n\x1b[31m";
+    for case in ["attached", "changed", "limit", "boundary"] {
+        let source = if case == "boundary" {
+            "exact source ending in CR\r"
+        } else {
+            "exact **raw** 漢字 e\u{301}\n\x1b[31m"
+        };
         let mut app = source_reader(source);
         let expected = app
             .row_details
@@ -35,13 +39,17 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
         assert_eq!(expected.range, 0..source.len());
         if case == "changed" {
             app.view.as_mut().unwrap().replies[0]["requestId"] = json!("r2");
-        } else if case == "limit" {
+        } else if matches!(case, "limit" | "boundary") {
             let target = app.conversation_target().unwrap();
             let squad = app.target_squad(&target).unwrap();
             let send = app.send_target(target, true).unwrap();
             app.compose_row(send, crate::action::Verb::Talk, squad);
-            // Keep the Reader open while a retained draft owns an existing quote.
-            app.input.as_mut().unwrap().text = "x".repeat(crate::board::app::MESSAGE_LIMIT).into();
+            // Keep the Reader open while a retained draft exercises admission failure.
+            app.input.as_mut().unwrap().text = if case == "limit" {
+                "x".repeat(crate::board::app::MESSAGE_LIMIT).into()
+            } else {
+                "kept draft".into()
+            };
             app.remember_draft();
             app.input = None;
         }
@@ -61,17 +69,21 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
                     Some("The response source changed; reopen it before annotating.")
                 );
             }
-            "limit" => {
+            "limit" | "boundary" => {
                 assert!(app.row_details.reader.is_none());
                 let input = app.input.as_ref().unwrap();
                 assert!(input.text.folds().is_empty());
                 assert_eq!(
                     input.text.as_str(),
-                    "x".repeat(crate::board::app::MESSAGE_LIMIT)
+                    if case == "limit" {
+                        "x".repeat(crate::board::app::MESSAGE_LIMIT)
+                    } else {
+                        "kept draft".to_owned()
+                    }
                 );
                 assert_eq!(
                     app.notice.as_deref(),
-                    Some("Quote exceeds the 1 MiB attachment limit; not attached.")
+                    Some("Quote could not be added; not attached.")
                 );
             }
             _ => {

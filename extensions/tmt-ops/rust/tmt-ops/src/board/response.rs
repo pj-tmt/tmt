@@ -154,7 +154,7 @@ impl super::app::App {
         {
             return Attachment::Opened {
                 effect,
-                reason: "Quote exceeds the 1 MiB attachment limit; not attached.",
+                reason: "Quote could not be added; not attached.",
             };
         }
         self.remember_draft();

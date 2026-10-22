@@ -113,7 +113,7 @@ impl Input {
         else {
             return false;
         };
-        if !editor.insert("\n", limit) {
+        if !editor.insert("\n", limit) || !editor.folds().iter().any(|fold| fold.id == id) {
             return false;
         }
         self.text = editor;
@@ -192,7 +192,7 @@ impl App {
             return effect;
         };
         if !input.insert_quote(&text, QuoteSource::Literal { author }) {
-            return self.say("Quote exceeds the 1 MiB attachment limit; draft unchanged.");
+            return self.say("Quote could not be added; draft unchanged.");
         }
         self.remember_draft();
         self.workspace_focus_conversation();

@@ -1557,6 +1557,29 @@ fn inline_quote_refusal_retains_exact_source_caret_selection_and_folds() {
 }
 
 #[test]
+fn a_joining_terminal_break_refuses_the_quote_without_losing_the_draft() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    for source in ["joining CR\r", "meaningful blank row\r\r"] {
+        let mut app = app();
+        open(&mut app, "auth-fix");
+        app.add_chat_quote("worker".into(), "held quote".into());
+        app.paste("my text");
+        app.input.as_mut().unwrap().text.key(
+            KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT),
+            80,
+            usize::MAX,
+        );
+        let before = app.input.as_ref().unwrap().clone();
+        app.add_chat_quote("worker".into(), source.into());
+        let after = app.input.as_ref().unwrap();
+        assert!(after.text == before.text);
+        assert_eq!(after.inline_quotes, before.inline_quotes);
+        assert_eq!(after.draft_key, before.draft_key);
+        assert!(app.notice.as_deref().unwrap().contains("draft unchanged"));
+    }
+}
+
+#[test]
 fn a_quote_ending_in_a_break_is_still_one_visible_caret_line() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = app();
