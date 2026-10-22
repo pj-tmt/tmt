@@ -770,6 +770,139 @@ fn a_selection_ends_when_its_lines_are_gone() {
     assert!(app.conversation.borrow().selection.is_none());
 }
 
+/// A busy agent streams into the message being read (#4344): the selected words stay,
+/// whatever follows them on the same line grows, and Copy and Quote keep working.
+#[test]
+fn a_selection_survives_streaming_into_the_line_it_ends_on() {
+    let mut app = fixture("alpha beta gamma");
+    pick(&mut app, "beta");
+    assert_eq!(selected(&app).as_deref(), Some("beta"));
+    replace_reply(&mut app, "alpha beta gamma delta epsilon".into());
+    draw(&mut app, 100, TALL);
+    assert_eq!(
+        selected(&app).as_deref(),
+        Some("beta"),
+        "streamed words after the selection do not end it"
+    );
+    assert!(quote_button(&app).is_some());
+}
+
+/// The same, with the selection ending on the last (still growing) line of a longer message.
+#[test]
+fn a_selection_in_the_growing_last_paragraph_keeps_copy_and_quote() {
+    let mut app = fixture(&format!("{}tail words", long(10)));
+    let (x, y) = press(&mut app, "tail words");
+    replace_reply(&mut app, format!("{}tail words and more", long(10)));
+    draw(&mut app, 100, TALL);
+    let copied = mouse(
+        &mut app,
+        MouseEventKind::Up(MouseButton::Left),
+        x + "tail words".len() as u16,
+        y,
+    );
+    assert!(
+        matches!(&copied, Effect::Act(Request::Copy { text, .. }) if text == "tail words"),
+        "{copied:?}"
+    );
+    draw(&mut app, 100, TALL);
+    assert_eq!(
+        selected(&app).as_deref(),
+        Some("tail words"),
+        "still selected"
+    );
+    assert!(quote_button(&app).is_some());
+}
+
+/// New messages that make the transcript taller than the pane add a scrollbar column,
+/// which narrows the wrap: the selection must not end just because it got longer.
+#[test]
+fn a_selection_survives_the_transcript_outgrowing_the_pane() {
+    let mut app = fixture(&long(3));
+    pick(&mut app, "passage 001");
+    assert!(selected(&app).is_some());
+    replace_reply(&mut app, long(120));
+    draw(&mut app, 100, TALL);
+    assert_eq!(
+        selected(&app).as_deref(),
+        Some("passage 001"),
+        "a longer transcript keeps the selection"
+    );
+}
+
+/// A stamp that ticks after the selected words (`3s ago` → `4s ago`) is the same line.
+#[test]
+fn a_selection_ends_before_a_ticking_stamp_and_survives_it() {
+    let mut app = fixture("Ben to auth-fix 3s ago");
+    pick(&mut app, "Ben to auth-fix");
+    replace_reply(&mut app, "Ben to auth-fix 4s ago".into());
+    draw(&mut app, 100, TALL);
+    assert_eq!(selected(&app).as_deref(), Some("Ben to auth-fix"));
+    // A selection that reaches the changing digits ends rather than show another passage.
+    let mut app = fixture("Ben to auth-fix 3s ago");
+    pick(&mut app, "Ben to auth-fix 3s");
+    replace_reply(&mut app, "Ben to auth-fix 4s ago".into());
+    draw(&mut app, 100, TALL);
+    assert!(app.conversation.borrow().selection.is_none());
+}
+
+/// The pane-output read for the open conversation, as the worker would deliver it.
+fn deliver_output(app: &mut App, text: &str) {
+    use crate::board::recent_responses::{Item, Observation};
+    let key = app
+        .pane_output_read()
+        .expect("the open conversation reads pane output");
+    app.apply_pane_output(
+        key,
+        Observation::Observed(vec![Item {
+            text: text.into(),
+            ended_ms: 1_000,
+            truncated: false,
+        }]),
+    );
+}
+
+/// A busy agent's output lands between two pointer events, before the next frame has
+/// rebuilt the transcript (#4344): the drag goes on and the release still copies.
+#[test]
+fn a_drag_and_its_release_survive_output_landing_before_the_next_frame() {
+    let mut app = fixture(&long(80));
+    let (x, y) = press(&mut app, "passage 070");
+    // One observation lands per frame (`pane_output_fresh`); here it lands mid-gesture.
+    deliver_output(&mut app, "the agent is writing");
+    mouse(
+        &mut app,
+        MouseEventKind::Drag(MouseButton::Left),
+        x + 11,
+        y + 2,
+    );
+    let copied = mouse(
+        &mut app,
+        MouseEventKind::Up(MouseButton::Left),
+        x + 11,
+        y + 2,
+    );
+    assert!(
+        matches!(&copied, Effect::Act(Request::Copy { text, .. })
+            if text.starts_with("passage 070") && text.contains("passage 072")),
+        "{copied:?}"
+    );
+}
+
+/// A press that lands in the same gap still starts a selection.
+#[test]
+fn a_press_before_the_frame_that_follows_new_output_still_selects() {
+    let mut app = fixture(&long(80));
+    let (x, y) = locate(&draw(&mut app, 100, TALL), "passage 070").unwrap();
+    deliver_output(&mut app, "the agent is writing");
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 11, y);
+    let copied = mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 11, y);
+    assert!(
+        matches!(&copied, Effect::Act(Request::Copy { text, .. }) if text == "passage 070"),
+        "{copied:?}"
+    );
+}
+
 mod click_focus {
     use super::*;
     use crate::board::shell::RightTab;
