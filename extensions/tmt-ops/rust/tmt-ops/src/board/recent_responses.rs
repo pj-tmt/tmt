@@ -8,6 +8,7 @@ const MAX_TEXT_BYTES: usize = 8192;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Item {
     pub text: String,
+    pub provider: String,
     pub ended_ms: u64,
     pub truncated: bool,
 }
@@ -66,7 +67,7 @@ fn parse(identity: &str, value: &Value) -> Option<Vec<Item>> {
     for value in values.iter().rev() {
         let text = value["text"].as_str()?;
         // Provider is Core-owned metadata, not an Ops driver dispatch key.
-        value["provider"].as_str()?;
+        let provider = value["provider"].as_str()?;
         if text.len() > MAX_TEXT_BYTES {
             return None;
         }
@@ -75,6 +76,7 @@ fn parse(identity: &str, value: &Value) -> Option<Vec<Item>> {
         }
         items.push(Item {
             text: text.into(),
+            provider: provider.into(),
             ended_ms: value["endedMs"].as_u64()?,
             truncated: value["truncated"].as_bool()?,
         });

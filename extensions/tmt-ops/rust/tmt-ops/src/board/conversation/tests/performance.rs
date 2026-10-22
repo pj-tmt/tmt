@@ -41,13 +41,17 @@ fn populated_conversation(rows: usize) -> (App, String, OpsTarget) {
             panic!("probe must submit a real composer turn");
         };
         let ticket = app.outgoing_ticket(&request).unwrap();
-        assert_eq!(ticket.text, format!("[squad-00 · agent-00000] {text}"));
+        assert_eq!(ticket.text, text);
         assert_eq!(ticket.key.1, member);
         app.finished_send(crate::board::conversation::outgoing::Completed {
             ticket: Some(ticket),
             outcome: Ok(crate::send::Accepted {
                 request: format!("req_88888888-8888-4888-8888-{index:012}"),
                 disposition: crate::send::Disposition::Queued,
+                passthrough: false,
+                message_state_label: None,
+                fallback: None,
+                warning: None,
             }),
             what: "Message".into(),
             to: "measured member".into(),
@@ -584,6 +588,10 @@ fn conversation_scroll_cost() {
                     outcome: Ok(crate::send::Accepted {
                         request: format!("req_88888888-8888-4888-8888-{index:012}"),
                         disposition: crate::send::Disposition::Queued,
+                        passthrough: false,
+                        message_state_label: None,
+                        fallback: None,
+                        warning: None,
                     }),
                     what: "Message".into(),
                     to: member.clone(),

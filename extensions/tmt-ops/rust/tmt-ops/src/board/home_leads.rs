@@ -159,12 +159,20 @@ impl SentKey {
             .map(|item| {
                 let request = item["requestId"].as_str().unwrap_or_default();
                 let full = texts.known.get(request).cloned().flatten();
-                json!({
+                let mut send = json!({
                     "requestId": request,
                     "preparedAtMs": item["preparedAtMs"],
                     "truncated": full.is_none(),
                     "text": full.unwrap_or_else(|| item["preview"].as_str().unwrap_or_default().to_owned()),
-                })
+                });
+                if item["messageState"].is_object() {
+                    send["messageState"] = item["messageState"].clone();
+                }
+                if item["mode"] == "passthrough" {
+                    send["mode"] = item["mode"].clone();
+                    send["passthrough"] = item["passthrough"].clone();
+                }
+                send
             })
             .collect())
     }

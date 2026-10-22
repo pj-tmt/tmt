@@ -1,4 +1,7 @@
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { spawnRealTmuxCli, releaseRealTmuxCli, readRealTmuxCli } from './real-tmux-caller.js';
@@ -6,7 +9,10 @@ import { describe, expect, it } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { expectJsonResult } from './cli-assertions.js';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
-import { requestAttempts } from './request-state-oracle.js';
+import { requestAttempts, requestResponses } from './request-state-oracle.js';
+import { publishDigestStep } from './claude-digest-step.js';
+import { readCompleteJsonLines } from './harness.js';
+import { waitForFileContent } from './wait-for-file.js';
 import { storedDocument } from '../support/ops-state.js';
 import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 
@@ -1124,6 +1130,195 @@ renameSync(output+'.tmp',output);
     });
   });
 
+  it('pairs a raw Ops chat with its captured turn and settles only the oldest question', async () => {
+    await withE2EFixture(async (fixture) => {
+      installSquad(fixture);
+      const home = path.join(fixture.root, 'passthrough-home');
+      const sessionId = randomUUID();
+      const tree = path.join(home, '.claude', 'projects', '-workspace');
+      fs.mkdirSync(tree, { recursive: true });
+      const transcript = path.join(tree, `${sessionId}.jsonl`);
+      fs.writeFileSync(transcript, '');
+      const cliEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        HOME: home,
+        TMT_HOME: fixture.globalDir,
+        PATH: `${fixture.wrapperDir}:${path.dirname(fixture.executables.cli.executable)}:${process.env.PATH ?? ''}`,
+        XDG_CACHE_HOME: path.join(home, 'cache'),
+        TMUX_TMPDIR: fixture.socketRoot,
+      };
+      delete cliEnv.TMUX;
+      delete cliEnv.TMUX_PANE;
+      const cli = (args: string[], input?: unknown) =>
+        JSON.parse(
+          execFileSync(
+            fixture.executables.cli.executable,
+            [...fixture.executables.cli.args, ...args],
+            {
+              env: cliEnv,
+              input: input === undefined ? undefined : JSON.stringify(input),
+              encoding: 'utf8',
+              timeout: 10_000,
+            }
+          )
+        );
+      const api = (operation: string, input: unknown, identity?: string) =>
+        cli(['api'], { version: 1, operation, input, ...(identity ? { identity } : {}) });
+      cli(['setup', 'claude', '--usage', '--yes', '--json']);
+      fs.copyFileSync('/opt/tmt-tests/claude', path.join(fixture.wrapperDir, 'claude'));
+      fs.chmodSync(path.join(fixture.wrapperDir, 'claude'), 0o755);
+      const worker = fixture.createShellPane('passthrough-worker');
+      const log = path.join(fixture.root, 'passthrough-worker.log');
+      const status = path.join(fixture.root, 'passthrough-worker.status');
+      const mock = fileURLToPath(new URL('./mock-claude-channel.mjs', import.meta.url));
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      const command = [
+        'env',
+        `HOME=${home}`,
+        `MOCK_CHANNEL_LOG=${log}`,
+        `MOCK_DB=${path.join(fixture.globalDir, 'tmt.db')}`,
+        'MOCK_AUTOREPLY=0',
+        `MOCK_SESSION_ID=${sessionId}`,
+        'MOCK_LAUNCH_HOOKS=1',
+        `MOCK_TURN_TRANSCRIPT=${transcript}`,
+        `TMT_TEST_CLAUDE_MOCK=${mock}`,
+        `TMT_TEST_CLAUDE_NODE=${process.execPath}`,
+        'TMT_TEST_CLAUDE_NATIVE_CHANNEL=1',
+        fixture.executables.cli.executable,
+        ...fixture.executables.cli.args,
+        'run',
+        '-s',
+        'chat-worker',
+        path.join(fixture.wrapperDir, 'claude'),
+      ]
+        .map(quote)
+        .join(' ');
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        worker.pane,
+        '-l',
+        `${command}; printf '%s' "$?" > ${quote(status)}`,
+      ]);
+      fixture.tmux(['send-keys', '-t', worker.pane, 'Enter']);
+      const events = () => readCompleteJsonLines<{ event: string; line?: string }>(log);
+      const event = async (name: string) => {
+        await fixture.waitFor(
+          () => events().some((item) => item.event === name || item.event === 'hook-error'),
+          15_000,
+          name
+        );
+        expect(events().filter((item) => item.event === 'hook-error')).toEqual([]);
+        expect(events().some((item) => item.event === name)).toBe(true);
+      };
+      const step = async (name: string, fields: Record<string, unknown>) => {
+        await publishDigestStep(log, { event: name, transcript, ...fields });
+        await event(name);
+      };
+      try {
+        await event('prompt-recorded');
+        await step('initial-stop', { message: 'An earlier unrelated turn' });
+        const user = cli(['identity', 'create', 'Ben', '--json']).identity.id as string;
+        cli(['identity', 'meta', 'set', 'user', 'true', '--identity', user, '--json']);
+        expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+        expectJsonResult(await squadCli(fixture, ['add', 'chat-worker']));
+        const member = durableIdentity(fixture, 'chat-worker')!;
+        const recipient = member.id;
+        expect(
+          api('identities.status', { identityIds: [recipient] }).identities[0].canPassthrough
+        ).toEqual({ available: true });
+        const questions = ['First question?', 'Second question?'].map(
+          (message) =>
+            api(
+              'dispatch.create',
+              {
+                operationId: randomUUID(),
+                recipientIds: [user],
+                kind: 'request',
+                message,
+              },
+              recipient
+            ).items[0].requestId as string
+        );
+        await fixture.attachSessionClient('e2e');
+        const board = fixture.createShellPane('passthrough-board');
+        fixture.tmux(['select-window', '-t', board.pane]);
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          board.pane,
+          'tmt ops ui --squad product; echo PASSTHROUGH_BOARD_EXIT=$?',
+          'Enter',
+        ]);
+        await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), board.pane);
+        fixture.tmux(['send-keys', '-t', board.pane, '1']);
+        await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board.pane);
+        fixture.tmux(['send-keys', '-t', board.pane, '/', 'chat-worker', 'Enter', 'End']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('⏎ to message chat-worker'),
+          board.pane
+        );
+        fixture.tmux(['send-keys', '-t', board.pane, 'Enter']);
+        fixture.tmux(['send-keys', '-t', board.pane, '-l', '/yes!']);
+        fixture.tmux(['send-keys', '-t', board.pane, 'Enter']);
+        await fixture.waitFor(
+          () => events().some((item) => item.event === 'paste' && item.line === '/yes！'),
+          15_000,
+          'raw chat reached the mock'
+        );
+        const sends = () =>
+          requestAttempts(fixture).filter(
+            (row) => row.originator_identity_id === user && row.recipient_identity_id === recipient
+          );
+        await fixture.waitFor(
+          () =>
+            sends().length === 1 &&
+            requestResponses(fixture).some((row) => row.request_id === questions[0]),
+          10_000,
+          'one send and oldest settlement'
+        );
+        expect(sends()[0]!.message_text).toBe('/yes!');
+        expect(
+          requestResponses(fixture).filter((row) => questions.includes(row.request_id))
+        ).toEqual([expect.objectContaining({ request_id: questions[0], body: '/yes!' })]);
+        const request = sends()[0]!.request_id;
+        await step('chat-prompt', { prompt: true, promptText: '/yes！' });
+        await fixture.waitFor(
+          () => api('requests.show', { requestId: request }).messageState?.state === 'working',
+          5_000,
+          'Core observes the bound turn working'
+        );
+        const workingText = api('requests.show', { requestId: request }).messageState.reason.text;
+        await fixture.waitForCapture((screen) => screen.includes(workingText), board.pane);
+        await step('chat-stop', { message: 'Captured answer from this turn' });
+        await fixture.waitFor(
+          () => api('requests.show', { requestId: request }).passthrough?.state === 'answered',
+          10_000,
+          'captured request answer'
+        );
+        expect(api('requests.show', { requestId: request }).passthrough.answer.text).toBe(
+          'Captured answer from this turn'
+        );
+        await fixture.waitForCapture(
+          (screen) =>
+            screen.includes('turn output') && screen.includes('Captured answer from this turn'),
+          board.pane
+        );
+        expect(sends()).toHaveLength(1);
+        fixture.tmux(['send-keys', '-t', board.pane, 'Escape', 'Escape', 'q']);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('PASSTHROUGH_BOARD_EXIT=0'),
+          board.pane
+        );
+      } finally {
+        fs.writeFileSync(`${log}.quit`, '');
+        expect(
+          await waitForFileContent(status, { description: 'passthrough mock foreground exited' })
+        ).toBe('0');
+      }
+    });
+  }, 60_000);
+
   it('keeps a dragged chat selection and its Quote button while the sent line ticks', async () => {
     await withE2EFixture(async (fixture) => {
       await squadWithMember(fixture);
@@ -1148,7 +1343,7 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'hello there']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => /\bsent\b/.test(screen), shell.pane);
+      await fixture.waitForCapture((screen) => screen.includes('auth-fix: '), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
 
       const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
@@ -1220,7 +1415,7 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'first question']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => /\bsent\b/.test(screen), shell.pane);
+      await fixture.waitForCapture((screen) => screen.includes('auth-fix: '), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
 
       const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);

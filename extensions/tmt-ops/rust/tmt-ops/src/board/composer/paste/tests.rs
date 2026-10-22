@@ -292,10 +292,11 @@ fn preview_paste_replaces_selection_and_survives_cancel_before_exact_send() {
     let Compose::Talk { to } = &input.compose else {
         panic!("chat")
     };
-    let expected = format!("[{} · {to}] {incoming}", input.squad);
+    let to = to.clone();
+    let expected = incoming;
     assert!(
         matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        Effect::Act(Request::Talk { text, .. }) if text == expected)
+        Effect::Act(Request::Chat { text, name, .. }) if text == expected && name == to)
     );
 }
 
@@ -305,10 +306,6 @@ fn draftless_fold_label_and_keyboard_actions_keep_the_editor_owner() {
     for compose in [
         Compose::Talk {
             to: "worker".into(),
-        },
-        Compose::Reply {
-            request: "request".into(),
-            from: "worker".into(),
         },
         Compose::Annotate {
             to: "lead".into(),

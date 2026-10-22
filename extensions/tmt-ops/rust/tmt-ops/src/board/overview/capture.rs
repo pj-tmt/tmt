@@ -406,9 +406,17 @@ fn capture_squads_packet(output: &str) {
                             };
                             let ticket = app.outgoing_ticket(&request).unwrap();
                             let to = app.composer_projection().unwrap().recipient.to_owned();
-                            app.finished_answer(crate::board::conversation::outgoing::Answered {
-                                ticket,
-                                outcome: Ok(()),
+                            app.finished_send(crate::board::conversation::outgoing::Completed {
+                                ticket: Some(ticket),
+                                outcome: Ok(crate::send::Accepted {
+                                    request: "captured-chat".into(),
+                                    disposition: crate::send::Disposition::Sent,
+                                    passthrough: true,
+                                    message_state_label: None,
+                                    fallback: None,
+                                    warning: None,
+                                }),
+                                what: "Message".into(),
                                 to,
                             });
                             app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));

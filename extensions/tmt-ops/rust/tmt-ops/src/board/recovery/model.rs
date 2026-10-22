@@ -222,6 +222,7 @@ impl Preview {
                         | "no_remembered_session"
                         | "resumable"
                         | "stale_requires_retry"
+                        | "floating"
                 )
             })
             || s.sessions.iter().any(|s| {

@@ -1229,6 +1229,7 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
         ..Default::default()
     };
     session.pane_output = Observation::Observed(vec![Item {
+        provider: "codex".into(),
         text: "untrusted **pane**\r\nlast line\n".into(),
         ended_ms: 1000,
         truncated: true,
@@ -1446,6 +1447,7 @@ fn ten_long_pane_outputs_share_scroll_follow_and_leave_real_exchange_reachable()
         Observation::Observed(
             (0..10)
                 .map(|index| Item {
+                    provider: "codex".into(),
                     text: format!("pane {index}\n{}\nend {index}", "long line\n".repeat(600)),
                     ended_ms: 1000 + index,
                     truncated: false,
@@ -1488,6 +1490,7 @@ fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() 
         key,
         crate::board::recent_responses::Observation::Observed(vec![
             crate::board::recent_responses::Item {
+                provider: "codex".into(),
                 text: "Agents-only pane capture".into(),
                 ended_ms: 1000,
                 truncated: false,
@@ -1526,6 +1529,7 @@ fn pane_output_uses_the_exchange_header_time_format() {
         let row = json!({"id":"11111111-1111-4111-8111-111111111111","name":"alpha"});
         let mut session = Session {
             pane_output: Observation::Observed(vec![Item {
+                provider: "codex".into(),
                 text: "pane body".into(),
                 ended_ms: 8_400_000,
                 truncated: false,
@@ -1617,6 +1621,7 @@ fn bare_and_at_only_sources_invalidate_on_inventory_change_without_acquiring_aut
         ..Default::default()
     };
     session.pane_output = Observation::Observed(vec![Item {
+        provider: "codex".into(),
         text: "output asks night-2".into(),
         ended_ms: 1,
         truncated: false,

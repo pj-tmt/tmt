@@ -310,23 +310,20 @@ sys.exit(0)
 
     def submitted():
         global requests
-        if newest_request:
-            detail = api("requests.show", {"requestId": newest_request})
-            requests = [detail] if detail["final"]["status"] == "retained" else []
-        else:
-            requests = received()
+        requests = received()
         return bool(requests)
 
     wait_for(submitted, "plain Enter delivered the multiline message")
     expected = "[product · " + ("worker-fresh" if transition else "worker") + "] " + expected
-    message = (requests[0]["final"].get("response") if newest_request
-               else requests[0]["prompt"].get("message"))
+    message = requests[0]["prompt"].get("message")
     if len(requests) != 1 or message != expected:
         raise AssertionError(f"wrong durable message: {requests!r}")
     if newest_request:
-        older = api("requests.show", {"requestId": original_request})
-        if older["final"]["status"] != "not_submitted" or received():
-            raise AssertionError("newest-only answer settled an older request or sent a second message")
+        # No live pane: chat creates one fallback request, never a local answer.
+        for question in [original_request, newest_request]:
+            detail = api("requests.show", {"requestId": question})
+            if detail["final"]["status"] != "not_submitted":
+                raise AssertionError("fallback chat settled an incoming question")
     elif transition:
         older = api("requests.show", {"requestId": original_request})
         if older["final"].get("response") != "Settled outside while drafting":

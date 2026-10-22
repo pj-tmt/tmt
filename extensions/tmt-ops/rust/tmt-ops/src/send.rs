@@ -1,6 +1,5 @@
-//! Messages from the user to squad members through public core commands:
-//! detached talk, tagged annotations and answers. Nothing here
-//! waits for an answer or acknowledges anything.
+//! User messages and tagged annotations through Core's public ports.
+//! Core owns delivery, question settlement and captured turn output.
 
 use crate::{
     core::{Core, SquadError},
@@ -32,6 +31,14 @@ pub enum Disposition {
 pub struct Accepted {
     pub request: String,
     pub disposition: Disposition,
+    /// Verbatim Core delivery wording with its state mark and optional countdown.
+    pub message_state_label: Option<String>,
+    /// Core accepted this as typed pane input, not a request notice.
+    pub passthrough: bool,
+    /// A capability-based request fallback, rendered beside its composer.
+    pub fallback: Option<String>,
+    /// An accepted operation whose private journal could not be removed.
+    pub warning: Option<String>,
 }
 
 impl Accepted {
@@ -55,11 +62,18 @@ impl Accepted {
         Ok(Self {
             request: request.to_owned(),
             disposition,
+            message_state_label: crate::requests::message_state_label(document),
+            passthrough: false,
+            fallback: None,
+            warning: None,
         })
     }
 
     /// The board notice; `what` names the message, such as `Note on alpha`.
     pub fn describe(&self, what: &str, to: &str) -> String {
+        if let Some(text) = &self.message_state_label {
+            return format!("{to}: {text}");
+        }
         let request = &self.request;
         match self.disposition {
             Disposition::Sent => format!("{what} sent to {to} ({request})."),
@@ -113,87 +127,6 @@ pub fn talk(
     Accepted::from_document(&sent)
 }
 
-/// The virtual common pool is not a Core room. Its explicit identity recipient
-/// uses the same public talk command and acceptance parser, without --room.
-pub fn talk_direct(
-    core: &Core,
-    sender: &str,
-    recipient: &str,
-    text: &str,
-) -> Result<Accepted, SquadError> {
-    if text.trim().is_empty() {
-        return Err(refused("Nothing to send."));
-    }
-    let sent = core
-        .json_with_operands(
-            &["talk", "--identity", sender, "--detach"],
-            &[recipient, text],
-        )
-        .map_err(retained)?;
-    Accepted::from_document(&sent)
-}
-
-/// Answers one open request from `from` to `me` through `tmt answer`: core
-/// checks that it is addressed to `me` and derives the proof, so no receipt
-/// passes through Squad. The incoming item stays unacknowledged.
-pub fn answer(
-    core: &Core,
-    me: &str,
-    request: &str,
-    from: &str,
-    text: &str,
-) -> Result<(), SquadError> {
-    if text.trim().is_empty() {
-        return Err(refused("Nothing to send."));
-    }
-    core.json_with_operands(
-        &["answer", "--identity", me, "--request", request],
-        &[from, text],
-    )?;
-    Ok(())
-}
-
-/// Preserve the typed result of the operation actually attempted, including a
-/// fallback Talk whose acceptance is uncertain. Its request ID must still clear
-/// only the submitted draft and prevent a duplicate send.
-pub(crate) enum AnswerOrTalk {
-    Answer(Result<(), SquadError>),
-    Talk(Result<Accepted, SquadError>),
-}
-
-/// Answer the currently selected request, or send one new message if Core
-/// definitively reports that the request settled. No transport/unknown result
-/// permits another send, even if it carries no acceptance ID.
-pub(crate) fn answer_or_talk(
-    core: &Core,
-    squad: &str,
-    me: &str,
-    request: &str,
-    from: &str,
-    text: &str,
-) -> AnswerOrTalk {
-    match answer(core, me, request, from, text) {
-        Err(error)
-            if !error.was_cancelled()
-                && matches!(
-                    error.code.as_str(),
-                    "ANSWER_NOT_WAITING"
-                        | "REQUEST_WITHDRAWN"
-                        | "RESPONSE_NOT_REQUIRED"
-                        | "RESPONSE_CONFLICT"
-                        | "RESPONSE_EXPIRED"
-                ) =>
-        {
-            AnswerOrTalk::Talk(if squad.is_empty() {
-                talk_direct(core, me, from, text)
-            } else {
-                talk(core, squad, me, from, text)
-            })
-        }
-        outcome => AnswerOrTalk::Answer(outcome),
-    }
-}
-
 /// New explicit sends retain this UUID through acceptance recovery.
 pub(crate) fn new_operation() -> Result<String, SquadError> {
     crate::id::new_v4().map_err(|error| SquadError::new("SQUAD_DISPATCH_IO", error.to_string()))
@@ -206,7 +139,9 @@ pub struct LeadRecipient {
     pub name: String,
 }
 
+mod chat;
 mod dispatch;
+pub(crate) use chat::chat;
 
 pub(crate) use dispatch::Intent;
 

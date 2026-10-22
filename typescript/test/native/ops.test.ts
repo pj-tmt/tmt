@@ -5141,23 +5141,25 @@ describe('large board responsiveness', () => {
           expect(screen()).toContain('typed comment');
           capture('inline-quote-caret');
           tmux(['send-keys', '-t', pane, 'Down', 'End', 'Enter']);
-          await vi.waitFor(() => expect(screen()).toContain('offline · queued'), {
-            timeout: 10_000,
-            interval: 50,
-          });
-          capture('sent');
-          const listing = await runCli(sandbox, ['api'], {
-            stdin: JSON.stringify({
-              version: 1,
-              operation: 'requests.list',
-              input: { recipientId: worker, limit: 50 },
-            }),
-          });
-          const items = JSON.parse(listing.stdout).items;
-          expect(items).toHaveLength(2);
-          const sentId = items.find(
-            (item: { requestId: string }) => item.requestId !== request
-          ).requestId;
+          let sentId = '';
+          await vi.waitFor(
+            async () => {
+              const listing = await runCli(sandbox, ['api'], {
+                stdin: JSON.stringify({
+                  version: 1,
+                  operation: 'requests.list',
+                  input: { recipientId: worker, limit: 50 },
+                }),
+              });
+              expect(listing.status, listing.stdout + listing.stderr).toBe(0);
+              const items = JSON.parse(listing.stdout).items;
+              expect(items).toHaveLength(2);
+              sentId = items.find(
+                (item: { requestId: string }) => item.requestId !== request
+              ).requestId;
+            },
+            { timeout: 10_000, interval: 50 }
+          );
           const delivered = await runCli(sandbox, ['api'], {
             stdin: JSON.stringify({
               version: 1,
@@ -5165,6 +5167,14 @@ describe('large board responsiveness', () => {
               input: { requestId: sentId },
             }),
           });
+          expect(delivered.status, delivered.stdout + delivered.stderr).toBe(0);
+          const state = JSON.parse(delivered.stdout).messageState;
+          expect(state.state).toBe('not_sent');
+          await vi.waitFor(() => expect(screen()).toContain(`✗ ${state.reason.text}`), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          capture('sent');
           expect(JSON.parse(delivered.stdout).prompt.message).toBe(
             '[product · worker]\n> "first **styled**"\ntyped comment'
           );

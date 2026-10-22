@@ -40,6 +40,11 @@ fn identities(
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
+        "needs you (floating pane is not restored; tmt resume -- {name})",
+        &[")"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         "needs you (stale conversation; tmt resume --retry -- {name})",
         &[")"],
         &[],
@@ -81,6 +86,9 @@ struct Revival {
     message: String,
     argv: Option<Vec<String>>,
     failed: bool,
+    /// A tmux 3.8 floating pane: the tiled layout is restored around it, so it has
+    /// no native pane and nothing starts in it.
+    floating: bool,
 }
 
 fn prepare(
@@ -113,7 +121,25 @@ fn prepare(
                 message: "skipped (ordinary shell)".into(),
                 argv: None,
                 failed: false,
+                floating: planned.action == WorkspacePaneAction::Floating,
             };
+            if pane.floating {
+                // Not a failure: scripts read the per-pane status. An agent on it is the
+                // user's to start, like any pane restore cannot resume.
+                if saved.command.is_some() || saved.identity.is_some() {
+                    pane.status = "needs_you";
+                    pane.message = match (&saved.command, &saved.identity) {
+                        (None, Some(_)) => format!(
+                            "needs you (floating pane is not restored; tmt resume -- {name})",
+                            name = crate::output::shell_word(&pane.name)
+                        ),
+                        _ => "needs you (floating pane is not restored; start it yourself)".into(),
+                    };
+                } else {
+                    pane.message = "skipped (floating pane)".into();
+                }
+                return pane;
+            }
             if saved.command.is_none()
                 && planned.identity.is_some_and(|identity| {
                     identity.entry.identity.canonical_name
@@ -161,6 +187,7 @@ fn prepare(
                     );
                 }
                 WorkspacePaneAction::Shell => {}
+                WorkspacePaneAction::Floating => unreachable!("returned above"),
             }
             pane
         })
@@ -178,6 +205,9 @@ fn revive(
     prepared
         .into_iter()
         .map(|mut pane| {
+            if pane.floating {
+                return pane;
+            }
             let mapped = layout
                 .panes
                 .iter()
@@ -385,8 +415,12 @@ pub fn execute(
                     1,
                 )
             })?;
+        // A layout-only restore reports only what it left out: the floating panes.
         let revival = if layout_only {
-            Vec::new()
+            prepare(&snapshot, &[], &executable.to_string_lossy())
+                .into_iter()
+                .filter(|pane| pane.floating)
+                .collect()
         } else {
             revive(&paths, &snapshot, &host, &result, prepared)
         };
@@ -414,7 +448,7 @@ pub fn execute(
         let mut document = serde_json::json!({"version": 1, "socket": socket, "name": name.map(|name| name.as_str()), "generation": generation, "digest": digest, "layoutOnly": layout_only,
             "status": if partial { "partial" } else { "completed" }, "sessions": result.sessions,
             "windows": result.windows, "panes": result.panes, "failures": result.failures});
-        if !layout_only {
+        if !layout_only || !revival.is_empty() {
             document["revival"] = serde_json::json!(
                 revival
                     .iter()
@@ -574,6 +608,86 @@ mod tests {
             prepare(&saved, &records, "/selected/tmt"),
         );
         assert_eq!(skipped[0].message, "skipped (existing session)");
+    }
+
+    // A tiled shell %2 and %1 floating above it, in the producer's shape (#4405).
+    const FLOATING_ABOVE_SHELL: &str = r#"{"V":2,"L":{"t":"v","w":80,"h":24,"x":0,"y":0,"c":[{"t":"p","w":80,"h":24,"x":0,"y":0,"a":true,"i":0,"I":"%2"},{"t":"p","w":20,"h":5,"x":2,"y":2,"i":1,"z":0,"I":"%1"}]}}"#;
+
+    fn floating_input() -> (WorkspaceSnapshot, Vec<StoredIdentity>) {
+        let (mut saved, records) = input();
+        saved.windows.push(WorkspaceWindow {
+            id: "@1".into(),
+            name: "work".into(),
+            layout: FLOATING_ABOVE_SHELL.into(),
+            visible_layout: FLOATING_ABOVE_SHELL.into(),
+            width: 80,
+            height: 24,
+            active_pane: "%2".into(),
+        });
+        saved.panes.push(WorkspacePane {
+            id: "%2".into(),
+            index: 0,
+            identity: None,
+            ..saved.panes[0].clone()
+        });
+        saved.panes[0].index = 1;
+        (saved, records)
+    }
+
+    #[test]
+    fn a_floating_pane_is_reported_and_never_started_or_counted_as_a_failure() {
+        let (saved, records) = floating_input();
+        let panes = prepare(&saved, &records, "/tmt");
+        let float = &panes[0];
+        // An agent on it is the user's to resume; nothing is launched in a pane never made.
+        assert!(float.floating && !float.failed && float.argv.is_none());
+        assert_eq!(float.status, "needs_you");
+        assert_eq!(
+            float.message,
+            "needs you (floating pane is not restored; tmt resume -- Original)"
+        );
+        assert_eq!(panes[1].message, "skipped (ordinary shell)");
+        assert!(!panes[1].floating);
+
+        let mut annotated = saved.clone();
+        annotated.panes[0].identity = None;
+        let plain = prepare(&annotated, &[], "/tmt");
+        assert_eq!(
+            (plain[0].status, plain[0].message.as_str()),
+            ("skipped", "skipped (floating pane)")
+        );
+        annotated.panes[0].command = Some(ExternalCommand {
+            argv: vec!["tmt".into(), "example".into(), "ui".into()],
+            owner: ProcessIncarnation::new(1, "old").unwrap(),
+        });
+        let command = prepare(&annotated, &[], "/tmt");
+        assert_eq!(command[0].status, "needs_you");
+        assert!(command[0].message.ends_with("start it yourself)"));
+        assert!(command[0].argv.is_none());
+
+        // revive leaves it as reported, whatever the layout did: it is not an existing session.
+        let paths = ConfigPaths::resolve(
+            std::path::Path::new("/unused/cwd"),
+            std::path::Path::new("/unused/home"),
+            None,
+            None,
+        );
+        let host = Host::for_caller(&CallerEnvironment {
+            tmux: None,
+            pane: None,
+            process_id: 10,
+            driver_env: Default::default(),
+        });
+        let layout = workspace::restore::LayoutRestore::default();
+        let revived = revive(
+            &paths,
+            &saved,
+            &host,
+            &layout,
+            prepare(&saved, &records, "/tmt"),
+        );
+        assert_eq!(revived[0].status, "needs_you");
+        assert_eq!(revived[1].message, "skipped (existing session)");
     }
 
     #[test]

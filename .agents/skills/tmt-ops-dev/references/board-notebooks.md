@@ -97,7 +97,8 @@ bounded and shared, so the painted conversation (`pane_output_enabled`, Replies 
 also reads its agent's own newest eight once per activation (`SelectedRead::Finals`,
 `requests.list` with `originatorId`, `recipientId`, `view:"results"`); a core that refuses
 that form leaves the windows as the only source. Once the finals are in, the same
-conversation reads the user's own sends to that agent once per activation
+conversation reads the user's own sends to that agent on activation and after
+an acquired workspace refresh
 (`SelectedRead::Sent`): one `requests.list` of the agent's recipient history filtered to this
 sender (newest 20 of core's newest-50 page), then `requests.show` for at most five full prompts the
 worker has not read yet, newest first; the worker caches texts (and gone prompts) by request ID, so
@@ -106,8 +107,19 @@ A prompt not read yet or no longer retained keeps its listed preview, marked tru
 `tmt x show <request>`. They are
 `Detail.sent` and render as time-sorted "you" blocks among the finals; a live session entry
 with the same request ID replaces its restored copy, so sends survive an Ops restart and are not
-capped by the session's own list. Request bodies
-load off the UI thread on the selected-read lane, newest first, one selected read at a time.
+capped by the session's own list. The same read carries Core's
+[message state](../../../../contracts/request-response-v1.md#message-state) and passthrough
+capture by exact sender/recipient/request ID. Delivery labels keep `reason.text`
+verbatim, beside a mark from Core's state and its supplied countdown; capture and
+local activity never override that line. The ordered send worker also observes the
+accepted request once through `requests.show`. Missing state keeps the legacy
+local label. Answered captures show bounded safe Markdown as `turn output` (with
+Core's truncation flag), and `no_answer` names the missing output. A bound turn has
+no local ten-minute expiry. Captures never become ordinary replies or exact response attachments;
+no pane observation decides capture or settlement. The exact provider/time/body
+observation already captured under its message is not repeated as recent pane
+output. A failed refresh preserves acquired sends until the next normal refresh.
+Request bodies load off the UI thread on the selected-read lane, newest first, one selected read at a time.
 Until Core has answered for a conversation's exchanges (the agent's own finals read, or the shared
 originator page where there is none) it shows nothing for the first 400 ms, then `Loading
 exchanges…`; "Exchange history unavailable" appears only after a failed read, and never beside
