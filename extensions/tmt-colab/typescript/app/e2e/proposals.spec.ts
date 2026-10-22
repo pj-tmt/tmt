@@ -447,7 +447,18 @@ for (const width of [1440, 390])
           decline: rect(named('Decline')),
         };
       });
-    const idle = await box();
+    // The page above the card can still be laying out when it first shows (a loaded runner once
+    // measured the card 133px higher than where it settled), so the idle place is the one two
+    // reads a frame apart agree on.
+    let idle = await box();
+    await expect
+      .poll(async () => {
+        const previous = JSON.stringify(idle);
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+        idle = await box();
+        return JSON.stringify(idle) === previous;
+      })
+      .toBe(true);
     await page.evaluate(() => {
       const watch = window as unknown as {
         steps: { step: string; height: number }[];
