@@ -142,6 +142,25 @@ for (const [name, size] of [
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
+    if (name === '390') {
+      await page.getByRole('tab', { name: '30d' }).click();
+      await expect(
+        page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
+      ).toHaveCount(30);
+      const fits = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(fits).toBeLessThanOrEqual(0);
+      if (process.env.DIGEST_CAPTURE_DIR)
+        await page.locator('#digest-activity').screenshot({
+          path: path.join(process.env.DIGEST_CAPTURE_DIR, 'digest-shell-390-30d-strips.png'),
+        });
+      await page.getByRole('tab', { name: '24h' }).click();
+      await expect(
+        page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
+      ).toHaveCount(24);
+      await page.getByRole('tab', { name: '24h' }).click();
+    }
     const dir = process.env.DIGEST_CAPTURE_DIR;
     if (dir) {
       await page.waitForTimeout(300);
@@ -249,15 +268,42 @@ test('the matrix keeps self blank, a known none as a dot and counts only talk an
   expect(text).not.toContain('99');
 });
 
-test('only the 24 hour report has an activity view; 7d and 30d say nothing about hours', async ({
+test('the activity strips are square slots: 24 hourly, 7 daily, 30 daily, with a tip and a legend', async ({
   page,
 }) => {
   await open(page);
-  await expect(page.locator('#digest-activity .tmt-ui-chart-strip-row')).toHaveCount(6);
+  const rows = page.locator('#digest-activity .tmt-ui-chart-strip-row:has(.tmt-ui-chart-strip)');
+  await expect(rows).toHaveCount(6);
+  const cells = page
+    .locator('#digest-activity .tmt-ui-chart-strip')
+    .first()
+    .locator('.tmt-ui-chart-slot');
+  await expect(cells).toHaveCount(24);
+  const box = (await cells.first().boundingBox())!;
+  expect(Math.abs(box.width - box.height)).toBeLessThan(0.5);
+  expect(box.width).toBeLessThanOrEqual(12.5);
+  await cells.nth(5).hover();
+  const tip = page.locator('#digest-activity .tmt-ui-chart-tip');
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText('tmt-lead');
+  await expect(tip).toContainText('–');
+  await expect(tip).toContainText('tokens');
+  // One tab stop; arrows move between slots and rows.
+  await cells.nth(5).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(cells.nth(6)).toBeFocused();
+  await expect(
+    page.locator('#digest-activity .tmt-ui-chart-strip-legend .tmt-ui-chart-slot'),
+  ).toHaveCount(5);
   await page.getByRole('tab', { name: '7d' }).click();
-  await expect(page.locator('#digest-tokens')).toBeVisible();
-  await expect(page.locator('#digest-activity')).toHaveCount(0);
-  await expect(page.locator('#digest-ranking h3')).toHaveText('Last 7d by seat');
+  await expect(
+    page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
+  ).toHaveCount(7);
+  await page.getByRole('tab', { name: '30d' }).click();
+  await expect(
+    page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
+  ).toHaveCount(30);
+  await expect(page.locator('#digest-ranking h3')).toHaveText('Last 30d by seat');
 });
 
 test('the allowance shows the latest weekly window and the history chart when it is served', async ({

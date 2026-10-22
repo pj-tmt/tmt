@@ -116,7 +116,7 @@ it('exchange counts talk and reply only, ranks by traffic and keeps a known none
   expect(exchange({ ...day, exchange: null })).toBeNull();
 });
 
-it('activity is hourly for the 24 hour report only', () => {
+it('activity is hourly for 24 hours and daily for 7d and 30d, ending at the newest bucket', () => {
   const view = activity(day)!;
   expect(view.starts).toHaveLength(24);
   expect(view.rows.every((row) => row.slots.length === 24)).toBe(true);
@@ -126,8 +126,17 @@ it('activity is hourly for the 24 hour report only', () => {
       .slots.slice(0, 12)
       .every((value) => value === null),
   ).toBe(true);
-  expect(activity(mockDocument('7d'))).toBeNull();
-  expect(activity(mockDocument('30d'))).toBeNull();
+  expect(view.slot).toBe('hour');
+  for (const [range, count] of [
+    ['7d', 7],
+    ['30d', 30],
+  ] as const) {
+    const longer = activity(mockDocument(range))!;
+    expect(longer.slot).toBe('day');
+    expect(longer.starts).toHaveLength(count);
+    expect(longer.starts[1]! - longer.starts[0]!).toBe(86_400_000);
+    expect(longer.rows.every((row) => row.slots.length === count)).toBe(true);
+  }
 });
 
 it('allowance lists the weekly windows only, left = 100 - used, with the provider named', () => {

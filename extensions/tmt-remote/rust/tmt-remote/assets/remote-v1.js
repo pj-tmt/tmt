@@ -3217,13 +3217,13 @@ function compactCount(value) {
 }
 /**
 * Intensity of `value` against the largest `max`: null for a missing observation, 0 for a
-* known zero, otherwise 1..LEVELS on a square-root scale so small counts stay visible next to
+* known zero, otherwise 1..`steps` (LEVELS by default) on a square-root scale so small counts stay visible next to
 * one busy pair.
 */
-function level(value, max) {
+function level(value, max, steps = 5) {
 	if (value == null) return null;
 	if (value <= 0 || max <= 0) return 0;
-	return Math.min(5, Math.max(1, Math.ceil(Math.sqrt(value / max) * 5)));
+	return Math.min(steps, Math.max(1, Math.ceil(Math.sqrt(value / max) * steps)));
 }
 /** SVG path data for a polyline through `points`. */
 function linePath(points) {
@@ -3661,13 +3661,12 @@ function createSeriesChart(options) {
 	paintAtWidth(figure, 640, paint);
 	return figure;
 }
-//#endregion
-//#region ../../../../design/browser-ui/src/chart-strips-model.ts
 /**
 * Each row scaled to its own busiest slot, so a quiet seat still shows its pattern. An unknown
-* slot stays blank and a known quiet one is the faintest step: no data never reads as silence.
+* slot stays hollow and a known quiet one is the empty step: no data never reads as silence.
 */
 function stripsModel(options) {
+	const format = options.format ?? compactCount;
 	return { rows: options.rows.map((row) => {
 		const max = Math.max(0, ...row.slots.map((v) => v ?? 0));
 		const active = row.slots.filter((v) => (v ?? 0) > 0).length;
@@ -3677,9 +3676,16 @@ function stripsModel(options) {
 			summary: `${row.label}: active in ${active} of ${known} observed slots`,
 			slots: Array.from({ length: options.slotCount }, (_, at) => {
 				const value = row.slots[at];
+				const range = options.slotRange(at);
+				const text = value == null ? "not observed" : `${format(value)} tokens`;
 				return {
-					level: level(value, max),
-					title: `${options.slotLabel(at)}: ${value == null ? "not observed" : value}`
+					level: level(value, max, 4),
+					tip: {
+						seat: row.label,
+						range,
+						value: text
+					},
+					label: `${row.label}, ${range}: ${text}`
 				};
 			})
 		};
@@ -3687,7 +3693,11 @@ function stripsModel(options) {
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-strips.ts
-/** Rows of fixed slots: when each seat was active, scaled to that row's busiest slot. */
+/**
+* Rows of fixed square slots, like a contribution graph: when each seat was active, scaled to
+* that row's busiest slot. The row is as long as its slot count; a slot's tip (hover or focus)
+* names the seat, the time range and the tokens.
+*/
 function createStrips(options) {
 	const figure = htmlEl("figure", "tmt-ui-chart");
 	figure.append(htmlEl("figcaption", "tmt-ui-chart-title", options.title));
@@ -3695,26 +3705,112 @@ function createStrips(options) {
 		figure.append(htmlEl("p", "tmt-ui-chart-empty", options.empty ?? "No agents observed."));
 		return figure;
 	}
+	const frame = htmlEl("div", "tmt-ui-chart-frame");
 	const list = htmlEl("ul", "tmt-ui-chart-strips");
+	const tip = htmlEl("div", "tmt-ui-chart-tip");
+	tip.hidden = true;
+	tip.setAttribute("aria-hidden", "true");
+	const grid = [];
 	for (const row of stripsModel(options).rows) {
 		const item = htmlEl("li", "tmt-ui-chart-strip-row");
 		item.setAttribute("aria-label", row.summary);
 		const name = htmlEl("span", "tmt-ui-chart-strip-label", row.label);
 		name.title = row.label;
-		const strip = htmlEl("div", `tmt-ui-chart-strip tmt-ui-chart-strip-${options.slotCount}`);
+		const strip = htmlEl("div", "tmt-ui-chart-strip");
+		strip.style.setProperty("--tmt-chart-strip-count", String(row.slots.length));
+		const cells = [];
 		for (const slot of row.slots) {
 			const node = htmlEl("span", "tmt-ui-chart-slot");
-			if (slot.level !== null) node.classList.add(`tmt-ui-chart-slot-${slot.level}`);
-			node.title = slot.title;
+			node.classList.add(slot.level === null ? "tmt-ui-chart-slot-none" : `tmt-ui-chart-slot-${slot.level}`);
+			node.setAttribute("role", "img");
+			node.setAttribute("aria-label", slot.label);
+			node.tabIndex = -1;
 			strip.append(node);
+			cells.push({
+				node,
+				tip: slot.tip
+			});
 		}
+		grid.push(cells);
 		item.append(name, strip);
 		list.append(item);
 	}
-	const ends = htmlEl("div", "tmt-ui-chart-strip-ends");
+	grid[0][0].node.tabIndex = 0;
+	const ends = htmlEl("li", "tmt-ui-chart-strip-row");
 	ends.setAttribute("aria-hidden", "true");
-	ends.append(htmlEl("span", void 0, options.ends[0]), htmlEl("span", void 0, options.ends[1]));
-	figure.append(list, ends);
+	const span = htmlEl("div", "tmt-ui-chart-strip-ends");
+	span.append(htmlEl("span", void 0, options.ends[0]), htmlEl("span", void 0, options.ends[1]));
+	ends.append(htmlEl("span", "tmt-ui-chart-strip-label"), span);
+	list.append(ends);
+	const find = (target) => {
+		const node = target?.closest(".tmt-ui-chart-slot");
+		if (!node) return void 0;
+		for (const [r, cells] of grid.entries()) {
+			const c = cells.findIndex((cell) => cell.node === node);
+			if (c >= 0) return {
+				r,
+				c
+			};
+		}
+	};
+	function show(r, c) {
+		const cell = grid[r][c];
+		tip.replaceChildren(htmlEl("div", "tmt-ui-chart-tip-title", cell.tip.seat), htmlEl("div", void 0, cell.tip.range), htmlEl("div", "tmt-ui-chart-legend-value", cell.tip.value));
+		tip.hidden = false;
+		const box = cell.node.getBoundingClientRect();
+		const at = frame.getBoundingClientRect();
+		const left = box.left - at.left + box.width / 2 - tip.offsetWidth / 2;
+		tip.style.left = `${Math.max(0, Math.min(left, at.width - tip.offsetWidth))}px`;
+		tip.style.top = `${box.bottom - at.top + 6}px`;
+	}
+	const hide = () => tip.hidden = true;
+	list.addEventListener("pointerover", (event) => {
+		const at = find(event.target);
+		if (at) show(at.r, at.c);
+	});
+	list.addEventListener("pointerleave", hide);
+	list.addEventListener("focusin", (event) => {
+		const at = find(event.target);
+		if (at) show(at.r, at.c);
+	});
+	list.addEventListener("focusout", hide);
+	list.addEventListener("keydown", (event) => {
+		const at = find(event.target);
+		if (!at) return;
+		const row = grid[at.r];
+		const to = event.key === "ArrowRight" ? {
+			r: at.r,
+			c: Math.min(row.length - 1, at.c + 1)
+		} : event.key === "ArrowLeft" ? {
+			r: at.r,
+			c: Math.max(0, at.c - 1)
+		} : event.key === "ArrowDown" ? {
+			r: Math.min(grid.length - 1, at.r + 1),
+			c: at.c
+		} : event.key === "ArrowUp" ? {
+			r: Math.max(0, at.r - 1),
+			c: at.c
+		} : event.key === "Home" ? {
+			r: at.r,
+			c: 0
+		} : event.key === "End" ? {
+			r: at.r,
+			c: row.length - 1
+		} : void 0;
+		if (!to) return;
+		event.preventDefault();
+		grid[at.r][at.c].node.tabIndex = -1;
+		const next = grid[to.r][to.c].node;
+		next.tabIndex = 0;
+		next.focus();
+	});
+	frame.append(list, tip);
+	const legend = htmlEl("div", "tmt-ui-chart-strip-legend");
+	legend.setAttribute("aria-hidden", "true");
+	legend.append(htmlEl("span", void 0, "Less"));
+	for (let step = 0; step <= 4; step += 1) legend.append(htmlEl("span", `tmt-ui-chart-slot tmt-ui-chart-slot-${step}`));
+	legend.append(htmlEl("span", void 0, "More"));
+	figure.append(frame, legend);
 	return figure;
 }
 //#endregion
@@ -3836,16 +3932,37 @@ function exchange(doc, limit = 8) {
 		value: (from, to) => pairs.get(`${from}>${to}`) ?? 0
 	};
 }
+var SLOTS = {
+	"24h": {
+		count: 24,
+		stepMs: 36e5,
+		slot: "hour"
+	},
+	"7d": {
+		count: 7,
+		stepMs: 864e5,
+		slot: "day"
+	},
+	"30d": {
+		count: 30,
+		stepMs: 864e5,
+		slot: "day"
+	}
+};
 /**
-* One hourly slot per seat for the last 24 hours. Only the 24 h report has hourly buckets; a
-* longer range has none, so there is no activity view for it (null), not a coarse imitation.
+* One slot per seat across the range, at the resolution the report carries: hourly for 24 h,
+* daily for 7d and 30d. The slots end at the newest bucket; one with no bucket is not observed
+* (null), never zero.
 */
 function activity(doc) {
-	if (doc.since !== "24h") return null;
-	const starts = [...new Set(doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)))].sort((a, b) => a - b).slice(-24);
-	if (starts.length !== 24) return null;
+	const shape = SLOTS[doc.since];
+	if (!shape) return null;
+	const latest = Math.max(...doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)));
+	if (!Number.isFinite(latest)) return null;
+	const starts = Array.from({ length: shape.count }, (_, at) => latest - (shape.count - 1 - at) * shape.stepMs);
 	return {
 		starts,
+		slot: shape.slot,
 		rows: doc.usage.seats.map((seat) => {
 			const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
 			return {
@@ -4070,16 +4187,26 @@ function exchangeSection(doc) {
 function activitySection(doc) {
 	const view = activity(doc);
 	if (!view) return void 0;
-	const label = (at) => new Date(view.starts[at]).toLocaleTimeString("en-GB", {
+	const clock = (at) => new Date(at).toLocaleTimeString("en-GB", {
 		hour: "2-digit",
 		minute: "2-digit"
 	});
+	const day = (at) => new Date(at).toLocaleDateString("en-GB", {
+		weekday: "short",
+		day: "numeric",
+		month: "short"
+	});
+	const hourly = view.slot === "hour";
+	const range = (at) => {
+		const start = view.starts[at];
+		return hourly ? `${clock(start)}–${clock(start + 36e5)}` : day(start);
+	};
 	return section("Idle, stalled or gate-bound", "digest-activity", createStrips({
-		title: "Tokens per hour, oldest on the left",
+		title: hourly ? "Tokens per hour, oldest on the left" : "Tokens per day, oldest on the left",
 		rows: view.rows,
-		slotCount: 24,
-		slotLabel: label,
-		ends: ["24 h ago", "now"]
+		slotCount: view.starts.length,
+		slotRange: range,
+		ends: hourly ? ["24 h ago", "now"] : [`${view.starts.length} days ago`, "today"]
 	}), el("p", "usage-note", "Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet."));
 }
 /** The questions the usage read cannot answer yet: one line each, never a zero or an empty chart. */

@@ -207,17 +207,24 @@ function exchangeSection(doc: UsageDocument): HTMLElement {
 function activitySection(doc: UsageDocument): HTMLElement | undefined {
   const view = activity(doc);
   if (!view) return undefined;
-  const label = (at: number) =>
-    new Date(view.starts[at]!).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const clock = (at: number) =>
+    new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const day = (at: number) =>
+    new Date(at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const hourly = view.slot === 'hour';
+  const range = (at: number) => {
+    const start = view.starts[at]!;
+    return hourly ? `${clock(start)}–${clock(start + 3_600_000)}` : day(start);
+  };
   return section(
     'Idle, stalled or gate-bound',
     'digest-activity',
     createStrips({
-      title: 'Tokens per hour, oldest on the left',
+      title: hourly ? 'Tokens per hour, oldest on the left' : 'Tokens per day, oldest on the left',
       rows: view.rows,
-      slotCount: 24,
-      slotLabel: label,
-      ends: ['24 h ago', 'now'],
+      slotCount: view.starts.length,
+      slotRange: range,
+      ends: hourly ? ['24 h ago', 'now'] : [`${view.starts.length} days ago`, 'today'],
     }),
     el(
       'p',

@@ -127,22 +127,35 @@ export interface Activity {
   rows: { id: string; label: string; slots: (number | null)[] }[];
   /** The start of each slot, oldest first. */
   starts: number[];
+  /** What one slot covers: an hour in the 24 h report, a day in the 7d and 30d ones. */
+  slot: 'hour' | 'day';
 }
 
+const SLOTS: Record<string, { count: number; stepMs: number; slot: 'hour' | 'day' }> = {
+  '24h': { count: 24, stepMs: 3_600_000, slot: 'hour' },
+  '7d': { count: 7, stepMs: 86_400_000, slot: 'day' },
+  '30d': { count: 30, stepMs: 86_400_000, slot: 'day' },
+};
+
 /**
- * One hourly slot per seat for the last 24 hours. Only the 24 h report has hourly buckets; a
- * longer range has none, so there is no activity view for it (null), not a coarse imitation.
+ * One slot per seat across the range, at the resolution the report carries: hourly for 24 h,
+ * daily for 7d and 30d. The slots end at the newest bucket; one with no bucket is not observed
+ * (null), never zero.
  */
 export function activity(doc: UsageDocument): Activity | null {
-  if (doc.since !== '24h') return null;
-  const starts = [
-    ...new Set(doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs))),
-  ]
-    .sort((a, b) => a - b)
-    .slice(-24);
-  if (starts.length !== 24) return null;
+  const shape = SLOTS[doc.since];
+  if (!shape) return null;
+  const latest = Math.max(
+    ...doc.usage.seats.flatMap((seat) => seat.series.map((point) => point.fromMs)),
+  );
+  if (!Number.isFinite(latest)) return null;
+  const starts = Array.from(
+    { length: shape.count },
+    (_, at) => latest - (shape.count - 1 - at) * shape.stepMs,
+  );
   return {
     starts,
+    slot: shape.slot,
     rows: doc.usage.seats.map((seat: UsageSeat) => {
       const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
       return {
