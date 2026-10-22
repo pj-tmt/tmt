@@ -22,6 +22,21 @@
       "optsIn": true
     },
     {
+      "name": "a tab is the only separator",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"x\treact\">",
+      "optsIn": true
+    },
+    {
+      "name": "a line feed is the only separator",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"x\nreact\">",
+      "optsIn": true
+    },
+    {
+      "name": "a form feed is the only separator",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"x\freact\">",
+      "optsIn": true
+    },
+    {
       "name": "a known token among unknown ones",
       "source": "<meta name=\"tmt-colab-runtime\" content=\"react unknown-part\">",
       "optsIn": true
