@@ -1700,7 +1700,9 @@ function OpenPage({
               )}
             {/* The connection state is not shown (a notice below the header carries trouble); its words
                 stay in the document for assistive technology and as the page's readiness signal. */}
-            <span className={`status page-connection ${state === 'ready' ? 'live' : ''}`}>
+            <span
+              className={`status page-connection tmt-ui-visually-hidden ${state === 'ready' ? 'live' : ''}`}
+            >
               {archived ? '○ ' : `${text[snapshot.sharing]} · `}
               <span className="status-label">{accessLabel}</span>
             </span>
@@ -1747,7 +1749,7 @@ function OpenPage({
         }
       />
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
-      <p role="status" className="archive-announcement">
+      <p role="status" className="archive-announcement tmt-ui-visually-hidden">
         {archiveAnnouncement}
       </p>
       <ExportPanel

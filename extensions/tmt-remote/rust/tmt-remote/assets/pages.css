@@ -87,10 +87,8 @@ body:not(:has(.tmt-ui-shell)) {
 :where(.tmt-page) form {
   margin-top: 16px;
 }
-:where(.tmt-page) input {
-  display: block;
-  width: 100%;
-  margin: 6px 0 12px;
+#pair > .tmt-ui-field {
+  margin-bottom: 12px;
 }
 [data-tmt-page='pair'] .tmt-ui-notice,
 .settings-page .tmt-ui-notice {
@@ -144,6 +142,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .entry-status dd {
   margin: 0 0 12px;
+  overflow-wrap: anywhere;
 }
 /* Landing keeps next steps in its one state sheet, with optional technical details. */
 .entry-steps {
@@ -156,24 +155,6 @@ body:not(:has(.tmt-ui-shell)) {
 [data-tmt-page='landing'] {
   --tmt-ui-host-action-font: var(--tmt-ui-font-body);
   --tmt-ui-host-action-weight: 400;
-}
-.entry-details {
-  margin-top: 24px;
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  padding-top: 20px;
-}
-.entry-details summary {
-  cursor: pointer;
-}
-.entry-details summary:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
-}
-.entry-details dl {
-  margin-top: 20px;
-}
-.entry-details dd {
-  overflow-wrap: anywhere;
 }
 #copy-feedback:empty {
   margin: 0;
@@ -192,107 +173,17 @@ body:not(:has(.tmt-ui-shell)) {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-.screen-reader-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 
-/* Origin-local public references and static switcher; foreign entries are never probed. */
-.remote-registry {
-  margin-top: 36px;
-  padding-top: 24px;
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.remote-registry h2 {
-  margin: 0 0 12px;
-  font: 600 16px/1.5 var(--tmt-ui-font-body);
-}
-.remote-list {
-  list-style: none;
-  padding: 0;
-}
-.remote-list li,
-.remote-import-row {
-  padding-block: 20px;
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.remote-list h3,
-.remote-import-row h3 {
-  margin: 0 0 8px;
-}
-.remote-list p,
-.remote-import-row p {
-  overflow-wrap: anywhere;
-  margin-bottom: 12px;
-}
-.remote-state {
-  color: var(--tmt-ui-color-secondary);
-}
-.remote-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
-}
-.remote-dialog {
-  color: var(--tmt-ui-color-text);
-  background: var(--tmt-ui-surface-paper);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: 0;
-  padding: 24px;
-  width: min(100% - 32px, 600px);
-  max-height: calc(100svh - 32px);
-  overflow: auto;
-}
-.remote-dialog h2 {
-  margin: 0 0 20px;
-}
-.remote-dialog p {
-  overflow-wrap: anywhere;
-}
-.remote-dialog input[type='checkbox'] {
-  display: inline-block;
-  width: auto;
-  margin-right: 8px;
-}
-
-.remote-state[data-tone='working'] {
-  color: var(--tmt-ui-color-working);
-}
 [data-tmt-auto='true'] #pair {
   display: none;
 }
 
-.navigation-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-.navigation-list a {
-  display: inline-block;
-  min-height: 44px;
-  padding: 12px 0;
-}
 
 /* Home: what needs you across modules, then recent pages, as shared list rows. Its own class name,
    since a Colab route in the same document has its own `.home`. */
 .tmt-home {
   display: grid;
   gap: 32px;
-}
-.home-heading {
-  margin: 0 0 8px;
-  color: var(--tmt-ui-color-secondary);
-  font: 600 12px/1.2 var(--tmt-ui-font-body);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.tmt-home .tmt-ui-list-leading[data-tone='waiting'] {
-  color: var(--tmt-ui-color-waiting);
 }
 .home-note {
   color: var(--tmt-ui-color-secondary);
@@ -637,27 +528,11 @@ body:not(:has(.tmt-ui-shell)) {
     grid-column: 1 / -1;
   }
 }
-.ops-section {
-  display: grid;
-  gap: var(--tmt-ui-space-s);
-}
-.ops-section > .tmt-ui-list + .home-heading {
-  margin-top: var(--tmt-ui-space-l);
-}
 .ops-section .tmt-ui-list-updated {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-}
-.ops-mark[data-tone='working'] {
-  color: var(--tmt-ui-color-working);
-}
-.ops-mark[data-tone='waiting'] {
-  color: var(--tmt-ui-color-waiting);
-}
-.ops-mark[data-tone='blocked'] {
-  color: var(--tmt-ui-color-blocked);
 }
 
 /* The brand, a divider, then the page title, as in Colab's header. */

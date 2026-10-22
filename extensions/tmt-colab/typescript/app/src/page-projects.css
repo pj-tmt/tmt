@@ -82,14 +82,6 @@
     display: none;
   }
 }
-.page-header-projects-status {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 /* When an update row shares the shell bar, the refusal follows it in the same flow. */
 .tmt-ui-shell-bar > .page-pin-notice {
   order: 2;

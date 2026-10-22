@@ -1,0 +1,36 @@
+.tmt-ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-table th,
+.tmt-ui-table td {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m) var(--tmt-ui-space-s) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font-weight: normal;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.tmt-ui-table thead th {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 600;
+}
+/* Numbers: the columns after the first are right-aligned, tabular and monospaced. */
+.tmt-ui-table[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
+.tmt-ui-table[data-numeric] th,
+.tmt-ui-table[data-numeric] td {
+  padding-right: var(--tmt-ui-space-m);
+  padding-left: var(--tmt-ui-space-m);
+  text-align: right;
+}
+.tmt-ui-table[data-numeric] th:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+.tmt-ui-table[data-numeric] td {
+  font-family: var(--tmt-ui-font-mono);
+}

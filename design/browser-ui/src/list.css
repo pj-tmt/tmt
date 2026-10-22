@@ -66,6 +66,45 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.tmt-ui-list-leading[data-tone='working'],
+.tmt-ui-list-state[data-tone='working'] {
+  color: var(--tmt-ui-color-working);
+}
+.tmt-ui-list-leading[data-tone='waiting'],
+.tmt-ui-list-state[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-list-leading[data-tone='blocked'],
+.tmt-ui-list-state[data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+}
+.tmt-ui-list-leading[data-tone='review'],
+.tmt-ui-list-state[data-tone='review'] {
+  color: var(--tmt-ui-color-review);
+}
+/* A title that carries a description under its label wraps instead of truncating. */
+.tmt-ui-list-title:has(> .tmt-ui-list-description) {
+  overflow: visible;
+  white-space: normal;
+}
+.tmt-ui-list-label {
+  display: block;
+}
+.tmt-ui-list-description {
+  display: block;
+  margin-top: var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+  line-height: 1.4;
+}
+/* A row with only a state keeps it at the right edge when the row is wide. */
+@media not all and (max-width: __compact-max-width__) {
+  .tmt-ui-list-meta:not(:has(.tmt-ui-list-updated)) {
+    grid-template-columns: auto;
+    justify-content: end;
+    text-align: right;
+  }
+}
 .tmt-ui-list-actions {
   display: flex;
   justify-content: flex-end;

@@ -342,6 +342,144 @@ function remoteMenu(actions, shell = void 0) {
 		paint();
 	};
 }
+//#endregion
+//#region ../../../../design/browser-ui/src/static.ts
+var browserUiClasses = Object.freeze({
+	chips: "tmt-ui-chips",
+	chip: "tmt-ui-chip",
+	chipLabel: "tmt-ui-chip-label",
+	chipsAdd: "tmt-ui-chips-add",
+	chipsStatus: "tmt-ui-chips-status",
+	chipsSurface: "tmt-ui-chips-surface",
+	chipsSearch: "tmt-ui-chips-search",
+	chipsOption: "tmt-ui-chips-option",
+	notifications: "tmt-ui-notifications",
+	notification: "tmt-ui-notification",
+	notificationStatus: "tmt-ui-notification-status",
+	notificationHeading: "tmt-ui-notification-heading",
+	notificationTag: "tmt-ui-notification-tag",
+	notificationLine: "tmt-ui-notification-line",
+	notificationQuote: "tmt-ui-notification-quote",
+	notificationWaiting: "tmt-ui-notification-waiting",
+	drawer: "tmt-ui-drawer",
+	drawerHeader: "tmt-ui-drawer-header",
+	drawerBody: "tmt-ui-drawer-body",
+	dialog: "tmt-ui-dialog",
+	dialogHeader: "tmt-ui-dialog-header",
+	dialogBody: "tmt-ui-dialog-body",
+	dialogActions: "tmt-ui-dialog-actions",
+	menu: "tmt-ui-menu",
+	menuSurface: "tmt-ui-menu-surface",
+	menuItem: "tmt-ui-menu-item",
+	command: "tmt-ui-command",
+	commandText: "tmt-ui-command-text",
+	commandCopy: "tmt-ui-command-copy",
+	commandFeedback: "tmt-ui-command-feedback",
+	code: "tmt-ui-code",
+	header: "tmt-ui-header",
+	brand: "tmt-ui-brand",
+	mark: "tmt-ui-mark",
+	wordmark: "tmt-ui-wordmark",
+	heading: "tmt-ui-heading",
+	headingSuffix: "tmt-ui-heading-suffix",
+	title: "tmt-ui-title",
+	caption: "tmt-ui-caption",
+	status: "tmt-ui-status",
+	actions: "tmt-ui-actions",
+	icon: "tmt-ui-icon",
+	notice: "tmt-ui-notice",
+	noticeMark: "tmt-ui-notice-mark",
+	noticeEyebrow: "tmt-ui-notice-eyebrow",
+	noticeHeading: "tmt-ui-notice-heading",
+	noticeBody: "tmt-ui-notice-body",
+	noticeActions: "tmt-ui-notice-actions",
+	field: "tmt-ui-field",
+	fieldLabel: "tmt-ui-field-label",
+	fieldControl: "tmt-ui-field-control",
+	fieldDescription: "tmt-ui-field-description",
+	fieldError: "tmt-ui-field-error",
+	action: "tmt-ui-action",
+	actionLabel: "tmt-ui-action-label",
+	actionMark: "tmt-ui-action-mark",
+	busyMark: "tmt-ui-busy-mark",
+	busyDot: "tmt-ui-busy-dot",
+	checkbox: "tmt-ui-checkbox",
+	checkboxLabel: "tmt-ui-checkbox-label",
+	iconAction: "tmt-ui-icon-action",
+	iconActionControl: "tmt-ui-icon-action-control",
+	iconActionIcon: "tmt-ui-icon-action-icon",
+	iconActionTooltip: "tmt-ui-icon-action-tooltip",
+	iconActionTooltipLabel: "tmt-ui-icon-action-tooltip-label",
+	toggle: "tmt-ui-toggle",
+	toggleIndicator: "tmt-ui-toggle-indicator",
+	list: "tmt-ui-list",
+	listRow: "tmt-ui-list-row",
+	listLeading: "tmt-ui-list-leading",
+	listTitle: "tmt-ui-list-title",
+	listMeta: "tmt-ui-list-meta",
+	listLabel: "tmt-ui-list-label",
+	listDescription: "tmt-ui-list-description",
+	listUpdated: "tmt-ui-list-updated",
+	listState: "tmt-ui-list-state",
+	listActions: "tmt-ui-list-actions",
+	tabs: "tmt-ui-tabs",
+	tabsHeader: "tmt-ui-tabs-header",
+	tabList: "tmt-ui-tab-list",
+	tab: "tmt-ui-tab",
+	tabMark: "tmt-ui-tab-mark",
+	tabLabel: "tmt-ui-tab-label",
+	tabsStatus: "tmt-ui-tabs-status",
+	tabPanel: "tmt-ui-tab-panel",
+	section: "tmt-ui-section",
+	sectionHeading: "tmt-ui-section-heading",
+	table: "tmt-ui-table",
+	disclosure: "tmt-ui-disclosure",
+	visuallyHidden: "tmt-ui-visually-hidden"
+});
+/**
+* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
+* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
+*/
+var busyDots = [
+	[5, 3],
+	[11, 3],
+	[11, 8],
+	[11, 13],
+	[5, 13],
+	[5, 8]
+];
+/** The radius of each busy-mark dot on the 16x16 viewBox. */
+var busyDotRadius = 1.6;
+var SVG = "http://www.w3.org/2000/svg";
+/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
+function busySvg(doc) {
+	const svg = doc.createElementNS(SVG, "svg");
+	svg.setAttribute("viewBox", "0 0 16 16");
+	for (const [cx, cy] of busyDots) {
+		const dot = doc.createElementNS(SVG, "circle");
+		dot.setAttribute("class", browserUiClasses.busyDot);
+		dot.setAttribute("cx", String(cx));
+		dot.setAttribute("cy", String(cy));
+		dot.setAttribute("r", String(busyDotRadius));
+		svg.append(dot);
+	}
+	return svg;
+}
+/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
+function createBusyMark(doc = document) {
+	const busy = doc.createElement("span");
+	busy.className = browserUiClasses.busyMark;
+	busy.append(busySvg(doc));
+	return busy;
+}
+function createActionMark(doc = document) {
+	const mark = doc.createElement("span");
+	mark.className = browserUiClasses.actionMark;
+	mark.setAttribute("aria-hidden", "true");
+	mark.dataset.busy = "false";
+	mark.append(createBusyMark(doc));
+	return mark;
+}
 new TextEncoder();
 function requireValue(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
@@ -751,13 +889,18 @@ function action(text, run) {
 	button.addEventListener("click", run);
 	return button;
 }
+var fieldCount = 0;
 function field(label, value) {
-	const wrapper = node$1("label", label);
-	wrapper.className = "tmt-ui-field-label";
+	const wrapper = node$1("div");
+	wrapper.className = browserUiClasses.field;
 	const input = node$1("input");
-	input.className = "tmt-ui-field-control";
+	input.id = `remote-field-${++fieldCount}`;
+	input.className = browserUiClasses.fieldControl;
 	input.value = value;
-	wrapper.append(input);
+	const text = node$1("label", label);
+	text.className = browserUiClasses.fieldLabel;
+	text.htmlFor = input.id;
+	wrapper.append(text, input);
 	return {
 		label: wrapper,
 		input
@@ -817,16 +960,22 @@ function remoteRegistryPage(blocked = () => "", shell) {
 	const dialog = (title, opener) => {
 		currentDialog?.close();
 		const box = node$1("dialog");
-		box.className = "remote-dialog";
+		box.className = browserUiClasses.dialog;
+		const header = node$1("header");
+		header.className = browserUiClasses.dialogHeader;
 		const heading = node$1("h2", title);
 		heading.id = "remote-dialog-heading";
+		header.append(heading);
 		box.setAttribute("aria-labelledby", heading.id);
+		const content = node$1("div");
+		content.className = browserUiClasses.dialogBody;
 		const body = node$1("div");
 		const message = node$1("p");
 		message.setAttribute("role", "status");
-		const buttons = node$1("div");
-		buttons.className = "remote-actions";
-		box.append(heading, body, message, buttons);
+		content.append(body, message);
+		const buttons = node$1("footer");
+		buttons.className = browserUiClasses.dialogActions;
+		box.append(header, content, buttons);
 		root.append(box);
 		const end = () => box.close();
 		box.addEventListener("close", () => {
@@ -868,8 +1017,11 @@ function remoteRegistryPage(blocked = () => "", shell) {
 		const choices = [];
 		for (const row of plan.rows) {
 			const item = node$1("section");
-			item.className = "remote-import-row";
-			item.append(node$1("h3", row.entry.name), node$1("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
+			item.className = browserUiClasses.section;
+			const name = node$1("h3", row.entry.name);
+			name.className = browserUiClasses.sectionHeading;
+			name.dataset.variant = "title";
+			item.append(name, node$1("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
 			if (row.status === "duplicate") {
 				item.append(node$1("p", `Already added as ${row.existingName}`));
 				choices.push(() => null);
@@ -878,7 +1030,9 @@ function remoteRegistryPage(blocked = () => "", shell) {
 				const alias = field("Remote name", row.suggestedName);
 				const skip = node$1("input");
 				skip.type = "checkbox";
+				skip.className = browserUiClasses.checkbox;
 				const skipLabel = node$1("label", "Skip");
+				skipLabel.className = browserUiClasses.checkboxLabel;
 				skipLabel.prepend(skip);
 				item.append(alias.label, skipLabel);
 				choices.push(() => skip.checked ? null : alias.input.value);
@@ -933,16 +1087,25 @@ function remoteRegistryPage(blocked = () => "", shell) {
 			catalog = await remoteRegistry.list();
 			const rows = catalog.entries.map((entry) => {
 				const row = node$1("li");
+				row.className = browserUiClasses.listRow;
 				row.dataset.remote = entry.name;
 				row.dataset.url = entry.url;
 				row.dataset.kind = entry.kind;
-				row.append(node$1("h3", entry.name), node$1("p", `${kindLabel(entry)} · ${entry.url}`));
-				const state = node$1("p", remoteState(observed, current(entry)).text);
-				state.className = "remote-state";
+				const title = node$1("div");
+				title.className = browserUiClasses.listTitle;
+				const label = node$1("span", entry.name);
+				label.className = browserUiClasses.listLabel;
+				const description = node$1("span", `${kindLabel(entry)} · ${entry.url}`);
+				description.className = browserUiClasses.listDescription;
+				title.append(label, description);
+				const meta = node$1("div");
+				meta.className = browserUiClasses.listMeta;
+				const state = node$1("div", remoteState(observed, current(entry)).text);
+				state.className = browserUiClasses.listState;
 				state.dataset.tone = remoteState(observed, current(entry)).tone;
-				row.append(state);
+				meta.append(state);
 				const actions = node$1("div");
-				actions.className = "remote-actions";
+				actions.className = browserUiClasses.listActions;
 				const open = action("Open", () => {
 					(async () => {
 						try {
@@ -963,11 +1126,18 @@ function remoteRegistryPage(blocked = () => "", shell) {
 					actions.append(open);
 				}
 				actions.append(renameButton, removeButton);
-				row.append(actions);
+				row.append(title, meta, actions);
 				return row;
 			});
 			list.replaceChildren(...rows);
-			if (!rows.length) list.append(node$1("li", "No remotes added in this browser."));
+			if (!rows.length) {
+				const empty = node$1("li");
+				empty.className = browserUiClasses.listRow;
+				const text = node$1("div", "No remotes added in this browser.");
+				text.className = browserUiClasses.listTitle;
+				empty.append(text);
+				list.append(empty);
+			}
 			menu(catalog, observed, address ?? "");
 		} catch (error) {
 			showError(error, status);
@@ -1011,7 +1181,7 @@ function remoteRegistryPage(blocked = () => "", shell) {
 		observed = state;
 		if (checkedAddress) address = checkedAddress;
 		for (const row of list.querySelectorAll("[data-remote]")) {
-			const stateNode = row.querySelector(".remote-state");
+			const stateNode = row.querySelector(".tmt-ui-list-state");
 			const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
 			const isCurrent = !!entry && currentRemote(entry, address, location.href);
 			const view = remoteState(observed, isCurrent);
@@ -1127,7 +1297,7 @@ function mark(state) {
 	const [icon, text, tone] = states[state];
 	const label = node("span");
 	label.dataset.tone = tone;
-	label.className = "firestore-state";
+	label.className = browserUiClasses.listState;
 	const symbol = node("span", icon);
 	symbol.setAttribute("aria-hidden", "true");
 	label.append(symbol, document.createTextNode(` ${text}`));
@@ -1200,10 +1370,12 @@ function renderFirestore(target, access, view) {
 	}
 	const details = node("details");
 	details.id = "firestore-budget";
+	details.className = browserUiClasses.disclosure;
 	details.append(node("summary", "Firestore free-plan limits"));
 	const published = view.firestoreBudget;
 	details.append(node("h3", `Published limits as of ${published.readOn}`));
 	const table = node("table");
+	table.className = browserUiClasses.table;
 	const head = node("tr");
 	for (const text of ["Limit", "Published allowance"]) {
 		const cell = node("th", text);
@@ -1404,135 +1576,6 @@ var ManagementPage = class {
 function accessRefused(error) {
 	if (error instanceof ReopenSessionError) return error.reason === "revoked" || error.reason === "expired";
 	return error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code);
-}
-//#endregion
-//#region ../../../../design/browser-ui/src/static.ts
-var browserUiClasses = Object.freeze({
-	chips: "tmt-ui-chips",
-	chip: "tmt-ui-chip",
-	chipLabel: "tmt-ui-chip-label",
-	chipsAdd: "tmt-ui-chips-add",
-	chipsStatus: "tmt-ui-chips-status",
-	chipsSurface: "tmt-ui-chips-surface",
-	chipsSearch: "tmt-ui-chips-search",
-	chipsOption: "tmt-ui-chips-option",
-	notifications: "tmt-ui-notifications",
-	notification: "tmt-ui-notification",
-	notificationStatus: "tmt-ui-notification-status",
-	notificationHeading: "tmt-ui-notification-heading",
-	notificationTag: "tmt-ui-notification-tag",
-	notificationLine: "tmt-ui-notification-line",
-	notificationQuote: "tmt-ui-notification-quote",
-	notificationWaiting: "tmt-ui-notification-waiting",
-	drawer: "tmt-ui-drawer",
-	drawerHeader: "tmt-ui-drawer-header",
-	drawerBody: "tmt-ui-drawer-body",
-	dialog: "tmt-ui-dialog",
-	dialogHeader: "tmt-ui-dialog-header",
-	dialogBody: "tmt-ui-dialog-body",
-	menu: "tmt-ui-menu",
-	menuSurface: "tmt-ui-menu-surface",
-	menuItem: "tmt-ui-menu-item",
-	command: "tmt-ui-command",
-	commandText: "tmt-ui-command-text",
-	commandCopy: "tmt-ui-command-copy",
-	commandFeedback: "tmt-ui-command-feedback",
-	code: "tmt-ui-code",
-	header: "tmt-ui-header",
-	brand: "tmt-ui-brand",
-	mark: "tmt-ui-mark",
-	wordmark: "tmt-ui-wordmark",
-	heading: "tmt-ui-heading",
-	headingSuffix: "tmt-ui-heading-suffix",
-	title: "tmt-ui-title",
-	caption: "tmt-ui-caption",
-	status: "tmt-ui-status",
-	actions: "tmt-ui-actions",
-	icon: "tmt-ui-icon",
-	notice: "tmt-ui-notice",
-	noticeMark: "tmt-ui-notice-mark",
-	noticeEyebrow: "tmt-ui-notice-eyebrow",
-	noticeHeading: "tmt-ui-notice-heading",
-	noticeBody: "tmt-ui-notice-body",
-	noticeActions: "tmt-ui-notice-actions",
-	field: "tmt-ui-field",
-	fieldLabel: "tmt-ui-field-label",
-	fieldControl: "tmt-ui-field-control",
-	fieldDescription: "tmt-ui-field-description",
-	fieldError: "tmt-ui-field-error",
-	action: "tmt-ui-action",
-	actionLabel: "tmt-ui-action-label",
-	actionMark: "tmt-ui-action-mark",
-	busyMark: "tmt-ui-busy-mark",
-	busyDot: "tmt-ui-busy-dot",
-	checkbox: "tmt-ui-checkbox",
-	iconAction: "tmt-ui-icon-action",
-	iconActionControl: "tmt-ui-icon-action-control",
-	iconActionIcon: "tmt-ui-icon-action-icon",
-	iconActionTooltip: "tmt-ui-icon-action-tooltip",
-	iconActionTooltipLabel: "tmt-ui-icon-action-tooltip-label",
-	toggle: "tmt-ui-toggle",
-	toggleIndicator: "tmt-ui-toggle-indicator",
-	list: "tmt-ui-list",
-	listRow: "tmt-ui-list-row",
-	listLeading: "tmt-ui-list-leading",
-	listTitle: "tmt-ui-list-title",
-	listMeta: "tmt-ui-list-meta",
-	listUpdated: "tmt-ui-list-updated",
-	listState: "tmt-ui-list-state",
-	listActions: "tmt-ui-list-actions",
-	tabs: "tmt-ui-tabs",
-	tabsHeader: "tmt-ui-tabs-header",
-	tabList: "tmt-ui-tab-list",
-	tab: "tmt-ui-tab",
-	tabMark: "tmt-ui-tab-mark",
-	tabLabel: "tmt-ui-tab-label",
-	tabsStatus: "tmt-ui-tabs-status",
-	tabPanel: "tmt-ui-tab-panel"
-});
-/**
-* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
-* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
-*/
-var busyDots = [
-	[5, 3],
-	[11, 3],
-	[11, 8],
-	[11, 13],
-	[5, 13],
-	[5, 8]
-];
-/** The radius of each busy-mark dot on the 16x16 viewBox. */
-var busyDotRadius = 1.6;
-var SVG = "http://www.w3.org/2000/svg";
-/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
-function busySvg(doc) {
-	const svg = doc.createElementNS(SVG, "svg");
-	svg.setAttribute("viewBox", "0 0 16 16");
-	for (const [cx, cy] of busyDots) {
-		const dot = doc.createElementNS(SVG, "circle");
-		dot.setAttribute("class", browserUiClasses.busyDot);
-		dot.setAttribute("cx", String(cx));
-		dot.setAttribute("cy", String(cy));
-		dot.setAttribute("r", String(busyDotRadius));
-		svg.append(dot);
-	}
-	return svg;
-}
-/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
-function createBusyMark(doc = document) {
-	const busy = doc.createElement("span");
-	busy.className = browserUiClasses.busyMark;
-	busy.append(busySvg(doc));
-	return busy;
-}
-function createActionMark(doc = document) {
-	const mark = doc.createElement("span");
-	mark.className = browserUiClasses.actionMark;
-	mark.setAttribute("aria-hidden", "true");
-	mark.dataset.busy = "false";
-	mark.append(createBusyMark(doc));
-	return mark;
 }
 /**
 * Decides when a busy mark is visible: only after busy has lasted the delay,
@@ -1821,7 +1864,7 @@ async function settingsPage(shell) {
 			mode,
 			custom
 		]) field.disabled = !editable || field === custom && mode.value !== "custom";
-		for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
+		for (const button of document.querySelectorAll("form button:not(.tmt-ui-menu-trigger):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
 		if (page.settings) {
 			choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
 			for (const update of choices) update();
@@ -1936,12 +1979,13 @@ async function settingsPage(shell) {
 					});
 					form.append(field, save, talk, revoke);
 					const panel = document.createElement("div");
-					panel.className = "device-confirmation";
+					panel.className = browserUiClasses.notice;
 					panel.dataset.confirmation = "";
 					panel.id = `confirm-${device.clientId}`;
 					panel.hidden = true;
 					const consequence = document.createElement("p");
 					consequence.id = `${panel.id}-consequence`;
+					consequence.className = browserUiClasses.noticeBody;
 					consequence.setAttribute("role", "status");
 					const cancel = document.createElement("button");
 					cancel.type = "button";
@@ -1951,7 +1995,10 @@ async function settingsPage(shell) {
 					cancelLabel.textContent = "Cancel";
 					cancel.append(cancelLabel);
 					cancel.addEventListener("click", () => cancelConfirmation(true));
-					panel.append(consequence, cancel);
+					const actions = document.createElement("div");
+					actions.className = browserUiClasses.noticeActions;
+					actions.append(cancel);
+					panel.append(consequence, actions);
 					for (const button of [talk, revoke]) {
 						button.setAttribute("aria-controls", panel.id);
 						button.setAttribute("aria-expanded", "false");

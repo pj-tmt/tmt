@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
-import type { ShellAnswer, ShellMenu } from '../../../../../design/browser-ui/src/shell.js';
+import type { ShellAnswer, ShellMenu } from '@tmt/browser-ui/shell';
 import { moduleLinks, settingsRows, tmtSettingsPage } from '../src/tmt-settings-page.js';
 import type { RemoteShell } from '../src/remote-shell.js';
 import { mockSettingsSource, type TmtSettings } from '../src/settings-source.js';
@@ -118,7 +118,7 @@ const section = () => ids.get('tmt-settings-section')!;
 const note = () => ids.get('tmt-settings-note')!;
 const rowTitles = () =>
   section()
-    .all((node) => node.className === 'tmt-settings-label')
+    .all((node) => node.className === 'tmt-ui-list-label')
     .map((node) => node.textContent);
 
 const sample: TmtSettings = {
@@ -225,7 +225,7 @@ it('renders General with the theme choice, stores a pick and applies it to the r
   expect(tabs[0]!.focused).toBe(true);
   expect(rowTitles()).toEqual(['Upgrade channel']);
   // The description sits under the label and the value in the state cell.
-  const detail = section().all((node) => node.className === 'tmt-settings-detail');
+  const detail = section().all((node) => node.className === 'tmt-ui-list-description');
   expect(detail.map((node) => node.textContent)).toEqual(['Where upgrades look']);
   expect(
     section()

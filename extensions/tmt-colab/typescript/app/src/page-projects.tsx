@@ -325,7 +325,7 @@ export function PageProjects({
             <span className="page-attention-word">{failure.message}</span>
           </span>
         )}
-        <span className="page-header-projects-status" role="status">
+        <span className="page-header-projects-status tmt-ui-visually-hidden" role="status">
           {saved ? t.saved : ''}
         </span>
       </span>

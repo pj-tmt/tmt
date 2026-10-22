@@ -22,6 +22,7 @@ export const browserUiClasses = Object.freeze({
   dialog: 'tmt-ui-dialog',
   dialogHeader: 'tmt-ui-dialog-header',
   dialogBody: 'tmt-ui-dialog-body',
+  dialogActions: 'tmt-ui-dialog-actions',
   menu: 'tmt-ui-menu',
   menuSurface: 'tmt-ui-menu-surface',
   menuItem: 'tmt-ui-menu-item',
@@ -58,6 +59,7 @@ export const browserUiClasses = Object.freeze({
   busyMark: 'tmt-ui-busy-mark',
   busyDot: 'tmt-ui-busy-dot',
   checkbox: 'tmt-ui-checkbox',
+  checkboxLabel: 'tmt-ui-checkbox-label',
   iconAction: 'tmt-ui-icon-action',
   iconActionControl: 'tmt-ui-icon-action-control',
   iconActionIcon: 'tmt-ui-icon-action-icon',
@@ -70,6 +72,8 @@ export const browserUiClasses = Object.freeze({
   listLeading: 'tmt-ui-list-leading',
   listTitle: 'tmt-ui-list-title',
   listMeta: 'tmt-ui-list-meta',
+  listLabel: 'tmt-ui-list-label',
+  listDescription: 'tmt-ui-list-description',
   listUpdated: 'tmt-ui-list-updated',
   listState: 'tmt-ui-list-state',
   listActions: 'tmt-ui-list-actions',
@@ -81,6 +85,11 @@ export const browserUiClasses = Object.freeze({
   tabLabel: 'tmt-ui-tab-label',
   tabsStatus: 'tmt-ui-tabs-status',
   tabPanel: 'tmt-ui-tab-panel',
+  section: 'tmt-ui-section',
+  sectionHeading: 'tmt-ui-section-heading',
+  table: 'tmt-ui-table',
+  disclosure: 'tmt-ui-disclosure',
+  visuallyHidden: 'tmt-ui-visually-hidden',
 } as const);
 
 export type BrowserNoticeTone = 'waiting' | 'blocked' | 'working' | 'review' | 'muted';

@@ -31,6 +31,48 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A select trigger: a field-sized control whose value fills the width and whose arrow sits at the
+   right edge, drawn here so a static page needs no extra markup. */
+.tmt-ui-menu-trigger[data-variant='select'] {
+  box-sizing: border-box;
+  position: relative;
+  justify-content: space-between;
+  width: 100%;
+  margin: 0;
+  min-height: var(--tmt-ui-host-action-min-height);
+  /* The native select's geometry: 36px high, 44px on a coarse pointer. */
+  padding: 7px 36px 7px 8px;
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  font: 14px/20px var(--tmt-ui-font-body);
+  text-align: left;
+}
+@media (pointer: coarse) {
+  .tmt-ui-menu-trigger[data-variant='select'] {
+    padding-block: 11px;
+  }
+}
+.tmt-ui-menu-trigger[data-variant='select']::after {
+  content: '';
+  position: absolute;
+  right: var(--tmt-ui-space-m);
+  top: calc(50% - 4px);
+  width: 7px;
+  height: 7px;
+  border-right: var(--tmt-ui-rule-width) solid currentColor;
+  border-bottom: var(--tmt-ui-rule-width) solid currentColor;
+  transform: rotate(45deg);
+}
+.tmt-ui-menu-trigger[data-variant='select']:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  background: var(--tmt-ui-surface-disabled);
+  cursor: default;
+}
+/* A listbox option marks the selected value with the tick a checked menu item draws. */
+.tmt-ui-menu-item[role='option'][aria-selected='true']::after {
+  content: '✓';
+}
 .tmt-ui-menu-field-label {
   color: var(--tmt-ui-color-secondary);
 }

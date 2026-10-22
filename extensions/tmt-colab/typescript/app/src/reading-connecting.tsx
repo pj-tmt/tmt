@@ -26,7 +26,9 @@ export function ReadingConnecting({ waiting }: { waiting: boolean }) {
       {slow && (
         <>
           <span aria-hidden="true">{text.readingConnecting}</span>
-          <span className="reading-connecting-text">{text.readingNotReady}</span>
+          <span className="reading-connecting-text tmt-ui-visually-hidden">
+            {text.readingNotReady}
+          </span>
         </>
       )}
     </span>
