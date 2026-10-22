@@ -162,8 +162,9 @@ function PageFloatingActions({
       const margin = innerWidth <= 640 ? 16 : 24;
       // These parent-owned overlays sit outside the renderer host's layout box.
       // Their actual bounds keep the control clear without altering author geometry.
-      const drawer = document
-        .querySelector<HTMLDialogElement>('.tmt-ui-drawer[open]')
+      // A page hosted in a panel sits inside that panel's drawer; only another drawer is an overlay.
+      const drawer = [...document.querySelectorAll<HTMLDialogElement>('.tmt-ui-drawer[open]')]
+        .find((candidate) => !candidate.contains(host))
         ?.getBoundingClientRect();
       const right = Math.min(box.right, drawer?.left ?? innerWidth);
       let bottom = Math.min(innerHeight, box.bottom);

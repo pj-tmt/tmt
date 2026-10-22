@@ -52,6 +52,9 @@ test('Decide here hosts the page in the panel without touching the tab title', a
   await openShell(page);
   const title = await page.title();
   await trigger(page).click();
+  const decide = (await panel(page).getByRole('button', { name: t.decideHere }).boundingBox())!;
+  const left = (await panel(page).locator('.tmt-ui-drawer-heading').first().boundingBox())!.x;
+  expect(Math.abs(decide.x - left)).toBeLessThanOrEqual(1);
   await capture(page, 'summary');
   await panel(page).getByRole('button', { name: t.decideHere }).click();
   // The page's own document and header actions are in the panel; its brand and title are not (the
@@ -63,6 +66,20 @@ test('Decide here hosts the page in the panel without touching the tab title', a
   expect(await page.title()).toBe(title);
   await expect(page).toHaveURL(new RegExp(`\\?open=${PLAN}`));
   await expect(page).not.toHaveURL(/#t=/);
+  // A viewport-fixed control of the page stays inside the panel, never over the shell beside it, and
+  // the panel's actions line up with its content edge.
+  const frame = (await panel(page).boundingBox())!;
+  const floating = page.locator('.page-floating-actions');
+  for (let index = 0; index < (await floating.count()); index += 1) {
+    const box = await floating.nth(index).boundingBox();
+    if (box) {
+      expect(box.x).toBeGreaterThanOrEqual(frame.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width);
+    }
+  }
+  const edge = (await panel(page).locator('.tmt-ui-drawer-heading').first().boundingBox())!.x;
+  const summary = (await panel(page).getByRole('button', { name: t.backToSummary }).boundingBox())!;
+  expect(Math.abs(summary.x - edge)).toBeLessThanOrEqual(1);
   await capture(page, 'page');
   // Back to the summary shows the passage list again and lets the page go.
   await panel(page).getByRole('button', { name: t.backToSummary }).click();

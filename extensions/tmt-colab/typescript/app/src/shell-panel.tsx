@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { useState, type ReactNode } from 'react';
-import { BrowserAction, BrowserDrawer } from '@tmt/browser-ui/react';
+import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { AgentChip } from './components/agent-chip.js';
 import { compactRelativeTime } from './display-time.js';
 import { pageLinkKey } from './page-link.js';
@@ -76,12 +76,9 @@ export function ChapterPanel({
       {here && embed ? (
         <div className="shell-panel shell-panel-page">
           <div className="shell-panel-bar">
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={t.backToSummary}
-              onActivate={() => setHere(false)}
-            />
+            <button type="button" className="shell-open" onClick={() => setHere(false)}>
+              {t.backToSummary}
+            </button>
             <Link
               className="shell-open"
               to="/pages/$pageId"
@@ -100,12 +97,9 @@ export function ChapterPanel({
       ) : (
         <div className="shell-panel">
           {embed && (
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={t.decideHere}
-              onActivate={() => setHere(true)}
-            />
+            <button type="button" className="shell-open" onClick={() => setHere(true)}>
+              {t.decideHere}
+            </button>
           )}
           {needs.length > 0 ? (
             <ol className="shell-panel-needs" aria-label={t.panelNeeds}>

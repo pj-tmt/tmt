@@ -307,6 +307,11 @@
   margin-top: 0;
   justify-self: start;
 }
+/* A panel action that is a button reads as the links beside it. */
+.shell-panel button.shell-open {
+  color: inherit;
+  font-size: 13px;
+}
 
 /* "Decide here": the page itself in the panel, under one row that goes back or on to the full page. */
 .shell-panel-page {
