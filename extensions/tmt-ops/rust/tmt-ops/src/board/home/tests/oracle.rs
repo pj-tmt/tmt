@@ -786,3 +786,43 @@ fn dump_home_oracle() {
     )
     .unwrap();
 }
+
+#[test]
+#[ignore = "exports only the 32 chat-fallback frames to HOME_ORACLE_OUT; never records fixtures"]
+fn dump_chat_fallback_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let captured = crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut styles = Styles::default();
+        let mut frames = Vec::new();
+        for (name, look) in looks() {
+            for width in [160, 100, 80, 60] {
+                for height in [36, 8] {
+                    let app = crate::board::conversation::outgoing::tests::captures::fixture(
+                        "chat-fallback",
+                        look,
+                        1_791_600_000_000,
+                    );
+                    frames.push(capture_frame(
+                        &app,
+                        "chat-fallback",
+                        name,
+                        width,
+                        height,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles":styles, "frames":frames})
+    });
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&captured).unwrap() + "\n",
+    )
+    .unwrap();
+}

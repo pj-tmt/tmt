@@ -191,6 +191,19 @@ fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
             for scene in SCENES {
                 for width in [103, 148] {
                     let mut app = fixture(scene, look, NOW);
+                    if scene == "chat-fallback" {
+                        let projection = app.composer_projection().unwrap();
+                        assert_eq!(
+                            app.chat_fallback(
+                                projection.key.as_ref().unwrap(),
+                                projection.recipient
+                            )
+                            .as_deref(),
+                            Some(
+                                "Sent as a request: night-2 can't take a direct message right now."
+                            )
+                        );
+                    }
                     let _no_acquisition = crate::runner::forbid_commands();
                     let mut terminal = Terminal::new(TestBackend::new(width, 51)).unwrap();
                     terminal

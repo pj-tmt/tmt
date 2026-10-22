@@ -736,7 +736,7 @@ directly to the agent's pane when Core reports that it can take direct input;
 there is no Ops preamble. Core settles the oldest open request from that agent
 only after delivery. Missing capture hooks do not prevent a direct send.
 An unavailable capability or sender uses a request instead; the composer names
-that fallback and its reason. A refusal retains the draft. Uncertain acceptance
+that fallback. A refusal retains the draft. Uncertain acceptance
 never triggers a resend. Status changes remain separate and acknowledge nothing. Open **Update status**
 from the row's Actions menu (or an authored `update-status` binding); the form
 reuses the existing preview, permission and conflict checks.

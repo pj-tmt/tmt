@@ -734,11 +734,10 @@ impl App {
         let Some(Ok(accepted)) = &entry.outcome else {
             return None;
         };
-        let reason = accepted.fallback.as_ref()?;
+        accepted.fallback.as_ref()?;
         Some(format!(
-            "Sent as a request: {} can't take a direct message right now. {}",
+            "Sent as a request: {} can't take a direct message right now.",
             crate::board::notes::single_line(name),
-            reason
         ))
     }
 
