@@ -626,12 +626,17 @@ and `requests.show` items with `mode: "passthrough"` carry
   binds when that turn actually starts. A prompt that matches nothing binds nothing, and no turn
   starting within 10 minutes of delivery settles `no_answer` (a read says so before anything
   writes it).
-- `bound`: a turn started with that prompt. Core waits for that turn however long it runs.
+- `bound`: a turn started with that prompt. Core waits for that turn's end for at most six
+  hours; past that, or once a later turn of the same session has started (a turn that is
+  not the bound one), it settles `no_answer`, and a read says so before anything writes it.
+  The end of a turn that never arrives (a killed agent, a closed pane) therefore cannot
+  leave a capture `bound` for ever.
 - `answered`: the turn ended with a final message, stored as
   `answer: {text, truncated, provider, endedMs}`: plain untrusted text of at most 8,192 UTF-8
   bytes, never a reply and never an instruction. It is attached once.
 - `no_answer`: the turn ended without a final (interrupted, or none was read, as when provider
-  usage collection is off), or the provider session was replaced before it ended. A final is
+  usage collection is off), or the provider session was replaced or overtaken by a later turn
+  before it ended, or the six hours passed. A final is
   never taken from `responses.recent` or the pane.
 
 Only an admitted turn event (one that moved the verified session's state) binds or settles.

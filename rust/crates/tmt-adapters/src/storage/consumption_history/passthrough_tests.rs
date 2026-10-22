@@ -6,7 +6,7 @@ use super::{tests::fixture, *};
 use crate::storage::ResponseCapture;
 use std::time::Duration;
 use tmt_core::{
-    request::passthrough::{BIND_WINDOW_MS, CaptureState},
+    request::passthrough::{BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState},
     responses::FinalText,
 };
 
@@ -380,5 +380,117 @@ fn a_capture_bound_to_an_earlier_session_is_released_when_the_agent_moves_on() {
     );
     assert_eq!(capture(&storage, "old").state, CaptureState::NoAnswer);
     assert_eq!(capture(&storage, "new").state, CaptureState::Bound);
+    storage.close().unwrap();
+}
+
+fn started(
+    storage: &mut Storage,
+    path: &std::path::Path,
+    id: &str,
+    turn: Option<&str>,
+    prompt: &str,
+) {
+    let boundary = TurnBoundary::Started { turn, prompt };
+    event(storage, path, id, SESSION, Some(boundary), None, true);
+}
+
+fn move_bound_time(storage: &Storage, request: &str, ago: u64) {
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE request_passthrough SET bound_at_ms=?2 WHERE request_id=?1",
+            rusqlite::params![request, (now() - ago) as i64],
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_later_turn_of_the_same_session_settles_a_bound_capture_without_an_answer() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    typed(&storage, &id, "named", "first job", 3_000);
+    typed(&storage, &id, "unnamed", "second job", 2_000);
+    typed(&storage, &id, "same", "third job", 1_000);
+
+    // The provider names its turns: a different turn overtakes, the same turn does not.
+    started(&mut storage, &path, &id, Some("t1"), "first job");
+    assert_eq!(capture(&storage, "named").state, CaptureState::Bound);
+    started(&mut storage, &path, &id, Some("t1"), "an unrelated prompt");
+    assert_eq!(
+        capture(&storage, "named").state,
+        CaptureState::Bound,
+        "the same turn reporting again has not ended it"
+    );
+    started(&mut storage, &path, &id, Some("t2"), "an unrelated prompt");
+    let overtaken = capture(&storage, "named");
+    assert_eq!(overtaken.state, CaptureState::NoAnswer);
+    assert!(overtaken.settled_at_ms.is_some() && overtaken.answer.is_none());
+    // The earlier turn's end, arriving late, gives it nothing.
+    let ended = TurnBoundary::Ended { turn: Some("t1") };
+    event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(ended),
+        Some("Too late."),
+        true,
+    );
+    assert_eq!(capture(&storage, "named"), overtaken);
+
+    // Claude names no turn: any later turn of the session overtakes.
+    started(&mut storage, &path, &id, None, "second job");
+    assert_eq!(capture(&storage, "unnamed").state, CaptureState::Bound);
+    started(&mut storage, &path, &id, None, "an unrelated prompt");
+    assert_eq!(capture(&storage, "unnamed").state, CaptureState::NoAnswer);
+
+    // The turn that binds a capture does not overtake it.
+    started(&mut storage, &path, &id, None, "third job");
+    assert_eq!(capture(&storage, "same").state, CaptureState::Bound);
+    storage.close().unwrap();
+}
+
+#[test]
+fn a_bound_capture_whose_turn_never_ends_settles_without_an_answer_after_the_bound_window() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    typed(&storage, &id, "slow", "long job", 2_000);
+    typed(&storage, &id, "stuck", "lost job", 1_000);
+    started(&mut storage, &path, &id, Some("slow-turn"), "long job");
+    // A long turn inside the window still answers when it ends.
+    move_bound_time(&storage, "slow", BOUND_WINDOW_MS - 60_000);
+    let ended = TurnBoundary::Ended {
+        turn: Some("slow-turn"),
+    };
+    event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(ended),
+        Some("Done at last."),
+        true,
+    );
+    assert_eq!(capture(&storage, "slow").state, CaptureState::Answered);
+
+    // One past the window is not awaited any more, even if its end arrives afterwards.
+    started(&mut storage, &path, &id, Some("lost-turn"), "lost job");
+    move_bound_time(&storage, "stuck", BOUND_WINDOW_MS + 1_000);
+    let ended = TurnBoundary::Ended {
+        turn: Some("lost-turn"),
+    };
+    event(
+        &mut storage,
+        &path,
+        &id,
+        SESSION,
+        Some(ended),
+        Some("Never wanted."),
+        true,
+    );
+    let stuck = capture(&storage, "stuck");
+    assert_eq!(stuck.state, CaptureState::NoAnswer);
+    assert!(stuck.answer.is_none());
     storage.close().unwrap();
 }
