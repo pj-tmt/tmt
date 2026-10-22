@@ -164,6 +164,10 @@ export class Door {
   forceReplay = false;
   replyState = 'replied';
   final = '';
+  /** Added to a pending `result`, as Core's message state is. */
+  messageState?: unknown;
+  /** What `requests.sendNow` answers; the request ID is filled in. */
+  sendNowReply: Record<string, unknown> = { state: 'sent' };
   managementReply?: (operation: string, payload: Record<string, unknown>) => unknown;
   sendState = 'accepted';
   error?: {
@@ -270,6 +274,20 @@ export class Door {
             state: this.replyState,
             requestId: payload.requestId,
             ...(this.replyState === 'replied' ? { message: this.final } : {}),
+            ...(this.replyState === 'pending' && this.messageState !== undefined
+              ? { messageState: this.messageState }
+              : {}),
+          };
+          break;
+        case 'requests.sendNow':
+          assert.deepEqual(payload, {
+            version: 1,
+            operation: 'requests.sendNow',
+            input: { requestId: (payload.input as Record<string, unknown>).requestId },
+          });
+          result = {
+            requestId: (payload.input as Record<string, unknown>).requestId,
+            ...this.sendNowReply,
           };
           break;
         case 'agents.list':

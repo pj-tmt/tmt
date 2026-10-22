@@ -104,6 +104,8 @@ export type {
   SendInput,
   SendState,
   ResultState,
+  MessageState,
+  SendNowState,
 } from './operations.js';
 import wordlist from '../../../rust/tmt-remote/assets/bip39-english.txt?raw';
 import { fingerprintIndexes } from './canonical-bytes.js';

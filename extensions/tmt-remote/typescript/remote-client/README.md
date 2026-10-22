@@ -60,12 +60,23 @@ listAgents(): Promise<RemoteAgent[]>;
 send(input: {operationId: string; agentId: string; message: string}): Promise<SendState>;
 operation(operationId: string): Promise<SendState>;
 result(requestId: string): Promise<ResultState>;
+sendNow(requestId: string): Promise<SendNowState>;
 ```
 
 `SendState` preserves `held`, `accepted` (with `requestId`), `uncertain` (optional
 `requestId`), `refused` and `cancelled` (optional `reason`), always with the original
 `operationId`. `ResultState` preserves `pending`, `replied` (exact inert `message`,
-including empty text) and `unavailable` (optional `reason`), always with `requestId`.
+including empty text) and `unavailable` (optional `reason`), always with `requestId`. A `pending`
+result may carry Core's `messageState` (`{state, reason: {code, text}, latestMs, remainingMs,
+canSendNow}`, see [Message state](../../../../contracts/request-response-v1.md#message-state)),
+decoded exactly: a malformed one makes the reply unverifiable. `canSendNow` is display only; every
+device but the owner's own browser sees `false`. `sendNow` asks, for a request this device sent,
+that it be typed now; only the owner's own browser may call it (`RefusalError`
+`REMOTE_SCOPE_DENIED` otherwise). `SendNowState` is `sent` (Core typed it), `already`, `refused`,
+`unconfirmed` (it may have been typed: read `result` before offering it again) or `unavailable`
+(nothing typed), with the `requestId`, an optional `reason` and a fresh `messageState`. A state this
+SDK does not know decodes as `unconfirmed`, never `sent`; a thrown `ClientError` also means unknown.
+See [Send now](../../../../contracts/remote-channel-v1.md#send-now).
 `RemoteAgent` contains `id`, `name`, `presence`, optional core-owned `delivery` and optional
 `runningDriver: 'claude' | 'codex'`, with provenance owned by Core's
 [List runtime driver](../../../../contracts/identity-status-v1.md#list-runtime-driver) contract.

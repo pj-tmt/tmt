@@ -100,6 +100,116 @@ for (const state of ['pending', 'replied', 'unavailable']) {
   });
 }
 
+const heldState = {
+  state: 'sent',
+  reason: { code: 'held_to_save_usage', text: 'held to save usage' },
+  latestMs: 1_700_000_300_000,
+  remainingMs: 120_000,
+  canSendNow: true,
+};
+test('a pending result forwards Core message state exactly, and says nothing when there is none', async () => {
+  const { door, client } = await ready();
+  door.replyState = 'pending';
+  const id = request();
+  assert.deepEqual(await client.result(id), { state: 'pending', requestId: id });
+  door.messageState = heldState;
+  assert.deepEqual(await client.result(id), {
+    state: 'pending',
+    requestId: id,
+    messageState: heldState,
+  });
+  door.messageState = { ...heldState, latestMs: null, remainingMs: null, canSendNow: false };
+  const quiet = await client.result(id);
+  assert.ok(quiet.state === 'pending');
+  assert.equal(quiet.messageState?.canSendNow, false);
+  assert.equal(quiet.messageState?.latestMs, null);
+});
+test('a malformed message state is an unverifiable reply, never a partial one', async () => {
+  const bad: unknown[] = [
+    'sent',
+    [],
+    { ...heldState, state: 'mystery' },
+    { ...heldState, canSendNow: 'yes' },
+    { ...heldState, latestMs: -1 },
+    { ...heldState, remainingMs: 1.5 },
+    { ...heldState, reason: 'held' },
+    { ...heldState, reason: { code: 'Held', text: 't' } },
+    { ...heldState, reason: { code: 'held', text: 't'.repeat(257) } },
+    { ...heldState, reason: { code: 'held', text: 't', extra: true } },
+    { ...heldState, extra: true },
+    { state: heldState.state, reason: heldState.reason, canSendNow: true },
+  ];
+  for (const messageState of bad) {
+    const { door, client } = await ready();
+    door.replyState = 'pending';
+    door.messageState = messageState;
+    await assert.rejects(
+      client.result(request()),
+      unknown('unverifiable_response'),
+      JSON.stringify(messageState),
+    );
+  }
+});
+for (const [reply, expected] of [
+  [{ state: 'sent' }, { state: 'sent' }],
+  [
+    { state: 'already', messageState: heldState },
+    { state: 'already', messageState: heldState },
+  ],
+  [
+    { state: 'refused', reason: 'SEND_NOW_NOT_AVAILABLE', messageState: heldState },
+    { state: 'refused', reason: 'SEND_NOW_NOT_AVAILABLE', messageState: heldState },
+  ],
+  [
+    { state: 'unconfirmed', reason: 'DELIVERY_UNCERTAIN' },
+    { state: 'unconfirmed', reason: 'DELIVERY_UNCERTAIN' },
+  ],
+  [
+    { state: 'unavailable', reason: 'USER_NAME_INVALID' },
+    { state: 'unavailable', reason: 'USER_NAME_INVALID' },
+  ],
+  // A state this SDK does not know can never read as sent.
+  [{ state: 'delivered' }, { state: 'unconfirmed' }],
+  [
+    { state: 'sent-ish', messageState: heldState },
+    { state: 'unconfirmed', messageState: heldState },
+  ],
+] as const) {
+  test(`sendNow decodes ${JSON.stringify(reply)} and sends only the request ID`, async () => {
+    const { door, client } = await ready();
+    door.sendNowReply = { ...reply };
+    const id = request();
+    assert.deepEqual(await client.sendNow(id), { requestId: id, ...expected });
+    assert.equal(door.calls.at(-1)!.envelope.operation, 'requests.sendNow');
+    assert.deepEqual(door.calls.at(-1)!.payload, {
+      version: 1,
+      operation: 'requests.sendNow',
+      input: { requestId: id },
+    });
+  });
+}
+test('sendNow rejects a foreign request ID or a malformed state as an unverifiable reply', async () => {
+  for (const reply of [
+    { requestId: request() },
+    { state: 'sent', reason: 5 },
+    { state: 'sent', messageState: { ...heldState, state: 'mystery' } },
+  ]) {
+    const { door, client } = await ready();
+    door.sendNowReply = reply;
+    await assert.rejects(client.sendNow(request()), unknown('unverifiable_response'));
+  }
+  const { client } = await ready();
+  await assert.rejects(client.sendNow('wrong'), TypeError);
+});
+test('sendNow shares the verified lane and never replays when the owner-only refusal is signed', async () => {
+  const { door, client } = await ready();
+  door.error = { code: 'REMOTE_SCOPE_DENIED', message: 'Send now is for the owner.' };
+  await assert.rejects(client.sendNow(request()), (error) => error instanceof RefusalError);
+  assert.equal(
+    door.calls.filter((call) => call.envelope.operation === 'requests.sendNow').length,
+    1,
+  );
+});
 test('agents forward optional delivery unchanged and tolerate additive data', async () => {
   const { door, client } = await ready();
   door.agents = [
