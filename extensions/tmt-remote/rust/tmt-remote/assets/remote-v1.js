@@ -412,6 +412,13 @@ function reason(value) {
 	valid$6(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
+/** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
+function reasonText(value) {
+	if (value.reasonText === void 0) return {};
+	const text = value.reasonText;
+	valid$6(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$1.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	return { reasonText: text };
+}
 var MESSAGE_STATES = [
 	"sent",
 	"batched",
@@ -549,6 +556,7 @@ function sendNowState(value, id) {
 		state: SEND_NOW_STATES.includes(state.state) ? state.state : "unconfirmed",
 		requestId: id,
 		...reason(state),
+		...reasonText(state),
 		...messageState(state)
 	};
 }

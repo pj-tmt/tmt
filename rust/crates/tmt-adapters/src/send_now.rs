@@ -10,7 +10,7 @@ use crate::{
 use std::time::Duration;
 use tmt_core::request::{
     RequestError, RequestService,
-    delivery::{DeliveryState, SendNowOutcome},
+    delivery::{DeliveryState, SendNowOutcome, SendNowUntyped},
 };
 
 /// What a send-now ended as. Only `Typed` and `Already` are successes.
@@ -51,23 +51,14 @@ pub fn send_now(
 
 /// The code and sentence for a paste that did not complete, shared by every caller.
 pub fn untyped_failure(delivery: &Delivery) -> (&'static str, &'static str) {
-    match delivery {
-        Delivery::AwaitingApproval => (
-            "DELIVERY_AWAITING_APPROVAL",
-            "The recipient is waiting on its user; nothing was sent.",
-        ),
-        Delivery::Offline | Delivery::Unavailable => (
-            "SEND_NOW_UNREACHABLE",
-            "The recipient could not be reached; nothing was sent.",
-        ),
-        Delivery::ChannelUnavailable(_) => (
-            "DELIVERY_CHANNEL_UNAVAILABLE",
-            "The recipient's session cannot carry the message; nothing was sent.",
-        ),
-        Delivery::Uncertain | Delivery::Unacknowledged | Delivery::Transport(_) => (
-            "DELIVERY_UNCERTAIN",
-            "The message may have reached the pane; it is not sent again.",
-        ),
+    let untyped = match delivery {
+        Delivery::AwaitingApproval => SendNowUntyped::AwaitingApproval,
+        Delivery::Offline | Delivery::Unavailable => SendNowUntyped::Unreachable,
+        Delivery::ChannelUnavailable(_) => SendNowUntyped::ChannelUnavailable,
+        Delivery::Uncertain | Delivery::Unacknowledged | Delivery::Transport(_) => {
+            SendNowUntyped::Uncertain
+        }
         Delivery::Sent => unreachable!("a delivered message is a success"),
-    }
+    };
+    (untyped.code(), untyped.message())
 }

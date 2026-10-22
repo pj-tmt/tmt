@@ -170,3 +170,70 @@ fn every_reason_has_its_own_code_and_text() {
     let texts: std::collections::HashSet<_> = all.iter().map(|r| r.text()).collect();
     assert_eq!((codes.len(), texts.len()), (all.len(), all.len()));
 }
+
+// The sentences are the wording table of the contract (Send now): the CLI, the extension API
+// and the Remote door show them as they are, so a change here is a change to every client.
+#[test]
+fn every_send_now_refusal_has_one_pinned_sentence() {
+    for (rejection, code, sentence) in [
+        (
+            SendNowRejection::NotAllowed,
+            "SEND_NOW_NOT_ALLOWED",
+            "Could not send now: only its sender, or a person, can send it early",
+        ),
+        (
+            SendNowRejection::NotApplicable,
+            "SEND_NOW_NOT_APPLICABLE",
+            "Could not send now: it is not an ordinary message to an agent",
+        ),
+        (
+            SendNowRejection::Closed,
+            "SEND_NOW_CLOSED",
+            "Could not send now: it already has an answer, or was withdrawn or expired",
+        ),
+        (
+            SendNowRejection::Unconfirmed,
+            "SEND_NOW_UNCONFIRMED",
+            "Could not send now: an earlier delivery is unconfirmed, do not resend",
+        ),
+        (
+            SendNowRejection::NotAvailable(DeliveryReason::AwaitingApproval),
+            "SEND_NOW_NOT_AVAILABLE",
+            "Could not send now: waiting for the agent's approval prompt to clear",
+        ),
+        (
+            SendNowRejection::NotAvailable(DeliveryReason::WaitingForDelivery),
+            "SEND_NOW_NOT_AVAILABLE",
+            "Could not send now: waiting for delivery",
+        ),
+    ] {
+        assert_eq!(
+            (rejection.code(), rejection.message().as_str()),
+            (code, sentence)
+        );
+    }
+    for (untyped, code, sentence) in [
+        (
+            SendNowUntyped::AwaitingApproval,
+            "DELIVERY_AWAITING_APPROVAL",
+            "Could not send now: the agent is waiting for approval on its machine",
+        ),
+        (
+            SendNowUntyped::Unreachable,
+            "SEND_NOW_UNREACHABLE",
+            "Could not send now: the agent could not be reached",
+        ),
+        (
+            SendNowUntyped::ChannelUnavailable,
+            "DELIVERY_CHANNEL_UNAVAILABLE",
+            "Could not send now: the agent's channel is not available",
+        ),
+        (
+            SendNowUntyped::Uncertain,
+            "DELIVERY_UNCERTAIN",
+            "It may have been sent, delivery unconfirmed, do not resend",
+        ),
+    ] {
+        assert_eq!((untyped.code(), untyped.message()), (code, sentence));
+    }
+}
