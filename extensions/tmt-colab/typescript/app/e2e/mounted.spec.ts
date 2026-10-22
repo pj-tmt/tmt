@@ -1082,6 +1082,8 @@ test('Back to the list still ends in the error when a refreshed session is refus
     if (request.url().endsWith(`${mount}api/devices/register`)) registrations++;
   });
   await page.goBack();
+  // The refusal's code is the error view's Details, folded until opened.
+  await page.getByText('Details').click();
   await expect(page.getByText('DENIED')).toBeVisible();
   // The read and its one refreshed retry. The list's re-read for a page with no summary yet may add
   // a read on a loaded machine, so `once` is the device refresh: one registration.
