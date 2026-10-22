@@ -226,6 +226,18 @@ impl App {
             money: self.tok_money(),
         }
     }
+    /// What a click on an Agents header control chooses.
+    pub(in crate::board) fn control_choice(
+        &self,
+        control: crate::board::header_sort::Control,
+    ) -> Choice {
+        use crate::board::header_sort::Control;
+        match control {
+            Control::Sort(header) => Choice::SortBy(header),
+            Control::Unit => Choice::TokUnit,
+            Control::Window => Choice::TokRange(self.tok_range().next()),
+        }
+    }
     /// A click on a painted TOK figure switches every figure between tokens and
     /// money. It writes the shared unit preference and skips percent, which a
     /// token count cannot be.

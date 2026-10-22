@@ -260,7 +260,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ("window", "Choose Digest estimate window in workspace settings: 1d, 7d or all time; the choice is shared by member, squad and Digest views."),
         ("Est. ctx avoided", "Estimated context input tokens avoided by delivering messages together. Assumes each message would otherwise have been delivered on its own. Not billed tokens, not cost, not turns saved."),
         ("coverage", "— means unavailable; known zero is 0. (N of M) counts included members. All time starts when each member's Digest began recording."),
-        ("unit", "Click the estimate, choose Savings unit in the Actions menu, or press a key bound to savings-unit, to cycle tokens, percent of input and cost; the choice is shared by every view. Percent is not available for all time. Cost is an estimate at list price for uncached input, never money saved or a bill; Digest Details lists the price table behind it."),
+        ("unit", "Click the estimate, choose Savings unit in the Actions menu, or press a key bound to savings-unit, to cycle tokens, percent of input and cost; the choice is shared by every view. In Agents, click the TOK or ≈$ word of the column heading (hover shows the unit it switches to), or any TOK figure, to switch the column between tokens and cost. Percent is not available for all time. Cost is an estimate at list price for uncached input, never money saved or a bill; Digest Details lists the price table behind it."),
     ]));
     sections.push(section("chat-delivery", "chat delivery", &[
         ("direct message", "A person's eligible message goes straight to the agent's pane. Core settles the oldest open request after delivery; capture hooks do not decide eligibility."),

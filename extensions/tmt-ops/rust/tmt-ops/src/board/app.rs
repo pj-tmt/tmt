@@ -316,6 +316,8 @@ pub enum Choice {
     SavingsUnit,
     /// A click on a painted TOK figure of the Agents list: tokens or list-price money.
     TokMoney,
+    /// A click on the unit word of the Agents TOK header: the same switch as the figures.
+    TokUnit,
     ClearSearch,
     Panels,
     Checklist,
@@ -722,7 +724,7 @@ pub struct App {
     pub(super) excluded_counters: Vec<String>,
     pub(super) meter_hover: Option<Option<usize>>,
     /// The Agents column header under the pointer.
-    pub(super) header_hover: Option<super::header_sort::Header>,
+    pub(super) header_hover: Option<super::header_sort::Control>,
     squad_keys: Vec<String>,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
@@ -2921,7 +2923,7 @@ impl App {
                 self.open_exchange_pair(&sender, &recipient)
             }
             Choice::SavingsUnit => self.cycle_savings_unit(),
-            Choice::TokMoney => self.toggle_tok_money(),
+            Choice::TokMoney | Choice::TokUnit => self.toggle_tok_money(),
             Choice::ClearSearch => {
                 super::search_field::clear(&mut self.search, &mut self.searching);
                 self.clamp();
@@ -4031,7 +4033,9 @@ impl App {
                 .iter()
                 .find(|(area, _)| area.contains((event.column, event.row).into()))
                 .and_then(|(_, choice)| match choice {
-                    Choice::SortBy(header) => Some(*header),
+                    Choice::SortBy(header) => Some(super::header_sort::Control::Sort(*header)),
+                    Choice::TokUnit => Some(super::header_sort::Control::Unit),
+                    Choice::TokRange(_) => Some(super::header_sort::Control::Window),
                     _ => None,
                 })
         };
@@ -4266,6 +4270,7 @@ impl App {
                     choice,
                     Choice::SavingsUnit
                         | Choice::TokMoney
+                        | Choice::TokUnit
                         | Choice::ClearSearch
                         | Choice::TokRange(_)
                 ) || matches!(&choice, Choice::Action(action) if matches!(action.verb,

@@ -77,23 +77,38 @@ fn the_window_word_is_a_hit_beside_the_tok_word_in_both_lists() {
             let line = &rows[usize::from(area.y)];
             let before: String = line.chars().take(usize::from(area.x)).collect();
             assert!(before.ends_with("TOK "), "{name} {range:?}: {line}");
-            // The hit never covers the TOK word, which only the flat list's sort hit owns.
-            let tok_end = area.x - 1;
+            // The window hit is its own control: the unit word is the TokUnit hit before the
+            // space, and only the flat list's sort hit sits on the mark cell before that.
             assert_eq!(area.width, 2, "{name} {range:?}");
+            let unit = Rect::new(area.x - 4, area.y, 3, 1);
+            let mark = Rect::new(area.x - 5, area.y, 1, 1);
+            assert_eq!(painted(&app, unit), "TOK", "{name} {range:?}");
             for (other, choice) in app.workspace_strip_hits.borrow().iter() {
                 if matches!(choice, Choice::TokRange(_)) {
                     continue;
                 }
                 assert!(!other.intersects(area), "{name} {range:?}: {choice:?}");
                 assert_eq!(
-                    other.contains((tok_end - 1, area.y).into()),
+                    *other == unit,
+                    *choice == Choice::TokUnit,
+                    "{name} {range:?}: {choice:?} against the unit word"
+                );
+                assert_eq!(
+                    other.contains((mark.x, mark.y).into()),
                     *choice
                         == Choice::SortBy(Header::Overview(
                             crate::config::OverviewColumn::TokensPerHour
                         )),
-                    "{name} {range:?}: {choice:?} on the TOK word"
+                    "{name} {range:?}: {choice:?} on the mark cell"
                 );
             }
+            assert!(
+                app.workspace_strip_hits
+                    .borrow()
+                    .iter()
+                    .any(|(other, choice)| *other == unit && *choice == Choice::TokUnit),
+                "{name} {range:?}: no unit hit"
+            );
         }
     }
 }

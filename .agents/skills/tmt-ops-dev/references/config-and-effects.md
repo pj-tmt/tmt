@@ -153,7 +153,7 @@ it there. The `savings-unit` action ships without a default key so that no froze
 binding table moves; a click on a painted estimate (`Choice::SavingsUnit`) and the Actions
 menu reach it, and the footer hint appears only while a frame painted an estimate.
 The Agents TOK figures read the same preference (`App::tok_money`: unit `cost`); a click on a
-painted figure (`Choice::TokMoney`) writes tokens or cost through the same CAS and skips percent.
+painted figure (`Choice::TokMoney`) or on the unit word of the column heading (`Choice::TokUnit`) writes tokens or cost through the same CAS and skips percent.
 Money comes from the shared usage report through `usage_report::valuation` (the Digest table
 uses the same functions), which the Agents tab demands only while money is shown.
 Older Ops builds reject that unknown key; alpha publication is automatic, but
