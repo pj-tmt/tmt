@@ -3866,26 +3866,246 @@ function pageLoading() {
 	return row;
 }
 //#endregion
+//#region src/owner-reads.ts
+/**
+* The owner browser reads (contracts/remote-channel-v1.md, Owner browser reads): read-only door GETs
+* under the owner session, siblings of the composed shell's `x/-/shell`. One client for every page
+* that shows them (Ops, Digest), and the refresh timer that runs only while the route is visible.
+*/
+/** The reasons the contract names; a client reads any other reason as `unknown`. */
+var OWNER_READ_REASONS = [
+	"not_installed",
+	"core_unavailable",
+	"timeout",
+	"read_failed",
+	"too_large",
+	"not_sampled"
+];
+var UNREACHABLE = { state: "unreachable" };
+/** One answer document checked against the contract's envelope; anything else is unreachable. */
+function ownerAnswer(document) {
+	if (typeof document !== "object" || document === null || Array.isArray(document)) return UNREACHABLE;
+	const { version, state, observedAtMs, reason, ...payload } = document;
+	if (version !== 1 || !Number.isSafeInteger(observedAtMs) || observedAtMs <= 0) return UNREACHABLE;
+	const at = observedAtMs;
+	if (state === "ok") return {
+		state,
+		observedAtMs: at,
+		payload
+	};
+	if (state !== "unavailable") return UNREACHABLE;
+	return {
+		state,
+		observedAtMs: at,
+		reason: OWNER_READ_REASONS.find((name) => name === reason) ?? "unknown"
+	};
+}
+var address;
+/** Without an owner session, a pairing kept in this browser opens one again (a door restart ends
+* them); `no-session` when there is no pairing to use, else `unreachable` (try again later). */
+async function reopenOnce$1(signal) {
+	try {
+		const { reopenSession } = await import("./remote-v1.js");
+		await reopenSession(void 0, { signal });
+		return "reopened";
+	} catch (error) {
+		const reason = error?.reason;
+		return reason === "unpaired" || reason === "revoked" || reason === "expired" ? "no-session" : "unreachable";
+	}
+}
+/** The reopen in flight: reads that meet the same door restart together wait on this one. */
+var reopening;
+/** Join the reopen in flight, or start one. It stops only once every read waiting on it left; a
+* read whose own signal aborts leaves at once as `unreachable`. */
+function reopen(signal) {
+	if (reopening === void 0) {
+		const stop = new AbortController();
+		const shared = {
+			result: reopenOnce$1(stop.signal),
+			waiting: 0,
+			stop
+		};
+		shared.result.finally(() => {
+			if (reopening === shared) reopening = void 0;
+		});
+		reopening = shared;
+	}
+	const shared = reopening;
+	shared.waiting += 1;
+	return new Promise((resolve) => {
+		const leave = () => {
+			shared.waiting -= 1;
+			if (shared.waiting === 0) {
+				shared.stop.abort();
+				if (reopening === shared) reopening = void 0;
+			}
+			resolve("unreachable");
+		};
+		if (signal.aborted) return leave();
+		signal.addEventListener("abort", leave, { once: true });
+		shared.result.then((result) => {
+			signal.removeEventListener("abort", leave);
+			resolve(result);
+		});
+	});
+}
+async function readOnce(url, signal) {
+	try {
+		return await fetch(url, {
+			credentials: "same-origin",
+			cache: "no-store",
+			signal
+		});
+	} catch {
+		return;
+	}
+}
+/**
+* Read `<address>/x/-/<name>` once. The mount address is found once per page and found again
+* after a read that had none. The door answers a request without a live owner session with its
+* generic 404: the read then reopens the session from this browser's pairing and reads again, so
+* only a browser with no pairing to use is told it has no session (#4018). Reads that meet the
+* same restart share one reopen.
+*/
+async function ownerRead(name, signal) {
+	address ??= shellAddress();
+	const base = await address;
+	if (base === void 0) {
+		address = void 0;
+		return { state: "no-session" };
+	}
+	const url = `${base}/x/-/${name}`;
+	let response = await readOnce(url, signal);
+	if (response?.status === 404) {
+		const reopened = await reopen(signal);
+		if (reopened !== "reopened") return { state: reopened };
+		response = await readOnce(url, signal);
+	}
+	if (response?.status !== 200) return UNREACHABLE;
+	try {
+		return ownerAnswer(await response.json());
+	} catch {
+		return UNREACHABLE;
+	}
+}
+/** The longest wait after failures: the cadence doubles per failed read up to this many times. */
+var BACKOFF_STEPS = 3;
+/**
+* Run `tick` now and every `intervalMs` while the page is visible, until `signal` aborts (the route
+* unmounts). A hidden page reads nothing; showing it again reads at once. A tick that returns false
+* (a failed read) doubles the wait, up to eight times the cadence, and the next success resets it.
+*/
+function whileVisible(intervalMs, signal, tick) {
+	let timer;
+	let failures = 0;
+	let running = false;
+	const schedule = () => {
+		clearTimeout(timer);
+		if (signal.aborted || document.visibilityState !== "visible") return;
+		timer = setTimeout(run, intervalMs * 2 ** Math.min(failures, BACKOFF_STEPS));
+	};
+	const run = async () => {
+		clearTimeout(timer);
+		if (running || signal.aborted || document.visibilityState !== "visible") return;
+		running = true;
+		try {
+			failures = await tick() ? 0 : failures + 1;
+		} catch {
+			failures += 1;
+		} finally {
+			running = false;
+		}
+		schedule();
+	};
+	document.addEventListener("visibilitychange", () => document.visibilityState === "visible" ? void run() : clearTimeout(timer), { signal });
+	signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+	run();
+}
+//#endregion
 //#region src/digest-source.ts
 /**
 * What the Digest web view (`/digest/`) reads: the usage report the terminal Digest shows. The
 * types follow the public document of `tmt digest usage report --json` (digest `usage-v1.md`) and
-* the exchange flow of `tmt x flow --json`; the page depends only on `DigestSource`. Until Core
-* serves that read to the owner's browser (#4325) the product source answers "not in the
-* browser yet"; the seeded sample lives in `digest-mock.ts` for tests, the gallery and dev only.
+* the exchange flow of `tmt x flow --json`; the page depends only on `DigestSource`. The product
+* source reads the owner's browser reads (`x/-/digest/<range>` and `x/-/limits`, contracts/
+* remote-channel-v1.md); the seeded sample lives in `digest-mock.ts` for tests, the gallery and
+* dev only.
 */
 var USAGE_RANGES = [
 	"24h",
 	"7d",
 	"30d"
 ];
-/** The source the page reads by default. */
-var digestSource = { async report(range) {
+/** One plain sentence per reason, each saying what the person can do. */
+var REASONS$1 = {
+	not_installed: "Digest is not installed on your machine. Run `tmt extension install digest`, then reload this page.",
+	core_unavailable: "TMT on your machine did not answer. This page tries again shortly.",
+	timeout: "Your machine took too long to read usage. This page tries again shortly.",
+	read_failed: "Your machine could not read usage. Run `tmt digest usage report` in a terminal to see it.",
+	too_large: "The usage report is too large for the browser. Run `tmt digest usage report` in a terminal to see it.",
+	not_sampled: "Your machine could not read usage. Run `tmt digest usage report` in a terminal to see it.",
+	unknown: "Usage is not available right now. Run `tmt digest usage report` in a terminal to see it.",
+	"no-session": "This browser has no owner session for your machine. Pair it from Remote to see your usage.",
+	unreachable: "Your machine did not answer. This page tries again shortly."
+};
+/** The model family a driver's weekly window belongs to, as the report names it on its seats. */
+var DRIVER_LINES = {
+	claude: "claude",
+	codex: "gpt"
+};
+/**
+* The percent-left history of the current weekly window per provider. The cache keeps 8 days, so
+* its points can span two windows: only those of the newest window (its reset time) are drawn.
+*/
+function limitHistoryFrom(answer) {
+	if (answer.state !== "ok") return void 0;
+	const histories = answer.payload.limitHistory;
+	if (!Array.isArray(histories)) return void 0;
+	return histories.flatMap((history) => {
+		const last = history.points.at(-1);
+		if (!last) return [];
+		return [{
+			line: DRIVER_LINES[history.provider] ?? history.provider,
+			windowMinutes: history.windowMinutes,
+			resetsAtMs: last[2],
+			points: history.points.filter((point) => point[2] === last[2]).map(([atMs, percentLeft]) => ({
+				atMs,
+				percentLeft
+			}))
+		}];
+	});
+}
+/**
+* The report from the two owner reads. An unavailable Digest read is the page's empty state with
+* its reason; an unavailable limits read only leaves the history out (the latest window still
+* shows), since `limits` needs Ops and a machine whose board never ran has no samples.
+*/
+function reportFromAnswers(range, digest, limits) {
+	if (digest.state !== "ok") return {
+		range,
+		sample: false,
+		unavailable: REASONS$1[digest.state === "unavailable" ? digest.reason : digest.state]
+	};
+	const document = digest.payload.report;
+	if (digest.payload.since !== range || document?.since !== range) return {
+		range,
+		sample: false,
+		unavailable: REASONS$1.unknown
+	};
+	const limitHistory = limitHistoryFrom(limits);
 	return {
 		range,
 		sample: false,
-		unavailable: "Usage is not in the browser yet. Open Digest in `tmt ops ui`."
+		document: limitHistory ? {
+			...document,
+			limitHistory
+		} : document
 	};
+}
+/** The source the page reads: the owner's usage report and weekly-limit history. */
+var digestSource = { async report(range, signal = new AbortController().signal) {
+	const [digest, limits] = await Promise.all([ownerRead(`digest/${range}`, signal), ownerRead("limits", signal)]);
+	return reportFromAnswers(range, digest, limits);
 } };
 //#endregion
 //#region src/digest-view.ts
@@ -4115,6 +4335,8 @@ function notAvailable(note, text) {
 * says "not in the browser yet" until Core serves the read (#4325), and a sample source is only
 * ever passed in by tests, the gallery and dev.
 */
+/** The terminal Digest's own cadence: the usage read refreshes once a minute. */
+var REFRESH_MS$1 = 6e4;
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
 var SERIES_KEPT = 5;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
@@ -4225,15 +4447,14 @@ function allowanceRow(doc) {
 	node.id = "digest-allowance";
 	return node;
 }
-function tokensCard(doc) {
+function tokensCard(doc, scale) {
 	const data = tokenSeries(doc);
 	const body = el("div", "digest-card-body");
 	const host = el("div");
-	let share = false;
 	const draw = () => {
 		host.replaceChildren(createSeriesChart({
-			title: share ? "Share of tokens by seat" : "Tokens by seat",
-			kind: share ? "share" : "stack",
+			title: scale.share ? "Share of tokens by seat" : "Tokens by seat",
+			kind: scale.share ? "share" : "stack",
 			x: data.x,
 			series: topLayers(data.layers, SERIES_KEPT),
 			empty: "No token observations in this range."
@@ -4242,17 +4463,17 @@ function tokensCard(doc) {
 	draw();
 	body.append(host);
 	if (data.partial) body.append(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
-	const scale = segments("Scale", [{
+	const control = segments("Scale", [{
 		value: "absolute",
 		text: "Absolute"
 	}, {
 		value: "share",
 		text: "Share"
-	}], "absolute", (value) => {
-		share = value === "share";
+	}], scale.share ? "share" : "absolute", (value) => {
+		scale.share = value === "share";
 		draw();
 	});
-	return card("digest-tokens", "Token usage", [body], { actions: scale });
+	return card("digest-tokens", "Token usage", [body], { actions: control });
 }
 function rankingCard(doc) {
 	const rows = rankRows(doc);
@@ -4335,7 +4556,17 @@ function coverageCard() {
 	].map((text) => el("p", "usage-note", text)));
 	return card("digest-missing", "Data coverage", [list, method]);
 }
-function digestPage(source = digestSource) {
+/** What a report shows, without the read's own clock: a refresh that changed nothing repaints nothing. */
+function fingerprint(report) {
+	return JSON.stringify({
+		...report,
+		document: report.document && {
+			...report.document,
+			observedAtMs: 0
+		}
+	});
+}
+function digestPage(source = digestSource, signal) {
 	const tabs = document.getElementById("usage-ranges");
 	const panel = document.getElementById("digest-sections");
 	const note = document.getElementById("usage-note");
@@ -4343,6 +4574,8 @@ function digestPage(source = digestSource) {
 	if (!tabs || !panel || !note || !badge) return;
 	let current = USAGE_RANGES[0];
 	let generation = 0;
+	let shown = "";
+	const scale = { share: false };
 	const buttons = USAGE_RANGES.map((range) => {
 		const button = el("button", "digest-segment", range);
 		button.type = "button";
@@ -4360,17 +4593,8 @@ function digestPage(source = digestSource) {
 		return button;
 	});
 	tabs.replaceChildren(...buttons);
-	async function show(range) {
-		current = range;
-		const mine = ++generation;
-		for (const button of buttons) {
-			const selected = button.dataset.range === range;
-			button.setAttribute("aria-selected", String(selected));
-			button.tabIndex = selected ? 0 : -1;
-		}
-		panel.replaceChildren(pageLoading());
-		const report = await source.report(range);
-		if (mine !== generation) return;
+	function paint(report) {
+		shown = fingerprint(report);
 		badge.hidden = true;
 		badge.textContent = "";
 		if (report.unavailable || !report.document) {
@@ -4379,7 +4603,7 @@ function digestPage(source = digestSource) {
 		}
 		const doc = report.document;
 		const activityBlock = activityCard(doc);
-		panel.replaceChildren(allowanceRow(doc), row$2("digest-row-burn", tokensCard(doc), rankingCard(doc)), ...activityBlock ? [activityBlock] : [], row$2("digest-row-coverage", exchangeCard(doc), coverageCard()));
+		panel.replaceChildren(allowanceRow(doc), row$2("digest-row-burn", tokensCard(doc, scale), rankingCard(doc)), ...activityBlock ? [activityBlock] : [], row$2("digest-row-coverage", exchangeCard(doc), coverageCard()));
 		if (report.sample) {
 			badge.textContent = "Sample data";
 			badge.hidden = false;
@@ -4389,7 +4613,33 @@ function digestPage(source = digestSource) {
 			note.hidden = true;
 		}
 	}
+	async function show(range) {
+		current = range;
+		const mine = ++generation;
+		for (const button of buttons) {
+			const selected = button.dataset.range === range;
+			button.setAttribute("aria-selected", String(selected));
+			button.tabIndex = selected ? 0 : -1;
+		}
+		panel.replaceChildren(pageLoading());
+		const report = await source.report(range, signal);
+		if (mine !== generation || signal?.aborted) return;
+		paint(report);
+	}
 	show(current);
+	let first = true;
+	if (signal) whileVisible(REFRESH_MS$1, signal, async () => {
+		if (first) {
+			first = false;
+			return true;
+		}
+		const range = current;
+		const mine = generation;
+		const report = await source.report(range, signal);
+		if (signal.aborted || range !== current || mine !== generation) return true;
+		if (fingerprint(report) !== shown) paint(report);
+		return !report.unavailable;
+	});
 }
 //#endregion
 //#region src/module-entry.ts
@@ -4434,162 +4684,6 @@ function moduleLoad(rail, entry, here, fallback) {
 		link,
 		entry: target.href
 	} : { link };
-}
-//#endregion
-//#region src/owner-reads.ts
-/**
-* The owner browser reads (contracts/remote-channel-v1.md, Owner browser reads): read-only door GETs
-* under the owner session, siblings of the composed shell's `x/-/shell`. One client for every page
-* that shows them (Ops, Digest), and the refresh timer that runs only while the route is visible.
-*/
-/** The reasons the contract names; a client reads any other reason as `unknown`. */
-var OWNER_READ_REASONS = [
-	"not_installed",
-	"core_unavailable",
-	"timeout",
-	"read_failed",
-	"too_large",
-	"not_sampled"
-];
-var UNREACHABLE = { state: "unreachable" };
-/** One answer document checked against the contract's envelope; anything else is unreachable. */
-function ownerAnswer(document) {
-	if (typeof document !== "object" || document === null || Array.isArray(document)) return UNREACHABLE;
-	const { version, state, observedAtMs, reason, ...payload } = document;
-	if (version !== 1 || !Number.isSafeInteger(observedAtMs) || observedAtMs <= 0) return UNREACHABLE;
-	const at = observedAtMs;
-	if (state === "ok") return {
-		state,
-		observedAtMs: at,
-		payload
-	};
-	if (state !== "unavailable") return UNREACHABLE;
-	return {
-		state,
-		observedAtMs: at,
-		reason: OWNER_READ_REASONS.find((name) => name === reason) ?? "unknown"
-	};
-}
-var address;
-/** Without an owner session, a pairing kept in this browser opens one again (a door restart ends
-* them); `no-session` when there is no pairing to use, else `unreachable` (try again later). */
-async function reopenOnce$1(signal) {
-	try {
-		const { reopenSession } = await import("./remote-v1.js");
-		await reopenSession(void 0, { signal });
-		return "reopened";
-	} catch (error) {
-		const reason = error?.reason;
-		return reason === "unpaired" || reason === "revoked" || reason === "expired" ? "no-session" : "unreachable";
-	}
-}
-/** The reopen in flight: reads that meet the same door restart together wait on this one. */
-var reopening;
-/** Join the reopen in flight, or start one. It stops only once every read waiting on it left; a
-* read whose own signal aborts leaves at once as `unreachable`. */
-function reopen(signal) {
-	if (reopening === void 0) {
-		const stop = new AbortController();
-		const shared = {
-			result: reopenOnce$1(stop.signal),
-			waiting: 0,
-			stop
-		};
-		shared.result.finally(() => {
-			if (reopening === shared) reopening = void 0;
-		});
-		reopening = shared;
-	}
-	const shared = reopening;
-	shared.waiting += 1;
-	return new Promise((resolve) => {
-		const leave = () => {
-			shared.waiting -= 1;
-			if (shared.waiting === 0) {
-				shared.stop.abort();
-				if (reopening === shared) reopening = void 0;
-			}
-			resolve("unreachable");
-		};
-		if (signal.aborted) return leave();
-		signal.addEventListener("abort", leave, { once: true });
-		shared.result.then((result) => {
-			signal.removeEventListener("abort", leave);
-			resolve(result);
-		});
-	});
-}
-async function readOnce(url, signal) {
-	try {
-		return await fetch(url, {
-			credentials: "same-origin",
-			cache: "no-store",
-			signal
-		});
-	} catch {
-		return;
-	}
-}
-/**
-* Read `<address>/x/-/<name>` once. The mount address is found once per page and found again
-* after a read that had none. The door answers a request without a live owner session with its
-* generic 404: the read then reopens the session from this browser's pairing and reads again, so
-* only a browser with no pairing to use is told it has no session (#4018). Reads that meet the
-* same restart share one reopen.
-*/
-async function ownerRead(name, signal) {
-	address ??= shellAddress();
-	const base = await address;
-	if (base === void 0) {
-		address = void 0;
-		return { state: "no-session" };
-	}
-	const url = `${base}/x/-/${name}`;
-	let response = await readOnce(url, signal);
-	if (response?.status === 404) {
-		const reopened = await reopen(signal);
-		if (reopened !== "reopened") return { state: reopened };
-		response = await readOnce(url, signal);
-	}
-	if (response?.status !== 200) return UNREACHABLE;
-	try {
-		return ownerAnswer(await response.json());
-	} catch {
-		return UNREACHABLE;
-	}
-}
-/** The longest wait after failures: the cadence doubles per failed read up to this many times. */
-var BACKOFF_STEPS = 3;
-/**
-* Run `tick` now and every `intervalMs` while the page is visible, until `signal` aborts (the route
-* unmounts). A hidden page reads nothing; showing it again reads at once. A tick that returns false
-* (a failed read) doubles the wait, up to eight times the cadence, and the next success resets it.
-*/
-function whileVisible(intervalMs, signal, tick) {
-	let timer;
-	let failures = 0;
-	let running = false;
-	const schedule = () => {
-		clearTimeout(timer);
-		if (signal.aborted || document.visibilityState !== "visible") return;
-		timer = setTimeout(run, intervalMs * 2 ** Math.min(failures, BACKOFF_STEPS));
-	};
-	const run = async () => {
-		clearTimeout(timer);
-		if (running || signal.aborted || document.visibilityState !== "visible") return;
-		running = true;
-		try {
-			failures = await tick() ? 0 : failures + 1;
-		} catch {
-			failures += 1;
-		} finally {
-			running = false;
-		}
-		schedule();
-	};
-	document.addEventListener("visibilitychange", () => document.visibilityState === "visible" ? void run() : clearTimeout(timer), { signal });
-	signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
-	run();
 }
 //#endregion
 //#region src/ops-source.ts
@@ -5315,7 +5409,7 @@ var routes = [
 		id: "digest",
 		paths: ["/digest", "/digest/"],
 		rail: "digest",
-		load: async () => remotePage(digest_default, () => digestPage())
+		load: async () => remotePage(digest_default, () => digestPage(void 0, remoteShell().signal))
 	},
 	{
 		id: "settings",

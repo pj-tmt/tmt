@@ -467,3 +467,62 @@ fn commandless_user_window_guard_has_one_literal_final_cwd_word() {
     );
     assert!(SEP.bytes().all(|byte| byte.is_ascii_graphic()));
 }
+
+#[test]
+fn owned_window_layout_detection_is_fenced_and_precedes_application() {
+    let live_json = r#"{"V":2,"L":{"t":"p","w":80,"h":24,"x":0,"y":0,"i":0,"I":"%4"}}"#;
+    for live in ["b25e,80x24,0,0,1", live_json, "unrecognized", REFUSED] {
+        let tmux = Tmux::new(Runner::default());
+        let mut owner = restore(&tmux);
+        let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+        let saved = snapshot();
+        let prepared = tmt_core::workspace::layout::prepare_layout(&saved).unwrap();
+        // cwd readback, border status, manual sizing and resize precede detection.
+        for output in ["/tmp\n", "", "", "", live, "", ""] {
+            tmux.runner
+                .scripted
+                .push_output(output.as_bytes().to_vec(), vec![]);
+        }
+        let result = owner.window(0, &prepared[0], &created);
+        let calls = tmux.runner.scripted.calls.borrow();
+        let detection = &calls[4];
+        assert_eq!(
+            &detection.args[..7],
+            ["-u", "-S", "/tmp/selected", "if-shell", "-F", "-t", "%4"]
+        );
+        assert!(detection.args[7].contains("#{==:#{pid},10}"));
+        assert!(detection.args[7].contains("#{==:#{start_time},22}"));
+        assert!(detection.args[7].contains("#{==:#{window_id},@3}"));
+        assert_eq!(
+            detection.args[8],
+            command(&[
+                "display-message".into(),
+                "-p".into(),
+                "-t".into(),
+                "@3".into(),
+                "#{window_layout}".into()
+            ])
+        );
+        if live == "unrecognized" || live == REFUSED {
+            assert!(result.is_err());
+            assert_eq!(calls.len(), 5);
+        } else {
+            assert!(result.is_ok());
+            let layout = if live == live_json {
+                r#"{"V":2,"L":{"t":"p","w":80,"h":24,"x":0,"y":0,"i":0,"I":"%1"}}"#
+            } else {
+                "b25e,80x24,0,0,1"
+            };
+            assert_eq!(
+                calls[5].args[8],
+                command(&[
+                    "select-layout".into(),
+                    "-t".into(),
+                    "@3".into(),
+                    layout.into()
+                ])
+            );
+            assert_eq!(calls.len(), 7);
+        }
+    }
+}

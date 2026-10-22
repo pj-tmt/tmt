@@ -42,6 +42,19 @@ setByIdentityId = "20000000-0000-4000-8000-000000000001"
 setAtMs = 1791629000000
 ```
 
+### Auto caps
+
+`auto` ends a hold at its latest after `maxWait` since the oldest held message, or once
+`maxCount` messages are held, whichever comes first. `maxWait` is a duration from 30s to
+1h (default 5m) and `maxCount` a whole number from 1 to 100 (default 5). They are set
+with `--max-wait` and `--max-count` on `tmt digest global auto` (every auto member without
+its own) and on `tmt digest <member> auto` (that member); a value left out keeps the stored
+one, then the global one, then the default. Out-of-range values exit 2 before anything is
+written. The keys are top-level `maxWait` / `maxCount` for the global caps and the same
+keys inside a member row whose `mode` is `auto`; a cap beside any other mode is refused,
+choosing another mode for a member drops its caps, and a new global default keeps the
+global ones.
+
 `default` and member `mode` accept `auto`, `off` or a positive duration. Durations
 use ms/s/m/h/d, or bare seconds; decimals have at most nine fractional digits and
 must resolve exactly to at least one
@@ -97,10 +110,12 @@ Each row contains:
 | `setByIdentityId`, `setAtMs` | Current override attribution as defined by Settings; both omitted for inheritance, setter ID omitted when unknown.                                  |
 | `heldCount`                  | Core held count, or null when unavailable; missing evidence is never zero.                                                                          |
 | `statsObservedAtMs`          | Core observation timestamp for the held snapshot, or null when unavailable.                                                                         |
-| `nextSendAtMs`               | Configured interval deadline of the oldest held message, or null without a known interval deadline.                                                 |
-| `timeToSendMs`               | Zero when the interval flushCount threshold is reached; otherwise `max(0, nextSendAtMs - observedAtMs)`. Null when required inputs are unavailable. |
+| `nextSendAtMs`               | Deadline of the oldest held message: the interval, or for `auto` its `maxWait`; null without a known deadline.                                      |
+| `timeToSendMs`               | Zero when the interval flushCount or the auto `maxCount` threshold is reached; otherwise `max(0, nextSendAtMs - observedAtMs)`. Null when unknown.  |
 | `savings`                    | Null without usable history; otherwise the [savings projection](#savings). Unavailable estimates are never zero.                                    |
 | `labels`                     | Ordered ready-made labels defined below.                                                                                                            |
+
+`autoCaps` (`{maxWaitMs, maxCount}`, the caps in force) is an additive field on `auto` rows only.
 
 `oldestHeldAgeMs` and `deliveredDigests` are additive nullable row fields from the same Core stats observation. The counter is cumulative Core evidence, not a selected-window total.
 
@@ -108,8 +123,8 @@ Each row contains:
 
 Timestamps and numeric counts are nonnegative JS-safe integers. Deadline arithmetic
 that cannot be represented safely is unknown. `nextSendAtMs` is an extension
-deadline, never Core's `nextEligibleAtMs`. It is null for auto/off, zero held
-messages, or unavailable oldest-held timing. Auto means when the member is idle or its turn ends, and at the latest at the [cap](digest-tick-v1.md#auto-delivery), not a predicted timestamp. A deadline or “Due now” label never proves the agent is idle
+deadline, never Core's `nextEligibleAtMs`. It is null for off, zero held
+messages, or unavailable oldest-held timing. For auto it is the latest delivery (the [cap](digest-tick-v1.md#auto-delivery)); the member is usually served earlier, when it is idle or its turn ends. A deadline or “Due now” label never proves the agent is idle
 or authorizes delivery past Core's admission/approval guards. `flushCount` can make
 an interval batch due earlier: keep the scheduled `nextSendAtMs`, but report
 `timeToSendMs: 0` and “Due now” when its known threshold is reached. Neither
@@ -218,10 +233,10 @@ for a display-only label. There are at most three labels, in this order:
    `text`; off uses `dim`. This chip alone has a choose action.
 2. Held count: `N held` with `muted`, only for known N greater than zero.
 3. Timing: omit for off or a known zero held count; otherwise
-   `Unknown` (`dim`) for unavailable timing/count, `When idle` (`muted`) for
-   auto with held messages, `In 20s` (`muted`) for a future interval deadline,
-   or `Due now` (`waiting`) when effective `timeToSendMs` is zero. Positive countdowns
-   round upward to whole seconds before unit formatting; numeric fields retain milliseconds.
+   `Unknown` (`dim`) for unavailable timing/count, `Latest in 4:58` (`muted`; `h:mm:ss`
+   past an hour) for auto with held messages, `In 20s` (`muted`) for a future interval
+   deadline, or `Due now` (`waiting`) when effective `timeToSendMs` is zero. Positive
+   countdowns round upward to whole seconds before formatting; numeric fields retain milliseconds.
 
 Interval display uses the largest exact unit among d/h/m/s/ms, so 300000 ms is
 `5m` and 1500 ms is `1500ms`. Choices are ordered Default, Auto, Every 1m, Every 5m, Every 10m,

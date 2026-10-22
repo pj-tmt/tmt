@@ -1193,7 +1193,7 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                                 action: None,
                             },
                             Label {
-                                text: "When idle".into(),
+                                text: "Latest in 4:58".into(),
                                 role: Role::Muted,
                                 action: None,
                             },
@@ -1227,7 +1227,7 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                     }
                     // Complete trailing labels may be omitted at compact widths.
                     if width == 160 && tab != crate::board::shell::OpsTab::Agents {
-                        assert_eq!(screen.contains("When idle"), held, "{context}");
+                        assert_eq!(screen.contains("Latest in 4:58"), held, "{context}");
                     }
                     for old in ["Auto ▾", "Every 5m ▾", "Off ▾"] {
                         assert_eq!(

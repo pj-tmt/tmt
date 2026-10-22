@@ -44,7 +44,7 @@ fn supplier_vectors_preserve_settings_null_evidence_and_source_times() {
 }
 
 #[test]
-fn auto_default_and_override_are_distinct_without_invented_deadlines() {
+fn auto_default_and_override_are_distinct_and_only_a_holding_auto_member_has_a_deadline() {
     let status = parse(&document()).unwrap();
     let inherited = &status.members["10000000-0000-4000-8000-000000000001"];
     let explicit = &status.members["10000000-0000-4000-8000-000000000002"];
@@ -54,8 +54,9 @@ fn auto_default_and_override_are_distinct_without_invented_deadlines() {
     assert_eq!(explicit.mode, Mode::Auto);
     assert_eq!(explicit.setting_source, SettingSource::Member);
     assert_eq!(explicit.held_count, Some(3));
-    assert_eq!(explicit.next_send_at_ms, None);
-    assert_eq!(explicit.time_to_send_ms, None);
+    assert_eq!(inherited.next_send_at_ms, None);
+    assert_eq!(explicit.next_send_at_ms, Some(1791630298000));
+    assert_eq!(explicit.time_to_send_ms, Some(298000));
 }
 
 #[test]

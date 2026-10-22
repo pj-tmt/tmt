@@ -1937,17 +1937,22 @@ mod tests {
         assert!(app.pane_output_read().is_none());
     }
 
-    #[test]
-    fn workspace_layout_saves_once_on_the_lane_and_refreshes_before_host_navigation() {
+    /// Runs the layout-save scenario with the board's periodic reload set to `refresh`, so no
+    /// test depends on how long the scenario takes. Returns every reload request the session made.
+    fn workspace_layout_session(
+        refresh: Option<std::time::Duration>,
+    ) -> Vec<(Option<String>, bool, bool)> {
         let directory = std::env::temp_dir().join(format!(
-            "tmt-workspace-layout-session-{}",
-            std::process::id()
+            "tmt-workspace-layout-session-{}-{}",
+            std::process::id(),
+            refresh.map_or("off".to_owned(), |interval| interval.as_nanos().to_string())
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("ops.toml");
         std::fs::write(&path, "# intact\n").unwrap();
         let (events, input) = channel();
         let mut app = app::workspace::tests::board();
+        app.view.as_mut().unwrap().refresh = refresh;
         for code in [KeyCode::Char(','), KeyCode::Down, KeyCode::Enter] {
             events.send(key(code)).unwrap();
         }
@@ -1963,6 +1968,7 @@ mod tests {
             |owner, preempt, preview, _| {
                 reloads.borrow_mut().push((owner.clone(), preempt, preview));
                 let mut fresh = app::workspace::tests::board();
+                fresh.view.as_mut().unwrap().refresh = refresh;
                 fresh
                     .view
                     .as_mut()
@@ -2019,7 +2025,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!((saves.get(), jumps.get()), (1, 1));
-        assert_eq!(*reloads.borrow(), [(Some(ALL.into()), false, false)]);
         assert_eq!(
             app.workspace_snapshot().unwrap().preferences.layout,
             crate::config::OpsLayout::Side
@@ -2036,6 +2041,29 @@ mod tests {
         );
         assert!(app.menu.is_none());
         std::fs::remove_dir_all(directory).unwrap();
+        reloads.into_inner()
+    }
+
+    #[test]
+    fn workspace_layout_saves_once_on_the_lane_and_refreshes_before_host_navigation() {
+        // Periodic reload off: the one reload is the save's own, however long the run takes.
+        assert_eq!(
+            workspace_layout_session(None),
+            [(Some(ALL.into()), false, false)]
+        );
+    }
+
+    #[test]
+    fn a_due_periodic_reload_is_a_separate_request_from_the_save_refresh() {
+        // #3884: on a loaded runner the default interval elapses mid-scenario and the board asks
+        // again for the same tab. An interval that is always due shows that request is the timer's.
+        let reloads = workspace_layout_session(Some(std::time::Duration::ZERO));
+        assert!(reloads.len() > 1, "{reloads:?}");
+        assert!(
+            reloads
+                .iter()
+                .all(|reload| reload == &(Some(ALL.into()), false, false))
+        );
     }
 
     #[test]

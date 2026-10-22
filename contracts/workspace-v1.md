@@ -154,6 +154,25 @@ removed by automatic retention.
 
 ## Restore authority
 
+Saved layouts admit legacy checksum syntax and tmux JSON version 2 tiled trees
+through one bounded geometry model. JSON has exactly `V:2` and `L`; cells have
+`t` (`h`, `v`, `p`), positive u16 `w`/`h` and u16 `x`/`y`. Splits have `c` with
+at least two cells; panes have canonical historical `%<u32>` `I` and nonnegative
+`i` (at most i32::MAX), with optional boolean `a` or nonnegative `l` (mutually
+exclusive). Keys are unique and type-specific, indexes and pane IDs are unique,
+and at most one pane is active. Unknown keys, floating `z`, malformed numbers,
+unsupported versions, trailing input and trees beyond 8196 bytes, 64 cell levels
+or the pane bound are refused. JSON whitespace and member order carry no authority.
+Both encodings require the same contiguous tiled geometry and snapshot correspondence.
+
+Restore reads the layout of an invocation-created window behind the live server
+incarnation fence to select its encoding; the client version is not evidence.
+Matching encodings pass the original saved layout bytes only when v2 pane-index
+order also agrees with native creation order. Otherwise, restore serializes the
+validated model with creation-order indexes (including for v2 to v2), or a legacy
+checksum. This changes only application bytes, never the saved document. Native targets
+still come only from this invocation. Existing documents are not migrated.
+
 Preview and restoration keep the existing native incarnation, socket, layout,
 UUID and current-session fences. Existing sessions are skipped whole. Ordinary
 panes preserve the user's shell; full restore uses ordinary resume or generic
