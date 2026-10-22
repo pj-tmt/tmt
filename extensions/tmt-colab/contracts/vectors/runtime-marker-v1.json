@@ -145,6 +145,36 @@
       "name": "an opt-in after a commented-out marker",
       "source": "<!-- <meta name=\"tmt-colab-runtime\" content=\"react\"> --><meta name=\"tmt-colab-runtime\" content=\"tailwind\">",
       "optsIn": true
+    },
+    {
+      "name": "inside a title",
+      "source": "<title><meta name=\"tmt-colab-runtime\" content=\"react\"></title>",
+      "optsIn": false
+    },
+    {
+      "name": "inside a template",
+      "source": "<template><meta name=\"tmt-colab-runtime\" content=\"react\"></template>",
+      "optsIn": false
+    },
+    {
+      "name": "inside a noscript, which is markup when scripting is off",
+      "source": "<noscript><meta name=\"tmt-colab-runtime\" content=\"react\"></noscript>",
+      "optsIn": true
+    },
+    {
+      "name": "inside a style element",
+      "source": "<style>/* <meta name=\"tmt-colab-runtime\" content=\"react\"> */</style>",
+      "optsIn": false
+    },
+    {
+      "name": "a template copy does not shadow a real marker after it",
+      "source": "<template><meta name=\"tmt-colab-runtime\" content=\"unknown-part\"></template><meta name=\"tmt-colab-runtime\" content=\"react\">",
+      "optsIn": true
+    },
+    {
+      "name": "tab and newline separate tokens",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"unknown-part\treact\">",
+      "optsIn": true
     }
   ]
 }

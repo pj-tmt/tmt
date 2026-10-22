@@ -2346,8 +2346,9 @@ Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
 
 **Page runtime (#1693).** A page opts in by its first `<meta name="tmt-colab-runtime">`
-element in document order, found by HTML parsing (never by text search, so a comment, a `textarea`
-or a script string holding the markup does not count). The `name` value matches exactly; the
+element in document order, found by HTML parsing with scripting off (never by text search, so a
+comment, a `textarea`, a `title`, a `style`, a `template`'s content or a script string holding the
+markup does not count, while `noscript` content is ordinary markup and does). The `name` value matches exactly; the
 `content` value is split on ASCII whitespace into case-sensitive tokens, and the page opts in when
 any token is `react` or `tailwind`. The runtime is one bundle, so either loads all of it; other
 tokens are ignored, and no marker means nothing extra loads and the bind message is exactly as above.
