@@ -1,5 +1,5 @@
 import { BrowserIconAction, BrowserMenu } from '@tmt/browser-ui/react';
-import { Pin, PinOff, Tag } from 'lucide-react';
+import { Pin, Tag } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { rememberPages, rememberedPages } from './quick-switcher-source.js';
 import { NewProjectDialog, projectFailureText, type ProjectWriting } from './project-dialogs.js';
@@ -242,7 +242,7 @@ export function PageProjects({
               type="button"
               variant="text"
               label={page.pinned ? t.unpinPage(pageTitle(page)) : t.pinPage(pageTitle(page))}
-              icon={page.pinned ? <PinOff /> : <Pin />}
+              icon={<Pin />}
               pressed={page.pinned === true}
               busy={pinning}
               onActivate={() => void togglePin()}

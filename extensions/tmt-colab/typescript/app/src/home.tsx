@@ -10,7 +10,7 @@ import {
   BrowserTabs,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ExternalLink, Pin, PinOff } from 'lucide-react';
+import { Archive, ArchiveRestore, ExternalLink, Pin } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -228,7 +228,7 @@ function PagePinAction({
         type="button"
         variant="text"
         label={page.pinned ? t.unpinPage(pageTitle(page)) : t.pinPage(pageTitle(page))}
-        icon={page.pinned ? <PinOff /> : <Pin />}
+        icon={<Pin />}
         pressed={page.pinned === true}
         busy={busy}
         onActivate={toggle}
@@ -671,6 +671,12 @@ export function Home() {
                 }
                 title={
                   <>
+                    {p.pinned && !p.archived ? (
+                      // Display only: the pin button beside the row says it, with its state.
+                      <span className="page-pinned-mark" aria-hidden="true">
+                        <Pin size={14} />
+                      </span>
+                    ) : null}
                     <HomeTitleLink page={p} hints={titleHints} scope={scope} />
                     {p.summary?.work ? <PageWork work={p.summary.work} /> : null}
                     {p.summary?.waiting ? (
@@ -710,19 +716,7 @@ export function Home() {
                   />
                 }
                 state={
-                  <>
-                    {p.pinned && !p.archived ? (
-                      // Display only: the pin button beside the row says it, with its state.
-                      <span className="page-pinned-mark" aria-hidden="true">
-                        <Pin size={14} />
-                      </span>
-                    ) : null}
-                    {p.archived
-                      ? text.archived
-                      : p.sharing === 'private'
-                        ? text.private
-                        : text.shared}
-                  </>
+                  p.archived ? text.archived : p.sharing === 'private' ? text.private : text.shared
                 }
                 actions={
                   port ? (
