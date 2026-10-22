@@ -28,14 +28,15 @@
     </div>
     <div class="tmt-ui-shell-main">
     <main class="tmt-page settings-page">
-      <h2 class="settings-title">Remote settings</h2>
-      <p class="settings-intro">
+      <h2 class="settings-title" data-view="settings">Remote settings</h2>
+      <p class="settings-intro" data-view="settings">
         Control browser opening, sessions and paired devices for this Remote.
       </p>
       <section
         id="access-notice"
         class="tmt-ui-notice"
         data-tone="waiting"
+        data-view="devices machine settings"
         aria-labelledby="access"
       >
         <p class="eyebrow tmt-ui-notice-eyebrow">Settings access</p>
@@ -81,14 +82,14 @@
           <span class="tmt-ui-action-label">Refresh values</span>
         </button>
       </section>
-      <div class="change-feedback" data-feedback="shared">
+      <div class="change-feedback" data-feedback="shared" data-view="devices machine settings">
         <p id="outcome" data-outcome-slot role="status" aria-live="polite" aria-atomic="true"></p>
         <p data-original hidden></p>
         <button class="tmt-ui-action" data-recover type="button" hidden>
           <span class="tmt-ui-action-label">Check the saved value</span>
         </button>
       </div>
-      <section class="tmt-ui-section" data-divided aria-labelledby="opening-title">
+      <section class="tmt-ui-section" data-divided data-view="machine" aria-labelledby="opening-title">
         <div class="settings-section-body">
           <div class="settings-summary">
             <h2 id="opening-title" class="tmt-ui-section-heading" data-variant="title">
@@ -170,7 +171,7 @@
           </form>
         </div>
       </section>
-      <section class="tmt-ui-section" data-divided aria-labelledby="limit-title">
+      <section class="tmt-ui-section" data-divided data-view="machine" aria-labelledby="limit-title">
         <div class="settings-section-body">
           <div class="settings-summary">
             <h2 id="limit-title" class="tmt-ui-section-heading" data-variant="title">
@@ -283,7 +284,7 @@
           </form>
         </div>
       </section>
-      <section class="tmt-ui-section" data-divided aria-labelledby="firestore-title">
+      <section class="tmt-ui-section" data-divided data-view="settings" aria-labelledby="firestore-title">
         <div class="settings-section-body">
           <h2 id="firestore-title" class="tmt-ui-section-heading" data-variant="title">Firestore</h2>
           <p>Recorded setup, not a live Firebase check.</p>
@@ -297,7 +298,7 @@
           <div id="firestore-content">Checking recorded Firestore setup…</div>
         </div>
       </section>
-      <section class="tmt-ui-section" data-divided aria-labelledby="devices-title">
+      <section class="tmt-ui-section" data-divided data-view="devices" aria-labelledby="devices-title">
         <div class="settings-section-body">
           <h2 id="devices-title" class="tmt-ui-section-heading" data-variant="title">Paired devices</h2>
           <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>
@@ -341,7 +342,7 @@
           </button>
         </div>
       </section>
-      <section id="remotes" class="tmt-ui-section" data-divided aria-labelledby="remote-heading">
+      <section id="remotes" class="tmt-ui-section" data-divided data-view="settings" aria-labelledby="remote-heading">
         <h2 id="remote-heading" class="tmt-ui-section-heading" data-variant="title">Remotes in this browser</h2>
         <p class="entry-note">
           Names and addresses are saved here. Each remote keeps its own pairing.

@@ -4,7 +4,9 @@ import { test, vi } from 'vite-plus/test';
 
 // These minimal DOM fixtures own management access/copy; the static registry/menu is
 // exercised against the real browser/IndexedDB in pairing.spec.ts.
-vi.mock('../src/remote-registry-page.js', () => ({ remoteRegistryPage: () => () => {} }));
+vi.mock('../src/remote-registry-page.js', () => ({
+  remoteRegistryPage: () => Object.assign(() => {}, { blockedBy: () => {} }),
+}));
 vi.mock('../src/settings-controls.js', () => ({ settingsChoice: () => () => {} }));
 
 for (const code of [

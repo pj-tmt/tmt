@@ -106,8 +106,8 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
-`/remote`, `/remote/`, `/remote/settings`, `/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`,
-`/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
+`/remote`, `/remote/`, `/remote/devices`, `/remote/connect`, `/remote/machine`, `/remote/settings`,
+`/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
 `/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
 and the document reads no cookie or session. Its policy is the pairing page policy below plus only
@@ -128,8 +128,12 @@ described `home` cards; it reads nothing else. `/settings` and `/settings/` are 
 sections listed in the module menu. `/ops` and `/digest` are Ops and Digest; their data have
 their [owner browser reads](#owner-browser-reads). Until a page has a browser read, the page says it is not in the browser yet, names the terminal command
 that shows the same facts and shows no values. Home preferences remain a
-separate consumer. Remote's landing and settings are the app routes `/remote/` and
-`/remote/settings`; their module menu lists each saved remote, Add remote and Remote settings.
+separate consumer. Remote is one app route with five paths, each a menu row of its own and one view of the page:
+`/remote/` (Status, `/remote` is the same row), `/remote/connect` (Connect a device),
+`/remote/devices` (Devices), `/remote/machine` (This machine's settings) and `/remote/settings`
+(Remote settings). The selected row is whichever row the path names, so reload, Back and forward land
+on the same row, and a switch between paths only changes the view shown. The module menu lists each
+saved remote (or Status), the three rows for this machine, Add remote and Remote settings.
 Pairing is not an app route: `/remote/pair` stays its own document with its own policy (below),
 so its fragment-erasing bootstrap runs before any other script. It shows the same rail, with no
 router, and its links load the app's routes.
@@ -1035,11 +1039,12 @@ framework, agent/held-work recovery exception or general recovery route exists.
 
 #### Remote settings page
 
-`GET /remote/settings` serves the Remote-owned shared-presentation page with the existing page CSP,
-origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
+`GET /remote/devices`, `/remote/machine` and `/remote/settings` serve the Remote-owned shared-presentation
+page with the existing page CSP, origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
 embed another signer/channel implementation. The additive public SDK exports are
 `FirestoreSettingsView`, `budget.parsePublishedLimits` and `budget.publishedLimitRows`. The sections are
-Browser opening, Session limit per device, Firestore and Paired devices. Effective values, sources,
+Browser opening and Session limit per device (`/remote/machine`), Firestore and the remotes saved in
+this browser (`/remote/settings`), and Paired devices (`/remote/devices`). Effective values, sources,
 warning and write capabilities come from admitted server reads. The shared package supplies checked CSS
 and static presentation contracts; Remote owns host layout and static listbox controls. Shared
 presentation never supplies authority or management outcomes.

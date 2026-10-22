@@ -6,6 +6,10 @@ type Select = (id: string, href: string) => boolean;
 export interface RemoteShell {
   /** The module menu this page shows; `select` takes over a plain click on one of its items. */
   setMenu(menu: ShellMenu | undefined, select?: Select): void;
+  /** Go to another TMT URL without reloading; the same route only follows the new path. */
+  navigate(href: string): void;
+  /** The document title; ` · TMT` is appended. */
+  setTitle(title: string): void;
   /**
    * Read the owner's composed shell once: at `address` when the page already holds the door's
    * answer, otherwise through the door. Pages call it only when it may send work; the landing
@@ -30,6 +34,8 @@ export function hostRemote(slot: ShellSlot | undefined, signal?: AbortSignal): v
   current = slot &&
     signal && {
       setMenu: (menu, select) => slot.setMenu(menu, select),
+      navigate: (href) => slot.navigate(href),
+      setTitle: (title) => slot.setTitle(title),
       describe: (address) => slot.describe(address),
       described: (listener) => slot.described(listener),
       signal,

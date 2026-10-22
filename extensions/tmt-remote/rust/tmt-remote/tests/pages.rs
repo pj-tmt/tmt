@@ -838,6 +838,9 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
         ("/remote/", 200),
         ("/settings", 200),
         ("/settings/", 200),
+        ("/remote/devices", 200),
+        ("/remote/connect", 200),
+        ("/remote/machine", 200),
         ("/remote/settings", 200),
         ("/pair/", 404),
     ] {
