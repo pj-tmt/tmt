@@ -128,7 +128,6 @@ test('a malformed message state is an unverifiable reply, never a partial one', 
   const bad: unknown[] = [
     'sent',
     [],
-    { ...heldState, state: 'mystery' },
     { ...heldState, canSendNow: 'yes' },
     { ...heldState, latestMs: -1 },
     { ...heldState, remainingMs: 1.5 },
@@ -149,6 +148,15 @@ test('a malformed message state is an unverifiable reply, never a partial one', 
       JSON.stringify(messageState),
     );
   }
+});
+test('a message state this SDK does not know is left out and the rest of the reply is kept', async () => {
+  const { door, client } = await ready();
+  door.replyState = 'pending';
+  door.messageState = { ...heldState, state: 'future_state', futureField: true };
+  const id = request();
+  assert.deepEqual(await client.result(id), { state: 'pending', requestId: id });
+  door.sendNowReply = { state: 'sent', messageState: { ...heldState, state: 'future_state' } };
+  assert.deepEqual(await client.sendNow(id), { state: 'sent', requestId: id });
 });
 for (const [reply, expected] of [
   [{ state: 'sent' }, { state: 'sent' }],
@@ -192,7 +200,7 @@ test('sendNow rejects a foreign request ID or a malformed state as an unverifiab
   for (const reply of [
     { requestId: request() },
     { state: 'sent', reason: 5 },
-    { state: 'sent', messageState: { ...heldState, state: 'mystery' } },
+    { state: 'sent', messageState: { ...heldState, canSendNow: 'yes' } },
   ]) {
     const { door, client } = await ready();
     door.sendNowReply = reply;

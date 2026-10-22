@@ -1509,7 +1509,7 @@ a sanitized string of at most 256 UTF-8 bytes; never expose raw process output.
 
 A pending `result`, and `requests.show`, also carry Core's `messageState` when it reports one:
 `{state, reason:{code,text}, latestMs, remainingMs, canSendNow}` exactly as
-[Message state](request-response-v1.md#message-state) defines it. `canSendNow` is display only: the
+[Message state](request-response-v1.md#message-state) defines it, projected to exactly those keys (an additive Core field is not forwarded, and a malformed state is omitted). `canSendNow` is display only: the
 owner's own browser sees Core's answer, every other grant sees `false`, and a `requests.sendNow`
 from it is refused regardless.
 

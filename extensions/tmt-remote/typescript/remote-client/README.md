@@ -69,7 +69,7 @@ sendNow(requestId: string): Promise<SendNowState>;
 including empty text) and `unavailable` (optional `reason`), always with `requestId`. A `pending`
 result may carry Core's `messageState` (`{state, reason: {code, text}, latestMs, remainingMs,
 canSendNow}`, see [Message state](../../../../contracts/request-response-v1.md#message-state)),
-decoded exactly: a malformed one makes the reply unverifiable. `canSendNow` is display only; every
+decoded exactly: a malformed one makes the reply unverifiable, while a well-formed state this SDK does not know is left out and the rest of the reply kept. `canSendNow` is display only; every
 device but the owner's own browser sees `false`. `sendNow` asks, for a request this device sent,
 that it be typed now; only the owner's own browser may call it (`RefusalError`
 `REMOTE_SCOPE_DENIED` otherwise). `SendNowState` is `sent` (Core typed it), `already`, `refused`,

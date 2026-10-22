@@ -30,7 +30,8 @@ export type SendState = (
       scope?: 'talk';
     }
 ) & { identity?: SendIdentity };
-/** Core's message state for a request, forwarded exactly (#4378). `canSendNow` is display only:
+/** Core's message state for a request, forwarded exactly (#4378); a state this SDK does not know is
+ * left out of the reply rather than failing it. `canSendNow` is display only:
  * the owner's browser sees Core's answer, every other device sees `false`, and the server refuses a
  * send-now from it regardless. `reason.code` is an open set; show `reason.text` for an unknown one. */
 export interface MessageState {
@@ -182,10 +183,13 @@ function reason(value: Record<string, unknown>): { reason?: string } {
 const MESSAGE_STATES = ['sent', 'batched', 'delivered', 'working', 'unconfirmed', 'not_sent'];
 const timestamp = (value: unknown): value is number | null =>
   value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
-/** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable. */
+/** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable.
+ * A well-formed state this SDK does not know is dropped and the rest of the reply kept, so a new
+ * Core state needs an additive SDK release but never breaks result(). */
 function messageState(value: Record<string, unknown>): { messageState?: MessageState } {
   if (value.messageState === undefined) return {};
   const state = record(value.messageState);
+  if (typeof state.state === 'string' && !MESSAGE_STATES.includes(state.state)) return {};
   valid(
     Object.keys(state).sort().join() === 'canSendNow,latestMs,reason,remainingMs,state' &&
       MESSAGE_STATES.includes(state.state as string) &&

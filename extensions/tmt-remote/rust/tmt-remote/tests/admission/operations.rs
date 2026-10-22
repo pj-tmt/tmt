@@ -325,6 +325,57 @@ fn the_owner_browser_sees_core_s_send_now_answer_and_every_other_grant_sees_it_f
     }
 }
 #[test]
+fn the_door_projects_message_state_to_the_published_keys_and_omits_a_malformed_one() {
+    let core = Core::new();
+    let (owner, session, request, operations) = sender("browser", &core);
+    fs::write(core.root.join("final"), r#"{"status":"not_submitted"}"#).unwrap();
+    let published = message_state(true);
+    let mut sequence = 1;
+    let mut forwarded = |state: Value| {
+        core.message_state(&state);
+        sequence += 1;
+        let shown = ask(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "requests.show",
+            &request,
+        );
+        sequence += 1;
+        let result = ask(&owner, &operations, &session, sequence, "result", &request);
+        (shown, result)
+    };
+    // An additive Core field never reaches a strict decoder; a state the SDK does not know does,
+    // because it is well-formed and the decoder drops it.
+    let mut richer = message_state(true);
+    richer["futureField"] = json!({"deep": true});
+    richer["reason"]["futureReasonField"] = json!(1);
+    richer["state"] = json!("future_state");
+    let (shown, result) = forwarded(richer);
+    let mut expected = published.clone();
+    expected["state"] = json!("future_state");
+    assert_eq!(shown["messageState"], expected);
+    assert_eq!(result["messageState"], expected);
+    // Malformed: omitted from both, and the rest of the reply stays.
+    for bad in [
+        json!("sent"),
+        json!({"state":"sent","reason":{"code":"x","text":"t"},"latestMs":null,"remainingMs":null}),
+        json!({"state":"sent","reason":{"code":"x","text":"t"},"latestMs":null,"remainingMs":null,"canSendNow":"yes"}),
+        json!({"state":"Sent","reason":{"code":"x","text":"t"},"latestMs":null,"remainingMs":null,"canSendNow":true}),
+        json!({"state":"sent","reason":"x","latestMs":null,"remainingMs":null,"canSendNow":true}),
+        json!({"state":"sent","reason":{"code":"x","text":"t"},"latestMs":-1,"remainingMs":null,"canSendNow":true}),
+        json!({"state":"sent","reason":{"code":"x","text":"t"},"latestMs":null,"remainingMs":1.5,"canSendNow":true}),
+        json!({"state":"sent","reason":{"code":"x","text":"t".repeat(257)},"latestMs":null,"remainingMs":null,"canSendNow":true}),
+    ] {
+        let (shown, result) = forwarded(bad.clone());
+        assert!(shown.get("messageState").is_none(), "{bad}: {shown}");
+        assert_eq!(shown["requestId"], request, "{bad}");
+        assert_eq!(result["state"], "pending", "{bad}");
+        assert!(result.get("messageState").is_none(), "{bad}: {result}");
+    }
+}
+#[test]
 fn send_now_reports_what_core_did_and_never_a_guess() {
     let core = Core::new();
     let (owner, session, request, operations) = sender("browser", &core);

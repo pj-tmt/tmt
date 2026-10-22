@@ -421,10 +421,13 @@ var MESSAGE_STATES = [
 	"not_sent"
 ];
 var timestamp$1 = (value) => value === null || typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-/** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable. */
+/** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable.
+* A well-formed state this SDK does not know is dropped and the rest of the reply kept, so a new
+* Core state needs an additive SDK release but never breaks result(). */
 function messageState(value) {
 	if (value.messageState === void 0) return {};
 	const state = record(value.messageState);
+	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
 	valid$6(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record(state.reason);
 	valid$6(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$1.encode(why.text).length <= 256);

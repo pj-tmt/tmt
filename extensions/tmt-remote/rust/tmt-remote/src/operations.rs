@@ -78,17 +78,45 @@ fn request_reference(id: &str) -> Result<String, RemoteError> {
         .map(str::to_owned)
         .ok_or_else(invalid)
 }
-/// The message state a client may show. `canSendNow` is display only: the owner's browser sees
-/// Core's answer, any other grant sees false, and a send-now from it is refused regardless.
+/// The message state a client may show, projected to exactly the published keys so an additive
+/// Core field or a malformed value never reaches a strict decoder; a malformed one is omitted.
+/// `canSendNow` is display only: the owner's browser sees Core's answer, any other grant sees
+/// false, and a send-now from it is refused regardless.
 fn message_state(detail: &Value, owner: bool) -> Option<Value> {
-    let mut state = detail
-        .get("messageState")
-        .filter(|s| s.is_object())?
-        .clone();
-    if !owner {
-        state["canSendNow"] = json!(false);
-    }
-    Some(state)
+    let state = detail.get("messageState")?.as_object()?;
+    let word = |value: &Value, max: usize, first_letter: bool| {
+        value
+            .as_str()
+            .filter(|text| {
+                !text.is_empty()
+                    && text.len() <= max
+                    && text.bytes().enumerate().all(|(index, byte)| {
+                        byte.is_ascii_lowercase()
+                            || (index > 0 || !first_letter)
+                                && (byte == b'_' || byte.is_ascii_digit())
+                    })
+            })
+            .map(str::to_owned)
+    };
+    let millis = |value: &Value| match value {
+        Value::Null => Some(Value::Null),
+        value => value
+            .as_u64()
+            .filter(|ms| *ms <= 9_007_199_254_740_991)
+            .map(|ms| json!(ms)),
+    };
+    let reason = state.get("reason")?.as_object()?;
+    let can_send_now = state.get("canSendNow")?.as_bool()?;
+    Some(json!({
+        "state": word(state.get("state")?, 32, true)?,
+        "reason": {
+            "code": word(reason.get("code")?, 64, true)?,
+            "text": reason.get("text")?.as_str().filter(|text| text.len() <= 256)?,
+        },
+        "latestMs": millis(state.get("latestMs")?)?,
+        "remainingMs": millis(state.get("remainingMs")?)?,
+        "canSendNow": owner && can_send_now,
+    }))
 }
 fn result_state(
     id: &str,
@@ -480,11 +508,12 @@ impl Operations {
                 },
                 "identities.status" => self.api(&permit.message.payload),
                 "requests.show" => self.api(&permit.message.payload).map(|mut detail| {
-                    if let Some(state) = detail
-                        .get_mut("messageState")
-                        .filter(|s| s.is_object() && !permit.owner_browser())
-                    {
-                        state["canSendNow"] = json!(false);
+                    let projected = message_state(&detail, permit.owner_browser());
+                    if let Some(fields) = detail.as_object_mut() {
+                        match projected {
+                            Some(state) => fields.insert("messageState".into(), state),
+                            None => fields.remove("messageState"),
+                        };
                     }
                     detail
                 }),
