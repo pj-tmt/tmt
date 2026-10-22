@@ -464,8 +464,9 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   `annotation-rule` underline, with no rounding or shadow, preserving authored text
   colour and weight. While the pointer is over one it takes the `-hover` tint and a
   2px underline, with no outline box. The passage whose thread window is open takes the
-  `-selected` tint and a solid 2px `annotation-rule-selected` underline, above hover, and
-  returns to rest when the window closes. Round number markers stand in the page's right
+  `-selected` tint and a solid 3px `annotation-rule-selected` underline (hover's is 2px), above
+  hover, and its marker (or the `+n` pill that holds it) wears a 2px ring in that colour, 2px
+  outside the circle inside the 24px hit area; both return to rest when the window closes. Round number markers stand in the page's right
   marker lane (28px, reserved on every page from its first paint, so the first thread
   moves no text), centred on the passage's last line: a 16px circle inside a 24px hit
   area that covers no text. On a column page the marker stands 4px after the column's

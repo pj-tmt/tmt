@@ -2643,9 +2643,11 @@ posts exactly `type:"colab.render.open-list"`, `renderId`, `requestId`; the pare
 current render and request only and opens the Comments list (closing an open annotation
 window), with no thread ID and no thread opened. Forging either view-only
 action cannot publish, sign or send. The passage of the thread whose anchored window is open
-takes a selected look: a stronger tint (`surface.annotation-highlight-selected`) and a solid 2 px
-underline (`color.annotation-rule-selected`), above the hover look, and returns to rest when the
-window closes or another thread opens; a window for a new quote, resolved threads (which have no
+takes a selected look: a stronger tint (`surface.annotation-highlight-selected`) and a solid 3 px
+underline (`color.annotation-rule-selected`, against hover's 2 px), above the hover look, and its
+lane marker, or the `+n` pill that holds it, wears a 2 px ring in the same colour, 2 px outside the
+circle and inside the 24 px target, so the lane names the open thread even when its passage is off
+screen; both return to rest when the window closes or another thread opens; a window for a new quote, resolved threads (which have no
 page passage) and a page without a selection draw nothing extra. The parent selects it with
 exactly `type:"colab.render.select"`, `renderId`, `requestId` and `id`, where `id` is a thread ID
 of its current highlight request or `null`; the frame accepts only the current render and request

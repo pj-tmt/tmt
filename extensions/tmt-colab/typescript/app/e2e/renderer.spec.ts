@@ -6,7 +6,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { tokens } from './tokens.js';
+import { rgb, tokens } from './tokens.js';
 
 let capture: Server;
 let origin: string;
@@ -2177,6 +2177,13 @@ const selectedPassages = (page: Page, id: string) =>
         : null;
     });
 
+/** The labels of the lane markers that wear the open-thread ring. */
+const ringedMarkers = (page: Page, id: string) =>
+  page
+    .frameLocator(`#${id}`)
+    .locator('.annotation-number[data-colab-selected]')
+    .evaluateAll((nodes) => nodes.map((node) => node.textContent));
+
 test('a selection paints one passage in the selected look, and anything that is not a selection of the current request is refused', async ({
   page,
 }) => {
@@ -2215,6 +2222,8 @@ test('a selection paints one passage in the selected look, and anything that is 
   await requestHighlight(page, id, renderId, second, anchors);
   // The selection outlives a new request, painted above the hover tint.
   expect(await selectedPassages(page, id)).toEqual({ passages: ['Second passage'], priority: 2 });
+  // Its lane marker, and only that one, wears the ring.
+  expect(await ringedMarkers(page, id)).toEqual(['2']);
   // Each of these is refused and leaves the selection as it was: a stale request, another render, an
   // extra key, a missing id, an id that is not text, empty (the draft), unknown, or a list.
   for (const message of [
@@ -2231,23 +2240,108 @@ test('a selection paints one passage in the selected look, and anything that is 
     await sendToFrame(page, id, message);
   await requestHighlight(page, id, renderId, third, anchors);
   expect(await selectedPassages(page, id)).toEqual({ passages: ['Second passage'], priority: 2 });
+  expect(await ringedMarkers(page, id)).toEqual(['2']);
   // Another thread replaces it; there is one selected passage at a time.
   const fourth = '00000000-0000-4000-8000-0000000000a4';
   await select(third, 't0');
   await requestHighlight(page, id, renderId, fourth, anchors);
   expect(await selectedPassages(page, id)).toEqual({ passages: ['First passage'], priority: 2 });
+  expect(await ringedMarkers(page, id)).toEqual(['1']);
   // A request that no longer holds the thread paints nothing, and null clears the selection.
   const fifth = '00000000-0000-4000-8000-0000000000a5';
   await requestHighlight(page, id, renderId, fifth, anchors.slice(1));
   expect(await selectedPassages(page, id)).toBeNull();
+  expect(await ringedMarkers(page, id)).toEqual([]);
   await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000a6', anchors);
   expect(await selectedPassages(page, id)).toEqual({ passages: ['First passage'], priority: 2 });
   await select('00000000-0000-4000-8000-0000000000a6', null);
   await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000a7', anchors);
   expect(await selectedPassages(page, id)).toBeNull();
+  expect(await ringedMarkers(page, id)).toEqual([]);
 });
 
-test('the selected highlight is a stronger tint and a solid 2px rule above the hover look', async ({
+test('the ring marks the open thread on a +n pill that holds it, and changes no size', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:0}p{font:16px/32px system-ui;margin:0 0 0 24px}</style><p>Alpha beta and gamma delta on one line</p><p>Second paragraph on its own line</p>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  await page.evaluate(() => {
+    const { handle } = (
+      window as unknown as {
+        probe: { handle: { highlight(value: unknown[]): void } };
+      }
+    ).probe;
+    handle.highlight([
+      { id: 'one', selector: { exact: 'Alpha beta', prefix: '', suffix: '' } },
+      { id: 'two', selector: { exact: 'gamma delta', prefix: '', suffix: '' } },
+      { id: 'three', selector: { exact: 'Second paragraph', prefix: '', suffix: '' } },
+    ]);
+  });
+  const markers = frame.locator('.annotation-number');
+  await expect(markers).toHaveText(['+2', '3']);
+  const geometry = () =>
+    markers.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const box = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          width: box.width,
+          height: box.height,
+          ring:
+            style.outlineStyle === 'none' ? 'none' : `${style.outlineWidth} ${style.outlineOffset}`,
+          color: style.outlineColor,
+        };
+      }),
+    );
+  const rest = await geometry();
+  expect(rest.map((marker) => marker.ring)).toEqual(['none', 'none']);
+  const select = (id: string | null) =>
+    page.evaluate(
+      (id) =>
+        (
+          window as unknown as { probe: { handle: { select(id: string | null): void } } }
+        ).probe.handle.select(id),
+      id,
+    );
+  // A member of the pill is open: the pill wears the ring and the single marker does not.
+  await select('two');
+  await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveText(['+2']);
+  const ringed = await geometry();
+  const ring = rgb(tokens.browser.color['annotation-rule-selected'].light);
+  expect(ringed[0]).toMatchObject({ ring: '2px -2px', color: ring });
+  expect(ringed[1]).toMatchObject({ ring: 'none' });
+  // The ring changes no size: it is drawn inside the 24 px target.
+  expect(ringed.map(({ width, height }) => ({ width, height }))).toEqual(
+    rest.map(({ width, height }) => ({ width, height })),
+  );
+  await select('three');
+  await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveText(['3']);
+  await select(null);
+  await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveCount(0);
+});
+
+/** WCAG contrast ratio of two #rrggbb colours. */
+const contrast = (first: string, second: string) => {
+  const luminance = (hex: string) => {
+    const [red, green, blue] = [1, 3, 5].map((at) => {
+      const value = parseInt(hex.slice(at, at + 2), 16) / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a) as [
+    number,
+    number,
+  ];
+  return (light + 0.05) / (dark + 0.05);
+};
+
+test('the selected highlight is a stronger tint and a solid rule thicker than the hover look', async ({
   page,
 }) => {
   await page.goto('/');
@@ -2255,32 +2349,55 @@ test('the selected highlight is a stronger tint and a solid 2px rule above the h
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   const frame = page.frameLocator('#probe iframe');
   const rules = await frame.locator('body').evaluate(() => {
-    const rule = [...document.styleSheets]
-      .flatMap((sheet) => [...sheet.cssRules])
-      .find(
-        (value): value is CSSStyleRule =>
-          (value as CSSStyleRule).selectorText === '::highlight(colab-selected)',
-      );
+    const read = (selector: string) => {
+      const rule = [...document.styleSheets]
+        .flatMap((sheet) => [...sheet.cssRules])
+        .find((value): value is CSSStyleRule => (value as CSSStyleRule).selectorText === selector);
+      return {
+        line: rule?.style.getPropertyValue('text-decoration-line'),
+        color: rule?.style.getPropertyValue('text-decoration-color'),
+        thickness: rule?.style.getPropertyValue('text-decoration-thickness'),
+        background: rule?.style.getPropertyValue('background'),
+      };
+    };
     const root = getComputedStyle(document.documentElement);
     return {
-      line: rule?.style.getPropertyValue('text-decoration-line'),
-      color: rule?.style.getPropertyValue('text-decoration-color'),
-      thickness: rule?.style.getPropertyValue('text-decoration-thickness'),
-      background: rule?.style.getPropertyValue('background'),
+      hover: read('::highlight(colab-hover)'),
+      selected: read('::highlight(colab-selected)'),
       tint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight-selected').trim(),
       stroke: root.getPropertyValue('--tmt-ui-color-annotation-rule-selected').trim(),
     };
   });
-  expect(rules).toMatchObject({
+  expect(rules.selected).toEqual({
     line: 'underline',
     color: 'var(--tmt-ui-color-annotation-rule-selected)',
-    thickness: '2px',
+    thickness: '3px',
     background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
   });
+  // The rule steps up from hover's, so the two do not read alike.
+  expect(parseFloat(rules.selected.thickness!)).toBeGreaterThan(parseFloat(rules.hover.thickness!));
   expect(rules.tint).toBe(
     tokens.browser.surface['annotation-highlight-selected'].light.toLowerCase(),
   );
   expect(rules.stroke).toBe(tokens.browser.color['annotation-rule-selected'].light.toLowerCase());
+});
+
+test('the selected tint steps clearly from the rest tint and keeps text as readable as hover', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    const rest = tokens.browser.surface['annotation-highlight'][theme];
+    const hover = tokens.browser.surface['annotation-highlight-hover'][theme];
+    const selected = tokens.browser.surface['annotation-highlight-selected'][theme];
+    expect(contrast(rest, selected), `${theme} rest to selected`).toBeGreaterThanOrEqual(1.3);
+    // Page text at the palette's text colour and at the common near-black / near-white: at 7:1, or
+    // as readable as on the hover tint where that is below 7:1.
+    for (const text of [
+      tokens.browser.color.text[theme],
+      theme === 'light' ? '#343434' : '#dddddd',
+    ])
+      expect(contrast(text, selected), `${theme} ${text} on selected`).toBeGreaterThanOrEqual(
+        Math.min(7, contrast(text, hover)),
+      );
+  }
 });
 
 test('without the Highlight API the selected passage keeps the same look on its overlay marks', async ({
@@ -2321,7 +2438,7 @@ test('without the Highlight API the selected passage keeps the same look on its 
   };
   const selected = {
     background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
-    border: '2px solid var(--tmt-ui-color-annotation-rule-selected)',
+    border: '3px solid var(--tmt-ui-color-annotation-rule-selected)',
   };
   expect(await marks()).toEqual([
     { thread: 'one', ...rest },

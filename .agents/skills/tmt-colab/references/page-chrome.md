@@ -206,7 +206,7 @@ the frame's edge); threads on lines closer than one marker share a `+n` pill tha
 the renderer handle's `select(id | null)`, which `router.tsx` calls with the open thread and which
 posts `colab.render.select` (the frame accepts only the current request and an ID it holds); the
 frame paints that passage in `::highlight(colab-selected)` above the hover look, or on its overlay
-marks without the Highlight API.
+marks without the Highlight API, and rings that thread's lane marker (`data-colab-selected`).
 `router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
 frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. An inline `style`
 with `!important` is the one author declaration the frame cannot override.

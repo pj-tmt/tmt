@@ -113,7 +113,7 @@
   --tmt-surface-blocked-soft: #fbe9ea;
   --tmt-surface-review-soft: #eee9fa;
   --tmt-surface-annotation-highlight-hover: #bbd8d2;
-  --tmt-surface-annotation-highlight-selected: #c2dcd6;
+  --tmt-surface-annotation-highlight-selected: #aed0c8;
 }
 
 :root[data-theme='dark'] {

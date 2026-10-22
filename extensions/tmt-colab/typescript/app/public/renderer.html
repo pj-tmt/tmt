@@ -294,11 +294,13 @@
           // The thread whose window is open on the page, which the parent selects (null: none).
           let selectedId = null;
           const anchorRanges = new Map();
+          // The thread ids each lane marker stands for, so the open thread's marker can wear its ring.
+          const markerThreads = new WeakMap();
           const readingRanges = new Map();
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#c2dcd6;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: 12px; background-clip: padding-box; font-size: 10px; }';
+            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: 12px; background-clip: padding-box; font-size: 10px; } .annotation-number[data-colab-selected] { outline: 2px solid var(--tmt-ui-color-annotation-rule-selected); outline-offset: -2px; }';
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
@@ -310,7 +312,7 @@
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px}' +
-            '::highlight(colab-selected){background:var(--tmt-ui-surface-annotation-highlight-selected);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule-selected);text-decoration-thickness:2px}' +
+            '::highlight(colab-selected){background:var(--tmt-ui-surface-annotation-highlight-selected);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule-selected);text-decoration-thickness:3px}' +
             '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:2px}' +
             `
             [data-colab-question-group]:not([hidden]){display:block!important}
@@ -655,19 +657,26 @@
             if (selecting && event.isTrusted && !editingTarget(event.target) && quote)
               parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
           };
-          // The selected thread's passage takes the stronger tint and a solid 2 px underline, above the
-          // hover tint, so it holds while the pointer crosses it; without a selection nothing changes.
+          // The selected thread's passage takes the stronger tint and a solid 3 px underline, above the
+          // hover look (2 px), so it holds while the pointer crosses it; its lane marker, or the `+n`
+          // pill that holds it, wears a ring, so the lane says which thread is open even when the
+          // passage is off screen. Without a selection nothing changes.
           function paintSelected() {
             try {
               CSS.highlights?.delete('colab-selected');
             } catch {}
+            for (const marker of markers?.children ?? [])
+              marker.toggleAttribute(
+                'data-colab-selected',
+                selectedId !== null && !!markerThreads.get(marker)?.includes(selectedId),
+              );
             const range = selectedId === null ? undefined : anchorRanges.get(selectedId)?.range;
             if (layer) {
               for (const mark of layer.children) {
                 const selected = range !== undefined && mark.dataset.thread === selectedId;
                 const role = selected ? '-selected' : '';
                 mark.style.background = `var(--tmt-ui-surface-annotation-highlight${role})`;
-                mark.style.borderBottom = `${selected ? 2 : 1}px solid var(--tmt-ui-color-annotation-rule${role})`;
+                mark.style.borderBottom = `${selected ? 3 : 1}px solid var(--tmt-ui-color-annotation-rule${role})`;
               }
               return;
             }
@@ -1184,7 +1193,6 @@
                     layer.append(mark);
                   }
               }
-              paintSelected();
               if (positions.length) {
                 markers = document.createElement('div');
                 markers.dataset.colabHighlight = '';
@@ -1257,10 +1265,15 @@
                       );
                   });
                   markers.append(marker);
+                  markerThreads.set(
+                    marker,
+                    items.map((item) => item.id),
+                  );
                   // A pill is as wide as its label: it never runs past the frame's right edge.
                   marker.style.left = `${Math.min(left, viewport - 2 - marker.offsetWidth) - origin.left}px`;
                 }
               }
+              paintSelected();
             } catch {
               positions.length = 0;
               resolved.length = 0;
