@@ -25,6 +25,7 @@
   --color-paper: var(--tmt-surface-paper);
   --color-sheet: var(--tmt-surface-sheet);
   --color-selection: var(--tmt-surface-selection);
+  --color-hover: var(--tmt-surface-hover);
   --color-disabled: var(--tmt-surface-disabled);
   --color-rule: var(--tmt-surface-rule);
   --radius-*: initial;
@@ -55,7 +56,7 @@
   --tmt-color-working: #386000;
   --tmt-color-waiting: #964500;
   --tmt-color-review: #7847bd;
-  --tmt-color-blocked: #b62c3b;
+  --tmt-color-blocked: #9c4242;
   --tmt-color-link: #006b8f;
   --tmt-surface-scrim: #0000001f;
   --tmt-surface-command: #eaeaea;
@@ -63,6 +64,7 @@
   --tmt-surface-paper: #fafafa;
   --tmt-surface-sheet: #ffffff;
   --tmt-surface-selection: #e2e2e2;
+  --tmt-surface-hover: #eeeeee;
   --tmt-surface-disabled: #eaeaea;
   --tmt-surface-rule: #d0d0d0;
 }
@@ -85,6 +87,7 @@
   --tmt-surface-paper: #080808;
   --tmt-surface-sheet: #101010;
   --tmt-surface-selection: #2b2b2b;
+  --tmt-surface-hover: #1e1e1e;
   --tmt-surface-disabled: #171717;
   --tmt-surface-rule: #303030;
 }
@@ -97,7 +100,7 @@
     outline-color: var(--color-focus);
   }
   :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-    outline: 2px solid var(--color-focus);
+    outline: 1px solid var(--color-focus);
     outline-offset: 0;
   }
 }
