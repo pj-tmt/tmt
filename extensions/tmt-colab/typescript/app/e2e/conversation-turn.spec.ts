@@ -1236,7 +1236,10 @@ for (const surface of ['chat', 'thread'] as const)
         'SEND_NOW_UNCONFIRMED',
         'Could not send now: an earlier delivery is unconfirmed, do not resend',
       ],
-      ['REMOTE_SCOPE_DENIED', 'Could not send now: this device may not send it early'],
+      [
+        'REMOTE_SCOPE_DENIED',
+        'Could not send now: only the browser that sent it can send it early',
+      ],
       // A code a newer Core adds, a code that is not one, and none: never the bare code.
       ['A_CODE_FROM_A_NEWER_CORE', 'Could not send now. It stays batched.'],
       ['constructor', 'Could not send now. It stays batched.'],

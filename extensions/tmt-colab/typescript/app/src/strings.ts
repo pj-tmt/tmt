@@ -430,7 +430,7 @@ export const text = {
     SEND_NOW_NOT_APPLICABLE: 'it is not waiting in a batch',
     SEND_NOW_NOT_ALLOWED: 'only the person who sent it can send it early',
     SEND_NOW_UNCONFIRMED: 'an earlier delivery is unconfirmed, do not resend',
-    REMOTE_SCOPE_DENIED: 'this device may not send it early',
+    REMOTE_SCOPE_DENIED: 'only the browser that sent it can send it early',
   } as Readonly<Record<string, string>>,
   sendNowRefusedUnknown: 'Could not send now. It stays batched.',
   agentQueued: (elapsed: string) => `is finishing an earlier turn · ${elapsed}`,
