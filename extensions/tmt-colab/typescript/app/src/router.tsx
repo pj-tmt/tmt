@@ -9,7 +9,6 @@ import type { PagePinRequest, PagePinState } from './pins.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
 import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
-import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
   BrowserCommand,
@@ -81,7 +80,7 @@ import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import type { QuoteSelector, DiscussionRef } from './thread-records.js';
+import type { QuoteSelector } from './thread-records.js';
 import { HeaderSlot } from './header-slot.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
@@ -106,12 +105,12 @@ import { ChatPanel } from './chat-panel.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import { FilesPanel } from './files-panel.js';
 import { CreatorDefaultProvider } from './creator-default.js';
-import { DraftSession } from './draft-store.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
 import { usePageEditor } from './use-page-editor.js';
 import { usePagePanels } from './use-page-panels.js';
+import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
 import { SaveNotice } from './save-notice.js';
 
@@ -1111,6 +1110,7 @@ function Page() {
     show,
     close,
     closeIf,
+    clear,
     showThread,
     openChat,
     settleChatActivation,
@@ -1250,114 +1250,58 @@ function Page() {
   useEffect(() => {
     if (panel === 'about' || panel === 'source') void refreshSize();
   }, [panel, refreshSize]);
-  const [selectionMode, setSelectionMode] = useState(false);
+  const toggleSelectionMode = useRef<() => void>(() => {});
+  const escapeAnnotation = useRef<() => void>(() => {});
+  const chatBusy = useRef(false);
+  const binding = useRef(snapshot.binding);
+  const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
+  const host = useRef<HTMLDivElement>(null);
+  binding.current = snapshot.binding;
+  const {
+    selectionMode,
+    setSelectionMode,
+    selector,
+    currentSelector,
+    rectangle,
+    currentRectangle,
+    annotation,
+    annotationRef,
+    popover,
+    drafts,
+    draftsReady,
+    draftsUnsaved,
+    keepDraft,
+    annotationDraft,
+    annotationBusy,
+    statusBusy,
+    changingStatus,
+    setChangingStatus,
+    annotate,
+    annotationKey,
+    closeAnnotation,
+    closeRef,
+    onSelection,
+    openThread,
+    continueAnnotation,
+    openAnchoredThread,
+  } = useAnnotations({
+    snapshot,
+    transport,
+    binding,
+    latest,
+    renderer,
+    host,
+    panels: {
+      clear,
+      showThread,
+      setActiveThread,
+    },
+  });
   useEffect(() => {
     if (!archived) return;
     setSelectionMode(false);
     closeIf('agents', 'export');
-  }, [archived, closeIf]);
-  const toggleSelectionMode = useRef<() => void>(() => {});
-  const escapeAnnotation = useRef<() => void>(() => {});
-  const chatBusy = useRef(false);
-  const [selector, setSelector] = useState<QuoteSelector | null>(null);
-  const currentSelector = useRef<QuoteSelector | null>(null);
-  const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
-  const currentRectangle = useRef<SelectionRect | null>(null);
-  const [annotation, setAnnotation] = useState<{
-    key: string;
-    selector: QuoteSelector | null;
-    rectangle: SelectionRect;
-    thread?: DiscussionRef;
-    /** Text kept from an earlier close of this selection or thread. */
-    restored?: ComposerEdit;
-  }>();
-  const binding = useRef(snapshot.binding);
-  binding.current = snapshot.binding;
-  const annotationRef = useRef(annotation);
-  annotationRef.current = annotation;
-  const popover = useRef<HTMLElement>(null);
-  // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
-  const drafts = useRef(new Map<string, ComposerEdit>());
-  // Device-local persistence behind `drafts`: it restores text only and never sends or opens.
-  const session = useRef<DraftSession | undefined>(undefined);
-  const [draftsReady, setDraftsReady] = useState(!transport.drafts);
-  const [draftsUnsaved, setDraftsUnsaved] = useState(false);
-  const [, setDraftKeys] = useState(0);
-  function keepDraft(key: string, edit: ComposerEdit | null) {
-    const had = drafts.current.has(key);
-    if (edit) drafts.current.set(key, edit);
-    else drafts.current.delete(key);
-    session.current?.set(key, edit);
-    if (had !== !!edit) setDraftKeys((n) => n + 1);
-  }
-  const annotationDraft = useRef<ComposerEdit>({ value: '' });
-  const annotationBusy = useRef(false);
-  const statusBusy = useRef(false);
-  const [changingStatus, setChangingStatus] = useState(false);
-  useEffect(() => {
-    setAnnotation(undefined);
-    drafts.current.clear();
-    annotationDraft.current = { value: '' };
-    annotationBusy.current = statusBusy.current = false;
-    setChangingStatus(false);
-    setSelectionMode(false);
-    setSelector(null);
-    currentSelector.current = null;
-    currentRectangle.current = null;
-    setRectangle(null);
-  }, [snapshot.id]);
-  useEffect(() => {
-    const store = transport.drafts;
-    setDraftsUnsaved(false);
-    if (!store) {
-      setDraftsReady(true);
-      return;
-    }
-    setDraftsReady(false);
-    let live = true;
-    // Only the live session presents: a write that settles after leaving never sets the notice.
-    const current = new DraftSession(store, snapshot.id, (unsaved) => {
-      if (live) setDraftsUnsaved(unsaved);
-    });
-    session.current = current;
-    void current.load().then((saved) => {
-      if (!live) return;
-      // Text typed before the read finished is newer than anything stored.
-      for (const [key, edit] of saved ?? [])
-        if (!drafts.current.has(key)) drafts.current.set(key, edit);
-      setDraftKeys((n) => n + 1);
-      setDraftsReady(true);
-    });
-    const leave = () => void current.flush();
-    const hide = () => document.visibilityState === 'hidden' && leave();
-    window.addEventListener('pagehide', leave);
-    document.addEventListener('visibilitychange', hide);
-    return () => {
-      live = false;
-      window.removeEventListener('pagehide', leave);
-      document.removeEventListener('visibilitychange', hide);
-      session.current = undefined;
-      void current.close();
-    };
-  }, [snapshot.id, transport.drafts]);
-  function annotate() {
-    if (
-      annotationBusy.current ||
-      statusBusy.current ||
-      !currentSelector.current ||
-      !currentRectangle.current
-    )
-      return;
-    closeRef.current(false);
-    setAnnotation({
-      key: crypto.randomUUID(),
-      selector: structuredClone(currentSelector.current),
-      rectangle: { ...currentRectangle.current },
-      restored: drafts.current.get(JSON.stringify(currentSelector.current)),
-    });
-    setRectangle(null);
-    panelsRef.current.clear();
-  }
+  }, [archived, closeIf, setSelectionMode]);
   const annotationThread = annotation?.thread
     ? view.threads?.find(
         (thread) =>
@@ -1371,88 +1315,6 @@ function Page() {
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
   const statusCoordinator =
     archived || liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
-  const annotationKey = (value: NonNullable<typeof annotation>) =>
-    value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
-  /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
-  const typed = () =>
-    annotationDraft.current.edited !== false && annotationDraft.current.value.trim() !== '';
-  /** Closes without losing typed text: it comes back when the same selection is annotated again. */
-  function closeAnnotation(focusPage: boolean) {
-    // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
-    if (!annotation || annotationBusy.current || statusBusy.current) return;
-    const key = annotationKey(annotation);
-    keepDraft(key, typed() || annotationDraft.current.edited ? annotationDraft.current : null);
-    annotationDraft.current = { value: '' };
-    setAnnotation(undefined);
-    setRectangle(currentRectangle.current);
-    if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
-  }
-  const closeRef = useRef(closeAnnotation);
-  closeRef.current = closeAnnotation;
-  const selectionCleared = useRef<() => void>(() => {});
-  selectionCleared.current = () => {
-    // A new selection keeps typed text; a saved window collapses with its draft cached.
-    if (annotation && (annotation.thread || !typed())) closeAnnotation(false);
-  };
-  useEffect(() => {
-    if (!annotation) return;
-    const outside = (event: PointerEvent) => {
-      if (environment.modalOpen()) return;
-      const target = event.target;
-      if (
-        target instanceof Element &&
-        !popover.current?.contains(target) &&
-        !target.closest('[role="listbox"]')
-      )
-        closeRef.current(false);
-    };
-    document.addEventListener('pointerdown', outside, true);
-    return () => document.removeEventListener('pointerdown', outside, true);
-  }, [annotation, environment]);
-  function openThread(ref: DiscussionRef | null) {
-    if (annotationBusy.current || statusBusy.current) return;
-    if (!ref) {
-      panelsRef.current.setActiveThread(null);
-      return;
-    }
-    const id = `${ref.writer}:${ref.id}`;
-    if (annotationRef.current) closeRef.current(false);
-    setAnnotation(undefined);
-    binding.current?.markThreadStatusSeen?.(ref);
-    panelsRef.current.showThread(id);
-    environmentRef.current.threadFragment()?.write(ref.id);
-    renderer.current?.scrollAnchor(id);
-  }
-  function continueAnnotation(ref: DiscussionRef) {
-    keepDraft(JSON.stringify(annotationRef.current?.selector), null);
-    setAnnotation((previous) =>
-      previous ? { ...previous, thread: ref, restored: undefined } : previous,
-    );
-  }
-  function openAnchoredThread(ref: DiscussionRef) {
-    if (annotationBusy.current || statusBusy.current) return;
-    const thread = latest.current.threads?.find(
-      (value) => value.ref.writer === ref.writer && value.ref.id === ref.id && !value.deleted,
-    );
-    if (!thread?.anchor) return;
-    closeRef.current(false);
-    binding.current?.markThreadStatusSeen?.(ref);
-    renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
-    const rectangle = renderer.current?.anchorRectangle(`${ref.writer}:${ref.id}`);
-    if (!rectangle) {
-      openThread(ref);
-      return;
-    }
-    setAnnotation({
-      key: crypto.randomUUID(),
-      selector: structuredClone(thread.anchor),
-      rectangle,
-      thread: ref,
-      restored: drafts.current.get(`${ref.writer}:${ref.id}`),
-    });
-    panelsRef.current.clear();
-  }
-  const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   const accessLabel = archived
     ? text.archiveReadOnly
@@ -1540,8 +1402,7 @@ function Page() {
     };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
-  }, [canSelect, selectionMode]);
-  const host = useRef<HTMLDivElement>(null);
+  }, [canSelect, selectionMode, annotate, currentSelector, currentRectangle]);
   const { read: readingHint, anchor, task } = page.useSearch();
   const {
     readings,
@@ -1596,13 +1457,7 @@ function Page() {
     resetPageLinks,
     requestPageLink,
     handlers: {
-      onSelection: (quote, rect) => {
-        setSelector(quote ?? null);
-        currentSelector.current = quote ?? null;
-        currentRectangle.current = rect ?? null;
-        setRectangle(rect ?? null);
-        if (!quote) selectionCleared.current();
-      },
+      onSelection,
       onAnnotate: annotate,
       onToggleSelectionMode: () => toggleSelectionMode.current(),
       onKey: (key) => {
