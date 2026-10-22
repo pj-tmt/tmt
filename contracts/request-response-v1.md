@@ -604,6 +604,16 @@ request history and `requests.show` list it with `mode: "passthrough"`. Digest n
 it (a person's messages are never held) and every delivery guard still applies: an agent
 that is waiting on its user refuses with `DELIVERY_AWAITING_APPROVAL` and nothing is typed.
 
+The typed text is also the person's answer. When Core settles the delivery as sent (the
+same step that marks the wake `sent`), it stores the original text, before the `!`
+conversion, as the first final of the oldest open request the recipient agent has to
+this person, in the same transaction. That final is an ordinary one: the agent's waiting
+`talk` receives it and `tmt result` returns it. It is never announced, because the agent
+already holds the text in its pane. Only that agent's requests to this person qualify,
+and only the oldest; with none open nothing is recorded. A delivery that is refused,
+unavailable or uncertain settles nothing, so the question stays open and the agent is
+never told it was answered.
+
 `x` commands select the originator's data with
 `--identity <name>` through the shared durable selector. Omission requires a
 verified caller identity; outside that context it fails rather than guessing.

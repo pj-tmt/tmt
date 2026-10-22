@@ -147,3 +147,68 @@ fn only_a_person_may_pass_text_through_and_only_to_a_live_pane() {
         );
     }
 }
+
+#[test]
+fn typed_text_answers_the_oldest_open_request_the_agent_made_to_the_person() {
+    let fixture = world("passthrough-answers");
+    mark_person(&fixture);
+    // The agent asks the person twice; the person never replies with `tmt reply`.
+    let mut asked = Vec::new();
+    for question in ["Which branch?", "Ship it?"] {
+        let sent = fixture.tmt_in(Some("f1"), &["talk", "ben", question, "--detach", "--json"]);
+        assert!(sent.status.success(), "{sent:?}");
+        let report: Value = serde_json::from_slice(&sent.stdout).unwrap();
+        asked.push(report["requestId"].as_str().unwrap().to_owned());
+    }
+    let inbox = |fixture: &Fixture| -> Vec<String> {
+        let out = fixture.tmt(&["inbox", "--identity", "ben", "--json"]);
+        let listed: Value = serde_json::from_slice(&out.stdout).unwrap();
+        listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["requestId"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(inbox(&fixture), asked);
+
+    let sent = talk(&fixture, "ok", &["Use main!", "--passthrough"]);
+    assert!(sent.status.success(), "{sent:?}");
+
+    // The text, as written, is the agent's final for the oldest question only.
+    let first = fixture.tmt(&["result", &asked[0], "--json"]);
+    assert!(first.status.success(), "{first:?}");
+    let answer: Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(answer["status"], "completed", "{answer:#}");
+    assert_eq!(answer["response"], "Use main!", "{answer:#}");
+    assert_eq!(inbox(&fixture), asked[1..], "the newer question stays open");
+    let second = fixture.tmt(&["result", &asked[1], "--json"]);
+    assert_eq!(second.status.code(), Some(3), "{second:?}");
+}
+
+#[test]
+fn typed_text_that_never_reached_the_pane_leaves_the_question_open() {
+    let fixture = world("passthrough-undelivered");
+    mark_person(&fixture);
+    let sent = fixture.tmt_in(
+        Some("f1"),
+        &["talk", "ben", "Which branch?", "--detach", "--json"],
+    );
+    assert!(sent.status.success(), "{sent:?}");
+    let asked: Value = serde_json::from_slice(&sent.stdout).unwrap();
+    let asked = asked["requestId"].as_str().unwrap();
+
+    // The driver reports the agent busy, so nothing is typed and nothing is answered.
+    let refused = talk(&fixture, "blocked", &["Use main", "--passthrough"]);
+    assert_ne!(refused.status.code(), Some(0), "{refused:?}");
+    assert!(fixture.requests("prompted").is_empty());
+    let result = fixture.tmt(&["result", asked, "--json"]);
+    assert_eq!(result.status.code(), Some(3), "{result:?}");
+    let inbox = fixture.tmt(&["inbox", "--identity", "ben", "--json"]);
+    let listed: Value = serde_json::from_slice(&inbox.stdout).unwrap();
+    assert_eq!(
+        listed["items"].as_array().map(Vec::len),
+        Some(1),
+        "{listed:#}"
+    );
+}
