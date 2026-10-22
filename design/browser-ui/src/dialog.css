@@ -60,6 +60,10 @@
 .tmt-ui-dialog[open]::backdrop {
   opacity: 1;
 }
+/* A leaving dialog takes no pointer input, so the page under it answers at once. */
+.tmt-ui-dialog:not([open]) {
+  pointer-events: none;
+}
 @starting-style {
   .tmt-ui-dialog[open] {
     opacity: 0;

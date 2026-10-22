@@ -637,7 +637,8 @@ days`); exact time on hover.
   autocomplete list fades and scales from its anchor in the fast duration. Hover
   and press on actions and tabs, the menu row tint and the rail collapse use the
   fast or base duration. Under `prefers-reduced-motion` every duration is 0 ms, so
-  a change is instant. The LoaderCircle spin (see
+  a change is instant. A leaving layer is inert: it takes no pointer input and
+  hands its Escape to the layer under it. The LoaderCircle spin (see
   [Transient states](#transient-states)) stops under the same preference. The
   leaf's browser test (`design/browser-ui/e2e/overlay-motion.spec.ts`) asserts the
   mounted-as-closed exit and the instant reduced-motion path.

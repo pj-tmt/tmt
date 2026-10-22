@@ -626,13 +626,36 @@ for (const width of [320, 390, 1440])
         // Pinned Radix nonmodal Content loops Tab, but permits actual focus outside.
         await parent.getByRole('button', { name: 'Remove persistent opener', exact: true }).focus();
         await expectState(page, { popoverOpen: false, dialogOpen: true });
-        // A leaving layer stays mounted until its exit has played and keeps the Escape: wait for it
-        // to go before the next Escape closes the dialog.
-        await expect(popover).toHaveCount(0);
         expect(await parent.evaluate((element) => element.contains(document.activeElement))).toBe(
           true,
         );
         await closeAndReturn(page, 'Dialog', 'Escape', trigger(page, 'Dialog'));
+      });
+      test('a leaving Popover releases input: a second Escape 20ms after the first closes the Dialog', async ({
+        page,
+      }) => {
+        await prepare(page, width, theme);
+        // Real exit motion, so the popover is still leaving when the second Escape lands.
+        await page.emulateMedia({ reducedMotion: 'no-preference' });
+        await trigger(page, 'Dialog').click();
+        const parent = surface(page, 'Dialog');
+        await parent.getByRole('button', { name: 'Nested fixture Popover', exact: true }).click();
+        const popover = page.locator('[data-slot="popover-content"]');
+        await expect(popover).toBeVisible();
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(20);
+        const leaving = await popover.evaluateAll((nodes) =>
+          nodes.map((node) => [
+            node.getAttribute('data-state'),
+            getComputedStyle(node).pointerEvents,
+          ]),
+        );
+        // Still mounted for its exit, closed, and taking no pointer input.
+        expect(leaving).toEqual([['closed', 'none']]);
+        await page.keyboard.press('Escape');
+        await expectState(page, { popoverOpen: false, dialogOpen: false });
+        await expect(surface(page, 'Dialog')).toHaveCount(0);
+        await expect(trigger(page, 'Dialog')).toBeFocused();
       });
       test('nonmodal Popover host veto holds Escape, pointer/focus outside and programmatic close', async ({
         page,

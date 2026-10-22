@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { text } from '../src/strings.js';
+import { tokens } from './tokens.js';
 import { mkdir } from 'node:fs/promises';
 
 test('verified bearer values copy exactly and remain selectable on clipboard denial', async ({
@@ -74,7 +75,7 @@ test('verified bearer values copy exactly and remain selectable on clipboard den
           const css = getComputedStyle(node);
           return [css.borderTopWidth, css.borderRadius, css.boxShadow];
         }),
-      ).toEqual(['1px', '0px', 'none']);
+      ).toEqual(['1px', tokens.browser.metric.radius, 'none']);
       const directory = process.env.TMT_COMMAND_CAPTURE_DIR;
       if (directory && width !== 320) {
         await mkdir(directory, { recursive: true });

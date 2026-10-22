@@ -510,7 +510,7 @@ the exit transition or animation and releases it when `getAnimations()` settles.
 dialogs and drawers animate with `transition ... allow-discrete` and `@starting-style`; the UI
 layer's Radix layers use the named `animate-pop-*`, `animate-fade-*` and `animate-slide-*`
 classes over the `tmt-foundation-*` keyframes, with the animated content as the portal's direct
-child so Radix Presence can play the exit. Hover and press on actions and tabs, the menu row tint
+child so Radix Presence can play the exit. A leaving layer (`data-state="closed"`) takes no pointer input, and the UI layer's `admitLayerDismiss` hands its Escape to the open hosted layer under it (the registry in `useLayerController`), so a second Escape inside the exit reaches the dialog at once; a modal Radix layer keeps Radix's body pointer lock until its exit has played. Hover and press on actions and tabs, the menu row tint
 and the rail slide use the same tokens. `design/gui-style.md` owns the rule.
 
 ## Shared pieces

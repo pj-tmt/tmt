@@ -58,18 +58,17 @@ svg.tmt-ui-mark {
 .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
   /* The title is the last to give way: the suffix and the caption shrink first. */
   flex: 0 1 auto;
-  min-width: min(16ch, max-content);
 }
 .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-caption {
+  /* The caption gives way before the title but keeps a readable stub; a narrow header hides it. */
   flex: 0 40 auto;
-  min-width: 0;
+  min-width: 12ch;
 }
 .tmt-ui-heading-suffix {
   display: flex;
   align-items: center;
-  /* The suffix is a short qualifier (`· draft`): it keeps its width; the caption and the title give. */
-  flex: 0 0 auto;
-  white-space: nowrap;
+  /* The caption gives way first, then the suffix (its own text ellipsizes), and the title last. */
+  flex: 0 4 auto;
   gap: var(--tmt-ui-header-gap);
   min-width: 0;
   font: var(--tmt-ui-header-title-weight)
@@ -118,7 +117,8 @@ svg.tmt-ui-mark {
 }
 
 /* A narrow header gives the title the room: the caption goes first, then the product's name (its mark
-   and accessible link stay). The title is the last to shrink. */
+   and accessible link stay). The title is the last to shrink. The suffix is host content, which may
+   carry a menu's anchor: it is never hidden here, so a host that has no room for it hides its own. */
 @container tmt-ui-header (max-width: 760px) {
   .tmt-ui-caption {
     display: none;
@@ -127,13 +127,5 @@ svg.tmt-ui-mark {
 @container tmt-ui-header (max-width: 640px) {
   .tmt-ui-brand .tmt-ui-wordmark {
     display: none;
-  }
-}
-@container tmt-ui-header (max-width: 440px) {
-  .tmt-ui-heading-suffix {
-    display: none;
-  }
-  .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
-    min-width: 0;
   }
 }

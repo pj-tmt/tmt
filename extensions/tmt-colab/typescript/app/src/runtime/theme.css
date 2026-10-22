@@ -50,6 +50,7 @@
   --color-review-soft: var(--tmt-surface-review-soft);
   --color-annotation-highlight-hover: var(--tmt-surface-annotation-highlight-hover);
   --radius-*: initial;
+  --radius: 8px;
   --radius-xs: 8px;
   --radius-sm: 8px;
   --radius-md: 8px;
@@ -80,7 +81,7 @@
   --tmt-color-selection-edge: #94c6b2;
   --tmt-color-focus-destructive: #b94952;
   --tmt-color-working: #167c53;
-  --tmt-color-waiting: #966109;
+  --tmt-color-waiting: #8a5a08;
   --tmt-color-review: #7856b8;
   --tmt-color-blocked: #b94952;
   --tmt-color-link: #2d72a6;

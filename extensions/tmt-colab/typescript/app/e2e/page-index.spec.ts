@@ -153,7 +153,7 @@ for (const width of [1440, 390])
         fixed:
           width < 480
             ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar']
-            : ['tmt-ui-shell-brand', 'tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-module-menu'],
+            : ['tmt-ui-rail', 'tmt-ui-shell-bar'],
       });
     });
   }

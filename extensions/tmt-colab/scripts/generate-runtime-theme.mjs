@@ -61,6 +61,7 @@ export function buildTheme(tokens) {
     '--color-current: currentColor;',
     ...roles.map((role) => `--color-${role.key}: var(${variable(role)});`),
     '--radius-*: initial;',
+    `--radius: ${radius};`,
     ...radii.map((size) => `--radius-${size}: ${radius};`),
     '--shadow-*: initial;',
     '--inset-shadow-*: initial;',

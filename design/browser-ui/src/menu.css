@@ -107,6 +107,11 @@
     overlay var(--tmt-ui-motion-fast) allow-discrete,
     display var(--tmt-ui-motion-fast) allow-discrete;
 }
+/* A leaving popup takes no pointer input. */
+.tmt-ui-menu-surface:not([open]),
+.tmt-ui-chips-surface:not([open]) {
+  pointer-events: none;
+}
 .tmt-ui-menu-surface[open],
 .tmt-ui-chips-surface[open] {
   opacity: 1;

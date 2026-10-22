@@ -37,7 +37,7 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
     --paper: #f3f6f5;
     --sheet: #ffffff;
     --edge: #d4dfdb;
-    --waiting: #966109;
+    --waiting: #8a5a08;
     --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --size: 14px;
@@ -63,7 +63,7 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
     --paper: #f3f6f5;
     --sheet: #ffffff;
     --edge: #d4dfdb;
-    --waiting: #966109;
+    --waiting: #8a5a08;
     color-scheme: light;
   }
   :root[data-theme='dark'] {

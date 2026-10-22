@@ -929,6 +929,9 @@
   .tmt\:focus-visible\:border-destructive-ring:focus-visible {
     border-color: var(--tmt-foundation-destructive-ring);
   }
+  .tmt\:focus-visible\:border-foreground:focus-visible {
+    border-color: var(--tmt-foundation-foreground);
+  }
   .tmt\:focus-visible\:border-ring:focus-visible {
     border-color: var(--tmt-foundation-ring);
   }
@@ -1052,6 +1055,9 @@
   }
   .tmt\:data-\[state\=checked\]\:bg-primary[data-state='checked'] {
     background-color: var(--tmt-foundation-primary);
+  }
+  .tmt\:data-\[state\=closed\]\:pointer-events-none\![data-state='closed'] {
+    pointer-events: none !important;
   }
   .tmt\:data-\[state\=closed\]\:animate-fade-out[data-state='closed'] {
     animation: tmt-foundation-fade-out var(--tmt-foundation-motion-base)

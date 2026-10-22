@@ -2,6 +2,10 @@ import { pageAction } from '../test/page-actions.js';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
+import { tokens } from './tokens.js';
+
+/** The rail is the only column left of the page on a wide screen. */
+const railWidth = Number.parseFloat(tokens.browser.metric['rail-width']!);
 
 function source(long: boolean) {
   return `<!doctype html><style>
@@ -37,7 +41,8 @@ for (const width of [1440, 390])
       await expect(page.getByText('Page content', { exact: true })).toHaveCount(0);
       await expect(page.locator('.canvas')).toHaveCSS('border-top-width', '0px');
       await expect(page.locator('.canvas')).toHaveCSS('box-shadow', 'none');
-      // Inside the TMT web shell the page fills the main column beside the rail and module menu
+      // Inside the TMT web shell the page fills the main column beside the rail (the module's pages
+      // nest in it)
       // and starts under the bar, plus the module menu's tab row on a phone.
       const rect = await frame.boundingBox();
       const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!;
@@ -50,7 +55,7 @@ for (const width of [1440, 390])
       );
       expect(lead).toBe(width < 480 ? 44 : 0);
       expect(rect?.x).toBe(column.x);
-      expect(rect?.x).toBe(width < 480 ? 0 : 450);
+      expect(rect?.x).toBe(width < 480 ? 0 : railWidth);
       expect(rect?.width).toBe(column.width);
       expect(rect?.width).toBe(
         (await page.evaluate(() => document.documentElement.clientWidth)) - column.x,

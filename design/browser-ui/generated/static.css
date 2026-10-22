@@ -79,7 +79,7 @@
   --tmt-ui-color-selection-edge: #94c6b2;
   --tmt-ui-color-focus-destructive: #b94952;
   --tmt-ui-color-working: #167c53;
-  --tmt-ui-color-waiting: #966109;
+  --tmt-ui-color-waiting: #8a5a08;
   --tmt-ui-color-review: #7856b8;
   --tmt-ui-color-blocked: #b94952;
   --tmt-ui-color-link: #2d72a6;
@@ -209,7 +209,7 @@
   --tmt-ui-color-selection-edge: #94c6b2;
   --tmt-ui-color-focus-destructive: #b94952;
   --tmt-ui-color-working: #167c53;
-  --tmt-ui-color-waiting: #966109;
+  --tmt-ui-color-waiting: #8a5a08;
   --tmt-ui-color-review: #7856b8;
   --tmt-ui-color-blocked: #b94952;
   --tmt-ui-color-link: #2d72a6;
@@ -393,18 +393,16 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
   flex: 0 1 auto;
-  min-width: min(16ch, max-content);
 }
 .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-caption {
   flex: 0 40 auto;
-  min-width: 0;
+  min-width: 12ch;
 }
 .tmt-ui-heading-suffix {
   display: flex;
   align-items: center;
 
-  flex: 0 0 auto;
-  white-space: nowrap;
+  flex: 0 4 auto;
   gap: var(--tmt-ui-header-gap);
   min-width: 0;
   font: var(--tmt-ui-header-title-weight)
@@ -459,14 +457,6 @@ svg.tmt-ui-mark {
 @container tmt-ui-header (max-width: 640px) {
   .tmt-ui-brand .tmt-ui-wordmark {
     display: none;
-  }
-}
-@container tmt-ui-header (max-width: 440px) {
-  .tmt-ui-heading-suffix {
-    display: none;
-  }
-  .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
-    min-width: 0;
   }
 }
 
@@ -634,17 +624,34 @@ svg.tmt-ui-mark {
   background: transparent;
   border-bottom: 0;
 }
-.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-header > .tmt-ui-brand {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-wordmark,
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-title,
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true'] {
+  font: var(--tmt-ui-header-title-weight) var(--tmt-ui-header-title-size) /
+    var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
+  letter-spacing: normal;
 }
 .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
-.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true']:first-child {
-  display: none;
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true'] {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 400;
+}
+
+@media (max-width: 479px) {
+  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-header > .tmt-ui-brand {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
+  .tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true']:first-child {
+    display: none;
+  }
 }
 .tmt-ui-shell-bar:has(> .tmt-ui-header:not([data-shell-crumb])) > [data-shell-crumb] {
   display: none;
@@ -2039,6 +2046,10 @@ svg.tmt-ui-mark {
 .tmt-ui-drawer[open]::backdrop {
   opacity: 1;
 }
+
+.tmt-ui-drawer:not([open]) {
+  pointer-events: none;
+}
 @starting-style {
   .tmt-ui-drawer[open] {
     translate: calc(100% + var(--tmt-ui-drawer-gutter)) 0;
@@ -2180,6 +2191,10 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-dialog[open]::backdrop {
   opacity: 1;
+}
+
+.tmt-ui-dialog:not([open]) {
+  pointer-events: none;
 }
 @starting-style {
   .tmt-ui-dialog[open] {
@@ -2356,6 +2371,11 @@ svg.tmt-ui-mark {
     scale var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-in),
     overlay var(--tmt-ui-motion-fast) allow-discrete,
     display var(--tmt-ui-motion-fast) allow-discrete;
+}
+
+.tmt-ui-menu-surface:not([open]),
+.tmt-ui-chips-surface:not([open]) {
+  pointer-events: none;
 }
 .tmt-ui-menu-surface[open],
 .tmt-ui-chips-surface[open] {
@@ -2690,6 +2710,7 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-notification[data-state='closed'] {
   opacity: 0;
+  pointer-events: none;
   translate: 0 calc(-1 * var(--tmt-ui-motion-rise));
   transition-timing-function: var(--tmt-ui-motion-ease-in);
 }

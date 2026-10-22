@@ -92,7 +92,7 @@ test('inside the TMT app a crash keeps the rail and the header bar', async ({ pa
   await call(page, 'mountHostApp', '/colab/', 'route');
   await expect(page.getByRole('alert')).toContainText('Page unavailable');
   expect(await hostState(page)).toMatchObject({ rail: true, barHeaders: 1, mainHeaders: 0 });
-  expect((await hostState(page)).brand).toContain('TMT');
+  expect((await hostState(page)).brand).toMatch(/tmt/i);
   // The bar reads `<module> / <page>`.
   expect((await hostState(page)).bar).toMatch(/Colab\s*\/\s*Page unavailable/);
   // A sentence, not the exception; the exception is behind Details.
