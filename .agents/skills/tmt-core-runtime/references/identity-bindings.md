@@ -238,8 +238,10 @@ delivery. They install and launch nothing.
   stopping anything. The lifecycle driver proves the captured process is its private main
   agent under the old pane; a pane process, nested agent or shared Codex server refuses.
   The process adapter rechecks PID/start immediately before one TERM, with three seconds
-  for exit confirmation and no force or signal retry. Request under binding coordination,
-  release the writer while waiting, and leave binding/preferences unchanged on stop failure.
+  for exit confirmation and no force or signal retry. The binding writer holds only
+  the bounded pre-signal probes and TERM fence, preventing a concurrent resume or
+  rebind between proof and signal. It is never held across the 30-second handoff,
+  exit wait or new launch. Stop failure leaves binding/preferences unchanged.
   After exit, re-read final hook state and fence binding, owner, session and launch choices.
   Pure `binding::move_identity` admits a concurrent Ended settlement only for that same
   attachment, process/session key and launch owner; all other captured fields and preferences
