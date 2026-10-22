@@ -65,6 +65,15 @@ struct Ceilings {
     entries: u64,
 }
 impl Ceilings {
+    /// No backend meters a namespace or an entry count yet. An object is enforced only where it
+    /// is one stored document, which the extension's Rules bound per document.
+    fn advisory(self, bounds: ResourceLimits) -> Advisory {
+        Advisory {
+            object: self.document_bytes.is_none() || bounds.chunk_bytes.is_some(),
+            namespace: true,
+            entries: true,
+        }
+    }
     fn admit(self, bounds: ResourceLimits) -> bool {
         // An unchunked resource is one stored document, so its whole object meets the document
         // bound; a chunked one meets it per chunk and its whole object the import bound.
@@ -199,6 +208,10 @@ pub struct ResourcePlan {
     /// `x/<extension>/<declared path>`: the root is the extension's, never chosen by it.
     pub path: String,
     pub limits: LimitsPlan,
+    /// Which of `limits` the backend only checks at planning (see [`Advisory`]). Not part of
+    /// the plan's bytes or digest: it is a function of the backend, the field and chunking.
+    #[serde(skip)]
+    pub advisory: Advisory,
     pub ttl_field: Option<String>,
     /// `none` without a `ttlField`, `provisioned`, or `not-provisioned` when the target
     /// has no physical TTL: expiry is then by Rules and nothing is provisioned for it.
@@ -213,6 +226,14 @@ pub struct LimitsPlan {
     pub max_object_bytes: u64,
     pub max_namespace_bytes: u64,
     pub max_entries: u64,
+}
+/// Which declared limits Remote checks against the backend's ceiling at planning but does not
+/// meter in use, so the owner reads them as sanity bounds rather than enforcement.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Advisory {
+    pub object: bool,
+    pub namespace: bool,
+    pub entries: bool,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct IndexPlan {
@@ -410,6 +431,7 @@ fn extension(target: Target, name: &str, supplied: Supplied<'_>) -> Result<Plann
                     max_namespace_bytes: bounds.max_namespace_bytes,
                     max_entries: bounds.max_entries,
                 },
+                advisory: target.backend.ceilings().advisory(bounds),
                 ttl_field: resource.ttl_field.clone(),
                 ttl,
                 indexes,

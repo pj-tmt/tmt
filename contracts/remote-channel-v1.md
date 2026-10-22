@@ -2462,7 +2462,8 @@ Firestore's 778,680 B is a 1 MiB document less 10,336 B reserved (a 6,144 B docu
 names of at most 64 B plus 1 B each, and 32 B of overhead), with base64 storing three bytes in
 four. "Advisory" means Remote checks the declared number at planning but does not meter use: Firestore
 has no per-collection byte or document limit, and only Rules bound a single document. Cloudflare's
-numbers stay advisory until its backend ticket states its own.
+numbers stay advisory until its backend ticket states its own. The deploy command's human plan
+marks each advisory number `(advisory)`; the JSON plan and its digest are unchanged and carry no mark.
 
 Admission is `{artifact,digest,entryPoint}`: an installed relative artifact path, its lowercase
 SHA-256 hex digest (checked against the artifact's bytes, at most 64 KiB) and its namespace entry point; `local` names the extension's existing admission

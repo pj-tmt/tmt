@@ -747,6 +747,62 @@ fn each_backend_states_its_own_ceilings_per_field() {
 }
 
 #[test]
+fn advisory_marks_follow_the_backend_the_field_and_chunking() {
+    // Which declared numbers Remote only checks at planning and never meters (#2522).
+    // Each case: label, change, then (object, namespace, entries) advisory on Firestore and
+    // on Cloudflare.
+    type Marks = (bool, bool, bool);
+    type Case = (&'static str, Box<dyn Fn(&mut Value)>, Marks, Marks);
+    let cases: Vec<Case> = vec![
+        (
+            "unchunked: a Firestore object is one document the Rules bound",
+            Box::new(|_| {}),
+            (false, true, true),
+            (true, true, true),
+        ),
+        (
+            "chunked: the whole object is only the import sanity bound",
+            Box::new(|l| l["chunkBytes"] = json!(32_768)),
+            (true, true, true),
+            (true, true, true),
+        ),
+    ];
+    for (label, change, firestore, cloudflare) in cases {
+        for (target, expected) in [(FIRESTORE, firestore), (CLOUDFLARE, cloudflare)] {
+            let plan = limit_case(target, &change).unwrap();
+            // The plan sorts resources by name; the case changed the declared `page-log`.
+            let resources = &plan.view().extensions[0].resources;
+            let marks = &resources
+                .iter()
+                .find(|r| r.name == "page-log")
+                .unwrap()
+                .advisory;
+            assert_eq!(
+                (marks.object, marks.namespace, marks.entries),
+                expected,
+                "{label} on {:?}",
+                target.backend
+            );
+        }
+    }
+}
+
+#[test]
+fn advisory_marks_are_not_part_of_the_canonical_plan_bytes() {
+    let plan = limit_case(FIRESTORE, |_| {}).unwrap();
+    let view: Value = serde_json::from_slice(plan.bytes()).unwrap();
+    for (resource, planned) in view["extensions"][0]["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(&plan.view().extensions[0].resources)
+    {
+        assert!(resource.get("advisory").is_none(), "{resource}");
+        assert_eq!(serde_json::to_value(planned).unwrap(), *resource);
+    }
+}
+
+#[test]
 fn the_real_colab_declaration_fits_the_firestore_ceilings() {
     let declaration = include_bytes!("../../../../tmt-colab/firestore/declaration.json");
     let artifact = include_bytes!("../../../../tmt-colab/firestore/admission.rules");

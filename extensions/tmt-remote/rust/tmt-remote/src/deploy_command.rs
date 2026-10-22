@@ -278,13 +278,16 @@ fn render(
         for resource in &extension.resources {
             writeln!(
                 human,
-                "  {}: {} at {}; object {}, namespace {}, entries {}, TTL: {}",
+                "  {}: {} at {}; object {}{}, namespace {}{}, entries {}{}, TTL: {}",
                 resource.name,
                 resource.kind,
                 resource.path,
                 readable_bytes(resource.limits.max_object_bytes),
+                advisory_mark(resource.advisory.object),
                 readable_bytes(resource.limits.max_namespace_bytes),
+                advisory_mark(resource.advisory.namespace),
                 resource.limits.max_entries,
+                advisory_mark(resource.advisory.entries),
                 if resource.ttl == "none" {
                     "none"
                 } else {
@@ -362,6 +365,10 @@ pub fn supersession_message(reason: DeployRefusal, path: &std::path::Path) -> St
         DeployRefusal::PreviousVersionStaged => "An earlier run has a staged Hosting version. Keep the saved record and restore the earlier extension build to finish that plan. An unfinalized version at least 12 hours old can instead be left unreleased by authorizing the displayed abandonment plan.".into(),
         _ => "The plan or its authorization was refused. Nothing changed in your Firebase project. Run without --authorize to read the current plan, then authorize its digest.".into(),
     }
+}
+/// A limit Remote checks at planning but does not meter is labeled, so it is not read as enforced.
+fn advisory_mark(advisory: bool) -> &'static str {
+    if advisory { " (advisory)" } else { "" }
 }
 fn readable_bytes(bytes: u64) -> String {
     let (unit, divisor) = if bytes >= 1024 * 1024 {

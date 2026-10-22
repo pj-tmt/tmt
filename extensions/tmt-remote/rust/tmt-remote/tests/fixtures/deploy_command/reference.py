@@ -45,7 +45,10 @@ def project(view, digest):
         for resource in extension["resources"]:
             limits = resource["limits"]
             ttl = "none" if resource["ttl"] == "none" else "not set up"
-            lines.append(f'  {resource["name"]}: {resource["kind"]} at {resource["path"]}; object {readable_bytes(limits["maxObjectBytes"])}, namespace {readable_bytes(limits["maxNamespaceBytes"])}, entries {limits["maxEntries"]}, TTL: {ttl}')
+            # Firestore bounds an unchunked object as one document (Rules); no backend meters a
+            # namespace or an entry count. None of the fixture resources declares chunkBytes.
+            object_mark = "" if view["backend"] == "firestore" else " (advisory)"
+            lines.append(f'  {resource["name"]}: {resource["kind"]} at {resource["path"]}; object {readable_bytes(limits["maxObjectBytes"])}{object_mark}, namespace {readable_bytes(limits["maxNamespaceBytes"])} (advisory), entries {limits["maxEntries"]} (advisory), TTL: {ttl}')
             lines.extend(f'    Index: {index["field"]} {index["direction"]}' for index in resource["indexes"])
     lines.extend(f'{extension["name"]}: unavailable ({extension["reason"]})' for extension in extensions["unavailable"])
     lines.extend(["Not authorized; nothing changed in your Firebase project.", f'To deploy this plan{" and replace the live Rules" if replaced else ""}, run the same command with --authorize {digest[:12]}'])

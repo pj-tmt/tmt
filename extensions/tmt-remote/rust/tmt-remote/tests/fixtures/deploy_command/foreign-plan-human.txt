@@ -14,15 +14,15 @@ Authorizing plan 83b829ccfef1 allows this replacement.
 Extensions and resources:
 colab (declaration de413d45bc3d)
   Admission: colabAdmitted (artifact f055b672317c)
-  page-blob: blob at x/colab/attachments/default/blobs; object 640 KiB, namespace 64 MiB, entries 256, TTL: none
-  page-checkpoint: checkpoint at x/colab/checkpoints; object 512 KiB, namespace 32 MiB, entries 64, TTL: not set up
+  page-blob: blob at x/colab/attachments/default/blobs; object 640 KiB, namespace 64 MiB (advisory), entries 256 (advisory), TTL: none
+  page-checkpoint: checkpoint at x/colab/checkpoints; object 512 KiB, namespace 32 MiB (advisory), entries 64 (advisory), TTL: not set up
     Index: epoch desc
-  page-log: log at x/colab/log; object 256 KiB, namespace 16 MiB, entries 1024, TTL: not set up
+  page-log: log at x/colab/log; object 256 KiB, namespace 16 MiB (advisory), entries 1024 (advisory), TTL: not set up
     Index: expiresAt asc
     Index: sequence asc
-  presence: awareness at x/colab/presence; object 4 KiB, namespace 64 KiB, entries 64, TTL: none
+  presence: awareness at x/colab/presence; object 4 KiB, namespace 64 KiB (advisory), entries 64 (advisory), TTL: none
 notes (declaration 7fd3251ea3ac)
   Admission: notesAdmitted (artifact abbe87356770)
-  note-log: log at x/notes/log; object 64 KiB, namespace 1 MiB, entries 512, TTL: none
+  note-log: log at x/notes/log; object 64 KiB, namespace 1 MiB (advisory), entries 512 (advisory), TTL: none
 Not authorized; nothing changed in your Firebase project.
 To deploy this plan and replace the live Rules, run the same command with --authorize 83b829ccfef1
