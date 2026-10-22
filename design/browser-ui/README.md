@@ -525,6 +525,8 @@ state, a React component.
   shell's rail counts use the same count box, and the collapsed rail shows it as a corner badge.
 - **Avatar.** `BrowserAvatar` draws the initials of a name or handle (`avatarInitials`) in a
   round mark, size `m` or `s`; it is an image with the name as its label unless `decorative`.
+  `kind="person"` (the default) is the neutral fill; `kind="agent"` is the mint selection fill
+  with the strong accent ink (`data-kind`), so the two read apart without a glyph.
 - **Choice rows.** `BrowserChoice` is a radio or check row with a label and an optional
   sublabel; the whole row is the target and the control is a real input (`tmt-ui-radio`,
   `tmt-ui-checkbox`). `BrowserChoiceGroup` is the fieldset with its legend, `stack` or `inline`.

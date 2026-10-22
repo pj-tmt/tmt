@@ -146,21 +146,27 @@ export function CountChipSection() {
 export function AvatarSection() {
   return (
     <Section id="avatar">
-      <Pair title="BrowserAvatar" note="Initials from a name or handle; round in both themes.">
+      <Pair
+        title="BrowserAvatar"
+        note="Initials from a name or handle; round in both themes. A person is the neutral fill, an agent the mint selection fill."
+      >
         {() => (
           <Cells>
             <Cell label="m · person">
               <BrowserAvatar name="Ben" />
             </Cell>
-            <Cell label="m · handle">
-              <BrowserAvatar name="tmt-ux-lead" />
+            <Cell label="m · agent">
+              <BrowserAvatar name="tmt-ux-lead" kind="agent" />
             </Cell>
-            <Cell label="s">
-              <BrowserAvatar name="core-3" size="s" />
+            <Cell label="s · person">
+              <BrowserAvatar name="Ben" size="s" />
+            </Cell>
+            <Cell label="s · agent">
+              <BrowserAvatar name="core-3" kind="agent" size="s" />
             </Cell>
             <Cell label="decorative, name beside">
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <BrowserAvatar name="tmt-ux-lead" size="s" decorative />
+                <BrowserAvatar name="tmt-ux-lead" kind="agent" size="s" decorative />
                 tmt-ux-lead
               </span>
             </Cell>

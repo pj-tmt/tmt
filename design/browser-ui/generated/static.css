@@ -1676,13 +1676,19 @@ svg.tmt-ui-mark {
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius-pill);
   background: var(--tmt-ui-surface-hover);
-  color: var(--tmt-ui-color-secondary);
+  color: var(--tmt-ui-color-text);
   font: 600 var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-body);
   user-select: none;
 }
 .tmt-ui-avatar[data-size='s'] {
   width: 24px;
   height: 24px;
+}
+
+.tmt-ui-avatar[data-kind='agent'] {
+  border-color: var(--tmt-ui-color-selection-edge);
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-accent-strong);
 }
 
 .tmt-ui-pager {
