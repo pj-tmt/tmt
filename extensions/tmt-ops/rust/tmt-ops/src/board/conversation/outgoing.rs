@@ -594,11 +594,9 @@ impl Session {
                     changed = true;
                 }
                 if let Some(Ok(accepted)) = &mut entry.outcome
-                    && (accepted.message_state_label != send.message_state_label
-                        || accepted.can_send_now != send.can_send_now)
+                    && accepted.message_state_label != send.message_state_label
                 {
                     accepted.message_state_label = send.message_state_label.clone();
-                    accepted.can_send_now = send.can_send_now;
                     entry.feedback_clock = None;
                     changed = true;
                 }
