@@ -16,6 +16,7 @@ import {
   CheckboxSection,
 } from './components.js';
 import { NotificationsSection, OverlaysSection, ShellSection } from './frames.js';
+import { ChartsSection } from './charts.js';
 import { UiLayerSection } from './ui-layer.js';
 
 /** Every gallery section, in the order of `sections` (covered.ts). */
@@ -40,6 +41,7 @@ export function GallerySections() {
       <NoticeSection />
       <OverlaysSection />
       <NotificationsSection />
+      <ChartsSection />
       <UiLayerSection />
     </>
   );

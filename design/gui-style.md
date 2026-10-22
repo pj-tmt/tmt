@@ -524,6 +524,36 @@ Close; arrows navigate, Escape closes, and closing restores the opening tile's
 focus. Thumbnails, grids and cards share the message text's left edge without
 an extra inset, in both Chat and anchored threads. Basis: own.
 
+### Charts
+
+`@tmt/browser-ui/chart` paints three kinds of data view with plain SVG and HTML, no
+dependency and no inline style: `createSeriesChart` (stacked areas, a 100 % share, columns or
+lines on one time axis, with an optional dashed reference line and vertical guides),
+`createMatrix` (who talks to whom) and `createStrips` (rows of fixed slots). Each has a pure
+model (`seriesModel`, `matrixModel`, `stripsModel`) that carries every number, label and
+intensity step; the painter only maps it to elements, so the model is what is unit-tested.
+
+- Colour comes only from tokens. Series use the categorical roles `browser.color.series-1` to
+  `series-7` (blue, orange, aqua, yellow, magenta, green, violet: the validated data-viz order,
+  each stepped for light and dark), separated by a sheet-coloured rule. A chart keeps a few
+  series and folds the rest into one `Other`, drawn in a neutral step of the text colour
+  (`tmt-ui-chart-s7`). Intensity (matrix, strips) uses five steps of the text colour; its text
+  meets 4.5:1 on every step in light and dark (a test computes it). Colour is never the only
+  carrier: every series is named in a legend (a line chart also shows its value at the selected
+  column; a stacked chart leaves values to the hover tip, since a last bucket reads like a total)
+  and the data table is always there.
+- Hovering the plot (or focusing it and using the arrows) shows a tip beside the column with the
+  time and every series' value; a visually hidden live line says the same to assistive technology.
+- A missing observation is never a zero. A line breaks, a cell reads `—`, a slot stays blank;
+  a known none is `·` and the faintest step. Self is a blank cell in the matrix. The same
+  conventions as the terminal Digest.
+- Keyboard: the plot is one tab stop; Left, Right, Home and End move the readout. Every chart
+  also carries a visually hidden data table for assistive technology. A matrix wider than its
+  container scrolls inside its own region; the page never scrolls sideways.
+- Text is repainted at the container's width (ResizeObserver), so type keeps its size at phone
+  and desktop widths. Empty data shows one plain sentence, not an empty axis.
+- More series than a chart keeps (five on Digest) fold into one `Other` with `topLayers`.
+
 ### Status mark
 
 The mark-plus-word unit used by every component above. Sizes match the

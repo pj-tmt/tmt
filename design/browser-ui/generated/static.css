@@ -71,6 +71,13 @@
   --tmt-ui-color-link: #006b8f;
   --tmt-ui-color-annotation-on-action: #ffffff;
   --tmt-ui-color-mention-person: #315e78;
+  --tmt-ui-color-series-1: #2a78d6;
+  --tmt-ui-color-series-2: #eb6834;
+  --tmt-ui-color-series-3: #1baf7a;
+  --tmt-ui-color-series-4: #eda100;
+  --tmt-ui-color-series-5: #e87ba4;
+  --tmt-ui-color-series-6: #008300;
+  --tmt-ui-color-series-7: #6250d6;
   --tmt-ui-surface-scrim: #0000001f;
   --tmt-ui-surface-command: #eaeaea;
   --tmt-ui-surface-code: #f0f0f0;
@@ -114,6 +121,13 @@
     --tmt-ui-color-link: #7dcfff;
     --tmt-ui-color-annotation-on-action: #ffffff;
     --tmt-ui-color-mention-person: #b6d8ec;
+    --tmt-ui-color-series-1: #3987e5;
+    --tmt-ui-color-series-2: #d95926;
+    --tmt-ui-color-series-3: #199e70;
+    --tmt-ui-color-series-4: #c98500;
+    --tmt-ui-color-series-5: #d55181;
+    --tmt-ui-color-series-6: #008300;
+    --tmt-ui-color-series-7: #9085e9;
     --tmt-ui-surface-scrim: #00000052;
     --tmt-ui-surface-command: #202020;
     --tmt-ui-surface-code: #171717;
@@ -157,6 +171,13 @@
   --tmt-ui-color-link: #006b8f;
   --tmt-ui-color-annotation-on-action: #ffffff;
   --tmt-ui-color-mention-person: #315e78;
+  --tmt-ui-color-series-1: #2a78d6;
+  --tmt-ui-color-series-2: #eb6834;
+  --tmt-ui-color-series-3: #1baf7a;
+  --tmt-ui-color-series-4: #eda100;
+  --tmt-ui-color-series-5: #e87ba4;
+  --tmt-ui-color-series-6: #008300;
+  --tmt-ui-color-series-7: #6250d6;
   --tmt-ui-surface-scrim: #0000001f;
   --tmt-ui-surface-command: #eaeaea;
   --tmt-ui-surface-code: #f0f0f0;
@@ -199,6 +220,13 @@
   --tmt-ui-color-link: #7dcfff;
   --tmt-ui-color-annotation-on-action: #ffffff;
   --tmt-ui-color-mention-person: #b6d8ec;
+  --tmt-ui-color-series-1: #3987e5;
+  --tmt-ui-color-series-2: #d95926;
+  --tmt-ui-color-series-3: #199e70;
+  --tmt-ui-color-series-4: #c98500;
+  --tmt-ui-color-series-5: #d55181;
+  --tmt-ui-color-series-6: #008300;
+  --tmt-ui-color-series-7: #9085e9;
   --tmt-ui-surface-scrim: #00000052;
   --tmt-ui-surface-command: #202020;
   --tmt-ui-surface-code: #171717;
@@ -2251,4 +2279,415 @@ svg.tmt-ui-mark {
   .tmt-ui-busy-dot:nth-child(6) {
     opacity: 1;
   }
+}
+
+.tmt-ui-chart {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-chart-title {
+  margin: 0 0 var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-eyebrow-size);
+  font-weight: var(--tmt-ui-eyebrow-weight);
+  letter-spacing: var(--tmt-ui-eyebrow-tracking);
+  text-transform: uppercase;
+}
+.tmt-ui-chart-empty {
+  margin: 0;
+  padding: var(--tmt-ui-space-l);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+}
+.tmt-ui-chart-plot {
+  display: block;
+  max-width: 100%;
+  background: var(--tmt-ui-surface-sheet);
+}
+.tmt-ui-chart-plot:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.tmt-ui-chart-grid {
+  stroke: var(--tmt-ui-surface-rule);
+  stroke-width: var(--tmt-ui-rule-width);
+}
+.tmt-ui-chart-tick {
+  fill: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+}
+.tmt-ui-chart-area,
+.tmt-ui-chart-bar {
+  stroke: var(--tmt-ui-surface-sheet);
+  stroke-width: var(--tmt-ui-rule-width);
+}
+.tmt-ui-chart-line {
+  fill: none;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+}
+.tmt-ui-chart-reference {
+  fill: none;
+  stroke: var(--tmt-ui-color-secondary);
+  stroke-width: var(--tmt-ui-rule-width);
+  stroke-dasharray: 5 4;
+}
+.tmt-ui-chart-guide {
+  stroke: var(--tmt-ui-color-edge);
+  stroke-width: var(--tmt-ui-rule-width);
+  stroke-dasharray: 2 3;
+}
+.tmt-ui-chart-cursor {
+  stroke: var(--tmt-ui-color-selected-text);
+  stroke-width: var(--tmt-ui-rule-width);
+}
+/* The readout stays for assistive technology (a live region); sighted readers get the hover tip. */
+.tmt-ui-chart-readout {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.tmt-ui-chart-frame {
+  position: relative;
+  max-width: 100%;
+}
+.tmt-ui-chart-tip {
+  position: absolute;
+  top: var(--tmt-ui-space-s);
+  z-index: 1;
+  min-width: 12ch;
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-header-action-size) / 1.4 var(--tmt-ui-font-mono);
+  pointer-events: none;
+}
+.tmt-ui-chart-tip[hidden] {
+  display: none;
+}
+.tmt-ui-chart-tip-left {
+  transform: translateX(-100%);
+}
+.tmt-ui-chart-tip-title {
+  margin-bottom: var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-chart-tip-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tmt-ui-space-s);
+  white-space: nowrap;
+}
+.tmt-ui-chart-tip-label {
+  flex: 1;
+}
+.tmt-ui-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-l);
+  margin: var(--tmt-ui-space-s) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--tmt-ui-header-action-size);
+}
+.tmt-ui-chart-legend-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--tmt-ui-space-xs);
+  min-width: 0;
+}
+.tmt-ui-chart-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+}
+.tmt-ui-chart-swatch-reference {
+  height: 0;
+  border-width: var(--tmt-ui-rule-width) 0 0;
+  border-style: dashed;
+  background: none;
+}
+.tmt-ui-chart-legend-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tmt-ui-chart-legend-value {
+  color: var(--tmt-ui-color-secondary);
+  font-family: var(--tmt-ui-font-mono);
+}
+.tmt-ui-chart-data {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.tmt-ui-chart-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.tmt-ui-chart-scroll:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.tmt-ui-chart-matrix {
+  border-collapse: collapse;
+  font: var(--tmt-ui-header-action-size) / 1.4 var(--tmt-ui-font-mono);
+}
+.tmt-ui-chart-matrix th,
+.tmt-ui-chart-cell {
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-chart-matrix-corner,
+.tmt-ui-chart-matrix-column,
+.tmt-ui-chart-matrix-row {
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 400;
+}
+.tmt-ui-chart-matrix-corner,
+.tmt-ui-chart-matrix-row {
+  text-align: left;
+}
+.tmt-ui-chart-matrix-column {
+  text-align: right;
+}
+.tmt-ui-chart-matrix-name {
+  display: inline-block;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.tmt-ui-chart-cell {
+  min-width: 6ch;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  text-align: right;
+}
+.tmt-ui-chart-cell-self {
+  background: var(--tmt-ui-surface-paper);
+}
+.tmt-ui-chart-cell-sum {
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-selected-text);
+}
+.tmt-ui-chart-strips {
+  --tmt-chart-strip-gap: 3px;
+  --tmt-chart-strip-max: 12px;
+  display: grid;
+  grid-template-columns: minmax(6ch, 12ch) minmax(0, 1fr);
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 640px) {
+  .tmt-ui-chart-strips {
+    --tmt-chart-strip-max: 40px;
+  }
+}
+.tmt-ui-chart-strip-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+.tmt-ui-chart-strip-label {
+  overflow: hidden;
+  color: var(--tmt-ui-color-text);
+  font-size: var(--tmt-ui-header-action-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Square slots that fill the card: each is the card's width over the slot count, from 12 px up to
+   40 px on a wide screen, left-aligned. On a narrow screen the gap shrinks first and then the
+   slots, so a row never scrolls sideways. The slot count (`--tmt-chart-strip-count`, set on the
+   list) bounds the row and its end labels to the same width. */
+.tmt-ui-chart-strip,
+.tmt-ui-chart-strip-ends {
+  width: min(
+    100%,
+    calc(
+      var(--tmt-chart-strip-count) * var(--tmt-chart-strip-max) +
+        (var(--tmt-chart-strip-count) - 1) * var(--tmt-chart-strip-gap)
+    )
+  );
+}
+.tmt-ui-chart-strip {
+  display: flex;
+  gap: var(--tmt-chart-strip-gap);
+  min-width: 0;
+}
+.tmt-ui-chart-slot {
+  flex: 1 1 12px;
+  min-width: 0;
+  max-width: var(--tmt-chart-strip-max);
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+}
+.tmt-ui-chart-slot:focus-visible {
+  outline: none;
+  border: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+.tmt-ui-chart-slot-none {
+  border-style: dashed;
+  background: transparent;
+}
+.tmt-ui-chart-strip-ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+}
+.tmt-ui-chart-strip-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: var(--tmt-ui-space-m);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.tmt-ui-chart-strip-legend > span:first-child {
+  margin-right: var(--tmt-ui-space-xs);
+}
+.tmt-ui-chart-strip-legend > span:last-child {
+  margin-left: var(--tmt-ui-space-xs);
+}
+.tmt-ui-chart-strip-legend .tmt-ui-chart-slot {
+  flex: none;
+  width: 12px;
+}
+@media (max-width: 520px) {
+  .tmt-ui-chart-strips {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tmt-ui-chart-strips {
+    --tmt-chart-strip-gap: 1px;
+  }
+  .tmt-ui-chart-strip-label:empty {
+    display: none;
+  }
+}
+.tmt-ui-chart-s0 {
+  fill: var(--tmt-ui-color-series-1);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-1);
+}
+.tmt-ui-chart-s1 {
+  fill: var(--tmt-ui-color-series-2);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-2);
+}
+.tmt-ui-chart-s2 {
+  fill: var(--tmt-ui-color-series-3);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-3);
+}
+.tmt-ui-chart-s3 {
+  fill: var(--tmt-ui-color-series-4);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-4);
+}
+.tmt-ui-chart-s4 {
+  fill: var(--tmt-ui-color-series-5);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-5);
+}
+.tmt-ui-chart-s5 {
+  fill: var(--tmt-ui-color-series-6);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-6);
+}
+.tmt-ui-chart-s6 {
+  fill: var(--tmt-ui-color-series-7);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-7);
+}
+.tmt-ui-chart-s7 {
+  fill: color-mix(in srgb, var(--tmt-ui-color-text) 38%, var(--tmt-ui-surface-sheet));
+  stroke-linecap: round;
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 38%, var(--tmt-ui-surface-sheet));
+}
+.tmt-ui-chart-line.tmt-ui-chart-s0,
+.tmt-ui-chart-line.tmt-ui-chart-s1,
+.tmt-ui-chart-line.tmt-ui-chart-s2,
+.tmt-ui-chart-line.tmt-ui-chart-s3,
+.tmt-ui-chart-line.tmt-ui-chart-s4,
+.tmt-ui-chart-line.tmt-ui-chart-s5,
+.tmt-ui-chart-line.tmt-ui-chart-s6,
+.tmt-ui-chart-line.tmt-ui-chart-s7 {
+  fill: none;
+}
+.tmt-ui-chart-line.tmt-ui-chart-s0 {
+  stroke: var(--tmt-ui-color-series-1);
+}
+.tmt-ui-chart-line.tmt-ui-chart-s1 {
+  stroke: var(--tmt-ui-color-series-2);
+}
+.tmt-ui-chart-line.tmt-ui-chart-s2 {
+  stroke: var(--tmt-ui-color-series-3);
+}
+.tmt-ui-chart-line.tmt-ui-chart-s3 {
+  stroke: var(--tmt-ui-color-series-4);
+}
+.tmt-ui-chart-line.tmt-ui-chart-s4 {
+  stroke: var(--tmt-ui-color-series-5);
+}
+.tmt-ui-chart-line.tmt-ui-chart-s5 {
+  stroke: var(--tmt-ui-color-series-6);
+}
+.tmt-ui-chart-line.tmt-ui-chart-s6 {
+  stroke: var(--tmt-ui-color-series-7);
+}
+.tmt-ui-chart-line.tmt-ui-chart-s7 {
+  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 38%, var(--tmt-ui-surface-sheet));
+}
+.tmt-ui-chart-level-1 {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 10%, var(--tmt-ui-surface-sheet));
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-chart-level-2 {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 20%, var(--tmt-ui-surface-sheet));
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-chart-level-3 {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 30%, var(--tmt-ui-surface-sheet));
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-chart-level-4 {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 72%, var(--tmt-ui-surface-sheet));
+  color: var(--tmt-ui-surface-sheet);
+}
+.tmt-ui-chart-level-5 {
+  background: color-mix(in srgb, var(--tmt-ui-color-text) 88%, var(--tmt-ui-surface-sheet));
+  color: var(--tmt-ui-surface-sheet);
+}
+.tmt-ui-chart-slot-1 {
+  background: color-mix(in srgb, var(--tmt-ui-color-series-1) 30%, var(--tmt-ui-surface-sheet));
+}
+.tmt-ui-chart-slot-2 {
+  background: color-mix(in srgb, var(--tmt-ui-color-series-1) 50%, var(--tmt-ui-surface-sheet));
+}
+.tmt-ui-chart-slot-3 {
+  background: color-mix(in srgb, var(--tmt-ui-color-series-1) 75%, var(--tmt-ui-surface-sheet));
+}
+.tmt-ui-chart-slot-4 {
+  background: color-mix(in srgb, var(--tmt-ui-color-series-1) 100%, var(--tmt-ui-surface-sheet));
 }

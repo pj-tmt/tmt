@@ -15,7 +15,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/shell` exports the
 [Shell](../gui-style.md#shell) model (`shellRail`, `describedMenu`, `shellCount`), its reader
 `loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
-(`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/react`
+(`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/chart` exports the framework-free chart painters and their pure models ([Charts](../gui-style.md#charts)); `@tmt/browser-ui/react`
 exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot), `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
 `BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
