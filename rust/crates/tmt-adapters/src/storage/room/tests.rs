@@ -246,6 +246,7 @@ fn dispatch(room: &MeetingRoom) -> DispatchInput {
             room_id: room.id.clone(),
             revision: room.revision,
         }),
+        mode: tmt_core::request::digest::DeliveryMode::Request,
     }
 }
 

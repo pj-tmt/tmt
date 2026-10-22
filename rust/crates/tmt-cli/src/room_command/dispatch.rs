@@ -114,6 +114,7 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
                         room_id: room.id,
                         revision: room.revision,
                     }),
+                    mode: tmt_core::request::digest::DeliveryMode::Request,
                 },
                 settings.retention_days,
                 wall_time_ms,

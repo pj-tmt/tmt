@@ -25,6 +25,36 @@ use super::{
     identities::with_immediate_transaction,
 };
 
+/// What is stored about whether an identity's pane could take typed input: no probe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PassthroughFacts {
+    pub bound: bool,
+    pub runtime: tmt_core::binding::session::RuntimeState,
+    pub phase: Option<tmt_core::binding::session::activity::ActivityPhase>,
+}
+
+impl Storage {
+    /// `None` when the identity is unknown or retired.
+    pub fn passthrough_facts(
+        &self,
+        identity: &str,
+    ) -> Result<Option<PassthroughFacts>, StorageError> {
+        use tmt_core::binding::BindingRecords;
+        let db = self.connection()?;
+        let Some(entry) = crate::storage::bindings::BindingRows(db).entry_by_id(identity)? else {
+            return Ok(None);
+        };
+        Ok(Some(PassthroughFacts {
+            bound: entry.binding.is_some(),
+            runtime: entry
+                .binding
+                .as_ref()
+                .map_or_else(Default::default, |binding| binding.session.state),
+            phase: delivery::activity(db, identity)?.map(|activity| activity.phase),
+        }))
+    }
+}
+
 struct RequestRows<'a>(&'a Connection);
 
 /// A caller-owned SQLite transaction can compose canonical request operations

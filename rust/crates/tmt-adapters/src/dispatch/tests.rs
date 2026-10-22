@@ -244,3 +244,47 @@ fn full_exact_text_and_recipient_limits_fit_their_json_envelopes() {
         .push(json!("33333333-3333-4333-8333-333333333333"));
     assert!(decode_input(&serde_json::to_vec(&wire).unwrap()).is_none());
 }
+
+#[test]
+fn passthrough_is_one_direct_person_request_and_request_mode_preserves_old_replay() {
+    use tmt_core::request::digest::DeliveryMode;
+    let mut wire = valid();
+    let original = decode_input(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert_eq!(original.mode, DeliveryMode::Request);
+    wire["mode"] = json!("request");
+    let explicit = decode_input(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert_eq!(intent_digest(&original), intent_digest(&explicit));
+    wire["mode"] = json!("passthrough");
+    let passthrough = decode_input(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert_eq!(passthrough.mode, DeliveryMode::Passthrough);
+    // The same operation id in the other mode is a different intent.
+    assert_ne!(intent_digest(&original), intent_digest(&passthrough));
+    // Nothing but the two modes is admitted.
+    for value in [json!("Passthrough"), json!("typed"), json!(""), json!(true)] {
+        wire["mode"] = value;
+        assert!(decode_input(&serde_json::to_vec(&wire).unwrap()).is_none());
+    }
+    // One recipient, a request, a person's origin, and no room.
+    let refused = |patch: &dyn Fn(&mut serde_json::Value)| {
+        let mut wire = valid();
+        wire["mode"] = json!("passthrough");
+        patch(&mut wire);
+        assert!(decode_input(&serde_json::to_vec(&wire).unwrap()).is_none());
+    };
+    refused(&|wire| {
+        wire["recipientIds"] = json!([
+            "22222222-2222-4222-8222-222222222222",
+            "33333333-3333-4333-8333-333333333333"
+        ])
+    });
+    refused(&|wire| wire["kind"] = json!("announcement"));
+    refused(&|wire| wire["origin"] = json!("automation"));
+    refused(&|wire| {
+        wire["room"] =
+            json!({"kind":"roster","roomId":"44444444-4444-4444-8444-444444444444","revision":1})
+    });
+    // Like `talk --passthrough`, no room at all.
+    refused(&|wire| {
+        wire["room"] = json!({"kind":"direct","roomId":"44444444-4444-4444-8444-444444444444"})
+    });
+}

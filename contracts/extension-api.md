@@ -53,7 +53,7 @@ independent of storage access.
 | `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–10, default 10)                                  | `identityId`, `items`: locally retained provider-final pane output (see below)                                                                                    |
 | `pane.screen`            | `identityId` (canonical UUID)                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                         |
 | `dispatch.show`          | `operationId`                                                                                       | Immutable acceptance receipt                                                                                                                                      |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`                         | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                               | Room resource                                                                                                                                                     |
 | `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                                             | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT` |
 | `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`                                       | `room` resource and `members` with metadata and status                                                                                                            |
@@ -69,7 +69,7 @@ independent of storage access.
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                     | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                           |
 | `user.identity`          | `{}`                                                                                                | `identityId`, `name`, `created`, optional `renamedFrom`: the person's saved identity (see [below](#the-persons-identity))                                         |
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                            |
-| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
+| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, and `canPassthrough` (see [below](#passthrough-dispatch))       |
 | `extensions.uses`        | `extension`, `feature`                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
 
 `storage.root` reports the data directory selected by the invoking core, including
@@ -615,6 +615,32 @@ creates, never changes, and is part of the intent, so replaying an operation id
 with the other value conflicts while an absent value keeps every earlier digest.
 `tmt talk`, `send`, `room send` and MCP always record a person. Like `sender`, the
 declaration is local attribution, not authentication.
+
+### Passthrough dispatch
+
+`dispatch.create.mode` is `request` (default) or `passthrough`; anything else is
+`API_INPUT_INVALID`. A passthrough is the [typed message](request-response-v1.md#passthrough)
+of `tmt talk --passthrough`: one recipient, `kind: request`, no `origin: automation`
+and no room, or the input is `API_INPUT_INVALID`. The envelope `identity` must carry the
+`user` mark. The mode is part of the intent, so replaying an operation id in the other
+mode conflicts while an absent mode keeps every earlier digest. Two refusals are
+returned before anything is stored, with the command's codes: `PASSTHROUGH_NOT_ALLOWED`
+(the sender is not a person) and `PASSTHROUGH_UNAVAILABLE` (the recipient cannot take
+typed input; the message names why). A replay returns the stored receipt without that
+check and types nothing.
+
+On acceptance the text is typed as written (only the protective `!` to `！`), with no
+wake line, and the first response's `wake` reports that typing with the table below.
+Whether the agent answered is read from `requests.show` (`mode: "passthrough"` and its
+capture). The agent gets no request, attention or reply receipt.
+
+`identities.status` adds `canPassthrough: {available, reason?}` to every found identity,
+from stored facts only (no probe), so a client can offer the action. `reason` is set when
+`available` is false and is one of `no_pane` (no binding, or retired), `not_running` (its
+agent ended) or `awaiting_approval` (it is waiting on its user, so the delivery would be
+refused). The set is open: treat an unknown reason as unavailable. It is a hint, not a
+lease: the send verifies the pane again. Whether the answer can be captured is not part
+of it; without the usage or hook evidence the answer reads `no_answer` and the send still works.
 
 ### Admission, wake and completion
 

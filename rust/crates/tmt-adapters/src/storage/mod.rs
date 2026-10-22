@@ -43,6 +43,7 @@ pub use dispatch::DispatchError;
 pub use errors::{StorageError, StorageErrorCode, classify};
 use errors::{classify_io, classify_open, incompatible};
 pub use host_servers::{HostServerIncarnation, RecordedHostServers};
+pub use requests::PassthroughFacts;
 pub use responses::ResponseCapture;
 pub use room::RoomStoreError;
 pub use room_roster::{RoomRoster, RosterError, RosterMember};

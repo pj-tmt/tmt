@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tmt_core::request::{RequestKind, RequestOrigin, WakeState};
+use tmt_core::request::{RequestKind, RequestOrigin, WakeState, digest::DeliveryMode};
 
 use tmt_core::{
     dispatch::{
@@ -32,6 +32,9 @@ struct InputWire {
     /// Only an extension composing automated traffic declares an origin; absent is a person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     origin: Option<OriginWire>,
+    /// Absent is a request, so every request-mode intent digest is unchanged.
+    #[serde(default, skip_serializing_if = "ModeWire::is_request")]
+    mode: ModeWire,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -46,6 +49,20 @@ enum KindWire {
     #[default]
     Request,
     Announcement,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum ModeWire {
+    #[default]
+    Request,
+    Passthrough,
+}
+
+impl ModeWire {
+    fn is_request(&self) -> bool {
+        matches!(self, Self::Request)
+    }
 }
 
 impl KindWire {
@@ -107,6 +124,10 @@ pub fn decode_input(bytes: &[u8]) -> Option<DispatchInput> {
         recipient_ids: wire.recipient_ids,
         message: wire.message,
         room: wire.room.map(Into::into),
+        mode: match wire.mode {
+            ModeWire::Request => DeliveryMode::Request,
+            ModeWire::Passthrough => DeliveryMode::Passthrough,
+        },
     }
     .normalize()
 }
@@ -123,6 +144,10 @@ pub(crate) fn intent_digest(input: &DispatchInput) -> String {
         room: input.room.as_ref().map(Into::into),
         // A person's origin is the default, so historical intent digests are unchanged.
         origin: (input.origin == RequestOrigin::Automation).then_some(OriginWire::Automation),
+        mode: match input.mode {
+            DeliveryMode::Request => ModeWire::Request,
+            DeliveryMode::Passthrough => ModeWire::Passthrough,
+        },
     };
     // Hash the complete normalized intent, including direct vs roster semantics.
     // Identity provenance participates only when the CLI supplies a known sender.

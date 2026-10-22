@@ -51,6 +51,10 @@ configuration. The owner map is in
   `open_requests` applies it, so "waiting on you" is an open-request question, not an attention
   one. `answer_target` selects one open request by recipient and originator, never guessing, and
   derives the route proof in process.
+- `tmt_adapters::passthrough` owns the sender rule, the recipient check (`can`, from
+  `Storage::passthrough_facts`; only a bound, not-ended agent that is not waiting on approval)
+  and the refusal codes and texts that `talk --passthrough` and `dispatch.create` share;
+  `delivery::deliver_request` types the text and settles it as a request delivery.
 - A request's delivery mode (`request` or `passthrough`, in `request_delivery_policies`) decides
   what the recipient is handed. A passthrough is a person's typed text: Core refuses it unless the
   originator carries the `user` mark, queues it without publishing recipient attention, keeps it
