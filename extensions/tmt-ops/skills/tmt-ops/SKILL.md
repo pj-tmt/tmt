@@ -1244,6 +1244,16 @@ unchanged; `@squad` never broadcasts or chooses a lead. Cron stores the literal 
 and later renames do not rewrite it. Colab addressing has its own semantics; a page
 link in the conversation does not authorize native page/thread writes.
 
+`l` in the Talk pane swaps the chat for the selected agent's live screen: its
+visible pane with the colours and bold, dim, italic, underline and reverse it
+draws, read about once a second while it is shown, and `l` again returns to the
+chat. The rule above it says `Live screen 120×40 · updated 1s ago`, adding
+`· clipped` when the pane is wider than the board's and `· stale` when the last
+read failed (the last good screen stays; retries wait 2, 4, then 8 seconds). A
+gone pane says `This pane is gone. Pick the agent again.`; an unavailable read
+says why in words. The screen is not selectable and takes no typing; the composer
+stays below it. An authored `l` binding keeps its meaning and the toggle is off.
+
 Dragging rendered response text opens a labelled exact source view; it does not
 guess raw byte ranges from styled text. Select on the freshly painted raw view,
 then use its annotation control to attach the exact source without sending. Esc

@@ -219,6 +219,17 @@ shared paste/file fold painter, current-hit fences, atomic × removal and full-s
 preview also serve quotes. Caret motion skips collapsed folds; there is no undo
 facility. Literal quotes grant no request authority and need no source revalidation.
 
+`board::conversation::screen` shows the selected agent's `pane.screen` in the Talk
+pane while `l` is on (`screen_mode`); it replaces the chat and every chat read,
+and the Agents-tab Talk pane draws it through `agents_focus`. It is one
+selected-read lane, `SelectedRead::PaneScreen(key, round)`: a read is requested
+only when the pane is visible and `screen_due_ms` has passed, `round` makes each
+request distinct, and a result applies only while the same read is still
+selected. A failed read keeps the last good screen marked stale and doubles the
+wait up to eight seconds. `board::screen_view` is the trust boundary: it keeps SGR
+and drops every other escape and control from the foreign text, and maps colour
+by the terminal's depth. The screen is not selectable.
+
 `board::response` separately owns exact raw source, the full-response Reader and
 request-bound row-note admission. Its selections insert through the same inline
 fold owner, retaining request, passage and recipient revalidation. Sending replaces

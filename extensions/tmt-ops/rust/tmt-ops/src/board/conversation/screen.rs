@@ -500,10 +500,7 @@ pub(in crate::board) mod tests {
         });
         for _ in 0..5 {
             round += 1;
-            at = {
-                let due = app.conversation.borrow().sessions[&key].screen_due_ms;
-                due
-            };
+            at = { app.conversation.borrow().sessions[&key].screen_due_ms };
             crate::status::with_now_ms(at, || {
                 assert_eq!(app.pane_screen_read(), Some((key.clone(), round)));
                 app.apply_pane_screen(key.clone(), round, Observation::Unavailable("down".into()));
