@@ -804,6 +804,6 @@ it('keeps the host E2E bootstrap independent of installed packages', () => {
   ).toEqual([]);
   expect(read('.dockerignore').split('\n')).toContain('**/node_modules');
   const image = read('typescript/test/e2e/Dockerfile');
-  expect(image).toContain('RUN npm install --global pnpm@10.33.0');
+  expect(image).toContain('RUN corepack prepare pnpm@10.33.0 --activate');
   expect(image).toContain('RUN cd typescript && pnpm --filter tmt install --frozen-lockfile');
 });

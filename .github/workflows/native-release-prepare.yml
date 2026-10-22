@@ -55,7 +55,7 @@ jobs:
           ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Resolve once from captured source and published CLI ancestry
         id: capture
         env:
@@ -512,7 +512,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - uses: actions/download-artifact@v4
         with:
           name: native-release-${{ inputs.product }}-bundle-${{ inputs.tag || 'main' }}

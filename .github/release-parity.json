@@ -5,7 +5,7 @@
     "native-release.yml": {
       "plan": {
         "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:plan"],
-        "sha256": "62740008dab2b6f1731cd2c02bba1ff1ceac7fbdddb167b5e150e7cf178c09bd",
+        "sha256": "54c21fa5fafa1c21df7bc41dcd6bbbf786550237945c878b075fd7e68c58ed4e",
         "releaseOnly": "Preparation and draft/recovery admission are main-only: this job resolves live draft and release state that cannot exist before publication. Tagless preparation itself runs before merge through the release rehearsal, which skips this planning."
       },
       "bundle": {
@@ -23,7 +23,7 @@
           "id:index-app",
           "name:Advance the verified release index"
         ],
-        "sha256": "5ba356334d344225e6511a25ef2eb3a1e54b10842a4d7c130fc7dd8da2113b24"
+        "sha256": "bb7f7968ab4f1fcb0d749889944c6f1a67174bc9723d7596f389e71e4454c5e1"
       }
     },
     "native-release-bundle.yml": {
@@ -34,7 +34,7 @@
           "id:check",
           "id:declaration"
         ],
-        "sha256": "73f0a88fbacf2ff2d09b4325958300b23f1825c00df22af0184ed37a75e529b9",
+        "sha256": "0dad3fdcb71c00252427944906ff3bfb5c89a28fd967cec046d38b7b7dbc3f1f",
         "releaseOnly": "Admission re-reads a live draft and its failure/bundle markers immediately before building; those mutation races exist only in the allocated release pipeline."
       },
       "prepare": {
@@ -61,7 +61,7 @@
           "uses:actions/download-artifact@v4",
           "name:Attach the bundle to the draft release"
         ],
-        "sha256": "cf1c721bb9d3f30bba6517b315d5108763713c58bc9f326606ca2683e915e009",
+        "sha256": "1491ba96f11ca4420142a3ebf530068ee4f1a49eb664cf0ead162014f2f133ea",
         "releaseOnly": "Uploading to a real draft, re-reading asset digests and attaching the completeness marker require an allocated draft and publication privileges."
       },
       "record-failure": {
@@ -70,7 +70,7 @@
           "uses:actions/setup-node@v4",
           "name:Record the failure on the draft release"
         ],
-        "sha256": "6308980b351edfc783576b8b7878ba85ae8003872f47989b0c56f177a121d0b9",
+        "sha256": "f0f5cf4d24f933596399a0803f99d98241954271985c30e82bc1b5faae52f79c",
         "releaseOnly": "The durable failure marker is a write to a real allocated draft; pre-merge tests cover the marker policy without performing this write."
       },
       "gates": {
@@ -106,12 +106,12 @@
           "uses:actions/setup-node@v4",
           "name:Publish the draft under the product's policy"
         ],
-        "sha256": "9c4e58ae27ac97f1fc60611c1e75d511b69cabf41c9ec8b7d4b842f25f3d6920",
+        "sha256": "61ea7c2fd6ef536cd29f406871d0edfd51045e9ba879b01ebaae3f620bffc503",
         "releaseOnly": "Publishing the allocated immutable release is an authorized side effect that cannot happen in pre-merge verification."
       },
       "published": {
         "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:verify"],
-        "sha256": "b6a8754823b0447c9b088715a3b0446bbd85c30d7f78fa911d4bee430fc8d91f",
+        "sha256": "efad7062bde88d88c514efb2dd60bbaaf04b392e79ad078785c4cf199c4ed2ff",
         "releaseOnly": "Public immutable flags, exact tag ancestry and GitHub release/asset attestations can only be read back after publication. This reusable verifier returns verified-publication evidence without environment App secrets; smoke and Project dispatch remain its dependents."
       },
       "smoke": {
@@ -231,7 +231,7 @@
           "id:assess",
           "name:Hand the assets to the proof"
         ],
-        "sha256": "803e73d52214737fae5fd2aaa98cdc2b33b1a7723e20468bea07be5675ebb5ca",
+        "sha256": "1949ff5fec794320224f1850e25eae48402ee402d3be9de0a1f427b156c5e239",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -302,7 +302,7 @@
           }
         ],
         "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:capture"],
-        "sha256": "717cd720d7b52af26888f175f20f53e629b1b98f9ded131721ce5db8a70cc1de"
+        "sha256": "8468d33195570b07d0c422b7cdea46c6433e3effdd6b5bdc76657d04c1c3ca3a"
       }
     },
     "native-release-upgrade.yml": {
@@ -315,7 +315,7 @@
           "id:assess",
           "name:Hand the assets to the proof"
         ],
-        "sha256": "f4679c63e310b93657d1e41b46acf7d30a36fbfdfe660f0100fd66b2df4dad13",
+        "sha256": "aa64184a610257eddb94338877e6f3314650ec9fa976866e35d6ef1471cbe742",
         "releaseOnly": "The write-token fetch reads live draft and published release state and the asset digests GitHub recorded, which cannot exist before publication. The rehearsal stages its candidate from the verified local bundle through the same release-upgrade.mjs staging path (the prepare workflow's upgrade-fetch job)."
       },
       "prove": {
@@ -378,7 +378,7 @@
           "id:failure",
           "name:Fail a release the proof cannot run for"
         ],
-        "sha256": "7bbaa4e2a850f183fd29b7948d3626c10cb526c08c13a64a08402be19ea203ad",
+        "sha256": "7b63f062c9f0e24f4d9c3942e2852cf898185efdbda93cf6fcb8f39dbddf84ba",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -411,7 +411,7 @@
           "uses:actions/download-artifact@v4",
           "name:Open or update the issue"
         ],
-        "sha256": "16a64422ddd49509b2f5180116ffaaa01969629a2217cb94da4576e178f8f60f",
+        "sha256": "afa2bb6ca61d80ce438ad61c93976e1582050b2bcf86bbd645c7db426437623e",
         "releaseOnly": "Opening/updating a failure issue is a post-publication reporting side effect; it does not establish candidate verification."
       }
     },
@@ -444,7 +444,7 @@
           "id:index-app",
           "name:Backfill the verified historical release"
         ],
-        "sha256": "eac7ab1d09e4b4448ac56d925316e26eb9cb390dcd46a7f08062ed26a8ae8a2f",
+        "sha256": "5bc82fae03cd1fff4bb231f5f5a3fd275462b7e41535ed7cf51b17c3d8d2259f",
         "preMerge": [
           {
             "workflow": "ci.yml",

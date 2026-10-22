@@ -38,7 +38,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Name exact native E2E dependencies
         id: key
         run: node typescript/scripts/e2e-dependency-cache.mjs key >> "$GITHUB_OUTPUT"

@@ -57,7 +57,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Install the pinned metadata toolchain
         run: rustup toolchain install 1.97.0 --profile minimal
       - name: Restore dependency cache for locked source acquisition

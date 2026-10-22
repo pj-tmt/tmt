@@ -68,7 +68,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Check the draft release
         id: check
         env:
@@ -124,7 +124,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - uses: actions/download-artifact@v4
         with:
           name: native-release-${{ inputs.product }}-bundle-${{ inputs.tag }}
@@ -154,7 +154,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Record the failure on the draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -289,7 +289,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Publish the draft under the product's policy
         env:
           GH_TOKEN: ${{ github.token }}
@@ -317,7 +317,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Check immutability, flags, tag and attestation of the published release
         id: verify
         env:

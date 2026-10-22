@@ -222,7 +222,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       # The logs were written by the release commit's own scripts; this job runs this
       # repository's code and reads them as data, so what it outputs is one bounded line.
       - uses: actions/download-artifact@v4
