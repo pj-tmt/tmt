@@ -348,6 +348,253 @@ body:not(:has(.tmt-ui-shell)) {
 .usage-table td {
   font-family: var(--tmt-ui-font-mono);
 }
+/* Digest: the team's usage at a glance. Flat sheets with rule borders, square, no shadows; it uses
+   the shell's content width and its rows stack to one column under 900 px. */
+.tmt-page.digest {
+  width: min(100% - 32px, 1440px);
+}
+.digest-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-m) var(--tmt-ui-space-xl);
+  margin-bottom: var(--tmt-ui-space-xl);
+}
+.digest-subtitle {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+}
+.digest-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+}
+.digest-controls .usage-note {
+  margin: 0;
+}
+.digest-badge {
+  display: inline-block;
+  margin: 0;
+  padding: 0 var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.digest-badge[hidden] {
+  display: none;
+}
+.digest-segments {
+  display: inline-flex;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.digest-segment {
+  min-width: 3.5em;
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-m);
+  border: 0;
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.digest-segment:first-child {
+  border-left: 0;
+}
+.digest-segment[aria-selected='true'],
+.digest-segment[aria-pressed='true'] {
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-selected-text);
+  font-weight: 600;
+}
+.digest-segment:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.digest-sections {
+  display: grid;
+  gap: var(--tmt-ui-space-xl);
+  min-width: 0;
+}
+.digest-row {
+  display: grid;
+  gap: var(--tmt-ui-space-xl);
+  min-width: 0;
+}
+.digest-card {
+  display: grid;
+  align-content: start;
+  gap: var(--tmt-ui-space-l);
+  min-width: 0;
+  padding: var(--tmt-ui-space-xl);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-sheet);
+}
+.digest-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-m);
+}
+.digest-card-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.digest-card-meta {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+}
+/* A chart's caption is the card's muted subtitle: sentence case, not an eyebrow. */
+.digest-card .tmt-ui-chart-title {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.digest-card .tmt-ui-chart-strip-legend {
+  margin-top: 0;
+}
+.digest-card .usage-note,
+.digest-card .usage-table {
+  margin: 0;
+}
+.digest-card .usage-table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.digest-provider-body {
+  display: grid;
+  gap: var(--tmt-ui-space-xl);
+  align-items: start;
+  min-width: 0;
+}
+.digest-provider-figure {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+  align-content: start;
+}
+.digest-provider-figure p {
+  margin: 0;
+}
+.digest-big {
+  font-size: 2.5rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.digest-big-label {
+  color: var(--tmt-ui-color-secondary);
+}
+.digest-meter {
+  height: 12px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+}
+.digest-meter-fill {
+  width: calc(var(--digest-fill) * 1%);
+  height: 100%;
+}
+.digest-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.digest-stat {
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-m) 0;
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.digest-stat:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.digest-stat dt {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+}
+.digest-stat dd {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.digest-bar {
+  display: block;
+  width: calc(var(--digest-bar) * 1%);
+  min-width: 4px;
+  height: 10px;
+}
+.usage-table td:has(.digest-bar) {
+  width: 40%;
+  text-align: left;
+}
+.digest-gaps {
+  display: grid;
+  margin: 0;
+}
+.digest-gap {
+  display: grid;
+  grid-template-columns: minmax(8ch, 14ch) max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--tmt-ui-space-m);
+  padding: var(--tmt-ui-space-s) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.digest-gap dt {
+  font-weight: 600;
+}
+.digest-gap dd {
+  margin: 0;
+}
+.digest-gap-source {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+}
+.digest-method {
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+}
+.digest-method summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.digest-method summary:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.digest-method p {
+  margin: var(--tmt-ui-space-s) 0 0;
+}
+@media (min-width: 900px) {
+  .digest-row-providers,
+  .digest-row-coverage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .digest-row-burn {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+/* A provider card is wide enough for its figure beside its chart on a tablet and on a wide
+   screen; between them two cards share the row, so the chart goes below the figure. */
+@media (min-width: 640px) and (max-width: 899px), (min-width: 1280px) {
+  .digest-provider-body {
+    grid-template-columns: minmax(9rem, 2fr) minmax(0, 3fr);
+  }
+}
+@media (max-width: 520px) {
+  .digest-gap {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+  .digest-gap-source {
+    grid-column: 1 / -1;
+  }
+}
 .ops-section {
   display: grid;
   gap: var(--tmt-ui-space-s);

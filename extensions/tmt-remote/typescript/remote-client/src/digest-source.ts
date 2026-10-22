@@ -1,71 +1,125 @@
 /**
- * What the Digest web view (`/digest/`) reads: per-agent token use over one range. The page depends
- * only on `DigestSource`; the source below is a MOCK until Core exposes a read API for the
- * owner's usage (`tmt digest usage report --json` holds the same facts on the terminal side).
+ * What the Digest web view (`/digest/`) reads: the usage report the terminal Digest shows. The
+ * types follow the public document of `tmt digest usage report --json` (digest `usage-v1.md`) and
+ * the exchange flow of `tmt x flow --json`; the page depends only on `DigestSource`. Until Core
+ * serves that read to the owner's browser (#4325) the product source answers "not in the
+ * browser yet"; the seeded sample lives in `digest-mock.ts` for tests, the gallery and dev only.
  */
-export const USAGE_RANGES = ['5m', '1h', '6h', '1d', '7d', '30d'] as const;
+export const USAGE_RANGES = ['24h', '7d', '30d'] as const;
 export type UsageRange = (typeof USAGE_RANGES)[number];
 
-export interface AgentUsage {
-  /** The agent's saved identity name. */
-  agent: string;
-  /** Input plus output tokens; cached input is part of input. */
-  tokens: number;
-  /** Assistant turns in the range, when the source counts them. */
-  turns?: number;
+export interface UsageTotals {
+  input: number;
+  output: number;
+  /** Part of `input`, never added to it. */
+  cached: number;
 }
 
-export interface UsageReport {
+export interface UsagePoint extends UsageTotals {
+  fromMs: number;
+  toMs: number;
+  /** False: the bucket is a lower bound, not an error. */
+  complete: boolean;
+}
+
+export interface UsageSeat {
+  id: string;
+  /** Null when Core could not resolve the name. */
+  name: string | null;
+  retired: boolean;
+  totals: UsageTotals;
+  /** The model families its tokens belong to (`claude`, `gpt`, `other`, `unattributed`). */
+  lines: readonly string[];
+  /** Hourly for 24h, daily for 7d and 30d, oldest first. */
+  series: readonly UsagePoint[];
+  coverage: {
+    coveredMs: number;
+    windowMs: number;
+    startsAtMs: number | null;
+    complete: boolean;
+    gap: boolean;
+  };
+}
+
+export interface UsageUnavailable {
+  id: string;
+  name: string | null;
+  retired: boolean;
+  reason: string;
+}
+
+/** An account window, newest observation wins; windows are never summed. */
+export interface LimitWindow {
+  windowMinutes: number;
+  resetsAtMs: number;
+  usedPercent: number;
+  observedAtMs: number;
+  /** Null for a stale window. */
+  elapsedPercent: number | null;
+  paceDeltaPoints: number | null;
+  stale: boolean;
+  /** The seats that reported it. */
+  seats: readonly string[];
+}
+
+export interface FlowParty {
+  id: string | null;
+  name: string | null;
+  retired: boolean;
+}
+
+export interface FlowPair {
+  sender: FlowParty;
+  recipient: FlowParty;
+  /** `talk`, `reply`, `ack`, `result`; the page counts talk and reply like the terminal. */
+  kind: string;
+  count: number;
+}
+
+/**
+ * Percent left of a weekly window sampled over time. NOT in the public report today: the page
+ * asks #4325 for it, and without it shows the latest window only.
+ */
+export interface LimitHistory {
+  line: string;
+  windowMinutes: number;
+  resetsAtMs: number;
+  points: readonly { atMs: number; percentLeft: number }[];
+}
+
+export interface UsageDocument {
+  version: 1;
+  observedAtMs: number;
+  since: UsageRange;
+  usage: {
+    seats: readonly UsageSeat[];
+    unavailable: readonly UsageUnavailable[];
+  };
+  limits: readonly LimitWindow[];
+  limitsUnavailable: readonly { line: string; reason: string }[];
+  exchange: { sinceMs: number; observedAtMs: number; pairs: readonly FlowPair[] } | null;
+  limitHistory?: readonly LimitHistory[];
+}
+
+export interface DigestReport {
   range: UsageRange;
-  agents: readonly AgentUsage[];
-  /** Whether these numbers are sample data, not the owner's usage. */
+  /** Whether this is sample data, not the owner's usage. */
   sample: boolean;
-  /** Why the source cannot report this range; the table is then empty. */
+  /** Why the source cannot report; the page then shows only this. */
   unavailable?: string;
+  document?: UsageDocument;
 }
 
 export interface DigestSource {
-  usage(range: UsageRange): Promise<UsageReport>;
+  report(range: UsageRange): Promise<DigestReport>;
 }
 
-// MOCK: fixed sample numbers scaled by range, so the view can be built and reviewed before the
-// Core read API exists. Replace with the API-backed source; nothing else in the page changes.
-const SAMPLE: readonly Required<AgentUsage>[] = [
-  { agent: 'tmt-ux-lead', tokens: 48_200_000, turns: 312 },
-  { agent: 'ux-1', tokens: 31_000_000, turns: 205 },
-  { agent: 'feat-1', tokens: 27_400_000, turns: 188 },
-  { agent: 'remote-1', tokens: 19_900_000, turns: 141 },
-  { agent: 'night-1', tokens: 6_300_000, turns: 52 },
-];
-const SCALE: Record<UsageRange, number> = {
-  '5m': 1 / 2016,
-  '1h': 1 / 168,
-  '6h': 1 / 28,
-  '1d': 1 / 7,
-  '7d': 1,
-  '30d': 30 / 7,
-};
-export const mockDigestSource: DigestSource = {
-  async usage(range) {
-    const scale = SCALE[range];
-    return {
-      range,
-      sample: true,
-      agents: SAMPLE.map((row) => ({
-        agent: row.agent,
-        tokens: Math.round(row.tokens * scale),
-        turns: Math.round(row.turns * scale),
-      })),
-    };
-  },
-};
-
 /** The source the page reads by default. */
-// Needs a Core read of Digest usage served to the owner's browser.
+// Needs a Core read of Digest usage served to the owner's browser (#4325).
 export const digestSource: DigestSource = {
-  async usage(range) {
+  async report(range) {
     // The terminal board has a Digest tab; a person reads it better than the JSON report.
     const unavailable = 'Usage is not in the browser yet. Open Digest in `tmt ops ui`.';
-    return { range, agents: [], sample: false, unavailable };
+    return { range, sample: false, unavailable };
   },
 };
