@@ -33,6 +33,7 @@ import {
 import { hunksOf } from './save-hunks.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { gatherAttachments } from './export-attachments.js';
+import { standaloneRequest } from './export-runtime.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 
@@ -639,7 +640,12 @@ export class Live implements PageBinding {
       },
       (selector) => this.discussion.attachments.read(selector),
     );
-    return prepareExport({ ...page, attachmentEntries: attachments });
+    const standalone = await standaloneRequest(page);
+    return prepareExport({
+      ...page,
+      attachmentEntries: attachments,
+      ...(standalone === undefined ? {} : { standalone }),
+    });
   }
   #statusSeen() {
     const deviceId = this.registration.deviceId;

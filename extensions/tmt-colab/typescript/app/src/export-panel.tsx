@@ -10,6 +10,7 @@ import {
   type ListedAttachment,
 } from './export.js';
 import type { PageBinding } from './transport.js';
+import { STANDALONE_FILE, type StandaloneOutcome } from './standalone.js';
 import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { text } from './strings.js';
 import './attachment-tray.css';
@@ -35,8 +36,10 @@ export function ExportPanel({
   const setOpen = changeOpen ?? setLocalOpen;
   const [state, setState] = useState<'preparing' | 'ready' | 'failed'>('preparing');
   const [requested, setRequested] = useState<ExportFile[]>([]);
-  // Each attachment of this copy with its outcome; the page files are always the same four.
+  // Each attachment of this copy with its outcome; the page files are the same four, plus the
+  // standalone copy of a page that opts in to the runtime.
   const [attachments, setAttachments] = useState<readonly ListedAttachment[]>([]);
+  const [standalone, setStandalone] = useState<StandaloneOutcome | undefined>();
   const current = useRef<Downloads | null>(null);
   useEffect(() => {
     if (!open || !binding || blocked) return;
@@ -44,11 +47,13 @@ export function ExportPanel({
     setState('preparing');
     setRequested([]);
     setAttachments([]);
+    setStandalone(undefined);
     void binding.export().then(
       (bundle) => {
         if (!active) return;
         current.current = new Downloads(bundle);
         setAttachments(bundle.attachments);
+        setStandalone(bundle.standalone);
         setState('ready');
       },
       () => {
@@ -73,7 +78,10 @@ export function ExportPanel({
       setState('failed');
     }
   }
-  const downloadable = PAGE_FILES.length + attachments.filter((a) => a.file).length;
+  const pageFiles = standalone?.included
+    ? [PAGE_FILES[0]!, STANDALONE_FILE, ...PAGE_FILES.slice(1)]
+    : PAGE_FILES;
+  const downloadable = pageFiles.length + attachments.filter((a) => a.file).length;
   const content = (
     <section className="export-panel" aria-label={text.export}>
       {!drawer && <h2>{text.export}</h2>}
@@ -91,7 +99,7 @@ export function ExportPanel({
                 : text.exportReady}
       </p>
       <div className="export-actions">
-        {PAGE_FILES.map((name) => (
+        {pageFiles.map((name) => (
           <div key={name} className="export-download">
             <BrowserAction
               type="button"
@@ -106,6 +114,12 @@ export function ExportPanel({
           </div>
         ))}
       </div>
+      {standalone?.included && <p>{text.exportStandaloneNote}</p>}
+      {standalone?.included === false && (
+        <p role="status">
+          {text.exportStandaloneMissing[standalone.reason ?? 'runtime-unavailable']}
+        </p>
+      )}
       {attachments.length > 0 && (
         <section className="export-attachments" aria-label={text.exportAttachments}>
           <h3>{text.exportAttachments}</h3>
