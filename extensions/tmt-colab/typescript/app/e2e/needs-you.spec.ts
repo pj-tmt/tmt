@@ -224,6 +224,11 @@ for (const width of [1440, 390])
       await expect(trigger).toHaveClass(/tmt-ui-count-chip/);
       await expect(trigger).toHaveAttribute('data-tone', 'attention');
       await expect(trigger.locator('.tmt-ui-count')).toHaveText('3');
+      // The word is visible at a wide window and hidden visually on a phone, where the accessible name
+      // still carries the word and the count.
+      await expect(trigger).toHaveAccessibleName('Needs you: 3');
+      if (width === 390) await expect(trigger.locator('.needs-you-wide')).toBeHidden();
+      else await expect(trigger.locator('.needs-you-wide')).toBeVisible();
       await expect(trigger.locator('svg.tmt-ui-icon')).toHaveCount(1);
       const look = () =>
         trigger.evaluate((node) => {
@@ -305,6 +310,47 @@ for (const width of [1440, 390])
       await capture(page, `needs-you-0-${width}-${theme}`);
     });
   }
+
+/** A page with `reads` readings, `reviews` reviews and `groups` question groups, each waiting on the reader. */
+function waitingPage(reads: number, reviews: number, groups: number) {
+  const id = (base: number, index: number) =>
+    `a0000000-0000-4000-8000-${String(base + index).padStart(12, '0')}`;
+  const blocks = (count: number, render: (index: number) => string) =>
+    Array.from({ length: count }, (_, index) => render(index)).join('\n');
+  return `<style>
+body { margin:24px; font:16px/1.5 sans-serif; background:#fff; color:#222 }
+html[data-theme="dark"] body { background:#181818; color:#eee }
+tmt-read,tmt-review { display:block; margin:8px 0 }
+</style><h1>Everything waits</h1>
+${blocks(reads, (index) => `<tmt-read data-id="${id(1000, index)}" data-agent="Agent 1" data-why="Read it."><h2 data-title>Summary ${index + 1}</h2><p>Body ${index + 1}.</p></tmt-read>`)}
+${blocks(reviews, (index) => `<tmt-review data-id="${id(2000, index)}" data-agent="Agent 1"><h2 data-title>Scope ${index + 1}</h2><p>Confirm ${index + 1}.</p></tmt-review>`)}
+${blocks(groups, (index) => `<div>Decision ${index + 1}: <tmt-questions data-id="${id(3000, index)}" data-form="chip"><p data-title>Choose ${index + 1}</p><tmt-question data-id="${id(4000, index)}" data-kind="short" data-agent="Agent 1"><p data-question>Which?</p></tmt-question></tmt-questions></div>`)}`;
+}
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a long list shows 99+ and keeps the exact count in the name at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      await run(page, 'mount');
+      await run(page, 'change', waitingPage(50, 50, 20));
+      const root = page.locator('#ask-page-fixture');
+      await (await pageAction(root, theme === 'dark' ? 'Theme: Dark' : 'Theme: Light')).click();
+      const trigger = root.getByRole('button', { name: 'Needs you: 120', exact: true });
+      await expect(trigger).toBeVisible();
+      await expect(trigger.locator('.tmt-ui-count')).toHaveText('99+');
+      await expect(trigger).toHaveAccessibleName('Needs you: 120');
+      if (width === 390) await expect(trigger.locator('.needs-you-wide')).toBeHidden();
+      // The chip fits the header: nothing scrolls sideways and its edge is inside the window.
+      const right = await trigger.evaluate((node) => node.getBoundingClientRect().right);
+      expect(right).toBeLessThanOrEqual(width);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await capture(page, `needs-you-120-${width}-${theme}`);
+    });
 
 test('the menu does not shift the authored page under the fixed header', async ({ page }) => {
   await mount(page);

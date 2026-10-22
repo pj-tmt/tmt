@@ -126,7 +126,8 @@ test('a waiting section offers Confirm and Needs change, and the head counts it'
   await expect(card.getByRole('button', { name: 'Needs change…', exact: true })).toBeEnabled();
   await expect(card.getByText('Goes to Agent 1')).toBeVisible();
   const chip = page.getByRole('button', { name: 'Needs you: 2', exact: true });
-  await expect(chip).toContainText('Needs you 2');
+  await expect(chip.locator('.needs-you-wide')).toHaveText('Needs you');
+  await expect(chip.locator('.tmt-ui-count')).toHaveText('2');
   await expect(section(page)).toHaveAttribute('data-colab-review-closed', 'false');
   expect(await sectionThread(page)).toHaveLength(0);
 });
