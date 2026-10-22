@@ -17,7 +17,10 @@ use tmt_adapters::{
 };
 use tmt_core::{
     binding::session::HarnessId,
-    request::{RequestService, digest::DigestState},
+    request::{
+        RequestService,
+        digest::{DigestOpportunity, DigestState},
+    },
 };
 
 const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
@@ -59,36 +62,41 @@ pub fn execute(
                 SupervisedProbeRunner,
             )?;
             let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
+            let Some(through) = digest::fitting_through(
+                &mut storage,
+                &launch.identity_id,
+                DigestOpportunity::TurnBoundary,
+                false,
+            )
+            .map_err(|_| ())?
+            else {
+                storage.close().map_err(|_| ())?;
+                return Ok(());
+            };
             let Some(batch) = storage
                 .claim_digest_for_launch(
                     &stored,
                     tmt_core::operation::new_operation_id(),
                     tmt_core::operation::new_operation_id(),
+                    Some(through),
                 )
                 .map_err(|_| ())?
             else {
                 storage.close().map_err(|_| ())?;
                 return Ok(());
             };
-            let page =
-                match digest::read(&mut storage, &launch.identity_id, Some(&batch.id), 0, 128) {
-                    Ok(page) => page,
-                    Err(_) => {
-                        let _ = RequestService::new(&mut storage, wall_time_ms)
-                            .settle_digest_checklist(
-                                &launch.identity_id,
-                                &batch.id,
-                                &batch.attempt_token,
-                                DigestState::Unsent,
-                            );
-                        return Err(());
-                    }
-                };
+            let text = match digest::text(&mut storage, &batch) {
+                Ok(text) => text,
+                Err(_) => {
+                    let _ = digest::release_unsent(&mut storage, &batch);
+                    return Err(());
+                }
+            };
             let prepared = DigestHandoff {
                 launch: launch.clone(),
                 checklist_id: batch.id.clone(),
                 attempt_token: batch.attempt_token.clone(),
-                digest: digest::digest(&page, &batch),
+                digest: text,
             };
             storage.close().map_err(|_| ())?;
             let bytes = serde_json::to_vec(&prepared).map_err(|_| ())?;
@@ -124,7 +132,7 @@ pub fn execute(
                 args: &args,
                 input: input.as_bytes(),
                 deadline: worker_deadline,
-                max_output_bytes: 32 * 1024,
+                max_output_bytes: digest::HANDOFF_OUTPUT_BYTES,
             })
             .map_err(|_| ())?;
         if !output.stderr.is_empty() {
