@@ -73,7 +73,12 @@ semantic version is taken over (#4107), and its owner finds the lease changed at
 and stops. Equal, newer or non-semver versions never preempt, and the one-shot `tick` uses plain
 `acquire`, which never disturbs a live lease.
 `tmt digest status` shows the last admitted tick (`tick.lastAtMs`), so a clock held by a UI that
-does not tick is visible.
+does not tick is visible. The Digest tab's summary strip turns it into a `waiting` part
+(`digest_dashboard::model::tick_notice`): `! No tick for N min` (`h`/`d` past an hour) once the
+status's `observedAtMs` is more than three minutes past `lastAtMs`, `! No tick yet` when it is null
+(none recorded, or an unsafe record). Nothing shows while the global switch is off or when the
+producer has no `tick`; a `tick` that is not `{lastAtMs}` with a safe integer or null makes the
+whole status unavailable (`labels/digest.rs`).
 
 ## Idle alert scan
 
