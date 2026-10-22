@@ -718,6 +718,11 @@ export const text = {
     tabDiscussion: (count: number) => `Discussion ${count}`,
     tabDone: (count: number) => `Done ${count}`,
     tabAll: 'All',
+    /** The list's count line: how many rows are drawn of how many match. */
+    showing: (shown: number, total: number) =>
+      shown < total
+        ? `Showing ${shown} of ${total} pages`
+        : `${total} ${total === 1 ? 'page' : 'pages'}`,
     tabArchived: (count: number) => `Archived ${count}`,
     /** The stage names the `stage:` search token takes, with their tab labels. */
     stageNames: {

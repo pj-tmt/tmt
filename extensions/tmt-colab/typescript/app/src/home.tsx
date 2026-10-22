@@ -50,6 +50,7 @@ import { PageOperationDialog } from './page-operation-dialog.js';
 import { runPageOperations, type PageOperation } from './page-operations.js';
 import { operationStatus } from './page-operation-status.js';
 import { usePageListKeys } from './page-list-keys.js';
+import { useShownRows } from './page-list-rows.js';
 import { BulkBar } from './bulk-bar.js';
 import { pageTitle, pageUpdate } from './page-index.js';
 import {
@@ -374,6 +375,8 @@ export function Home() {
   const tabsHost = useRef<HTMLDivElement>(null);
   useScrollEdges(tabsHost, `${Boolean(port)}|${viewTabs.map((item) => item.label).join('|')}`);
   const pages = filterPages(scoped, filter, sort);
+  const listScroll = useRef<HTMLDivElement>(null);
+  const drawn = useShownRows(listScroll, pages.length, JSON.stringify([view, filter, sort, scope]));
   const counts = projectCounts(scoped);
   const waiting = waitingCount(scoped);
   const showNeeds = waiting > 0 || filter.needsYou;
@@ -614,99 +617,108 @@ export function Home() {
         {status?.text}
       </p>
       {pages.length ? (
-        <BrowserList label={text.pages} className="pages">
-          {pages.map((p) => {
-            const updated = pageUpdate(p.lastUpdateAtMs, now);
-            return (
-              <BrowserListRow
-                key={p.id}
-                data-page-id={p.id}
-                data-selected={selectedIds.has(p.id) ? '' : undefined}
-                leading={
-                  port ? (
-                    <BrowserCheckbox
-                      aria-label={t.selectPage(pageTitle(p))}
-                      checked={selectedIds.has(p.id)}
-                      onChange={() => toggleSelected(p.id)}
-                    />
-                  ) : undefined
-                }
-                title={
-                  <>
-                    <HomeTitleLink page={p} hints={titleHints} scope={scope} />
-                    {p.summary?.work ? <PageWork work={p.summary.work} /> : null}
-                    {p.summary?.waiting ? (
-                      <span className="page-waiting" data-waiting>
-                        <span className="page-waiting-mark" aria-hidden="true">
-                          ◆
-                        </span>{' '}
-                        {t.waitingForYou}
-                        {p.summary.needsYou > 0 ? ` · ${p.summary.needsYou}` : ''}
-                      </span>
-                    ) : null}
-                    {p.projects?.length ? (
-                      <ul className="page-projects" aria-label={t.projects}>
-                        {p.projects.map((name) => (
-                          <li key={name}>
-                            <button
-                              type="button"
-                              className="page-project"
-                              aria-pressed={filter.projects.includes(name)}
-                              onClick={(event) => {
-                                if (event.isTrusted) replaceDraft(toggleProject(edit, name));
-                              }}
-                            >
-                              {name}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </>
-                }
-                metadata={
-                  <PageMetadata
-                    author={p.summary?.author}
-                    comments={p.summary?.comments}
-                    updated={updated}
-                  />
-                }
-                state={
-                  p.archived ? text.archived : p.sharing === 'private' ? text.private : text.shared
-                }
-                actions={
-                  port ? (
+        <div className="page-list-scroll" ref={listScroll}>
+          <BrowserList label={text.pages} className="pages">
+            {pages.slice(0, drawn).map((p) => {
+              const updated = pageUpdate(p.lastUpdateAtMs, now);
+              return (
+                <BrowserListRow
+                  key={p.id}
+                  data-page-id={p.id}
+                  data-selected={selectedIds.has(p.id) ? '' : undefined}
+                  leading={
+                    port ? (
+                      <BrowserCheckbox
+                        aria-label={t.selectPage(pageTitle(p))}
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => toggleSelected(p.id)}
+                      />
+                    ) : undefined
+                  }
+                  title={
                     <>
-                      <OpenInNewTabAction page={p} />
-                      <PageProjectsMenu
-                        page={p}
-                        openRequest={
-                          projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
-                        }
-                        names={projectNames}
-                        toggle={(page, name) => void toggleOnPage(page, name)}
-                        create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
-                      />
-                      <PageArchiveAction
-                        page={p}
-                        operate={() =>
-                          setOperation({
-                            kind: p.archived ? 'page.unarchive' : 'page.archive',
-                            pages: [p],
-                          })
-                        }
-                      />
-                      <PageListActions
-                        page={p}
-                        operate={(kind, page) => setOperation({ kind, pages: [page] })}
-                      />
+                      <HomeTitleLink page={p} hints={titleHints} scope={scope} />
+                      {p.summary?.work ? <PageWork work={p.summary.work} /> : null}
+                      {p.summary?.waiting ? (
+                        <span className="page-waiting" data-waiting>
+                          <span className="page-waiting-mark" aria-hidden="true">
+                            ◆
+                          </span>{' '}
+                          {t.waitingForYou}
+                          {p.summary.needsYou > 0 ? ` · ${p.summary.needsYou}` : ''}
+                        </span>
+                      ) : null}
+                      {p.projects?.length ? (
+                        <ul className="page-projects" aria-label={t.projects}>
+                          {p.projects.map((name) => (
+                            <li key={name}>
+                              <button
+                                type="button"
+                                className="page-project"
+                                aria-pressed={filter.projects.includes(name)}
+                                onClick={(event) => {
+                                  if (event.isTrusted) replaceDraft(toggleProject(edit, name));
+                                }}
+                              >
+                                {name}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </>
-                  ) : undefined
-                }
-              />
-            );
-          })}
-        </BrowserList>
+                  }
+                  metadata={
+                    <PageMetadata
+                      author={p.summary?.author}
+                      comments={p.summary?.comments}
+                      updated={updated}
+                    />
+                  }
+                  state={
+                    p.archived
+                      ? text.archived
+                      : p.sharing === 'private'
+                        ? text.private
+                        : text.shared
+                  }
+                  actions={
+                    port ? (
+                      <>
+                        <OpenInNewTabAction page={p} />
+                        <PageProjectsMenu
+                          page={p}
+                          openRequest={
+                            projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
+                          }
+                          names={projectNames}
+                          toggle={(page, name) => void toggleOnPage(page, name)}
+                          create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
+                        />
+                        <PageArchiveAction
+                          page={p}
+                          operate={() =>
+                            setOperation({
+                              kind: p.archived ? 'page.unarchive' : 'page.archive',
+                              pages: [p],
+                            })
+                          }
+                        />
+                        <PageListActions
+                          page={p}
+                          operate={(kind, page) => setOperation({ kind, pages: [page] })}
+                        />
+                      </>
+                    ) : undefined
+                  }
+                />
+              );
+            })}
+          </BrowserList>
+          <p className="page-list-count" data-page-list-count>
+            {t.showing(Math.min(drawn, pages.length), pages.length)}
+          </p>
+        </div>
       ) : (
         <div className="page-list-empty">
           {filter.stage && scoped.length === 0 && space.pages.length ? (
@@ -746,7 +758,7 @@ export function Home() {
     </>
   );
   return (
-    <section className="home" ref={section}>
+    <section className="home" data-page-list ref={section}>
       <p className="eyebrow">{text.pages}</p>
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>

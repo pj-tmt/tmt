@@ -182,3 +182,54 @@
     transparent
   );
 }
+/* The list is one screen: the title, search, sort, stage tabs, chips and status stay put, and only
+ * the rows scroll, inside the content pane. The section fills what main's own height leaves (the
+ * header, the shell's lead row and the 57px footer), so the window has nothing to scroll. */
+.home[data-page-list] {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: calc(100dvh - var(--colab-header-height) - var(--tmt-ui-shell-lead, 0px) - 57px);
+  padding-top: 32px;
+  padding-bottom: 0;
+}
+.home[data-page-list] > *,
+.home[data-page-list] .page-list-controls,
+.home[data-page-list] .project-filters,
+.home[data-page-list] .page-list-status {
+  flex: none;
+}
+.home[data-page-list] .intro {
+  margin: 8px 0 0;
+}
+.home[data-page-list] > .page-stage-tabs,
+.home[data-page-list] .page-stage-tabs > .tmt-ui-tabs,
+.home[data-page-list] .tmt-ui-tab-panel:not([hidden]) {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+}
+.home[data-page-list] .page-list-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  margin-top: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.page-list-count {
+  margin: 0;
+  padding: 12px 0 24px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-caption-line-height);
+}
+/* A phone keeps its height for rows: the intro line goes, and the title sits closer. */
+@media (max-width: 479px) {
+  .home[data-page-list] {
+    padding-top: 20px;
+  }
+  .home[data-page-list] .intro {
+    display: none;
+  }
+}
