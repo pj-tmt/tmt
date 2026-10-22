@@ -18,7 +18,7 @@ import {
   HostedShell,
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { carriesThreadFragment, shortPageId, validPagePrefix } from './short-links.js';
+import { shortPageId, validPagePrefix } from './short-links.js';
 import {
   hintFragment,
   hintSearch,
@@ -68,6 +68,7 @@ import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
 import { ColabShell, ShellHostSlot } from './colab-shell.js';
+import { usePageEnvironment } from './page-environment.js';
 import { ColabSettings } from './colab-settings.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
@@ -1061,6 +1062,10 @@ function Shell() {
 }
 function Page() {
   const router = useRouter();
+  const environment = usePageEnvironment();
+  // The renderer's thread handler outlives a render, so it reads the environment through a ref.
+  const environmentRef = useRef(environment);
+  environmentRef.current = environment;
   const quickSwitcher = useQuickSwitcher();
   const quickSwitcherOwner = useRef(quickSwitcher);
   quickSwitcherOwner.current = quickSwitcher;
@@ -1131,11 +1136,8 @@ function Page() {
   // reads them speaks (#3894): no count, no band, no Needs you, and the discussion stays shut.
   const discussionPending = !!view.discussionPending;
   useEffect(() => {
-    document.title = `${view.title || snapshot.title} · ${text.product}`;
-    return () => {
-      document.title = text.product;
-    };
-  }, [view.title, snapshot.title]);
+    return environment.setTitle(`${view.title || snapshot.title} · ${text.product}`);
+  }, [environment, view.title, snapshot.title]);
   // This device remembers which pages it opened, for a quick switcher to offer first; local only.
   useEffect(() => {
     void noteOpened(space, snapshot.id);
@@ -1482,7 +1484,7 @@ function Page() {
   useEffect(() => {
     if (!annotation) return;
     const outside = (event: PointerEvent) => {
-      if (document.querySelector('dialog:modal')) return;
+      if (environment.modalOpen()) return;
       const target = event.target;
       if (
         target instanceof Element &&
@@ -1493,7 +1495,7 @@ function Page() {
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
-  }, [annotation]);
+  }, [annotation, environment]);
   function openThread(ref: DiscussionRef | null) {
     if (annotationBusy.current || statusBusy.current) return;
     if (!ref) {
@@ -1506,12 +1508,7 @@ function Page() {
     binding.current?.markThreadStatusSeen?.(ref);
     setActiveThread(id);
     setPanel('comments');
-    if (carriesThreadFragment(location.pathname, inShell()))
-      history.replaceState(
-        history.state,
-        '',
-        `${location.pathname}${inShell() ? location.search : ''}#t=${ref.id}`,
-      );
+    environmentRef.current.threadFragment()?.write(ref.id);
     renderer.current?.scrollAnchor(id);
   }
   function continueAnnotation(ref: DiscussionRef) {
@@ -1569,8 +1566,9 @@ function Page() {
           : text.blocked;
   const deepThread = useRef<string | null>(null);
   useEffect(() => {
-    if (state !== 'ready' || !carriesThreadFragment(location.pathname, inShell())) return;
-    const target = new URLSearchParams(location.hash.slice(1)).get('t');
+    const fragment = environment.threadFragment();
+    if (state !== 'ready' || !fragment) return;
+    const target = fragment.read();
     if (!target || deepThread.current === `${snapshot.id}:${target}`) return;
     const thread = view.threads?.find((value) => value.threadId === target && !value.deleted);
     if (!thread) return;
@@ -1578,7 +1576,7 @@ function Page() {
     setActiveThread(`${thread.ref.writer}:${thread.ref.id}`);
     setPanel('comments');
     renderer.current?.scrollAnchor(`${thread.ref.writer}:${thread.ref.id}`);
-  }, [state, snapshot.id, view.threads]);
+  }, [environment, state, snapshot.id, view.threads]);
 
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked =
@@ -1589,13 +1587,7 @@ function Page() {
   // Selecting is offered once the threads are verified; until then its button holds its place.
   const selectPending = selectable && discussionPending && !archived && !liveError;
   activateChat.current = () => {
-    if (
-      archived ||
-      (panel !== null && panel !== 'chat') ||
-      [...document.querySelectorAll<HTMLElement>('[role="menu"], dialog[open]')].some(
-        (node) => node.getClientRects().length > 0 && node.dataset.panel !== 'chat',
-      )
-    )
+    if (archived || (panel !== null && panel !== 'chat') || environment.overlayOpen('chat'))
       return false;
     const insertMention = panel !== 'chat';
     setChatOpened(true);
@@ -2054,7 +2046,7 @@ function Page() {
       />
       <BrowserDrawer
         notice={endedNotice}
-        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+        focusFallback={environment.focusFallback}
         open={panel === 'about'}
         title={text.aboutPage}
         panel="about"
@@ -2280,7 +2272,7 @@ function Page() {
       {snapshot.binding?.files && (
         <BrowserDrawer
           notice={endedNotice}
-          focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+          focusFallback={environment.focusFallback}
           open={panel === 'files'}
           title={text.files}
           panel="files"
@@ -2297,7 +2289,7 @@ function Page() {
       )}
       <BrowserDrawer
         notice={endedNotice}
-        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+        focusFallback={environment.focusFallback}
         open={panel === 'source'}
         title={text.source}
         panel="source"
@@ -2382,7 +2374,7 @@ function Page() {
       </BrowserDrawer>
       <BrowserDrawer
         notice={endedNotice}
-        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+        focusFallback={environment.focusFallback}
         open={panel === 'comments'}
         title={text.comments}
         panel="comments"
@@ -2443,7 +2435,7 @@ function Page() {
       </BrowserDrawer>
       <BrowserDrawer
         notice={endedNotice}
-        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+        focusFallback={environment.focusFallback}
         open={panel === 'agents'}
         title={text.agentStatus}
         panel="agents"
@@ -2459,10 +2451,7 @@ function Page() {
       <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
         <BrowserDrawer
           notice={archived ? endedNotice : undefined}
-          focusFallback={() =>
-            floatingChat.current ??
-            document.querySelector<HTMLButtonElement>('.tmt-ui-header button')
-          }
+          focusFallback={() => floatingChat.current ?? environment.focusFallback()}
           open={panel === 'chat'}
           title="Chat"
           panel="chat"
