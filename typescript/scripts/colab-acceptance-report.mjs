@@ -184,10 +184,59 @@ function visit(suite) {
   for (const child of suite.suites ?? []) visit(child);
 }
 
-if (input && fs.existsSync(input)) {
-  const report = JSON.parse(fs.readFileSync(input, 'utf8'));
-  for (const suite of report.suites) visit(suite);
+// A closed run verdict distinguishes an interrupted/missing report from an empty successful run.
+let reportState = 'missing-report';
+try {
+  if (input && fs.existsSync(input)) {
+    const report = JSON.parse(fs.readFileSync(input, 'utf8'));
+    if (!Array.isArray(report.suites)) throw new Error('Invalid report.');
+    for (const suite of report.suites) visit(suite);
+    reportState = tests.length ? 'complete' : 'empty-report';
+    if (Array.isArray(report.errors) && report.errors.length) reportState = 'report-errors';
+    if (tests.some((test) => test.results.some((result) => result.status === 'interrupted')))
+      reportState = 'interrupted-report';
+  }
+} catch {
+  reportState = 'malformed-report';
 }
+let executionState = 'missing-execution';
+let exitCode;
+try {
+  const execution = JSON.parse(
+    fs.readFileSync(
+      path.join(process.env.RUNNER_TEMP, 'colab-acceptance-private/execution.json'),
+      'utf8'
+    )
+  );
+  if (
+    ['running', 'deadline', 'interrupted', 'startup-failed', 'runner-failed'].includes(
+      execution.state
+    )
+  )
+    executionState = execution.state;
+  else if (
+    execution.state === 'completed' &&
+    Number.isInteger(execution.exitCode) &&
+    execution.exitCode >= 0 &&
+    execution.exitCode <= 255
+  ) {
+    executionState = 'completed';
+    exitCode = execution.exitCode;
+  } else executionState = 'invalid-execution';
+} catch {
+  // Neither private parse errors nor unknown verdict fields belong in public evidence.
+}
+const incomplete = executionState !== 'completed' || reportState !== 'complete';
+const failed = exitCode !== 0 || tests.some((test) => test.outcome === 'unexpected');
+const run = {
+  status: incomplete ? 'incomplete' : failed ? 'failed' : 'passed',
+  reason: executionState !== 'completed' ? executionState : reportState,
+};
 const output = path.join(process.env.RUNNER_TEMP, 'colab-acceptance-results');
 fs.mkdirSync(output, { recursive: true });
-fs.writeFileSync(path.join(output, 'outcomes.json'), JSON.stringify({ tests }, null, 2) + '\n');
+fs.writeFileSync(
+  path.join(output, 'outcomes.json'),
+  JSON.stringify({ run, tests }, null, 2) + '\n'
+);
+if (run.status === 'incomplete') console.log(JSON.stringify({ run }));
+process.exitCode = run.status === 'passed' ? 0 : 1;

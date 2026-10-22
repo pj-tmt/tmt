@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
   mkdirSync,
@@ -26,7 +26,12 @@ interface FixtureResult {
   stderr: string[];
 }
 
-function runReport(change?: (result: FixtureResult) => void, missing = false) {
+function runReport(
+  change?: (result: FixtureResult) => void,
+  missing = false,
+  execution: unknown = { state: 'completed', exitCode: 1 },
+  raw?: string
+) {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'tmt-colab-report-')));
   try {
     const source = path.join(root, 'extensions/tmt-colab/typescript/app/acceptance');
@@ -51,7 +56,13 @@ function runReport(change?: (result: FixtureResult) => void, missing = false) {
                 {
                   file: path.basename(result.errorLocation.file),
                   title: 'Exact source fixture',
-                  tests: [{ status: 'unexpected', expectedStatus: 'passed', results: [result] }],
+                  tests: [
+                    {
+                      status: result.status === 'passed' ? 'expected' : 'unexpected',
+                      expectedStatus: 'passed',
+                      results: [result],
+                    },
+                  ],
                 },
               ],
             },
@@ -60,16 +71,26 @@ function runReport(change?: (result: FixtureResult) => void, missing = false) {
       ],
     };
     const input = path.join(root, 'private.json');
-    if (!missing) writeFileSync(input, JSON.stringify(report));
-    const stdout = execFileSync(process.execPath, [script], {
+    if (!missing) writeFileSync(input, raw ?? JSON.stringify(report));
+    mkdirSync(path.join(root, 'colab-acceptance-private'));
+    writeFileSync(
+      path.join(root, 'colab-acceptance-private/execution.json'),
+      JSON.stringify(execution)
+    );
+    const child = spawnSync(process.execPath, [script], {
       cwd: root,
       encoding: 'utf8',
       env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: input, RUNNER_TEMP: root },
     });
+    expect(child.error).toBeUndefined();
+    const stdout = child.stdout;
     const text = readFileSync(path.join(root, 'colab-acceptance-results/outcomes.json'), 'utf8');
     expect(text + stdout).not.toContain(secret);
     expect(text + stdout).not.toContain(root);
-    return { report: JSON.parse(text), stdout };
+    const parsed = JSON.parse(text);
+    expect(child.status).toBe(parsed.run.status === 'passed' ? 0 : 1);
+    expect(child.stderr).not.toContain(secret);
+    return { report: parsed, stdout };
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -269,9 +290,55 @@ describe('public Colab acceptance evidence', () => {
     });
   });
 
-  it('writes empty evidence after setup failed before a report existed', () => {
+  it.each(['deadline', 'interrupted', 'running', 'startup-failed', 'runner-failed'])(
+    'keeps a %s verdict incomplete even when the flushed case passed',
+    (state) => {
+      const { report } = runReport(
+        (result) => {
+          result.status = 'passed';
+        },
+        false,
+        { state, private: secret }
+      );
+      expect(report.run).toEqual({ status: 'incomplete', reason: state });
+      expect(report.tests).toHaveLength(1);
+    }
+  );
+
+  it('sanitizes malformed JSON and invalid execution without copying private parse errors', () => {
+    expect(
+      runReport(undefined, false, { state: 'completed', exitCode: 0 }, secret).report.run
+    ).toEqual({ status: 'incomplete', reason: 'malformed-report' });
+    expect(runReport(undefined, false, { state: secret }).report.run).toEqual({
+      status: 'incomplete',
+      reason: 'invalid-execution',
+    });
+  });
+
+  it('requires complete execution and report evidence for a passing verdict', () => {
+    expect(
+      runReport(
+        (result) => {
+          result.status = 'passed';
+        },
+        false,
+        { state: 'completed', exitCode: 0 }
+      ).report.run
+    ).toEqual({ status: 'passed', reason: 'complete' });
+  });
+
+  it('retains an ordinary failure as failed and an interrupted result as incomplete', () => {
+    expect(runReport().report.run).toEqual({ status: 'failed', reason: 'complete' });
+    expect(
+      runReport((result) => {
+        result.status = 'interrupted';
+      }).report.run
+    ).toEqual({ status: 'incomplete', reason: 'interrupted-report' });
+  });
+
+  it('marks missing final JSON incomplete instead of publishing an empty successful run', () => {
     const { report, stdout } = runReport(undefined, true);
-    expect(report).toEqual({ tests: [] });
-    expect(stdout).toBe('');
+    expect(report).toEqual({ run: { status: 'incomplete', reason: 'missing-report' }, tests: [] });
+    expect(JSON.parse(stdout)).toEqual({ run: report.run });
   });
 });
