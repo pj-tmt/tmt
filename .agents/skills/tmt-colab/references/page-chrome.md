@@ -46,11 +46,12 @@ Signed-in app-unavailable guidance shows a waiting-colored Update needed state a
 asks the person to update Colab to open the page, preserving space/sign-in details and the user command.
 
 `router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
-About overlay. `page-header-actions.tsx` owns the page header's entry points, the same at every
+About overlay. `page-header-actions.tsx` owns the page header's base entry points at every
 width (#4116): Search, Discussion (combined pending count; opens Chat or Comments), Agents and More.
 More lists, top to bottom: Share… (the page's sharing and connection words as secondary text; it
 opens the Manage dialog), Remote (the submenu above), Projects… (when the viewer writes
-projects; opens the picker below), Files (count; while the page holds a file or the viewer can add
+projects; opens the picker below), Pin to top / Unpin (below 640px, once the owner list confirms a
+non-archived page the viewer can write), Files (count; while the page holds a file or the viewer can add
 one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
 The page's own projects (`page-projects.tsx`) follow the title: the first three as small chips
 and a count of the rest (hidden under 640px), then the list row's picker (`PageProjectsMenu`: up to
@@ -59,7 +60,12 @@ Projects… open the same menu. The chips come from the list the space home last
 from the list reads nothing extra. A page opened by a link has no list yet: it reads `spaceHome(signal)`
 once on open (#4130), and leaving the page aborts that read through the signal, so no read outlives
 the page. The owner list is also read when the picker opens and after each write. A viewer who cannot
-write projects shows none of it.
+write projects shows none of it. The desktop pin beside the chips and the phone's More item use
+the same `PageProjects` write, owner-list refresh and refusal words; the menu only projects its
+confirmed pin state and pending write. Archived pages and non-writers have no pin item. Below 480px a pin
+refusal also appears in a closable shared inline Alert under the header, using the same refusal
+words. That notice alone announces the failure at that width; the header keeps its mark. Success,
+leaving the page or Close clears it; at 480px and wider the existing header alert is unchanged.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
 The floating Chat icon shares the selection control's corner and opens the same
@@ -94,8 +100,8 @@ one mark plus a word: `△ Remote offline`, `◉ Shared` (a page readable by any
 not hide in a menu) and `○ Archived`. Below 480px a mark keeps its glyph and its word is visually
 hidden, never removed from the accessible name. The connection words (`Private · Live`,
 `Reconnecting…`) are not shown: they stay in the document, visually hidden, and are Share…'s
-secondary text; trouble surfaces in the notice below the header. Nothing is hidden only because of
-width: the same entries stay at 640px and 320px, and CSS owns fitting. Header, body and
+secondary text; trouble surfaces in the notice below the header. The base actions and status names stay accessible at every
+width; the pin moves into More below 640px as described above, and CSS owns fitting. Header, body and
 update-notice offsets use shared heights, including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
 
 Header search results and page-list titles are real links with router-generated URLs.

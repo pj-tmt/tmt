@@ -4,7 +4,8 @@ import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
-import { PageProjects } from './page-projects.js';
+import { PagePinNotice, PageProjects } from './page-projects.js';
+import type { PagePinRequest, PagePinState } from './pins.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
 import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
@@ -1106,6 +1107,10 @@ function Page() {
   const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
   const openProjects = (from?: DOMRect) =>
     setProjects((previous) => ({ request: previous.request + 1, from }));
+  const [pin, setPin] = useState<PagePinState>();
+  const [pinRequest, setPinRequest] = useState<PagePinRequest>();
+  const requestPin = (action: PagePinRequest['action']) =>
+    setPinRequest((previous) => ({ id: (previous?.id ?? 0) + 1, action }));
   const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
@@ -1920,6 +1925,8 @@ function Page() {
             request={projects.request}
             from={projects.from}
             open={() => openProjects()}
+            pinRequest={pinRequest}
+            onPinState={setPin}
           />
         }
         crumb={
@@ -2022,12 +2029,16 @@ function Page() {
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
             canProjects={!!transport.management}
-            onSelect={(action) =>
-              action === 'projects' ? openProjects(moreButtonRect()) : toggle(action)
-            }
+            pin={pin}
+            onSelect={(action) => {
+              if (action === 'projects') openProjects(moreButtonRect());
+              else if (action === 'pin') requestPin('toggle');
+              else toggle(action);
+            }}
           />
         }
       />
+      <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
       <p role="status" className="archive-announcement">
         {archiveAnnouncement}
       </p>
