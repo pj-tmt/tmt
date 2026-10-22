@@ -362,10 +362,16 @@ describe('compiled CLI schema carrier', () => {
     const f = fixture();
     expect(() => parseCompiledSchema(' '.repeat(1024 * 1024 + 1))).toThrow('Schema output bound');
     const record = structuredClone(f.record);
-    record.source_files = Array.from({ length: 65 }, (_, i) => ({
-      path: `input${i}`,
-      sha256: 'b'.repeat(64),
-    }));
+    const sources = (length: number) =>
+      Array.from({ length }, (_, i) => ({
+        path: `rust/schema/${String(i).padStart(3, '0')}.sql`,
+        sha256: 'b'.repeat(64),
+      }));
+    for (const count of [255, 256]) {
+      record.source_files = sources(count);
+      expect(parseCompiledSchema(`${JSON.stringify(record)}\n`)).toEqual(record);
+    }
+    record.source_files = sources(257);
     expect(() => parseCompiledSchema(`${JSON.stringify(record)}\n`)).toThrow(
       'Compiled source closure bound'
     );
