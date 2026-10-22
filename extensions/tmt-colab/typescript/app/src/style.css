@@ -140,15 +140,6 @@ footer {
 .needs-you-header .needs-you-header-trigger:is(:hover, :focus-visible) {
   text-decoration: underline;
 }
-/* Nothing waits and nothing shows (#4116); the element stays only to take the focus an emptied menu held. */
-.needs-you-header-empty {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .needs-you-header-mark {
   color: var(--tmt-ui-color-waiting);
 }
@@ -214,16 +205,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-}
-/* The connection words (Private · Live) stay in the document, out of sight: the header shows only
-   a state that needs attention, and Share… in the More menu carries them. */
-.page-connection {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 /* The More menu's Share… entry carries the page's state beneath its name. */
 .more-item {
@@ -1419,14 +1400,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
-.reading-connecting-text {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .reading-reason {
   margin: 4px 0 0;
   padding: 0 12px 8px;
@@ -1525,16 +1498,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
    gone: the decided row stands at the height of the one it replaces. */
 .proposal-actions .tmt-ui-action[data-variant='text'] {
   border: var(--tmt-ui-action-border-width) solid transparent;
-}
-/* A live line heard, not seen: it takes no room in the card. */
-.proposal-announce {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 /* The busy mark of the decision not being saved keeps the button's width without showing. */
 .proposal-unpressed {
@@ -1855,13 +1818,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   white-space: normal;
 }
 
-.archive-announcement {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
 .archive-unsent-draft pre {
   font: inherit;
   white-space: pre-wrap;

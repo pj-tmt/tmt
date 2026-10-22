@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "e5bb9c5a9913b0d9f57965fea5e2e7114101776693c650fcd0a5ce48ea6251d3",
+    "generated/static.css": "0d183ad1eb46bf3aa19f4f1258e5afa0db0ef99a85239a57975845025f88a62d",
     "src/action.css": "5cacc5b10aadb6148dd28eba1e8c06ce3da05857d4fdd757b8af7f391dcf63c2",
     "src/action.tsx": "bb28278e920aabe3afd1179681ac90549a4a9dfe351076e4c80514c139182682",
     "src/chips.css": "105bc5c3d98459473b9472d4d91905c7a900f2b6da1c1059b4c62c762bbc976d",
@@ -20,7 +20,7 @@
     "src/icon-action.css": "78405fdcc3e42e3e29eb44788731d4d1356e92ab162083a98adc7dc147c831f9",
     "src/icon-action.tsx": "388aa7669887b186cf822da08e45f012e7610aa55ca8a5e4fa5463a0e29ebaee",
     "src/list.css": "34c7be650d20bbcce965f724b1cb5960dbbe544eccacce131726ccbec138bf3b",
-    "src/list.tsx": "bf84c53748c7f08a0c31f481a11213ff75961bc436f0fcb265412cfdcb91829c",
+    "src/list.tsx": "2c4a434cdcb33144998ff7b45b108011d679367c324904e1f009824199929c8b",
     "src/menu-position.ts": "0d107000343afa7e087fbbc1ce2a6ebc62fd7a42fed823d1b8f7176b62fcc6a1",
     "src/menu.css": "68d4c572812ea48c0ea91bfce0fb901d5495609eeae767a474f4d8202353b09d",
     "src/menu.tsx": "dc8ca4cce1b816e6f2911339754148e790bd0a4077a68434228c980cd0ea8ff9",
@@ -32,8 +32,8 @@
     "src/notifications.tsx": "36cc4b9439e0f1f86ce1ef1b07fc133daf3955e806e15424ece89675977326de",
     "src/overlay.ts": "37c0a2bbd673dc15c1ca1efe5b4fe09bce7087b6bf73c70a377b5f513d129325",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
-    "src/react.ts": "295e79f78e76e1dd00bf4bc851abc7c3ec6fc2e10f32b3965c8880994d06f1e0",
-    "src/static.ts": "3483b322d3fc5222d13dd6f589a429b4bb1b0a3adc3dce4274d9280cd933a8ac",
+    "src/react.ts": "dfd925c8457037987ced89c907e74aea001abd39eb9cdafc1c44bac7081d7321",
+    "src/static.ts": "8a4ae8f58b88f68148e73f9f344cc2cafba7a77723473a874a383a484457b929",
     "src/tabs.css": "6fe53a807e34e41192b9dc2697de26bfd649e1899d565bb032da4dd1abc3104e",
     "src/tabs.tsx": "7c8bf39073e629410ca607b2a94bf2c65a0d8a88fed936e3f62a636a11d8adcf",
     "src/toggle.css": "1934443962889b5493457194b856b24ea96f649ea7fedafab3b8c030c29178a8",

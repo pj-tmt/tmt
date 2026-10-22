@@ -130,10 +130,6 @@
 .settings-page #firestore-content code {
   overflow-wrap: anywhere;
 }
-.settings-page #firestore-budget summary:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
-}
 
 .settings-page .change-feedback [data-outcome-slot] {
   margin: 0;
@@ -147,11 +143,3 @@
   overflow-wrap: anywhere;
 }
 
-.settings-page .device-confirmation {
-  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
-  padding-left: 12px;
-  margin: 8px 0;
-}
-.settings-page .device-confirmation p {
-  margin: 8px 0;
-}

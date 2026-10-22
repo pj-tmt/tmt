@@ -23,13 +23,18 @@ function action(text: string, run: () => void): HTMLButtonElement {
   button.addEventListener('click', run);
   return button;
 }
-function field(label: string, value: string): { label: HTMLLabelElement; input: HTMLInputElement } {
-  const wrapper = node('label', label);
-  wrapper.className = 'tmt-ui-field-label';
+let fieldCount = 0;
+function field(label: string, value: string): { label: HTMLElement; input: HTMLInputElement } {
+  const wrapper = node('div');
+  wrapper.className = browserUiClasses.field;
   const input = node('input');
-  input.className = 'tmt-ui-field-control';
+  input.id = `remote-field-${++fieldCount}`;
+  input.className = browserUiClasses.fieldControl;
   input.value = value;
-  wrapper.append(input);
+  const text = node('label', label);
+  text.className = browserUiClasses.fieldLabel;
+  text.htmlFor = input.id;
+  wrapper.append(text, input);
   return { label: wrapper, input };
 }
 

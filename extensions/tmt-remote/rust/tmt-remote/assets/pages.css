@@ -85,10 +85,8 @@ a:focus-visible {
 form {
   margin-top: 16px;
 }
-input {
-  display: block;
-  width: 100%;
-  margin: 6px 0 12px;
+#pair > .tmt-ui-field {
+  margin-bottom: 12px;
 }
 [data-tmt-page='pair'] .tmt-ui-notice {
   background: transparent;
@@ -140,6 +138,7 @@ input {
 }
 .entry-status dd {
   margin: 0 0 12px;
+  overflow-wrap: anywhere;
 }
 /* Landing keeps next steps in its one state sheet, with optional technical details. */
 .entry-steps {
@@ -152,24 +151,6 @@ input {
 [data-tmt-page='landing'] {
   --tmt-ui-host-action-font: var(--tmt-ui-font-body);
   --tmt-ui-host-action-weight: 400;
-}
-.entry-details {
-  margin-top: 24px;
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  padding-top: 20px;
-}
-.entry-details summary {
-  cursor: pointer;
-}
-.entry-details summary:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
-}
-.entry-details dl {
-  margin-top: 20px;
-}
-.entry-details dd {
-  overflow-wrap: anywhere;
 }
 #copy-feedback:empty {
   margin: 0;
@@ -193,16 +174,6 @@ input {
   display: none;
 }
 
-.navigation-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-.navigation-list a {
-  display: inline-block;
-  min-height: 44px;
-  padding: 12px 0;
-}
 
 /* Home: what needs you across modules, then recent pages, as shared list rows. */
 .home {

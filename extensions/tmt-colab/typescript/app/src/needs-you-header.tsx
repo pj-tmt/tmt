@@ -72,7 +72,8 @@ export function NeedsYouHeader({
         onBlur={() => {
           menuFocus.current = false;
         }}
-        className="needs-you-header-empty"
+        // Nothing waits and nothing shows (#4116); the element stays only to take the focus an emptied menu held.
+        className="needs-you-header-empty tmt-ui-visually-hidden"
         aria-label={text.needsYouNothing}
       />
     );

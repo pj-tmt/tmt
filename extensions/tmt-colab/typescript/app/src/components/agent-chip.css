@@ -37,15 +37,6 @@
     background: CanvasText;
   }
 }
-/* The state's words for assistive technology; the dot is the sighted equivalent. */
-.agent-chip-state {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .agent-chip-name,
 .agent-chip-machine {
   min-width: 0;

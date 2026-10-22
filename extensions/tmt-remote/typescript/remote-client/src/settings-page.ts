@@ -4,7 +4,7 @@ import type { RemoteShell } from './remote-shell.js';
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
 import { renderFirestore } from './firestore-page.js';
 import { ManagementPage, type PageIntent } from './management-page.js';
-import { createActionMark } from '@tmt/browser-ui/static';
+import { browserUiClasses, createActionMark } from '@tmt/browser-ui/static';
 import { createBusyMarkGate } from '@tmt/browser-ui/busy-mark';
 
 /** The Remote settings page (`/remote/settings`): run once per mount of its markup. This bundle
@@ -475,12 +475,13 @@ export async function settingsPage(shell?: RemoteShell): Promise<void> {
           });
           form.append(field, save, talk, revoke);
           const panel = document.createElement('div');
-          panel.className = 'device-confirmation';
+          panel.className = browserUiClasses.notice;
           panel.dataset.confirmation = '';
           panel.id = `confirm-${device.clientId}`;
           panel.hidden = true;
           const consequence = document.createElement('p');
           consequence.id = `${panel.id}-consequence`;
+          consequence.className = browserUiClasses.noticeBody;
           consequence.setAttribute('role', 'status');
           const cancel = document.createElement('button');
           cancel.type = 'button';
@@ -490,7 +491,10 @@ export async function settingsPage(shell?: RemoteShell): Promise<void> {
           cancelLabel.textContent = 'Cancel';
           cancel.append(cancelLabel);
           cancel.addEventListener('click', () => cancelConfirmation(true));
-          panel.append(consequence, cancel);
+          const actions = document.createElement('div');
+          actions.className = browserUiClasses.noticeActions;
+          actions.append(cancel);
+          panel.append(consequence, actions);
           for (const button of [talk, revoke]) {
             button.setAttribute('aria-controls', panel.id);
             button.setAttribute('aria-expanded', 'false');

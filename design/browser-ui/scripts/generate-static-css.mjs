@@ -50,6 +50,7 @@ const fragments = await Promise.all(
     'spinner',
     'section',
     'table',
+    'disclosure',
     'visually-hidden',
   ].map((name) => readFile(new URL(`src/${name}.css`, home), 'utf8')),
 );

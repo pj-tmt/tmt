@@ -2282,6 +2282,27 @@ svg.tmt-ui-mark {
   font-family: var(--tmt-ui-font-mono);
 }
 
+.tmt-ui-disclosure {
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-disclosure > summary {
+  cursor: pointer;
+}
+.tmt-ui-disclosure > summary:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}
+.tmt-ui-disclosure[open] > summary {
+  margin-bottom: var(--tmt-ui-space-m);
+}
+/* Optional detail under a page's main content, set off by a rule. */
+.tmt-ui-disclosure[data-divided] {
+  margin-top: var(--tmt-ui-space-xl);
+  padding-top: calc(var(--tmt-ui-space-xl) - var(--tmt-ui-space-xs));
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+
 /* Text for assistive technology only: out of sight, still in the document and the accessibility tree. */
 .tmt-ui-visually-hidden {
   position: absolute;

@@ -23,7 +23,9 @@ it('marks a working agent with a static dot and its words, never a spinner', () 
   expect(working).toContain('data-working');
   expect(working).toContain('data-activity="working"');
   expect(working).toContain('title="Studio agent, working"');
-  expect(working).toContain('<span class="agent-chip-state">, working</span>');
+  expect(working).toContain(
+    '<span class="agent-chip-state tmt-ui-visually-hidden">, working</span>',
+  );
   expect(working).not.toContain('agent-chip-spinner');
   expect(working).not.toContain('role="img"');
   // A chip that already has a description keeps it and gains the state.
