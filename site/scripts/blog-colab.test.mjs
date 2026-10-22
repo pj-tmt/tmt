@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { capture, prepare, publish } from "../src/blog/colab.mjs";
+import { draft, capture, prepare, publish } from "../src/blog/colab.mjs";
 import { readPosts } from "../src/blog/site.mjs";
 
 const pageId = "10000000-0000-4000-8000-000000000001";
@@ -75,6 +75,54 @@ async function world(run) {
     await rm(root, { recursive: true, force: true });
   }
 }
+
+async function draftInput(root) {
+  await mkdir(join(root, "src/blog"), { recursive: true });
+  await writeFile(join(root, "src/blog/blog.css"), ".post-shell { color: black; }");
+  const sourcePath = join(root, "draft.html");
+  await writeFile(
+    sourcePath,
+    '<article id="blog-article"><p>Public body</p></article><aside>Private note</aside>',
+  );
+  return sourcePath;
+}
+
+test("draft creates a strict column page without opening a browser", async () =>
+  world(async (root) => {
+    const sourcePath = await draftInput(root);
+    const created = { pageId, path: "/p/10000000" };
+    let pageCreated = false;
+    const call = async (...args) => {
+      if (args[0] !== "page") return { ok: true };
+      assert.equal(args[1], "create");
+      assert.equal(args[args.indexOf("--layout") + 1], "column");
+      assert.ok(args.includes("--strict"));
+      assert.ok(args.includes("--no-open"));
+      const source = await readFile(args[args.indexOf("--file") + 1], "utf8");
+      assert.match(source, /<article id="blog-article"><p>Public body<\/p><\/article>/);
+      assert.match(source, /\.post-shell \{ color: black; \}/);
+      assert.doesNotMatch(source, /Private note/);
+      pageCreated = true;
+      return created;
+    };
+    assert.deepEqual(await draft({ root, sourcePath, meta, call }), created);
+    assert.equal(pageCreated, true);
+  }));
+
+test("draft adds the newly created page to the blog project using the current CLI", async () =>
+  world(async (root) => {
+    const sourcePath = await draftInput(root);
+    const calls = [];
+    const created = { pageId, path: "/p/10000000" };
+    const call = async (...args) => {
+      calls.push(args);
+      if (args[0] === "page" && args[1] === "create") return created;
+      assert.deepEqual(args, ["project", "add", pageId, "blog"]);
+      return { changed: true };
+    };
+    assert.deepEqual(await draft({ root, sourcePath, meta, call }), created);
+    assert.equal(calls.length, 2);
+  }));
 
 test("prepared proposal inventories exact scripts; trusted approval imports only public output", async () =>
   world(async (root) => {
