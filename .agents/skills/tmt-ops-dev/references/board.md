@@ -403,9 +403,10 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   control. Cron retains its form-owned payload; status reasons stay plain text.
   The Editor remains the only owner of send bytes and retained folds.
   Chip body clicks and Ctrl-P open a read-only, scrollable preview anchored above
-  the chip, or below when necessary, within half the conversation pane. Escape
-  and outside presses dismiss the preview without changing the draft; the outside
-  press continues to its underlying control. The chip's × removes its source range.
+  the chip, or below when necessary, within half the conversation pane. A final
+  line break does not add a blank preview row; additional empty lines remain visible.
+  Escape and outside presses dismiss the preview without changing the draft;
+  the outside press continues to its underlying control. The chip's × removes its source range.
   Pasting while previewing closes the preview and admits that paste once at the
   kept editor caret/selection. A size refusal keeps the exact draft and displays
   the existing notice; paste never submits.

@@ -954,6 +954,56 @@ fn too_small_preview_and_shrinking_layout_never_capture_invisible_input() {
 }
 
 #[test]
+fn preview_footer_omits_one_terminal_break_and_keeps_other_blank_lines() {
+    for separator in ["\n", "\r\n", "\r"] {
+        for terminal_breaks in [0usize, 1, 2] {
+            for quote in [false, true] {
+                let mut app = crate::board::app::workspace::tests::board();
+                let raw = (1..=30)
+                    .map(|line| format!("source line {line}"))
+                    .collect::<Vec<_>>()
+                    .join(separator)
+                    + &separator.repeat(terminal_breaks);
+                if quote {
+                    app.add_chat_quote("worker".into(), raw.clone());
+                } else {
+                    key(&mut app, KeyCode::Enter);
+                    app.paste(&raw);
+                }
+                draw(&mut app, 100, 36);
+                let hit = app.composer.paste_hits.borrow()[0].clone();
+                app.mouse(click(hit.area), std::time::Instant::now());
+                let before = app.input.as_ref().unwrap().text.clone();
+                let mut terminal =
+                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 36)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        crate::board::view::prepare(&mut app, frame.area());
+                        crate::board::view::render(frame, &app);
+                    })
+                    .unwrap();
+                let painted: String = terminal
+                    .backend()
+                    .buffer()
+                    .content()
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect();
+                let rows = 30 + terminal_breaks.saturating_sub(1);
+                assert!(
+                    painted.contains(&format!("of {rows} ·")),
+                    "separator={separator:?}, terminal breaks={terminal_breaks}, quote={quote}: {painted}"
+                );
+                let preview = app.current_paste_preview().unwrap();
+                assert_eq!(preview.scroll.borrow().content(), rows);
+                assert_eq!(preview.text.as_str(), raw);
+                assert!(app.input.as_ref().unwrap().text == before);
+            }
+        }
+    }
+}
+
+#[test]
 fn quote_preview_retains_full_source_at_narrow_width_without_editing() {
     for width in [60, 100, 160] {
         let mut app = crate::board::app::workspace::tests::board();

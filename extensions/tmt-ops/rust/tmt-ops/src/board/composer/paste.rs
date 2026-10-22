@@ -441,10 +441,18 @@ impl App {
                 format!("File · {}", super::files::name(&path)),
             ),
             None => {
-                let (chars, lines) = counts(preview.text.as_str());
+                let text = preview.text.as_str();
+                let (chars, lines) = counts(text);
                 let line_unit = if lines == 1 { "line" } else { "lines" };
+                // A terminal break ends the last content line; further blank
+                // lines remain visible. Retained source and send bytes stay exact.
+                let shown = text
+                    .strip_suffix("\r\n")
+                    .or_else(|| text.strip_suffix('\n'))
+                    .or_else(|| text.strip_suffix('\r'))
+                    .unwrap_or(text);
                 (
-                    preview.text.clone(),
+                    shown.into(),
                     format!(
                         "{} · {} chars · {} {line_unit}",
                         if preview.quote { "Quote" } else { "Pasted" },
