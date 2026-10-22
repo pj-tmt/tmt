@@ -206,6 +206,22 @@ exec /opt/tmt-tests/claude "$@"
       expect(original.runtime_state).toBe('running');
       expect(Number(original.runtime_pid)).toBeGreaterThan(0);
       writeFileSync(oldRecord, JSON.stringify({ pid: Number(original.runtime_pid) }));
+      const refusedStatus = path.join(fixture.root, 'resume-live-refused.status');
+      const beforePreferences = preferences(fixture);
+      submit(fixture, target, ['resume', '--no-channel', 'Mover'], refusedStatus);
+      await waitForFileContent(refusedStatus, {
+        description: 'ordinary resume refused the live session',
+      });
+      expect(readFileSync(refusedStatus, 'utf8')).toBe('5');
+      const refusal = fixture.capture(100, target);
+      expect(refusal).toContain('recorded agent');
+      expect(refusal).toContain(source);
+      expect(refusal).toContain('tmt resume --move -- Mover');
+      expect(refusal).toContain('No new agent was launched');
+      expect(durableState(fixture)).toEqual(before);
+      expect(preferences(fixture)).toEqual(beforePreferences);
+      expect(existsSync(launchProof)).toBe(false);
+      expect(existsSync(newReady)).toBe(false);
       submit(fixture, target, ['resume', '--move', '--no-channel', 'Mover'], newStatus);
       try {
         await waitForFileContent(newReady, {
