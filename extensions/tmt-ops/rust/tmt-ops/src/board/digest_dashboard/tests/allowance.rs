@@ -220,10 +220,6 @@ fn no_reading_or_no_room_shows_no_block_and_leaves_the_table_whole() {
 /// A claude window at 20 % left, 40 h to the reset, that lost 0.5 points an hour over the last
 /// day (12 points), with one member "a" on claude spending `cells` tokens an hour-cell.
 fn claude_with_tokens(cells: [u64; 24], complete: [bool; 24], ends_ago_ms: u64) -> App {
-    use crate::board::usage_report::{
-        Delivery, Report,
-        model::{HourlySeries, Seat, Who},
-    };
     let mut app = digest(vec![standing(
         "claude",
         20.0,
@@ -231,51 +227,13 @@ fn claude_with_tokens(cells: [u64; 24], complete: [bool; 24], ends_ago_ms: u64) 
         10 * 60_000,
         Rates::measured(Some(0.5), Some(0.5), Some(0.5), Some(0.5)),
     )]);
-    let input = crate::board::rate::tests::input(1_000);
-    crate::board::app::tests::install_rate_observation(
+    crate::board::app::workspace::tests::install_hourly_tokens(
         &mut app,
-        "product".into(),
-        crate::board::app::RateView {
-            settings: crate::config::TokenRate {
-                enabled: true,
-                ..Default::default()
-            },
-            input,
-            history: None,
-        },
+        NOW,
+        ends_ago_ms,
+        complete,
+        &[("a", "claude", cells)],
     );
-    let range = app.tok_range();
-    let from_ms = NOW - ends_ago_ms - 24 * HOUR;
-    app.usage_report.apply(Delivery {
-        since: range,
-        result: Ok(Report {
-            since: range,
-            observed_at_ms: NOW,
-            window_from_ms: Some(from_ms),
-            seats: vec![Seat {
-                who: Who {
-                    id: Some("a".into()),
-                    name: None,
-                    retired: false,
-                },
-                model_inputs: None,
-                input: 0,
-                output: 0,
-                cached: 0,
-                covered_ms: 24 * HOUR,
-                window_ms: 24 * HOUR,
-                from_ms,
-                to_ms: from_ms + 24 * HOUR,
-                observed_at_ms: NOW,
-                starts_at_ms: Some(from_ms),
-                complete: true,
-                series: HourlySeries::new(from_ms, cells, complete),
-            }],
-            unavailable: vec![],
-            exchange: None,
-            warnings: vec![],
-        }),
-    });
     app
 }
 
