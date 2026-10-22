@@ -1805,6 +1805,10 @@ generic 404 (a query string is refused by the edge before any session check). Cr
 same device and grant revision are rechecked after the read and a changed or ended session gets the
 generic 404, never the data. Replies carry the door's security headers (`no-store`, `nosniff`).
 Remote reaches Ops and Digest through the public CLI only, with no crate or state-file dependency.
+A read writes nothing in an initialized store. The first read on a fresh machine performs the same one-time,
+idempotent initialization as opening the board (the core store, Ops's path markers and the owner's saved
+identity through `user.identity`, which the [extension API](extension-api.md#the-persons-identity) scopes to
+owner-authenticated sessions).
 
 Every answer is HTTP 200 with one JSON document:
 
