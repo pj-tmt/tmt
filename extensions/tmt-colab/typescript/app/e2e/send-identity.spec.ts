@@ -23,9 +23,9 @@ test('a refused name is told once: the command is selectable code and Dismiss re
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await run(page, 'mountChat', anonymous);
-  await expect(line(page)).toContainText(
-    'Sent without your name. USER_NAME_UNAVAILABLE: no login name;',
-  );
+  await expect(line(page)).toContainText('Sent without your name. No login name; set one with');
+  await expect(line(page)).not.toContainText('USER_NAME_UNAVAILABLE');
+  await expect(line(page)).toHaveAttribute('data-reason', 'USER_NAME_UNAVAILABLE');
   await expect(line(page).locator('code')).toHaveText('tmt config set user.name <name>');
   await expect(line(page)).toHaveAttribute('role', 'status');
   await line(page).scrollIntoViewIfNeeded();

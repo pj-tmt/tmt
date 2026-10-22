@@ -1,6 +1,11 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useSyncExternalStore } from 'react';
-import { messageParts, type SendIdentityNotice } from './send-identity-notice.js';
+import {
+  anonymousText,
+  messageParts,
+  USER_NAME_COMMAND,
+  type SendIdentityNotice,
+} from './send-identity-notice.js';
 import { text } from './strings.js';
 
 /** A quiet line under the composer about how the last send was attributed; informational only. */
@@ -12,11 +17,11 @@ export function SendIdentityLine({ notice }: { notice: SendIdentityNotice }) {
       <>
         {text.sendAnonymous}{' '}
         {(() => {
-          const { before, command, after } = messageParts(identity.message);
+          const { before, command, after } = messageParts(anonymousText(identity));
           return (
             <>
               {before}
-              {command && <code className="tmt-ui-code">{'tmt config set user.name <name>'}</code>}
+              {command && <code className="tmt-ui-code">{USER_NAME_COMMAND}</code>}
               {after}
             </>
           );
@@ -26,7 +31,12 @@ export function SendIdentityLine({ notice }: { notice: SendIdentityNotice }) {
       text.sendRenamed(identity.name, identity.renamedFrom)
     );
   return (
-    <p role="status" className="annotation-hint" data-testid="send-identity">
+    <p
+      role="status"
+      className="annotation-hint"
+      data-testid="send-identity"
+      data-reason={identity.state === 'anonymous' ? identity.reason : undefined}
+    >
       {body}{' '}
       <BrowserAction
         type="button"

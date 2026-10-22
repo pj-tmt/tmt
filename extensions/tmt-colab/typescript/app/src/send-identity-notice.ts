@@ -26,6 +26,16 @@ export class SendIdentityNotice {
   };
 }
 
+/** Core's message without its own `CODE: ` prefix (only when the code is this notice's reason, which
+ * stays in the line's `data-reason`), first letter capitalised, so the person reads a sentence. */
+export function anonymousText(identity: Extract<SendIdentity, { state: 'anonymous' }>): string {
+  const prefix = `${identity.reason}: `;
+  const rest = identity.message.startsWith(prefix)
+    ? identity.message.slice(prefix.length)
+    : identity.message;
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
 /** The command Core's message names, rendered as selectable code. */
 export const USER_NAME_COMMAND = 'tmt config set user.name <name>';
 /** Core's message split around the command, so the command can be shown as code. */

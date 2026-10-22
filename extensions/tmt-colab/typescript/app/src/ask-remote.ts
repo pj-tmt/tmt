@@ -22,8 +22,14 @@ export interface SendInput {
  * is Core's own and names the fix), or the person resolved under another name because an agent
  * already uses the plain one. An older Remote sends none. */
 export type SendIdentity =
-  | { state: 'anonymous'; reason: string; message: string }
+  | { state: 'anonymous'; reason: UserNameReason; message: string }
   | { state: 'person'; name: string; renamedFrom: string };
+const USER_NAME_REASONS = [
+  'USER_NAME_UNAVAILABLE',
+  'USER_NAME_INVALID',
+  'USER_NAME_TAKEN',
+] as const;
+type UserNameReason = (typeof USER_NAME_REASONS)[number];
 export type SendState = (
   | { state: 'held'; operationId: string }
   | { state: 'accepted'; operationId: string; requestId: string }
@@ -169,7 +175,26 @@ export interface OperationsSdk {
     >;
   };
 }
+/** Exact when present, as remote-channel-v1 requires: a notice that does not parse makes the whole
+ * reply unverifiable. Texts are non-empty and at most 512 bytes of UTF-8. */
+function identity(notice: unknown): asserts notice is SendIdentity {
+  const text = (value: unknown) =>
+    typeof value === 'string' && value.length > 0 && new TextEncoder().encode(value).length <= 512;
+  requireValue(notice !== null && typeof notice === 'object' && !Array.isArray(notice));
+  const value = notice as Record<string, unknown>;
+  if (value.state === 'anonymous') {
+    exactKeys(value, ['state', 'reason', 'message']);
+    requireValue(
+      (USER_NAME_REASONS as readonly unknown[]).includes(value.reason) && text(value.message),
+    );
+  } else {
+    requireValue(value.state === 'person');
+    exactKeys(value, ['state', 'name', 'renamedFrom']);
+    requireValue(text(value.name) && text(value.renamedFrom));
+  }
+}
 function state(value: SendState, id: string): SendState {
+  if ('identity' in value && value.identity !== undefined) identity(value.identity);
   requireValue(
     value.operationId === id &&
       ['accepted', 'held', 'uncertain', 'refused', 'cancelled'].includes(value.state),
