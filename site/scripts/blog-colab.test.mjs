@@ -51,6 +51,7 @@ function fakeColab() {
     throw new Error("Unexpected native call: " + args.join(" "));
   };
   const approve = () => {
+    state.revision = "after-trusted-decision";
     state.decision = {
       decision: "approved",
       deleted: false,
@@ -59,7 +60,7 @@ function fakeColab() {
       epoch: "1",
       senderDevice: device,
       actionId,
-      at: "2026-10-16T12:00:00Z",
+      at: "1792152000000",
     };
   };
   return { state, call, approve };
@@ -118,15 +119,39 @@ test("pending and declined decisions refuse without public files", async () =>
     assert.deepEqual(await readdir(join(root, "src/posts")), []);
   }));
 
-test("revision drift refuses even when author restores identical article bytes", async () =>
+test("trusted approval may advance the document revision while source stays identical", async () =>
+  world(async (root) => {
+    const fake = fakeColab();
+    const result = await prepare({ root, pageId, meta, call: fake.call });
+    const preparedSource = fake.state.source;
+    fake.approve();
+    assert.notEqual(fake.state.revision, result.pageRevision);
+    assert.equal(fake.state.source, preparedSource);
+    await publish({ root, proposalId: result.proposalId, call: fake.call });
+    const posts = await readPosts(join(root, "src/posts"));
+    assert.equal(posts.length, 1);
+    assert.match(posts[0].html, /Public body/);
+    const approval = JSON.parse(
+      await readFile(join(root, "src/posts", meta.slug, "approval.json"), "utf8"),
+    );
+    const record = JSON.parse(await readFile(result.record, "utf8"));
+    assert.equal(approval.pageRevision, result.pageRevision);
+    assert.equal(approval.sourceSha256, record.sourceSha256);
+    assert.equal(approval.artifactSha256, result.artifactSha256);
+    assert.equal(approval.actionId, actionId);
+    assert.equal(approval.approvedAt, fake.state.decision.at);
+  }));
+
+test("changed full source refuses even with the prepared revision and unchanged article", async () =>
   world(async (root) => {
     const fake = fakeColab();
     const result = await prepare({ root, pageId, meta, call: fake.call });
     fake.approve();
-    fake.state.revision = "new-revision-same-source";
+    fake.state.revision = result.pageRevision;
+    fake.state.source = fake.state.source.replace("Private note", "Changed private note");
     await assert.rejects(
       publish({ root, proposalId: result.proposalId, call: fake.call }),
-      /revision drift/,
+      /source drift/,
     );
     assert.deepEqual(await readdir(join(root, "src/posts")), []);
   }));
