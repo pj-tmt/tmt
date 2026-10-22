@@ -13,7 +13,6 @@ import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 import { ColabModuleBoundary } from './colab-module-boundary.js';
 import '@tmt/browser-ui/static.css';
 import './style.css';
-import { rememberMountedBuild } from './app-build.js';
 import { ShellHostSlot } from './colab-shell.js';
 import { hostInShell } from './entry.js';
 import { previewTransport } from './local-pages.js';
@@ -60,8 +59,6 @@ export async function mount(slot: ShellSlot): Promise<() => void> {
   }
   const paired = pairedMount(slot);
   hostInShell(paired);
-  // The build this tab runs, so a later Colab upgrade still shows the update row.
-  rememberMountedBuild();
   shellLocation();
   slot.setTitle('Colab');
   root.render(

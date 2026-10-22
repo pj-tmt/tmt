@@ -1,21 +1,8 @@
-import { expect, it, vi } from 'vite-plus/test';
-import {
-  createBuildWatch,
-  entryOf,
-  isNewerBuild,
-  parseServeRelease,
-  type ServeRelease,
-} from '../src/app-build.js';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { createBuildWatch, parseServeRelease, type ServeRelease } from '../src/app-build.js';
 
-const base = new URL('https://door.example/r/abc/x/colab/');
 const page = (src: string) =>
   `<!doctype html><html><head><script type="module" crossorigin src="${src}"></script></head></html>`;
-
-it('reads the hashed entry module of a served page', () => {
-  expect(entryOf(page('./assets/index-AAA.js'), base)).toBe('/r/abc/x/colab/assets/index-AAA.js');
-  expect(entryOf('<p>no script</p>', base)).toBeNull();
-  expect(entryOf('<script src="x.js"></script>', base)).toBeNull();
-});
 
 function watch(initial: { loaded: string | null; served: string | null | Error }) {
   const state = { ...initial, now: 0, reads: 0 };
@@ -43,8 +30,8 @@ it('is stale only when two known builds differ, and tells subscribers once', asy
   expect(w.state.reads).toBe(1);
 });
 
-it('compares a build read when Colab mounted in the TMT app, and says nothing without one', async () => {
-  // Inside the TMT app the running build is the mount's entry read once at mount (a promise).
+it('compares the build a source names with the served one, and says nothing without one', async () => {
+  // A source may answer later (a promise); the in-app one is the module's own stamp.
   let served = '/r/abc/x/colab/assets/index-OLDOLD12.js';
   const mounted = Promise.resolve(served);
   const stale = createBuildWatch({
@@ -64,16 +51,6 @@ it('compares a build read when Colab mounted in the TMT app, and says nothing wi
   const quiet = createBuildWatch({ loaded: async () => null, served: read, now: () => 0 });
   expect(await quiet.check()).toBe(false);
   expect(read).not.toHaveBeenCalled();
-});
-
-it('tells an upgrade from a different kind of page', () => {
-  expect(isNewerBuild('/a/index-AAAAAAAA.js', '/a/index-BBBBBBBB.js')).toBe(true);
-  expect(isNewerBuild('/a/index-AAAAAAAA.js', '/a/index-AAAAAAAA.js')).toBe(false);
-  // Pairing guidance (unhashed recovery.js) or the reader entry is not a newer app build.
-  expect(isNewerBuild('/a/index-AAAAAAAA.js', '/a/assets/recovery.js')).toBe(false);
-  expect(isNewerBuild('/a/index-AAAAAAAA.js', '/a/assets/reader.js')).toBe(false);
-  expect(isNewerBuild('/src/main.tsx', '/src/main.tsx')).toBe(false);
-  expect(isNewerBuild('/a/index-AAAAAAAA.js', '/a/other-BBBBBBBB.js')).toBe(false);
 });
 
 it.each([
@@ -247,4 +224,74 @@ it('still checks the native release for a mounted owner page', async () => {
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+/** The Colab module inside the TMT app at `href`: a fresh copy of the modules (the shell host is
+ * module state) whose build stamp is `built`, over a door whose mount serves `served`. */
+async function moduleIn(options: {
+  mount?: URL | null;
+  built?: string;
+  served: string;
+  href?: string;
+}) {
+  vi.resetModules();
+  const href = options.href ?? 'https://door.example/colab/pages/x';
+  const requests: string[] = [];
+  vi.stubGlobal('location', new URL(href));
+  vi.stubGlobal('document', { baseURI: href, querySelectorAll: () => [] });
+  if (options.built !== undefined) vi.stubGlobal('__COLAB_MODULE_BUILD__', options.built);
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    const request = new URL(String(input));
+    requests.push(request.pathname);
+    return request.pathname.endsWith('/api/serve-release')
+      ? new Response('', { status: 404 })
+      : new Response(page(`./assets/index-${options.served}.js`));
+  });
+  const entry = await import('../src/entry.js');
+  if (options.mount !== undefined) entry.hostInShell(options.mount);
+  const { createBuildWatch } = await import('../src/app-build.js');
+  return { watch: createBuildWatch(), requests };
+}
+const mount = new URL('https://door.example/r/abcdefghijklmnop/x/colab/');
+const mountEntry = '/r/abcdefghijklmnop/x/colab/';
+afterEach(() => vi.unstubAllGlobals());
+
+it('a paired tab in the TMT app runs the build its module was made with, however late it mounts', async () => {
+  // An upgrade landed between the module's import and its mount: every read now names NEWNEW34,
+  // and only the module's own stamp says it is OLDOLD12. The check is the only read there is.
+  const { watch, requests } = await moduleIn({
+    mount,
+    built: '/assets/index-OLDOLD12.js',
+    served: 'NEWNEW34',
+  });
+  expect(await watch.check()).toBe(true);
+  expect(watch.stale()).toBe(true);
+  expect(requests).toEqual([mountEntry, `${mountEntry}api/serve-release`]);
+});
+
+it('a paired tab on the served build is not stale', async () => {
+  const { watch } = await moduleIn({
+    mount,
+    built: '/assets/index-SAME1234.js',
+    served: 'SAME1234',
+  });
+  expect(await watch.check()).toBe(false);
+  expect(watch.stale()).toBe(false);
+});
+
+it('the unpaired preview in the TMT app has no running build and reads nothing', async () => {
+  // Its served read would be the shell's own page, which must never be taken for Colab's build.
+  const { watch, requests } = await moduleIn({
+    mount: null,
+    built: '/assets/index-OLDOLD12.js',
+    served: 'NEWNEW34',
+  });
+  expect(await watch.check()).toBe(false);
+  expect(requests).toEqual([]);
+});
+
+it('a module without a stamp (the dev server) stays quiet', async () => {
+  const { watch, requests } = await moduleIn({ mount, served: 'NEWNEW34' });
+  expect(await watch.check()).toBe(false);
+  expect(requests).not.toContain(mountEntry);
 });
