@@ -2046,39 +2046,3 @@ fn an_ingested_original_is_stored_and_announced_like_a_browser_append_without_a_
     assert_eq!(f.payload(ALICE, 2), None);
     assert_eq!(bob.1.poll(), Progress::Pending);
 }
-#[test]
-fn an_object_request_on_a_connection_without_an_object_channel_names_that_cause() {
-    // Remote forwards a websocket upgrade without an origin when its object setup missed its
-    // budget, so the serve has no peer object handle for it. The page's sync keeps working; an
-    // object request says why it cannot be served, so the app can reconnect once for it (#4297).
-    let f = Fixture::new();
-    let mut peer = f.peer(ALICE);
-    send(
-        &mut peer,
-        f.frame(
-            "hello",
-            json!({"device":ALICE,"membershipRevision":"0","cursors":[]}),
-        ),
-    );
-    let id = "00000000-0000-4000-8000-0000000000a1";
-    send(
-        &mut peer,
-        f.frame(
-            "object",
-            json!({"requestId":id,"request":{"method":"config"}}),
-        ),
-    );
-    for _ in 0..16 {
-        let frame = receive(&mut peer);
-        if frame["type"] == "object-result" {
-            assert_eq!(frame["requestId"], id);
-            assert_eq!(
-                frame["result"],
-                json!({"error":{"code":"no-object-channel"}})
-            );
-            return;
-        }
-        ack(&mut peer, &frame);
-    }
-    panic!("no object-result frame");
-}

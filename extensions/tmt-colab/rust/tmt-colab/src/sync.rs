@@ -1007,7 +1007,7 @@ impl<A: Admission> Server<A> {
             server: self.clone(),
             id,
             blocked_since: None,
-            objects: None,
+            objects: Err(crate::object_channel::Missing::Unavailable),
             ping_due: None,
         })
     }
@@ -2257,12 +2257,15 @@ pub struct Connection<S: Read + Write, A> {
     server: Server<A>,
     id: u64,
     blocked_since: Option<Instant>,
-    objects: Option<crate::object_channel::PeerObjects>,
+    objects: Result<crate::object_channel::PeerObjects, crate::object_channel::Missing>,
     /// When the next keepalive Ping is due; armed by the first poll.
     ping_due: Option<Instant>,
 }
 impl<S: Read + Write, A: Admission> Connection<S, A> {
-    pub(crate) fn attach_objects(&mut self, objects: Option<crate::object_channel::PeerObjects>) {
+    pub(crate) fn attach_objects(
+        &mut self,
+        objects: Result<crate::object_channel::PeerObjects, crate::object_channel::Missing>,
+    ) {
         self.objects = objects;
     }
     fn object_request(
@@ -2285,7 +2288,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             if state.draining {
                 return Err(Code::ResyncRequired);
             }
-            if let Some(objects) = &self.objects {
+            if let Ok(objects) = &self.objects {
                 // Admission and bounded submission share the drain lock. The count remains
                 // live through backend work and publication, until its correlated reply settles.
                 match objects.submit(
@@ -2308,13 +2311,12 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             }
         }
         values::generated_id(&id)?;
-        // A connection with no peer object handle was upgraded without an origin (Remote's object
-        // setup missed its budget). Name that cause, so the app can reconnect once for it; a full
-        // queue or a denied submission stays the bare `unavailable`.
-        let code = if self.objects.is_some() {
-            "unavailable"
-        } else {
-            "no-object-channel"
+        // Only an upgrade without an origin (Remote's object setup missed its budget) names its
+        // cause, so the app can reconnect once for it. A full queue, a denied submission and
+        // every other missing handle stay the bare `unavailable`.
+        let code = match self.objects {
+            Err(crate::object_channel::Missing::WithoutOrigin) => "no-object-channel",
+            _ => "unavailable",
         };
         let text = wire::output(
             scope,
@@ -2333,7 +2335,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
         self.server.run_save_job(Some(self.id), &job).map(|_| ())
     }
     fn close(&mut self, code: Code) -> Progress {
-        self.objects.take();
+        self.objects = Err(crate::object_channel::Missing::Unavailable);
         if let Some(mut socket) = self.socket.take()
             && self.blocked_since.is_none()
         {
@@ -2487,7 +2489,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             Err(e) if would_block(&e) => {}
             Err(_) => return self.close(Code::Invalid),
         }
-        if let Some(objects) = &self.objects {
+        if let Ok(objects) = &self.objects {
             while let Some(reply) = objects.take_reply() {
                 if let Ok(mut state) = self.server.0.lock() {
                     state.recheck();
@@ -2595,7 +2597,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
 }
 impl<S: Read + Write, A> Drop for Connection<S, A> {
     fn drop(&mut self) {
-        self.objects.take();
+        self.objects = Err(crate::object_channel::Missing::Unavailable);
         if let Ok(mut state) = self.server.0.lock() {
             state.peers.remove(&self.id);
         }

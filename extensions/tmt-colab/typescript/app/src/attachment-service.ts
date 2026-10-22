@@ -24,7 +24,8 @@ const REQUEST_MS = 15_000;
 /** A read of the page's objects has no deadline: it ends with its reply or the connection closing,
  * however large the object or busy the server (#3982). */
 const NO_DEADLINE = Number.POSITIVE_INFINITY;
-/** Remote's cool-down after a failed object setup; an upgrade sooner would be refused the same way. */
+/** Mirrors Remote's `OBJECT_REACTIVATION_COOLDOWN` (1 s, `contracts/remote-channel-v1.md`): an upgrade
+ * sooner than this after a failed object setup is refused the same way. Change both together. */
 const OBJECT_REOPEN_MS = 1_000;
 
 export interface AttachmentInput {
