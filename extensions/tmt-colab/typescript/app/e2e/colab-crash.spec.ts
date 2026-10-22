@@ -93,6 +93,8 @@ test('inside the TMT app a crash keeps the rail and the header bar', async ({ pa
   await expect(page.getByRole('alert')).toContainText('Page unavailable');
   expect(await hostState(page)).toMatchObject({ rail: true, barHeaders: 1, mainHeaders: 0 });
   expect((await hostState(page)).brand).toContain('TMT');
+  // The bar reads `<module> / <page>`.
+  expect((await hostState(page)).bar).toMatch(/Colab\s*\/\s*Page unavailable/);
   // A sentence, not the exception; the exception is behind Details.
   await expect(page.locator('#spa-slot').getByText('This page could not be shown.')).toBeVisible();
   await expect(page.locator('#spa-slot').getByText('page.title.trim')).toBeHidden();
@@ -124,4 +126,15 @@ test('the error view paints no focus frame on the header title', async ({ page }
       }),
     )
     .toBe('none');
+});
+
+test('the route error view offers Try again, which loads the route again', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountHostApp', '/colab/', 'route');
+  const view = page.locator('#spa-slot');
+  await expect(view.getByRole('alert')).toContainText('Page unavailable');
+  await call(page, 'healCrash');
+  await view.getByRole('button', { name: 'Try again' }).click();
+  await expect(view.getByRole('alert')).toHaveCount(0);
+  await expect.poll(async () => (await hostState(page)).rail).toBe(true);
 });

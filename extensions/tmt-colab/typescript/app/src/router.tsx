@@ -666,6 +666,7 @@ function PageOpenFailure({
 const root = createRootRouteWithContext<AppContext>()({
   component: Shell,
   errorComponent: function RootError({ error }) {
+    const router = useRouter();
     const opening = useRouterState({ select: (state) => state.location.pathname }).startsWith(
       '/pages/',
     );
@@ -706,9 +707,17 @@ const root = createRootRouteWithContext<AppContext>()({
               eyebrow={text.product}
               title={text.error}
               actions={
-                <Link className={ui.action} data-variant="text" to="/">
-                  {text.retry}
-                </Link>
+                <>
+                  <BrowserAction
+                    type="button"
+                    variant="text"
+                    label={text.crashRetry}
+                    onActivate={() => void router.invalidate()}
+                  />
+                  <Link className={ui.action} data-variant="text" to="/">
+                    {text.retry}
+                  </Link>
+                </>
               }
             >
               {failure ? (

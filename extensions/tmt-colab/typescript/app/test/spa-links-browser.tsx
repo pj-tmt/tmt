@@ -236,6 +236,11 @@ function renderBoundary(slot: ShellSlot): () => void {
   };
 }
 
+/** What the Home route crashed on is fixed: the next Try again loads it. */
+export function healCrash() {
+  restoreCrash?.();
+}
+
 /** The host releases the route before the next module mounts. */
 export function unmountModule() {
   host?.dispose();

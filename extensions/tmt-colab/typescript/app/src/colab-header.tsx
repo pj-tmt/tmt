@@ -55,12 +55,13 @@ export function ColabHeader({
     <BrowserHeader
       productLabel={text.product}
       headingPrefix={
-        remote === undefined ? undefined : (
+        // The host's bar reads `<module> / <page>`: any header in it has the divider.
+        remote === undefined && !bar ? undefined : (
           <>
             <span className="colab-title-divider" aria-hidden="true">
               /
             </span>
-            {crumb !== undefined && (
+            {remote !== undefined && crumb !== undefined && (
               <span className="colab-crumb-group">
                 {crumb}
                 <span className="colab-title-divider" aria-hidden="true">
