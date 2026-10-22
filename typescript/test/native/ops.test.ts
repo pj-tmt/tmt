@@ -4858,6 +4858,73 @@ describe('Ops path migration with unchanged Squad commands', () => {
   }, 60_000);
 });
 
+describe('member session foreground handoff', () => {
+  it.each([false, true])(
+    'copies and cancels before a foreground handoff with restored modes (move=%s)',
+    async (move) => {
+      await withSandbox(async (sandbox) => {
+        const bin = installSquad(sandbox);
+        await identity(sandbox, 'Ben');
+        const recipient = await identity(sandbox, 'worker');
+        expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+        expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        const root = path.join(sandbox.root, 'session-proof');
+        mkdirSync(root);
+        const copied = path.join(root, 'copied');
+        const clipboard = path.join(bin, 'session-copy');
+        const shellWord = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
+        writeExecutable(clipboard, `#!/bin/sh\ncat > ${shellWord(copied)}\n`, 0o755);
+        const config = path.join(sandbox.globalDir, 'ops.toml');
+        writeFileSync(
+          config,
+          `${readOpsConfig(config)}\nclipboard = [${JSON.stringify(clipboard)}]\n`
+        );
+        // A quote and a space prove the copied command preserves argv. The
+        // fixture advertises public memory but never launches a provider.
+        const proxy = path.join(bin, "session-core's proxy");
+        const producer = fileURLToPath(new URL('./ops-session-core.py', import.meta.url));
+        writeExecutable(
+          proxy,
+          `#!/bin/sh\nexec /usr/bin/python3 ${shellWord(producer)} ${shellWord(path.join(root, 'wire.json'))} "$@"\n`,
+          0o755
+        );
+        const peer = fileURLToPath(new URL('./ops-session-pty.py', import.meta.url));
+        const env: NodeJS.ProcessEnv = { ...sandbox.env, TMT_AGENT: '1', BROWSER: '/usr/bin/true' };
+        delete env.TMUX;
+        delete env.TMUX_PANE;
+        const result = spawnSync(
+          'python3',
+          [
+            peer,
+            JSON.stringify({
+              root,
+              proxy,
+              ops: squadExecutable,
+              cli: [sandbox.cli.executable, ...sandbox.cli.args],
+              recipient,
+              move,
+            }),
+          ],
+          { cwd: sandbox.cwd, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 1024 * 1024 }
+        );
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        const proof = JSON.parse(result.stdout);
+        expect(proof).toMatchObject({
+          mode: move ? 'move' : 'resume',
+          samePid: true,
+          terminalRestoredBeforeExec: true,
+          foreground: true,
+          copyAndCancelWithoutExec: true,
+          activeReads: 0,
+          coreExit: 23,
+        });
+        expect(proof.argv).toEqual(['resume', ...(move ? ['--move'] : []), '--', recipient]);
+      });
+    },
+    120_000
+  );
+});
+
 describe('composer terminal input', () => {
   it.each([
     { enhanced: true, lifecycle: 'quit', longBody: true },
