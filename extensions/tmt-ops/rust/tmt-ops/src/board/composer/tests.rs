@@ -1347,7 +1347,11 @@ fn inline_quote_inserts_below_caret_line_and_keeps_a_blank_answer_line() {
         let editor = &mut app.input.as_mut().unwrap().text;
         *editor = source.into();
         for _ in 0..steps {
-            editor.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), 80, usize::MAX);
+            editor.key(
+                KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+                80,
+                usize::MAX,
+            );
         }
         app.add_chat_quote("worker".into(), "full\nquote".into());
         let editor = &app.input.as_ref().unwrap().text;
@@ -1358,4 +1362,84 @@ fn inline_quote_inserts_below_caret_line_and_keeps_a_blank_answer_line() {
         assert_eq!(&editor.as_str()[fold.source.clone()], "full\nquote");
         assert!(!fold.expanded);
     }
+}
+
+#[test]
+#[ignore = "writes task-owned inline quote demo; never records frozen fixtures"]
+fn capture_inline_quote_caret_demo() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
+    use tmt_cli_style::{Base, Depth, Theme};
+    let output = std::env::var_os("TMT_INLINE_QUOTE_DEMO").expect("task-owned output path");
+    let _no_commands = crate::runner::forbid_commands();
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut frames = Vec::new();
+        for (name, base, depth) in [
+            ("dark", Base::Tmt, Depth::TrueColor),
+            ("light", Base::TmtLight, Depth::TrueColor),
+            ("ansi16", Base::Tmt, Depth::Ansi16),
+            ("NO_COLOR", Base::Tmt, Depth::None),
+        ] {
+            for width in [160, 100, 60] {
+                let mut app = crate::board::app::workspace::tests::board();
+                app.view.as_mut().unwrap().look = crate::look::Look {
+                    theme: Theme::new(base),
+                    depth,
+                };
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .squad_looks
+                    .clear();
+                app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                app.paste("aaaa\nlater line kept");
+                app.input.as_mut().unwrap().text.key(
+                    KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
+                    80,
+                    usize::MAX,
+                );
+                app.input.as_mut().unwrap().text.key(
+                    KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+                    80,
+                    usize::MAX,
+                );
+                for scene in ["before", "quote-below-caret"] {
+                    if scene == "quote-below-caret" {
+                        app.add_chat_quote(
+                            "worker".into(),
+                            "First question?\nThe full source stays in the preview.".into(),
+                        );
+                    }
+                    let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+                    terminal
+                        .draw(|frame| {
+                            crate::board::view::prepare(&mut app, frame.area());
+                            crate::board::view::render(frame, &app);
+                        })
+                        .unwrap();
+                    let caret = terminal.get_cursor_position().unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let input = app.input.as_ref().unwrap();
+                    if scene == "quote-below-caret" {
+                        assert_eq!(input.text.folds().len(), 1);
+                        let layout = input.text.layout(app.input_viewport.get().unwrap().0.width);
+                        assert!(
+                            layout.lines[layout.cursor.0].cells.is_empty(),
+                            "caret's answer line is empty"
+                        );
+                        assert!(input.text.as_str().ends_with("\n\nlater line kept"));
+                    }
+                    frames.push(json!({"scene":scene,"look":name,"width":width,"height":36,
+                        "caret":{"x":caret.x,"y":caret.y},"source":input.text.as_str(),"sourceCursor":input.text.cursor(),
+                        "lines":buffer.content.chunks(usize::from(width)).map(|row|row.iter().map(|cell|cell.symbol()).collect::<String>()).collect::<Vec<_>>(),
+                        "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
+                }
+            }
+        }
+        std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
+    });
 }

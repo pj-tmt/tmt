@@ -11,12 +11,13 @@ use super::app::{App, Compose, Input, RowTarget};
 mod chat_quotes;
 pub(super) mod files;
 pub(super) mod paste;
-pub(super) use chat_quotes::ChatQuote;
+pub(super) use chat_quotes::{ChatQuote, QuoteSource};
 
 type DraftKey = (String, String);
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Draft {
     text: Editor,
+    inline_quotes: BTreeMap<u64, QuoteSource>,
     quotes: Vec<super::response::Quote>,
     chat_quotes: Vec<ChatQuote>,
 }
@@ -68,6 +69,7 @@ impl Draft {
     fn from_input(input: &Input) -> Self {
         Self {
             text: input.text.clone(),
+            inline_quotes: input.inline_quotes.clone(),
             quotes: input.response_quotes.clone(),
             chat_quotes: input.chat_quotes.clone(),
         }
@@ -387,6 +389,7 @@ impl App {
             && let Some(input) = self.input.as_mut().filter(|input| input.text.is_empty())
         {
             input.text = text.text.clone();
+            input.inline_quotes = text.inline_quotes.clone();
             input.response_quotes = text.quotes.clone();
             input.chat_quotes = text.chat_quotes.clone();
         }
@@ -411,6 +414,7 @@ impl App {
                         && input.chat_quotes.is_empty()
                 }) {
                     input.text = sent.text.clone();
+                    input.inline_quotes = sent.inline_quotes.clone();
                     input.response_quotes = sent.quotes.clone();
                     input.chat_quotes = sent.chat_quotes.clone();
                 }
