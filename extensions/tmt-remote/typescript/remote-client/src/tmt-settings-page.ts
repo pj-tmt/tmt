@@ -7,12 +7,7 @@ import { pageLoading } from './page-loading.js';
 import { notAvailable } from './not-available.js';
 import { browserUiClasses } from '@tmt/browser-ui/static';
 import type { ShellAnswer } from '@tmt/browser-ui/shell';
-import {
-  THEMES,
-  setStoredTheme,
-  storedTheme,
-  type ThemeChoice,
-} from '@tmt/browser-ui/theme';
+import { THEMES, setStoredTheme, storedTheme, type ThemeChoice } from '@tmt/browser-ui/theme';
 import type { RemoteShell } from './remote-shell.js';
 import {
   settingsSource,
