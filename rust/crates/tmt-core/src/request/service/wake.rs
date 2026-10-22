@@ -168,14 +168,19 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 return Err(RequestError::StateInvalid);
             }
             if state == WakeState::Sent {
-                let attention = records
-                    .find_recipient_attention(recipient_identity_id, request_id)?
-                    .ok_or(RequestError::StateInvalid)?;
-                records.acknowledge_recipient_revision(
-                    recipient_identity_id,
-                    request_id,
-                    attention.revision,
-                )?;
+                // A passthrough published no attention, so there is none to acknowledge.
+                if records.delivery_policy(request_id)?.mode
+                    != super::super::digest::DeliveryMode::Passthrough
+                {
+                    let attention = records
+                        .find_recipient_attention(recipient_identity_id, request_id)?
+                        .ok_or(RequestError::StateInvalid)?;
+                    records.acknowledge_recipient_revision(
+                        recipient_identity_id,
+                        request_id,
+                        attention.revision,
+                    )?;
+                }
             } else if state == WakeState::Unavailable {
                 refund_unsent_preamble(records, &attempt, positive(clock())?)?;
             }

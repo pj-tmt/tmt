@@ -51,6 +51,8 @@ struct Correlation {
     /// neither confirmed nor safe to resend, and every later failure says so.
     delivery_uncertain: bool,
     digest_until_ms: Option<u64>,
+    /// A person's own text typed into the pane as is; the report says so.
+    passthrough: bool,
 }
 struct Prepared {
     correlation: Correlation,

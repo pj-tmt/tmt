@@ -580,7 +580,29 @@ prompts, retaining their expiry markers. It neither renews nor acknowledges.
 `x show` reuses that projection for identity-scoped public context.
 The X JSON exchange projection exposes delivery-policy fields `urgent` (boolean)
 and `digestKind` (`decision`, `review`, `fyi`); `digestKind` is separate from the
-request/announcement `kind`.
+request/announcement `kind`. Request lists and exchange documents also carry `mode`
+(`request`, or `passthrough` for typed text).
+
+### Passthrough
+
+`tmt talk <identity> <message> --passthrough` types a person's own message into the
+recipient's live pane exactly as written and returns at once (`mode: "passthrough"` in
+the JSON report). The text is not a request to the agent: no preamble, reply command,
+receipt or context tag surrounds it, and the only change is the protective `!` to `！`
+conversion every pane delivery applies. Core enforces two rules before anything is
+stored: the sender must carry the reserved `user` metadata mark (`PASSTHROUGH_NOT_ALLOWED`
+otherwise), and the recipient must be an identity with a live pane (`PASSTHROUGH_UNAVAILABLE`;
+a person's request mode still reaches an identity without one). `--timeout`, `--room`
+and `--no-preamble` are refused with the flag.
+
+A passthrough is a request only for its sender. It publishes no recipient attention, so it
+is not in the recipient's inbox, incoming list, `whoami --context` count or Digest
+checklist; it is never an open request that `tmt answer` or `tmt reply` could settle, and
+it needs no wake line because the text itself is the delivery. A reply is refused
+(`RESPONSE_NOT_REQUIRED`) and its final reads `not_required`. The sender's exchanges,
+request history and `requests.show` list it with `mode: "passthrough"`. Digest never holds
+it (a person's messages are never held) and every delivery guard still applies: an agent
+that is waiting on its user refuses with `DELIVERY_AWAITING_APPROVAL` and nothing is typed.
 
 `x` commands select the originator's data with
 `--identity <name>` through the shared durable selector. Omission requires a

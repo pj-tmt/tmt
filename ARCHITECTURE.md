@@ -287,7 +287,7 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
-`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist); `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
+`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist), including the delivery mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, never a request to its recipient; `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
 Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient

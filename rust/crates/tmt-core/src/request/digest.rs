@@ -28,6 +28,30 @@ impl DigestKind {
     }
 }
 
+/// What the recipient is handed. A request carries its reply command; a passthrough is a
+/// person's own text typed into the agent's pane as is, and is not a request to the agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeliveryMode {
+    #[default]
+    Request,
+    Passthrough,
+}
+impl DeliveryMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "request" => Some(Self::Request),
+            "passthrough" => Some(Self::Passthrough),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Passthrough => "passthrough",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryPolicy {
     pub urgent: bool,
@@ -35,6 +59,7 @@ pub struct DeliveryPolicy {
     /// A request stored as queue-only (made before the sender option was removed)
     /// remains pull-only, even at a later opportunity.
     pub automatic: bool,
+    pub mode: DeliveryMode,
 }
 impl Default for DeliveryPolicy {
     fn default() -> Self {
@@ -42,6 +67,7 @@ impl Default for DeliveryPolicy {
             urgent: false,
             kind: DigestKind::Fyi,
             automatic: true,
+            mode: DeliveryMode::Request,
         }
     }
 }

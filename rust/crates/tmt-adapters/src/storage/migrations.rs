@@ -34,6 +34,8 @@ mod prop_pack_tests;
 #[cfg(test)]
 mod receipt_tests;
 #[cfg(test)]
+mod request_delivery_mode_tests;
+#[cfg(test)]
 mod request_history_tests;
 #[cfg(test)]
 mod request_origin_tests;
@@ -287,6 +289,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "follow the Codex sessions a bound session started as part of its seat",
         "schema/058.sql"
+    ),
+    migration!(
+        "record whether a request is a request or a person's passthrough text",
+        "schema/059.sql"
     ),
 ];
 

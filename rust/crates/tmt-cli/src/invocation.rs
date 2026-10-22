@@ -282,6 +282,8 @@ pub enum RoomOperation {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TalkOptions {
     pub urgent: bool,
+    /// A person's own text typed into the agent's pane as is, not a request to the agent.
+    pub passthrough: bool,
     pub digest_kind: tmt_core::request::digest::DigestKind,
     pub room: Option<String>,
     pub force: bool,

@@ -112,6 +112,7 @@ pub(super) fn prepare(
         unbound,
         delivery_uncertain: false,
         digest_until_ms: None,
+        passthrough: input.options.passthrough,
     };
     if let Some(room) = &room
         && !correlation
@@ -145,7 +146,11 @@ pub(super) fn prepare(
         )
         .suggestion("It is safe to run the command again when ready.".into()));
     }
+    if input.options.passthrough {
+        passthrough_gate(storage, &correlation, &originator, offline || unbound)?;
+    }
     let preamble = if input.options.no_preamble
+        || input.options.passthrough
         || settings.preamble_mode == PreambleMode::Disabled
         || settings.preamble_every == 0
     {
@@ -208,8 +213,8 @@ pub(super) fn prepare(
                 1,
             )
         })?;
-    let notify_originator = originator.identity_id().is_some();
-    let wait = !input.options.detach && (!offline || unbound);
+    let notify_originator = originator.identity_id().is_some() && !input.options.passthrough;
+    let wait = !input.options.detach && !input.options.passthrough && (!offline || unbound);
     let request = PrepareRequest {
         room_id: room.map(|room| room.id),
         kind: tmt_core::request::RequestKind::Request,
@@ -236,6 +241,11 @@ pub(super) fn prepare(
         urgent: input.options.urgent,
         kind: input.options.digest_kind,
         automatic: true,
+        mode: if input.options.passthrough {
+            tmt_core::request::digest::DeliveryMode::Passthrough
+        } else {
+            tmt_core::request::digest::DeliveryMode::Request
+        },
     };
     let timeout = input.options.timeout_seconds.unwrap_or(settings.timeout);
     let notification =
@@ -268,7 +278,13 @@ pub(super) fn prepare(
     } else {
         input.message.clone()
     };
-    let payload = framed_request(&message, &sender, &correlation.request_id, &receipt);
+    // A passthrough is typed exactly as the person wrote it: no preamble, reply command or
+    // receipt, so the agent has no request to answer and nothing to reply to.
+    let payload = if input.options.passthrough {
+        input.message.clone()
+    } else {
+        framed_request(&message, &sender, &correlation.request_id, &receipt)
+    };
     let wake = !unbound && correlation.identity.is_some();
     Ok(Prepared {
         correlation,
@@ -311,6 +327,44 @@ fn escape_sender_attribute(name: &str) -> String {
 }
 
 // Source-checked command samples for the printed-command guard.
+/// A passthrough types a person's own text into a live pane. Core enforces the person rule
+/// again at preparation; this names it before anything is stored.
+fn passthrough_gate(
+    storage: &mut Storage,
+    correlation: &Correlation,
+    originator: &Originator,
+    no_live_pane: bool,
+) -> Result<(), Failure> {
+    let person = match originator.identity_id() {
+        Some(id) => RequestService::new(storage, wall_time_ms)
+            .identity_is_user(id)
+            .map_err(|error| correlation.state_error(error, false))?,
+        None => false,
+    };
+    if !person {
+        return Err(correlation.error(
+            "PASSTHROUGH_NOT_ALLOWED",
+            "Passthrough types a person's own message into a pane, and the sender is not marked as a person. Nothing was sent.",
+            1,
+        ));
+    }
+    if correlation.identity.is_none() || no_live_pane {
+        return Err(correlation
+            .error(
+                "PASSTHROUGH_UNAVAILABLE",
+                format!(
+                    "{} has no live pane to type into. Nothing was sent.",
+                    correlation.target
+                ),
+                1,
+            )
+            .suggestion(
+                "Send it as a request instead: run the command again without --passthrough.".into(),
+            ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(

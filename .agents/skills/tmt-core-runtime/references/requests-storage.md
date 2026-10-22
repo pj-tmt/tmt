@@ -51,6 +51,11 @@ configuration. The owner map is in
   `open_requests` applies it, so "waiting on you" is an open-request question, not an attention
   one. `answer_target` selects one open request by recipient and originator, never guessing, and
   derives the route proof in process.
+- A request's delivery mode (`request` or `passthrough`, in `request_delivery_policies`) decides
+  what the recipient is handed. A passthrough is a person's typed text: Core refuses it unless the
+  originator carries the `user` mark, queues it without publishing recipient attention, keeps it
+  out of `open_requests` and `answer_refusal`, and reports its final as `not_required`. The
+  mode joins the row's change-cursor comparison.
 - Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
   metadata stays on the attempt, separate from delivery and the final-submission marker;
   same-reason retries retain the first timestamp. It releases waiters without a recipient
