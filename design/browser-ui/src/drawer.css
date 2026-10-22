@@ -20,9 +20,10 @@
   margin: 0;
   padding: 0;
   color: var(--tmt-ui-color-text);
-  background: var(--tmt-ui-surface-paper);
+  background: var(--tmt-ui-surface-sheet);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  box-shadow: none;
+  border-radius: var(--tmt-ui-radius-l);
+  box-shadow: var(--tmt-ui-shadow-overlay);
   overflow: hidden;
 }
 .tmt-ui-drawer[open] {
@@ -37,6 +38,37 @@
 }
 .tmt-ui-drawer::backdrop {
   background: var(--tmt-ui-surface-scrim);
+}
+/* Enter and exit: the drawer slides from its edge, the scrim fades; it stays rendered while it
+   leaves. Under reduced motion every duration is 0ms. */
+.tmt-ui-drawer {
+  translate: calc(100% + var(--tmt-ui-drawer-gutter)) 0;
+  transition:
+    translate var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-in),
+    overlay var(--tmt-ui-motion-base) allow-discrete,
+    display var(--tmt-ui-motion-base) allow-discrete;
+}
+.tmt-ui-drawer[open] {
+  translate: 0 0;
+  transition-timing-function: var(--tmt-ui-motion-ease-out);
+}
+.tmt-ui-drawer::backdrop {
+  opacity: 0;
+  transition:
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-in),
+    overlay var(--tmt-ui-motion-base) allow-discrete,
+    display var(--tmt-ui-motion-base) allow-discrete;
+}
+.tmt-ui-drawer[open]::backdrop {
+  opacity: 1;
+}
+@starting-style {
+  .tmt-ui-drawer[open] {
+    translate: calc(100% + var(--tmt-ui-drawer-gutter)) 0;
+  }
+  .tmt-ui-drawer[open]::backdrop {
+    opacity: 0;
+  }
 }
 .tmt-ui-drawer-header {
   display: flex;

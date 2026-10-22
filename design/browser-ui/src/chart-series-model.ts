@@ -40,6 +40,11 @@ const OTHER_STYLE = PALETTE;
 const styleOf = (layer: { key: string }, i: number, first = 0) =>
   layer.key === 'other' ? OTHER_STYLE : (first + i) % PALETTE;
 const MARGIN = { left: 46, right: 10, top: 12, bottom: 22 };
+/** A mono tick label of 11px is about 7px a character; it sits 6px left of its line and keeps an
+ * 8px inset from the plot's edge. */
+const TICK_CHARACTER = 7;
+const TICK_GAP = 6;
+const TICK_INSET = 8;
 
 export interface SeriesMark {
   kind: 'area' | 'bar' | 'line';
@@ -89,9 +94,14 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
       );
   const max = options.max ?? (share ? 100 : niceMax(dataMax));
   const height = options.height ?? 200;
+  const tickLabels = ticks(max, 4).map(format);
+  const left = Math.max(
+    MARGIN.left,
+    Math.max(...tickLabels.map((label) => label.length)) * TICK_CHARACTER + TICK_GAP + TICK_INSET,
+  );
   const inner = {
-    left: MARGIN.left,
-    right: Math.max(MARGIN.left + 1, width - MARGIN.right),
+    left,
+    right: Math.max(left + 1, width - MARGIN.right),
     top: MARGIN.top,
     bottom: height - MARGIN.bottom,
   };
@@ -152,11 +162,11 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
   return {
     width,
     height,
-    grid: ticks(max, 4).map((tick) => ({
+    grid: ticks(max, 4).map((tick, at) => ({
       y: yAt(tick),
       x1: inner.left,
       x2: inner.right,
-      label: format(tick),
+      label: tickLabels[at]!,
     })),
     xLabels: [...new Set([0, Math.floor((columns - 1) / 2), columns - 1])].map((at) => ({
       x: xAt(at),

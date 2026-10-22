@@ -19,8 +19,8 @@ const roles = {
   'card-foreground': ['color', 'text'],
   popover: ['surface', 'sheet'],
   'popover-foreground': ['color', 'text'],
-  primary: ['surface', 'selection'],
-  'primary-foreground': ['color', 'selected-text'],
+  primary: ['color', 'accent'],
+  'primary-foreground': ['color', 'on-accent'],
   secondary: ['surface', 'command'],
   'secondary-foreground': ['color', 'text'],
   muted: ['surface', 'disabled'],
@@ -28,6 +28,8 @@ const roles = {
   accent: ['surface', 'selection'],
   'accent-foreground': ['color', 'selected-text'],
   destructive: ['color', 'blocked'],
+  'destructive-ring': ['color', 'focus-destructive'],
+  'destructive-soft': ['surface', 'blocked-soft'],
   'layer-boundary': ['surface', 'rule'],
   border: ['surface', 'rule'],
   input: ['surface', 'rule'],
@@ -90,6 +92,24 @@ const source = (
   await Promise.all(['src/ui/', 'test/fixtures/ui/'].map((path) => sources(new URL(path, home))))
 ).join('\n');
 const candidates = uiCandidates(source);
+// Layer enter and exit as named animations (`animate-pop-in`, `animate-slide-out-right`, ...) over
+// the keyframes below, on the motion tokens: `pop-fast-*` is the fast duration, the rest the base.
+const motionVar = (token) => `var(--tmt-foundation-motion-${token})`;
+const animations = [
+  ['pop-fast-in', 'pop-in', 'fast', 'ease-out'],
+  ['pop-fast-out', 'pop-out', 'fast', 'ease-in'],
+  ['pop-in', 'pop-in', 'base', 'ease-out'],
+  ['pop-out', 'pop-out', 'base', 'ease-in'],
+  ['fade-in', 'fade-in', 'base', 'ease-out'],
+  ['fade-out', 'fade-out', 'base', 'ease-in'],
+  ...['right', 'left', 'top', 'bottom'].flatMap((side) => [
+    [`slide-in-${side}`, `slide-in-${side}`, 'base', 'ease-out'],
+    [`slide-out-${side}`, `slide-out-${side}`, 'base', 'ease-in'],
+  ]),
+].map(
+  ([name, keyframes, duration, ease]) =>
+    `--animate-${name}: tmt-foundation-${keyframes} ${motionVar(duration)} ${motionVar(`ease-${ease.slice(5)}`)} both;`,
+);
 const theme = [
   '--*: initial;',
   ...colourRoles.map((key) => `--color-${key}: var(--tmt-foundation-${key});`),
@@ -99,6 +119,7 @@ const theme = [
   '--radius-surface: var(--tmt-foundation-radius-l);',
   '--radius-pill: var(--tmt-foundation-radius-pill);',
   '--spacing: var(--tmt-foundation-spacing-unit);',
+  ...animations,
   ...Object.keys(tokens.font).map((key) => `--font-${key}: var(--tmt-foundation-font-${key});`),
 ].join('\n');
 // No imports, default theme or preflight. Only this leaf's complete prefixed class literals.

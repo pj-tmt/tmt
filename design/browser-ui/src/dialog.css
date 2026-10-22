@@ -17,9 +17,10 @@
   margin: auto;
   padding: 0;
   color: var(--tmt-ui-color-text);
-  background: var(--tmt-ui-surface-paper);
+  background: var(--tmt-ui-surface-sheet);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  box-shadow: none;
+  border-radius: var(--tmt-ui-radius-l);
+  box-shadow: var(--tmt-ui-shadow-overlay);
   overflow: hidden;
 }
 .tmt-ui-dialog[open] {
@@ -28,6 +29,46 @@
 }
 .tmt-ui-dialog::backdrop {
   background: var(--tmt-ui-surface-scrim);
+}
+/* Enter and exit: the surface fades and settles by a small scale and rise; the scrim fades. A
+   closed dialog stays rendered while it leaves (display and the top layer transition discretely),
+   and under reduced motion every duration is 0ms. */
+.tmt-ui-dialog {
+  opacity: 0;
+  scale: var(--tmt-ui-motion-scale);
+  translate: 0 var(--tmt-ui-motion-rise);
+  transition:
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-in),
+    scale var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-in),
+    translate var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-in),
+    overlay var(--tmt-ui-motion-base) allow-discrete,
+    display var(--tmt-ui-motion-base) allow-discrete;
+}
+.tmt-ui-dialog[open] {
+  opacity: 1;
+  scale: 1;
+  translate: 0 0;
+  transition-timing-function: var(--tmt-ui-motion-ease-out);
+}
+.tmt-ui-dialog::backdrop {
+  opacity: 0;
+  transition:
+    opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-in),
+    overlay var(--tmt-ui-motion-base) allow-discrete,
+    display var(--tmt-ui-motion-base) allow-discrete;
+}
+.tmt-ui-dialog[open]::backdrop {
+  opacity: 1;
+}
+@starting-style {
+  .tmt-ui-dialog[open] {
+    opacity: 0;
+    scale: var(--tmt-ui-motion-scale);
+    translate: 0 var(--tmt-ui-motion-rise);
+  }
+  .tmt-ui-dialog[open]::backdrop {
+    opacity: 0;
+  }
 }
 .tmt-ui-dialog-header {
   display: flex;

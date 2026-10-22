@@ -1,4 +1,5 @@
 .tmt-ui-header {
+  container: tmt-ui-header / inline-size;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -55,12 +56,20 @@ svg.tmt-ui-mark {
   gap: var(--tmt-ui-header-gap);
 }
 .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
-  flex: 0 8 auto;
+  /* The title is the last to give way: the suffix and the caption shrink first. */
+  flex: 0 1 auto;
+  min-width: min(16ch, max-content);
+}
+.tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-caption {
+  flex: 0 40 auto;
+  min-width: 0;
 }
 .tmt-ui-heading-suffix {
   display: flex;
   align-items: center;
-  flex: 0 1 auto;
+  /* The suffix is a short qualifier (`· draft`): it keeps its width; the caption and the title give. */
+  flex: 0 0 auto;
+  white-space: nowrap;
   gap: var(--tmt-ui-header-gap);
   min-width: 0;
   font: var(--tmt-ui-header-title-weight)
@@ -106,4 +115,25 @@ svg.tmt-ui-mark {
   display: flex;
   align-items: center;
   gap: inherit;
+}
+
+/* A narrow header gives the title the room: the caption goes first, then the product's name (its mark
+   and accessible link stay). The title is the last to shrink. */
+@container tmt-ui-header (max-width: 760px) {
+  .tmt-ui-caption {
+    display: none;
+  }
+}
+@container tmt-ui-header (max-width: 640px) {
+  .tmt-ui-brand .tmt-ui-wordmark {
+    display: none;
+  }
+}
+@container tmt-ui-header (max-width: 440px) {
+  .tmt-ui-heading-suffix {
+    display: none;
+  }
+  .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
+    min-width: 0;
+  }
 }

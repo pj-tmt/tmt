@@ -1,7 +1,7 @@
 /* One checkbox drawing: the real control (a native checkbox, or the UI layer's Radix checkbox
    button) stays underneath with its keyboard, label and form behaviour; only its look is ours. A
-   flat 1em square on the sheet with a rule edge, a currentColor tick when checked and a short bar
-   when mixed. */
+   1em box on the sheet with a rule edge; checked or mixed it fills with the accent and draws a
+   currentColor tick or a short bar. */
 .tmt-ui-checkbox {
   appearance: none;
   -webkit-appearance: none;
@@ -17,8 +17,8 @@
   font-size: inherit;
   color: var(--tmt-ui-color-selected-text);
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: calc(var(--tmt-ui-radius-s) / 2);
   box-shadow: none;
   cursor: pointer;
 }
@@ -43,12 +43,39 @@
   clip-path: none;
   visibility: visible;
 }
+.tmt-ui-checkbox:checked,
+.tmt-ui-checkbox:indeterminate,
+.tmt-ui-checkbox[data-state='checked'],
+.tmt-ui-checkbox[data-state='indeterminate'] {
+  color: var(--tmt-ui-color-on-accent);
+  background: var(--tmt-ui-color-accent);
+  border-color: var(--tmt-ui-color-accent);
+}
 .tmt-ui-checkbox:not(:disabled):hover {
-  border-color: var(--tmt-ui-color-edge);
+  background: var(--tmt-ui-surface-hover);
+  border-color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-checkbox:is(
+    :checked,
+    :indeterminate,
+    [data-state='checked'],
+    [data-state='indeterminate']
+  ):not(:disabled):hover {
+  background: var(--tmt-ui-color-accent-strong);
+  border-color: var(--tmt-ui-color-accent-strong);
 }
 .tmt-ui-checkbox:focus-visible {
   border-color: var(--tmt-ui-color-focus);
   outline: 0;
+}
+/* The accent fill hides an accent edge, so a filled box shows focus with the text colour's edge. */
+.tmt-ui-checkbox:is(
+    :checked,
+    :indeterminate,
+    [data-state='checked'],
+    [data-state='indeterminate']
+  ):not(:disabled):focus-visible {
+  border-color: var(--tmt-ui-color-text);
 }
 .tmt-ui-checkbox:disabled {
   color: var(--tmt-ui-color-disabled-text);

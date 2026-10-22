@@ -41,10 +41,10 @@ it('publishes only a separate scoped namespace, without preflight, global variab
   expect(css).toContain(':where([data-tmt-ui]) {');
   expect(css).toContain('.tmt\\:bg-background');
   // The one shadow is the overlay token, from the `shadow-overlay` utility alone.
-  for (const match of css.matchAll(/\.tmt\\:shadow[^\s{]*/g))
-    expect(match[0]).toBe('.tmt\\:shadow-overlay');
-  for (const match of css.matchAll(/--tmt-foundation-tw-shadow:\s*([^;]+);/g))
-    expect(match[1]).toBe('var(--tmt-foundation-shadow-overlay)');
+  expect([...css.matchAll(/\.tmt\\:shadow[^\s{]*/g)].map((match) => match[0])).toEqual([
+    '.tmt\\:shadow-overlay',
+  ]);
+  expect(css).toMatch(/--tmt-foundation-tw-shadow:\s*var\(--tmt-foundation-shadow-overlay\)/);
   // Global registrations are limited to the prefixed motion keyframes layers name.
   const keyframes = [...css.matchAll(/@keyframes\s+([\w-]+)/g)].map((match) => match[1]!);
   expect(keyframes.length).toBeGreaterThan(0);

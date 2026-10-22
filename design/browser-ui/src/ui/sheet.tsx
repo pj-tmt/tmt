@@ -13,6 +13,7 @@ import {
   type LayerController,
   type LayerFocusOptions,
 } from './layer.js';
+import { scrimMotion, slideMotion } from './motion.js';
 
 export function Sheet({
   controller,
@@ -48,7 +49,10 @@ function SheetOverlay() {
   return (
     <Primitive.Overlay
       data-slot="sheet-overlay"
-      className="tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-(--tmt-foundation-scrim)"
+      className={cn(
+        'tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-(--tmt-foundation-scrim)',
+        scrimMotion,
+      )}
       onPointerDown={(event) => {
         if (controller) event.preventDefault();
       }}
@@ -96,6 +100,8 @@ export function SheetContent({
           side === 'top' && 'tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-gutter,0px))]',
           side === 'bottom' &&
             'tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-height,100dvh)-var(--tmt-layer-gutter,0px))] tmt:-translate-y-full',
+          'tmt:rounded-surface tmt:shadow-overlay',
+          slideMotion[side],
           className,
         )}
         style={{ ...style, ...surface.viewportStyle }}
@@ -158,7 +164,7 @@ export function SheetTitle({ className, ...props }: ComponentProps<typeof Primit
       data-layer-title=""
       tabIndex={-1}
       className={cn(
-        'tmt:m-0 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:outline-ring tmt:focus:outline-solid tmt:focus:outline-(length:--tmt-foundation-focus-width)',
+        'tmt:m-0 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:outline-ring tmt:focus-visible:outline-solid tmt:focus-visible:outline-(length:--tmt-foundation-focus-width)',
         className,
       )}
       {...props}

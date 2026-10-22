@@ -1,0 +1,110 @@
+.tmt-ui-choices {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.tmt-ui-choices[data-layout='inline'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-s) var(--tmt-ui-space-l);
+}
+.tmt-ui-choices-legend {
+  margin-bottom: var(--tmt-ui-space-s);
+  padding: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.tmt-ui-choices[data-layout='inline'] > .tmt-ui-choices-legend {
+  flex: 0 0 100%;
+  margin-bottom: 0;
+}
+/* A row reads quiet until chosen; the whole row is the click target. */
+.tmt-ui-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--tmt-ui-color-secondary);
+  font: 400 var(--tmt-ui-command-size) / 1.4 var(--tmt-ui-font-body);
+  cursor: pointer;
+}
+.tmt-ui-choice:has(:checked),
+.tmt-ui-choice:hover:not(:has(:disabled)) {
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-choice:has(:disabled) {
+  color: var(--tmt-ui-color-disabled-text);
+  cursor: default;
+}
+.tmt-ui-choice > :is(.tmt-ui-radio, .tmt-ui-checkbox) {
+  margin-top: 0.2em;
+}
+.tmt-ui-choice-text {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  min-width: 0;
+}
+.tmt-ui-choice-description {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  line-height: 1.4;
+}
+.tmt-ui-choice:has(:disabled) .tmt-ui-choice-description {
+  color: var(--tmt-ui-color-disabled-text);
+}
+/* The radio is the checkbox's drawing in a circle: a rule edge, an accent dot when chosen. */
+.tmt-ui-radio {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  padding: 0;
+  color: var(--tmt-ui-color-accent);
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius-pill);
+  cursor: pointer;
+}
+.tmt-ui-radio::before {
+  content: '';
+  display: block;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: currentColor;
+  visibility: hidden;
+}
+.tmt-ui-radio:checked {
+  border-color: var(--tmt-ui-color-accent);
+}
+.tmt-ui-radio:checked::before {
+  visibility: visible;
+}
+.tmt-ui-radio:not(:disabled):hover {
+  background: var(--tmt-ui-surface-hover);
+  border-color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-radio:checked:not(:disabled):hover {
+  border-color: var(--tmt-ui-color-accent);
+}
+.tmt-ui-radio:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+/* A chosen radio's edge is already the accent, so focus reads as the text colour's edge. */
+.tmt-ui-radio:checked:not(:disabled):focus-visible {
+  border-color: var(--tmt-ui-color-text);
+}
+.tmt-ui-radio:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  background: var(--tmt-ui-surface-disabled);
+  border-color: var(--tmt-ui-surface-rule);
+  cursor: default;
+}

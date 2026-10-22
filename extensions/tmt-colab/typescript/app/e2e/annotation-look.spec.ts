@@ -4,6 +4,7 @@ import { captureDirectory } from './captures.js';
 import { destination } from '../test/ask-fixtures.js';
 import { pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
+import { rgb, tokens } from './tokens.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -13,7 +14,10 @@ async function run(page: Page, method: string, argument?: unknown) {
   );
 }
 const captures = captureDirectory();
-const rule = { light: 'rgb(208, 208, 208)', dark: 'rgb(48, 48, 48)' };
+const rule = {
+  light: rgb(tokens.browser.surface.rule.light),
+  dark: rgb(tokens.browser.surface.rule.dark),
+};
 /** The panel's own edge: 1px solid --tmt-ui-surface-rule on all four sides, once (no child repeats it). */
 async function expectRuleEdge(panel: Locator, theme: 'light' | 'dark') {
   for (const side of ['top', 'right', 'bottom', 'left']) {
@@ -53,7 +57,10 @@ for (const width of [1440, 390])
       for (const marker of await markers.all()) {
         await expect(marker).toHaveCSS('border-top-width', '0px');
         await expect(marker).toHaveCSS('box-shadow', 'none');
-        await expect(marker).toHaveCSS('color', 'rgb(255, 255, 255)');
+        await expect(marker).toHaveCSS(
+          'color',
+          rgb(tokens.browser.color['annotation-on-action'][theme]),
+        );
       }
       const authored = await frame.locator('body').evaluate((body) => {
         const clone = body.cloneNode(true) as HTMLElement;

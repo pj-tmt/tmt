@@ -156,13 +156,15 @@ async function assertTokens(
   node: Locator,
   theme: Theme,
   role: 'paper' | 'sheet' = 'paper',
+  radius: 'radius-l' | 'radius' = 'radius-l',
 ): Promise<void> {
   await expect(node).toHaveCSS('background-color', rgb(tokens.browser.surface[role][theme]));
   await expect(node).toHaveCSS('color', rgb(tokens.browser.color.text[theme]));
   await expect(node).toHaveCSS('border-color', rgb(tokens.browser.surface.rule[theme]));
   await expect(node).toHaveCSS('border-width', tokens.browser.metric['rule-width']);
-  await expect(node).toHaveCSS('border-radius', '0px');
-  await expect(node).toHaveCSS('box-shadow', 'none');
+  await expect(node).toHaveCSS('border-radius', tokens.browser.metric[radius]!);
+  // A floating layer carries the one overlay shadow.
+  await expect(node).toHaveCSS('box-shadow', /60px/);
   await expect(node).toHaveCSS('z-index', tokens.browser.ui['z-layer']);
   await expect(node).toHaveCSS('font-size', tokens.browser.metric['command-size']);
   expect(
@@ -501,7 +503,7 @@ for (const width of [320, 390, 1440])
         await expect(
           page.getByRole('menuitem', { name: 'Open Dialog from menu', exact: true }),
         ).toBeFocused();
-        await assertTokens(page.getByRole('menu'), theme, 'sheet');
+        await assertTokens(page.getByRole('menu'), theme, 'sheet', 'radius');
         await assertBounds(page.getByRole('menu'), { left: 0, top: 0, width, height: 900 });
         await page.keyboard.press('ArrowDown');
         await expect(
@@ -604,7 +606,7 @@ for (const width of [320, 390, 1440])
         await opener.click();
         const popover = page.locator('[data-slot="popover-content"]');
         await expect(popover).toBeVisible();
-        await assertTokens(popover, theme, 'sheet');
+        await assertTokens(popover, theme, 'sheet', 'radius');
         await assertBounds(popover, { left: 0, top: 0, width, height: 900 });
         await capture(page, info, 'nested-nonmodal-popover');
         await page.keyboard.press('Escape');
@@ -624,6 +626,9 @@ for (const width of [320, 390, 1440])
         // Pinned Radix nonmodal Content loops Tab, but permits actual focus outside.
         await parent.getByRole('button', { name: 'Remove persistent opener', exact: true }).focus();
         await expectState(page, { popoverOpen: false, dialogOpen: true });
+        // A leaving layer stays mounted until its exit has played and keeps the Escape: wait for it
+        // to go before the next Escape closes the dialog.
+        await expect(popover).toHaveCount(0);
         expect(await parent.evaluate((element) => element.contains(document.activeElement))).toBe(
           true,
         );

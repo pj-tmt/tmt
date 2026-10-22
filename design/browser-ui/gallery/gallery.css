@@ -6,13 +6,19 @@
   --tmt-ui-host-header-action-gap: 6px;
   --tmt-ui-host-notice-mark-size: 18px;
   --tmt-ui-host-eyebrow-line-height: 1.55;
-  --tmt-ui-host-notice-heading-size: clamp(26px, 4vw, 36px);
-  --tmt-ui-host-notice-heading-weight: 700;
-  --tmt-ui-host-notice-heading-tracking: -0.03em;
-  --tmt-ui-host-notice-body-size: 16px;
-  --tmt-ui-host-notice-body-line-height: 1.55;
+  /* A notice is a card: a card title, below the section heading, on the shared card padding.
+     The notice metrics are set here too, since a host page's own values (Remote's flush band)
+     must not leak into the demos. */
+  --tmt-ui-host-notice-heading-size: 18px;
+  --tmt-ui-host-notice-heading-weight: 600;
+  --tmt-ui-host-notice-heading-tracking: normal;
+  --tmt-ui-host-notice-body-size: 14px;
+  --tmt-ui-host-notice-body-line-height: 1.5;
   --tmt-ui-host-notice-action-gap: 12px;
-  --tmt-ui-host-notice-action-margin: 24px;
+  --tmt-ui-host-notice-action-margin: var(--tmt-ui-space-l);
+  --tmt-ui-notice-padding: var(--tmt-ui-card-padding);
+  --tmt-ui-notice-border-width: 1px;
+  --tmt-ui-notice-heading-line-height: 1.25;
   --tmt-ui-host-action-padding: 7px 12px;
   --tmt-ui-host-action-min-height: 24px;
   --tmt-ui-host-action-size: 14px;
@@ -46,6 +52,42 @@
 .gallery-embedded {
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
+}
+/* From the wide breakpoint the outline sits beside the page and stays in view as it scrolls. */
+@media (min-width: 1280px) {
+  .gallery-embedded {
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
+  .gallery-outline {
+    position: sticky;
+    top: var(--tmt-ui-header-height);
+    max-height: calc(100dvh - var(--tmt-ui-header-height));
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: var(--tmt-ui-space-l) var(--tmt-ui-space-m) var(--tmt-ui-space-l) 0;
+  }
+}
+.gallery-outline .tmt-ui-rail-sub {
+  margin: 0;
+  padding: 0;
+}
+.gallery-outline .tmt-ui-rail-label {
+  min-width: 0;
+}
+/* The room under the list for the floating action bar at the bottom right. */
+.gallery-outline {
+  padding-bottom: 72px;
+}
+.gallery-outline > .tmt-ui-rail-sub-group,
+.gallery-outline > .tmt-ui-rail-sub {
+  padding-inline-start: var(--tmt-ui-space-m);
+}
+/* A demo is indented under its section; only the open section lists its demos. */
+.gallery-outline [data-depth='1'] {
+  margin-inline-start: var(--tmt-ui-space-l);
+}
+.gallery-outline li:has([data-depth='1']:not([data-open])) {
+  display: none;
 }
 .gallery-embedded .gallery-section {
   /* The shell's bar stays above the content, so a section opened from the menu clears it. */
@@ -89,7 +131,7 @@
   min-width: 0;
   scroll-margin-top: var(--tmt-ui-space-l);
 }
-.gallery-section h2 {
+.gallery-section > h2 {
   margin: 0;
   padding-bottom: var(--tmt-ui-space-s);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -101,7 +143,7 @@
   gap: var(--tmt-ui-space-s);
   min-width: 0;
 }
-.gallery-pair h3 {
+.gallery-pair > h3 {
   margin: 0;
   font: 600 13px / 1.3 var(--tmt-ui-font-mono);
   color: var(--tmt-ui-color-secondary);
@@ -223,6 +265,9 @@
   background: var(--tmt-ui-surface-sheet);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+.gallery-metrics td:first-child {
+  white-space: nowrap;
+}
 .gallery-metrics td {
   padding: 3px var(--tmt-ui-space-s);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -237,10 +282,12 @@
 .gallery-radius,
 .gallery-focus,
 .gallery-indicator {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 96px;
+  width: 112px;
   height: 64px;
+  text-align: center;
   background: var(--tmt-ui-surface-sheet);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
@@ -250,8 +297,15 @@
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-.gallery-indicator {
-  border-left: var(--tmt-ui-indicator-width) solid var(--tmt-ui-color-selected-text);
+.gallery-focus-destructive {
+  outline-color: var(--tmt-ui-color-focus-destructive);
+}
+/* The indicator is its own straight bar inside the swatch's padding, never the swatch's border. */
+.gallery-indicator-bar {
+  position: absolute;
+  inset: var(--tmt-ui-space-s) auto var(--tmt-ui-space-s) var(--tmt-ui-space-xs);
+  width: var(--tmt-ui-indicator-width);
+  background: var(--tmt-ui-color-selected-text);
 }
 
 /* Frame pages: one demo filling an iframe. */

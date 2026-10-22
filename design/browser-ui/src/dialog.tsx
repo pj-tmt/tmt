@@ -2,6 +2,7 @@ import { useId, type ComponentPropsWithoutRef, type ReactNode, type SyntheticEve
 import { X } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
 import { useModalDialog, type ModalDismissReason } from './modal-dialog.js';
+import { usePresence } from './presence.js';
 
 export type BrowserDialogDismissReason = ModalDismissReason;
 export interface BrowserDialogProps extends Omit<
@@ -37,12 +38,14 @@ export function BrowserDialog({
 }: BrowserDialogProps) {
   const label = useId();
   const modal = useModalDialog({ open, onDismiss, initialFocus, focusFallback, restoreFocus });
-  if (!open && !keepMounted) return null;
+  const present = usePresence(open, modal.ref);
+  if (!present && !keepMounted) return null;
   return (
     <dialog
       {...attributes}
       {...modal}
       className={`tmt-ui-dialog ${className}`}
+      data-state={open ? 'open' : 'closed'}
       aria-labelledby={label}
     >
       <header className="tmt-ui-dialog-header">

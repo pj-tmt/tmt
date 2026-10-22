@@ -2,6 +2,7 @@
 // route). It mounts into the shell's main area and gives the sections to the module menu, so the
 // gallery looks and moves like Colab or Remote inside the same shell, with no reload.
 import { StrictMode } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import uiCss from '../generated/ui.css?inline';
 import type { ShellMenu } from '../src/shell.js';
@@ -11,6 +12,12 @@ import { BrowserHeader } from '../src/header.js';
 import { sections, type SectionId } from './covered.js';
 import { refreshForcedStates } from './force-states.js';
 import { GallerySections } from './sections.js';
+import { GalleryOutline, OutlineMenu, readOutline, type OutlineEntry } from './outline.js';
+
+/** The outline sits beside the page from this width; below it, it is one dropdown in the header. */
+const WIDE = '(min-width: 1280px)';
+/** A heading this far below the sticky header already counts as the one in view. */
+const SPY_OFFSET = 24;
 
 export function mount(slot: ShellSlot): () => void {
   // The gallery's own rules (host metrics, demo chrome) and the UI layer's utilities live only
@@ -24,13 +31,21 @@ export function mount(slot: ShellSlot): () => void {
   container.className = 'gallery gallery-embedded';
   const main = document.createElement('main');
   main.className = 'gallery-main';
-  container.append(main);
+  const aside = document.createElement('div');
+  container.append(main, aside);
   slot.main.replaceChildren(container);
-  slot.setTitle('Design gallery');
+  slot.setTitle('Design system');
 
   const href = (id: string) => `${slot.basePath}#${id}`;
-  let current: SectionId =
+  const wide = matchMedia(WIDE);
+  const calm = matchMedia('(prefers-reduced-motion: reduce)');
+  let entries: OutlineEntry[] = [];
+  let currentId: string =
     sections.find(([id]) => id === location.hash.slice(1))?.[0] ?? sections[0][0];
+  const sectionOf = (id: string): SectionId =>
+    (entries.find((entry) => entry.id === id)?.section ??
+      sections.find(([key]) => key === id)?.[0] ??
+      sections[0][0]) as SectionId;
   const menu = (): ShellMenu => ({
     title: 'Design',
     groups: [
@@ -39,33 +54,43 @@ export function mount(slot: ShellSlot): () => void {
           id,
           label,
           href: href(id),
-          current: id === current,
+          current: id === sectionOf(currentId),
         })),
       },
     ],
   });
-  const show = (id: SectionId) => {
-    if (id === current) return;
-    current = id;
-    slot.setMenu(menu(), select);
-    paintBar();
+  const show = (id: string) => {
+    if (id === currentId) return;
+    const before = sectionOf(currentId);
+    currentId = id;
+    if (sectionOf(id) !== before) slot.setMenu(menu(), select);
+    paint();
   };
-  const select = (id: string): boolean => {
-    const known = sections.find(([key]) => key === id);
-    if (!known) return false;
+  // A click on the menu or the outline moves to the entry, keeps the address and follows it.
+  const go = (id: string, smooth: boolean): boolean => {
     const target = main.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
-    if (!target) return false;
+    if (!target || !(sections.some(([key]) => key === id) || entries.some((e) => e.id === id)))
+      return false;
     history.replaceState(null, '', href(id));
-    target.scrollIntoView({ block: 'start' });
-    show(known[0]);
+    // The shell repaints its menu when the section changes; scroll after that, so a repaint that
+    // resets the page cannot undo the move.
+    show(id);
+    target.scrollIntoView({
+      block: 'start',
+      behavior: smooth && !calm.matches ? 'smooth' : 'auto',
+    });
     return true;
   };
+  // The menu passes its href as a second argument; only the entry matters here.
+  const select = (id: string) => go(id, true);
   slot.setMenu(menu(), select);
 
   // The module's one header in the shell bar: the shell owns the TMT mark, so the label is the
-  // module (TMT · Design) and the title is the section in view.
+  // module (TMT · Design), the title is the page, and the section in view follows it.
   const bar = createRoot(slot.bar);
-  const paintBar = () =>
+  const outline = createRoot(aside);
+  const paint = () => {
+    const section = sections.find(([id]) => id === sectionOf(currentId))![1];
     bar.render(
       <BrowserHeader
         productLabel="Design"
@@ -74,36 +99,63 @@ export function mount(slot: ShellSlot): () => void {
             /
           </span>
         }
-        title={sections.find(([id]) => id === current)![1]}
+        title="Design system"
+        headingSuffix={<span>· {section}</span>}
+        actions={
+          !wide.matches && entries.length ? (
+            <OutlineMenu entries={entries} current={currentId} onSelect={select} />
+          ) : undefined
+        }
       />,
     );
-  paintBar();
+    outline.render(
+      wide.matches && entries.length ? (
+        <GalleryOutline entries={entries} current={currentId} onSelect={select} />
+      ) : null,
+    );
+  };
+  wide.addEventListener('change', paint);
+  paint();
   const root = createRoot(main);
-  root.render(
-    <StrictMode>
-      <GallerySections />
-    </StrictMode>,
+  // The outline reads the rendered sections, so they are committed before anything follows them.
+  flushSync(() =>
+    root.render(
+      <StrictMode>
+        <GallerySections />
+      </StrictMode>,
+    ),
   );
-  // The sections exist only after React's first commit: pin the forced states, honour the address
-  // and start following the scroll then. The section nearest the top is the current menu item.
-  const visible = new Set<string>();
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries)
-        if (entry.isIntersecting) visible.add(entry.target.id);
-        else visible.delete(entry.target.id);
-      const top = sections.find(([id]) => visible.has(id));
-      if (top) show(top[0]);
-    },
-    { rootMargin: '-10% 0px -80% 0px' },
-  );
+  // Read the outline, pin the forced states and honour the address once the sections exist. The
+  // current entry is the last one whose top has reached the line just under the sticky header (a
+  // heading a little below that line already counts), so the highlight and the heading in view
+  // agree.
+  const elements = new Map<string, HTMLElement>();
+  let queued = false;
+  const follow = () => {
+    queued = false;
+    const line = slot.bar.getBoundingClientRect().bottom + SPY_OFFSET;
+    let found = entries[0];
+    for (const entry of entries) {
+      if (elements.get(entry.id)!.getBoundingClientRect().top > line) break;
+      found = entry;
+    }
+    if (found) show(found.id);
+  };
+  const onScroll = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(follow);
+  };
+  document.addEventListener('scroll', onScroll, { capture: true, passive: true });
   const frame = requestAnimationFrame(() => {
     refreshForcedStates(document);
-    for (const [id] of sections) {
-      const target = main.querySelector(`#${CSS.escape(id)}`);
-      if (target) observer.observe(target);
-    }
-    if (location.hash.length > 1) select(location.hash.slice(1));
+    entries = readOutline(main);
+    for (const entry of entries)
+      elements.set(entry.id, main.querySelector<HTMLElement>(`#${CSS.escape(entry.id)}`)!);
+    slot.setMenu(menu(), select);
+    paint();
+    if (location.hash.length > 1) go(location.hash.slice(1), false);
+    else follow();
   });
 
   let mounted = true;
@@ -113,8 +165,10 @@ export function mount(slot: ShellSlot): () => void {
   return () => {
     mounted = false;
     cancelAnimationFrame(frame);
-    observer.disconnect();
+    document.removeEventListener('scroll', onScroll, { capture: true });
+    wide.removeEventListener('change', paint);
     root.unmount();
+    outline.unmount();
     bar.unmount();
     style.remove();
   };

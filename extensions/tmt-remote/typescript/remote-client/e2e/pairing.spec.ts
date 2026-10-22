@@ -36,6 +36,7 @@ const { header: headerTokens, browser: browserTokens } = JSON.parse(
   browser: {
     color: Record<string, Record<string, string>>;
     surface: Record<string, Record<string, string>>;
+    metric: Record<string, string>;
   };
 };
 function tokenRgb(group: 'color' | 'surface', name: string, theme: 'light' | 'dark'): string {
@@ -1518,8 +1519,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                 : tokenRgb('surface', 'sheet', colorScheme),
             text: tokenRgb('color', 'text', colorScheme),
             markAboveEyebrow: true,
-            radius: '0px',
-            border: '0px',
+            // The pairing views are a flush band (no border); the others are the shared card.
+            radius: browserTokens.metric.radius,
+            border: state === 'pairing' || state === 'confirmation' ? '0px' : '1px',
             bodySize: '14px',
             headingSize: width <= 650 ? '22px' : '24px',
             opacity: '1',

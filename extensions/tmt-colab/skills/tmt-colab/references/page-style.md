@@ -1,7 +1,7 @@
 ## Page look
 
-Use the TMT browser style: square, flat, shadow-free surfaces; neutral greys;
-system fonts; and a mark plus a word for every state (for example, "◆ Waiting"),
+Use the TMT browser style: flat, shadow-free surfaces with the one control radius;
+the teal-tinted palette; system fonts; and a mark plus a word for every state (for example, "◆ Waiting"),
 never colour alone. Colour only the waiting mark, with the starter's `waiting` class
 (`<span class="waiting">◆</span>`); leave `●` and `✓` neutral. On a `column` or `full` page Colab sets the width and the
 gaps: read [layout](layout.md) (`tmt colab skill layout`) and do not set a
@@ -32,12 +32,12 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
 ```html
 <style>
   :root {
-    --ink: #343434;
-    --muted: #626262;
-    --paper: #fafafa;
+    --ink: #26393f;
+    --muted: #596f77;
+    --paper: #f3f6f5;
     --sheet: #ffffff;
-    --edge: #d0d0d0;
-    --waiting: #964500;
+    --edge: #d4dfdb;
+    --waiting: #966109;
     --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --size: 14px;
@@ -49,30 +49,30 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme='light']) {
-      --ink: #b0b0b0;
-      --muted: #909090;
-      --paper: #080808;
-      --sheet: #101010;
-      --edge: #303030;
-      --waiting: #ff9e64;
+      --ink: #c9d6dd;
+      --muted: #a2b3bf;
+      --paper: #0e171d;
+      --sheet: #17232c;
+      --edge: #283a46;
+      --waiting: #f7b449;
     }
   }
   :root[data-theme='light'] {
-    --ink: #343434;
-    --muted: #626262;
-    --paper: #fafafa;
+    --ink: #26393f;
+    --muted: #596f77;
+    --paper: #f3f6f5;
     --sheet: #ffffff;
-    --edge: #d0d0d0;
-    --waiting: #964500;
+    --edge: #d4dfdb;
+    --waiting: #966109;
     color-scheme: light;
   }
   :root[data-theme='dark'] {
-    --ink: #b0b0b0;
-    --muted: #909090;
-    --paper: #080808;
-    --sheet: #101010;
-    --edge: #303030;
-    --waiting: #ff9e64;
+    --ink: #c9d6dd;
+    --muted: #a2b3bf;
+    --paper: #0e171d;
+    --sheet: #17232c;
+    --edge: #283a46;
+    --waiting: #f7b449;
     color-scheme: dark;
   }
   * {

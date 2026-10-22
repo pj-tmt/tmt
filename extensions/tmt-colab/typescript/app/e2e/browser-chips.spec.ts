@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { tokens } from './tokens.js';
 
 declare global {
   interface Window {
@@ -103,7 +104,7 @@ for (const [width, theme] of [
             const style = getComputedStyle(node);
             return [style.borderTopWidth, style.borderRadius, style.boxShadow];
           });
-        expect(geometry).toEqual(['1px', '0px', 'none']);
+        expect(geometry).toEqual(['1px', tokens.browser.metric.radius, 'none']);
       }
     });
   }

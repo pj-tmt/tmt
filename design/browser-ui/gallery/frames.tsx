@@ -27,6 +27,7 @@ import {
 import { startShellHost, type ShellSlot } from '../src/shell-host.js';
 import { FramePair, Section, noop } from './kit.js';
 import { menuItems } from './components.js';
+import { UiOverlayFrame } from './ui-overlays.js';
 
 /*
  * Frames are real pages of this gallery (`?frame=<name>&theme=<theme>`) shown in iframes, for the
@@ -112,7 +113,16 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
     const menu = params.get('menu') === 'none' ? undefined : describedMenu(colab, place);
     if (menu) menu.groups[0]!.items[0]!.total = 12;
     if (menu) menu.groups[0]!.items[0]!.count = shellCount(2);
-    return { rail: shellRail(answer, place, colab), menu };
+    // `counts` pins the needs-you range the rail must carry: none (Ops 0), one digit (Colab 3), two (Remote 12).
+    const shown = params.has('counts')
+      ? {
+          ...answer,
+          modules: answer.modules.map((module) =>
+            module.extension === 'remote' ? { ...module, needsYou: 12 } : module,
+          ),
+        }
+      : answer;
+    return { rail: shellRail(shown, place, colab), menu };
   }, [params]);
   useEffect(() => {
     // The rail's own toggle remembers a viewer's choice; the gallery pins each frame's state.
@@ -334,6 +344,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <MenuFrame />;
     case 'notifications':
       return <NotificationsFrame />;
+    case 'ui-overlay':
+      return <UiOverlayFrame params={params} />;
     default:
       return <p>Unknown frame {name}</p>;
   }
@@ -362,6 +374,22 @@ export function ShellSection() {
         height={420}
         width={1080}
         params={{ rail: 'collapsed' }}
+      />
+      <FramePair
+        title="Rail counts · expanded (Colab 3, Remote 12, Ops 0 shows nothing)"
+        note="A needs-you count is a number pill right-aligned on its row; zero draws nothing. The item's name carries it: Colab, 3 need you."
+        frame="shell"
+        height={400}
+        width={920}
+        params={{ counts: '12' }}
+      />
+      <FramePair
+        title="Rail counts · collapsed"
+        note="The count becomes a compact numeral at the icon's top-right corner, past the glyph, so every icon stays whole."
+        frame="shell"
+        height={400}
+        width={920}
+        params={{ counts: '12', rail: 'collapsed' }}
       />
       <FramePair
         title="Without a module menu"
