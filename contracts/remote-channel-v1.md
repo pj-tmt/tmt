@@ -1311,7 +1311,7 @@ Remote narrows supported operations/authority before core calls.
 | `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional runtime/activity evidence below, without pane address/cwd/process/profile.                                                  |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                    |
 | `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                   |
-| `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, anonymous core originator plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
+| `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                             |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                        |
 | `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`                  | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                               |
@@ -1351,18 +1351,45 @@ omits malformed values without failing the list. The same `agents.read` grant fi
 admission rule or limit increase. Activity grants no delivery, readiness, completion or dispatch authority.
 
 Helper payloads are `agents.list:{}`, `check:{agentId,lines?}`, `operation.show:{operationId}` and
-`result:{requestId}`. `dispatch.create` payload is exactly
+`result:{requestId}`. A client's `dispatch.create` payload is exactly
 `{version:1,operation:"dispatch.create",originator:"anonymous", input:{operationId,recipientIds:[agentId],message,kind:"request"}}`.
 Signed envelope operation and core operation must agree, and envelope id must equal
 input.operationId. Other supported core reads use their documented `{version,operation,input}`
 envelope. Discovery returns `{version:1,profile:"local-v1",binding,operations,limits}` with only the
 admitted operation subset and effective byte/rate bounds.
 
-A remote device is never a local identity. Core records the request with an anonymous originator;
-remote prefixes the frozen message with one provenance line naming the device,
+A remote device is never a local identity: a caller that selects an `identity` or any originator but
+`"originator":"anonymous"` is refused, and the signed client payload is always the anonymous form.
+Remote prefixes the frozen message with one provenance line naming the device,
 `[remote: <device name>]`. A `cli` device additionally names the sending identity it resolved on
 its own machine, `[remote: <device name> / <identity name>]`; that name is presentation only and is
-never mapped to an identity on the receiving machine. Callers reject a caller-selected `identity`.
+never mapped to an identity on the receiving machine. The core originator is set by the serve, not
+the caller: see **Identity attribution** below.
+
+**Identity attribution.** Only a `browser` grant from this door's origin, the owner's own paired browser, is
+attributed; `cli` and add-on grants stay anonymous and never ask core, because a `cli` device may be an agent on another
+machine. Once such a send is admitted the serve asks core for the person at this machine (`user.identity`, [extension API](extension-api.md#the-persons-identity))
+and freezes the core payload with `"identity":"<identityId>"` in place of `"originator":"anonymous"`,
+exactly one of the two. That makes core record the message as the person's own and keeps Digest from
+holding it. The journal holds the frozen form: a held send replays exactly what was frozen, a retry
+of a known operation ID asks core nothing, and a changed `user.name` takes effect on the next new
+send.
+
+A refusal of the person's name never blocks or retries the send: it is frozen anonymous. The send
+result then carries the optional field `identity`, defined here once and present only when there is
+something to say:
+
+- `{"state":"anonymous","reason":"USER_NAME_UNAVAILABLE"|"USER_NAME_INVALID"|"USER_NAME_TAKEN","message":<core's message>}`
+  when `user.identity` refused the name. The message is core's own and names `tmt config set user.name <name>`.
+  Any other `user.identity` failure freezes anonymous and says nothing.
+- `{"state":"person","name":<name>,"renamedFrom":<name>}` when core resolved the person under a
+  `-user` name because an agent holds the plain one.
+
+The field is about the freeze that created the operation: a later observation or a retry of an
+operation that was already frozen carries it only if the stored receipt does. A plain success has no
+`identity` field. Clients ignore its absence, parse it strictly when present (exact keys, `message`
+and names non-empty text of at most 512 bytes), and treat a malformed one as an unverifiable reply.
+How often a surface shows it is the surface's rule, not this contract's.
 
 On a paired `cli` device, ordinary `tmt talk` addressed to a remote agent is the send action: it
 freezes the operation ID and exact bytes, appends `dispatch.create`, and waits for the durable
