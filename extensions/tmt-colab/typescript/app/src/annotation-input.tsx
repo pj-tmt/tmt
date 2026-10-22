@@ -440,6 +440,7 @@ export function AnnotationInput({
       id={statusId}
       role="status"
       className="annotation-hint"
+      data-unsent={(!connectionPresentation && unsent) || undefined}
       tabIndex={connectionPresentation?.phase === 'ended' ? 0 : undefined}
     >
       {connectionPresentation
