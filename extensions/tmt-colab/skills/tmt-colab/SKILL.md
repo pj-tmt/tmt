@@ -51,7 +51,7 @@ browser they intend to use, compare the four words with the terminal and confirm
 there themselves. Wait for their confirmation; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
-Find an existing page with `tmt colab ls --json`, or create one from a UTF-8 file. Choose
+Find pages: `tmt colab ls --json` (cached titles; folds misses). Create from UTF-8 with
 `--layout column` (most pages), `full` or `canvas --reason TEXT`, or `--template NAME`
 (`template ls`); `page layout PAGE KIND` changes it:
 

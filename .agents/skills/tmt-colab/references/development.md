@@ -15,8 +15,8 @@ those tokens or the starter generator, run
 The generator replaces only the marked style block; the surrounding prose stays
 handwritten. It is a development command, never a Cargo, serve or install hook.
 The app's `page-style.test.ts` checks token equality, forbidden chrome and effects,
-non-writing failures, and budgets of 3,000 bytes for the starter, 12,000 bytes / 500 lines for its reference, and
-10,000 bytes for the root skill. `tests/cli.rs` also runs every `html` sample in `references/layout.md` and
+non-writing failures, and budgets of 3,000 bytes for the starter and 12,000 bytes / 500 lines for its reference.
+`tests/cli.rs` caps the embedded root skill at 10,300 bytes and runs every `html` sample in `references/layout.md` and
 `components.md` through `page check`, and the app's `e2e/skill-samples.spec.ts` renders each in a `column`
 page and checks its blocks against the column.
 `tests/cli.rs` runs the dashboard reference’s fenced command/body examples through the

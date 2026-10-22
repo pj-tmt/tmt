@@ -1490,7 +1490,7 @@ describe('ghAssetDownloader', () => {
 
 describe('failureCause and combineFailures', () => {
   const trace = (error: string) =>
-    `Run the proof\nnode:internal/process/execution:1\n    triggerUncaughtException(\n    ^\n\n${error}\n    at file:///x.mjs:1:1 {\n  code: 'ERR_ASSERTION'\n}\n\nNode.js v22.23.2\nverify-native-extension-upgrade.mjs failed with 1.\n`;
+    `Run the proof\nnode:internal/process/execution:1\n    triggerUncaughtException(\n    ^\n\n${error}\n    at file:///x.mjs:1:1 {\n  code: 'ERR_ASSERTION'\n}\n\nNode.js v26.12.1\nverify-native-extension-upgrade.mjs failed with 1.\n`;
 
   it('takes the first error line a verifier threw, not the runner’s own closing line', () => {
     expect(failureCause(trace('Error: Native archive checksum mismatch'))).toBe(

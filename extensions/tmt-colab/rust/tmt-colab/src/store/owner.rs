@@ -2,7 +2,6 @@
 //! All mutations use one writer transaction; exact results survive lost replies.
 mod bootstrap;
 pub(crate) mod epoch;
-#[cfg(test)]
 pub(crate) use bootstrap::display_title;
 pub use epoch::{Cut, StoredBaseline};
 

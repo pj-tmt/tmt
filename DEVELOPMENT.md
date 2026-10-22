@@ -22,13 +22,14 @@ gates every change shares; per-area procedures live in the skills below.
 
 ## Setup
 
-Requirements: Node.js 22.12 or newer, the pinned pnpm (through `corepack`) and the
-toolchain in `rust/rust-toolchain.toml`. The workspace MSRV is Rust 1.95 and CI
-also runs the pinned release toolchain. Remote-client tests need `python3` for the
-independent byte-fixture oracle, shell completion tests need Bash and Zsh, and
-runtime proof needs the macOS developer tools or Linux `readelf`.
+Requirements: Node.js 26.12.1, pinned pnpm via Corepack and the toolchain in
+`rust/rust-toolchain.toml`. Rust MSRV is 1.95; CI uses the pinned release toolchain.
+Remote-client tests need `python3` for the independent byte-fixture
+oracle, shell completion needs Bash and Zsh, and runtime proof needs macOS
+developer tools or Linux `readelf`.
 
 ```bash
+npm install -g --ignore-scripts corepack@0.36.0
 (cd typescript && corepack pnpm install --frozen-lockfile)
 (cd rust && rustup show)
 ```

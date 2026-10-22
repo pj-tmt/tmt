@@ -19,27 +19,49 @@ export interface BrowserListRowProps extends Omit<
   'title' | 'children' | 'className' | 'style'
 > {
   title: ReactNode;
-  metadata: ReactNode;
+  /** A line under the title; the title then wraps instead of truncating. */
+  description?: ReactNode;
+  /** The row's updated text; without it the state alone keeps the right edge. */
+  metadata?: ReactNode;
   state: ReactNode;
+  /** Colours the leading mark and the state word. */
+  tone?: 'working' | 'waiting' | 'blocked' | 'review';
   actions?: ReactNode;
   /** A control that belongs to the row before its title, such as a selection checkbox. */
   leading?: ReactNode;
 }
 export function BrowserListRow({
   title,
+  description,
   metadata,
   state,
+  tone,
   actions,
   leading,
   ...attributes
 }: BrowserListRowProps) {
   return (
     <li {...attributes} className={c.listRow} data-leading={leading !== undefined || undefined}>
-      {leading !== undefined && <div className={c.listLeading}>{leading}</div>}
-      <div className={c.listTitle}>{title}</div>
+      {leading !== undefined && (
+        <div className={c.listLeading} data-tone={tone}>
+          {leading}
+        </div>
+      )}
+      <div className={c.listTitle}>
+        {description === undefined ? (
+          title
+        ) : (
+          <>
+            <span className={c.listLabel}>{title}</span>
+            <span className={c.listDescription}>{description}</span>
+          </>
+        )}
+      </div>
       <div className={c.listMeta}>
-        <div className={c.listUpdated}>{metadata}</div>
-        <div className={c.listState}>{state}</div>
+        {metadata !== undefined && <div className={c.listUpdated}>{metadata}</div>}
+        <div className={c.listState} data-tone={tone}>
+          {state}
+        </div>
       </div>
       {actions !== undefined && <div className={c.listActions}>{actions}</div>}
     </li>

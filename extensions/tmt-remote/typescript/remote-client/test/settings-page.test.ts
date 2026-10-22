@@ -326,7 +326,7 @@ async function registryPage() {
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   await settle();
   const dialogs = () => ids.get('remotes')!.querySelectorAll('dialog');
-  const title = (dialog: Element) => dialog.children[0]!.textContent;
+  const title = (dialog: Element) => dialog.children[0]!.children[0]!.textContent;
   const entry = { name: 'alpha', kind: 'local', url: 'https://door.test/', project: null };
   return {
     page,

@@ -8,6 +8,7 @@ import {
   exchange,
   historyCharts,
   providers,
+  ranking,
   rankRows,
   resetsIn,
   seatName,
@@ -93,6 +94,31 @@ it('ranks seats by tokens, shares sum to about 100 and a partial seat says so', 
   expect(seatName({ id: '12345678-aaaa', name: null, retired: true })).toBe('12345678 (retired)');
 });
 
+it('a large team ranks the top 8 and folds the rest into one Other row', () => {
+  const team = rankRows(mockDocument('24h', { seats: 24 }));
+  expect(team).toHaveLength(24);
+  const view = ranking(team);
+  expect(view.top.map((row) => row.id)).toEqual(team.slice(0, 8).map((row) => row.id));
+  const rest = team.slice(8).reduce((sum, row) => sum + row.tokens, 0);
+  const total = team.reduce((sum, row) => sum + row.tokens, 0);
+  expect(view.other).toEqual({ seats: 16, tokens: rest, share: Math.round((rest / total) * 100) });
+  expect(view.partial).toBe(true);
+  // A team of 8 or fewer folds nothing; a team with full evidence is not partial.
+  expect(ranking(rankRows(day)).other).toBeNull();
+  expect(ranking(team.map((row) => ({ ...row, partial: false }))).partial).toBe(false);
+});
+
+it('activity lists seats in the ranking order: most tokens first', () => {
+  for (const doc of [day, mockDocument('7d', { seats: 24 })])
+    expect(activity(doc)!.rows.map((row) => row.id)).toEqual(rankRows(doc).map((row) => row.id));
+});
+
+it('a one-provider sample has only the OpenAI weekly window and history', () => {
+  const one = mockDocument('24h', { oneProvider: true });
+  expect(providers(one).map((view) => view.provider)).toEqual(['OpenAI']);
+  expect(one.limitHistory!.map((history) => history.line)).toEqual(['gpt']);
+});
+
 it('exchange counts talk and reply only, ranks by traffic and keeps a known none at zero', () => {
   const view = exchange(day, 4)!;
   expect(view.participants).toHaveLength(4);
@@ -123,7 +149,7 @@ it('activity is hourly for 24 hours and daily for 7d and 30d, ending at the newe
   expect(view.rows.every((row) => row.slots.length === 24)).toBe(true);
   expect(
     view.rows
-      .at(-1)!
+      .find((row) => row.label === 'night-1')!
       .slots.slice(0, 12)
       .every((value) => value === null),
   ).toBe(true);

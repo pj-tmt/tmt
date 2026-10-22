@@ -164,15 +164,6 @@ footer {
 .needs-you-header .needs-you-header-trigger:is(:hover, :focus-visible) {
   text-decoration: underline;
 }
-/* Nothing waits and nothing shows (#4116); the element stays only to take the focus an emptied menu held. */
-.needs-you-header-empty {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .needs-you-header-mark {
   color: var(--tmt-ui-color-waiting);
 }
@@ -238,16 +229,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-}
-/* The connection words (Private · Live) stay in the document, out of sight: the header shows only
-   a state that needs attention, and Share… in the More menu carries them. */
-.page-connection {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 /* The More menu's Share… entry carries the page's state beneath its name. */
 .more-item {
@@ -1199,6 +1180,19 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   min-width: 0;
   max-width: 100%;
 }
+/* Core's state can run to two lines; the control follows its last word instead of dropping to a
+   line of its own (#4317). */
+.conversation-status[data-message-state],
+.conversation-status[data-message-state] > [role='status'],
+.conversation-status[data-message-state] .ask-state {
+  display: inline;
+}
+.conversation-status[data-message-state] .tmt-ui-icon-action {
+  /* Sideways gap only: its box is taller than a line and must not open up the lines of the text. */
+  margin: calc((1lh - var(--tmt-ui-host-icon-action-size)) / 2) 0
+    calc((1lh - var(--tmt-ui-host-icon-action-size)) / 2) 8px;
+  vertical-align: middle;
+}
 .conversation-status .ask-status-action {
   padding: 0;
   margin: 0;
@@ -1443,14 +1437,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
-.reading-connecting-text {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .reading-reason {
   margin: 4px 0 0;
   padding: 0 12px 8px;
@@ -1549,16 +1535,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
    gone: the decided row stands at the height of the one it replaces. */
 .proposal-actions .tmt-ui-action[data-variant='text'] {
   border: var(--tmt-ui-action-border-width) solid transparent;
-}
-/* A live line heard, not seen: it takes no room in the card. */
-.proposal-announce {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 /* The busy mark of the decision not being saved keeps the button's width without showing. */
 .proposal-unpressed {
@@ -1884,13 +1860,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   white-space: normal;
 }
 
-.archive-announcement {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
 .archive-unsent-draft pre {
   font: inherit;
   white-space: pre-wrap;
@@ -2111,8 +2080,23 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .agent-activity {
   color: var(--tmt-ui-color-secondary);
 }
-.agent-activity[data-activity='finished'] > .agent-activity-mark {
+.agent-activity[data-activity='finished'] > .agent-activity-mark,
+.agent-activity[data-message-state='delivered'] > .agent-activity-mark {
   color: var(--tmt-ui-color-working);
+}
+.agent-activity-clock {
+  white-space: nowrap;
+}
+/* The size and stroke of the ○ it stands beside. */
+.agent-activity-dashed {
+  width: 0.8em;
+  height: 0.8em;
+  stroke-width: 2.25;
+  vertical-align: -0.05em;
+}
+/* Core's states are grey but for the two outcomes: delivered (above) and not sent. */
+.agent-activity[data-message-state='not_sent'] > .agent-activity-mark {
+  color: var(--c-blocked);
 }
 /* The one animated mark of a working agent in a thread (#3978): the line's own BusyMark in the
    working colour, ahead of the name. Agent chips never animate. */

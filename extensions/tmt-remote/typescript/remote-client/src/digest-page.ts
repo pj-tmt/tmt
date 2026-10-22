@@ -27,6 +27,7 @@ import {
   activity,
   exchange,
   providers,
+  ranking,
   rankRows,
   resetsIn,
   tokenSeries,
@@ -234,8 +235,17 @@ function tokensCard(doc: UsageDocument, scale: { share: boolean }): HTMLElement 
   return card('digest-tokens', 'Token usage', [body], { actions: control });
 }
 
+/** A seat's name on one line, the full name on hover, `*` after a partial one. */
+function seatLabel(name: string, partial: boolean): HTMLElement {
+  const node = el('span', 'digest-seat', name);
+  node.title = partial ? `${name} (partial)` : name;
+  if (partial) node.append(el('span', 'digest-partial', '*'));
+  return node;
+}
+
 function rankingCard(doc: UsageDocument): HTMLElement {
   const rows = rankRows(doc);
+  const view = ranking(rows);
   // The seats the token chart draws as hues keep that hue here; the rest share the neutral step.
   const hue = new Map(
     topLayers(tokenSeries(doc).layers, SERIES_KEPT)
@@ -249,23 +259,51 @@ function rankingCard(doc: UsageDocument): HTMLElement {
     node.setAttribute('aria-hidden', 'true');
     return node;
   };
-  return card(
-    'digest-ranking',
-    `Last ${doc.since} by seat`,
-    rows.length
-      ? [
-          table(
-            ['Seat', '', 'Tokens', 'Share'],
-            rows.map((entry) => [
-              entry.partial ? `${entry.name} (partial)` : entry.name,
-              bar(entry.id, entry.tokens),
-              compactCount(entry.tokens),
-              `${entry.share}%`,
-            ]),
-          ),
-        ]
-      : [el('p', 'usage-note', 'No seat has token observations in this range.')],
-  );
+  if (!rows.length)
+    return card('digest-ranking', `Last ${doc.since} by seat`, [
+      el('p', 'usage-note', 'No seat has token observations in this range.'),
+    ]);
+  const host = el('div', 'digest-ranking-table');
+  host.id = 'digest-ranking-rows';
+  const draw = (all: boolean) => {
+    const listed = all ? rows : view.top;
+    const lines: (string | Node)[][] = listed.map((entry) => [
+      seatLabel(entry.name, entry.partial),
+      bar(entry.id, entry.tokens),
+      compactCount(entry.tokens),
+      `${entry.share}%`,
+    ]);
+    if (!all && view.other)
+      lines.push([
+        seatLabel(`Other (${view.other.seats} seats)`, false),
+        // The folded seats together can outweigh the leader: their share says it, not a bar.
+        '',
+        compactCount(view.other.tokens),
+        `${view.other.share}%`,
+      ]);
+    host.replaceChildren(table(['Seat', '', 'Tokens', 'Share'], lines));
+  };
+  draw(false);
+  const body: Node[] = [host];
+  if (view.partial)
+    body.push(el('p', 'usage-note', '* Partial: some of this range has no data for the seat.'));
+  if (view.other) {
+    const toggle = el('button', 'digest-more');
+    toggle.type = 'button';
+    toggle.setAttribute('aria-controls', host.id);
+    const sync = (all: boolean) => {
+      toggle.setAttribute('aria-expanded', String(all));
+      toggle.textContent = all ? `Show top ${view.top.length}` : `Show all ${rows.length} seats`;
+    };
+    sync(false);
+    toggle.addEventListener('click', () => {
+      const all = toggle.getAttribute('aria-expanded') !== 'true';
+      draw(all);
+      sync(all);
+    });
+    body.push(toggle);
+  }
+  return card('digest-ranking', `Last ${doc.since} by seat`, body);
 }
 
 function activityCard(doc: UsageDocument): HTMLElement | undefined {

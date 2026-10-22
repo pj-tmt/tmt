@@ -2,7 +2,9 @@
 
 A page can carry a two-line summary and a task list: use them when a page drives work (a plan, a
 spec, a review that turns into tasks). A page with tasks is still an ordinary page; its stage,
-progress and who is working are computed from the tasks and shown in `tmt colab ls`.
+progress and who is working are computed from the tasks. `tmt colab ls` shows only current cached
+work and parent links; missing/stale entries are omitted without reading page content. Use
+`task ls PAGE` for freshly folded work.
 
 ```sh
 tmt colab task add PAGE --title 'Write the guide' --assignee ada --json   # returns taskId

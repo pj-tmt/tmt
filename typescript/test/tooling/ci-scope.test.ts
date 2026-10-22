@@ -2335,9 +2335,9 @@ describe('CI diff and command integration', () => {
     expect(colab.match(/--volume /g)).toHaveLength(1);
     expect(colab).not.toMatch(/--env|--mount|--network host|--privileged|secrets\./);
     expect(steps).not.toMatch(/continue-on-error|\|\| true|secrets\./);
-    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 22.23.2');
+    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 26.12.1');
     expect(read('extensions/tmt-colab/rust/tmt-colab/tests/emulator/Dockerfile')).toContain(
-      'node:22.23.2-'
+      'node:26.12.1-'
     );
   });
 
@@ -3307,7 +3307,7 @@ describe('required CI gate', () => {
     expect(job('docker-e2e-shard-2')).toContain('steps: *docker-e2e-steps');
     const dockerSteps = job('docker-e2e-shard-1').split('steps: &docker-e2e-steps')[1];
     expect(dockerSteps).toContain('uses: actions/setup-node@v4');
-    expect(dockerSteps).toContain('node-version: 22.23.2');
+    expect(dockerSteps).toContain('node-version: 26.12.1');
     expect(dockerSteps).toContain('run: node scripts/run-e2e.mjs');
     expect(dockerSteps).not.toMatch(/setup-tooling|pnpm|corepack|Install dependencies/);
     for (const name of ['docker-e2e-shard-1', 'docker-e2e-shard-2']) {
@@ -3815,9 +3815,9 @@ it('pins and verifies Node before native-workspace-tests executes Rust tests', (
   const job = workflow.split('\n  producer:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
   expect(job).toContain(`uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2`);
+          node-version: 26.12.1`);
   expect(job).toContain(`node --version
-          test "$(node --version)" = v22.23.2`);
+          test "$(node --version)" = v26.12.1`);
   expect(job.indexOf('actions/setup-node@v4')).toBeLessThan(job.indexOf('node --version'));
   expect(job.indexOf('node --version')).toBeLessThan(job.indexOf('cargo test'));
   expect(job).not.toContain('uses: ./.github/actions/setup-tooling');

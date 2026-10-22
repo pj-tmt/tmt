@@ -45,7 +45,7 @@
           <p id="access">Checking current access…</p>
           <p
             id="access-announcement"
-            class="screen-reader-status"
+            class="tmt-ui-visually-hidden"
             role="status"
             aria-live="polite"
             aria-atomic="true"
@@ -89,10 +89,10 @@
           <span class="tmt-ui-action-label">Check the saved value</span>
         </button>
       </div>
-      <section class="settings-section" data-view="machine" aria-labelledby="opening-title">
+      <section class="tmt-ui-section" data-divided data-view="machine" aria-labelledby="opening-title">
         <div class="settings-section-body">
           <div class="settings-summary">
-            <h2 id="opening-title" class="tmt-ui-notice-heading settings-heading">
+            <h2 id="opening-title" class="tmt-ui-section-heading" data-variant="title">
               Browser opening
             </h2>
             <p id="opening-value">Loading…</p>
@@ -103,7 +103,7 @@
             >
             <button
               id="opening"
-              class="tmt-ui-menu-trigger settings-choice"
+              class="tmt-ui-menu-trigger" data-variant="select"
               type="button"
               aria-haspopup="listbox"
               aria-controls="opening-options"
@@ -113,11 +113,11 @@
               disabled
             >
               <span id="opening-choice-value" data-choice-value>Loading…</span
-              ><span aria-hidden="true">▾</span>
+              >
             </button>
             <div
               id="opening-options"
-              class="tmt-ui-menu-surface settings-options"
+              class="tmt-ui-menu-surface"
               popover="auto"
               role="listbox"
               aria-labelledby="opening-label"
@@ -171,10 +171,10 @@
           </form>
         </div>
       </section>
-      <section class="settings-section" data-view="machine" aria-labelledby="limit-title">
+      <section class="tmt-ui-section" data-divided data-view="machine" aria-labelledby="limit-title">
         <div class="settings-section-body">
           <div class="settings-summary">
-            <h2 id="limit-title" class="tmt-ui-notice-heading settings-heading">
+            <h2 id="limit-title" class="tmt-ui-section-heading" data-variant="title">
               Session limit per device
             </h2>
             <p id="limit-value">Loading…</p>
@@ -189,7 +189,7 @@
             >
             <button
               id="limit-mode"
-              class="tmt-ui-menu-trigger settings-choice"
+              class="tmt-ui-menu-trigger" data-variant="select"
               type="button"
               aria-haspopup="listbox"
               aria-controls="limit-mode-options"
@@ -199,11 +199,11 @@
               disabled
             >
               <span id="limit-mode-choice-value" data-choice-value>Loading…</span
-              ><span aria-hidden="true">▾</span>
+              >
             </button>
             <div
               id="limit-mode-options"
-              class="tmt-ui-menu-surface settings-options"
+              class="tmt-ui-menu-surface"
               popover="auto"
               role="listbox"
               aria-labelledby="limit-mode-label"
@@ -284,13 +284,13 @@
           </form>
         </div>
       </section>
-      <section class="settings-section" data-view="settings" aria-labelledby="firestore-title">
+      <section class="tmt-ui-section" data-divided data-view="settings" aria-labelledby="firestore-title">
         <div class="settings-section-body">
-          <h2 id="firestore-title" class="tmt-ui-notice-heading settings-heading">Firestore</h2>
+          <h2 id="firestore-title" class="tmt-ui-section-heading" data-variant="title">Firestore</h2>
           <p>Recorded setup, not a live Firebase check.</p>
           <p
             id="firestore-announcement"
-            class="screen-reader-status"
+            class="tmt-ui-visually-hidden"
             role="status"
             aria-live="polite"
             aria-atomic="true"
@@ -298,9 +298,9 @@
           <div id="firestore-content">Checking recorded Firestore setup…</div>
         </div>
       </section>
-      <section class="settings-section" data-view="devices" aria-labelledby="devices-title">
+      <section class="tmt-ui-section" data-divided data-view="devices" aria-labelledby="devices-title">
         <div class="settings-section-body">
-          <h2 id="devices-title" class="tmt-ui-notice-heading settings-heading">Paired devices</h2>
+          <h2 id="devices-title" class="tmt-ui-section-heading" data-variant="title">Paired devices</h2>
           <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>
           <button
             id="remove-others"
@@ -313,9 +313,13 @@
           >
             <span class="tmt-ui-action-label">Remove the others</span>
           </button>
-          <div id="remove-others-confirmation" class="device-confirmation" hidden>
-            <p id="remove-others-consequence" role="status"></p>
-            <button id="cancel-remove-others" class="tmt-ui-action" type="button">Cancel</button>
+          <div id="remove-others-confirmation" class="tmt-ui-notice" hidden>
+            <p id="remove-others-consequence" class="tmt-ui-notice-body" role="status"></p>
+            <div class="tmt-ui-notice-actions">
+              <button id="cancel-remove-others" class="tmt-ui-action" type="button">
+                <span class="tmt-ui-action-label">Cancel</span>
+              </button>
+            </div>
           </div>
           <div id="devices"></div>
           <button
@@ -338,17 +342,12 @@
           </button>
         </div>
       </section>
-      <section
-        id="remotes"
-        class="remote-registry"
-        data-view="settings"
-        aria-labelledby="remote-heading"
-      >
-        <h2 id="remote-heading">Remotes in this browser</h2>
+      <section id="remotes" class="tmt-ui-section" data-divided data-view="settings" aria-labelledby="remote-heading">
+        <h2 id="remote-heading" class="tmt-ui-section-heading" data-variant="title">Remotes in this browser</h2>
         <p class="entry-note">
           Names and addresses are saved here. Each remote keeps its own pairing.
         </p>
-        <ul id="remote-list" class="remote-list"></ul>
+        <ul id="remote-list" class="tmt-ui-list"></ul>
         <p id="remote-status" role="status"></p>
         <button id="remote-add" class="tmt-ui-action" type="button">Add remote</button>
       </section>

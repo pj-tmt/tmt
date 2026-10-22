@@ -380,15 +380,128 @@ fn a_codex_launch_with_configuration_options_is_still_admitted() {
         bind(&fixture, record);
         let mut codex = SteppedProvider::start_with_words(&fixture, "codex", "codex-steps", words);
         let process = live_provider(&codex);
-        let (status, _, stderr) = codex.hook(codex_event("SessionStart", None));
-        assert_eq!((status, stderr.as_str()), (0, ""), "{words:?}");
-        assert_eq!(
-            runtime(&fixture).1,
-            process.incarnation.pid() as i64,
-            "{words:?}"
-        );
+        let output = codex.hook(codex_event("SessionStart", None));
+        assert_options_admitted(&fixture, &process, output, &format!("{words:?}"));
         drop(codex);
         assert_eq!(process.seen(), Seen::Ended, "{words:?}");
         assert_drivers_ended(&fixture);
     }
+}
+
+/// Configuration options test provider admission, independently of context text.
+fn assert_options_admitted(
+    fixture: &Fixture,
+    provider: &Owned,
+    output: (i32, String, String),
+    case: &str,
+) {
+    let (status, _, stderr) = output;
+    assert_eq!(status, 0, "{case}: hook exit");
+    assert!(
+        stderr.is_empty() || stderr == HOOK_UNAVAILABLE,
+        "{case}: hook stderr: {stderr:?}"
+    );
+    if !stderr.is_empty() {
+        eprintln!("{case}: hook diagnostic: {stderr}");
+    }
+    assert_eq!(
+        runtime(fixture),
+        (
+            "s-1".to_owned(),
+            provider.incarnation.pid() as i64,
+            provider.incarnation.start_identity().to_owned(),
+            "running".to_owned(),
+        ),
+        "{case}: stored Codex runtime"
+    );
+}
+
+#[test]
+fn a_codex_options_context_notice_keeps_recorded_admission_required() {
+    register();
+    let fixture = Fixture::new("codex-options-context-notice");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let mut codex =
+        SteppedProvider::start_with_words(&fixture, "codex", "codex-steps", &["-c", "model=x"]);
+    let provider = live_provider(&codex);
+    let output = codex.hook(codex_event("SessionStart", None));
+    assert_options_admitted(&fixture, &provider, output, "real hook");
+    assert_options_admitted(
+        &fixture,
+        &provider,
+        (0, String::new(), HOOK_UNAVAILABLE.to_owned()),
+        "context unavailable",
+    );
+    drop(codex);
+    assert_eq!(provider.seen(), Seen::Ended);
+    assert_drivers_ended(&fixture);
+}
+
+fn assert_options_refused(
+    fixture: &Fixture,
+    provider: &Owned,
+    output: (i32, String, String),
+    reason: &str,
+) {
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        assert_options_admitted(fixture, provider, output, "negative control");
+    }))
+    .expect_err("invalid Codex options admission was accepted");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap();
+    assert!(message.contains(reason), "unexpected refusal: {message}");
+}
+
+#[test]
+fn codex_options_still_reject_failed_or_unexpected_hook_output() {
+    register();
+    let fixture = Fixture::new("codex-options-bad-output");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let mut codex =
+        SteppedProvider::start_with_words(&fixture, "codex", "codex-steps", &["-c", "model=x"]);
+    let provider = live_provider(&codex);
+    let output = codex.hook(codex_event("SessionStart", None));
+    assert_options_admitted(&fixture, &provider, output, "real hook");
+    let rows = stored_rows(&fixture);
+    for (status, stderr, reason) in [
+        (1, "".to_owned(), "hook exit"),
+        (1, HOOK_UNAVAILABLE.to_owned(), "hook exit"),
+        (0, "unexpected warning\n".to_owned(), "hook stderr"),
+        (0, HOOK_UNAVAILABLE.trim_end().to_owned(), "hook stderr"),
+        (0, HOOK_UNAVAILABLE.repeat(2), "hook stderr"),
+    ] {
+        assert_options_refused(&fixture, &provider, (status, String::new(), stderr), reason);
+        assert_eq!(stored_rows(&fixture), rows);
+    }
+    drop(codex);
+    assert_eq!(provider.seen(), Seen::Ended);
+    assert_drivers_ended(&fixture);
+}
+
+#[test]
+fn a_codex_options_context_notice_cannot_replace_session_admission() {
+    register();
+    let fixture = Fixture::new("codex-options-no-admission");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let codex =
+        SteppedProvider::start_with_words(&fixture, "codex", "codex-steps", &["-c", "model=x"]);
+    let provider = live_provider(&codex);
+    // Live and bound, but no SessionStart has been admitted.
+    let rows = stored_rows(&fixture);
+    assert_options_refused(
+        &fixture,
+        &provider,
+        (0, String::new(), HOOK_UNAVAILABLE.to_owned()),
+        "stored Codex runtime",
+    );
+    assert_eq!(stored_rows(&fixture), rows);
+    drop(codex);
+    assert_eq!(provider.seen(), Seen::Ended);
+    assert_drivers_ended(&fixture);
 }

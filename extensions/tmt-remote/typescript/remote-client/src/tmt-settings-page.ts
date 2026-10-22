@@ -5,13 +5,9 @@
  */
 import { pageLoading } from './page-loading.js';
 import { notAvailable } from './not-available.js';
-import type { ShellAnswer } from '../../../../../design/browser-ui/src/shell.js';
-import {
-  THEMES,
-  setStoredTheme,
-  storedTheme,
-  type ThemeChoice,
-} from '../../../../../design/browser-ui/src/theme.js';
+import { browserUiClasses } from '@tmt/browser-ui/static';
+import type { ShellAnswer } from '@tmt/browser-ui/shell';
+import { THEMES, setStoredTheme, storedTheme, type ThemeChoice } from '@tmt/browser-ui/theme';
 import type { RemoteShell } from './remote-shell.js';
 import {
   settingsSource,
@@ -141,7 +137,7 @@ function row(item: SettingsRow): HTMLLIElement {
   const name = document.createElement('div');
   name.className = 'tmt-ui-list-title';
   const label = document.createElement('span');
-  label.className = 'tmt-settings-label';
+  label.className = 'tmt-ui-list-label';
   if (item.href) {
     const link = document.createElement('a');
     link.href = item.href;
@@ -151,7 +147,7 @@ function row(item: SettingsRow): HTMLLIElement {
   name.append(label);
   if (item.detail) {
     const detail = document.createElement('span');
-    detail.className = 'tmt-settings-detail';
+    detail.className = 'tmt-ui-list-description';
     detail.textContent = item.detail;
     name.append(detail);
   }
@@ -167,7 +163,7 @@ function row(item: SettingsRow): HTMLLIElement {
 
 function heading(text: string): HTMLHeadingElement {
   const node = document.createElement('h2');
-  node.className = 'home-heading';
+  node.className = browserUiClasses.sectionHeading;
   node.textContent = text;
   return node;
 }

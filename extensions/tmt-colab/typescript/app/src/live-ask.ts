@@ -1,4 +1,5 @@
 import type { ActivityObservation } from './agent-activity.js';
+import type { ObservedMessageState } from './message-state.js';
 import type { AnswerBatchContext, CommentContext, commentForAsk } from './thread-store.js';
 import { requireValue } from '@tmt/colab-client';
 import {
@@ -80,6 +81,7 @@ export interface LiveAskOptions {
   observe?(): void;
   observationUnavailable?(unavailable: boolean): void;
   activityObserved?(observation: ActivityObservation): void;
+  messageStateObserved?(operationId: string, observed: ObservedMessageState | undefined): void;
   sessionEnded?(error?: SessionEvictedError): void;
 }
 
@@ -117,6 +119,9 @@ export class LiveAsk implements AskBinding {
       activityRead: () => this.#observeDirectory(),
       activityObserved: (observation) => {
         if (!this.#closed) options.activityObserved?.(observation);
+      },
+      messageStateObserved: (operationId, observed) => {
+        if (!this.#closed) options.messageStateObserved?.(operationId, observed);
       },
       selection: () => {
         requireValue(this.#selection !== null);

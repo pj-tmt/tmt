@@ -134,7 +134,8 @@ function ChapterPassage({
   const search = pageSearch(chapter);
   const openPassage = search && (
     <Link
-      className="shell-open"
+      className="tmt-ui-action shell-open"
+      data-variant="text"
       to="/pages/$pageId"
       params={{ pageId: chapter.pageId }}
       search={search}
@@ -198,7 +199,8 @@ function ChapterPassage({
       {onPanel ? (
         <button
           type="button"
-          className="shell-open"
+          className="tmt-ui-action shell-open"
+          data-variant="text"
           data-opens-panel
           aria-haspopup="dialog"
           onClick={() => onPanel(chapter.pageId)}
@@ -207,7 +209,8 @@ function ChapterPassage({
         </button>
       ) : (
         <Link
-          className="shell-open"
+          className="tmt-ui-action shell-open"
+          data-variant="text"
           to="/pages/$pageId"
           params={{ pageId: chapter.pageId }}
           search={search}
@@ -278,10 +281,15 @@ export function ShellChapter({
               {compactRelativeTime(chapter.lastUpdateAtMs, now)}
             </time>
           )}
-          {chapter.label && <span className="shell-tag">{chapter.label}</span>}
+          {chapter.label && (
+            <span className="tmt-ui-chip">
+              <span className="tmt-ui-chip-label">{chapter.label}</span>
+            </span>
+          )}
         </p>
         <Link
-          className="shell-open"
+          className="tmt-ui-action shell-open"
+          data-variant="text"
           to="/pages/$pageId"
           params={{ pageId: chapter.pageId }}
           onClick={onOpen}

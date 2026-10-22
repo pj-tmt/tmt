@@ -46,7 +46,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Capture one selection per product for all four hosts
         id: capture
         env:

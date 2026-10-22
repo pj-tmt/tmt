@@ -3633,11 +3633,11 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     await writeFile(recordPath, bytes, { mode: 0o600 });
     await gotoSettings(page);
     await expect(indexItem).toContainText('Firestore indexes:');
-    await expect(indexItem.locator('.firestore-state')).toContainText(mark);
-    await expect(indexItem.locator('.firestore-state [aria-hidden="true"]')).toHaveText(
+    await expect(indexItem.locator('.tmt-ui-list-state')).toContainText(mark);
+    await expect(indexItem.locator('.tmt-ui-list-state [aria-hidden="true"]')).toHaveText(
       state === 'done' ? '✓' : state === 'building' ? '◌' : '○',
     );
-    await expect(indexItem.locator('.firestore-state')).toHaveAttribute(
+    await expect(indexItem.locator('.tmt-ui-list-state')).toHaveAttribute(
       'data-tone',
       state === 'done' ? 'working' : 'waiting',
     );
@@ -4471,14 +4471,18 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await sdk('add', ['desk', `${secondOrigin}/`]);
       await page.reload();
       await expect(page.locator('.tmt-ui-module-menu')).toContainText(/connected/i);
-      await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('Connected');
+      await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
+        'Connected',
+      );
       await expect(
         page.locator('[data-remote="studio"]').getByRole('button', { name: 'Open' }),
       ).toHaveCount(0);
       await expect(
         page.locator('[data-remote="studio"]').getByRole('button', { name: 'Rename studio' }),
       ).toHaveText('Rename');
-      await expect(page.locator('[data-remote="desk"] .remote-state')).toHaveText('not checked');
+      await expect(page.locator('[data-remote="desk"] .tmt-ui-list-state')).toHaveText(
+        'not checked',
+      );
       await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
       expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
       await page.locator('#remotes').scrollIntoViewIfNeeded();
@@ -4500,7 +4504,9 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await page.getByRole('button', { name: 'Add', exact: true }).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(page.locator('#remote-add')).toBeFocused();
-      await expect(page.locator('[data-remote="spare"] .remote-state')).toHaveText('not checked');
+      await expect(page.locator('[data-remote="spare"] .tmt-ui-list-state')).toHaveText(
+        'not checked',
+      );
       expect(network.some((url) => url.startsWith('http://127.0.0.1:9876/'))).toBe(false);
       expect(await identity()).toEqual(first);
       await sdk('remove', ['spare']);
@@ -4713,7 +4719,7 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     await menu.getByRole('link', { name: 'Remote settings', exact: true }).click();
     await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
     await expect(page.locator('#remotes')).toBeVisible();
-    await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('Connected');
+    await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText('Connected');
     await expect(menu.getByRole('link', { name: 'Remote settings', exact: true })).toHaveAttribute(
       'aria-current',
       'page',

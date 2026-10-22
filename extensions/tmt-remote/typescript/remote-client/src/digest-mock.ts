@@ -36,16 +36,55 @@ const SEATS = [
   { id: '10000000-0000-4000-8000-000000000006', name: 'night-1', line: 'gpt', scale: 1 },
 ] as const;
 
-function seat(index: number, range: UsageRange): UsageSeat {
-  const spec = SEATS[index]!;
+/** More seats for a team of `count`: the names a squad board uses, the long lead names included. */
+const MORE = [
+  'tmt-remote-lead',
+  'tmt-infra-lead',
+  'tmt-ux-lead',
+  'core-2',
+  'core-ops',
+  'ux-2',
+  'ux-3',
+  'ux-4',
+  'feat-2',
+  'feat-3',
+  'infra-1',
+  'tmt-core-pm',
+  'night-lead',
+  'mkt-blog',
+  'tmt-mkt-lead',
+  'remote-2',
+  'core-3',
+  'tmt-feat-lead',
+];
+
+function seatSpec(index: number): { id: string; name: string; line: string; scale: number } {
+  if (index < SEATS.length) return SEATS[index]!;
+  const at = index - SEATS.length;
+  return {
+    id: `20000000-0000-4000-8000-${String(at + 1).padStart(12, '0')}`,
+    name: MORE[at % MORE.length]!,
+    line: at % 2 ? 'claude' : 'gpt',
+    scale: 0.2 + ((at * 7) % 10) / 4,
+  };
+}
+
+/** The seats with no evidence before the second half of the range: partial, never zero. */
+const late = (index: number, seats: number) =>
+  index === 5 || (seats > SEATS.length && index > 5 && index % 3 === 0);
+/** A large team's second seat has one incomplete bucket: partial, near the top of the ranking. */
+const lowerBound = (index: number, seats: number) =>
+  late(index, seats) || (seats > SEATS.length && index === 1);
+
+function seat(index: number, range: UsageRange, seats: number = SEATS.length): UsageSeat {
+  const spec = seatSpec(index);
   const next = random(100 + index);
   const step = range === '24h' ? HOUR : DAY;
   const count = range === '24h' ? 24 : range === '7d' ? 7 : 30;
   const start = Math.floor(MOCK_NOW_MS / step) * step - count * step;
   const series: UsagePoint[] = [];
   for (let at = 0; at < count; at++) {
-    // The last seat has no evidence before the second half: a partial seat, never a zero.
-    if (index === 5 && at < count / 2) continue;
+    if (late(index, seats) && at < count / 2) continue;
     const quiet = next() < 0.2;
     const input = quiet ? 0 : Math.round(next() * 90_000 * spec.scale * (step / HOUR) ** 0.5);
     const output = Math.round(input * 0.12);
@@ -55,7 +94,7 @@ function seat(index: number, range: UsageRange): UsageSeat {
       input,
       output,
       cached: Math.round(input * 0.6),
-      complete: !(index === 5 && at === count / 2),
+      complete: !(lowerBound(index, seats) && at === count / 2),
     });
   }
   const totals = series.reduce(
@@ -155,16 +194,30 @@ function limitHistory(): LimitHistory[] {
   }));
 }
 
-export function mockDocument(range: UsageRange): UsageDocument {
+export interface MockShape {
+  /** Seats in the report: the six named ones, then a squad board's names. */
+  seats?: number;
+  /** Only the OpenAI weekly window, as a team on one provider sees. */
+  oneProvider?: boolean;
+}
+
+export function mockDocument(range: UsageRange, shape: MockShape = {}): UsageDocument {
+  const count = shape.seats ?? SEATS.length;
+  const only = (line: string) => !shape.oneProvider || line === 'gpt';
   return {
     version: 1,
     observedAtMs: MOCK_NOW_MS,
     since: range,
-    usage: { seats: SEATS.map((_, index) => seat(index, range)), unavailable: [] },
-    limits,
+    usage: {
+      seats: Array.from({ length: count }, (_, index) => seat(index, range, count)),
+      unavailable: [],
+    },
+    limits: shape.oneProvider
+      ? limits.filter((limit) => limit.seats.includes(SEATS[1].id))
+      : limits,
     limitsUnavailable: [],
     exchange: { sinceMs: MOCK_NOW_MS - DAY, observedAtMs: MOCK_NOW_MS, pairs: flow() },
-    limitHistory: limitHistory(),
+    limitHistory: limitHistory().filter((history) => only(history.line)),
   };
 }
 

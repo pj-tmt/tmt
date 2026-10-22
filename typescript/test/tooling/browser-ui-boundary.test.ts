@@ -232,11 +232,6 @@ it('admits foundation dependencies only inside the separate UI graph, with no al
  * module edges and stay allowed.
  */
 const extensions = path.join(root, 'extensions');
-/** Owned by ux-2's spa-components (#4394 split): they move to the exports when it lands. */
-const PENDING_DEEP_IMPORTS = new Set([
-  'extensions/tmt-remote/typescript/remote-client/src/tmt-settings-page.ts',
-  'extensions/tmt-remote/typescript/remote-client/test/tmt-settings-page.test.ts',
-]);
 const CONSUMER_ROOTS = new Set(['src', 'test', 'e2e', 'acceptance']);
 function consumerViolations(file: string, text: string): string[] {
   const failures: string[] = [];
@@ -266,7 +261,6 @@ function consumerFiles(directory: string, inside = false): string[] {
 it('extensions import the leaf only through its package exports', () => {
   const failures = consumerFiles(extensions).flatMap((file) => {
     const name = path.relative(root, file);
-    if (PENDING_DEEP_IMPORTS.has(name)) return [];
     return consumerViolations(file, readFileSync(file, 'utf8')).map((edge) => `${name}: ${edge}`);
   });
   expect(failures).toEqual([]);

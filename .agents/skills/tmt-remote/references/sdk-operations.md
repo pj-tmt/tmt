@@ -53,7 +53,7 @@ python3 extensions/tmt-remote/rust/tmt-remote/tests/fixtures/mac-reference.py --
 node extensions/tmt-remote/rust/tmt-remote/tests/fixtures/webcrypto.mjs
 ```
 
-Use the repository Node 22 and repeat the WebCrypto command on Node 24; `--write`
+Use the repository Node 26.12.1 and repeat the WebCrypto command on Node 24; `--write`
 regenerates the public-test-key fixture. The Python oracle imports no product code.
 None of this proves real Chrome key persistence across MV3 worker restarts.
 

@@ -71,7 +71,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Plan the draft releases to build or publish
         id: plan
         env:
@@ -148,7 +148,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Verify the published release in this job's download directory
         env:
           GH_TOKEN: ${{ github.token }}

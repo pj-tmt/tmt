@@ -2308,6 +2308,38 @@ queued and unknown marks stay neutral. Reduced motion keeps working text static;
 words carry every state, and text and marks remain visible under forced colours.
 `NO_COLOR` is a terminal convention, not a browser setting.
 
+### Message state of a sent message (#4317)
+
+A pending `result` from Remote may carry Core's `messageState` for the message
+([Remote's carriage](../../../contracts/remote-channel-v1.md),
+[Message state](../../../contracts/request-response-v1.md#message-state)). Colab accepts it only
+as exactly `{state, reason:{code,text}, latestMs, remainingMs, canSendNow}`: `state` one of
+`sent`, `batched`, `delivered`, `working`, `unconfirmed`, `not_sent`; `reason.code` a lowercase
+token (an open set: an unknown code still shows its text); `reason.text` non-empty single-line
+plain text of at most 512 bytes; `latestMs` and `remainingMs` both null or both non-negative
+safe integers; `canSendNow` a boolean. Anything else, and a field on a replied or unavailable
+result, is no state and is never repaired or partly drawn. It is display only: with no state
+(an older Remote, a reply, an unavailable result, a field that does not parse) the ask shows the
+working-state line above, unchanged.
+
+The state is a live observation, never a ledger record: `AskController.recover` reads it with the
+result of each unresolved accepted ask, at the Ask observer's cadence, and reports it to the page
+only when it changes what is shown (the state, Core's wording, `canSendNow`, the deadline, or a
+remainder more than two seconds away from the page's own countdown). A failed read, a reply, an
+unavailable result, the end of the session and the end of the observation take it away. It does
+not touch the signed own-stream records, so a reload shows the plain line until the first read.
+
+With a state the line is one symbol, Core's `reason.text` with its first letter capitalized, and
+for a `batched` message with a remainder ` · in m:ss`, counted down by the page clock from the
+remainder at the read and never below `0:00`: `○` sent, `◌` batched, `✓` delivered, the working
+spinner for `working` (followed by the agent's elapsed `m:ss` when the activity observation has
+it), `?` unconfirmed, `✗` not sent. Only `✓` and the spinner use the working colour and `✗` the
+blocked colour; all text stays neutral. Colab's own states are not Core's and are unchanged:
+`dispatching`, `held` (waiting for approval on the machine, never `batched`), `uncertain` (the
+Remote send outcome is unknown) and the refused, failed, cancelled, expired and abandoned
+outcomes before Core. `canSendNow` is kept with the state and drawn nowhere here: the Send now
+action is separate (#4136).
+
 Hosted currently has no `agents.list` operation and adds no call or native fallback;
 missing observation stays `Sent`. A future hosted inventory cadence is no faster
 than 60 seconds, with a 120-second freshness bound and the same Ask horizon. These
@@ -2811,8 +2843,10 @@ revision it just read, or to `--expected-revision`; `task add` returns the new `
 work returns the empty value, and `derived` carries `states` when a task follows a page. A dashboard
 is refused with `COLAB_INPUT_INVALID`. `tmt colab ls` shows `work` (`stage`, `done`, `total`,
 `working`, `signoff`, the tasks following pages counted by the states they show) on each page that has
-work, and one line under its row; a page that is followed also carries `parent` `{page,task}` and says
-"part of T-n of PAGE". `task link PAGE TASK CHILD` and `task unlink PAGE TASK` run the two actions
+current cached work, and one line under its row; a page that is followed also carries `parent` `{page,task}` and says
+"part of T-n of PAGE". This optional list projection reads only `work-index.json` entries
+whose progress key is current; missing, stale or unreadable entries are omitted without folding,
+locking or writing the index. Use `task ls PAGE` for freshly folded work. `task link PAGE TASK CHILD` and `task unlink PAGE TASK` run the two actions
 (CHILD is named as any page is). `task convert PAGE TASK` makes a new column-layout page titled like
 the task, with its detail as paragraphs of escaped text, then runs `task.link` for it; it prints
 `childPage`. Making a page moves the space, so the link is written on the revision read after it and
@@ -5036,9 +5070,18 @@ links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
 sharing, history, archived, retentionDays, lastUpdateAtMs, lastActivityAtMs,
 archiveAfterDays, archiveAtMs, expiresAtMs, warnings`.
 IDs, epochs and revisions retain canonical full values; times are UTC
-milliseconds. Policy derives from verified owner statements; titles require the
-authenticated fold and isolated decoder. Archived titles are null with
-`title-unavailable` because the fold refuses archived pages. Members/links expose
+milliseconds. Policy derives from verified owner statements. `ls` reads titles from current
+`page_titles` rows; only missing or stale rows use the authenticated fold and isolated decoder.
+A successful miss fills the rebuildable projection through a non-creating, non-migrating
+`Store::write_existing` handle, subject to the fingerprint check below; cache-write failure
+never fails the list. Thus a newly CLI-created page still shows its title immediately.
+Only pages folded on this read undergo whole-content validation; a failed fold keeps that
+page listed with a null title, `error` and `page-unavailable`, independently of other pages.
+Cacheable titles use the same display-text normalization on a miss as on a hit. Empty or
+oversized titles are returned from the fold without storing a row and remain misses.
+A current cached title is display text, not evidence of content health. `show` always performs
+the full fold and reports content errors and layout. `ls` has no `layout` or `layoutReason`.
+Archived titles are null with `title-unavailable` because the fold refuses archived pages. Members/links expose
 ID, role, page assignments and revocation, never secret material.
 
 Schema 5 adds nullable, nonnegative safe-integer `pages.last_update_at_ms`. The
@@ -5065,7 +5108,7 @@ unknown, never old. No command reports the value yet.
 Schema 16 adds `page_titles(page, progress, title)`, the owner's local plaintext title projection of an
 active page: one row per page, `title` 1–512 UTF-8 bytes of one line of plain text (control and bidirectional formatting characters become spaces and whitespace collapses; a title that is then empty or too long is not stored and removes the old row). It is derived only from the owner's
 own verified fold (a decoder-folded title of a page whose authority is writable), never from
-browser input, and the summary workers are its only writers. A worker captures the page's
+browser input. Summary workers and CLI `ls` title-cache misses write it. Each captures the page's
 fingerprint before folding and installs the row in an immediate transaction only if the
 page's full fingerprint, membership head included, is unchanged; a changed, archived or
 deleted page installs nothing. The row stores the page's head-less progress key, and a
@@ -5085,7 +5128,7 @@ changed since its last fold has none until the next fold, and never for an archi
 are added most recently updated page first (equal times by page ID), each only if the whole reply
 stays within its 2 MiB bound; one that no longer fits is left out, never the catalog. Like the
 summary it appears only in this owner list, not in a reader link's or a member's views, and not in
-the CLI's `ls`/`show`; a client treats it as untrusted text.
+the CLI's `show`; the owner's `ls` uses it as described above. Every consumer treats it as untrusted text.
 
 Retention defaults to 30 days; forever is null. The expiry shown is the cloud copy's and is
 never derived from local activity: `expiresAtMs` is the `expiresAt` of the page's owner row as
@@ -5448,10 +5491,10 @@ an ordinary page: nothing stored marks it. `tmt colab template ls [--json]` list
 `templates: [{name, layout, summary}]`; it reads no local state and needs no running serve. A
 create without `--layout` or `--template` is refused as above, and the refusal names both.
 
-`ls` and `show` report each page's layout from its verified metadata: JSON `layout`
+`show` reports the page's layout from its verified metadata: JSON `layout`
 (`column`, `full`, `canvas`, or `freeform` for a page without the key; `null` when the page's
 title cannot be read, as for an archived page) and, for a canvas, the whole `layoutReason`;
-the human views print `layout <kind>` and, for a canvas, `reason <text>` on one line, control
+the human view prints `layout <kind>` and, for a canvas, `reason <text>` on one line, control
 characters escaped and nothing truncated.
 
 Already admitted, unexpired, unrevoked owner devices receive wraps through the

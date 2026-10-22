@@ -31,7 +31,8 @@ are not rendered; delete them if you like. `--template` replaces `--layout` and 
 page's About panel. A page that has no layout yet (`freeform`) keeps its look until you give it one:
 `tmt colab page layout PAGE column` (or `full`, or `canvas --reason TEXT`) changes only the layout.
 Writes and patches keep it. `tmt colab show PAGE --json` reports `layout`. There is no way back
-to `freeform`.
+to `freeform`. `ls` omits layout fields and reads current cached titles, folding only misses;
+it is not a content-health check. Use `show PAGE --json` for full content inspection and layout.
 
 ## The frame
 

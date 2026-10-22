@@ -60,7 +60,8 @@ import {
   useRouterState,
   useRouter,
 } from '@tanstack/react-router';
-import type { PageView, PageTransport } from './transport.js';
+import type { PageView, PageSnapshot, PageTransport } from './transport.js';
+import type { PageRouting } from './page-routing.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
@@ -1060,8 +1061,71 @@ function Shell() {
     </RemotePresenceProvider>
   );
 }
+/** The page route: what only a route can know (its loader data, its search, where the reader came
+ * from and the router), handed to the page as props and a `PageRouting`. */
 function Page() {
   const router = useRouter();
+  const { transport, space } = root.useRouteContext();
+  const loaded = page.useLoaderData();
+  const search = page.useSearch();
+  // The list the reader came from, when it was scoped to a project: history state, not the address.
+  const fromScope = useRouterState({
+    select: (state) => (state.location.state as { scope?: unknown }).scope,
+  });
+  const scope = typeof fromScope === 'string' ? fromScope : undefined;
+  const routing = useMemo(() => routePageRouting(router), [router]);
+  return (
+    <OpenPage
+      transport={transport}
+      space={space}
+      loaded={loaded}
+      search={search}
+      scope={scope}
+      routing={routing}
+    />
+  );
+}
+
+/** The page route's own routing: links go to page routes of this router, and the brand and the
+ * project crumb link back to the space list. */
+function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
+  return {
+    open(route, anchor) {
+      void router.navigate({ to: route, search: anchor ? { anchor } : {} });
+    },
+    pageHref: (pageId, hint) =>
+      router.history.createHref(
+        router.buildLocation({ to: '/pages/$pageId', params: { pageId }, search: hint }).publicHref,
+      ),
+    home: (brand, name) => (
+      <Link to="/" aria-label={name} title={name}>
+        {brand}
+      </Link>
+    ),
+    scopeCrumb: (scope) => (
+      <Link to="/" search={{ scope }} className="colab-scope-crumb" title={scope}>
+        {scope}
+      </Link>
+    ),
+  };
+}
+
+function OpenPage({
+  transport,
+  space,
+  loaded,
+  search,
+  scope,
+  routing,
+}: {
+  transport: PageTransport;
+  space: string | undefined;
+  loaded: PageSnapshot;
+  /** The reading, element or task a link or a shell item opened the page at. */
+  search: { read?: string; anchor?: string; task?: string };
+  scope: string | undefined;
+  routing: PageRouting;
+}) {
   const environment = usePageEnvironment();
   // The renderer's thread handler outlives a render, so it reads the environment through a ref.
   const environmentRef = useRef(environment);
@@ -1069,8 +1133,6 @@ function Page() {
   const quickSwitcher = useQuickSwitcher();
   const quickSwitcherOwner = useRef(quickSwitcher);
   quickSwitcherOwner.current = quickSwitcher;
-  const { transport, space } = root.useRouteContext();
-  const loaded = page.useLoaderData();
   // A reopened binding replaces the loaded snapshot until the route loads a newer one.
   const [reopened, setReopened] = useState<{
     from: typeof loaded;
@@ -1087,16 +1149,9 @@ function Page() {
     base: () => (publicEntry() ? entryMount().href : location.href),
     space,
     inset: () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
-    navigate: (route, anchor) => {
-      void router.navigate({ to: route, search: anchor ? { anchor } : {} });
-    },
+    navigate: routing.open,
   });
   const needsYouMenuFocus = useRef(false);
-  // The list the reader came from, when it was scoped to a project: history state, not the address.
-  const fromScope = useRouterState({
-    select: (state) => (state.location.state as { scope?: unknown }).scope,
-  });
-  const scope = typeof fromScope === 'string' ? fromScope : undefined;
   const panels = usePagePanels(snapshot.id, snapshot.binding);
   // Handlers the renderer and the keys keep across renders reach the panels through a ref.
   const panelsRef = useRef(panels);
@@ -1403,7 +1458,7 @@ function Page() {
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode, annotate, currentSelector, currentRectangle]);
-  const { read: readingHint, anchor, task } = page.useSearch();
+  const { read: readingHint, anchor, task } = search;
   const {
     readings,
     inlineSlots,
@@ -1595,24 +1650,14 @@ function Page() {
             onPinState={setPin}
           />
         }
-        crumb={
-          scope === undefined ? undefined : (
-            <Link to="/" search={{ scope }} className="colab-scope-crumb" title={scope}>
-              {scope}
-            </Link>
-          )
-        }
+        crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
         headerRef={toolbar}
         title={view.title || snapshot.title || text.unknownPageTitle}
         remote={{ deviceName: transport.backendName }}
         caption={
           view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
         }
-        home={(brand, name) => (
-          <Link to="/" aria-label={name} title={name}>
-            {brand}
-          </Link>
-        )}
+        home={routing.home}
         status={
           <div className="page-header-meta">
             {!discussionPending &&
@@ -1622,12 +1667,9 @@ function Page() {
                 <NeedsYouHeader
                   menuFocus={needsYouMenuFocus}
                   href={(item) =>
-                    router.history.createHref(
-                      router.buildLocation({
-                        to: '/pages/$pageId',
-                        params: { pageId: snapshot.id },
-                        ...(item.kind === 'reading' ? { search: { read: item.id } } : {}),
-                      }).publicHref,
+                    routing.pageHref(
+                      snapshot.id,
+                      item.kind === 'reading' ? { read: item.id } : undefined,
                     )
                   }
                   items={pendingNeedsYou([
@@ -1658,7 +1700,9 @@ function Page() {
               )}
             {/* The connection state is not shown (a notice below the header carries trouble); its words
                 stay in the document for assistive technology and as the page's readiness signal. */}
-            <span className={`status page-connection ${state === 'ready' ? 'live' : ''}`}>
+            <span
+              className={`status page-connection tmt-ui-visually-hidden ${state === 'ready' ? 'live' : ''}`}
+            >
               {archived ? '○ ' : `${text[snapshot.sharing]} · `}
               <span className="status-label">{accessLabel}</span>
             </span>
@@ -1705,7 +1749,7 @@ function Page() {
         }
       />
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
-      <p role="status" className="archive-announcement">
+      <p role="status" className="archive-announcement tmt-ui-visually-hidden">
         {archiveAnnouncement}
       </p>
       <ExportPanel
@@ -1754,12 +1798,7 @@ function Page() {
           space={space}
           pageId={snapshot.id}
           focusTask={task}
-          pageHref={(pageId, hint) =>
-            router.history.createHref(
-              router.buildLocation({ to: '/pages/$pageId', params: { pageId }, search: hint })
-                .publicHref,
-            )
-          }
+          pageHref={routing.pageHref}
         />
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
@@ -2216,6 +2255,7 @@ function Page() {
         <AgentPresentation value={agents}>
           <AgentActivityProvider
             observation={liveError || archived ? undefined : view.agentActivity}
+            messages={liveError || archived ? undefined : view.messageStates}
           >
             {view.pageType === 'shell' ? (
               <section className="page">

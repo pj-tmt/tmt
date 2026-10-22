@@ -751,7 +751,7 @@ fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
         "tmt-ui-wordmark",
         "tmt-ui-title",
         "tmt-ui-notice",
-        "tmt-ui-notice-heading",
+        "tmt-ui-section-heading",
         "tmt-ui-field-label",
         "tmt-ui-field-control",
         "tmt-ui-action-label",

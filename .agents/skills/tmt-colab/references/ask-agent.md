@@ -201,3 +201,15 @@ Chat and annotations. Stopped, missing, invalid or stale observation never anima
 The contract's [working-state line](../../../../extensions/tmt-colab/contracts/colab-v1.md#agent-working-state-line-3331)
 owns exact copy, owner-clock comparisons, horizon and hosted cost limits. No hosted
 inventory operation is introduced.
+
+## Core's message state
+
+`message-state.ts` parses Core's `messageState` strictly (a field that does not parse is dropped
+whole) and holds the countdown helpers. `createRemoteClient` parses it on a pending `result` only.
+`AskController.recover` reports it through `messageStateObserved`, and only when what is shown
+changes; it is cleared on a failed read, a reply, session end and when the observation stops.
+`LiveAsk` forwards it, `Live` publishes it as the ephemeral `messageStates` projection beside
+`agentActivity`, `AgentActivityProvider` paints its countdown with the same page clock, and
+`AgentActivityLine` draws it. Nothing is written to the ledger. The contract's
+[message state](../../../../extensions/tmt-colab/contracts/colab-v1.md#message-state-of-a-sent-message-4317)
+owns the exact shape and wording; the Send now action (#4136) is separate.

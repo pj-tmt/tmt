@@ -1,5 +1,6 @@
 import { ActivityTracker, type ActivityObservation } from './agent-activity.js';
 import { ASK_OBSERVATION_MS } from './ask-records.js';
+import { sameMessageState, type MessageState, type ObservedMessageState } from './message-state.js';
 import { decodeText, requireValue, text } from '@tmt/colab-client';
 import { FrozenAsk, type AdmittedSelection, type AskDestination } from './ask-intent.js';
 import {
@@ -54,6 +55,9 @@ export interface AskControllerOptions {
   observationUnavailable?(unavailable: boolean): void;
   activityRead?(): Promise<AskDirectoryObservation>;
   activityObserved?(observation: ActivityObservation): void;
+  /** Core's state of an accepted ask's message (#4317), or `undefined` once there is none to show.
+   * Called only when what the page shows changes; the ledger never holds it. */
+  messageStateObserved?(operationId: string, observed: ObservedMessageState | undefined): void;
   /** How Remote attributed a send it just admitted; informational, never changes the send (#4255). */
   identityNotice?(identity: SendIdentity): void;
 }
@@ -76,9 +80,24 @@ export class AskController {
   #intervalMs = 2000;
   #directoryRead: { task: Promise<AskDestinations>; phase: { value: DirectoryReadPhase } } | null =
     null;
+  // What the page shows of Core's message state, by operation: a later read changes nothing
+  // unless it differs, so a countdown costs one publication, not one per read.
+  #messages = new Map<string, ObservedMessageState>();
+  #showMessage(operationId: string, state: MessageState | undefined) {
+    const read = state && { ...state, receivedAt: performance.now() };
+    if (sameMessageState(this.#messages.get(operationId), read)) return;
+    if (read) this.#messages.set(operationId, read);
+    else this.#messages.delete(operationId);
+    this.options.messageStateObserved?.(operationId, read);
+  }
+  #clearMessages() {
+    // Removing the key being visited is safe for a Map.
+    for (const operationId of this.#messages.keys()) this.#showMessage(operationId, undefined);
+  }
   #endSession(error?: SessionEvictedError) {
     if (this.#ended) return;
     this.#ended = true;
+    this.#clearMessages();
     this.#observationWake?.abort();
     this.options.sessionEnded?.(error);
   }
@@ -332,8 +351,10 @@ export class AskController {
       requireValue(!this.#ended);
       const { store, remote } = this.options;
       let view = await store.view(id);
-      if (['abandoned', 'failed', 'expired', 'refused', 'cancelled'].includes(view.state))
+      if (['abandoned', 'failed', 'expired', 'refused', 'cancelled'].includes(view.state)) {
+        this.#showMessage(id, undefined);
         return view;
+      }
       if (view.state !== 'accepted') {
         if (view.state === 'dispatching')
           view = await store.state(id, 'uncertain', null, 'OBSERVATION_INTERRUPTED');
@@ -377,17 +398,23 @@ export class AskController {
           return view;
         }
       }
-      if (view.state !== 'accepted' || view.reply) return view;
+      if (view.state !== 'accepted' || view.reply) {
+        this.#showMessage(id, undefined);
+        return view;
+      }
       requireValue(view.requestId !== null);
       let result: ResultState;
       try {
         result = await remote.result(view.requestId);
       } catch (error) {
+        // A read that fails cannot vouch for what was shown.
+        this.#showMessage(id, undefined);
         if (error instanceof SessionEvictedError) this.#endSession(error);
         else if (error instanceof SessionEndedError) this.#endSession();
         throw error;
       }
       requireValue(result.requestId === view.requestId);
+      this.#showMessage(id, result.state === 'pending' ? result.messageState : undefined);
       if (result.state === 'replied') {
         if (text(result.message).length > ASK_REPLY_BYTES)
           return store.state(id, 'accepted', view.requestId, 'REPLY_TOO_LARGE');
@@ -411,6 +438,7 @@ export class AskController {
       }
     };
     signal.addEventListener('abort', stopActivity, { once: true });
+    signal.addEventListener('abort', () => this.#clearMessages(), { once: true });
     let wakeOwner = new AbortController();
     this.#observationWake = wakeOwner;
     const unresolved = (view: AskLedgerView) =>

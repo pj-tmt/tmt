@@ -971,6 +971,173 @@ for (const [width, theme] of [
     expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
   });
 
+/** Core's message state as Remote carries it (#4317); the wording is Core's own. */
+const core = (
+  state: string,
+  code: string,
+  text: string,
+  extra: { remainingMs?: number; canSendNow?: boolean } = {},
+) => ({
+  state,
+  reason: { code, text },
+  latestMs: extra.remainingMs === undefined ? null : 1_700_000_000_000 + extra.remainingMs,
+  remainingMs: extra.remainingMs ?? null,
+  canSendNow: extra.canSendNow ?? false,
+});
+for (const surface of ['chat', 'thread'] as const)
+  for (const theme of ['light', 'dark'] as const)
+    test(`Core's message state replaces the Sent line and counts down: ${surface} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'no-preference' });
+      await mount(page, surface);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const window =
+        surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+      const status = window.getByTestId('ask-state');
+      await expect(status).toHaveText('Sent');
+      const before = await run(page, 'proof');
+      for (const [state, expected, mark] of [
+        [
+          core('sent', 'waiting_for_delivery', 'waiting for delivery', { canSendNow: true }),
+          'Waiting for delivery',
+          '○',
+        ],
+        [
+          core(
+            'batched',
+            'held_to_save_usage',
+            'batched to save usage, sends when the agent finishes this turn',
+            { remainingMs: 151_000, canSendNow: true },
+          ),
+          /^\s?Batched to save usage, sends when the agent finishes this turn · in 2:[0-5]\d$/,
+          'dashed',
+        ],
+        [core('delivered', 'reached_the_agent', 'delivered'), 'Delivered', '✓'],
+        [
+          core('working', 'agent_working', 'the agent has started on it'),
+          'The agent has started on it',
+          '',
+        ],
+        [
+          core(
+            'unconfirmed',
+            'handed_over',
+            'handed to the agent, delivery unconfirmed, do not resend',
+          ),
+          'Handed to the agent, delivery unconfirmed, do not resend',
+          '?',
+        ],
+        [
+          core('not_sent', 'unreachable', 'not sent, the agent could not be reached'),
+          'Not sent, the agent could not be reached',
+          '✗',
+        ],
+      ] as const) {
+        await run(page, 'conversationMessageState', { state });
+        const line = status.locator('.agent-activity');
+        await expect(line).toHaveAttribute('data-message-state', state.state);
+        if (typeof expected === 'string') await expect(status).toContainText(expected);
+        else await expect(status).toHaveText(expected);
+        // ◌ is drawn from the icon set, at the size of the ○ beside it: no text glyph to fall back.
+        if (mark === 'dashed') {
+          const dashed = line.locator('.agent-activity-mark > svg.agent-activity-dashed');
+          await expect(dashed).toHaveCount(1);
+          const [circle, box] = await Promise.all([
+            dashed.boundingBox(),
+            line.locator('.agent-activity-mark').boundingBox(),
+          ]);
+          expect(circle!.width).toBeGreaterThanOrEqual(8);
+          expect(circle!.width).toBeLessThanOrEqual(12);
+          expect(box!.height).toBeLessThan(24);
+        } else if (mark) await expect(line.locator('.agent-activity-mark')).toHaveText(mark);
+        // Check again re-reads the state and never resends; it is not offered beside "do not resend".
+        await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(
+          state.state === 'unconfirmed' ? 0 : 1,
+        );
+        await expect(line.locator('.agent-activity-spinner')).toHaveCount(
+          state.state === 'working' ? 1 : 0,
+        );
+        // Core's wording is drawn as text and no button is offered by this state: Send now is #4136.
+        await expect(window.getByRole('button', { name: /send now/i })).toHaveCount(0);
+        const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
+        if (captures) {
+          mkdirSync(captures, { recursive: true });
+          await page.screenshot({
+            path: `${captures}/message-state-${surface}-${theme}-${state.state}.png`,
+          });
+        }
+      }
+      // A countdown ticks by itself, from the remainder Core gave when the page read it.
+      await run(page, 'conversationMessageState', {
+        state: core(
+          'batched',
+          'held_to_save_usage',
+          'batched to save usage, sends when the agent finishes this turn',
+          { remainingMs: 151_000 },
+        ),
+      });
+      const first = await status.textContent();
+      await expect.poll(async () => status.textContent()).not.toBe(first);
+      // It never goes below zero.
+      await run(page, 'conversationMessageState', {
+        state: core(
+          'batched',
+          'held_to_save_usage',
+          'batched to save usage, sends when the agent finishes this turn',
+          { remainingMs: 1_000 },
+        ),
+        ageMs: 60_000,
+      });
+      await expect(status).toContainText('· in 0:00');
+      // A state taken away leaves the line it was before.
+      await run(page, 'conversationMessageState', {});
+      await expect(status).toHaveText('Sent');
+      expect(await run(page, 'proof')).toEqual(before);
+    });
+
+// A batched line runs to several lines in a narrow Chat; the control follows its last word.
+for (const surface of ['chat', 'thread'] as const)
+  for (const width of [1440, 390])
+    test(`Check again stays inline after the batched countdown: ${surface} ${width}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
+      await mount(page, surface);
+      const window =
+        surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+      await run(page, 'conversationMessageState', {
+        state: core(
+          'batched',
+          'held_to_save_usage',
+          'batched to save usage, sends when the agent finishes this turn',
+          { remainingMs: 151_000 },
+        ),
+      });
+      const clockLine = window.getByTestId('ask-state').locator('.agent-activity-clock');
+      await expect(clockLine).toContainText('· in 2:');
+      const button = window.getByRole('button', { name: text.askRecheck });
+      await expect(button).toHaveCount(1);
+      await expect(button).toHaveAccessibleName('Check again');
+      const [clock, control] = await Promise.all([clockLine.boundingBox(), button.boundingBox()]);
+      // The same line as the countdown, and after it.
+      expect(
+        Math.abs(control!.y + control!.height / 2 - (clock!.y + clock!.height / 2)),
+      ).toBeLessThan(control!.height / 2);
+      expect(control!.x).toBeGreaterThanOrEqual(clock!.x + clock!.width);
+      const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
+      if (captures) {
+        mkdirSync(captures, { recursive: true });
+        await page.screenshot({
+          path: `${captures}/message-state-${surface}-${width}-light-batched.png`,
+        });
+      }
+    });
+
 for (const surface of ['chat', 'thread'] as const)
   for (const width of [1440, 390])
     for (const theme of ['light', 'dark'] as const)

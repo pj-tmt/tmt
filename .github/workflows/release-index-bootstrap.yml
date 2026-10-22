@@ -54,7 +54,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Require the main ref
         run: |
           if [ "$GITHUB_REF" != refs/heads/main ]; then

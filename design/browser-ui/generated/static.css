@@ -1323,6 +1323,15 @@ svg.tmt-ui-mark {
   cursor: default;
 }
 
+/* A checkbox with its text beside it, the whole label clickable. */
+.tmt-ui-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-text);
+  cursor: pointer;
+}
+
 .tmt-ui-list {
   --tmt-ui-list-padding-block: 10px;
   --tmt-ui-list-padding-inline: 14px;
@@ -1390,6 +1399,45 @@ svg.tmt-ui-mark {
 .tmt-ui-list-state {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.tmt-ui-list-leading[data-tone='working'],
+.tmt-ui-list-state[data-tone='working'] {
+  color: var(--tmt-ui-color-working);
+}
+.tmt-ui-list-leading[data-tone='waiting'],
+.tmt-ui-list-state[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-list-leading[data-tone='blocked'],
+.tmt-ui-list-state[data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+}
+.tmt-ui-list-leading[data-tone='review'],
+.tmt-ui-list-state[data-tone='review'] {
+  color: var(--tmt-ui-color-review);
+}
+/* A title that carries a description under its label wraps instead of truncating. */
+.tmt-ui-list-title:has(> .tmt-ui-list-description) {
+  overflow: visible;
+  white-space: normal;
+}
+.tmt-ui-list-label {
+  display: block;
+}
+.tmt-ui-list-description {
+  display: block;
+  margin-top: var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+  line-height: 1.4;
+}
+/* A row with only a state keeps it at the right edge when the row is wide. */
+@media not all and (max-width: 479px) {
+  .tmt-ui-list-meta:not(:has(.tmt-ui-list-updated)) {
+    grid-template-columns: auto;
+    justify-content: end;
+    text-align: right;
+  }
 }
 .tmt-ui-list-actions {
   display: flex;
@@ -1755,6 +1803,48 @@ svg.tmt-ui-mark {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A select trigger: a field-sized control whose value fills the width and whose arrow sits at the
+   right edge, drawn here so a static page needs no extra markup. */
+.tmt-ui-menu-trigger[data-variant='select'] {
+  box-sizing: border-box;
+  position: relative;
+  justify-content: space-between;
+  width: 100%;
+  margin: 0;
+  min-height: var(--tmt-ui-host-action-min-height);
+  /* The native select's geometry: 36px high, 44px on a coarse pointer. */
+  padding: 7px 36px 7px 8px;
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  font: 14px/20px var(--tmt-ui-font-body);
+  text-align: left;
+}
+@media (pointer: coarse) {
+  .tmt-ui-menu-trigger[data-variant='select'] {
+    padding-block: 11px;
+  }
+}
+.tmt-ui-menu-trigger[data-variant='select']::after {
+  content: '';
+  position: absolute;
+  right: var(--tmt-ui-space-m);
+  top: calc(50% - 4px);
+  width: 7px;
+  height: 7px;
+  border-right: var(--tmt-ui-rule-width) solid currentColor;
+  border-bottom: var(--tmt-ui-rule-width) solid currentColor;
+  transform: rotate(45deg);
+}
+.tmt-ui-menu-trigger[data-variant='select']:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  background: var(--tmt-ui-surface-disabled);
+  cursor: default;
+}
+/* A listbox option marks the selected value with the tick a checked menu item draws. */
+.tmt-ui-menu-item[role='option'][aria-selected='true']::after {
+  content: '✓';
 }
 .tmt-ui-menu-field-label {
   color: var(--tmt-ui-color-secondary);
@@ -2690,4 +2780,109 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-chart-slot-4 {
   background: color-mix(in srgb, var(--tmt-ui-color-series-1) 100%, var(--tmt-ui-surface-sheet));
+}
+
+.tmt-ui-section {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+/* A section that stands in a stack of settings groups, separated by a rule. */
+.tmt-ui-section[data-divided] {
+  display: block;
+  padding: calc(var(--tmt-ui-space-xl) - 2px) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tmt-ui-section-heading {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font: 600 12px/1.2 var(--tmt-ui-font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.tmt-ui-section-heading[data-variant='title'] {
+  margin: 0 0 var(--tmt-ui-space-m);
+  color: inherit;
+  font: 600 16px/1.5 var(--tmt-ui-font-body);
+  letter-spacing: normal;
+  text-transform: none;
+}
+/* In a grid section the gap already separates the title from its content. */
+.tmt-ui-section > .tmt-ui-section-heading[data-variant='title'] {
+  margin-bottom: 0;
+}
+/* A heading that follows content in the same section opens a new group. */
+.tmt-ui-section > :not(.tmt-ui-section-heading) + .tmt-ui-section-heading {
+  margin-top: var(--tmt-ui-space-l);
+}
+
+.tmt-ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-table th,
+.tmt-ui-table td {
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m) var(--tmt-ui-space-s) 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font-weight: normal;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.tmt-ui-table thead th {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 600;
+}
+/* Numbers: the columns after the first are right-aligned, tabular and monospaced. */
+.tmt-ui-table[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
+.tmt-ui-table[data-numeric] th,
+.tmt-ui-table[data-numeric] td {
+  padding-right: var(--tmt-ui-space-m);
+  padding-left: var(--tmt-ui-space-m);
+  text-align: right;
+}
+.tmt-ui-table[data-numeric] th:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+.tmt-ui-table[data-numeric] td {
+  font-family: var(--tmt-ui-font-mono);
+}
+
+.tmt-ui-disclosure {
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-disclosure > summary {
+  cursor: pointer;
+}
+.tmt-ui-disclosure > summary:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.tmt-ui-disclosure[open] > summary {
+  margin-bottom: var(--tmt-ui-space-m);
+}
+/* Optional detail under a page's main content, set off by a rule. */
+.tmt-ui-disclosure[data-divided] {
+  margin-top: var(--tmt-ui-space-xl);
+  padding-top: calc(var(--tmt-ui-space-xl) - var(--tmt-ui-space-xs));
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+
+/* Text for assistive technology only: out of sight, still in the document and the accessibility tree. */
+.tmt-ui-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

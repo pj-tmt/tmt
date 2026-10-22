@@ -231,7 +231,8 @@ delivery. They install and launch nothing.
   Codex: compacted) names the unnamed key. An ownerless unnamed key, such as a replacement
   process, waits for its own startup start.
   Provider end retains that key and launch owner in Unknown until a fresh start;
-  the same live incarnation can then turn over its session. Only conclusive
+  delayed launch admission may attach its verified owner without reviving that exact key;
+  the same live incarnation can then turn over its session through a fresh provider start. Only conclusive
   process loss/owned-child exit yields runtime Ended. Delivery probes can report
   Running after provider end (including legacy Ended) only for an exact live process
   under the verified pane and an exact live launch owner when recorded, without

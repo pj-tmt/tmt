@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -246,8 +247,24 @@ describe('compiled CLI schema preparation order', () => {
     );
     expect(candidate).toContain('            pnpm install --frozen-lockfile --ignore-scripts');
     const activation = read('.github/actions/setup-tooling/action.yml');
-    expect(activation).toContain('default: 22.23.2');
+    expect(activation).toContain('default: 26.12.1');
     expect(activation).toContain('default: 10.33.0');
+    const provision = activation.indexOf(
+      '"$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 5 npm pack corepack@0.36.0 --pack-destination "$corepack_dir" --silent'
+    );
+    const integrity = activation.indexOf('Corepack tarball integrity');
+    const corepackInstall = activation.indexOf(
+      'npm install --global --ignore-scripts "$corepack_dir/corepack-0.36.0.tgz"'
+    );
+    expect(integrity).toBeGreaterThan(provision);
+    expect(corepackInstall).toBeGreaterThan(integrity);
+    const enable = activation.indexOf('        corepack enable');
+    const prepare = activation.indexOf(
+      '"$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 5 corepack prepare "pnpm@$PNPM_VERSION" --activate'
+    );
+    expect(provision).toBeGreaterThanOrEqual(0);
+    expect(enable).toBeGreaterThan(corepackInstall);
+    expect(prepare).toBeGreaterThan(enable);
   }
   function requireSchemaOrder(source: string) {
     const { build, assemble, verify } = blocks(source);
@@ -519,7 +536,7 @@ describe('release version gate workflow boundaries', () => {
       'native-release-upgrade-prove.yml:prove',
       'release-version-injection.yml:injection',
     ]);
-    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 22.23.2');
+    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 26.12.1');
   });
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
@@ -1893,7 +1910,7 @@ describe('owner-authorized release index bootstrap', () => {
     expect(backfill).toContain('environment: release');
     expect(backfill).toContain('timeout-minutes: 15');
     expect(backfill).toContain('persist-credentials: false');
-    expect(backfill).toContain('node-version: 22.23.2');
+    expect(backfill).toContain('node-version: 26.12.1');
     expect(backfill).not.toMatch(/^\s+(if|ref):|continue-on-error|--force|git push/m);
     for (const [ref, status] of [
       ['refs/heads/main', 0],
@@ -2082,6 +2099,70 @@ describe('protected-main opt-in PR release candidates', () => {
     );
     expect(catalog.indexOf('id: catalog')).toBeLessThan(
       catalog.indexOf('pr-rc-coordinator.mjs finish')
+    );
+  });
+});
+
+describe('Node 26 userland Corepack acquisition', () => {
+  const integrity =
+    'SiiJsBhZqdBiPHTEl6OT3sASrRrKIcYTQMsVGXx6EE/gM8WFMwYjeIX8Tt8RiU4Iv2J6LbT8KpGfCOsBpRWB/w==';
+  const action = read('.github/actions/setup-tooling/action.yml');
+  const verification = /node -e '([^']+)' "\$corepack_dir\/corepack-0\.36\.0\.tgz"/.exec(
+    action
+  )?.[1];
+  it('verifies bytes before global installation and rejects a corrupted tarball', () => {
+    expect(verification).toContain(integrity);
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'corepack-integrity-'));
+    try {
+      const file = path.join(directory, 'corepack.tgz');
+      const content = Buffer.from('test-owned tarball bytes');
+      writeFileSync(file, content);
+      const fixtureIntegrity = createHash('sha512').update(content).digest('base64');
+      const code = verification!.replace(integrity, fixtureIntegrity);
+      const verify = () =>
+        spawnSync(process.execPath, ['-e', code, file], { encoding: 'utf8', timeout: 5000 });
+      expect(verify().status).toBe(0);
+      writeFileSync(file, 'corrupted tarball');
+      const rejected = verify();
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.stderr).toContain('Corepack tarball integrity');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+  it('uses the same version and byte verifier in every direct Node image before install/enable', () => {
+    const images = [
+      'typescript/test/e2e/Dockerfile',
+      'typescript/test/native/artifact.Dockerfile',
+      'typescript/test/native/runtime.Dockerfile',
+      'extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile',
+      'extensions/tmt-colab/rust/tmt-colab/tests/emulator/Dockerfile',
+    ];
+    for (const file of images) {
+      const source = read(file);
+      expect(source).toContain(
+        'npm pack corepack@0.36.0 --pack-destination "$corepack_dir" --silent'
+      );
+      expect(source).toContain(verification);
+      const install = source.indexOf(
+        'npm install --global --ignore-scripts "$corepack_dir/corepack-0.36.0.tgz"'
+      );
+      expect(install).toBeGreaterThan(source.indexOf('Corepack tarball integrity'));
+      expect(source.indexOf('corepack enable')).toBeGreaterThan(install);
+      expect(source).not.toContain('npm install --global pnpm');
+    }
+    const artifact = read('typescript/test/native/artifact.Dockerfile');
+    expect(artifact).toContain(
+      'COPY --from=node-tooling /usr/local/lib/node_modules/corepack/ /usr/local/lib/node_modules/corepack/'
+    );
+    expect(artifact).toContain(
+      'RUN ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack'
+    );
+    expect(read('typescript/test/e2e/dependency-cache.Dockerfile')).not.toMatch(
+      /FROM node:|corepack/
+    );
+    expect(read('typescript/test/native/runtime.Dockerfile')).toMatch(
+      /FROM node:26\.12\.1-alpine@sha256:[a-f0-9]{64}/
     );
   });
 });

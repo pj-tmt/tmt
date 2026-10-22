@@ -2743,7 +2743,7 @@ fn original_author_survives_native_edits_compaction_reload_epoch_and_export() {
     assert!(manifest.get("publisherAgent").is_none());
 }
 
-/// The layout `ls` and `show` report for a page, read from its authenticated fold.
+/// The layout the authenticated fold reports for a page, read from its authenticated fold.
 fn layout_in(store: &Store, f: &Fixture) -> Option<tmt_colab::decoder::PageLayout> {
     let mut page = json!({"pageId": PAGE, "archived": false, "warnings": []});
     tmt_colab::inspection::title(store, &f.key, &mut page, BINARY.into()).unwrap();
