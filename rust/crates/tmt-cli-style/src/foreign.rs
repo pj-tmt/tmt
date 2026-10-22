@@ -152,26 +152,39 @@ fn apply(attr: &mut Attr, params: &str) {
             90..=97 => attr.fg = Some(Shade::Indexed((code - 90 + 8) as u8)),
             100..=107 => attr.bg = Some(Shade::Indexed((code - 100 + 8) as u8)),
             38 | 48 => {
-                // `38;5;n` and `38;2;r;g;b`, or the colon form `38:2::r:g:b`.
-                let values: Vec<u16> = if sub.len() > 1 {
-                    sub[1..].iter().filter_map(|part| number(part)).collect()
+                // `38;5;n` and `38;2;r;g;b`, or the colon forms `38:5:n`, `38:2:r:g:b` and
+                // `38:2:cs:r:g:b`, read by position: the colour-space part may be empty.
+                let parts: Vec<Option<u16>> = if sub.len() > 1 {
+                    sub[1..].iter().map(|part| number(part)).collect()
                 } else {
                     let take = match groups.get(index).and_then(|g| number(g)) {
                         Some(5) => 2,
                         Some(2) => 4,
                         _ => 0,
                     };
-                    let values = groups[index..(index + take).min(groups.len())]
+                    let parts = groups[index..(index + take).min(groups.len())]
                         .iter()
-                        .filter_map(|part| number(part))
+                        .map(|part| number(part))
                         .collect();
                     index += take;
-                    values
+                    parts
                 };
-                let paint = match values.as_slice() {
-                    [5, n, ..] if *n <= 255 => Some(Shade::Indexed(*n as u8)),
-                    [2, r, g, b, ..] | [2, _, r, g, b] if *r <= 255 && *g <= 255 && *b <= 255 => {
-                        Some(Shade::Rgb(*r as u8, *g as u8, *b as u8))
+                let byte = |at: usize| {
+                    parts
+                        .get(at)
+                        .copied()
+                        .flatten()
+                        .and_then(|n| u8::try_from(n).ok())
+                };
+                let paint = match parts.first().copied().flatten() {
+                    Some(5) => byte(1).map(Shade::Indexed),
+                    Some(2) => {
+                        // With a colour-space part there are five parts, without it four.
+                        let from = if parts.len() >= 5 { 2 } else { 1 };
+                        match (byte(from), byte(from + 1), byte(from + 2)) {
+                            (Some(r), Some(g), Some(b)) => Some(Shade::Rgb(r, g, b)),
+                            _ => None,
+                        }
                     }
                     _ => None,
                 };
@@ -327,6 +340,18 @@ mod tests {
         let rows = parse("\u{1b}[38;5;999mx\u{1b}[38;2;1mY\u{1b}[38;5m");
         assert_eq!(flat(&rows), ["xY"]);
         assert!(rows[0].iter().all(|run| run.attr == Attr::default()));
+    }
+
+    #[test]
+    fn the_colon_form_is_read_by_position_with_or_without_a_colour_space() {
+        let rows = parse(
+            "\u{1b}[38:2:0:10:20:30ma\u{1b}[38:2::11:21:31mb\u{1b}[38:2:12:22:32mc\u{1b}[48:2:7:1:2:3md",
+        );
+        let attrs: Vec<_> = rows[0].iter().map(|run| run.attr).collect();
+        assert_eq!(attrs[0].fg, Some(Shade::Rgb(10, 20, 30)));
+        assert_eq!(attrs[1].fg, Some(Shade::Rgb(11, 21, 31)));
+        assert_eq!(attrs[2].fg, Some(Shade::Rgb(12, 22, 32)));
+        assert_eq!(attrs[3].bg, Some(Shade::Rgb(1, 2, 3)));
     }
 
     #[test]
