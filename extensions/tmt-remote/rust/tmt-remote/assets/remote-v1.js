@@ -3547,8 +3547,9 @@ function createSeriesChart(options) {
 		const item = htmlEl("li", "tmt-ui-chart-legend-item");
 		const swatch = htmlEl("span", `tmt-ui-chart-swatch tmt-ui-chart-s${style}`);
 		swatch.setAttribute("aria-hidden", "true");
-		const value = htmlEl("span", "tmt-ui-chart-legend-value");
-		item.append(swatch, htmlEl("span", "tmt-ui-chart-legend-label", label), value);
+		item.append(swatch, htmlEl("span", "tmt-ui-chart-legend-label", label));
+		const value = options.kind === "line" ? htmlEl("span", "tmt-ui-chart-legend-value") : void 0;
+		if (value) item.append(value);
 		legend.append(item);
 		return value;
 	});
@@ -3580,7 +3581,10 @@ function createSeriesChart(options) {
 	}
 	function select(at) {
 		active = Math.max(0, Math.min(options.x.length - 1, at));
-		model.values(active).forEach((text, i) => valueNodes[i].textContent = text);
+		model.values(active).forEach((text, i) => {
+			const node = valueNodes[i];
+			if (node) node.textContent = text;
+		});
 		readout.textContent = model.readout(active);
 		const cursor = plot.querySelector(".tmt-ui-chart-cursor");
 		const x = String(model.xs[active] ?? 0);
