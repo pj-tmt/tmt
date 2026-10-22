@@ -965,12 +965,12 @@ test('range-end numbers keep distinct targets and quoted hints through resize an
   const alignment = await frame.locator('#quote').evaluate((node) => {
     const range = node.ownerDocument.createRange();
     range.selectNodeContents(node);
-    // The marker is a 24 px hit box around a 16 px circle; align the circle, not the box.
-    const circleBottom =
-      node.ownerDocument.querySelector('[data-colab-thread]')!.getBoundingClientRect().bottom - 4;
-    return Math.abs(circleBottom - range.getBoundingClientRect().top);
+    // The marker stands beside the line, centred on it.
+    const box = node.ownerDocument.querySelector('[data-colab-thread]')!.getBoundingClientRect();
+    const line = range.getBoundingClientRect();
+    return Math.abs(box.top + box.height / 2 - (line.top + line.height / 2));
   });
-  expect(alignment).toBeLessThanOrEqual(8);
+  expect(alignment).toBeLessThanOrEqual(2);
   const initial = await marker.evaluate((node) => parseFloat((node as HTMLElement).style.top));
   await frame.locator('#space').evaluate((node: HTMLElement) => {
     node.style.height = '2200px';
@@ -2073,86 +2073,130 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
     {
       line: 'underline',
       color: 'var(--tmt-ui-color-annotation-rule)',
-      thickness: '1px',
+      thickness: '2px',
       background: 'var(--tmt-ui-surface-annotation-highlight-hover)',
     },
   ]);
 });
 
-for (const width of [1440, 390]) {
-  test(`range-end markers keep a 24 px hit box around a 16 px circle without moving the text at ${width}px`, async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width, height: 844 });
-    await page.goto('/');
-    await mount(
+for (const width of [1440, 390])
+  for (const room of [true, false])
+    test(`range-end markers keep a 24 px hit box around a 16 px circle without moving the text at ${width}px, ${room ? 'beside the line' : 'on a page with no room'}`, async ({
       page,
-      '<p id="quote" style="font:16px monospace">Alpha beta gamma delta epsilon zeta</p>',
-    );
-    await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
-    const frame = page.frameLocator('#probe iframe');
-    const quote = frame.locator('#quote');
-    const before = await quote.evaluate((node) => ({
-      rect: JSON.stringify(node.getBoundingClientRect()),
-      scrollWidth: node.ownerDocument.documentElement.scrollWidth,
-      scrollHeight: node.ownerDocument.documentElement.scrollHeight,
-    }));
-    await page.evaluate(() => {
-      (
-        window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
-      ).probe.handle.highlight(
-        ['Alpha beta', 'Alpha beta', 'beta gamma', 'delta epsilon'].map((exact, index) => ({
-          id: `t${index}`,
-          selector: { exact, prefix: '', suffix: '' },
-        })),
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/');
+      // With room the column leaves a gutter at the right, wide enough for three markers on one line;
+      // without it the text runs to the frame edge.
+      await mount(
+        page,
+        `<style>body{margin:0}p{font:16px/1.6 system-ui;margin:0 ${room ? 100 : 0}px 0 0}</style>` +
+          '<p id="quote">Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega and then some more words to wrap the paragraph over several lines</p>',
       );
-    });
-    const markers = frame.locator('[data-colab-thread]');
-    await expect(markers).toHaveCount(4);
-    // One synchronous snapshot: markers are replaced when the renderer re-places them.
-    const placed = await markers.evaluateAll((nodes) =>
-      nodes.map((node) => {
-        const box = node.getBoundingClientRect();
-        const style = getComputedStyle(node);
+      await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+      const frame = page.frameLocator('#probe iframe');
+      const quote = frame.locator('#quote');
+      const before = await quote.evaluate((node) => ({
+        rect: JSON.stringify(node.getBoundingClientRect()),
+        scrollWidth: node.ownerDocument.documentElement.scrollWidth,
+        scrollHeight: node.ownerDocument.documentElement.scrollHeight,
+      }));
+      const passages = [
+        'Alpha beta',
+        'Alpha beta',
+        'beta gamma',
+        'delta epsilon zeta',
+        'lambda mu nu xi',
+        'sigma tau',
+        'several lines',
+      ];
+      await page.evaluate((passages) => {
+        (
+          window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+        ).probe.handle.highlight(
+          passages.map((exact, index) => ({
+            id: `t${index}`,
+            selector: { exact, prefix: '', suffix: '' },
+          })),
+        );
+      }, passages);
+      const markers = frame.locator('[data-colab-thread]');
+      await expect(markers).toHaveCount(passages.length);
+      // One synchronous snapshot: markers are replaced when the renderer re-places them.
+      const snapshot = await markers.evaluateAll((nodes) => {
+        const doc = nodes[0]!.ownerDocument;
+        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+        const text: { left: number; right: number; top: number; bottom: number }[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const parent = node.parentElement;
+          if (!parent || parent.closest('[data-colab-markers], style, script')) continue;
+          const range = doc.createRange();
+          range.selectNodeContents(node);
+          for (const rect of range.getClientRects())
+            if (rect.width && rect.height)
+              text.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
+        }
         return {
-          x: box.x,
-          y: box.y,
-          width: box.width,
-          height: box.height,
-          viewport: innerWidth,
-          padding: style.paddingTop,
-          clip: style.backgroundClip,
-          background: style.backgroundColor,
+          text,
+          viewport: doc.documentElement.clientWidth,
+          placed: nodes.map((node) => {
+            const box = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return {
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+              padding: style.paddingTop,
+              clip: style.backgroundClip,
+              background: style.backgroundColor,
+            };
+          }),
         };
-      }),
-    );
-    expect(placed).toHaveLength(4);
-    const boxes = placed.map(({ x, y, width: w, height }) => ({ x, y, width: w, height }));
-    for (const marker of placed) {
-      expect(marker).toMatchObject({ width: 24, height: 24, padding: '4px', clip: 'content-box' });
-      expect(marker.background).not.toBe('rgba(0, 0, 0, 0)');
-      expect(marker.x).toBeGreaterThanOrEqual(0);
-      expect(marker.x + marker.width).toBeLessThanOrEqual(marker.viewport);
-    }
-    for (let first = 0; first < boxes.length; first++)
-      for (let second = first + 1; second < boxes.length; second++) {
-        const a = boxes[first]!;
-        const b = boxes[second]!;
-        const apart =
-          a.x + a.width <= b.x ||
-          b.x + b.width <= a.x ||
-          a.y + a.height <= b.y ||
-          b.y + b.height <= a.y;
-        expect(apart, `hit boxes ${first} and ${second} overlap`).toBe(true);
+      });
+      const { placed, text, viewport } = snapshot;
+      expect(placed).toHaveLength(passages.length);
+      expect(text.length).toBeGreaterThan(3);
+      for (const marker of placed) {
+        expect(marker).toMatchObject({
+          width: 24,
+          height: 24,
+          padding: '4px',
+          clip: 'content-box',
+        });
+        expect(marker.background).not.toBe('rgba(0, 0, 0, 0)');
+        expect(marker.x).toBeGreaterThanOrEqual(0);
+        expect(marker.x + marker.width).toBeLessThanOrEqual(viewport);
       }
-    const after = await quote.evaluate((node) => ({
-      rect: JSON.stringify(node.getBoundingClientRect()),
-      scrollWidth: node.ownerDocument.documentElement.scrollWidth,
-      scrollHeight: node.ownerDocument.documentElement.scrollHeight,
-    }));
-    expect(after).toEqual(before);
-  });
-}
+      for (let first = 0; first < placed.length; first++)
+        for (let second = first + 1; second < placed.length; second++) {
+          const a = placed[first]!;
+          const b = placed[second]!;
+          const apart =
+            a.x + a.width <= b.x ||
+            b.x + b.width <= a.x ||
+            a.y + a.height <= b.y ||
+            b.y + b.height <= a.y;
+          expect(apart, `hit boxes ${first} and ${second} overlap`).toBe(true);
+        }
+      // Ben's rule: no element over text. Beside the line, no marker's target meets any text.
+      if (room)
+        for (const [index, marker] of placed.entries())
+          for (const glyphs of text)
+            expect(
+              marker.x < glyphs.right &&
+                marker.x + marker.width > glyphs.left &&
+                marker.y < glyphs.bottom &&
+                marker.y + marker.height > glyphs.top,
+              `marker ${index} covers text at ${JSON.stringify(glyphs)}`,
+            ).toBe(false);
+      const after = await quote.evaluate((node) => ({
+        rect: JSON.stringify(node.getBoundingClientRect()),
+        scrollWidth: node.ownerDocument.documentElement.scrollWidth,
+        scrollHeight: node.ownerDocument.documentElement.scrollHeight,
+      }));
+      expect(after).toEqual(before);
+    });
 
 test('cosmetic key notifications admit only the current render and closed Escape/@ set', async ({
   page,

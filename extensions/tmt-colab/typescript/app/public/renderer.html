@@ -308,7 +308,7 @@
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px}' +
-            '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px}' +
+            '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:2px}' +
             `
             [data-colab-question-group]:not([hidden]){display:block!important}
             [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
@@ -1162,7 +1162,7 @@
                     const rects = [...anchorRanges.get(item.id).range.getClientRects()].filter(
                       (rect) => rect.width && rect.height,
                     );
-                    return { item, rect: rects.at(-1) };
+                    return { item, rect: rects.at(-1), range: anchorRanges.get(item.id).range };
                   })
                   .filter(({ rect }) => rect)
                   .sort(
@@ -1171,30 +1171,79 @@
                       a.rect.right - b.rect.right ||
                       a.item.ordinal - b.item.ordinal,
                   );
-                for (const { item, rect } of paint) {
-                  // A 24 px target around the 16 px circle: the lanes below keep the targets apart, so
-                  // neither the circles nor the places a click lands ever overlap. The circle sits just
-                  // after the passage and a little above its line.
+                // The text fragments of each block, read once: a marker beside a line must clear them.
+                const fragments = new Map();
+                const fragmentsOf = (block) => {
+                  if (!fragments.has(block)) {
+                    const all = document.createRange();
+                    all.selectNodeContents(block);
+                    const rects = [...all.getClientRects()].filter(
+                      (rect) => rect.width && rect.height,
+                    );
+                    fragments.set(block, rects.length > 4096 ? null : rects);
+                  }
+                  return fragments.get(block);
+                };
+                // The right edge of the last text on the line the passage ends on, or null when this
+                // line cannot be read (right-to-left, vertical or an unusually large block).
+                const lineEnd = (range, tail) => {
+                  let element = range.endContainer;
+                  if (element.nodeType !== 1) element = element.parentElement;
+                  while (element && element !== document.body) {
+                    const display = getComputedStyle(element).display;
+                    if (!display.startsWith('inline') && display !== 'contents') break;
+                    element = element.parentElement;
+                  }
+                  const block = element ?? document.body;
+                  const style = getComputedStyle(block);
+                  if (style.direction !== 'ltr' || !style.writingMode.startsWith('horizontal'))
+                    return null;
+                  const rects = fragmentsOf(block);
+                  if (!rects) return null;
+                  const middle = tail.top + tail.height / 2;
+                  return rects
+                    .filter((rect) => rect.top <= middle && rect.bottom >= middle)
+                    .reduce((end, rect) => Math.max(end, rect.right), tail.right);
+                };
+                for (const { item, rect, range } of paint) {
+                  // A 24 px target around the 16 px circle. The circle stands after the last text on the
+                  // passage's last line, centred on it, so it never covers text and never moves any;
+                  // when the page leaves no room there it hangs just after the passage, a little above
+                  // its line. The lanes keep every target apart, including identical ranges.
                   const size = 24;
                   const inset = (size - 16) / 2;
                   const maxLeft = Math.max(4, innerWidth - size - 4);
-                  let left = Math.max(4, Math.min(maxLeft, rect.right + 3 - inset));
-                  let top = Math.max(4 - scrollY, rect.top - 10 - inset);
-                  // Collision lanes preserve each thread's target, including identical ranges.
-                  for (let attempt = 0; attempt <= placed.length; attempt++) {
-                    const hit = placed.find(
+                  const clash = (left, top) =>
+                    placed.find(
                       (box) =>
                         left < box.left + box.size + 4 &&
                         left + size + 4 > box.left &&
                         top < box.top + box.size + 4 &&
                         top + size + 4 > box.top,
                     );
-                    if (!hit) break;
-                    const before = hit.left - size - 4;
-                    if (before >= 4) left = before;
-                    else {
-                      left = Math.max(4, Math.min(maxLeft, rect.right + 3 - inset));
-                      top = hit.top + hit.size + 4;
+                  let left = null;
+                  let top = Math.max(4 - scrollY, rect.top + (rect.height - size) / 2);
+                  const end = lineEnd(range, rect);
+                  if (end !== null) {
+                    left = end + 2;
+                    for (let hit = clash(left, top); hit && left + size <= innerWidth;) {
+                      left = hit.left + hit.size + 4;
+                      hit = clash(left, top);
+                    }
+                    if (left + size > innerWidth) left = null;
+                  }
+                  if (left === null) {
+                    left = Math.max(4, Math.min(maxLeft, rect.right + 3 - inset));
+                    top = Math.max(4 - scrollY, rect.top - 10 - inset);
+                    for (let attempt = 0; attempt <= placed.length; attempt++) {
+                      const hit = clash(left, top);
+                      if (!hit) break;
+                      const before = hit.left - size - 4;
+                      if (before >= 4) left = before;
+                      else {
+                        left = Math.max(4, Math.min(maxLeft, rect.right + 3 - inset));
+                        top = hit.top + hit.size + 4;
+                      }
                     }
                   }
                   placed.push({ left, top, size });

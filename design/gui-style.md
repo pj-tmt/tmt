@@ -452,11 +452,13 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   Opening captures the quote without publishing or sending. The dark pill has a
   speech-bubble icon and `Annotate`, with a short thin leader at the focus end.
   Shortcut help is accessible through `aria-keyshortcuts`, without visible hotkey copy.
-- Annotation ranges use the mint `annotation-highlight` tint (`-hover` while the
-  pointer is over one, with no outline box) and a 1px `annotation-rule` underline,
-  with no rounding or shadow, preserving authored text colour and weight. Round
-  number markers sit at the final text rect: a 16px circle inside a 24px hit area
-  that never moves the text; collision lanes keep every hit area distinct.
+- Annotation ranges use the mint `annotation-highlight` tint and a 1px
+  `annotation-rule` underline, with no rounding or shadow, preserving authored text
+  colour and weight. While the pointer is over one it takes the `-hover` tint and a
+  2px underline, with no outline box. Round number markers stand after the last text
+  on the passage's last line, centred on it: a 16px circle inside a 24px hit area
+  that covers no text and moves none; collision lanes keep every hit area distinct.
+  Only when the page leaves no room there does a marker hang just after the passage.
   Creation-order numbering includes every non-deleted thread before view filters.
   Deletion renumbers; resolved threads retain list numbers without page markers.
 - Annotation and thread windows are borderless, square grey panels with an uppercase
