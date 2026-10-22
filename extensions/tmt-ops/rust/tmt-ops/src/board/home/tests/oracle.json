@@ -22219,7 +22219,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -22257,7 +22257,7 @@
         "0:75=s2 75:1=s9 76:1=s2 77:2=s7 79:20=s11 99:60=s7 159:1=s2",
         "0:75=s2 75:1=s9 76:1=s2 77:82=s7 159:1=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:1=s2 77:7=s1 84:2=s2 86:10=s1 96:30=s2 126:33=s1 159:1=s2",
-        "0:52=s1 52:108=s2",
+        "0:68=s1 68:92=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:6=s6 75:10=s1 85:7=s6 92:7=s1 99:4=s6 103:14=s1 117:1=s6 118:12=s1 130:3=s6 133:7=s1 140:1=s6 141:7=s1 148:1=s6 149:5=s1 154:6=s2"
       ],
       "state": "chat-pending",
@@ -22347,7 +22347,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -22385,7 +22385,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:76=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:46=s2 66:33=s1 99:1=s2",
-        "0:52=s1 52:48=s2",
+        "0:68=s1 68:32=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:3=s6 72:7=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
       ],
       "state": "chat-pending",
@@ -22475,7 +22475,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -22513,7 +22513,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:56=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:26=s2 46:33=s1 79:1=s2",
-        "0:52=s1 52:28=s2",
+        "0:68=s1 68:12=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:7=s1 17:1=s6 18:9=s1 27:1=s6 28:7=s1 35:1=s6 36:6=s1 42:1=s6 43:9=s1 52:3=s6 55:7=s1 62:1=s6 63:7=s1 70:1=s6 71:5=s1 76:4=s2"
       ],
       "state": "chat-pending",
@@ -22727,7 +22727,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -22765,7 +22765,7 @@
         "0:75=s2 75:1=s9 76:1=s2 77:2=s7 79:20=s11 99:60=s7 159:1=s2",
         "0:75=s2 75:1=s9 76:1=s2 77:82=s7 159:1=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:1=s2 77:7=s1 84:2=s2 86:10=s1 96:30=s2 126:33=s1 159:1=s2",
-        "0:52=s1 52:108=s2",
+        "0:68=s1 68:92=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:6=s6 75:10=s1 85:7=s6 92:7=s1 99:4=s6 103:14=s1 117:1=s6 118:12=s1 130:3=s6 133:7=s1 140:1=s6 141:7=s1 148:1=s6 149:5=s1 154:6=s2"
       ],
       "state": "chat-bound",
@@ -22855,7 +22855,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -22893,7 +22893,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:76=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:46=s2 66:33=s1 99:1=s2",
-        "0:52=s1 52:48=s2",
+        "0:68=s1 68:32=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:3=s6 72:7=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
       ],
       "state": "chat-bound",
@@ -22983,7 +22983,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -23021,7 +23021,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:56=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:26=s2 46:33=s1 79:1=s2",
-        "0:52=s1 52:28=s2",
+        "0:68=s1 68:12=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:7=s1 17:1=s6 18:9=s1 27:1=s6 28:7=s1 35:1=s6 36:6=s1 42:1=s6 43:9=s1 52:3=s6 55:7=s1 62:1=s6 63:7=s1 70:1=s6 71:5=s1 76:4=s2"
       ],
       "state": "chat-bound",
@@ -23235,7 +23235,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -23273,7 +23273,7 @@
         "0:75=s2 75:1=s9 76:1=s2 77:2=s7 79:20=s11 99:60=s7 159:1=s2",
         "0:75=s2 75:1=s9 76:1=s2 77:82=s7 159:1=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:1=s2 77:7=s1 84:2=s2 86:10=s1 96:30=s2 126:33=s1 159:1=s2",
-        "0:52=s1 52:108=s2",
+        "0:68=s1 68:92=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:6=s6 75:10=s1 85:7=s6 92:7=s1 99:4=s6 103:14=s1 117:1=s6 118:12=s1 130:3=s6 133:7=s1 140:1=s6 141:7=s1 148:1=s6 149:5=s1 154:6=s2"
       ],
       "state": "chat-answered",
@@ -23363,7 +23363,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -23401,7 +23401,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:76=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:46=s2 66:33=s1 99:1=s2",
-        "0:52=s1 52:48=s2",
+        "0:68=s1 68:32=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:3=s6 72:7=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
       ],
       "state": "chat-answered",
@@ -23491,7 +23491,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -23529,7 +23529,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:56=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:26=s2 46:33=s1 79:1=s2",
-        "0:52=s1 52:28=s2",
+        "0:68=s1 68:12=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:7=s1 17:1=s6 18:9=s1 27:1=s6 28:7=s1 35:1=s6 36:6=s1 42:1=s6 43:9=s1 52:3=s6 55:7=s1 62:1=s6 63:7=s1 70:1=s6 71:5=s1 76:4=s2"
       ],
       "state": "chat-answered",
@@ -23743,7 +23743,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -23781,7 +23781,7 @@
         "0:75=s2 75:1=s9 76:1=s2 77:2=s7 79:20=s11 99:60=s7 159:1=s2",
         "0:75=s2 75:1=s9 76:1=s2 77:82=s7 159:1=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:1=s2 77:7=s1 84:2=s2 86:10=s1 96:30=s2 126:33=s1 159:1=s2",
-        "0:52=s1 52:108=s2",
+        "0:68=s1 68:92=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:6=s6 75:10=s1 85:7=s6 92:7=s1 99:4=s6 103:14=s1 117:1=s6 118:12=s1 130:3=s6 133:7=s1 140:1=s6 141:7=s1 148:1=s6 149:5=s1 154:6=s2"
       ],
       "state": "chat-no-answer",
@@ -23871,7 +23871,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -23909,7 +23909,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:76=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:46=s2 66:33=s1 99:1=s2",
-        "0:52=s1 52:48=s2",
+        "0:68=s1 68:32=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:3=s6 72:7=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
       ],
       "state": "chat-no-answer",
@@ -23999,7 +23999,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -24037,7 +24037,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:56=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:26=s2 46:33=s1 79:1=s2",
-        "0:52=s1 52:28=s2",
+        "0:68=s1 68:12=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:7=s1 17:1=s6 18:9=s1 27:1=s6 28:7=s1 35:1=s6 36:6=s1 42:1=s6 43:9=s1 52:3=s6 55:7=s1 62:1=s6 63:7=s1 70:1=s6 71:5=s1 76:4=s2"
       ],
       "state": "chat-no-answer",
@@ -24251,7 +24251,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -24289,7 +24289,7 @@
         "0:75=s2 75:1=s9 76:1=s2 77:2=s7 79:20=s11 99:60=s7 159:1=s2",
         "0:75=s2 75:1=s9 76:1=s2 77:82=s7 159:1=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:1=s2 77:7=s1 84:2=s2 86:10=s1 96:30=s2 126:33=s1 159:1=s2",
-        "0:52=s1 52:108=s2",
+        "0:68=s1 68:92=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:6=s6 75:10=s1 85:7=s6 92:7=s1 99:4=s6 103:14=s1 117:1=s6 118:12=s1 130:3=s6 133:7=s1 140:1=s6 141:7=s1 148:1=s6 149:5=s1 154:6=s2"
       ],
       "state": "chat-truncated",
@@ -24379,7 +24379,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -24417,7 +24417,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:76=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:46=s2 66:33=s1 99:1=s2",
-        "0:52=s1 52:48=s2",
+        "0:68=s1 68:32=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:3=s6 72:7=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
       ],
       "state": "chat-truncated",
@@ -24507,7 +24507,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -24545,7 +24545,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:56=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:7=s1 8:2=s2 10:10=s1 20:26=s2 46:33=s1 79:1=s2",
-        "0:52=s1 52:28=s2",
+        "0:68=s1 68:12=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:7=s1 17:1=s6 18:9=s1 27:1=s6 28:7=s1 35:1=s6 36:6=s1 42:1=s6 43:9=s1 52:3=s6 55:7=s1 62:1=s6 63:7=s1 70:1=s6 71:5=s1 76:4=s2"
       ],
       "state": "chat-truncated",
@@ -24759,7 +24759,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -24797,7 +24797,7 @@
         "0:75=s2 75:1=s9 76:1=s2 77:2=s7 79:20=s11 99:60=s7 159:1=s2",
         "0:75=s2 75:1=s9 76:1=s2 77:82=s7 159:1=s2",
         "0:1=s2 1:25=s9 26:31=s2 57:17=s1 74:1=s2 75:1=s9 76:1=s2 77:82=s1 159:1=s2",
-        "0:52=s1 52:108=s2",
+        "0:68=s1 68:92=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:6=s6 75:10=s1 85:7=s6 92:7=s1 99:4=s6 103:14=s1 117:1=s6 118:12=s1 130:3=s6 133:7=s1 140:1=s6 141:7=s1 148:1=s6 149:5=s1 154:6=s2"
       ],
       "state": "chat-fallback",
@@ -24887,7 +24887,7 @@
         "   ⏎ to message night-2",
         "",
         " Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -24925,7 +24925,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:76=s7 99:1=s2",
         "0:1=s2 1:98=s7 99:1=s2",
         "0:1=s2 1:98=s1 99:1=s2",
-        "0:52=s1 52:48=s2",
+        "0:68=s1 68:32=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:9=s1 19:1=s6 20:7=s1 27:1=s6 28:6=s1 34:1=s6 35:9=s1 44:1=s6 45:12=s1 57:1=s6 58:11=s1 69:3=s6 72:7=s1 79:1=s6 80:7=s1 87:1=s6 88:5=s1 93:7=s2"
       ],
       "state": "chat-fallback",
@@ -25015,7 +25015,7 @@
         "   ⏎ to message night-2",
         "",
         " Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -25053,7 +25053,7 @@
         "0:1=s2 1:2=s7 3:20=s11 23:56=s7 79:1=s2",
         "0:1=s2 1:78=s7 79:1=s2",
         "0:1=s2 1:78=s1 79:1=s2",
-        "0:52=s1 52:28=s2",
+        "0:68=s1 68:12=s2",
         "0:1=s2 1:1=s6 2:7=s1 9:1=s6 10:7=s1 17:1=s6 18:9=s1 27:1=s6 28:7=s1 35:1=s6 36:6=s1 42:1=s6 43:9=s1 52:3=s6 55:7=s1 62:1=s6 63:7=s1 70:1=s6 71:5=s1 76:4=s2"
       ],
       "state": "chat-fallback",
@@ -47351,7 +47351,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -47389,7 +47389,7 @@
         "0:75=s2 75:1=s32 76:1=s2 77:2=s30 79:20=s34 99:60=s30 159:1=s2",
         "0:75=s2 75:1=s32 76:1=s2 77:82=s30 159:1=s2",
         "0:1=s2 1:25=s32 26:31=s2 57:17=s27 74:1=s2 75:1=s32 76:1=s2 77:7=s27 84:2=s2 86:10=s27 96:30=s2 126:33=s27 159:1=s2",
-        "0:52=s27 52:108=s2",
+        "0:68=s27 68:92=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:6=s29 75:10=s27 85:7=s29 92:7=s27 99:4=s29 103:14=s27 117:1=s29 118:12=s27 130:3=s29 133:7=s27 140:1=s29 141:7=s27 148:1=s29 149:5=s27 154:6=s2"
       ],
       "state": "chat-pending",
@@ -47479,7 +47479,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -47517,7 +47517,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:76=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:46=s2 66:33=s27 99:1=s2",
-        "0:52=s27 52:48=s2",
+        "0:68=s27 68:32=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:3=s29 72:7=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
       ],
       "state": "chat-pending",
@@ -47607,7 +47607,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -47645,7 +47645,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:56=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:26=s2 46:33=s27 79:1=s2",
-        "0:52=s27 52:28=s2",
+        "0:68=s27 68:12=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:7=s27 17:1=s29 18:9=s27 27:1=s29 28:7=s27 35:1=s29 36:6=s27 42:1=s29 43:9=s27 52:3=s29 55:7=s27 62:1=s29 63:7=s27 70:1=s29 71:5=s27 76:4=s2"
       ],
       "state": "chat-pending",
@@ -47859,7 +47859,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -47897,7 +47897,7 @@
         "0:75=s2 75:1=s32 76:1=s2 77:2=s30 79:20=s34 99:60=s30 159:1=s2",
         "0:75=s2 75:1=s32 76:1=s2 77:82=s30 159:1=s2",
         "0:1=s2 1:25=s32 26:31=s2 57:17=s27 74:1=s2 75:1=s32 76:1=s2 77:7=s27 84:2=s2 86:10=s27 96:30=s2 126:33=s27 159:1=s2",
-        "0:52=s27 52:108=s2",
+        "0:68=s27 68:92=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:6=s29 75:10=s27 85:7=s29 92:7=s27 99:4=s29 103:14=s27 117:1=s29 118:12=s27 130:3=s29 133:7=s27 140:1=s29 141:7=s27 148:1=s29 149:5=s27 154:6=s2"
       ],
       "state": "chat-bound",
@@ -47987,7 +47987,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -48025,7 +48025,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:76=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:46=s2 66:33=s27 99:1=s2",
-        "0:52=s27 52:48=s2",
+        "0:68=s27 68:32=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:3=s29 72:7=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
       ],
       "state": "chat-bound",
@@ -48115,7 +48115,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -48153,7 +48153,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:56=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:26=s2 46:33=s27 79:1=s2",
-        "0:52=s27 52:28=s2",
+        "0:68=s27 68:12=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:7=s27 17:1=s29 18:9=s27 27:1=s29 28:7=s27 35:1=s29 36:6=s27 42:1=s29 43:9=s27 52:3=s29 55:7=s27 62:1=s29 63:7=s27 70:1=s29 71:5=s27 76:4=s2"
       ],
       "state": "chat-bound",
@@ -48367,7 +48367,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -48405,7 +48405,7 @@
         "0:75=s2 75:1=s32 76:1=s2 77:2=s30 79:20=s34 99:60=s30 159:1=s2",
         "0:75=s2 75:1=s32 76:1=s2 77:82=s30 159:1=s2",
         "0:1=s2 1:25=s32 26:31=s2 57:17=s27 74:1=s2 75:1=s32 76:1=s2 77:7=s27 84:2=s2 86:10=s27 96:30=s2 126:33=s27 159:1=s2",
-        "0:52=s27 52:108=s2",
+        "0:68=s27 68:92=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:6=s29 75:10=s27 85:7=s29 92:7=s27 99:4=s29 103:14=s27 117:1=s29 118:12=s27 130:3=s29 133:7=s27 140:1=s29 141:7=s27 148:1=s29 149:5=s27 154:6=s2"
       ],
       "state": "chat-answered",
@@ -48495,7 +48495,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -48533,7 +48533,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:76=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:46=s2 66:33=s27 99:1=s2",
-        "0:52=s27 52:48=s2",
+        "0:68=s27 68:32=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:3=s29 72:7=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
       ],
       "state": "chat-answered",
@@ -48623,7 +48623,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -48661,7 +48661,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:56=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:26=s2 46:33=s27 79:1=s2",
-        "0:52=s27 52:28=s2",
+        "0:68=s27 68:12=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:7=s27 17:1=s29 18:9=s27 27:1=s29 28:7=s27 35:1=s29 36:6=s27 42:1=s29 43:9=s27 52:3=s29 55:7=s27 62:1=s29 63:7=s27 70:1=s29 71:5=s27 76:4=s2"
       ],
       "state": "chat-answered",
@@ -48875,7 +48875,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -48913,7 +48913,7 @@
         "0:75=s2 75:1=s32 76:1=s2 77:2=s30 79:20=s34 99:60=s30 159:1=s2",
         "0:75=s2 75:1=s32 76:1=s2 77:82=s30 159:1=s2",
         "0:1=s2 1:25=s32 26:31=s2 57:17=s27 74:1=s2 75:1=s32 76:1=s2 77:7=s27 84:2=s2 86:10=s27 96:30=s2 126:33=s27 159:1=s2",
-        "0:52=s27 52:108=s2",
+        "0:68=s27 68:92=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:6=s29 75:10=s27 85:7=s29 92:7=s27 99:4=s29 103:14=s27 117:1=s29 118:12=s27 130:3=s29 133:7=s27 140:1=s29 141:7=s27 148:1=s29 149:5=s27 154:6=s2"
       ],
       "state": "chat-no-answer",
@@ -49003,7 +49003,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -49041,7 +49041,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:76=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:46=s2 66:33=s27 99:1=s2",
-        "0:52=s27 52:48=s2",
+        "0:68=s27 68:32=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:3=s29 72:7=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
       ],
       "state": "chat-no-answer",
@@ -49131,7 +49131,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -49169,7 +49169,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:56=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:26=s2 46:33=s27 79:1=s2",
-        "0:52=s27 52:28=s2",
+        "0:68=s27 68:12=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:7=s27 17:1=s29 18:9=s27 27:1=s29 28:7=s27 35:1=s29 36:6=s27 42:1=s29 43:9=s27 52:3=s29 55:7=s27 62:1=s29 63:7=s27 70:1=s29 71:5=s27 76:4=s2"
       ],
       "state": "chat-no-answer",
@@ -49383,7 +49383,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -49421,7 +49421,7 @@
         "0:75=s2 75:1=s32 76:1=s2 77:2=s30 79:20=s34 99:60=s30 159:1=s2",
         "0:75=s2 75:1=s32 76:1=s2 77:82=s30 159:1=s2",
         "0:1=s2 1:25=s32 26:31=s2 57:17=s27 74:1=s2 75:1=s32 76:1=s2 77:7=s27 84:2=s2 86:10=s27 96:30=s2 126:33=s27 159:1=s2",
-        "0:52=s27 52:108=s2",
+        "0:68=s27 68:92=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:6=s29 75:10=s27 85:7=s29 92:7=s27 99:4=s29 103:14=s27 117:1=s29 118:12=s27 130:3=s29 133:7=s27 140:1=s29 141:7=s27 148:1=s29 149:5=s27 154:6=s2"
       ],
       "state": "chat-truncated",
@@ -49511,7 +49511,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -49549,7 +49549,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:76=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:46=s2 66:33=s27 99:1=s2",
-        "0:52=s27 52:48=s2",
+        "0:68=s27 68:32=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:3=s29 72:7=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
       ],
       "state": "chat-truncated",
@@ -49639,7 +49639,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -49677,7 +49677,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:56=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:7=s27 8:2=s2 10:10=s27 20:26=s2 46:33=s27 79:1=s2",
-        "0:52=s27 52:28=s2",
+        "0:68=s27 68:12=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:7=s27 17:1=s29 18:9=s27 27:1=s29 28:7=s27 35:1=s29 36:6=s27 42:1=s29 43:9=s27 52:3=s29 55:7=s27 62:1=s29 63:7=s27 70:1=s29 71:5=s27 76:4=s2"
       ],
       "state": "chat-truncated",
@@ -49891,7 +49891,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -49929,7 +49929,7 @@
         "0:75=s2 75:1=s32 76:1=s2 77:2=s30 79:20=s34 99:60=s30 159:1=s2",
         "0:75=s2 75:1=s32 76:1=s2 77:82=s30 159:1=s2",
         "0:1=s2 1:25=s32 26:31=s2 57:17=s27 74:1=s2 75:1=s32 76:1=s2 77:82=s27 159:1=s2",
-        "0:52=s27 52:108=s2",
+        "0:68=s27 68:92=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:6=s29 75:10=s27 85:7=s29 92:7=s27 99:4=s29 103:14=s27 117:1=s29 118:12=s27 130:3=s29 133:7=s27 140:1=s29 141:7=s27 148:1=s29 149:5=s27 154:6=s2"
       ],
       "state": "chat-fallback",
@@ -50019,7 +50019,7 @@
         "   ⏎ to message night-2",
         "",
         " Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -50057,7 +50057,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:76=s30 99:1=s2",
         "0:1=s2 1:98=s30 99:1=s2",
         "0:1=s2 1:98=s27 99:1=s2",
-        "0:52=s27 52:48=s2",
+        "0:68=s27 68:32=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:9=s27 19:1=s29 20:7=s27 27:1=s29 28:6=s27 34:1=s29 35:9=s27 44:1=s29 45:12=s27 57:1=s29 58:11=s27 69:3=s29 72:7=s27 79:1=s29 80:7=s27 87:1=s29 88:5=s27 93:7=s2"
       ],
       "state": "chat-fallback",
@@ -50147,7 +50147,7 @@
         "   ⏎ to message night-2",
         "",
         " Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -50185,7 +50185,7 @@
         "0:1=s2 1:2=s30 3:20=s34 23:56=s30 79:1=s2",
         "0:1=s2 1:78=s30 79:1=s2",
         "0:1=s2 1:78=s27 79:1=s2",
-        "0:52=s27 52:28=s2",
+        "0:68=s27 68:12=s2",
         "0:1=s2 1:1=s29 2:7=s27 9:1=s29 10:7=s27 17:1=s29 18:9=s27 27:1=s29 28:7=s27 35:1=s29 36:6=s27 42:1=s29 43:9=s27 52:3=s29 55:7=s27 62:1=s29 63:7=s27 70:1=s29 71:5=s27 76:4=s2"
       ],
       "state": "chat-fallback",
@@ -72483,7 +72483,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -72521,7 +72521,7 @@
         "0:75=s2 75:1=s56 76:1=s2 77:2=s54 79:20=s57 99:60=s54 159:1=s2",
         "0:75=s2 75:1=s56 76:1=s2 77:82=s54 159:1=s2",
         "0:1=s2 1:25=s56 26:31=s2 57:17=s49 74:1=s2 75:1=s56 76:1=s2 77:7=s49 84:2=s2 86:10=s49 96:30=s2 126:33=s49 159:1=s2",
-        "0:52=s49 52:108=s2",
+        "0:68=s49 68:92=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:6=s53 75:10=s49 85:7=s53 92:7=s49 99:4=s53 103:14=s49 117:1=s53 118:12=s49 130:3=s53 133:7=s49 140:1=s53 141:7=s49 148:1=s53 149:5=s49 154:6=s2"
       ],
       "state": "chat-pending",
@@ -72611,7 +72611,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -72649,7 +72649,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:76=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:46=s2 66:33=s49 99:1=s2",
-        "0:52=s49 52:48=s2",
+        "0:68=s49 68:32=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:3=s53 72:7=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
       ],
       "state": "chat-pending",
@@ -72739,7 +72739,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -72777,7 +72777,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:56=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:26=s2 46:33=s49 79:1=s2",
-        "0:52=s49 52:28=s2",
+        "0:68=s49 68:12=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:7=s49 17:1=s53 18:9=s49 27:1=s53 28:7=s49 35:1=s53 36:6=s49 42:1=s53 43:9=s49 52:3=s53 55:7=s49 62:1=s53 63:7=s49 70:1=s53 71:5=s49 76:4=s2"
       ],
       "state": "chat-pending",
@@ -72991,7 +72991,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -73029,7 +73029,7 @@
         "0:75=s2 75:1=s56 76:1=s2 77:2=s54 79:20=s57 99:60=s54 159:1=s2",
         "0:75=s2 75:1=s56 76:1=s2 77:82=s54 159:1=s2",
         "0:1=s2 1:25=s56 26:31=s2 57:17=s49 74:1=s2 75:1=s56 76:1=s2 77:7=s49 84:2=s2 86:10=s49 96:30=s2 126:33=s49 159:1=s2",
-        "0:52=s49 52:108=s2",
+        "0:68=s49 68:92=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:6=s53 75:10=s49 85:7=s53 92:7=s49 99:4=s53 103:14=s49 117:1=s53 118:12=s49 130:3=s53 133:7=s49 140:1=s53 141:7=s49 148:1=s53 149:5=s49 154:6=s2"
       ],
       "state": "chat-bound",
@@ -73119,7 +73119,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -73157,7 +73157,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:76=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:46=s2 66:33=s49 99:1=s2",
-        "0:52=s49 52:48=s2",
+        "0:68=s49 68:32=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:3=s53 72:7=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
       ],
       "state": "chat-bound",
@@ -73247,7 +73247,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -73285,7 +73285,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:56=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:26=s2 46:33=s49 79:1=s2",
-        "0:52=s49 52:28=s2",
+        "0:68=s49 68:12=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:7=s49 17:1=s53 18:9=s49 27:1=s53 28:7=s49 35:1=s53 36:6=s49 42:1=s53 43:9=s49 52:3=s53 55:7=s49 62:1=s53 63:7=s49 70:1=s53 71:5=s49 76:4=s2"
       ],
       "state": "chat-bound",
@@ -73499,7 +73499,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -73537,7 +73537,7 @@
         "0:75=s2 75:1=s56 76:1=s2 77:2=s54 79:20=s57 99:60=s54 159:1=s2",
         "0:75=s2 75:1=s56 76:1=s2 77:82=s54 159:1=s2",
         "0:1=s2 1:25=s56 26:31=s2 57:17=s49 74:1=s2 75:1=s56 76:1=s2 77:7=s49 84:2=s2 86:10=s49 96:30=s2 126:33=s49 159:1=s2",
-        "0:52=s49 52:108=s2",
+        "0:68=s49 68:92=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:6=s53 75:10=s49 85:7=s53 92:7=s49 99:4=s53 103:14=s49 117:1=s53 118:12=s49 130:3=s53 133:7=s49 140:1=s53 141:7=s49 148:1=s53 149:5=s49 154:6=s2"
       ],
       "state": "chat-answered",
@@ -73627,7 +73627,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -73665,7 +73665,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:76=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:46=s2 66:33=s49 99:1=s2",
-        "0:52=s49 52:48=s2",
+        "0:68=s49 68:32=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:3=s53 72:7=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
       ],
       "state": "chat-answered",
@@ -73755,7 +73755,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -73793,7 +73793,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:56=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:26=s2 46:33=s49 79:1=s2",
-        "0:52=s49 52:28=s2",
+        "0:68=s49 68:12=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:7=s49 17:1=s53 18:9=s49 27:1=s53 28:7=s49 35:1=s53 36:6=s49 42:1=s53 43:9=s49 52:3=s53 55:7=s49 62:1=s53 63:7=s49 70:1=s53 71:5=s49 76:4=s2"
       ],
       "state": "chat-answered",
@@ -74007,7 +74007,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -74045,7 +74045,7 @@
         "0:75=s2 75:1=s56 76:1=s2 77:2=s54 79:20=s57 99:60=s54 159:1=s2",
         "0:75=s2 75:1=s56 76:1=s2 77:82=s54 159:1=s2",
         "0:1=s2 1:25=s56 26:31=s2 57:17=s49 74:1=s2 75:1=s56 76:1=s2 77:7=s49 84:2=s2 86:10=s49 96:30=s2 126:33=s49 159:1=s2",
-        "0:52=s49 52:108=s2",
+        "0:68=s49 68:92=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:6=s53 75:10=s49 85:7=s53 92:7=s49 99:4=s53 103:14=s49 117:1=s53 118:12=s49 130:3=s53 133:7=s49 140:1=s53 141:7=s49 148:1=s53 149:5=s49 154:6=s2"
       ],
       "state": "chat-no-answer",
@@ -74135,7 +74135,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -74173,7 +74173,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:76=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:46=s2 66:33=s49 99:1=s2",
-        "0:52=s49 52:48=s2",
+        "0:68=s49 68:32=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:3=s53 72:7=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
       ],
       "state": "chat-no-answer",
@@ -74263,7 +74263,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -74301,7 +74301,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:56=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:26=s2 46:33=s49 79:1=s2",
-        "0:52=s49 52:28=s2",
+        "0:68=s49 68:12=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:7=s49 17:1=s53 18:9=s49 27:1=s53 28:7=s49 35:1=s53 36:6=s49 42:1=s53 43:9=s49 52:3=s53 55:7=s49 62:1=s53 63:7=s49 70:1=s53 71:5=s49 76:4=s2"
       ],
       "state": "chat-no-answer",
@@ -74515,7 +74515,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -74553,7 +74553,7 @@
         "0:75=s2 75:1=s56 76:1=s2 77:2=s54 79:20=s57 99:60=s54 159:1=s2",
         "0:75=s2 75:1=s56 76:1=s2 77:82=s54 159:1=s2",
         "0:1=s2 1:25=s56 26:31=s2 57:17=s49 74:1=s2 75:1=s56 76:1=s2 77:7=s49 84:2=s2 86:10=s49 96:30=s2 126:33=s49 159:1=s2",
-        "0:52=s49 52:108=s2",
+        "0:68=s49 68:92=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:6=s53 75:10=s49 85:7=s53 92:7=s49 99:4=s53 103:14=s49 117:1=s53 118:12=s49 130:3=s53 133:7=s49 140:1=s53 141:7=s49 148:1=s53 149:5=s49 154:6=s2"
       ],
       "state": "chat-truncated",
@@ -74643,7 +74643,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -74681,7 +74681,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:76=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:46=s2 66:33=s49 99:1=s2",
-        "0:52=s49 52:48=s2",
+        "0:68=s49 68:32=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:3=s53 72:7=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
       ],
       "state": "chat-truncated",
@@ -74771,7 +74771,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -74809,7 +74809,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:56=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:7=s49 8:2=s2 10:10=s49 20:26=s2 46:33=s49 79:1=s2",
-        "0:52=s49 52:28=s2",
+        "0:68=s49 68:12=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:7=s49 17:1=s53 18:9=s49 27:1=s53 28:7=s49 35:1=s53 36:6=s49 42:1=s53 43:9=s49 52:3=s53 55:7=s49 62:1=s53 63:7=s49 70:1=s53 71:5=s49 76:4=s2"
       ],
       "state": "chat-truncated",
@@ -75023,7 +75023,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -75061,7 +75061,7 @@
         "0:75=s2 75:1=s56 76:1=s2 77:2=s54 79:20=s57 99:60=s54 159:1=s2",
         "0:75=s2 75:1=s56 76:1=s2 77:82=s54 159:1=s2",
         "0:1=s2 1:25=s56 26:31=s2 57:17=s49 74:1=s2 75:1=s56 76:1=s2 77:82=s49 159:1=s2",
-        "0:52=s49 52:108=s2",
+        "0:68=s49 68:92=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:6=s53 75:10=s49 85:7=s53 92:7=s49 99:4=s53 103:14=s49 117:1=s53 118:12=s49 130:3=s53 133:7=s49 140:1=s53 141:7=s49 148:1=s53 149:5=s49 154:6=s2"
       ],
       "state": "chat-fallback",
@@ -75151,7 +75151,7 @@
         "   ⏎ to message night-2",
         "",
         " Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -75189,7 +75189,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:76=s54 99:1=s2",
         "0:1=s2 1:98=s54 99:1=s2",
         "0:1=s2 1:98=s49 99:1=s2",
-        "0:52=s49 52:48=s2",
+        "0:68=s49 68:32=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:9=s49 19:1=s53 20:7=s49 27:1=s53 28:6=s49 34:1=s53 35:9=s49 44:1=s53 45:12=s49 57:1=s53 58:11=s49 69:3=s53 72:7=s49 79:1=s53 80:7=s49 87:1=s53 88:5=s49 93:7=s2"
       ],
       "state": "chat-fallback",
@@ -75279,7 +75279,7 @@
         "   ⏎ to message night-2",
         "",
         " Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -75317,7 +75317,7 @@
         "0:1=s2 1:2=s54 3:20=s57 23:56=s54 79:1=s2",
         "0:1=s2 1:78=s54 79:1=s2",
         "0:1=s2 1:78=s49 79:1=s2",
-        "0:52=s49 52:28=s2",
+        "0:68=s49 68:12=s2",
         "0:1=s2 1:1=s53 2:7=s49 9:1=s53 10:7=s49 17:1=s53 18:9=s49 27:1=s53 28:7=s49 35:1=s53 36:6=s49 42:1=s53 43:9=s49 52:3=s53 55:7=s49 62:1=s53 63:7=s49 70:1=s53 71:5=s49 76:4=s2"
       ],
       "state": "chat-fallback",
@@ -97615,7 +97615,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -97743,7 +97743,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -97871,7 +97871,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -98123,7 +98123,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -98251,7 +98251,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -98379,7 +98379,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -98631,7 +98631,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -98759,7 +98759,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -98887,7 +98887,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -99139,7 +99139,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -99267,7 +99267,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -99395,7 +99395,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -99647,7 +99647,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ night-2  ● 0 unread                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -99775,7 +99775,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                                              ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -99903,7 +99903,7 @@
         "   ⏎ to message night-2",
         "",
         " night-2  ● 0 unread                          ⏎ send  Alt+⏎ new line  @ mention",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -100155,7 +100155,7 @@
         "                                                                           │   ⏎ to message night-2",
         "                                                                           │",
         " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  ctrl-r refresh  backtab pane  down scroll down  k scroll up  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -100283,7 +100283,7 @@
         "   ⏎ to message night-2",
         "",
         " Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  D digest  j host  p pin  c timers  w snapshots  , settings  Esc back  ? help  q quit"
       ],
       "styles": [
@@ -100411,7 +100411,7 @@
         "   ⏎ to message night-2",
         "",
         " Sent as a request: night-2 can't take a direct message right now.",
-        "select text to copy · Shift+arrows select · Esc back",
+        "select text to copy · Shift+arrows select · l live screen · Esc back",
         " ⏎ chat  a note  D digest  j host  p pin  c timers  Esc back  ? help  q quit"
       ],
       "styles": [
