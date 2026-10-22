@@ -391,7 +391,7 @@ Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-
 discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.
 
 Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
-A `user`-marked identity is never held; `enabled = false` in `digest.toml` ([global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch)) holds no one. An `auto` member is held through the interval policy: the tick renews the hold and offers idle and capped [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery), while Core and the turn end deliver.
+A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off. An `auto` member is held like an interval one: the tick renews the hold and offers [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery); Core and the turn end deliver.
 Prices are one [public file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file), embedded as the built-in table and refetched anonymously by status only.
 The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
