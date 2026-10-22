@@ -1,9 +1,8 @@
 //! A stored binding on an external host, end to end (#570 slice 3b-2a-2): a
 //! shell-script driver approved in a disposable home, a binding made through
 //! the core port on that driver, then the real `tmt` reading it. Routing by
-//! name selects its recorded server independently of the caller; `--inbox`
-//! still queues without a probe. Without its driver, or with a changed one, the
-//! binding stays unknown and is never retired.
+//! name selects its recorded server independently of the caller. Without its
+//! driver, or with a changed one, the binding stays unknown and is never retired.
 #![cfg(unix)]
 // This fixture uses only the shared private command environment.
 #[path = "external_host/caller_session.rs"]
@@ -362,7 +361,7 @@ fn assert_talk_fails_closed(fixture: &Fixture) {
 }
 
 #[test]
-fn an_external_binding_reads_through_its_driver_and_inbox_skips_observation() {
+fn an_external_binding_reads_through_its_driver() {
     register();
     let fixture = Fixture::new("bound");
     let record = fixture.approve();
@@ -382,12 +381,6 @@ fn an_external_binding_reads_through_its_driver_and_inbox_skips_observation() {
         worker(&fixture.json(&["ls", "--json"]))["presence"],
         "active"
     );
-
-    let calls = fixture.calls().len();
-    let queued = fixture.json(&["talk", "worker", "hello", "--inbox", "--detach", "--json"]);
-    assert_eq!(fixture.calls().len(), calls, "{queued:#}");
-    let inbox = fixture.json(&["inbox", "--identity", "worker", "--json"]);
-    assert!(inbox.to_string().contains("hello"), "{inbox:#}");
 }
 
 #[test]

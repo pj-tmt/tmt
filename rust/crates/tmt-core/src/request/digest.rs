@@ -32,7 +32,8 @@ impl DigestKind {
 pub struct DeliveryPolicy {
     pub urgent: bool,
     pub kind: DigestKind,
-    /// Explicit inbox publication remains pull-only, even at a later opportunity.
+    /// A request stored as queue-only (made before the sender option was removed)
+    /// remains pull-only, even at a later opportunity.
     pub automatic: bool,
 }
 impl Default for DeliveryPolicy {

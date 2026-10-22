@@ -30,7 +30,6 @@ child.once('exit', (code, signal) => {
     'talk',
     'receiver',
     'probe',
-    '--inbox',
     '--identity',
     'sender',
     '--timeout',
@@ -50,9 +49,13 @@ async function until(condition: () => boolean) {
 }
 
 async function identities(sandbox: Sandbox) {
+  const ids: Record<string, string> = {};
   for (const name of ['Sender', 'Receiver']) {
-    expect((await runCli(sandbox, ['identity', 'create', name, '--json'])).status).toBe(0);
+    const created = await runCli(sandbox, ['identity', 'create', name, '--json']);
+    expect(created.status).toBe(0);
+    ids[name] = JSON.parse(created.stdout).identity.id;
   }
+  return ids;
 }
 
 it.each([true, false])('SIGINT during --delay reports a safe retry (JSON=%s)', async (json) => {
@@ -102,14 +105,20 @@ it.each([true, false])(
   async (json) => {
     await withSandbox(async (sandbox) => {
       const tmuxLog = installTmuxTripwire(sandbox);
-      await identities(sandbox);
+      const ids = await identities(sandbox);
       const database = new Database(sandbox.database, { readonly: true });
       try {
         const talk = startTalk(sandbox, false, json);
         const attempts = database.prepare(
           'SELECT request_id, status, wait_active FROM request_attempts'
         );
-        await until(() => existsSync(talk.ready) && attempts.all().length === 1);
+        // The receiver has no pane, so plain talk queues it for its inbox.
+        await until(
+          () =>
+            existsSync(talk.ready) &&
+            attempts.all().length === 1 &&
+            (attempts.get() as { status: string }).status === 'queued'
+        );
         const attempt = attempts.get() as {
           request_id: string;
           status: string;
@@ -121,7 +130,12 @@ it.each([true, false])(
         const result = await talk.result;
         expect(result.status).toBe(1);
         expect(result.signal).toBeNull();
-        const suggestion = `Inspect with 'tmt result ${attempt.request_id}'. Do not resend solely because the observer ended.`;
+        const recipient = ids.Receiver;
+        const suggestion =
+          `Inspect with 'tmt result ${attempt.request_id} --json'. The request stays queued for a later reply; ` +
+          'do not resend solely because the observer ended. ' +
+          `recipient pull: tmt inbox --identity '${recipient}' --json. ` +
+          `recipient inspection: tmt x show ${attempt.request_id} --incoming --identity '${recipient}' --json.`;
         if (json) {
           expect(result.stderr).toBe('');
           expect(result.stdout).toBe(

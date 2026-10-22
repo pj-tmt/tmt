@@ -2869,7 +2869,6 @@ sort = ["-name"]
           question,
           '--identity',
           'auth-fix',
-          '--inbox',
           '--detach',
           '--json',
         ]);
@@ -4890,6 +4889,7 @@ describe('composer terminal input', () => {
             JSON.stringify({
               cli: [sandbox.cli.executable, ...sandbox.cli.args],
               sender,
+              senderName: 'Ben',
               recipient,
               ...scenario,
             }),
@@ -4978,7 +4978,6 @@ describe('large board responsiveness', () => {
           'Ben',
           '--room',
           'squad-product',
-          '--inbox',
           '--detach',
           '--json',
         ]);
@@ -5214,7 +5213,6 @@ describe('large board responsiveness', () => {
         'Ben',
         '--room',
         'squad-product',
-        '--inbox',
         '--detach',
         '--json',
       ]);
@@ -5405,7 +5403,6 @@ describe('large board responsiveness', () => {
         'Ben',
         '--room',
         'squad-product',
-        '--inbox',
         '--detach',
         '--json',
       ]);

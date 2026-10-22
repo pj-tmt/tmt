@@ -24,11 +24,11 @@ pub(super) fn prepare(
         .transpose()?;
     let mut offline = false;
     let mut unbound = false;
-    let names_pane = !input.options.inbox
-        && tmt_core::identity::addresses_pane(storage, &input.target).map_err(|error| {
+    let names_pane =
+        tmt_core::identity::addresses_pane(storage, &input.target).map_err(|error| {
             Failure::new("IDENTITY_ERROR", "Could not read recipient identity.", 1).caused_by(error)
         })?;
-    let automatic = if !input.options.inbox && !names_pane {
+    let recipient = if !names_pane {
         let identity = match tmt_core::identity::find_by_name(storage, &input.target) {
             Ok(value) => value,
             // Preserve target resolution's existing missing-name boundary.
@@ -63,15 +63,7 @@ pub(super) fn prepare(
     } else {
         None
     };
-    let inbox_identity = if input.options.inbox {
-        Some(identity_context::resolve(
-            storage,
-            identity_context::Selector::Explicit(input.target.clone()),
-        )?)
-    } else {
-        automatic
-    };
-    let observed = if input.options.inbox || offline {
+    let observed = if offline {
         None
     } else {
         Some(target::resolve(storage, &input.target).map_err(|error| {
@@ -84,7 +76,7 @@ pub(super) fn prepare(
                     })
             {
                 error.suggestion(
-                    "For a saved identity without an active pane, use `tmt talk <identity> <message> --inbox` for durable delivery.".into(),
+                    "A saved identity without an active pane receives plain `tmt talk <identity> <message>` through its inbox; run the command again.".into(),
                 )
             } else {
                 error
@@ -112,11 +104,10 @@ pub(super) fn prepare(
             .as_ref()
             .map(|value| value.pane.id.clone())
             .unwrap_or_default(),
-        identity: inbox_identity
+        identity: recipient
             .clone()
             .or_else(|| observed.as_ref().and_then(|value| value.identity.clone())),
-        inbox: input.options.inbox || offline,
-        explicit_inbox: input.options.inbox,
+        inbox: offline,
         offline,
         unbound,
         delivery_uncertain: false,
@@ -154,8 +145,7 @@ pub(super) fn prepare(
         )
         .suggestion("It is safe to run the command again when ready.".into()));
     }
-    let preamble = if input.options.inbox
-        || input.options.no_preamble
+    let preamble = if input.options.no_preamble
         || settings.preamble_mode == PreambleMode::Disabled
         || settings.preamble_every == 0
     {
@@ -172,8 +162,7 @@ pub(super) fn prepare(
     } else {
         None
     };
-    if !input.options.inbox
-        && let Some(identity) = &correlation.identity
+    if let Some(identity) = &correlation.identity
         && let Err(error) = tmt_adapters::digest::flush_idle(
             storage,
             &identity.id,
@@ -219,7 +208,7 @@ pub(super) fn prepare(
                 1,
             )
         })?;
-    let notify_originator = originator.identity_id().is_some() && !input.options.inbox;
+    let notify_originator = originator.identity_id().is_some();
     let wait = !input.options.detach && (!offline || unbound);
     let request = PrepareRequest {
         room_id: room.map(|room| room.id),
@@ -235,9 +224,7 @@ pub(super) fn prepare(
             .identity
             .as_ref()
             .map(|identity| identity.id.clone()),
-        preamble: (!input.options.inbox)
-            .then_some(preamble.as_ref())
-            .flatten()
+        preamble: preamble
             .as_ref()
             .map(|(identity_id, _)| PreambleReservation {
                 identity_id: identity_id.clone(),
@@ -248,7 +235,7 @@ pub(super) fn prepare(
     let delivery = tmt_core::request::digest::DeliveryPolicy {
         urgent: input.options.urgent,
         kind: input.options.digest_kind,
-        automatic: !input.options.inbox,
+        automatic: true,
     };
     let timeout = input.options.timeout_seconds.unwrap_or(settings.timeout);
     let notification =
@@ -257,23 +244,15 @@ pub(super) fn prepare(
             timeout_ms: (timeout * 1000.0).ceil() as u64,
             waiter: None,
         });
-    let prepared = if input.options.inbox {
-        service.enqueue_delivery(
-            request,
-            attempt_id.clone(),
-            settings.retention_days,
-            delivery,
-        )
-    } else {
-        service.prepare_delivery(
+    let prepared = service
+        .prepare_delivery(
             request,
             attempt_id.clone(),
             settings.retention_days,
             delivery,
             notification,
         )
-    }
-    .map_err(|error| correlation.state_error(error, false))?;
+        .map_err(|error| correlation.state_error(error, false))?;
     correlation.digest_until_ms = prepared.digest_until_ms;
     if prepared.digest_until_ms.is_some() {
         correlation.inbox = true;
@@ -290,7 +269,7 @@ pub(super) fn prepare(
         input.message.clone()
     };
     let payload = framed_request(&message, &sender, &correlation.request_id, &receipt);
-    let wake = !input.options.inbox && !unbound && correlation.identity.is_some();
+    let wake = !unbound && correlation.identity.is_some();
     Ok(Prepared {
         correlation,
         attempt_id,
@@ -335,7 +314,7 @@ fn escape_sender_attribute(name: &str) -> String {
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
-        "For a saved identity without an active pane, use `tmt talk <identity> <message> --inbox` for durable delivery.",
+        "A saved identity without an active pane receives plain `tmt talk <identity> <message>` through its inbox; run the command again.",
         &["`"],
         &[],
     ),

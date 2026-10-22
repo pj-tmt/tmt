@@ -31,7 +31,7 @@ describe('durable local identity inbox', () => {
         '--debounce',
         '1ms',
       ]);
-      // Omit both --inbox and --timeout: ordinary talk must use the configured
+      // Omit --timeout: ordinary talk must use the configured
       // foreground waiter instead of immediately returning queued/offline.
       const sending = runCli(
         sandbox,
@@ -235,7 +235,51 @@ describe('durable local identity inbox', () => {
     });
   });
 
-  it('explains intentional queue-only delivery and gives recipient pull and correlated inspection', async () => {
+  it('refuses --inbox for talk and room send, stores nothing, and still queues for an identity without a pane (#4302)', async () => {
+    await withSandbox(async (sandbox) => {
+      const tmuxLog = installTmuxTripwire(sandbox);
+      await json(sandbox, ['identity', 'create', 'Sender']);
+      await json(sandbox, ['identity', 'create', 'Receiver']);
+      for (const args of [
+        ['talk', 'Receiver', 'queue-only please', '--inbox', '--identity', 'Sender', '--detach'],
+        ['room', 'send', 'Design', 'hello', '--inbox', '--identity', 'Sender'],
+      ]) {
+        const refused = await runCli(sandbox, [...args, '--json'], { deadlineMs: 5_000 });
+        expect(refused.status).toBe(1);
+        expect(parseWholeStdout(refused)).toMatchObject({
+          error: {
+            code: 'USAGE_ERROR',
+            message: expect.stringContaining("unexpected argument '--inbox'"),
+          },
+        });
+      }
+      const database = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(database.prepare('SELECT COUNT(*) AS count FROM request_attempts').get()).toEqual({
+          count: 0,
+        });
+      } finally {
+        database.close();
+      }
+      // Without the flag the same send queues, because the recipient has no pane.
+      const queued = await json(sandbox, [
+        'talk',
+        'Receiver',
+        'plain talk queues',
+        '--identity',
+        'Sender',
+        '--detach',
+      ]);
+      expect(queued).toMatchObject({
+        status: 'queued',
+        notification: 'not_attempted',
+        waitingFor: 'recipient_inbox_pull',
+      });
+      expect(existsSync(tmuxLog)).toBe(false);
+    });
+  });
+
+  it('explains queueing for an identity without a pane and gives recipient pull and correlated inspection', async () => {
     await withSandbox(async (sandbox) => {
       const tmuxLog = installTmuxTripwire(sandbox);
       await json(sandbox, ['identity', 'create', 'Sender']);
@@ -245,7 +289,6 @@ describe('durable local identity inbox', () => {
         'talk',
         'Receiver',
         'pull this request',
-        '--inbox',
         '--identity',
         'Sender',
         '--detach',
@@ -284,7 +327,6 @@ describe('durable local identity inbox', () => {
         'talk',
         'receiver',
         'review the durable request',
-        '--inbox',
         '--identity',
         'sender',
         '--detach',
@@ -425,7 +467,6 @@ describe('durable local identity inbox', () => {
           'talk',
           'receiver',
           'keep this queued after foreground timeout',
-          '--inbox',
           '--identity',
           'sender',
           '--timeout',

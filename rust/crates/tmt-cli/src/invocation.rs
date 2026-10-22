@@ -284,7 +284,6 @@ pub struct TalkOptions {
     pub urgent: bool,
     pub digest_kind: tmt_core::request::digest::DigestKind,
     pub room: Option<String>,
-    pub inbox: bool,
     pub force: bool,
     pub detach: bool,
     pub delay_seconds: Option<f64>,
