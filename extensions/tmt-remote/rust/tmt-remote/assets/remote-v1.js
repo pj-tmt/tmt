@@ -3752,6 +3752,7 @@ function createStrips(options) {
 	}
 	const frame = htmlEl("div", "tmt-ui-chart-frame");
 	const list = htmlEl("ul", "tmt-ui-chart-strips");
+	list.style.setProperty("--tmt-chart-strip-count", String(options.slotCount));
 	const tip = htmlEl("div", "tmt-ui-chart-tip");
 	tip.hidden = true;
 	tip.setAttribute("aria-hidden", "true");
@@ -3762,7 +3763,6 @@ function createStrips(options) {
 		const name = htmlEl("span", "tmt-ui-chart-strip-label", row.label);
 		name.title = row.label;
 		const strip = htmlEl("div", "tmt-ui-chart-strip");
-		strip.style.setProperty("--tmt-chart-strip-count", String(row.slots.length));
 		const cells = [];
 		for (const slot of row.slots) {
 			const node = htmlEl("span", "tmt-ui-chart-slot");

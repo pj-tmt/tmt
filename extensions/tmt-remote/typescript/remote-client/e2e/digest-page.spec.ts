@@ -319,7 +319,13 @@ test('the activity strips are square slots: 24 hourly, 7 daily, 30 daily, with a
   await expect(cells).toHaveCount(24);
   const box = (await cells.first().boundingBox())!;
   expect(Math.abs(box.width - box.height)).toBeLessThan(0.5);
-  expect(box.width).toBeLessThanOrEqual(12.5);
+  // Squares grow to fill the card (12 to 40 px); never past 40.
+  expect(box.width).toBeGreaterThan(12);
+  expect(box.width).toBeLessThanOrEqual(40.5);
+  const strip = (await page.locator('#digest-activity .tmt-ui-chart-strip').first().boundingBox())!;
+  const column = (await page.locator('#digest-activity .tmt-ui-chart-strips').boundingBox())!;
+  // The row spans the card's strip column unless 40 px squares already fill 24 slots.
+  expect(strip.width).toBeGreaterThan(Math.min(column.width * 0.9, 24 * 40 - 1) - 100);
   await cells.nth(5).hover();
   const tip = page.locator('#digest-activity .tmt-ui-chart-tip');
   await expect(tip).toBeVisible();
