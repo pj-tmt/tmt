@@ -27,6 +27,15 @@ const call = <T>(page: Page, name: string, ...args: unknown[]) =>
       ((await import(fixture)) as Record<string, (...args: unknown[]) => unknown>)[name]!(...args),
     { fixture, name, args },
   ) as Promise<T>;
+const hostState = (page: Page) =>
+  call<{
+    rail: boolean;
+    brand: string;
+    bar: string;
+    barHeaders: number;
+    mainHeaders: number;
+    alert: string;
+  }>(page, 'hostState');
 const slot = (page: Page) =>
   call<{
     bar: string;
@@ -43,7 +52,6 @@ test('a route that throws keeps Colab’s header in the host’s header slot', a
   // The header is in the host's bar, once, and not inside the content area.
   expect(await slot(page)).toMatchObject({ barHeaders: 1, mainHeaders: 0 });
   expect((await slot(page)).bar).toContain('Page unavailable');
-  await capture(page, 'route');
 });
 
 test('leaving a crashed route and coming back mounts a clean root', async ({ page }) => {
@@ -63,7 +71,6 @@ test('a crash above the router shows Colab’s error in the slot and Try again r
   await call(page, 'mountBoundary');
   await expect(page.getByRole('alert')).toContainText('Colab stopped');
   expect(await slot(page)).toMatchObject({ barHeaders: 1, mainHeaders: 0 });
-  await capture(page, 'boundary');
   await call(page, 'healBoundary');
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('Recovered')).toBeVisible();
@@ -78,4 +85,43 @@ test('Try again that fails again stays on the error view', async ({ page }) => {
   await call(page, 'healBoundary');
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('Recovered')).toBeVisible();
+});
+
+test('inside the TMT app a crash keeps the rail and the header bar', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountHostApp', '/colab/', 'route');
+  await expect(page.getByRole('alert')).toContainText('Page unavailable');
+  expect(await hostState(page)).toMatchObject({ rail: true, barHeaders: 1, mainHeaders: 0 });
+  expect((await hostState(page)).brand).toContain('TMT');
+  // A sentence, not the exception; the exception is behind Details.
+  await expect(page.locator('#spa-slot').getByText('This page could not be shown.')).toBeVisible();
+  await expect(page.locator('#spa-slot').getByText('page.title.trim')).toBeHidden();
+  await page.locator('#spa-slot').getByText('Details').click();
+  await expect(page.locator('#spa-slot').getByText('page.title.trim')).toBeVisible();
+  await capture(page, 'host-route');
+});
+
+test('inside the TMT app a crash above the router keeps the rail too', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountHostApp', '/colab/', 'boundary');
+  await expect(page.getByRole('alert')).toContainText('Colab stopped');
+  expect(await hostState(page)).toMatchObject({ rail: true, barHeaders: 1, mainHeaders: 0 });
+  await capture(page, 'host-boundary');
+});
+
+test('the error view paints no focus frame on the header title', async ({ page }) => {
+  await start(page);
+  await call(page, 'mountHostApp', '/colab/', 'route');
+  await expect(page.getByRole('alert')).toBeVisible();
+  // Focus moves to the heading so a screen reader reads it, and nothing is drawn around it.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const title = document.querySelector('#spa-slot h1[tabindex="-1"]');
+        return title && document.activeElement === title
+          ? getComputedStyle(title).outlineStyle
+          : null;
+      }),
+    )
+    .toBe('none');
 });

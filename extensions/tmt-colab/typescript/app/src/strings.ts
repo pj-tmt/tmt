@@ -996,6 +996,8 @@ export const text = {
   live: 'Live',
   boundary: 'Page content',
   error: 'Page unavailable',
+  errorBody: 'This page could not be shown. Try again, or return to the space.',
+  errorDetails: 'Details',
   retry: 'Return to space',
   openFailed: 'This page could not open.',
   openFailedLabel: 'not opened',

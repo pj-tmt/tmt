@@ -34,7 +34,7 @@ import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
-import { NoticeCard } from './notice-card.js';
+import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import {
   useContext,
@@ -714,7 +714,10 @@ const root = createRootRouteWithContext<AppContext>()({
               {failure ? (
                 <TerminalFailure error={error as Error} />
               ) : (
-                <p>{error instanceof Error ? error.message : text.blocked}</p>
+                <>
+                  <p>{text.errorBody}</p>
+                  <ErrorDetails error={error} />
+                </>
               )}
             </NoticeCard>
           )}

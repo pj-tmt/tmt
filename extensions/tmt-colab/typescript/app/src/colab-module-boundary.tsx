@@ -2,7 +2,7 @@ import { Component, Fragment, type ReactNode } from 'react';
 import { BrowserAction, HostedShell } from '@tmt/browser-ui/react';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 import { ColabHeader } from './colab-header.js';
-import { NoticeCard } from './notice-card.js';
+import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { text } from './strings.js';
 
 /**
@@ -10,7 +10,7 @@ import { text } from './strings.js';
  * route stay; Colab's error view fills the module slot and its title goes to the host's header
  * slot, with no router, session or list to read: this view has to work when nothing else does.
  */
-function CrashView({ slot, retry }: { slot: ShellSlot; retry(): void }) {
+function CrashView({ slot, error, retry }: { slot: ShellSlot; error: unknown; retry(): void }) {
   return (
     <HostedShell slot={slot} menu={undefined}>
       <ColabHeader title={text.crashTitle} remoteMenu={false} remoteChip={false} />
@@ -29,6 +29,7 @@ function CrashView({ slot, retry }: { slot: ShellSlot; retry(): void }) {
           }
         >
           <p>{text.crashBody}</p>
+          <ErrorDetails error={error} />
         </NoticeCard>
       </main>
     </HostedShell>
@@ -37,6 +38,7 @@ function CrashView({ slot, retry }: { slot: ShellSlot; retry(): void }) {
 
 interface State {
   failed: boolean;
+  error?: unknown;
   /** Changes on Try again, so everything below mounts fresh: a new session and a new router. */
   attempt: number;
 }
@@ -52,8 +54,8 @@ export class ColabModuleBoundary extends Component<
   State
 > {
   state: State = { failed: false, attempt: 0 };
-  static getDerivedStateFromError(): Partial<State> {
-    return { failed: true };
+  static getDerivedStateFromError(error: unknown): Partial<State> {
+    return { failed: true, error };
   }
   componentDidCatch(error: unknown) {
     console.error(error);
@@ -63,6 +65,7 @@ export class ColabModuleBoundary extends Component<
       return (
         <CrashView
           slot={this.props.slot}
+          error={this.state.error}
           retry={() => this.setState((state) => ({ failed: false, attempt: state.attempt + 1 }))}
         />
       );

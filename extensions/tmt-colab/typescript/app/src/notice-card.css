@@ -13,6 +13,20 @@
     margin-top: 48px;
   }
 }
+.error-details {
+  margin-top: 16px;
+  font-size: 0.875em;
+}
+.error-details summary {
+  cursor: pointer;
+  color: var(--c-muted);
+}
+.error-details pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--tmt-ui-font-mono, ui-monospace, monospace);
+}
 .failure-reference {
   color: var(--c-muted);
   font-size: 0.875em;
