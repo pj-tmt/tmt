@@ -165,6 +165,12 @@ fn member(
         Mode::Interval { milliseconds, .. } => Some(milliseconds),
         _ => None,
     };
+    // The hold ends at the oldest message plus this long, or at this many messages.
+    let caps = (mode == Mode::Auto)
+        .then(|| settings.auto_caps(id))
+        .transpose()?;
+    let hold = interval.or(caps.map(|caps| caps.max_wait_ms));
+    let limit = caps.map_or(settings.flush_count as u64, |caps| caps.max_count);
     let held = observation.map(|stats| stats.held);
     let deadline = observation
         .filter(|stats| stats.held > 0)
@@ -172,10 +178,10 @@ fn member(
             stats
                 .observed
                 .checked_sub(stats.age?)
-                .and_then(|oldest| oldest.checked_add(interval?))
+                .and_then(|oldest| oldest.checked_add(hold?))
                 .filter(|deadline| *deadline <= MAX_NUMBER)
         });
-    let time = if interval.is_some() && held.is_some_and(|n| n >= settings.flush_count as u64) {
+    let time = if hold.is_some() && held.is_some_and(|n| n >= limit) {
         Some(0)
     } else {
         deadline.map(|deadline| deadline.saturating_sub(now))
@@ -190,10 +196,10 @@ fn member(
     if mode != Mode::Off && held != Some(0) {
         let (text, color) = match held {
             None => ("Unknown".into(), "dim"),
-            Some(_) if mode == Mode::Auto => ("When idle".into(), "muted"),
             Some(_) => match time {
                 None => ("Unknown".into(), "dim"),
                 Some(0) => ("Due now".into(), "waiting"),
+                Some(ms) if mode == Mode::Auto => (format!("Latest in {}", clock(ms)), "muted"),
                 Some(ms) => (format!("In {}", countdown(ms)), "muted"),
             },
         };
@@ -206,6 +212,9 @@ fn member(
         "oldestHeldAgeMs":observation.and_then(|stats| stats.age),"deliveredDigests":observation.and_then(|stats| stats.delivered),
         "nextSendAtMs":deadline,"timeToSendMs":time,"savings":null,"labels":labels,
         "ownerBypass":owner_bypass(settings, id, &mode)});
+    if let Some(caps) = caps {
+        row["autoCaps"] = json!({"maxWaitMs":caps.max_wait_ms,"maxCount":caps.max_count});
+    }
     if !inherited {
         if let Some(setter) = settings.setter(id) {
             row["setByIdentityId"] = json!(setter);
@@ -245,6 +254,19 @@ fn duration(ms: u64) -> String {
         }
     }
     unreachable!("every integer is an exact millisecond duration")
+}
+/// `m:ss`, or `h:mm:ss` past an hour: the exact time left, rounded up to the second.
+fn clock(ms: u64) -> String {
+    let seconds = ms.div_ceil(1000);
+    match seconds {
+        0..3600 => format!("{}:{:02}", seconds / 60, seconds % 60),
+        _ => format!(
+            "{}:{:02}:{:02}",
+            seconds / 3600,
+            seconds / 60 % 60,
+            seconds % 60
+        ),
+    }
 }
 fn countdown(ms: u64) -> String {
     // Round in seconds first: the JS-safe upper bound may round above MAX_NUMBER ms.

@@ -16,6 +16,7 @@
             "identityId": "10000000-0000-4000-8000-000000000001",
             "name": "Inherited auto",
             "mode": "auto",
+            "autoCaps": { "maxWaitMs": 300000, "maxCount": 5 },
             "intervalMs": null,
             "settingSource": "default",
             "settingValue": "default",
@@ -74,13 +75,14 @@
             "identityId": "10000000-0000-4000-8000-000000000002",
             "name": "Explicit auto",
             "mode": "auto",
+            "autoCaps": { "maxWaitMs": 300000, "maxCount": 5 },
             "intervalMs": null,
             "settingSource": "member",
             "settingValue": "auto",
             "heldCount": 3,
             "statsObservedAtMs": 1791629999000,
-            "nextSendAtMs": null,
-            "timeToSendMs": null,
+            "nextSendAtMs": 1791630298000,
+            "timeToSendMs": 298000,
             "savings": null,
             "labels": [
               {
@@ -132,7 +134,7 @@
                 "action": null
               },
               {
-                "text": "When idle",
+                "text": "Latest in 4:58",
                 "colorClass": "muted",
                 "action": null
               }
@@ -638,14 +640,15 @@
             "identityId": "10000000-0000-4000-8000-000000000010",
             "name": "Explicit auto over interval default",
             "mode": "auto",
+            "autoCaps": { "maxWaitMs": 300000, "maxCount": 5 },
             "intervalMs": null,
             "settingSource": "member",
             "settingValue": "auto",
             "setAtMs": 1791629940000,
             "heldCount": 3,
             "statsObservedAtMs": 1791629999000,
-            "nextSendAtMs": null,
-            "timeToSendMs": null,
+            "nextSendAtMs": 1791630298000,
+            "timeToSendMs": 298000,
             "savings": null,
             "labels": [
               {
@@ -697,7 +700,7 @@
                 "action": null
               },
               {
-                "text": "When idle",
+                "text": "Latest in 4:58",
                 "colorClass": "muted",
                 "action": null
               }

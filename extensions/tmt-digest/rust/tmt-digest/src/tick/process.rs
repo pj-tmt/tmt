@@ -433,6 +433,7 @@ fn observation(id: &str, settings: &DigestConfig, stats: &Value) -> Result<TickO
         identity_id: id.into(),
         mode: settings.effective(id)?,
         flush_count: settings.flush_count as u64,
+        auto_caps: settings.auto_caps(id)?,
         held_count: number(stats, "heldCount")?,
         oldest_held_at_ms: age.map(|age| observed.saturating_sub(age)),
     })

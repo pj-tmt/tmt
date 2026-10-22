@@ -143,11 +143,14 @@ fn detail_names_the_source_and_lists_every_label() {
     let labels = supplied(&[
         ("Auto", Role::Text),
         ("3 held", Role::Muted),
-        ("When idle", Role::Muted),
+        ("Latest in 4:58", Role::Muted),
     ]);
     assert_eq!(
         detail(&labels, &row(0), 0),
-        [("digest".to_owned(), "Auto · 3 held · When idle".to_owned())]
+        [(
+            "digest".to_owned(),
+            "Auto · 3 held · Latest in 4:58".to_owned()
+        )]
     );
     assert_eq!(
         detail(&Supplied::default(), &row(2), 0),

@@ -327,6 +327,7 @@ fn already_started_core_call_finishes_after_boundary_then_no_new_call_starts() {
         identity_id: MEMBER.into(),
         mode: Mode::Off,
         flush_count: 10,
+        auto_caps: crate::settings::AutoCaps::default(),
         held_count: 1,
         oldest_held_at_ms: Some(0),
     };
