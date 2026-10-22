@@ -282,6 +282,13 @@ pub enum Choice {
     },
     /// A visible but disabled dropdown choice, with the reason it is unavailable.
     Unavailable(String),
+    /// A link's popover: open the address, copy it, or show all of it.
+    LinkOpen(String),
+    LinkCopy(String),
+    LinkShow {
+        url: String,
+        anchor: ratatui::layout::Rect,
+    },
     AgentsFilter(super::workspace::AgentsFilter),
     /// A click on a Talk/Measure chip selects that pane; the `t` key toggles.
     RightTab(super::shell::RightTab),
@@ -295,7 +302,7 @@ pub enum Choice {
     HostAction,
     /// Opens the squad settings overlay for this squad from the Workspace settings menu.
     SquadSettings(String),
-    /// A rule between menu groups: painted, never chosen.
+    /// A row painted but never chosen: a rule between menu groups, or a line of text.
     Rule,
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
@@ -2867,6 +2874,9 @@ impl App {
                 self.member_link_command(&target, &action)
             }
             Choice::Unavailable(reason) => self.say(reason),
+            Choice::LinkOpen(url) => self.link_open(url),
+            Choice::LinkCopy(url) => self.link_copy(url),
+            Choice::LinkShow { url, anchor } => self.link_show(&url, anchor),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),
             Choice::WorkspaceTarget(target) => {
