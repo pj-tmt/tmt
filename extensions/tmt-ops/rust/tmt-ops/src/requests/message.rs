@@ -1,5 +1,5 @@
 //! Shared row-message framing. Callers own admission,
-//! source identity and byte ranges. Exact row framing preserves every source
+//! source identity and byte ranges. Exact row framing preserves every admitted
 //! byte; compact chat insertion has an explicit character bound and no authority.
 
 /// The retained row-annotation prefix, including its comment separator.
@@ -40,22 +40,13 @@ pub fn inline_quote(passage: &str) -> String {
     format!("> \"{text}\"")
 }
 
-/// Compact chat chips precede the existing message body. Exact row-note
-/// framing remains independent and is already projected by its own owner.
-pub fn chat_body(passages: &[&str], message: &str) -> String {
-    if passages.is_empty() {
-        return message.to_owned();
+/// Frame inline Editor content. A quote at the start needs its own Markdown
+/// line after the context tag; ordinary leading text keeps the inline tag.
+pub fn inline_body(context: Option<(&str, &str)>, message: &str, starts_quote: bool) -> String {
+    if starts_quote && let Some((squad, row)) = context {
+        return format!("{}\n{message}", tag(squad, row).trim_end());
     }
-    let mut text = passages
-        .iter()
-        .map(|text| inline_quote(text))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if !message.is_empty() {
-        text.push_str("\n\n");
-        text.push_str(message);
-    }
-    text
+    body(context, &[], message)
 }
 
 /// Freeze one delivered body. An unselected row keeps the historical inline

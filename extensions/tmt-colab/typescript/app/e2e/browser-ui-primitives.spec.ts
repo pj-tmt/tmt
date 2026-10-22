@@ -249,9 +249,19 @@ test('a form reset clears every named control and the in-form and Switch visuals
 test('an external-form Checkbox shows unchecked after a reset of the form it names', async ({
   page,
 }) => {
-  // #3388 reproduction, no remedy yet: its hidden input and FormData reset (asserted above),
-  // but the visible Checkbox stays checked. The fix PR removes test.fail() from this test only.
-  test.fail();
   const { controls } = await toggleAndReset(page);
-  await expect(controls.externalCheck).toHaveAttribute('aria-checked', 'false', { timeout: 1000 });
+  await expect(controls.externalCheck).toHaveAttribute('aria-checked', 'false');
+});
+
+test('a Checkbox naming another form keeps its state when this form resets', async ({ page }) => {
+  await gallery(page);
+  const other = page.getByRole('checkbox', { name: 'Other-form checkbox' });
+  await other.click();
+  await expect(other).toHaveAttribute('aria-checked', 'true');
+  await page
+    .getByRole('form', { name: 'External reset form' })
+    .getByRole('button', { name: 'Reset external form' })
+    .click();
+  await expect(other).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('input[name="other-check"]')).toBeChecked();
 });

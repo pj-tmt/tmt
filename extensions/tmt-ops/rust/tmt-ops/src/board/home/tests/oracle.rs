@@ -610,6 +610,22 @@ fn captures() -> Value {
                 }
             }
         }
+        // Inline quote and answer placement uses the existing paste/file fold owner.
+        for (look_name, look) in looks() {
+            for state in crate::board::composer::tests::QUOTE_SCENES {
+                let height = if *state == "quote-tiny" { 8 } else { 36 };
+                for width in [160, 100, 80, 60] {
+                    let app = crate::board::composer::tests::quote_capture_case(
+                        state, look, width, height,
+                    );
+                    let mut captured =
+                        capture_frame(&app, state, look_name, width, height, &mut styles);
+                    captured["quotes"] =
+                        crate::board::composer::tests::quote_capture_metadata(&app);
+                    frames.push(captured);
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

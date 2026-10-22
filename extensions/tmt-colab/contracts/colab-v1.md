@@ -758,12 +758,20 @@ ReactDOM and htm in one script that sets `window.tmt`, followed by the unmodifie
 script. `window.tmt.icons` is a frozen set of curated Lucide icons: `src/runtime/icons.ts` is the one list
 (a single line per icon; the build keeps only those). Each icon draws square caps, miter joins, `currentColor`,
 stroke 1.75 and size 16 unless the page passes its own prop, is `aria-hidden` unless the page gives it
-`aria-label` or `title` (then `role="img"`, and `title` becomes the SVG `<title>`). It is an ordinary inventory file, and `/assets/colab-runtime.js` is on the anonymous list above
-so a reader can load it. No page loads it until the opt-in slice ships, and the renderer CSP is
+`aria-label` or `title` (then `role="img"`, and `title` becomes the SVG `<title>`). A second asset,
+`assets/colab-runtime.css`, is the Tailwind theme, generated from `design/tokens/tokens.json` by
+`scripts/generate-runtime-theme.mjs` (`--check` runs in the app build): the `browser.*` colour roles as colour
+names (`bg-paper`, `text-text`, `border-rule`, ... , without the annotation and mention roles) that follow the app
+theme through `[data-theme=dark]`, so a page needs no author code; no default Tailwind palette; the radius of
+`browser.metric.radius` on every `rounded-*` scale; no shadows; the system part of the token font stacks; and one
+focus outline of `browser.metric.focus-width` in the focus colour. It is source for a `<style type="text/tailwindcss">`
+block, so it never contains `@import`. Both files are ordinary inventory files, and `/assets/colab-runtime.js` and
+`/assets/colab-runtime.css` are on the anonymous list above so a reader can load them. No page loads it until the opt-in slice ships, and the renderer CSP is
 unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
-ReactDOM, htm, `@tailwindcss/browser` and `lucide-react` and the asset's SHA-256 and length, and `scripts/verify-runtime.mjs`
+ReactDOM, htm, `@tailwindcss/browser` and `lucide-react` and the SHA-256 and length of both assets, and `scripts/verify-runtime.mjs`
 fails the app build when the bytes or versions differ, when the script exceeds 1.5 MiB, ends a script
-tag, reads `process.env`, references a source map or uses `eval`/`new Function`, or when the notices lack
+tag, reads `process.env`, references a source map or uses `eval`/`new Function`, when the theme exceeds 16 KiB, contains
+`@import` or ends a style tag, or when the notices lack
 any of those five packages. `scripts/runtime-notices.mjs` appends htm's and the Tailwind browser
 script's licenses to `THIRD-PARTY-NOTICES.txt`, since the default build bundles neither. A changed
 dependency or output is therefore a reviewed `runtime-pin.json` diff.
@@ -786,7 +794,7 @@ performs that registration. Anonymous root GET retains private-space guidance.
 Without owner context, exactly these static files are served (GET only, the same
 policy headers as owner responses): `/read` (the bytes of `reader.html`),
 `/renderer.html`, `/assets/reader.js`, `/assets/reader.css`, `/assets/reader-fold.js`,
-`/assets/colab-runtime.js` and `/assets/recovery.js`, plus the native `/assets/chrome.css` stylesheet,
+`/assets/colab-runtime.js`, `/assets/colab-runtime.css` and `/assets/recovery.js`, plus the native `/assets/chrome.css` stylesheet,
 which is also available without an app build. They are public static bytes with no secret and no API. Every
 other asset request without owner context, including `/index.html`, `/reader.html`,
 `/THIRD-PARTY-NOTICES.txt` and the hashed owner assets, returns 403. `/read` has no trailing

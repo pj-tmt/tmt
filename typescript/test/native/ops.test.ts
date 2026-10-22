@@ -4940,7 +4940,7 @@ describe('large board responsiveness', () => {
     { theme: 'tmt-light', width: 160 },
     { theme: 'NO_COLOR', width: 60 },
   ])(
-    'selects rendered text on the first drag and sends removable quote chips: %j',
+    'selects rendered text on the first drag and sends inline quote folds: %j',
     async ({ theme, width }) => {
       await withSandbox(async (sandbox) => {
         const bin = installSquad(sandbox);
@@ -5016,7 +5016,7 @@ describe('large board responsiveness', () => {
           '-c',
           sandbox.root,
           '-x',
-          '160',
+          String(width),
           '-y',
           '36',
           '/bin/sh',
@@ -5046,7 +5046,8 @@ describe('large board responsiveness', () => {
           await vi.waitFor(
             () => {
               expect(screen()).toContain('TMT');
-              expect(screen()).toContain('No current recipient observed.');
+              expect(screen()).toContain('SQUAD / AGENT');
+              if (width >= 100) expect(screen()).toContain('No current recipient observed.');
             },
             { timeout: 30_000, interval: 50 }
           );
@@ -5056,21 +5057,13 @@ describe('large board responsiveness', () => {
             interval: 50,
           });
           tmux(['send-keys', '-t', pane, 'End']);
+          // Start at the final geometry: tmux's resize does not prove that
+          // the board has repainted its pointer targets.
+          if (width < 100) tmux(['send-keys', '-t', pane, 'Tab']);
           await vi.waitFor(() => expect(screen()).toContain('second line'), {
             timeout: 30_000,
             interval: 50,
           });
-          if (width !== 160) {
-            tmux(['resize-window', '-t', 'source', '-x', String(width), '-y', '36']);
-            await vi.waitFor(
-              () =>
-                expect(tmux(['display-message', '-p', '-t', pane, '#{pane_width}'])).toBe(
-                  String(width)
-                ),
-              { timeout: 10_000, interval: 50 }
-            );
-          }
-          if (width < 100) tmux(['send-keys', '-t', pane, 'Tab']);
           let location = { x: 0, y: 0 };
           await vi.waitFor(
             () => {
@@ -5113,22 +5106,40 @@ describe('large board responsiveness', () => {
           });
           capture('clipboard-failed-quote-retained');
           tmux(['send-keys', '-t', pane, 'Enter']);
-          await vi.waitFor(() => expect(screen()).toMatch(/worker: first styled.*×/), {
-            timeout: 10_000,
-            interval: 50,
-          });
+          await vi.waitFor(
+            () =>
+              expect(screen()).toContain(
+                theme === 'NO_COLOR'
+                  ? '[Quote worker: first styled x]'
+                  : 'Quote · worker: first styled ×'
+              ),
+            {
+              timeout: 10_000,
+              interval: 50,
+            }
+          );
           tmux(['send-keys', '-t', pane, '-l', 'typed comment']);
           await vi.waitFor(() => expect(screen()).toContain('typed comment'), {
             timeout: 10_000,
             interval: 50,
           });
           capture('one-chip-draft');
-          tmux(['send-keys', '-t', pane, 'Home', 'Up']);
-          await vi.waitFor(
-            () => expect(tmux(['display-message', '-p', '-t', pane, '#{cursor_flag}'])).toBe('0'),
-            { timeout: 10_000, interval: 50 }
-          );
-          capture('chip-focused');
+          // The quote is an Editor fold on the preceding line. Moving to it
+          // keeps the caret in the Editor and Ctrl-P previews its full source.
+          tmux(['send-keys', '-t', pane, 'Home', 'Up', 'End', 'C-p']);
+          await vi.waitFor(() => expect(screen()).toContain('Quote · 12 chars · 1 line'), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          capture('inline-quote-preview');
+          tmux(['send-keys', '-t', pane, 'Escape']);
+          await vi.waitFor(() => expect(screen()).not.toContain('Quote · 12 chars · 1 line'), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          expect(tmux(['display-message', '-p', '-t', pane, '#{cursor_flag}'])).toBe('1');
+          expect(screen()).toContain('typed comment');
+          capture('inline-quote-caret');
           tmux(['send-keys', '-t', pane, 'Down', 'End', 'Enter']);
           await vi.waitFor(() => expect(screen()).toContain('offline · queued'), {
             timeout: 10_000,
@@ -5155,7 +5166,7 @@ describe('large board responsiveness', () => {
             }),
           });
           expect(JSON.parse(delivered.stdout).prompt.message).toBe(
-            '> "first styled"\n\n[product · worker] typed comment'
+            '[product · worker]\n> "first styled"\ntyped comment'
           );
           expect(
             JSON.parse((await runCli(sandbox, ['result', request, '--json'])).stdout).response

@@ -51,7 +51,10 @@ page runtime (`assets/colab-runtime.js`, build mode `runtime`): the `build`, `bu
 `build:hosted` scripts run it and fail when it differs from `typescript/app/runtime-pin.json`. After a
 deliberate change of React, htm, `@tailwindcss/browser`, `lucide-react` or the icon list in
 `typescript/app/src/runtime/icons.ts` (including a dependency bump), run
-`node ../../scripts/verify-runtime.mjs dist --update` in the app directory and review the pin diff.
+`node ../../scripts/verify-runtime.mjs dist --update` in the app directory and review the pin diff. The runtime
+also carries `assets/colab-runtime.css`, the Tailwind theme generated from `design/tokens/tokens.json`: after a
+token change run `node ../../scripts/generate-runtime-theme.mjs --write` (the build and `check` run `--check`),
+then rebuild and `--update` the pin.
 
 The generator copies Remote's output, never editing it, to three reserved routes: the committed
 `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js` to `/sdk/remote-v1.js`, and Remote's
