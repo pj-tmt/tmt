@@ -2311,6 +2311,7 @@ function OpenPage({
       <ReplyNotificationContext
         value={{
           ...notifications.context,
+          headerBottom: () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
           blockSurface:
             notifications.modalCount ||
             annotation?.thread ||

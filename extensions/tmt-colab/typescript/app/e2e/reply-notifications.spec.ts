@@ -536,12 +536,14 @@ for (const [width, theme] of [
   });
 }
 
-for (const [width, theme] of [
-  [1440, 'light'],
-  [390, 'dark'],
+for (const [width, theme, shell] of [
+  [1440, 'light', false],
+  [390, 'dark', false],
+  [1440, 'light', true],
+  [390, 'dark', true],
 ] as const) {
   for (const destination of ['Answer', 'Proposal'] as const) {
-    test(`${destination} follow-up opens its block with a pointer-visible arrival cue ${width} ${theme}`, async ({
+    test(`${shell ? 'shell' : 'standalone'} ${destination} follow-up opens its block with a pointer-visible arrival cue ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -552,6 +554,11 @@ for (const [width, theme] of [
         destination === 'Answer' ? '.question-card' : '.proposal-inline .proposal-card',
       );
       await expect(block).toHaveCount(1);
+      if (shell) {
+        await run(page, 'shellCrumb');
+        await expect(page.locator('[data-shell-crumb]')).toHaveCount(1);
+        await expect(page.locator('[data-shell-crumb]')).toBeHidden();
+      }
       // A question starts closed; its compact row owns placement until arrival opens the controls.
       const placement = destination === 'Answer' ? page.locator('.question-compact-block') : block;
       await expect(placement).toBeVisible();
@@ -576,7 +583,9 @@ for (const [width, theme] of [
         token.remove();
         return {
           top: node.getBoundingClientRect().top,
-          header: document.querySelector('.tmt-ui-header')!.getBoundingClientRect().bottom,
+          header: document
+            .querySelector('.tmt-ui-header:not([data-shell-crumb])')!
+            .getBoundingClientRect().bottom,
           width: css.outlineWidth,
           style: css.outlineStyle,
           color: css.outlineColor,
@@ -584,13 +593,14 @@ for (const [width, theme] of [
         };
       });
       expect(geometry.top).toBeGreaterThanOrEqual(geometry.header);
+      expect(geometry.top).toBeGreaterThanOrEqual(48);
       expect(geometry.top).toBeLessThan(900);
       expect(geometry.width).toBe('1px');
       expect(geometry.style).toBe('solid');
       expect(geometry.color).toBe(geometry.token);
       await page.screenshot({
         path: capturePath(
-          `notification-${destination.toLowerCase()}-arrival-${width}-${theme}.png`,
+          `notification-${shell ? 'shell' : 'standalone'}-${destination.toLowerCase()}-arrival-${width}-${theme}.png`,
         ),
       });
       await page.keyboard.press('Tab');
