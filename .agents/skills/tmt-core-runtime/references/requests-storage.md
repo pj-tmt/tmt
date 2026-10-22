@@ -64,6 +64,13 @@ configuration. The owner map is in
   prompt matches the typed text, first in first out) and settles it at the admitted turn end
   (`Ended`: the captured final, else `no_answer`); `Capture::state_at` reads an unbound row past its
   window as `no_answer`, so no sweeper exists.
+- A message's state (`request::delivery::delivery_view`, pure) is derived at read time inside the
+  history/detail transaction from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
+  route and status, the wake state (an identified recipient's request stays `queued`; its paste is the
+  wake), the `focus_items`/`focus_checklists` hold, `focus_policies.max_hold_ms` plus the oldest held
+  arrival (the latest send time), and the driver activity of the exact bound session and process (a
+  stored event, no host call). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
+  rewrites a policy whose recorded value differs; older policies read null until then.
 - Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
   metadata stays on the attempt, separate from delivery and the final-submission marker;
   same-reason retries retain the first timestamp. It releases waiters without a recipient

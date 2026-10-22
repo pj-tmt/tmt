@@ -133,6 +133,7 @@ function expectNativeSchema(
       name: "record whether a request is a request or a person's passthrough text",
     },
     { version: 60, name: "keep the turn output a person's passthrough message earned" },
+    { version: 61, name: "record how long a digest rule keeps a member's oldest held message" },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

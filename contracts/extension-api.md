@@ -803,6 +803,7 @@ late finals on older requests; continuation does not include newer submissions.
 
 Results retain the ordinary history item fields: `requestId`, `roomId`,
 `recipientId`, `sender`, request `kind`, `origin`, `preparedAtMs`, `delivery`,
+`messageState` ([Message state](request-response-v1.md#message-state)),
 `recipientAcknowledged`, `final`, and the unchanged prompt `preview`. They add
 `responsePreview` (string or null) and `previewTruncated` (boolean). A retained
 response preview is its first line, at most 160 Unicode scalar values / 640 UTF-8
@@ -1106,7 +1107,7 @@ claiming. Core never reads Squad configuration or installs provider-global hooks
 
 | Operation                  | Input                                                                                                 | Result                                                         |
 | -------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `digest.policy.set`        | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`                    | policy view                                                    |
+| `digest.policy.set`        | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`, `maxHoldMs`       | policy view                                                    |
 | `digest.policy.clear`      | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
 | `digest.policy.show`       | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
 | `digest.checklist.dueNow`  | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                   |
@@ -1121,8 +1122,12 @@ UUIDs must be canonical and active; revision/expiry/cursors are nonnegative JS-s
 integers, a set expiry is strictly future, absent revision is 0. A clear advances
 the revision and stores expiry 0. Unknown fields (including `everyMs`) are refused.
 Views contain `identityId`, `revision`, `active`, `digestUntilMs`, `remainingMs`,
-`heldCount`, pinned `ownerIdentityId` and `setterIdentityId`, and `activeChecklist`
-(null or an unsettled claim). Held count includes that active sealed membership.
+`heldCount`, pinned `ownerIdentityId` and `setterIdentityId`, `maxHoldMs` (null until
+a set records one) and `activeChecklist` (null or an unsettled claim). `maxHoldMs` is
+optional on a set: the rule owner's limit on how long the oldest held message waits
+(1 through the JS-safe maximum; a clear cannot carry one). Core adds it to the oldest
+held arrival to state a held message's latest send time
+([Message state](request-response-v1.md#message-state)). Held count includes that active sealed membership.
 Policy conflicts return `DIGEST_REVISION_CONFLICT`; refresh before another write.
 
 A read without a checklist ID shows unclaimed references. A sealed read includes

@@ -84,13 +84,21 @@ impl TickProcess {
             Mode::Auto => Some(HOLD_FLOOR_MS),
             Mode::Off => None,
         };
+        // The rule's own limit, recorded so Core can state a held message's latest send time.
+        let max_hold = match &mode {
+            Mode::Interval { milliseconds, .. } => Some(*milliseconds),
+            Mode::Auto => Some(super::AUTO_CAP_MS),
+            Mode::Off => None,
+        };
         let adopts = revision > 0
             && recorded.is_some()
             && ["ownerIdentityId", "setterIdentityId"]
                 .iter()
                 .any(|key| policy[*key].as_str() == Some(id));
         let operation = match horizon {
-            Some(_) if changed || !active || adopts => Some("digest.policy.set"),
+            Some(_) if changed || !active || adopts || policy["maxHoldMs"].as_u64() != max_hold => {
+                Some("digest.policy.set")
+            }
             None if active => Some("digest.policy.clear"),
             _ => None,
         };
@@ -104,6 +112,7 @@ impl TickProcess {
             if let Some(horizon) = horizon {
                 // A missed next minute does not immediately release a configured long interval.
                 input["untilMs"] = json!(super::now_ms()?.saturating_add(horizon).min(MAX_MS));
+                input["maxHoldMs"] = json!(max_hold.map(|hold| hold.min(MAX_MS)));
             }
             self.core.api(operation, input)?;
         }
