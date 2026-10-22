@@ -1,15 +1,30 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, run } from './harness/ask.js';
 import { distinct, openSource, save } from './harness/page-source.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
-// This case moves megabytes through traced actions. Its trace keeps every action, log, network
-// event and screenshot, but not a DOM snapshot per action: each snapshot would hold the whole
-// source twice (field and preview), about 280 MB that the browser close must compress inside the
-// world's closer bound. The assertions compare bytes, which a DOM snapshot does not show.
-test.use({ trace: { mode: 'retain-on-failure', snapshots: false, screenshots: true } });
+// This case moves megabytes through traced actions. The browser close writes the whole trace
+// inside the world's closer bound, even when the case passes. Its trace keeps every action, log
+// and network event, but no DOM snapshot per action (each would hold the whole source twice,
+// about 280 MB) and no screencast frame (about 960 JPEGs, 100 MB). The assertions compare bytes,
+// which neither a snapshot nor a screenshot shows.
+test.use({ trace: { mode: 'retain-on-failure', snapshots: false, screenshots: false } });
 test.afterEach(disposeActiveWorlds);
+
+// The trace also records each call's arguments, so `toHaveValue(text)` would write the whole
+// source into it on every check. The page hashes its field instead, and only the digest travels.
+const fieldDigest = (field: Locator) =>
+  field.evaluate(async (element) => {
+    const bytes = new TextEncoder().encode((element as HTMLTextAreaElement).value);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  });
+const expectFieldText = (field: Locator, text: string, timeout = 5_000) =>
+  expect
+    .poll(() => fieldDigest(field), { timeout })
+    .toBe(createHash('sha256').update(text).digest('hex'));
 
 test('a 1.5 MiB page takes a browser save, a CLI write and 80 small browser edits, byte for byte', async () => {
   test.setTimeout(900_000);
@@ -24,7 +39,7 @@ test('a 1.5 MiB page takes a browser save, a CLI write and 80 small browser edit
     const created = createPage(world, 'Save big', a);
     const page = await openPage(door, browser, created);
     const box = await openSource(page);
-    await expect(box).toHaveValue(a, { timeout: 60_000 });
+    await expectFieldText(box, a, 60_000);
 
     // The browser saves a different 1.5 MiB; the CLI reads exactly those bytes.
     const b = distinct(big, 'b');
@@ -38,13 +53,13 @@ test('a 1.5 MiB page takes a browser save, a CLI write and 80 small browser edit
     // A CLI write of another 1.5 MiB reaches the open browser, which then saves on top of it.
     const c = distinct(big, 'c');
     run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], c);
-    await expect(box).toHaveValue(c, { timeout: 60_000 });
+    await expectFieldText(box, c, 60_000);
     const d = c + '<p>browser after CLI</p>';
     await box.fill(d);
     await save(page);
     await expect.poll(() => read(created.pageId).source === d, { timeout: 60_000 }).toBe(true);
     await page.reload();
-    await expect(await openSource(page)).toHaveValue(d, { timeout: 60_000 });
+    await expectFieldText(await openSource(page), d, 60_000);
 
     // Many small edits whose changes total far more than one 256 KiB update.
     const small = createPage(world, 'Save small', '<p>start</p>');
@@ -58,7 +73,7 @@ test('a 1.5 MiB page takes a browser save, a CLI write and 80 small browser edit
       await expect
         .poll(() => read(small.pageId).source === next, { timeout: 30_000, message: `edit ${i}` })
         .toBe(true);
-      await expect(sbox).toHaveValue(next);
+      await expectFieldText(sbox, next);
       current = next;
     }
     expect(current.length).toBeGreaterThan(640 * 1024);
