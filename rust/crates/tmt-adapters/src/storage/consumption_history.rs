@@ -76,6 +76,19 @@ pub struct ConsumptionLatest {
     pub consumption: Consumption,
 }
 
+/// A main-session turn boundary the hook admitted. A passthrough's text is matched to the turn
+/// it started by the prompt the provider reported; the turn's end settles what it earned (#4336).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnBoundary<'a> {
+    Started {
+        turn: Option<&'a str>,
+        prompt: &'a str,
+    },
+    Ended {
+        turn: Option<&'a str>,
+    },
+}
+
 /// A coordinator already admitted this binding/session against live evidence.
 /// `sampled` distinguishes a real read (including failure) from activity updates.
 pub struct RuntimeObservation<'a> {
@@ -88,6 +101,8 @@ pub struct RuntimeObservation<'a> {
     pub now_ms: u64,
     pub deadline: Instant,
     pub response: Option<super::ResponseCapture>,
+    /// The main-session turn boundary this event admitted, for the passthrough it settles.
+    pub boundary: Option<TurnBoundary<'a>>,
     /// The started sessions' rows, written with the sample that counted them.
     pub family: Option<crate::runtime::consumption::family::Write>,
 }
@@ -380,6 +395,32 @@ impl Storage {
                     observation.now_ms,
                     response,
                 )?;
+            }
+            if let Some(boundary) = observation.boundary
+                && observation.preferences != &observation.expected.preferences
+            {
+                let now = crate::request_runtime::wall_time_ms();
+                let session = remembered.provider_session.as_str();
+                match boundary {
+                    TurnBoundary::Started { turn, prompt } => {
+                        super::requests::passthrough::bind(
+                            connection, id, session, turn, prompt, now,
+                        )?;
+                    }
+                    TurnBoundary::Ended { turn } => {
+                        super::requests::passthrough::settle_turn(
+                            connection,
+                            id,
+                            session,
+                            turn,
+                            observation
+                                .response
+                                .as_ref()
+                                .map(|response| (&response.text, remembered.harness.as_str())),
+                            now,
+                        )?;
+                    }
+                }
             }
             if observation.sampled {
                 let latest = observation
@@ -865,6 +906,8 @@ fn record_sample(
     Ok(())
 }
 
+#[cfg(test)]
+mod passthrough_tests;
 #[cfg(test)]
 mod rollup_tests;
 #[cfg(test)]

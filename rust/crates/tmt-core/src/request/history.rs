@@ -76,6 +76,8 @@ pub struct HistoryRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryItem<T = ()> {
     pub delivery_policy: super::digest::DeliveryPolicy,
+    /// What a passthrough's turn earned, with its state as of the read.
+    pub capture: Option<super::passthrough::PassthroughCapture>,
     pub request_id: String,
     pub room_id: Option<String>,
     pub recipient_identity_id: Option<String>,
