@@ -17,6 +17,7 @@ import {
 } from './components.js';
 import { PageSectionsSection, TablesSection, VisuallyHiddenSection } from './layout.js';
 import { NotificationsSection, OverlaysSection, ShellSection } from './frames.js';
+import { AgentInputSection } from './composer.js';
 import { ChartsSection } from './charts.js';
 import { UiLayerSection } from './ui-layer.js';
 
@@ -44,6 +45,7 @@ export function GallerySections() {
       <CommandSection />
       <NoticeSection />
       <OverlaysSection />
+      <AgentInputSection />
       <NotificationsSection />
       <ChartsSection />
       <UiLayerSection />

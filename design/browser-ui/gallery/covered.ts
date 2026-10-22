@@ -25,6 +25,7 @@ export const sections = [
   ['command', 'Command'],
   ['notice', 'Notice'],
   ['overlays', 'Dialog and drawer'],
+  ['agent-input', 'Agent input'],
   ['notifications', 'Notifications'],
   ['charts', 'Charts'],
   ['ui-layer', 'UI layer'],

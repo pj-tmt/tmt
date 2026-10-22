@@ -16,6 +16,7 @@ import { OwnRecordConflict, OwnAppendRefused } from '../src/own-publication.js';
 import { getNearestEditorFromDOMNode, $getRoot, $isElementNode } from 'lexical';
 import { MessageMentionNode } from '../src/components/message-composer-document.js';
 import type { ThreadBinding } from '../src/thread-store.js';
+import type { AttachmentBinding } from '../src/attachment-service.js';
 import { projectThreadStatus } from '../src/thread-status-view.js';
 import { destination, id, selection, type RemoteDouble } from './ask-fixtures.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
@@ -63,6 +64,16 @@ export function setPreferenceScope(scope: string | undefined) {
 }
 export function setInitialEdit(edit: ComposerEdit | undefined) {
   initialEdit = edit;
+}
+/** Gives the next mount a discussion that can store attachments (the Attach button appears). */
+let attachments: AttachmentBinding | undefined;
+export function setAttachments(value: AttachmentBinding | undefined) {
+  attachments = value;
+}
+/** Mounts the next fixture inside this element instead of a `<main>` of its own. */
+let hostElement: HTMLElement | undefined;
+export function setHost(value: HTMLElement | undefined) {
+  hostElement = value;
 }
 export function setCreator(value: boolean) {
   creator = value ? { machineId: destination().machine, agentId: destination().agent } : undefined;
@@ -151,9 +162,11 @@ export function mount(
   root?.unmount();
   document.getElementById('annotation-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
-  const host = document.createElement('main');
-  host.id = 'annotation-fixture';
-  document.body.append(host);
+  const host = hostElement ?? document.createElement('main');
+  if (!hostElement) {
+    host.id = 'annotation-fixture';
+    document.body.append(host);
+  }
   writes = preparations = closes = commits = 0;
   writeFailure = undefined;
   if (mode === 'discovery-failure') directoryMode = 'fail';
@@ -168,6 +181,7 @@ export function mount(
   const chatRef = { writer: id(4), id: id(4) };
   const discussion: ThreadBinding = {
     deviceId: id(4),
+    ...(attachments ? { attachments } : {}),
     async setStatus() {
       throw new Error('Not used');
     },
@@ -358,6 +372,8 @@ export function mount(
     if (echoHost && surface === 'chat')
       return (
         <ChatPanel
+          creationRecipient={creator}
+          initialEdit={initialEdit}
           threads={[view]}
           asks={records}
           binding={talk ? binding : undefined}
