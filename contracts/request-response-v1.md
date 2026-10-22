@@ -7,7 +7,8 @@ completion or full-body retrieval. Socket denial is confirmed with OS permission
 evidence rather than localized error wording; tmux child locales are preserved,
 including UTF-8 character handling for capture and send. Identified destinations use a durable Inbox
 route with at most one live-delivery attempt when an endpoint is recorded.
-Unbound identities and explicit `talk --inbox` queue without that attempt.
+Unbound identities queue without that attempt. `talk` and `room send` have no queue-only
+option, so a sender cannot silence a bound recipient.
 Neither implies a daemon, remote transport or authentication.
 
 A cooperating agent submits its complete final body successfully. That reply is
@@ -429,17 +430,18 @@ responded within the budget, retains exit 4 / `TIMEOUT`, and gives the exact
 It does not claim the agent is dead or that the request was never received, and
 does not start a background timeout observer, cancel the request or resend it.
 
-Detached explicit `talk --inbox` accepts the queue with exit 0 and JSON
-`{status:"queued",requestId,target,identity,recipientIdentityId,notification:"not_attempted",waitingFor:"recipient_inbox_pull"}`.
-No live notification was attempted, even for an enrolled, ready recipient. The
-recipient must pull; enrollment does not automatically deliver these items.
-Human output states this and supplies `tmt inbox --identity '<recipient UUID>' --json`,
-a correlated `tmt x show <request-id> --incoming --identity '<recipient UUID>' --json`,
-and `tmt result <request-id>`. The recipient commands are for that recipient's
-own identity. A completed response does not carry the pending notification or
-waiting fields. Detached unbound and recorded offline queueing retain `offline:true` and the same
-unattempted-notification/pull fields, with a recipient pull and repair suggestion; ordinary live
-and uncertain handoffs do not claim that notification was unattempted.
+Detached `talk` to an unbound identity accepts the queue with exit 0 and JSON
+`{status:"queued",requestId,target,identity,recipientIdentityId,offline:true,notification:"not_attempted",waitingFor:"recipient_inbox_pull"}`
+with a recipient pull `suggestion`. No live notification was attempted, even for
+an enrolled, ready recipient. The recipient must pull; enrollment does not
+automatically deliver these items. Human output states this and supplies
+`tmt inbox --identity '<recipient UUID>' --json`, a correlated
+`tmt x show <request-id> --incoming --identity '<recipient UUID>' --json`, and
+`tmt result <request-id>`. The recipient commands are for that recipient's own
+identity. A completed response does not carry the pending notification or waiting
+fields. Recorded offline queueing retains `offline:true` and the same
+unattempted-notification/pull fields, with a recipient pull and repair suggestion;
+ordinary live and uncertain handoffs do not claim that notification was unattempted.
 
 Detached JSON is `{status:"sent",requestId,target,pane,identity?}`. Completed
 talk returns `status:"completed"`, the same correlation and exact `response`,
@@ -460,8 +462,7 @@ its agent as waiting on its user (an approval or a question) refuses the
 prompt: `talk` returns `DELIVERY_AWAITING_APPROVAL` (exit 1), nothing reached
 the pane, the request stays queued, and nothing types around the agent. Offline recipients with a recorded endpoint produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
-shell. Rebinding or coming online never triggers automatic re-wake. Explicit
-`--inbox` and unbound direct-pane behavior remain distinct.
+shell. Rebinding or coming online never triggers automatic re-wake.
 
 Unknown/unverified recipient readiness refuses live input with exit 1,
 `DELIVERY_PREPARATION_FAILED` and `deliveryState:"not_delivered"`. Human and JSON
@@ -497,7 +498,7 @@ Missing context uses the preview-less form defined above. The notice remains
 pending; it does not cancel the request.
 The later final has an independent callback. No worker restarts or resends work.
 A `--detach` request starts no observer and never gets the timeout hint: the sender chose
-not to wait, and its reply notice is unchanged. Anonymous and explicit queue-only requests
+not to wait, and its reply notice is unchanged. Anonymous and API-dispatched requests
 never push originator hints. The reply hint goes to the originator's recorded tmux
 server wherever `reply` runs, so it needs no tmux context in the replier's
 environment; it does need a `tmux` executable on `PATH` and a reachable socket.
@@ -662,9 +663,9 @@ reading. `check` captures pane diagnostics and may deliver a due
 [Digest checklist](#digest-delivery-windows) at verified idle; `check --capture-only`
 captures with no handoff or other side effect. Timeout and interruption
 remain observer-only: they do not cancel or complete X, and the existing
-180-second default remains current behavior. Explicit `talk --inbox` queues for
-one existing non-retired local identity, and bounded `x listen` observes local
-recipient or result attention. This adds no lease, background daemon, memory
+180-second default remains current behavior. `talk` to an unbound local identity
+queues for it, and bounded `x listen` observes local recipient or result
+attention. This adds no lease, background daemon, memory
 feature, MCP state machine, remote transport or extension dependency.
 
 The request service owns frozen policy, metadata/final horizons, prompt
@@ -801,8 +802,7 @@ notices, published as queued, and held under one IMMEDIATE transaction. They own
 no live waiter and attempt no channel write or paste. Text reports remaining
 seconds and UTC epoch expiry; JSON adds `digest:true`, `digestUntilMs`, `remainingMs`,
 `notification:"held"`, `waitingFor:"digest_checklist"` to ordinary queued correlation.
-This decision does not imply offline status. Explicit `--inbox` retains pull-only
-behavior and acquires no automatic wake or checklist membership.
+This decision does not imply offline status.
 
 `talk --urgent` bypasses Digest only; `urgent` remains visible in X and request
 history. A resolved sender UUID equal to the policy's owner bypasses automatically;

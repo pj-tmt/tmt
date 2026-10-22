@@ -32,6 +32,9 @@ fn counts(text: &str) -> (usize, usize) {
             lines += 1;
         }
     }
+    if text.ends_with('\n') || text.ends_with('\r') {
+        lines -= 1;
+    }
     (text.chars().count(), lines)
 }
 
@@ -55,7 +58,7 @@ pub(in crate::board) fn label(text: &str) -> Option<String> {
         } else {
             (chars, "chars")
         };
-        format!("⧉ Pasted · {} {unit} ×", number(count))
+        format!("⧉ Pasted · {} {unit}", number(count))
     })
 }
 
@@ -396,7 +399,12 @@ impl App {
             return;
         };
         let (chars, lines) = counts(preview.text.as_str());
-        let title = format!("Pasted · {} chars · {} lines", number(chars), number(lines));
+        let line_unit = if lines == 1 { "line" } else { "lines" };
+        let title = format!(
+            "Pasted · {} chars · {} {line_unit}",
+            number(chars),
+            number(lines)
+        );
         let modal = Modal {
             title: String::new(),
             placement: Placement::Body,

@@ -478,14 +478,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
                 : []),
               { args: ['whoami', '--json'] },
               {
-                args: [
-                  'talk',
-                  'Receiver',
-                  'Direct provider request',
-                  '--inbox',
-                  '--detach',
-                  '--json',
-                ],
+                args: ['talk', 'Receiver', 'Direct provider request', '--detach', '--json'],
               },
               { checkpoint, args: ['whoami', '--json'] },
             ])

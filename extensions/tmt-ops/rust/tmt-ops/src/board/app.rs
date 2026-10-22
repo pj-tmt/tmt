@@ -3000,9 +3000,8 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
-        if self.paste_preview_shown() {
-            return Effect::None;
-        }
+        self.composer.paste_preview.get_mut().take();
+        self.composer.invalidate();
         if self.checklist_shown() || self.recovery_shown() || self.discovery_shown() {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
@@ -3034,17 +3033,14 @@ impl App {
         if let Some(input) = self.input.as_mut()
             && !matches!(input.compose, Compose::Status)
         {
-            let label = if input.draft_key.is_some() {
-                super::composer::paste::label(text)
-            } else if message {
-                // Other message forms retain their existing inline fold policy.
-                let lines = text
-                    .replace("\r\n", "\n")
-                    .replace('\r', "\n")
-                    .lines()
-                    .count();
-                (text.chars().count() > 500 || lines > 8)
-                    .then(|| format!("[paste · {} bytes · {} lines]", text.len(), lines))
+            let label = if message {
+                super::composer::paste::label(text).map(|label| {
+                    if input.draft_key.is_some() {
+                        format!("{label} ×")
+                    } else {
+                        label
+                    }
+                })
             } else {
                 None
             };
@@ -3057,7 +3053,6 @@ impl App {
             }
         }
         self.update_mentions();
-        self.composer.invalidate();
         Effect::None
     }
 
