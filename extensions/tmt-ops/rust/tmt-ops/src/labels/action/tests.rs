@@ -1,18 +1,14 @@
 //! The action against the supplier's frozen vectors.
 use super::*;
 use serde_json::json;
-use std::fs;
 
-const VECTORS: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../tmt-digest/contracts/vectors/status-v1.json"
-);
 const MEMBER: &str = "10000000-0000-4000-8000-000000000003";
 
 fn vectors() -> Vec<Value> {
-    let document: Value =
-        serde_json::from_slice(&fs::read(VECTORS).expect("the supplier's vectors")).unwrap();
-    document["actions"].as_array().unwrap().clone()
+    super::super::tests::vectors()["actions"]
+        .as_array()
+        .unwrap()
+        .clone()
 }
 
 fn reason(name: &str) -> Refusal {
