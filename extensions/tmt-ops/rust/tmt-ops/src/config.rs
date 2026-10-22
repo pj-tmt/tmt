@@ -37,6 +37,33 @@ pub(crate) use workspace::{
     admit_action as admit_workspace_action, defaults as workspace_defaults,
 };
 
+/// A Config-owned write location. The event is always a separate literal key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BindingLocation {
+    Global,
+    Host(String),
+    Section { squad: String, index: usize },
+}
+/// Effective dispatch value and its authored write owner, kept separate for retired entries.
+pub struct ResolvedBinding {
+    pub action: Option<crate::action::Action>,
+    pub owner: Option<BindingLocation>,
+    pub authored: Option<crate::action::Action>,
+}
+
+impl BindingLocation {
+    pub fn label(&self, event: &str) -> String {
+        let event = toml_edit::Key::new(event).to_string();
+        match self {
+            Self::Global => format!("bind.{event}"),
+            Self::Host(host) => format!("bind.{host}.{event}"),
+            Self::Section { squad, index } => {
+                format!("squad.{squad}.section[{index}].bind.{event}")
+            }
+        }
+    }
+}
+
 const FILE_LIMIT: u64 = 1024 * 1024;
 /// What a busy document lock tells the user to do; an edit is never retried silently.
 const WRITE_RETRY: &str = "Try the same change again.";

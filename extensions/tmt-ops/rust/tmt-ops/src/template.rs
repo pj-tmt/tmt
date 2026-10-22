@@ -2,6 +2,7 @@
 //! value. A filled value is never re-split, re-quoted or shell-parsed.
 
 use serde_json::Value;
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Part {
@@ -16,6 +17,17 @@ pub struct Template(Vec<Part>);
 pub const DEFAULT_COPY: &str = "{name}: {task} ({state})";
 
 fn field_name(name: &str) -> bool {
+    if let Some(path) = name
+        .strip_prefix("row:")
+        .or_else(|| name.strip_prefix("ops:"))
+    {
+        return path.starts_with('/')
+            && !path.chars().any(char::is_control)
+            && path
+                .split('~')
+                .skip(1)
+                .all(|part| part.starts_with(['0', '1']));
+    }
     let bytes = name.as_bytes();
     !bytes.is_empty()
         && bytes[0].is_ascii_lowercase()
@@ -103,13 +115,11 @@ impl Template {
         row: &Value,
         board_pane: Option<&str>,
     ) -> Result<String, String> {
-        let filled = self.fill_with_board_pane(row, board_pane)?;
-        match self.0.first() {
-            Some(Part::Field(field)) if filled.starts_with('-') => Err(format!(
-                "{field} starts with '-' and would be read as an option; refused"
-            )),
-            _ => Ok(filled),
-        }
+        self.argument_parameters(Parameters {
+            row,
+            ops: None,
+            board_pane,
+        })
     }
 
     /// Fills every field from the row. A missing or empty value refuses the
@@ -123,24 +133,203 @@ impl Template {
         row: &Value,
         board_pane: Option<&str>,
     ) -> Result<String, String> {
+        self.fill_parameters(Parameters {
+            row,
+            ops: None,
+            board_pane,
+        })
+    }
+
+    pub fn fill_parameters(&self, parameters: Parameters<'_>) -> Result<String, String> {
         let mut out = String::new();
         for part in &self.0 {
             match part {
                 Part::Text(text) => out.push_str(text),
-                Part::Field(field) => {
-                    let value = (if field == "board_pane" {
-                        board_pane
-                    } else {
-                        field_value(row, field)
-                    })
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| format!("{field} is empty for this row"))?;
-                    out.push_str(value);
-                }
+                Part::Field(field) => out.push_str(&parameters.resolve(field)?),
             }
         }
         Ok(out)
     }
+
+    pub fn argument_parameters(&self, parameters: Parameters<'_>) -> Result<String, String> {
+        let filled = self.fill_parameters(parameters)?;
+        match self.0.first() {
+            Some(Part::Field(field)) if filled.starts_with('-') => Err(format!(
+                "{field} starts with '-' and would be read as an option; refused"
+            )),
+            _ => Ok(filled),
+        }
+    }
+}
+
+/// Held observations only. Caller pane evidence never comes from either document.
+#[derive(Clone, Copy)]
+pub struct Parameters<'a> {
+    pub row: &'a Value,
+    pub ops: Option<&'a Value>,
+    pub board_pane: Option<&'a str>,
+}
+
+impl Parameters<'_> {
+    pub fn resolve(&self, field: &str) -> Result<Cow<'_, str>, String> {
+        let missing = || format!("{field} is unavailable for this row");
+        if field == "board_pane" {
+            return self
+                .board_pane
+                .filter(|value| !value.is_empty())
+                .map(Cow::Borrowed)
+                .ok_or_else(|| "board_pane is empty for this row".into());
+        }
+        let pointed = if let Some(path) = field.strip_prefix("row:") {
+            Some((self.row, path))
+        } else if let Some(path) = field.strip_prefix("ops:") {
+            Some((self.ops.ok_or_else(missing)?, path))
+        } else {
+            None
+        };
+        if let Some((document, path)) = pointed {
+            if !parameter_path(path) || failed_path(document, path) {
+                return Err(missing());
+            }
+            return match document.pointer(path) {
+                Some(Value::String(value)) if !value.is_empty() => Ok(Cow::Borrowed(value)),
+                Some(value @ (Value::Number(_) | Value::Bool(_))) => {
+                    Ok(Cow::Owned(value.to_string()))
+                }
+                _ => Err(missing()),
+            };
+        }
+        if !matches!(
+            field,
+            "name"
+                | "id"
+                | "member"
+                | "lifetime"
+                | "presence"
+                | "pane"
+                | "target"
+                | "cwd"
+                | "host"
+                | "session"
+                | "window"
+                | "activity"
+        ) && self.row["failed"]
+            .as_array()
+            .is_some_and(|failed| failed.iter().any(|value| value.as_str() == Some(field)))
+        {
+            return Err(missing());
+        }
+        field_value(self.row, field)
+            .filter(|value| !value.is_empty())
+            .map(Cow::Borrowed)
+            .ok_or_else(|| format!("{field} is empty for this row"))
+    }
+
+    /// The same resolution used by execution: unavailable values are visible, not guessed.
+    pub fn inventory(&self) -> Vec<String> {
+        fn visit(
+            parameters: Parameters<'_>,
+            namespace: &str,
+            value: &Value,
+            path: &str,
+            out: &mut Vec<String>,
+        ) {
+            match value {
+                Value::Object(fields) => {
+                    for (key, value) in fields {
+                        let path = format!("{path}/{}", key.replace('~', "~0").replace('/', "~1"));
+                        if parameter_path(&path) {
+                            visit(parameters, namespace, value, &path, out);
+                        }
+                    }
+                }
+                Value::Array(values) => {
+                    for (index, value) in values.iter().enumerate() {
+                        visit(
+                            parameters,
+                            namespace,
+                            value,
+                            &format!("{path}/{index}"),
+                            out,
+                        );
+                    }
+                }
+                _ => {
+                    let field = format!("{namespace}:{path}");
+                    let kind = match value {
+                        Value::String(_) => "string",
+                        Value::Number(_) => "number",
+                        Value::Bool(_) => "boolean",
+                        _ => "absent",
+                    };
+                    let value = parameters
+                        .resolve(&field)
+                        .map(|resolved| {
+                            if value.is_string() {
+                                format!("{resolved:?}")
+                            } else {
+                                resolved.into_owned()
+                            }
+                        })
+                        .unwrap_or_else(|_| "unavailable".into());
+                    let source = match namespace {
+                        "row" => "public Ops row",
+                        _ if matches!(
+                            path.split('/').nth(1),
+                            Some("runningDriver" | "driverSupport" | "resume" | "location")
+                        ) =>
+                        {
+                            "Core ls observation"
+                        }
+                        _ => "Ops selected scope",
+                    };
+                    out.push(format!("{{{field}}} · {kind} · {source} · {value}"));
+                }
+            }
+        }
+        let caller = self
+            .board_pane
+            .map(|pane| format!("{pane:?}"))
+            .unwrap_or_else(|| "unavailable (resolved at dispatch)".into());
+        let mut out = vec![format!(
+            "{{board_pane}} · string · public whoami sample · {caller}"
+        )];
+        visit(*self, "row", self.row, "", &mut out);
+        if let Some(ops) = self.ops {
+            visit(*self, "ops", ops, "", &mut out);
+        }
+        out
+    }
+}
+
+/// These root containers carry message text/receipts, not row metadata. A custom
+/// `fields.message` is ordinary public metadata and is intentionally unaffected.
+fn parameter_path(path: &str) -> bool {
+    let root = path
+        .split('/')
+        .nth(1)
+        .unwrap_or("")
+        .replace("~1", "/")
+        .replace("~0", "~");
+    if matches!(root.as_str(), "annotation" | "waitingOnYou" | "receipt") {
+        return false;
+    }
+    true
+}
+
+fn failed_path(row: &Value, path: &str) -> bool {
+    let mut segments = path
+        .split('/')
+        .skip(1)
+        .map(|part| part.replace("~1", "/").replace("~0", "~"));
+    if segments.next().as_deref() != Some("fields") {
+        return false;
+    }
+    segments.next().is_some_and(|key| {
+        row["failed"]
+            .as_array()
+            .is_some_and(|failed| failed.iter().any(|value| value.as_str() == Some(&key)))
+    })
 }
 
 /// A row's value for a field: identity basics, location, activity, or any
@@ -166,6 +355,133 @@ pub fn field_value<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn absent_namespace_cannot_fall_back_to_authored_fields_and_failed_custom_names_do_not_mask_identity()
+     {
+        let row = json!({"name":"worker", "fields":{"name":"failed custom name", "ops:/runningDriver":"spoof"}, "failed":["name"]});
+        assert!(
+            Template::parse("{ops:/runningDriver}")
+                .unwrap()
+                .fill(&row)
+                .unwrap_err()
+                .contains("ops:/runningDriver")
+        );
+        assert_eq!(
+            Template::parse("{name}").unwrap().fill(&row).unwrap(),
+            "worker"
+        );
+        assert!(
+            Template::parse("{row:/fields/name}")
+                .unwrap()
+                .fill(&row)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn held_context_preserves_core_names_and_does_not_shadow_custom_fields() {
+        let row = json!({"fields":{"runtime":"custom", "board_pane":"%99", "failed_value":"—"}, "failed":["failed_value"], "ops":{"runningDriver":"spoof"}});
+        let ops = json!({"runningDriver":"codex", "resume":{"model":"startup", "observedModel":{"model":"observed", "observedAtMs":123}}, "timers":{"active":0,"total":2}});
+        let parameters = Parameters {
+            row: &row,
+            ops: Some(&ops),
+            board_pane: Some("%7"),
+        };
+        for (source, value) in [
+            ("{runtime}", "custom"),
+            ("{ops:/runningDriver}", "codex"),
+            ("{ops:/resume/observedModel/model}", "observed"),
+            ("{ops:/timers/active}", "0"),
+            ("{board_pane}", "%7"),
+        ] {
+            assert_eq!(
+                Template::parse(source)
+                    .unwrap()
+                    .fill_parameters(parameters)
+                    .unwrap(),
+                value
+            );
+        }
+        for source in [
+            "{row:/fields/failed_value}",
+            "{failed_value}",
+            "{ops:/resume/missing}",
+        ] {
+            assert!(
+                Template::parse(source)
+                    .unwrap()
+                    .fill_parameters(parameters)
+                    .is_err()
+            );
+        }
+        assert!(
+            Template::parse("{ops:/runningDriver}")
+                .unwrap()
+                .fill(&row)
+                .is_err(),
+            "row metadata cannot supply held Ops context"
+        );
+        let inventory = parameters.inventory().join("\n");
+        assert!(
+            inventory.contains("ops:/runningDriver} · string · Core ls observation · \"codex\"")
+        );
+        assert!(
+            inventory.contains("row:/fields/failed_value} · string · public Ops row · unavailable")
+        );
+    }
+
+    #[test]
+    fn public_row_scalar_paths_keep_types_escaping_and_literal_argument_boundaries() {
+        let row = json!({"name":"worker", "pane":{"id":"%3"}, "fields":{"a/b~c":"literal $(id); words"}, "count":0, "enabled":false});
+        for (source, expected) in [
+            ("{row:/pane/id}", "%3"),
+            ("{row:/fields/a~1b~0c}", "literal $(id); words"),
+            ("{row:/count}", "0"),
+            ("{row:/enabled}", "false"),
+        ] {
+            let template = Template::parse(source).unwrap();
+            assert_eq!(template.fill_argument(&row).unwrap(), expected);
+            assert_eq!(Template::parse(&template.source()).unwrap(), template);
+        }
+    }
+
+    #[test]
+    fn unavailable_nonscalar_and_message_sources_refuse_the_named_path() {
+        let row = json!({"missing":null, "object":{"value":1}, "array":[1],
+            "annotation":{"text":"private request"}, "waitingOnYou":[{"preview":"private question"}],
+            "receipt":{"id":"private receipt"}, "fields":{"message":"public metadata"}});
+        for path in [
+            "/absent",
+            "/missing",
+            "/object",
+            "/array",
+            "/annotation/text",
+            "/waitingOnYou/0/preview",
+            "/receipt/id",
+        ] {
+            let field = format!("row:{path}");
+            let error = Template::parse(&format!("{{{field}}}"))
+                .unwrap()
+                .fill(&row)
+                .unwrap_err();
+            assert!(error.contains(&field), "{error}");
+        }
+        assert_eq!(
+            Template::parse("{row:/array/0}")
+                .unwrap()
+                .fill(&row)
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            Template::parse("{row:/fields/message}")
+                .unwrap()
+                .fill(&row)
+                .unwrap(),
+            "public metadata"
+        );
+    }
 
     #[test]
     fn literal_braces_round_trip_without_becoming_placeholders() {

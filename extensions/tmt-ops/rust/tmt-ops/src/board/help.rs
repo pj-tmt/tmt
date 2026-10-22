@@ -280,6 +280,24 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ("Alt-Backspace", "delete the word before the draft cursor"),
         ("native selection", "use the terminal emulator's selection override modifier, or use source selection inside the response reader"),
     ]));
+    if let Some(row) = app.selected_row() {
+        let ops = app.parameter_observations(row);
+        let parameters = crate::template::Parameters {
+            row,
+            ops: Some(&ops),
+            board_pane: None,
+        };
+        sections.push(KeyHelpSection {
+            id: "binding-parameters".into(),
+            title: "binding parameters · held row sample".into(),
+            entries: parameters
+                .inventory()
+                .into_iter()
+                .enumerate()
+                .map(|(index, text)| entry(&format!("parameter-{index}"), "", text))
+                .collect(),
+        });
+    }
     KeyHelp { sections }
 }
 

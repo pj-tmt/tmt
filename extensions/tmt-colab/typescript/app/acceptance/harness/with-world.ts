@@ -7,7 +7,10 @@ const active = new Set<AcceptanceWorld>();
  * Run a scenario in a fresh world. The callback's failure is preserved, but
  * cleanup and the leak report always run; a leak fails an otherwise green run.
  */
-export async function withWorld<T>(scenario: (world: AcceptanceWorld) => Promise<T>): Promise<T> {
+export async function withWorld<T>(
+  scenario: (world: AcceptanceWorld) => Promise<T>,
+  beforeStart?: (world: AcceptanceWorld) => void,
+): Promise<T> {
   const info = test.info();
   const world = new AcceptanceWorld(undefined, {
     caseIdentity: { case: info.title, worker: info.workerIndex },
@@ -17,6 +20,7 @@ export async function withWorld<T>(scenario: (world: AcceptanceWorld) => Promise
   let failure: unknown;
   let failed = false;
   try {
+    beforeStart?.(world);
     await world.start();
     result = await scenario(world);
   } catch (error) {

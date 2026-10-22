@@ -230,7 +230,7 @@ impl Overlay {
         let mut host = host_action::HostAction {
             selection,
             board_pane,
-            source: String::new(),
+            destination: None,
         };
         let settings = host.settings(&config)?;
         let mut overlay = Self::new(settings);
@@ -245,9 +245,37 @@ impl Overlay {
             list_rows(&overlay.settings, &overlay.picks),
             None,
         ));
+        overlay.overrides = overlay
+            .settings
+            .entries
+            .iter()
+            .filter(|entry| entry.source != "workspace default")
+            .map(|entry| entry.key.clone())
+            .collect();
         overlay.config = Some(config);
         overlay.host_action = Some(host);
         Ok(overlay)
+    }
+
+    #[cfg(test)]
+    pub(in crate::board) fn captured_binding_geometry(&self) -> Value {
+        let state = if self.editing() {
+            self.prompt.borrow()
+        } else {
+            self.surface.borrow()
+        };
+        let rect = |rect: ratatui::layout::Rect| [rect.x, rect.y, rect.width, rect.height];
+        let map = state.frame.as_ref().expect("binding surface painted");
+        for hit in &map.hits {
+            assert_eq!(
+                hit.rect.intersection(map.areas.outer),
+                hit.rect,
+                "binding hit outside admitted modal"
+            );
+        }
+        json!({"outer":rect(map.areas.outer), "query":rect(map.query),
+            "hits": map.hits.iter().map(|hit| json!({"id":hit.id, "row":hit.row_id, "rect":rect(hit.rect)})).collect::<Vec<_>>(),
+            "list":format!("{:?}",map.list), "selected":state.picker.list.selected()})
     }
 
     /// The new value of a row that cycles in place.
@@ -312,6 +340,13 @@ impl Overlay {
         if let Some(host) = &mut self.host_action {
             let context = self.settings.context.clone();
             self.settings = host.settings(config).expect("validated host action write");
+            self.overrides = self
+                .settings
+                .entries
+                .iter()
+                .filter(|entry| entry.source != "workspace default")
+                .map(|entry| entry.key.clone())
+                .collect();
             self.settings.context = context;
             self.picks = host_action::HostAction::picks(
                 self.settings.entries[0].value.as_str().unwrap_or_default(),
@@ -363,6 +398,43 @@ impl Overlay {
             return false;
         }
         let key = self.selected_key().unwrap().to_owned();
+        if let Some(host) = &self.host_action {
+            let event = key.strip_prefix("bind.").unwrap();
+            let location = self
+                .config
+                .as_ref()
+                .unwrap()
+                .binding(
+                    host.selection.scope,
+                    &host.locations(self.config.as_ref().unwrap()).unwrap(),
+                    event,
+                    &host.selection.factory_bindings,
+                )
+                .unwrap()
+                .owner;
+            let Some(location) = location else {
+                return false;
+            };
+            return match self
+                .config
+                .as_mut()
+                .unwrap()
+                .set_binding(&location, event, None)
+            {
+                Ok(_) => {
+                    self.refresh();
+                    self.notice = Some(SettingNotice {
+                        mark: Mark::Done,
+                        message: "Override removed; using inherited binding".into(),
+                    });
+                    true
+                }
+                Err(error) => {
+                    self.notice = Some(SettingNotice::error(error.message, &key, None));
+                    false
+                }
+            };
+        }
         let squad = self.scope().unwrap().to_owned();
         match self.config.as_mut().unwrap().reset_setting(&squad, &key) {
             Ok(_) => {
@@ -400,6 +472,35 @@ impl Overlay {
         }
     }
     pub fn key(&mut self, key: KeyEvent) -> Input {
+        if self.host_action.is_some()
+            && self.editing.is_some()
+            && matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End
+            )
+            && self
+                .prompt
+                .borrow_mut()
+                .picker
+                .list
+                .scroll
+                .input(&Event::Key(key))
+        {
+            return Input::Preview;
+        }
+        if self.editing.is_some()
+            && key.code == KeyCode::Tab
+            && let Some(host) = &mut self.host_action
+        {
+            host.cycle_destination(self.config.as_ref().unwrap());
+            self.preview();
+            return Input::Preview;
+        }
         if self.host_action.is_some()
             && self.editing.is_some()
             && self
@@ -476,6 +577,7 @@ impl Overlay {
                         host.pick(self.selected_pick().expect("selected pick").id, current)
                     {
                         self.editing = Some(("bind.j".into(), line));
+                        self.begin_binding("j");
                         self.preview();
                         return Input::Preview;
                     }
@@ -501,8 +603,16 @@ impl Overlay {
                         });
                         return Input::None;
                     }
-                    self.editing =
-                        Some((entry.key.clone(), crate::settings::display(&entry.value)));
+                    let key = entry.key.clone();
+                    let text = if self.host_action.is_some() {
+                        entry.value.as_str().unwrap_or_default().to_owned()
+                    } else {
+                        crate::settings::display(&entry.value)
+                    };
+                    if self.host_action.is_some() {
+                        self.begin_binding(key.strip_prefix("bind.").unwrap());
+                    }
+                    self.editing = Some((key, text));
                     self.preview();
                 }
                 return Input::Preview;
@@ -514,6 +624,19 @@ impl Overlay {
             .input(&Event::Key(key), PickerField::List);
         Input::None
     }
+    fn begin_binding(&mut self, event: &str) {
+        self.host_action
+            .as_mut()
+            .unwrap()
+            .begin(self.config.as_ref().unwrap(), event);
+        self.prompt
+            .borrow_mut()
+            .picker
+            .list
+            .scroll
+            .step(tmt_tui::components::Step::Top);
+    }
+
     /// The selected on/off setting that this squad may change: Space flips it.
     fn selected_toggle(&self) -> Option<(String, bool)> {
         let entry = self.selected_entry()?;
@@ -537,12 +660,11 @@ impl Overlay {
         self.draft = None;
         self.notice = None;
         if let Some(host) = &self.host_action {
-            match self
-                .config
-                .as_ref()
-                .unwrap()
-                .preview_host_action(host.write_source(), &text)
-            {
+            match self.config.as_ref().unwrap().preview_binding(
+                host.destination.as_ref().unwrap(),
+                name.strip_prefix("bind.").unwrap(),
+                Some(&text),
+            ) {
                 Ok(config) => {
                     self.draft = Some(config);
                     let preview = host.preview(&text);
@@ -552,8 +674,14 @@ impl Overlay {
                         } else {
                             Mark::Warning
                         },
-                        message: preview
-                            .unwrap_or_else(|error| format!("Preview unavailable: {error}")),
+                        message: format!(
+                            "{} · {}",
+                            host.destination_notice(
+                                self.config.as_ref().unwrap(),
+                                name.strip_prefix("bind.").unwrap()
+                            ),
+                            preview.unwrap_or_else(|error| format!("Preview unavailable: {error}"))
+                        ),
                     });
                 }
                 Err(error) => self.notice = Some(SettingNotice::error(error.message, &name, None)),
@@ -576,20 +704,23 @@ impl Overlay {
     pub fn save(&mut self) -> bool {
         let (name, text) = self.editing.as_ref().unwrap().clone();
         if let Some(host) = &self.host_action {
-            let source = host.write_source().to_owned();
-            match self
-                .config
-                .as_mut()
-                .unwrap()
-                .set_host_action(&source, &text)
-            {
+            let destination = host.destination.as_ref().unwrap().clone();
+            let destination_notice = host.destination_notice(
+                self.config.as_ref().unwrap(),
+                name.strip_prefix("bind.").unwrap(),
+            );
+            match self.config.as_mut().unwrap().set_binding(
+                &destination,
+                name.strip_prefix("bind.").unwrap(),
+                Some(&text),
+            ) {
                 Ok(_) => {
                     self.editing = None;
                     self.draft = None;
                     self.refresh();
                     self.notice = Some(SettingNotice {
                         mark: Mark::Done,
-                        message: "Saved".into(),
+                        message: format!("Saved · {destination_notice}"),
                     });
                     return true;
                 }
@@ -633,7 +764,14 @@ impl Overlay {
         }
     }
     pub fn mouse(&self, event: MouseEvent) {
-        if self.editing.is_none() {
+        if self.host_action.is_some() && self.editing.is_some() {
+            self.prompt
+                .borrow_mut()
+                .picker
+                .list
+                .scroll
+                .input(&Event::Mouse(event));
+        } else if self.editing.is_none() {
             self.surface
                 .borrow_mut()
                 .input(&Event::Mouse(event), PickerField::List);
@@ -758,7 +896,7 @@ fn template(
         .unwrap_or("settings · Enter edit · * read-only");
     let host_action = host_title.is_some();
     let reference = if host_action {
-        "<tmt-text token=\"dim\" wrap=\"true\">Fields: {pane} {name} {pr_link} {board_pane} · {{ }} for literal braces</tmt-text>"
+        "<tmt-text token=\"dim\" wrap=\"true\">Parameters: {row:/pane/id} · {ops:/runningDriver} · {board_pane}; {{ }} for braces</tmt-text>"
     } else {
         "<tmt-text token=\"dim\" class=\"truncate\">Full values: tmt ops sq config show --json (--squad/--tab)</tmt-text>"
     };
@@ -772,13 +910,9 @@ fn template(
     } else {
         ""
     };
-    let list_markup = if host_action {
-        r#"<tmt-row class="flex-col"><tmt-repeat each="row.lines" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[1_1_1fr] gap-x-1 shrink-0"><tmt-text bind="line.cursor"/><tmt-text bind="line.mark" token="accent"/><tmt-text bind="line.name" token="text" wrap="true"/></tmt-row></tmt-repeat><tmt-repeat each="row.description" as="description"><tmt-text bind="description.text" token="muted" wrap="true"/></tmt-repeat><tmt-repeat each="row.heading" as="heading"><tmt-text bind="heading.text" token="dim" class="shrink-0"/></tmt-repeat></tmt-row>"#.to_owned()
-    } else {
-        format!(
-            r#"<tmt-row class="flex-col"><tmt-repeat each="row.lines" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[1_1_{key_width}_1fr_{source_width}] gap-x-1 shrink-0"><tmt-text bind="line.cursor"/><tmt-text id="mark" bind="line.mark"/><tmt-text id="name" bind="line.name" token="accent" class="truncate-middle"/><tmt-text id="value" bind="line.value" token="text" wrap="true"/><tmt-text bind="line.source" token="dim" class="truncate-middle"/></tmt-row></tmt-repeat><tmt-repeat each="row.description" as="description"><tmt-row class="grid grid-cols-[1_1_{key_width}_1fr_{source_width}] gap-x-1 shrink-0"><tmt-text/><tmt-text/><tmt-text/><tmt-text bind="description.text" token="muted" wrap="true" class="col-span-2"/></tmt-row></tmt-repeat><tmt-repeat each="row.heading" as="heading"><tmt-text bind="heading.text" token="dim" class="shrink-0"/></tmt-repeat></tmt-row>"#
-        )
-    };
+    let list_markup = format!(
+        r#"<tmt-row class="flex-col"><tmt-repeat each="row.lines" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[1_1_{key_width}_1fr_{source_width}] gap-x-1 shrink-0"><tmt-text bind="line.cursor"/><tmt-text id="mark" bind="line.mark"/><tmt-text id="name" bind="line.name" token="accent" class="truncate-middle"/><tmt-text id="value" bind="line.value" token="text" wrap="true"/><tmt-text bind="line.source" token="dim" class="truncate-middle"/></tmt-row></tmt-repeat><tmt-repeat each="row.description" as="description"><tmt-row class="grid grid-cols-[1_1_{key_width}_1fr_{source_width}] gap-x-1 shrink-0"><tmt-text/><tmt-text/><tmt-text/><tmt-text bind="description.text" token="muted" wrap="true" class="col-span-2"/></tmt-row></tmt-repeat><tmt-repeat each="row.heading" as="heading"><tmt-text bind="heading.text" token="dim" class="shrink-0"/></tmt-repeat></tmt-row>"#
+    );
     // Groups are disabled rows; setting identity and selection remain owned by the list.
     let markup = format!(
         r#"<tmt-view version="1"><tmt-modal id="settings" title="{title}" placement="body"><tmt-scroll id="body">{query}<tmt-repeat each="$.overrides" as="override"><tmt-text bind="override.text" token="muted" class="truncate"/></tmt-repeat>{reference}<tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="waiting" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty="(no settings)">{list_markup}</tmt-list>{path}</tmt-scroll><tmt-text slot="status" bind="$.status" token="{role}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#
@@ -915,7 +1049,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     let mut grouped = false;
     for pick in &overlay.picks {
         if pick.id != "actions" && !grouped {
-            rows.push(json!({"id":format!("group:{PICK_GROUP}"),"disabled":true,"lines":[],"description":[],"heading":[{"text":if overlay.host_action.is_some() {"Preset"} else {PICK_GROUP}}]}));
+            rows.push(json!({"id":format!("group:{PICK_GROUP}"),"disabled":true,"lines":[],"description":[],"heading":[{"text":if overlay.host_action.is_some() {"j presets"} else {PICK_GROUP}}]}));
             grouped = true;
         }
         let id = pick_row_id(pick);
@@ -933,16 +1067,17 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         } else {
             ""
         };
-        rows.push(json!({"id":id, "disabled":false, "lines":[{"id":"line:0", "cursor":cursor, "mark":mark, "name":if overlay.host_action.is_some() {format!("{} {}",pick.name,pick.value).trim_end().to_owned()} else {pick.name.to_owned()}, "value":escape(&pick.value), "source":if overridden { "this squad · r reset" } else {pick.hint}}], "description":[], "heading":[]}));
+        rows.push(json!({"id":id, "disabled":false, "lines":[{"id":"line:0", "cursor":cursor, "mark":mark, "name":pick.name.to_owned(), "value":escape(&pick.value), "source":if overridden { "this squad · r reset" } else {pick.hint}}], "description":[], "heading":[]}));
     }
     let mut previous = None;
     for entry in &overlay.settings.entries {
         let group = setting_name(&entry.key).0;
         if previous != Some(group) {
-            rows.push(json!({"id":format!("group:{group}"), "disabled":true, "lines":[], "description":[], "heading":[{"text":if overlay.host_action.is_some() {"Command"} else {group}}]}));
+            rows.push(json!({"id":format!("group:{group}"), "disabled":true, "lines":[], "description":[], "heading":[{"text":if overlay.host_action.is_some() {"Bindings"} else {group}}]}));
             previous = Some(group);
         }
         let value = match &entry.value {
+            Value::Null if overlay.host_action.is_some() => "unassigned".into(),
             Value::Null => "unset".into(),
             Value::Array(items) if items.is_empty() => "none".into(),
             value => crate::settings::display(value),
@@ -953,26 +1088,19 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             if entry.editable { "" } else { "*" }
         );
         let overridden = overlay.overrides.contains(&entry.key);
-        let source = if overridden {
+        let source = if overridden && overlay.host_action.is_none() {
             "this squad · r reset"
         } else {
             entry.source.as_str()
         };
         let lines: Vec<_> = value_lines(&escape(&value), value_width, entry.value.is_array() || entry.value.is_object()).into_iter().enumerate().map(|(index,value)| json!({"id":format!("line:{index}"), "cursor":if selected.as_deref() == Some(&entry.key) {"›"} else {""}, "mark":if index == 0 && overridden {"≠"} else {""}, "name":if index == 0 {name.as_str()} else {""}, "value":value, "source":if index == 0 {source} else {""}})).collect();
-        let lines = if overlay.host_action.is_some() {
-            vec![
-                json!({"id":"line:0", "cursor":if selected.as_deref()==Some(&entry.key) {"›"} else {""}, "mark":"", "name":escape(&value), "value":"", "source":""}),
-            ]
-        } else {
-            lines
-        };
         rows.push(json!({"id":entry.key, "disabled":false, "lines":lines, "description":entry.description.as_ref().map(|text| vec![json!({"text":text})]).unwrap_or_default(), "heading":[]}));
     }
     let key = ReferenceStyle {
         host_title: overlay
             .host_action
             .as_ref()
-            .map(|host| host.title("Host action (j)")),
+            .map(|host| host.title("Bindings")),
         squad_title: overlay.from_menu.then(|| {
             format!(
                 "Squad settings: {}",
@@ -1011,7 +1139,11 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         overlay.display_path
     );
     let footer = if overlay.host_action.is_some() {
-        "↑↓ choose · Enter preview · Esc cancel"
+        if reset_hint {
+            "↑↓ choose · Enter edit · r reset · Esc close"
+        } else {
+            "↑↓ choose · Enter edit · Esc close"
+        }
     } else {
         let space = if overlay.selected_toggle().is_some() {
             "Space on/off · "
@@ -1022,7 +1154,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         &format!("↑↓ select · {space}Enter edit · {reset}PgUp/PgDn page · Esc close")
     };
     let mut state = overlay.surface.borrow_mut();
-    let value = json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text":format!("{} {} from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting differs"} else {"settings differ"})})] }, "query":query, "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "saved_path":format!("Saved to {}", overlay.display_path), "footer":footer, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())});
+    let value = json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text": if overlay.host_action.is_some() {format!("{} authored bindings · source at right", overlay.overrides.len())} else {format!("{} {} from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting differs"} else {"settings differ"})}})] }, "query":query, "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "saved_path":format!("Saved to {}", overlay.display_path), "footer":footer, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())});
     state.render(FILE, template, value.clone(), frame, look, body);
     // Opened from the Workspace menu: show the idle alert rows and their hint whole, then repaint.
     if overlay.reveal_idle.get()
@@ -1071,8 +1203,8 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
 }
 
 #[cfg(test)]
-mod tests {
-    mod host_action;
+pub(in crate::board) mod tests {
+    pub(in crate::board) mod host_action;
 
     use super::*;
     use crate::config::Pane;

@@ -49,10 +49,11 @@ fn selection() -> super::super::settings::host_action::Selection {
     super::super::settings::host_action::Selection {
         row: Some(json!({"id":"identity", "name":"alpha", "fields":{"board_pane":"%99"}})),
         recipient: Some(json!({"id":"identity", "name":"alpha", "fields":{"board_pane":"%99"}})),
-        default_action: Some(Action::parse("jump").unwrap()),
+        factory_bindings: crate::config::workspace_defaults(OpsKeyScope::Member),
         squad: None,
         scope: OpsKeyScope::Member,
         invoker_tmux: true,
+        ops: json!({}),
     }
 }
 
@@ -114,6 +115,7 @@ fn prepared_run_refuses_missing_context_without_starting_the_program() {
     let request = Request::PreparedRun {
         action,
         row: json!({"id":"identity", "fields":{"board_pane":"%99"}}),
+        ops: json!({}),
     };
     match run(&f.core, None, Job::Act(request)) {
         BoardEvent::Acted {
