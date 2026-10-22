@@ -1,4 +1,5 @@
 import { entryMount, publicEntry } from './entry.js';
+import { loadRuntime, wantsRuntime, type PageRuntime } from './page-runtime.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
@@ -1050,7 +1051,10 @@ export async function mountRenderer(
   window.addEventListener('message', bound);
   window.addEventListener('resize', resize);
   options.signal.addEventListener('abort', destroy, { once: true });
-  frame.onload = () => {
+  // A page that opts in gets the bundled runtime; any other page is bound exactly as before.
+  const rendererBase = publicEntry() ? entryMount().href : document.baseURI;
+  const runtime = wantsRuntime(source) ? loadRuntime(rendererBase) : undefined;
+  frame.onload = async () => {
     if (stopped) return;
     if (++loads > 2) {
       stop('navigation');
@@ -1063,18 +1067,29 @@ export async function mountRenderer(
     // https://html.spec.whatwg.org/multipage/iframe-embed-object.html#iframe-load-event-steps
     // The bootstrap load receives source once; document.write completes the second load.
     if (loads !== 1) return;
+    let bundle: PageRuntime | undefined;
+    if (runtime) {
+      try {
+        bundle = await runtime;
+      } catch {
+        if (!stopped) stop('failed');
+        return;
+      }
+      if (stopped) return;
+    }
     frame.contentWindow?.postMessage(
       {
         type: 'colab.render.bind',
         ...snapshot,
         theme: getTheme(),
         ...(options.layout ? { layout: options.layout } : {}),
+        ...(bundle ? { runtime: bundle } : {}),
       },
       '*',
       [channel.port2],
     );
   };
-  frame.src = rendererUrl(publicEntry() ? entryMount().href : document.baseURI);
+  frame.src = rendererUrl(rendererBase);
   // Preserve the current offset through replacement, without replaying an older
   // offset when a later height report arrives after the person has scrolled.
   const scroll =
