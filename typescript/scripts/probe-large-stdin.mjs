@@ -1,115 +1,106 @@
-// Temporary #4443 hosted diagnostic. No API calls, release dispatch or publication.
+// Temporary read-only #4443 incident reproduction; never dispatches or publishes a release.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { release } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpus, release } from 'node:os';
+import path from 'node:path';
 
-const sha = 'a'.repeat(40);
-const tag = 'v5.0.0-alpha.999999';
-// The captured 961-release catalogue is 14,546,406 bytes. This is over twice that size.
-const input = Buffer.from(
-  JSON.stringify([
-    [
-      {
-        tag_name: tag,
-        target_commitish: sha,
-        draft: true,
-        created_at: '2026-10-22T00:00:00Z',
-        assets: [],
-        body: `Unicode: 日本語 🧪 ${'x'.repeat(32 * 1024 * 1024)}`,
-      },
-    ],
-  ])
-);
-const digest = createHash('sha256').update(input).digest('hex');
-const finish = `const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value); JSON.parse(bytes.toString('utf8')); console.log(JSON.stringify({bytes:bytes.length,sha256:require('node:crypto').createHash('sha256').update(bytes).digest('hex')}));`;
-const cases = [
-  ['readFileSync-utf8', ['-e', `const value=require('node:fs').readFileSync(0,'utf8');${finish}`]],
-  ['readFileSync-buffer', ['-e', `const value=require('node:fs').readFileSync(0);${finish}`]],
-  [
-    'readSync-chunks',
-    [
-      '-e',
-      `const {readSync}=require('node:fs'); const chunks=[]; for (;;) { const b=Buffer.allocUnsafe(65536); const n=readSync(0,b,0,b.length,null); if(n===0)break; chunks.push(b.subarray(0,n)); } const value=Buffer.concat(chunks);${finish}`,
-    ],
-  ],
-  [
-    'planner',
-    [
-      fileURLToPath(new URL('./plan-release-builds.mjs', import.meta.url)),
-      '--product',
-      'cli',
-      '--tag',
-      tag,
-    ],
-  ],
-];
-const results = cases.map(([name, args]) => {
-  const started = performance.now();
-  // The shell creates an OS pipe. Node's direct child stdin may instead be a Unix socket.
-  const selected =
-    args[0] === '-e'
-      ? [
-          '-e',
-          `if (!require('node:fs').fstatSync(0).isFIFO()) throw new Error('Expected an OS pipe'); ${args[1]}`,
-        ]
-      : args;
-  const child = spawnSync(
-    '/bin/bash',
-    ['-c', 'set -o pipefail; cat | "$@"', 'stdin-probe', process.execPath, ...selected],
-    {
-      input,
-      encoding: 'utf8',
-      timeout: 60_000,
-      maxBuffer: 1024 * 1024,
-      env: { ...process.env, GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' },
-    }
-  );
-  let valid = false;
-  let validationError = '';
-  if (child.status === 0) {
-    try {
-      if (name === 'planner') {
-        const lines = child.stdout.trim().split('\n');
-        assert.deepEqual(JSON.parse(lines.find((line) => line.startsWith('matrix=')).slice(7)), {
-          include: [{ tag, sha }],
-        });
-        assert(lines.includes('any=true'));
-      } else {
-        assert.deepEqual(JSON.parse(child.stdout), { bytes: input.length, sha256: digest });
-      }
-      valid = true;
-    } catch (error) {
-      validationError = error.message;
-    }
+const directory = path.resolve('stdin-probe-results');
+mkdirSync(directory, { recursive: true });
+const environment = { ...process.env, GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' };
+const capture = spawnSync(
+  'gh',
+  ['api', '--paginate', '--slurp', `repos/${process.env.GITHUB_REPOSITORY}/releases`],
+  {
+    encoding: 'utf8',
+    timeout: 90_000,
+    maxBuffer: 128 * 1024 * 1024,
+    env: environment,
   }
-  return {
+);
+assert.equal(capture.status, 0, capture.stderr);
+const pages = JSON.parse(capture.stdout);
+assert(Array.isArray(pages) && pages.every(Array.isArray));
+const draft = pages.flat().find((row) => row.draft === true && /^v[0-9]/.test(row.tag_name));
+assert(draft, 'No existing CLI draft is available for the read-only reproduction');
+const catalogue = path.join(directory, 'catalogue.json');
+writeFileSync(catalogue, capture.stdout);
+const results = [];
+for (const [name, producer] of [
+  ['incident-command', 'gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases"'],
+  ['captured-catalogue', 'cat "$TMT_DIAGNOSTIC_CATALOGUE"'],
+]) {
+  const statusFile = path.join(directory, `${name}.statuses`);
+  const command = `${producer} | node typescript/scripts/plan-release-builds.mjs --product cli --tag "$TMT_DIAGNOSTIC_TAG"
+statuses=("\${PIPESTATUS[@]}")
+printf '%s\\n' "\${statuses[@]}" > "$TMT_DIAGNOSTIC_STATUSES"`;
+  const child = spawnSync('/bin/bash', ['-c', command], {
+    encoding: 'utf8',
+    timeout: 120_000,
+    maxBuffer: 1024 * 1024,
+    env: {
+      ...environment,
+      TMT_DIAGNOSTIC_TAG: draft.tag_name,
+      TMT_DIAGNOSTIC_CATALOGUE: catalogue,
+      TMT_DIAGNOSTIC_STATUSES: statusFile,
+    },
+  });
+  writeFileSync(path.join(directory, `${name}.stdout`), child.stdout ?? '');
+  writeFileSync(path.join(directory, `${name}.stderr`), child.stderr ?? '');
+  const statuses = child.error
+    ? []
+    : readFileSync(statusFile, 'utf8').trim().split('\n').map(Number);
+  let exactSelection = false;
+  if (statuses.length === 2 && statuses.every((status) => status === 0)) {
+    const matrix = JSON.parse(
+      child.stdout
+        .split('\n')
+        .find((line) => line.startsWith('matrix='))
+        .slice(7)
+    );
+    exactSelection =
+      matrix.include.length === 1 &&
+      matrix.include[0].tag === draft.tag_name &&
+      matrix.include[0].sha === draft.target_commitish &&
+      child.stdout.split('\n').includes('any=true');
+  }
+  results.push({
     name,
-    status: child.status,
-    signal: child.signal,
+    statuses,
+    shellStatus: child.status,
+    shellSignal: child.signal,
     error: child.error?.message ?? '',
-    valid,
-    validationError,
-    seconds: (performance.now() - started) / 1000,
-    stderr: child.stderr?.slice(-2000) ?? '',
-  };
-});
+    exactSelection,
+  });
+}
 const report = {
   node: process.version,
   platform: process.platform,
   arch: process.arch,
+  cpu: cpus()[0]?.model,
   kernel: release(),
   image: process.env.ImageOS,
   imageVersion: process.env.ImageVersion,
-  bytes: input.length,
-  sha256: digest,
-  transport: 'bash cat | node; reader fstatSync(0).isFIFO() asserted',
+  tag: draft.tag_name,
+  sha: draft.target_commitish,
+  catalogue: {
+    bytes: Buffer.byteLength(capture.stdout),
+    pages: pages.length,
+    records: pages.flat().length,
+    sha256: createHash('sha256').update(capture.stdout).digest('hex'),
+  },
+  plannerSha256: createHash('sha256')
+    .update(readFileSync('typescript/scripts/plan-release-builds.mjs'))
+    .digest('hex'),
   results,
 };
-mkdirSync('stdin-probe-results', { recursive: true });
-writeFileSync('stdin-probe-results/report.json', `${JSON.stringify(report, null, 2)}\n`);
+writeFileSync(path.join(directory, 'report.json'), JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify(report, null, 2));
-// A reproduced crash is diagnostic evidence, not a reason to suppress the other matrix versions.
-if (results.some((row) => row.status === 0 && !row.valid)) process.exitCode = 1;
+// Both successful reproduction and a crash are evidence. Unexpected acquisition/selection errors fail.
+if (
+  results.some(
+    (row) => row.error || (row.statuses.every((status) => status === 0) && !row.exactSelection)
+  )
+)
+  process.exitCode = 1;
