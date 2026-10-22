@@ -216,8 +216,8 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(area!.y + area!.height).toBeCloseTo(900, 0);
       expect(mark!.width).toBeCloseTo(24, 0);
       expect(mark!.height).toBeCloseTo(24, 0);
-      // The page's column is the bar's column, beside the shell's rail and module menu.
-      const column = (await page.locator('.tmt-ui-shell-bar').boundingBox())!;
+      // The page's column is the shell's main column, beside the rail and module menu.
+      const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!;
       expect(mark!.x + mark!.width / 2).toBeCloseTo(column.x + column.width / 2, 0);
       expect(mark!.y + mark!.height / 2).toBeCloseTo(area!.y + area!.height / 2, 0);
 

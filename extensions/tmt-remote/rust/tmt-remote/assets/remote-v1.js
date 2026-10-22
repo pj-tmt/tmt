@@ -1403,7 +1403,44 @@ function currentRemote(entry, address, pageUrl) {
 }
 //#endregion
 //#region src/remote-menu.ts
+/**
+* The menu rows that open a part of a page. Remote's pages treat any URL fragment as untrusted
+* input and erase it, so a part is never addressed by `#id`: the menu remembers the chosen part
+* for this tab and scrolls to it, on this page or once the other page mounts.
+*/
+var PARTS = {
+	devices: {
+		page: "settings",
+		target: "devices-title"
+	},
+	machine: {
+		page: "settings",
+		target: "opening-title"
+	},
+	pair: {
+		page: "landing",
+		target: "heading"
+	}
+};
+var PART_KEY = "tmt.remote.menu.part";
+function chosenPart() {
+	try {
+		const value = sessionStorage.getItem(PART_KEY);
+		return value && value in PARTS ? value : void 0;
+	} catch {
+		return;
+	}
+}
+function choosePart(part) {
+	try {
+		if (part) sessionStorage.setItem(PART_KEY, part);
+		else sessionStorage.removeItem(PART_KEY);
+	} catch {}
+}
 /** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
+function showPart(part) {
+	document.getElementById(PARTS[part].target)?.scrollIntoView({ block: "start" });
+}
 function remoteMenu(actions, shell = remoteShell()) {
 	if (!shell) return () => {};
 	const page = document.documentElement.dataset.tmtPage;
@@ -1416,6 +1453,9 @@ function remoteMenu(actions, shell = remoteShell()) {
 	let state = "Checking";
 	let address = "";
 	const run = /* @__PURE__ */ new Map();
+	const chosen = chosenPart();
+	choosePart(void 0);
+	let shownPart = chosen && PARTS[chosen].page === page ? chosen : void 0;
 	function paint() {
 		run.clear();
 		const view = remoteState(state);
@@ -1424,17 +1464,9 @@ function remoteMenu(actions, shell = remoteShell()) {
 		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
 		const remotes = [];
 		const onSettings = page === "settings";
-		const at = (href) => {
-			const url = new URL(href);
-			return url.pathname === location.pathname && url.hash === location.hash;
-		};
-		const parts = [
-			`${settings}#devices-title`,
-			`${settings}#opening-title`,
-			`${settings}#add-remote`,
-			`${landing}#heading`
-		];
-		const onLanding = !onSettings && !parts.some(at);
+		const here = shownPart;
+		const lit = (id) => here === id;
+		const onLanding = !onSettings && !here;
 		if (!selected) remotes.push({
 			id: "current",
 			label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(" "),
@@ -1476,20 +1508,20 @@ function remoteMenu(actions, shell = remoteShell()) {
 						{
 							id: "devices",
 							label: "Devices",
-							href: `${settings}#devices-title`,
-							current: at(`${settings}#devices-title`)
+							href: settings,
+							current: lit("devices")
 						},
 						{
 							id: "pair",
 							label: "Connect a device",
-							href: `${landing}#heading`,
-							current: at(`${landing}#heading`)
+							href: landing,
+							current: lit("pair")
 						},
 						{
 							id: "machine",
 							label: "This machine’s settings",
-							href: `${settings}#opening-title`,
-							current: at(`${settings}#opening-title`)
+							href: settings,
+							current: lit("machine")
 						}
 					]
 				},
@@ -1497,15 +1529,32 @@ function remoteMenu(actions, shell = remoteShell()) {
 					id: "add",
 					label: "Add remote…",
 					href: `${settings}#add-remote`,
-					current: at(`${settings}#add-remote`)
+					current: false
 				}, {
 					id: "settings",
 					label: "Remote settings",
 					href: settings,
-					current: onSettings && !parts.some(at)
+					current: onSettings && !here
 				}] }
 			]
 		}, (id) => {
+			if (id in PARTS) {
+				const part = id;
+				if (PARTS[part].page !== page) return choosePart(part), false;
+				shownPart = part;
+				showPart(part);
+				paint();
+				return true;
+			}
+			if (id === "settings" || id === "current") {
+				if (id === "settings" === onSettings) {
+					shownPart = void 0;
+					window.scrollTo({ top: 0 });
+					paint();
+					return true;
+				}
+				return false;
+			}
 			const action = run.get(id);
 			if (!action) return false;
 			if (!id.startsWith("remote:") || !actions.blocked()) action();
@@ -1514,6 +1563,10 @@ function remoteMenu(actions, shell = remoteShell()) {
 		});
 	}
 	paint();
+	if (shownPart) {
+		const opening = shownPart;
+		requestAnimationFrame(() => showPart(opening));
+	}
 	const refresh = () => {
 		paint();
 		actions.refresh();
@@ -1524,8 +1577,6 @@ function remoteMenu(actions, shell = remoteShell()) {
 	};
 	document.addEventListener("pointerover", entered, { signal: shell.signal });
 	document.addEventListener("focusin", entered, { signal: shell.signal });
-	window.addEventListener("hashchange", paint, { signal: shell.signal });
-	window.addEventListener("popstate", paint, { signal: shell.signal });
 	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;
