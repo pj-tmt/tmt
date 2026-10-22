@@ -70,6 +70,7 @@ pub(super) enum Selection {
 }
 
 impl Selection {
+    #[cfg(test)]
     fn selected(&self) -> Option<String> {
         match self {
             Self::Cells(source) => source.selected(),
@@ -115,6 +116,22 @@ impl Selection {
 }
 
 impl State {
+    /// The text a copy or a quote of `selection` carries: a transcript selection is the
+    /// source its messages were written as (#4457), anything else the displayed text.
+    fn passage(&self, selection: &Selection) -> Option<String> {
+        match selection {
+            Selection::Text(anchored) => self
+                .sessions
+                .get(&anchored.key)
+                .and_then(|session| session.rendered.as_ref())
+                .filter(|rendered| anchored.attached_to(rendered))
+                .map_or_else(
+                    || anchored.selected(),
+                    |rendered| anchored.source(&rendered.copy),
+                ),
+            Selection::Cells(source) => source.selected(),
+        }
+    }
     pub(in crate::board) fn invalidate_source_geometry(&mut self) {
         self.source_surfaces.clear();
         self.source_areas.clear();
@@ -647,7 +664,7 @@ impl App {
             state.selection = None;
             return Some(Effect::None);
         }
-        let passage = selection.selected()?;
+        let passage = state.passage(selection)?;
         match event.code {
             KeyCode::Char('y') if event.modifiers.is_empty() => {
                 drop(state);
@@ -676,7 +693,7 @@ impl App {
             .selection
             .as_ref()
             .filter(|selection| selection.control().is_some_and(|area| area.contains(point)))?;
-        let passage = selection.selected()?;
+        let passage = state.passage(selection)?;
         let author = self.selection_author(&state, selection);
         let target = selection.target().clone();
         state.selection = None;
@@ -789,12 +806,15 @@ impl App {
                 Some(Effect::None)
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                let selection = state
+                state
                     .selection
                     .as_mut()
-                    .filter(|selection| selection.dragging())?;
-                selection.stop_drag();
-                let passage = selection.selected();
+                    .filter(|selection| selection.dragging())?
+                    .stop_drag();
+                let passage = state
+                    .selection
+                    .as_ref()
+                    .and_then(|selection| state.passage(selection));
                 drop(state);
                 Some(passage.map_or(Effect::None, |text| self.copy_rendered_selection(text)))
             }

@@ -99,7 +99,7 @@ fn the_first_rendered_drag_selects_in_place_and_mouse_up_copies_visible_text() {
         row,
     );
     assert!(
-        matches!(copied, Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "first styled")
+        matches!(copied, Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "first **styled**")
     );
 }
 
@@ -696,7 +696,7 @@ fn a_drag_keeps_working_while_the_history_updates() {
     );
     assert!(
         matches!(&effect, Effect::Act(Request::Copy { text, .. })
-            if text == "passage 070\n │ passage 071\n │ passage 072"),
+            if text == "passage 070  \npassage 071  \npassage 072"),
         "{effect:?}"
     );
 }
@@ -762,7 +762,9 @@ fn a_keyboard_selection_quotes_whole_lines_without_the_mouse() {
     let quotes = &app.input.as_ref().unwrap().literal_quotes();
     let text = &quotes[0].text;
     assert_eq!(text.lines().count(), 3, "{text}");
-    assert!(text.contains(" │ passage 000"), "{text}");
+    // Source lines keep their Markdown, here a hard break's two trailing spaces; the header
+    // row above them has no source and keeps its displayed text.
+    assert!(text.contains("\npassage 000  \npassage 001  "), "{text}");
 }
 
 #[test]
@@ -1305,4 +1307,96 @@ fn selection_private_terminal_evidence() {
     std::io::stdin().read_exact(&mut quit).unwrap();
     assert_eq!(quit, [b'q']);
     screen.restore().unwrap();
+}
+
+/// Drag from `from` to `to` (cells) and release: the copy the release makes.
+fn drag_copy(app: &mut App, from: (u16, u16), to: (u16, u16)) -> Option<String> {
+    mouse(app, MouseEventKind::Down(MouseButton::Left), from.0, from.1);
+    mouse(
+        app,
+        MouseEventKind::Drag(MouseButton::Left),
+        from.0 + 1,
+        from.1,
+    );
+    draw(app, 100, TALL);
+    mouse(app, MouseEventKind::Drag(MouseButton::Left), to.0, to.1);
+    draw(app, 100, TALL);
+    match mouse(app, MouseEventKind::Up(MouseButton::Left), to.0, to.1) {
+        Effect::Act(Request::Copy { text, .. }) => Some(text),
+        _ => None,
+    }
+}
+
+#[test]
+fn copying_rendered_rows_gives_their_markdown_source() {
+    let mut app = fixture(
+        "intro **line**\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```rust\nlet a = 1;\nlet b = 2;\n```\n\nafter text",
+    );
+    let screen = draw(&mut app, 100, TALL);
+    // A table: the grid's rows come back as the pipe rows, header and delimiter included.
+    // The pane border has corners too; only the grid has joins.
+    let top = locate(&screen, "┬").unwrap();
+    let bottom = locate(&screen, "┴").unwrap();
+    assert_eq!(
+        drag_copy(&mut app, top, (bottom.0 + 12, bottom.1)).as_deref(),
+        Some("| a | b |\n|---|---|\n| 1 | 2 |")
+    );
+    // One body row of the table still pastes as a table.
+    let row = locate(&screen, "│ 1 │ 2 │").unwrap();
+    assert_eq!(
+        drag_copy(&mut app, row, (row.0 + 12, row.1)).as_deref(),
+        Some("| a | b |\n|---|---|\n| 1 | 2 |")
+    );
+    // Code: the fence comes with the selected lines.
+    let code = locate(&screen, "let b = 2;").unwrap();
+    assert_eq!(
+        drag_copy(&mut app, code, (code.0 + 10, code.1)).as_deref(),
+        Some("```rust\nlet b = 2;\n```")
+    );
+    // Prose: the whole displayed line is its whole source line, markers included, and a
+    // few words inside it are exactly those characters.
+    let intro = locate(&screen, "intro line").unwrap();
+    assert_eq!(
+        drag_copy(&mut app, intro, (intro.0 + 10, intro.1)).as_deref(),
+        Some("intro **line**")
+    );
+    assert_eq!(
+        drag_copy(&mut app, (intro.0 + 2, intro.1), (intro.0 + 7, intro.1)).as_deref(),
+        Some("tro **l")
+    );
+}
+
+#[test]
+fn a_wrapped_paragraph_copies_as_its_one_source_line() {
+    let words = (0..40)
+        .map(|n| format!("word{n:02}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut app = fixture(&words);
+    let screen = draw(&mut app, 100, TALL);
+    let first = locate(&screen, "word00").unwrap();
+    let last = locate(&screen, "word39").unwrap();
+    mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        first.0,
+        first.1,
+    );
+    mouse(
+        &mut app,
+        MouseEventKind::Drag(MouseButton::Left),
+        last.0 + 6,
+        last.1,
+    );
+    draw(&mut app, 100, TALL);
+    let effect = mouse(
+        &mut app,
+        MouseEventKind::Up(MouseButton::Left),
+        last.0 + 6,
+        last.1,
+    );
+    assert!(
+        matches!(&effect, Effect::Act(Request::Copy { text, .. }) if *text == words),
+        "{effect:?}"
+    );
 }
