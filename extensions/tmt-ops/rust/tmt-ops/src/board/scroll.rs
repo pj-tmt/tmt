@@ -149,6 +149,11 @@ impl Scrolls {
         self.offsets.borrow_mut().insert(pane, offset);
     }
 
+    #[cfg(test)]
+    pub(crate) fn area(&self, pane: Pane) -> Option<Rect> {
+        self.drawn.borrow().get(&pane).map(|drawn| drawn.area)
+    }
+
     pub fn visible(&self, pane: Pane) -> bool {
         self.drawn
             .borrow()

@@ -116,10 +116,22 @@ impl SentKey {
     /// hold yet, newest first. A prompt not read (yet) or no longer retained
     /// keeps the listed preview, marked truncated. A failed list is an error; a
     /// failed show only keeps the preview.
+    #[cfg(test)]
     pub(super) fn read(
         &self,
         core: &Core,
         texts: &mut SentTexts,
+    ) -> Result<Vec<Value>, SquadError> {
+        self.read_with(core, texts, |request| {
+            crate::requests::show_request(core, request)
+        })
+    }
+
+    pub(super) fn read_with(
+        &self,
+        core: &Core,
+        texts: &mut SentTexts,
+        mut show: impl FnMut(&str) -> Result<Value, SquadError>,
     ) -> Result<Vec<Value>, SquadError> {
         let document = core.api(
             "requests.list",
@@ -147,7 +159,7 @@ impl SentKey {
                 continue;
             }
             budget -= 1;
-            if let Ok(detail) = crate::requests::show_request(core, request) {
+            if let Ok(detail) = show(request) {
                 let full = (detail["prompt"]["status"] == "retained")
                     .then(|| detail["prompt"]["message"].as_str().map(str::to_owned))
                     .flatten();
@@ -198,10 +210,10 @@ impl MessageKey {
     }
 
     pub(super) fn read(&self, core: &Core) -> Result<String, SquadError> {
-        self.body(crate::requests::show_request(core, &self.request)?)
+        self.body(&crate::requests::show_request(core, &self.request)?)
     }
 
-    fn body(&self, detail: Value) -> Result<String, SquadError> {
+    pub(super) fn body(&self, detail: &Value) -> Result<String, SquadError> {
         let (from, to) = match self.kind {
             Kind::Question => (&self.lead, &self.sender),
             Kind::Asked | Kind::Reply => (&self.sender, &self.lead),

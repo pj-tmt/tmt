@@ -649,22 +649,19 @@ fn full_messages_use_the_chosen_body_and_verify_participants_without_acknowledgi
     detail["final"]["response"] = json!("first\nsecond\n\x1b[31mthird\x1b[0m");
     detail["prompt"] = json!({"status":"retained","message":"original ask"});
     assert_eq!(
-        message(Kind::Reply).body(detail.clone()).unwrap(),
+        message(Kind::Reply).body(&detail).unwrap(),
         "first\nsecond\n\x1b[31mthird\x1b[0m"
     );
-    assert_eq!(
-        message(Kind::Asked).body(detail.clone()).unwrap(),
-        "original ask"
-    );
+    assert_eq!(message(Kind::Asked).body(&detail).unwrap(), "original ask");
     detail["final"]["response"] = json!("");
-    assert_eq!(message(Kind::Reply).body(detail.clone()).unwrap(), "");
+    assert_eq!(message(Kind::Reply).body(&detail).unwrap(), "");
     detail["sender"]["identityId"] = json!("a");
     detail["recipientId"] = json!("me");
     assert_eq!(
-        message(Kind::Question).body(detail.clone()).unwrap(),
+        message(Kind::Question).body(&detail).unwrap(),
         "original ask"
     );
-    assert!(message(Kind::Reply).body(detail).is_err());
+    assert!(message(Kind::Reply).body(&detail).is_err());
 }
 
 #[test]
@@ -673,13 +670,13 @@ fn full_message_expiry_and_missing_body_are_honest() {
     detail["final"]["status"] = json!("expired");
     assert!(
         message(Kind::Reply)
-            .body(detail.clone())
+            .body(&detail)
             .unwrap_err()
             .to_string()
             .contains("expired")
     );
     detail["final"]["status"] = json!("retained");
-    assert!(message(Kind::Reply).body(detail).is_err());
+    assert!(message(Kind::Reply).body(&detail).is_err());
 }
 
 // A test oracle over the retained read-state machine; no production Recent view remains.

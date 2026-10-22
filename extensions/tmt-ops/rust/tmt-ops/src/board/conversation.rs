@@ -37,6 +37,77 @@ pub(super) struct HeaderHit {
 
 pub(super) type ConversationKey = (Option<String>, String);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refresh {
+    Current,
+    Loading,
+    Retained,
+}
+
+impl App {
+    pub(super) fn conversation_refresh(&self, target: &RowTarget) -> Refresh {
+        if matches!(
+            self.selected_request,
+            super::refresh::SelectedRequest::Unmanaged
+        ) || self.screen_mode()
+            || self.conversation_target().as_ref() != Some(target)
+        {
+            return Refresh::Current;
+        }
+        let Some(id) = self.target_row(target).and_then(|row| row["id"].as_str()) else {
+            return Refresh::Current;
+        };
+        let identity = (
+            self.view.as_ref().and_then(|view| view.me_id.clone()),
+            id.to_owned(),
+        );
+        let state = self.conversation.borrow();
+        let session = state.sessions.get(&identity);
+        let pane_pending = self.pane_output_enabled()
+            && super::recent_responses::canonical_identity(id)
+            && session.is_none_or(|session| !session.pane_output_fresh);
+        let awaiting_snapshot = matches!(
+            self.selected_request,
+            super::refresh::SelectedRequest::AwaitingSnapshot
+        );
+        if !self.loading()
+            && !awaiting_snapshot
+            && !self.conversation_sources_pending(target)
+            && !pane_pending
+        {
+            return Refresh::Current;
+        }
+        if session.is_some_and(|session| session.rendered.is_some()) {
+            Refresh::Retained
+        } else {
+            Refresh::Loading
+        }
+    }
+}
+
+pub(super) fn loading(frame: &mut Frame, app: &App, area: Rect) {
+    let look = app.look();
+    // Register the viewport even before content exists, so the selected worker
+    // can admit its read after this first non-blocking paint.
+    app.scrolls
+        .show(frame, Pane::Replies, area, [Line::default()], look);
+    let text = "Loading conversation…";
+    let width = text.width().min(usize::from(area.width)) as u16;
+    strip::paint_left(
+        frame.buffer_mut(),
+        Rect::new(
+            area.x + area.width.saturating_sub(width) / 2,
+            area.y + area.height.saturating_sub(1) / 2,
+            width,
+            area.height.min(1),
+        ),
+        Line::styled(
+            super::view::fit(text, usize::from(width)),
+            look.role(Role::Muted),
+        ),
+    );
+}
+
 #[derive(Default)]
 pub(super) struct State {
     sessions: BTreeMap<ConversationKey, Session>,
@@ -673,12 +744,17 @@ fn render_target(
     let tree_row = tree
         .get(app.selected)
         .filter(|row| RowTarget::Workspace(row.target.clone()) == target);
+    let refresh = app.conversation_refresh(&target);
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     let screen_mode = state.screen_mode;
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity.clone()).or_default();
-    let state_words = session.observe_context(app, &target, row);
+    let state_words = if refresh == Refresh::Current {
+        session.observe_context(app, &target, row)
+    } else {
+        sanitize(row["state"].as_str().unwrap_or("unknown"))
+    };
     let values = tree_row
         .zip(app.workspace_snapshot())
         .map(|(row, snapshot)| super::overview::monitor::values(app, snapshot, row));
@@ -898,7 +974,14 @@ fn render_target(
         )
     } else {
         rule(
-            format!("Response · {flow}"),
+            format!(
+                "Response · {flow}{}",
+                if refresh == Refresh::Retained {
+                    " · refreshing"
+                } else {
+                    ""
+                }
+            ),
             if session.change != Change::Current {
                 Role::Waiting
             } else {
@@ -1051,7 +1134,13 @@ fn render_target(
         state.header_hits = painted_controls;
         return;
     }
-    let rebuilt = session.prepare(usize::from(body.width), look, &app.references);
+    if refresh == Refresh::Loading {
+        loading(frame, app, body);
+        state.header_hits = painted_controls;
+        return;
+    }
+    let rebuilt = refresh == Refresh::Current
+        && session.prepare(usize::from(body.width), look, &app.references);
     let mapped = &session.rendered.as_ref().unwrap().mapped;
     let previous = app.scrolls.offset(Pane::Replies);
     if session.follow {

@@ -38,10 +38,16 @@ pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface)
         app.view.as_ref().and_then(|view| view.me_id.clone()),
         id.to_owned(),
     );
+    let refresh = app.conversation_refresh(&target);
+    if refresh == Refresh::Loading {
+        return u16::MAX;
+    }
     let mut state = app.conversation.borrow_mut();
     let session = state.sessions.entry(identity).or_default();
-    session.observe_context(app, &target, row);
-    session.prepare_grouped(usize::from(width), app.look(), &app.references);
+    if refresh == Refresh::Current {
+        session.observe_context(app, &target, row);
+        session.prepare_grouped(usize::from(width), app.look(), &app.references);
+    }
     let waiting = (session.outgoing.is_empty() || session.tail.is_some())
         && session.reply.as_ref().is_some_and(|reply| {
             reply
@@ -104,11 +110,22 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
         || app
             .composer_projection()
             .is_none_or(|projection| projection.key.is_none());
+    let refresh = app.conversation_refresh(&target);
+    if refresh == Refresh::Loading {
+        let mut state = app.conversation.borrow_mut();
+        state.active = Some(identity.clone());
+        state.sessions.entry(identity).or_default();
+        drop(state);
+        loading(frame, app, area);
+        return;
+    }
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity.clone()).or_default();
-    session.observe_context(app, &target, row);
+    if refresh == Refresh::Current {
+        session.observe_context(app, &target, row);
+    }
     let question = session.reply.as_ref().is_some_and(|reply| {
         reply
             .key
@@ -152,7 +169,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
             look,
         ),
     );
-    let rebuilt = session.prepare_grouped(usize::from(area.width), look, &app.references);
+    let rebuilt = refresh == Refresh::Current
+        && session.prepare_grouped(usize::from(area.width), look, &app.references);
     let footer_rows = u16::from(
         question && (session.outgoing.is_empty() || session.tail.is_some()) && area.height >= 3,
     );
