@@ -85,6 +85,7 @@
   --tmt-ui-color-link: #2d72a6;
   --tmt-ui-color-annotation-on-action: #ffffff;
   --tmt-ui-color-annotation-rule: #6dafa0;
+  --tmt-ui-color-annotation-rule-selected: #147f67;
   --tmt-ui-color-mention-person: #2d5f7b;
   --tmt-ui-color-series-1: #2a78d6;
   --tmt-ui-color-series-2: #eb6834;
@@ -111,6 +112,7 @@
   --tmt-ui-surface-review-soft: #eee9fa;
   --tmt-ui-surface-annotation-highlight: #d8e8e4;
   --tmt-ui-surface-annotation-highlight-hover: #bbd8d2;
+  --tmt-ui-surface-annotation-highlight-selected: #c2dcd6;
   --tmt-ui-surface-annotation-panel: #f3f7f5;
   --tmt-ui-surface-annotation-action: #147f67;
   --tmt-ui-surface-mention-agent: #e4ede9;
@@ -150,6 +152,7 @@
     --tmt-ui-color-link: #77b9e7;
     --tmt-ui-color-annotation-on-action: #10241e;
     --tmt-ui-color-annotation-rule: #4e9784;
+    --tmt-ui-color-annotation-rule-selected: #78edc8;
     --tmt-ui-color-mention-person: #b6d8ec;
     --tmt-ui-color-series-1: #3987e5;
     --tmt-ui-color-series-2: #d95926;
@@ -176,6 +179,7 @@
     --tmt-ui-surface-review-soft: #2a2640;
     --tmt-ui-surface-annotation-highlight: #1b3132;
     --tmt-ui-surface-annotation-highlight-hover: #284c48;
+    --tmt-ui-surface-annotation-highlight-selected: #254643;
     --tmt-ui-surface-annotation-panel: #1c2a34;
     --tmt-ui-surface-annotation-action: #78edc8;
     --tmt-ui-surface-mention-agent: #2a3a44;
@@ -215,6 +219,7 @@
   --tmt-ui-color-link: #2d72a6;
   --tmt-ui-color-annotation-on-action: #ffffff;
   --tmt-ui-color-annotation-rule: #6dafa0;
+  --tmt-ui-color-annotation-rule-selected: #147f67;
   --tmt-ui-color-mention-person: #2d5f7b;
   --tmt-ui-color-series-1: #2a78d6;
   --tmt-ui-color-series-2: #eb6834;
@@ -241,6 +246,7 @@
   --tmt-ui-surface-review-soft: #eee9fa;
   --tmt-ui-surface-annotation-highlight: #d8e8e4;
   --tmt-ui-surface-annotation-highlight-hover: #bbd8d2;
+  --tmt-ui-surface-annotation-highlight-selected: #c2dcd6;
   --tmt-ui-surface-annotation-panel: #f3f7f5;
   --tmt-ui-surface-annotation-action: #147f67;
   --tmt-ui-surface-mention-agent: #e4ede9;
@@ -279,6 +285,7 @@
   --tmt-ui-color-link: #77b9e7;
   --tmt-ui-color-annotation-on-action: #10241e;
   --tmt-ui-color-annotation-rule: #4e9784;
+  --tmt-ui-color-annotation-rule-selected: #78edc8;
   --tmt-ui-color-mention-person: #b6d8ec;
   --tmt-ui-color-series-1: #3987e5;
   --tmt-ui-color-series-2: #d95926;
@@ -305,6 +312,7 @@
   --tmt-ui-surface-review-soft: #2a2640;
   --tmt-ui-surface-annotation-highlight: #1b3132;
   --tmt-ui-surface-annotation-highlight-hover: #284c48;
+  --tmt-ui-surface-annotation-highlight-selected: #254643;
   --tmt-ui-surface-annotation-panel: #1c2a34;
   --tmt-ui-surface-annotation-action: #78edc8;
   --tmt-ui-surface-mention-agent: #2a3a44;

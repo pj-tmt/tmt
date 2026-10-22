@@ -13,7 +13,9 @@ if (process.argv.length !== 3 || !['--write', '--check'].includes(mode))
 const roles = [
   ['surface', 'annotation-highlight'],
   ['surface', 'annotation-highlight-hover'],
+  ['surface', 'annotation-highlight-selected'],
   ['color', 'annotation-rule'],
+  ['color', 'annotation-rule-selected'],
   ['surface', 'annotation-action'],
   ['color', 'annotation-on-action'],
   ['surface', 'sheet'],

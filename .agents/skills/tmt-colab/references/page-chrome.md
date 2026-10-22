@@ -202,7 +202,11 @@ page, framed or not, gets the frame's 28 px right marker lane (`--colab-lane`) f
 the renderer stands a comment's number there, centred on its line, so it never covers text and the
 first thread moves none (on a framed page 4 px after the column's end, beside its text; otherwise at
 the frame's edge); threads on lines closer than one marker share a `+n` pill that posts
-`colab.render.open-list`, and the parent opens the Comments list.
+`colab.render.open-list`, and the parent opens the Comments list. The thread whose window is open is
+the renderer handle's `select(id | null)`, which `router.tsx` calls with the open thread and which
+posts `colab.render.select` (the frame accepts only the current request and an ID it holds); the
+frame paints that passage in `::highlight(colab-selected)` above the hover look, or on its overlay
+marks without the Highlight API.
 `router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
 frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. An inline `style`
 with `!important` is the one author declaration the frame cannot override.

@@ -190,6 +190,10 @@ export async function mountRenderer(
     readings?: ReadingRenderBlock[],
   ): void;
   scrollAnchor(id: string): void;
+  /** Mark the passage of the thread whose window is open (null: none), which the page draws in its
+   * selected look. An id the current highlight request does not hold is refused; the selection
+   * outlives a new request, which resends it. */
+  select(id: string | null): void;
   scrollReading(id: string): void;
   /** Scroll to the one element with this exact `id` once the frame is ready: true when found,
    * false when none or several match, undefined when the render ended or never answered. */
@@ -247,6 +251,7 @@ export async function mountRenderer(
   const stopTheme = subscribeTheme(sendTheme);
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector; ordinal?: number }[] = [];
+  let selected: string | null = null;
   const positions = new Map<string, { top: number; rect: SelectionRect }>();
   let questionRequestId = '';
   let questionBlocks: { id: string; title: string }[] = [];
@@ -823,6 +828,35 @@ export async function mountRenderer(
     }
     options.onAnchors?.([...value.resolved] as string[], true);
   };
+  // The selection belongs to the current highlight request: the frame accepts it only with that
+  // request's id, so every new request sends it again.
+  const postSelected = () => {
+    if (stopped || !requestId || selected === null || !anchors.some(({ id }) => id === selected))
+      return;
+    channel.port1.postMessage({
+      type: 'colab.render.select',
+      renderId: snapshot.renderId,
+      requestId,
+      id: selected,
+    });
+  };
+  const select = (id: string | null) => {
+    if (stopped || id === selected) return;
+    if (id === null) {
+      selected = null;
+      if (requestId)
+        channel.port1.postMessage({
+          type: 'colab.render.select',
+          renderId: snapshot.renderId,
+          requestId,
+          id: null,
+        });
+      return;
+    }
+    if (id === '' || !anchors.some((anchor) => anchor.id === id)) return;
+    selected = id;
+    postSelected();
+  };
   const highlight = (
     input: { id: string; selector: QuoteSelector; ordinal: number }[],
     draft?: QuoteSelector,
@@ -873,6 +907,7 @@ export async function mountRenderer(
     anchors = [...next, ...(draft ? [{ id: '', selector: structuredClone(draft) }] : [])];
     options.onAnchors?.([]);
     channel.port1.postMessage(message);
+    postSelected();
   };
   const questions = (
     blocks: { id: string; title: string }[],
@@ -1147,6 +1182,7 @@ export async function mountRenderer(
     slots,
     questions,
     scrollAnchor,
+    select,
     scrollReading: (id: string) => {
       if (stopped || !ready || !readingBlocks.some((reading) => reading.id === id)) return;
       channel.port1.postMessage({

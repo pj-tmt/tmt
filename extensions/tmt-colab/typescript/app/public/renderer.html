@@ -291,12 +291,14 @@
           document.addEventListener('auxclick', anchor, true);
           document.addEventListener('keydown', anchor, true);
           let layer, markers;
+          // The thread whose window is open on the page, which the parent selects (null: none).
+          let selectedId = null;
           const anchorRanges = new Map();
           const readingRanges = new Map();
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: 12px; background-clip: padding-box; font-size: 10px; }';
+            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#c2dcd6;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: 12px; background-clip: padding-box; font-size: 10px; }';
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
@@ -308,6 +310,7 @@
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px}' +
+            '::highlight(colab-selected){background:var(--tmt-ui-surface-annotation-highlight-selected);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule-selected);text-decoration-thickness:2px}' +
             '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:2px}' +
             `
             [data-colab-question-group]:not([hidden]){display:block!important}
@@ -652,9 +655,31 @@
             if (selecting && event.isTrusted && !editingTarget(event.target) && quote)
               parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
           };
+          // The selected thread's passage takes the stronger tint and a solid 2 px underline, above the
+          // hover tint, so it holds while the pointer crosses it; without a selection nothing changes.
+          function paintSelected() {
+            try {
+              CSS.highlights?.delete('colab-selected');
+            } catch {}
+            const range = selectedId === null ? undefined : anchorRanges.get(selectedId)?.range;
+            if (layer) {
+              for (const mark of layer.children) {
+                const selected = range !== undefined && mark.dataset.thread === selectedId;
+                const role = selected ? '-selected' : '';
+                mark.style.background = `var(--tmt-ui-surface-annotation-highlight${role})`;
+                mark.style.borderBottom = `${selected ? 2 : 1}px solid var(--tmt-ui-color-annotation-rule${role})`;
+              }
+              return;
+            }
+            if (!range || typeof Highlight !== 'function' || !CSS.highlights) return;
+            const selected = new Highlight(range);
+            selected.priority = 2;
+            CSS.highlights.set('colab-selected', selected);
+          }
           function clear() {
             try {
               CSS.highlights?.delete('colab-comments');
+              CSS.highlights?.delete('colab-selected');
             } catch {}
             layer?.remove();
             layer = undefined;
@@ -1150,14 +1175,16 @@
                 document.body.append(layer);
                 const origin = layer.getBoundingClientRect();
                 let rectangles = 0;
-                for (const range of ranges)
+                for (const [id, { range }] of anchorRanges)
                   for (const rect of range.getClientRects()) {
                     if (++rectangles > 2048) throw new Error('highlight budget');
                     const mark = document.createElement('div');
+                    mark.dataset.thread = id;
                     mark.style.cssText = `position:absolute;pointer-events:none;background:var(--tmt-ui-surface-annotation-highlight);border-bottom:1px solid var(--tmt-ui-color-annotation-rule);left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
                     layer.append(mark);
                   }
               }
+              paintSelected();
               if (positions.length) {
                 markers = document.createElement('div');
                 markers.dataset.colabHighlight = '';
@@ -1546,6 +1573,21 @@
               try {
                 CSS.highlights?.set('colab-reading', new Highlight(range));
               } catch {}
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
+              v.type === 'colab.render.select' &&
+              v.renderId === renderId &&
+              v.requestId === requestId &&
+              (v.id === null ||
+                (typeof v.id === 'string' && v.id !== '' && batch.some((item) => item.id === v.id)))
+            ) {
+              selectedId = v.id;
+              paintSelected();
               return;
             }
             if (

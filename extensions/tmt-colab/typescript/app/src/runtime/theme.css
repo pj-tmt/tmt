@@ -25,6 +25,7 @@
   --color-blocked: var(--tmt-color-blocked);
   --color-link: var(--tmt-color-link);
   --color-annotation-rule: var(--tmt-color-annotation-rule);
+  --color-annotation-rule-selected: var(--tmt-color-annotation-rule-selected);
   --color-series-1: var(--tmt-color-series-1);
   --color-series-2: var(--tmt-color-series-2);
   --color-series-3: var(--tmt-color-series-3);
@@ -49,6 +50,7 @@
   --color-blocked-soft: var(--tmt-surface-blocked-soft);
   --color-review-soft: var(--tmt-surface-review-soft);
   --color-annotation-highlight-hover: var(--tmt-surface-annotation-highlight-hover);
+  --color-annotation-highlight-selected: var(--tmt-surface-annotation-highlight-selected);
   --radius-*: initial;
   --radius: 8px;
   --radius-xs: 8px;
@@ -86,6 +88,7 @@
   --tmt-color-blocked: #b94952;
   --tmt-color-link: #2d72a6;
   --tmt-color-annotation-rule: #6dafa0;
+  --tmt-color-annotation-rule-selected: #147f67;
   --tmt-color-series-1: #2a78d6;
   --tmt-color-series-2: #eb6834;
   --tmt-color-series-3: #1baf7a;
@@ -110,6 +113,7 @@
   --tmt-surface-blocked-soft: #fbe9ea;
   --tmt-surface-review-soft: #eee9fa;
   --tmt-surface-annotation-highlight-hover: #bbd8d2;
+  --tmt-surface-annotation-highlight-selected: #c2dcd6;
 }
 
 :root[data-theme='dark'] {
@@ -130,6 +134,7 @@
   --tmt-color-blocked: #ff7f87;
   --tmt-color-link: #77b9e7;
   --tmt-color-annotation-rule: #4e9784;
+  --tmt-color-annotation-rule-selected: #78edc8;
   --tmt-color-series-1: #3987e5;
   --tmt-color-series-2: #d95926;
   --tmt-color-series-3: #199e70;
@@ -154,6 +159,7 @@
   --tmt-surface-blocked-soft: #3a2428;
   --tmt-surface-review-soft: #2a2640;
   --tmt-surface-annotation-highlight-hover: #284c48;
+  --tmt-surface-annotation-highlight-selected: #254643;
 }
 
 @layer base {

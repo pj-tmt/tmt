@@ -6,6 +6,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { tokens } from './tokens.js';
 
 let capture: Server;
 let origin: string;
@@ -2092,6 +2093,257 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
       thickness: '2px',
       background: 'var(--tmt-ui-surface-annotation-highlight-hover)',
     },
+  ]);
+});
+
+/** A renderer frame bound by a test-owned parent that keeps its port, to send the frame raw messages. */
+async function bindPort(page: Page, id: string, source: string) {
+  const renderId = `00000000-0000-4000-8000-000000000004:${'d'.repeat(64)}`;
+  await page.evaluate(
+    async ({ id, source, renderId }) => {
+      const target = document.createElement('iframe');
+      target.id = id;
+      target.setAttribute('sandbox', 'allow-scripts');
+      target.src = '/renderer.html';
+      await new Promise<void>((resolve) => {
+        target.onload = () => resolve();
+        document.body.append(target);
+      });
+      const { port1, port2 } = new MessageChannel();
+      const waiting = new Map<string, () => void>();
+      port1.onmessage = (event) => {
+        if (event.data?.type === 'colab.render.anchors') waiting.get(event.data.requestId)?.();
+      };
+      Object.assign(window, { [`port_${id}`]: { port: port1, waiting } });
+      target.contentWindow!.postMessage(
+        {
+          type: 'colab.render.bind',
+          renderId,
+          sourceDigest: 'd'.repeat(64),
+          source,
+          theme: 'light',
+        },
+        '*',
+        [port2],
+      );
+    },
+    { id, source, renderId },
+  );
+  return renderId;
+}
+type PortWindow = Window & Record<string, { port: MessagePort; waiting: Map<string, () => void> }>;
+/** A highlight request and the frame's answer to it, which comes after every earlier port message. */
+const requestHighlight = (
+  page: Page,
+  id: string,
+  renderId: string,
+  requestId: string,
+  anchors: {
+    id: string;
+    ordinal: number;
+    selector: { exact: string; prefix: string; suffix: string };
+  }[],
+) =>
+  page.evaluate(
+    ({ id, renderId, requestId, anchors }) =>
+      new Promise<void>((resolve) => {
+        const bound = (window as unknown as PortWindow)[`port_${id}`]!;
+        bound.waiting.set(requestId, resolve);
+        bound.port.postMessage({
+          type: 'colab.render.highlight',
+          renderId,
+          requestId,
+          anchors,
+          threadCount: Math.max(0, ...anchors.map((anchor) => anchor.ordinal)),
+          draft: null,
+        });
+      }),
+    { id, renderId, requestId, anchors },
+  );
+const sendToFrame = (page: Page, id: string, message: unknown) =>
+  page.evaluate(
+    ({ id, message }) => (window as unknown as PortWindow)[`port_${id}`]!.port.postMessage(message),
+    { id, message },
+  );
+/** The passages the frame paints in the selected look, or null when it paints none. */
+const selectedPassages = (page: Page, id: string) =>
+  page
+    .frameLocator(`#${id}`)
+    .locator('html')
+    .evaluate(() => {
+      const selected = CSS.highlights.get('colab-selected');
+      return selected
+        ? { passages: [...selected].map((range) => range.toString()), priority: selected.priority }
+        : null;
+    });
+
+test('a selection paints one passage in the selected look, and anything that is not a selection of the current request is refused', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const id = 'selecting';
+  const renderId = await bindPort(
+    page,
+    id,
+    '<p>First passage of the page.</p><p>Second passage of the page.</p><p>Third passage.</p>',
+  );
+  const anchor = (key: string, ordinal: number, exact: string) => ({
+    id: key,
+    ordinal,
+    selector: { exact, prefix: '', suffix: '' },
+  });
+  const anchors = [
+    anchor('t0', 1, 'First passage'),
+    anchor('t1', 2, 'Second passage'),
+    anchor('t2', 3, 'Third passage'),
+  ];
+  const first = '00000000-0000-4000-8000-0000000000a1';
+  const second = '00000000-0000-4000-8000-0000000000a2';
+  const third = '00000000-0000-4000-8000-0000000000a3';
+  await requestHighlight(page, id, renderId, first, anchors);
+  // No selection: today's look, nothing in the selected highlight.
+  expect(await selectedPassages(page, id)).toBeNull();
+  const select = (requestId: string, value: unknown = 't1', extra: object = {}) =>
+    sendToFrame(page, id, {
+      type: 'colab.render.select',
+      renderId,
+      requestId,
+      id: value,
+      ...extra,
+    });
+  await select(first);
+  await requestHighlight(page, id, renderId, second, anchors);
+  // The selection outlives a new request, painted above the hover tint.
+  expect(await selectedPassages(page, id)).toEqual({ passages: ['Second passage'], priority: 2 });
+  // Each of these is refused and leaves the selection as it was: a stale request, another render, an
+  // extra key, a missing id, an id that is not text, empty (the draft), unknown, or a list.
+  for (const message of [
+    { type: 'colab.render.select', renderId, requestId: first, id: 't0' },
+    { type: 'colab.render.select', renderId: 'other', requestId: second, id: 't0' },
+    { type: 'colab.render.select', renderId, requestId: second, id: 't0', extra: true },
+    { type: 'colab.render.select', renderId, requestId: second },
+    { type: 'colab.render.select', renderId, requestId: second, id: 7 },
+    { type: 'colab.render.select', renderId, requestId: second, id: '' },
+    { type: 'colab.render.select', renderId, requestId: second, id: 'not-a-thread' },
+    { type: 'colab.render.select', renderId, requestId: second, id: ['t0'] },
+    { type: 'colab.render.select', renderId, requestId: second, id: { id: 't0' } },
+  ])
+    await sendToFrame(page, id, message);
+  await requestHighlight(page, id, renderId, third, anchors);
+  expect(await selectedPassages(page, id)).toEqual({ passages: ['Second passage'], priority: 2 });
+  // Another thread replaces it; there is one selected passage at a time.
+  const fourth = '00000000-0000-4000-8000-0000000000a4';
+  await select(third, 't0');
+  await requestHighlight(page, id, renderId, fourth, anchors);
+  expect(await selectedPassages(page, id)).toEqual({ passages: ['First passage'], priority: 2 });
+  // A request that no longer holds the thread paints nothing, and null clears the selection.
+  const fifth = '00000000-0000-4000-8000-0000000000a5';
+  await requestHighlight(page, id, renderId, fifth, anchors.slice(1));
+  expect(await selectedPassages(page, id)).toBeNull();
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000a6', anchors);
+  expect(await selectedPassages(page, id)).toEqual({ passages: ['First passage'], priority: 2 });
+  await select('00000000-0000-4000-8000-0000000000a6', null);
+  await requestHighlight(page, id, renderId, '00000000-0000-4000-8000-0000000000a7', anchors);
+  expect(await selectedPassages(page, id)).toBeNull();
+});
+
+test('the selected highlight is a stronger tint and a solid 2px rule above the hover look', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote">One highlighted passage</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  const rules = await frame.locator('body').evaluate(() => {
+    const rule = [...document.styleSheets]
+      .flatMap((sheet) => [...sheet.cssRules])
+      .find(
+        (value): value is CSSStyleRule =>
+          (value as CSSStyleRule).selectorText === '::highlight(colab-selected)',
+      );
+    const root = getComputedStyle(document.documentElement);
+    return {
+      line: rule?.style.getPropertyValue('text-decoration-line'),
+      color: rule?.style.getPropertyValue('text-decoration-color'),
+      thickness: rule?.style.getPropertyValue('text-decoration-thickness'),
+      background: rule?.style.getPropertyValue('background'),
+      tint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight-selected').trim(),
+      stroke: root.getPropertyValue('--tmt-ui-color-annotation-rule-selected').trim(),
+    };
+  });
+  expect(rules).toMatchObject({
+    line: 'underline',
+    color: 'var(--tmt-ui-color-annotation-rule-selected)',
+    thickness: '2px',
+    background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
+  });
+  expect(rules.tint).toBe(
+    tokens.browser.surface['annotation-highlight-selected'].light.toLowerCase(),
+  );
+  expect(rules.stroke).toBe(tokens.browser.color['annotation-rule-selected'].light.toLowerCase());
+});
+
+test('without the Highlight API the selected passage keeps the same look on its overlay marks', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:24px;font:20px/1.6 sans-serif}</style><p>First passage here.</p><p>Second passage here.</p><script>window.Highlight=undefined;</script>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  const marks = () =>
+    frame.locator('body').evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-colab-highlight] > div[data-thread]')].map(
+        (mark) => ({
+          thread: mark.dataset.thread,
+          background: mark.style.background,
+          border: mark.style.borderBottom,
+        }),
+      ),
+    );
+  await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        probe: { handle: { highlight(value: unknown[]): void; select(id: string | null): void } };
+      }
+    ).probe;
+    probe.handle.highlight([
+      { id: 'one', selector: { exact: 'First passage', prefix: '', suffix: '' } },
+      { id: 'two', selector: { exact: 'Second passage', prefix: '', suffix: '' } },
+    ]);
+  });
+  await expect.poll(async () => (await marks()).length).toBe(2);
+  const rest = {
+    background: 'var(--tmt-ui-surface-annotation-highlight)',
+    border: '1px solid var(--tmt-ui-color-annotation-rule)',
+  };
+  const selected = {
+    background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
+    border: '2px solid var(--tmt-ui-color-annotation-rule-selected)',
+  };
+  expect(await marks()).toEqual([
+    { thread: 'one', ...rest },
+    { thread: 'two', ...rest },
+  ]);
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { select(id: string | null): void } } }
+    ).probe.handle.select('two'),
+  );
+  await expect.poll(marks).toEqual([
+    { thread: 'one', ...rest },
+    { thread: 'two', ...selected },
+  ]);
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { select(id: string | null): void } } }
+    ).probe.handle.select(null),
+  );
+  await expect.poll(marks).toEqual([
+    { thread: 'one', ...rest },
+    { thread: 'two', ...rest },
   ]);
 });
 
