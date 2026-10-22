@@ -13,7 +13,41 @@ interface Actions {
   recover(action: string): void;
   blocked(): string;
 }
+/**
+ * The menu rows that open a part of a page. Remote's pages treat any URL fragment as untrusted
+ * input and erase it, so a part is never addressed by `#id`: the menu remembers the chosen part
+ * for this tab and scrolls to it, on this page or once the other page mounts.
+ */
+const PARTS = {
+  devices: { page: 'settings', target: 'devices-title' },
+  machine: { page: 'settings', target: 'opening-title' },
+  pair: { page: 'landing', target: 'heading' },
+} as const;
+type Part = keyof typeof PARTS;
+const PART_KEY = 'tmt.remote.menu.part';
+function chosenPart(): Part | undefined {
+  try {
+    const value = sessionStorage.getItem(PART_KEY);
+    return value && value in PARTS ? (value as Part) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function choosePart(part: Part | undefined): void {
+  try {
+    if (part) sessionStorage.setItem(PART_KEY, part);
+    else sessionStorage.removeItem(PART_KEY);
+  } catch {
+    // The choice still applies to this page.
+  }
+}
+
 /** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
+function showPart(part: Part): void {
+  const target = document.getElementById(PARTS[part].target);
+  target?.scrollIntoView({ block: 'start' });
+}
+
 export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = remoteShell()) {
   if (!shell) return () => {};
   const page = document.documentElement.dataset.tmtPage;
@@ -23,6 +57,9 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
   let state = 'Checking';
   let address = '';
   const run = new Map<string, () => void>();
+  const chosen = chosenPart();
+  choosePart(undefined);
+  let shownPart: Part | undefined = chosen && PARTS[chosen].page === page ? chosen : undefined;
   function paint() {
     run.clear();
     const view = remoteState(state);
@@ -32,20 +69,11 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
       (a, b) => Number(a.kind === 'firestore') - Number(b.kind === 'firestore'),
     );
     const remotes: ShellMenuItem[] = [];
-    // The highlighted row is the part of the page that is showing: a settings section by its
-    // anchor, else the page itself.
+    // The highlighted row is the part chosen on this page, else the page itself.
     const onSettings = page === 'settings';
-    const at = (href: string) => {
-      const url = new URL(href);
-      return url.pathname === location.pathname && url.hash === location.hash;
-    };
-    const parts = [
-      `${settings}#devices-title`,
-      `${settings}#opening-title`,
-      `${settings}#add-remote`,
-      `${landing}#heading`,
-    ];
-    const onLanding = !onSettings && !parts.some(at);
+    const here = shownPart;
+    const lit = (id: Part) => here === id;
+    const onLanding = !onSettings && !here;
     if (!selected)
       remotes.push({
         id: 'current',
@@ -93,20 +121,20 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
               {
                 id: 'devices',
                 label: 'Devices',
-                href: `${settings}#devices-title`,
-                current: at(`${settings}#devices-title`),
+                href: settings,
+                current: lit('devices'),
               },
               {
                 id: 'pair',
                 label: 'Connect a device',
-                href: `${landing}#heading`,
-                current: at(`${landing}#heading`),
+                href: landing,
+                current: lit('pair'),
               },
               {
                 id: 'machine',
                 label: 'This machine’s settings',
-                href: `${settings}#opening-title`,
-                current: at(`${settings}#opening-title`),
+                href: settings,
+                current: lit('machine'),
               },
             ],
           },
@@ -116,19 +144,37 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
                 id: 'add',
                 label: 'Add remote…',
                 href: `${settings}#add-remote`,
-                current: at(`${settings}#add-remote`),
+                current: false,
               },
               {
                 id: 'settings',
                 label: 'Remote settings',
                 href: settings,
-                current: onSettings && !parts.some(at),
+                current: onSettings && !here,
               },
             ],
           },
         ],
       },
       (id) => {
+        if (id in PARTS) {
+          const part = id as Part;
+          // Another page: the app opens it, and that page's menu scrolls to the part.
+          if (PARTS[part].page !== page) return (choosePart(part), false);
+          shownPart = part;
+          showPart(part);
+          paint();
+          return true;
+        }
+        if (id === 'settings' || id === 'current') {
+          if ((id === 'settings') === onSettings) {
+            shownPart = undefined;
+            window.scrollTo({ top: 0 });
+            paint();
+            return true;
+          }
+          return false;
+        }
         const action = run.get(id);
         if (!action) return false;
         // A request may have started since the last paint; a blocked row stays put.
@@ -139,6 +185,12 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
     );
   }
   paint();
+  // A part chosen on another page opens here once this page's markup is in place; the choice is
+  // spent, so reaching this page another way (the rail, Back) opens it at the top.
+  if (shownPart) {
+    const opening = shownPart;
+    requestAnimationFrame(() => showPart(opening));
+  }
   // The registry and the blocked reason change outside this menu: refresh when the pointer or
   // keyboard reaches it, as the old switcher did on opening.
   // The shell renders the menu element and may replace it, so the page listens on the document
@@ -153,10 +205,6 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
   };
   document.addEventListener('pointerover', entered, { signal: shell.signal });
   document.addEventListener('focusin', entered, { signal: shell.signal });
-  // A section link changes only the hash, and the page's own link drops it (the app reports that
-  // as popstate): the highlight follows both.
-  window.addEventListener('hashchange', paint, { signal: shell.signal });
-  window.addEventListener('popstate', paint, { signal: shell.signal });
   // The rail fills from the owner's composed shell only once this page may send work: settings
   // always talks to the door; the native entry waits until its own check connects, so an
   // unpaired entry sends nothing.
