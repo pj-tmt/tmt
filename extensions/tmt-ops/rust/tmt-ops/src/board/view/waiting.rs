@@ -48,8 +48,7 @@ fn editor_with_style(
         text.selection(),
         base,
         base.add_modifier(Modifier::REVERSED),
-    ) && input.chat_quote_focus.is_none()
-        && !app.paste_preview_shown()
+    ) && !app.paste_preview_shown()
     {
         frame.set_cursor_position(caret);
     }
@@ -153,7 +152,7 @@ pub(in crate::board) fn input_lines(
                 .clamp(1, 6)
         }
     };
-    demand + usize::from(!input.response_quotes.is_empty())
+    demand
 }
 
 /// Paint the reserved conversation editor band with opaque chrome and remove
@@ -270,25 +269,7 @@ pub(in crate::board) fn inline_prompt(
                     .add_modifier(ratatui::style::Modifier::BOLD),
             ),
         );
-        let mut header_lines = 1;
-        if let Some(quote) = input.response_quotes.last() {
-            strip::paint_left(
-                frame.buffer_mut(),
-                Rect {
-                    y: areas.content.y + header_lines,
-                    height: 1,
-                    ..areas.content
-                },
-                Line::styled(
-                    super::fit(
-                        &app.quote_caption(quote, usize::from(areas.content.width)),
-                        usize::from(areas.content.width),
-                    ),
-                    look.role(Role::Muted),
-                ),
-            );
-            header_lines += 1;
-        }
+        let header_lines = 1;
         editor(
             frame,
             app,
@@ -299,7 +280,7 @@ pub(in crate::board) fn inline_prompt(
             },
         );
     }
-    let mut hint = if matches!(input.compose, crate::board::app::Compose::Status) {
+    let hint = if matches!(input.compose, crate::board::app::Compose::Status) {
         "↑↓ field · Enter choose · PgUp/PgDn · Esc cancel".to_owned()
     } else {
         format!(
@@ -307,9 +288,6 @@ pub(in crate::board) fn inline_prompt(
             app.newline_hint()
         )
     };
-    if !input.response_quotes.is_empty() {
-        hint.push_str(" · Alt-⌫ remove");
-    }
     strip::paint_left(
         frame.buffer_mut(),
         areas.footer,
@@ -344,7 +322,7 @@ fn final_input(
     app: &crate::board::app::App,
     body: ratatui::layout::Rect,
 ) {
-    use crate::board::{composer::QuoteHit, input_field as field};
+    use crate::board::input_field as field;
     use ratatui::{layout::Rect, text::Line};
     use tmt_cli_style::Role;
     let Some(projection) = app.composer_projection() else {
@@ -371,17 +349,7 @@ fn final_input(
         .as_ref()
         .map_or("click", |(key, _)| super::footer::key_label(key));
     let padded = field::padded(frame.area().height);
-    let field_rows = field::rows(projection.text, band.width, padded);
-    let exact_rows = u16::from(!projection.quotes.is_empty() && band.height > field_rows);
-    let chat_rows =
-        u16::from(!projection.chat_quotes.is_empty() && band.height > field_rows + exact_rows);
-    let quote_rows = exact_rows + chat_rows;
-    let field_band = Rect::new(
-        band.x,
-        band.y + quote_rows,
-        band.width,
-        band.height - quote_rows,
-    );
+    let field_band = band;
     let content_area = field::paint(
         frame.buffer_mut(),
         field_band,
@@ -444,119 +412,9 @@ fn final_input(
             Line::styled(label, field::muted_style(look, projection.focused)),
         );
     }
-    if let Some(quote) = projection
-        .quotes
-        .last()
-        .filter(|_| exact_rows > 0 && content_area.width >= 2)
-    {
-        let row = Rect::new(content_area.x, band.y, content_area.width - 2, 1);
-        strip::paint_left(
-            frame.buffer_mut(),
-            row,
-            Line::styled(
-                app.quote_caption(quote, usize::from(row.width)),
-                field::muted_style(look, projection.focused),
-            ),
-        );
-        let remove = Rect::new(content_area.right() - 1, band.y, 1, 1);
-        strip::paint_left(frame.buffer_mut(), remove, Line::styled("✕", base));
-        if let Some(key) = projection.key.clone() {
-            *app.composer.quote_hit.borrow_mut() = Some(QuoteHit {
-                area: remove,
-                key,
-                source: quote.key.clone(),
-                range: quote.range.clone(),
-            });
-        }
-    }
-    if chat_rows > 0 {
-        paint_chat_quotes(
-            frame,
-            app,
-            &projection,
-            Rect::new(content_area.x, band.y + exact_rows, content_area.width, 1),
-        );
-    }
     app.hits.borrow_mut().retain(|hit| {
         Rect::new(hit.x, hit.y, hit.width, 1)
             .intersection(band)
             .is_empty()
     });
-}
-
-/// Each literal attachment is a bounded presentation chip; its retained text
-/// remains intact for submission. Clipped chips never publish activation hits.
-fn paint_chat_quotes(
-    frame: &mut ratatui::Frame,
-    app: &crate::board::app::App,
-    projection: &crate::board::composer::Projection<'_>,
-    row: ratatui::layout::Rect,
-) {
-    use crate::board::{
-        buttons::{self, Button},
-        composer::ChatQuoteHit,
-    };
-    use tmt_cli_style::grid::Align;
-    let Some(key) = &projection.key else { return };
-    if row.is_empty() {
-        return;
-    }
-    let slots = projection
-        .chat_quotes
-        .len()
-        .min(usize::from(row.width) / 10)
-        .max(1);
-    let width = usize::from(row.width).saturating_sub(slots.saturating_sub(1)) / slots;
-    let first = projection
-        .chat_quote_focus
-        .unwrap_or(0)
-        .saturating_sub(slots - 1);
-    for (position, (index, quote)) in projection
-        .chat_quotes
-        .iter()
-        .enumerate()
-        .skip(first)
-        .take(slots)
-        .enumerate()
-    {
-        let author = super::super::notes::single_line(&quote.author);
-        let excerpt: String = quote.text.chars().take(120).collect();
-        let excerpt = super::super::notes::single_line(&excerpt);
-        let label = format!(
-            "{} ×",
-            super::fit(
-                &format!("{author}: {excerpt}"),
-                width.saturating_sub(4).min(38)
-            )
-            .trim_end()
-        );
-        let area = ratatui::layout::Rect::new(
-            row.x + (position * (width + 1)) as u16,
-            row.y,
-            width as u16,
-            1,
-        );
-        let hit = buttons::paint(
-            app,
-            frame.buffer_mut(),
-            area,
-            &[Button::secondary(&label)
-                .focused(projection.focused && projection.chat_quote_focus == Some(index))],
-            Align::Left,
-            None,
-        )[0];
-        if app.button_owner_is_active(None)
-            && let Some(area) = hit
-        {
-            app.composer
-                .chat_quote_hits
-                .borrow_mut()
-                .push(ChatQuoteHit {
-                    area,
-                    key: key.clone(),
-                    index,
-                    quote: quote.clone(),
-                });
-        }
-    }
 }

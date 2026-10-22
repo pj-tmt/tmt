@@ -264,10 +264,9 @@ impl App {
         }
         self.input = Some(Input {
             draft_key: None,
-            response_quotes: Vec::new(),
-            chat_quotes: Vec::new(),
+
             inline_quotes: Default::default(),
-            chat_quote_focus: None,
+
             row_send: None,
             link: None,
             prompt: draft.prompt(),

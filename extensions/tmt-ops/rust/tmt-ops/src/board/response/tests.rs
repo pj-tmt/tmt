@@ -1,4 +1,3 @@
-use super::*;
 use crate::board::{app::Effect, app::workspace::tests::MEMBER};
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use serde_json::json;
@@ -42,10 +41,7 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
             let send = app.send_target(target, true).unwrap();
             app.compose_row(send, crate::action::Verb::Talk, squad);
             // Keep the Reader open while a retained draft owns an existing quote.
-            app.input.as_mut().unwrap().response_quotes.push(Quote {
-                text: "x".repeat(crate::board::app::MESSAGE_LIMIT),
-                ..expected.clone()
-            });
+            app.input.as_mut().unwrap().text = "x".repeat(crate::board::app::MESSAGE_LIMIT).into();
             app.remember_draft();
             app.input = None;
         }
@@ -67,9 +63,12 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
             }
             "limit" => {
                 assert!(app.row_details.reader.is_none());
-                let quotes = &app.input.as_ref().unwrap().response_quotes;
-                assert_eq!(quotes.len(), 1);
-                assert_eq!(quotes[0].text.len(), crate::board::app::MESSAGE_LIMIT);
+                let input = app.input.as_ref().unwrap();
+                assert!(input.text.folds().is_empty());
+                assert_eq!(
+                    input.text.as_str(),
+                    "x".repeat(crate::board::app::MESSAGE_LIMIT)
+                );
                 assert_eq!(
                     app.notice.as_deref(),
                     Some("Quote exceeds the 1 MiB attachment limit; not attached.")
@@ -77,7 +76,14 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
             }
             _ => {
                 assert!(app.row_details.reader.is_none());
-                assert_eq!(app.input.as_ref().unwrap().response_quotes, [expected]);
+                assert_eq!(
+                    app.input
+                        .as_ref()
+                        .unwrap()
+                        .exact_quotes()
+                        .collect::<Vec<_>>(),
+                    [expected]
+                );
                 assert_eq!(app.notice.as_deref(), Some("existing notice"));
                 assert_eq!(
                     app.input.as_ref().unwrap().draft_key.as_ref().unwrap().1,
@@ -117,14 +123,16 @@ fn shared_attachment_matches_reader_and_leaves_surface_dismissal_to_the_caller()
         );
         assert_eq!(reader.notice, inline.notice);
         assert_eq!(
-            reader
-                .input
-                .as_ref()
-                .map(|input| (&input.draft_key, &input.response_quotes)),
-            inline
-                .input
-                .as_ref()
-                .map(|input| (&input.draft_key, &input.response_quotes))
+            reader.input.as_ref().map(|input| (
+                &input.draft_key,
+                &input.text,
+                &input.inline_quotes
+            )),
+            inline.input.as_ref().map(|input| (
+                &input.draft_key,
+                &input.text,
+                &input.inline_quotes
+            ))
         );
         assert_eq!(reader.row_details.reader.is_some(), changed);
     }
@@ -139,7 +147,20 @@ fn changed_exact_source_is_refused_at_send_without_losing_the_draft() {
         match change {
             "request" => app.view.as_mut().unwrap().replies[0]["requestId"] = json!("replaced"),
             "body" => app.view.as_mut().unwrap().replies[0]["response"] = json!("different body"),
-            _ => app.input.as_mut().unwrap().response_quotes[0].range = 0..usize::MAX,
+            _ => {
+                let source = app
+                    .input
+                    .as_mut()
+                    .unwrap()
+                    .inline_quotes
+                    .values_mut()
+                    .next()
+                    .unwrap();
+                let crate::board::composer::QuoteSource::Exact { range, .. } = source else {
+                    panic!("exact source")
+                };
+                *range = 0..usize::MAX;
+            }
         }
         let before = app.input.as_ref().unwrap().clone();
         assert_eq!(
@@ -149,7 +170,7 @@ fn changed_exact_source_is_refused_at_send_without_losing_the_draft() {
         );
         let retained = app.input.as_ref().unwrap();
         assert_eq!(retained.text.as_str(), before.text.as_str());
-        assert_eq!(retained.response_quotes, before.response_quotes);
+        assert_eq!(retained.inline_quotes, before.inline_quotes);
         assert_eq!(retained.compose, before.compose);
         assert_eq!(
             app.notice.as_deref(),
@@ -160,15 +181,27 @@ fn changed_exact_source_is_refused_at_send_without_losing_the_draft() {
 
 #[test]
 fn final_body_limit_counts_the_row_tag_and_quote_markup_and_retains_the_source() {
-    let mut app = source_reader(&"x".repeat(crate::board::app::MESSAGE_LIMIT));
+    let mut app = source_reader(&"x".repeat(crate::board::app::MESSAGE_LIMIT - 1));
     app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE));
-    let quotes = app.input.as_ref().unwrap().response_quotes.clone();
+    let quotes = app
+        .input
+        .as_ref()
+        .unwrap()
+        .exact_quotes()
+        .collect::<Vec<_>>();
     assert_eq!(quotes.len(), 1);
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
         Effect::None
     );
-    assert_eq!(app.input.as_ref().unwrap().response_quotes, quotes);
+    assert_eq!(
+        app.input
+            .as_ref()
+            .unwrap()
+            .exact_quotes()
+            .collect::<Vec<_>>(),
+        quotes
+    );
     assert_eq!(
         app.notice.as_deref(),
         Some("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.")
@@ -276,12 +309,22 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
                 app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
                 Effect::None
             );
-            assert_eq!(app.input.as_ref().unwrap().text.as_str(), "my decision");
-            assert_eq!(app.input.as_ref().unwrap().response_quotes, [selected]);
+            assert_eq!(
+                app.input.as_ref().unwrap().text.as_str(),
+                format!("{RAW}\nmy decision")
+            );
+            assert_eq!(
+                app.input
+                    .as_ref()
+                    .unwrap()
+                    .exact_quotes()
+                    .collect::<Vec<_>>(),
+                [selected]
+            );
         } else {
             let sent = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
             assert!(
-                matches!(&sent, Effect::Act(Request::Annotate { text, .. }) if text == "[product · worker]\n> full question\n>\n> \"漢字\"\n\nmy decision"),
+                matches!(&sent, Effect::Act(Request::Annotate { text, .. }) if text == "[product · worker]\n> full question\n>\n> \"漢字\"\nmy decision"),
                 "effect={sent:?}; notice={:?}",
                 app.notice
             );
@@ -300,8 +343,8 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
                     to: "worker".into(),
                 });
                 let draft = app.input.as_ref().unwrap();
-                assert_eq!(draft.text.as_str(), "my decision");
-                assert_eq!(draft.response_quotes, [selected]);
+                assert_eq!(draft.text.as_str(), format!("{RAW}\nmy decision"));
+                assert_eq!(draft.exact_quotes().collect::<Vec<_>>(), [selected]);
                 app.reconcile_row_details();
                 assert_eq!(
                     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
@@ -382,4 +425,27 @@ fn capture_row_context_packet() {
         }
     }
     std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
+}
+
+#[test]
+fn exact_and_literal_quotes_expand_in_place_with_the_existing_formats() {
+    use crate::board::app::Request;
+    let raw = "exact **raw**\r\n漢字\n";
+    let mut app = source_reader(raw);
+    app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE));
+    app.paste("answer one");
+    let literal = format!("{}\r\nsecond line", "語".repeat(250));
+    app.add_chat_quote("worker".into(), literal.clone());
+    app.paste("answer two");
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.text.folds().len(), 2);
+    assert_eq!(input.exact_quotes().next().unwrap().text, raw);
+    assert_eq!(input.literal_quotes()[0].text, literal);
+    let expected = format!(
+        "[product · worker]\n> exact **raw**\r\n> 漢字\n>\nanswer one\n> \"{}…\"\nanswer two",
+        "語".repeat(199)
+    );
+    assert!(
+        matches!(app.key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE)),Effect::Act(Request::Annotate{text,..}) if text==expected)
+    );
 }

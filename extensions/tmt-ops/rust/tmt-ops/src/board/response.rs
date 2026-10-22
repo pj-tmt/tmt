@@ -143,21 +143,22 @@ impl super::app::App {
             };
             self.compose_row(send, verb, squad)
         };
-        if let Some(input) = &mut self.input {
-            let bytes = input
-                .response_quotes
-                .iter()
-                .map(|quote| quote.text.len())
-                .sum::<usize>();
-            if bytes.saturating_add(quote.text.len()) > super::app::MESSAGE_LIMIT {
-                return Attachment::Opened {
-                    effect,
-                    reason: "Quote exceeds the 1 MiB attachment limit; not attached.",
-                };
-            } else {
-                input.response_quotes.push(quote);
-            }
+        if let Some(input) = &mut self.input
+            && !input.insert_quote(
+                &quote.text,
+                super::composer::QuoteSource::Exact {
+                    key: quote.key,
+                    range: quote.range,
+                },
+            )
+        {
+            return Attachment::Opened {
+                effect,
+                reason: "Quote exceeds the 1 MiB attachment limit; not attached.",
+            };
         }
+        self.remember_draft();
+        self.invalidate_frame_geometry();
         Attachment::Composer(effect)
     }
 

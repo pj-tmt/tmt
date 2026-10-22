@@ -148,7 +148,7 @@ fn exact_passage_precedes_the_comment_in_the_delivered_row_message() {
     use crate::board::{response::Selection, row_detail::Target};
     const RAW: &str = "first \"raw\"\n\n漢字 e\u{301}\n";
     const EXPECTED: &str =
-        "[product · auth-fix]\n> first \"raw\"\n>\n> 漢字 e\u{301}\n>\n\n  my comment\nnext  ";
+        "[product · auth-fix]\n> first \"raw\"\n>\n> 漢字 e\u{301}\n>\n  my comment\nnext  ";
     for action in ["talk", "annotate lead", "annotate member"] {
         let mut app = fixture();
         let view = app.view.as_mut().unwrap();
@@ -181,7 +181,14 @@ fn exact_passage_precedes_the_comment_in_the_delivered_row_message() {
             compose,
             "attaching a source never retargets the admitted composer"
         );
-        assert_eq!(app.input.as_ref().unwrap().response_quotes, [quote]);
+        assert_eq!(
+            app.input
+                .as_ref()
+                .unwrap()
+                .exact_quotes()
+                .collect::<Vec<_>>(),
+            [quote]
+        );
         app.paste("  my comment\nnext  ");
         let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
         else {

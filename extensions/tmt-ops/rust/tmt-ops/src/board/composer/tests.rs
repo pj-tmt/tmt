@@ -594,11 +594,7 @@ fn quote_provenance_requires_both_pinned_recipient_and_source_uuid() {
     let id = crate::board::app::workspace::tests::MEMBER;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let quote = attached_quote(id, "exact quoted response");
-    app.input
-        .as_mut()
-        .unwrap()
-        .response_quotes
-        .push(quote.clone());
+    app.input.as_mut().unwrap().seed_quote(quote.clone());
     let expected = app.quote_provenance(id);
     assert_eq!(expected.len(), 1);
     assert!(
@@ -625,13 +621,21 @@ fn quote_provenance_requires_both_pinned_recipient_and_source_uuid() {
         expected,
         "rename cannot change provenance identity"
     );
-    assert!(app.quote_caption(&quote, 100).contains("renamed"));
-    app.input.as_mut().unwrap().response_quotes[0].key.lead = "same-name-replacement".into();
+    assert_eq!(app.quote_author(id), Some("renamed"));
+    let input = app.input.as_mut().unwrap();
+    let QuoteSource::Exact { key, .. } = input.inline_quotes.values_mut().next().unwrap() else {
+        panic!("exact source")
+    };
+    key.lead = "same-name-replacement".into();
     assert!(
         app.quote_provenance(id).is_empty(),
         "a mismatched source is not shown"
     );
-    app.input.as_mut().unwrap().response_quotes[0] = quote;
+    let input = app.input.as_mut().unwrap();
+    *input.inline_quotes.values_mut().next().unwrap() = QuoteSource::Exact {
+        key: quote.key,
+        range: quote.range,
+    };
     app.input.as_mut().unwrap().draft_key.as_mut().unwrap().1 = "same-name-replacement".into();
     assert!(
         app.quote_provenance(id).is_empty(),
@@ -645,9 +649,11 @@ fn quote_excerpts_and_details_are_bounded_and_inert_with_many_unicode_quotes() {
     let mut app = crate::board::app::workspace::tests::board();
     let id = crate::board::app::workspace::tests::MEMBER;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let raw = format!("\x1b[31m\n{}", "漢字 e\u{301} ".repeat(20_000));
+    let raw = format!("\x1b[31m\n{}", "漢字 e\u{301} ".repeat(1_000));
     let quote = attached_quote(id, &raw);
-    app.input.as_mut().unwrap().response_quotes = vec![quote.clone(); 20];
+    for _ in 0..20 {
+        app.input.as_mut().unwrap().seed_quote(quote.clone());
+    }
     let lines = app.quote_provenance(id);
     assert_eq!(lines.len(), 9);
     assert_eq!(lines[8], "12 more attached quotes");
@@ -658,19 +664,24 @@ fn quote_excerpts_and_details_are_bounded_and_inert_with_many_unicode_quotes() {
     );
     assert!(lines[0].ends_with('…'));
     assert!(lines[0].contains("漢字") && lines[0].contains("e\u{301}"));
-    use unicode_width::UnicodeWidthStr;
-    for width in [0, 1, 8, 12, 16, 30, 60] {
-        let caption = app.quote_caption(&quote, width);
-        assert!(caption.width() <= width && !caption.contains('\x1b'));
-        if width >= 16 {
-            assert!(
-                caption.starts_with("Quote · ") && caption.ends_with('"'),
-                "{width}: {caption}"
-            );
-        }
-    }
+    let input = app.input.as_ref().unwrap();
+    assert!(
+        input
+            .text
+            .folds()
+            .iter()
+            .all(|fold| fold.label.chars().count() < 120
+                && !fold.label.contains('\x1b')
+                && !fold.label.contains('\n'))
+    );
     assert_eq!(
-        app.input.as_ref().unwrap().response_quotes[0].text,
+        app.input
+            .as_ref()
+            .unwrap()
+            .exact_quotes()
+            .nth(0)
+            .unwrap()
+            .text,
         raw,
         "display bounds never alter stored quote bytes"
     );
@@ -683,6 +694,19 @@ fn quote_remove_is_a_current_whole_control_and_retains_text_and_other_quotes() {
     };
     for width in [160, 100, 60] {
         let mut app = crate::board::app::workspace::tests::board();
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth: tmt_cli_style::Depth::TrueColor,
+        };
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .clear();
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         app.paste("kept message");
         let first = attached_quote(crate::board::app::workspace::tests::MEMBER, "first excerpt");
@@ -690,70 +714,72 @@ fn quote_remove_is_a_current_whole_control_and_retains_text_and_other_quotes() {
         second.key.request = "req-second-quote".into();
         second.text = "second excerpt".into();
         second.range = 0..second.text.len();
-        app.input.as_mut().unwrap().response_quotes = vec![first.clone(), second.clone()];
+        app.input.as_mut().unwrap().seed_quote(first.clone());
+        app.input.as_mut().unwrap().seed_quote(second.clone());
+        let source_before = app.input.as_ref().unwrap().text.as_str().to_owned();
         let painted: String = draw(&mut app, width, 18)
             .content
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(painted.contains("Quote · worker:") && painted.contains("second excerpt"));
+        assert!(painted.contains("Quote") && painted.contains("second excerpt"));
         assert!(!painted.contains("req-second-quote") && !painted.contains("bytes 0.."));
-        let hit = app.composer.quote_hit.borrow().clone().unwrap();
-        assert_eq!(hit.area.width, 1);
+        let hit = app.composer.paste_hits.borrow().last().unwrap().clone();
+        assert_eq!(hit.remove.width, 1);
         assert_eq!(
-            draw(&mut app, width, 18)[(hit.area.x, hit.area.y)].symbol(),
-            "✕"
+            draw(&mut app, width, 18)[(hit.remove.x, hit.remove.y)].symbol(),
+            "×"
         );
         assert_eq!(
-            hit.area.intersection(app.input_band.get().unwrap()),
-            hit.area
+            hit.remove.intersection(app.input_band.get().unwrap()),
+            hit.remove
         );
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: hit.area.x,
-            row: hit.area.y,
+            column: hit.remove.x,
+            row: hit.remove.y,
             modifiers: KeyModifiers::NONE,
         };
+        // Old labels/ranges carry no authority after a fold changes.
+        let changed = hit.label.clone() + " changed";
+        let range = app
+            .input
+            .as_ref()
+            .unwrap()
+            .text
+            .folds()
+            .last()
+            .unwrap()
+            .source
+            .clone();
         app.input
             .as_mut()
             .unwrap()
-            .response_quotes
-            .last_mut()
-            .unwrap()
-            .key
-            .request = "changed-quote".into();
+            .text
+            .relabel_fold(range.clone(), changed);
         app.mouse(click, std::time::Instant::now());
-        assert_eq!(
-            app.input.as_ref().unwrap().response_quotes.len(),
-            2,
-            "stale quote identity has no removal authority"
-        );
-        app.input.as_mut().unwrap().response_quotes[1] = second;
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), source_before);
+        app.input
+            .as_mut()
+            .unwrap()
+            .text
+            .relabel_fold(range, hit.label);
         draw(&mut app, width, 18);
-        assert_eq!(
-            app.mouse(click, std::time::Instant::now()),
-            crate::board::app::Effect::None
-        );
-        assert_eq!(app.input.as_ref().unwrap().response_quotes, vec![first]);
-        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "kept message");
-        assert!(app.composer.quote_hit.borrow().is_none());
-        assert_eq!(
-            app.mouse(click, std::time::Instant::now()),
-            crate::board::app::Effect::None
-        );
-        let projection = app.composer_projection().unwrap();
-        assert_eq!(projection.quotes.len(), 1);
-        assert_eq!(projection.text.unwrap().as_str(), "kept message");
+        app.mouse(click, std::time::Instant::now());
+        let input = app.input.as_ref().unwrap();
+        assert_eq!(input.exact_quotes().collect::<Vec<_>>(), vec![first]);
+        assert_eq!(input.text.as_str(), "kept message\nfirst excerpt\n\n");
+        assert!(app.composer.paste_hits.borrow().is_empty());
+        let retained = input.text.clone();
+        app.mouse(click, std::time::Instant::now());
+        assert!(app.composer_projection().unwrap().text.unwrap() == &retained);
+        assert_eq!(app.in_flight, 0);
         draw(&mut app, width, 18);
         app.invalidate_frame_geometry();
-        assert!(app.composer.quote_hit.borrow().is_none());
-        assert_eq!(
-            app.mouse(click, std::time::Instant::now()),
-            crate::board::app::Effect::None
-        );
-        let projection = app.composer_projection().unwrap();
-        assert_eq!(projection.quotes.len(), 1);
-        assert_eq!(projection.text.unwrap().as_str(), "kept message");
+        assert!(app.composer.paste_hits.borrow().is_empty());
+        app.mouse(click, std::time::Instant::now());
+        assert!(app.composer_projection().unwrap().text.unwrap() == &retained);
+        assert_eq!(app.in_flight, 0);
     }
 }
 
@@ -879,11 +905,7 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
     app.paste(&payload);
     let key = app.input.as_ref().unwrap().draft_key.clone();
     let quote = attached_quote(id, "kept source quote");
-    app.input
-        .as_mut()
-        .unwrap()
-        .response_quotes
-        .push(quote.clone());
+    app.input.as_mut().unwrap().seed_quote(quote.clone());
     let pool = OpsTarget::Member {
         room_id: None,
         identity_id: id.into(),
@@ -906,7 +928,10 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
         Effect::None,
         "the removed occurrence refuses before sending"
     );
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), payload);
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("{payload}\nkept source quote\n")
+    );
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     app.workspace.pool_expanded = true;
     app.workspace.selected = Some(pool.clone());
@@ -915,9 +940,12 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let input = app.input.as_ref().unwrap();
     assert_eq!(input.draft_key, key);
-    assert_eq!(input.text.as_str(), payload);
-    assert_eq!(input.text.folds().len(), 1);
-    assert_eq!(input.response_quotes, vec![quote]);
+    assert_eq!(
+        input.text.as_str(),
+        format!("{payload}\nkept source quote\n")
+    );
+    assert_eq!(input.text.folds().len(), 2);
+    assert_eq!(input.exact_quotes().collect::<Vec<_>>(), vec![quote]);
     assert!(
         input.squad.is_empty(),
         "the old membership grants no squad scope in Common pool"
@@ -941,7 +969,7 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
     draw(&mut app, 60, 18);
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(app.input.as_ref().unwrap().text.is_empty());
-    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+    assert!(app.input.as_ref().unwrap().exact_quotes().next().is_none());
     assert_eq!(
         app.composer
             .drafts
@@ -949,7 +977,7 @@ fn removing_last_membership_restores_the_same_uuid_draft_in_pool_and_name_reuse_
             .unwrap()
             .text
             .as_str(),
-        payload
+        format!("{payload}\nkept source quote\n")
     );
 }
 
@@ -996,9 +1024,9 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     let input = app.input.as_ref().unwrap();
     assert_eq!(
         input.text.as_str(),
-        format!("Literal Colab reference {url}")
+        format!("Literal Colab reference {url}\n{url}\n")
     );
-    let quote = &input.response_quotes[0];
+    let quote = &input.exact_quotes().nth(0).unwrap();
     assert_eq!(quote.key.request, request);
     assert_eq!(quote.key.lead, id);
     assert_eq!(quote.range, 0..url.len());
@@ -1019,9 +1047,18 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(
         app.input.as_ref().unwrap().text.as_str(),
-        format!("Literal Colab reference {url}")
+        format!("Literal Colab reference {url}\n{url}\n")
     );
-    assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, url);
+    assert_eq!(
+        app.input
+            .as_ref()
+            .unwrap()
+            .exact_quotes()
+            .nth(0)
+            .unwrap()
+            .text,
+        url
+    );
 }
 
 fn open_blocking_owner(app: &mut crate::board::app::App, owner: &str) {
@@ -1061,11 +1098,7 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                     let _no_acquisition = crate::runner::forbid_commands();
                     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                     app.paste("retained message draft");
-                    app.input
-                        .as_mut()
-                        .unwrap()
-                        .response_quotes
-                        .push(quote.clone());
+                    app.input.as_mut().unwrap().seed_quote(quote.clone());
                     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
                     // Compare the stable base, not Escape's transient notice.
                     app.notice = None;
@@ -1078,14 +1111,14 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                     let expanded = app.workspace.expanded.clone();
                     let scrolls = app.scrolls.offsets();
                     let point = if remove {
-                        app.composer.quote_hit.borrow().as_ref().unwrap().area
+                        app.composer.paste_hits.borrow().last().unwrap().remove
                     } else {
                         app.input_viewport.get().unwrap().0
                     };
                     open_blocking_owner(&mut app, owner);
                     let covered = draw(&mut app, width, height);
                     assert!(app.composer.send_hit.borrow().is_none(), "{owner}");
-                    assert!(app.composer.quote_hit.borrow().is_none(), "{owner}");
+                    assert!(app.composer.paste_hits.borrow().is_empty(), "{owner}");
                     assert!(app.input_viewport.get().is_none(), "{owner}");
                     let band_text: String = (band.y..band.bottom())
                         .flat_map(|y| (band.x..band.right()).map(move |x| (x, y)))
@@ -1171,11 +1204,21 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                     );
                     let draft = app.composer_projection().unwrap();
                     assert_eq!(draft.key.as_ref(), Some(&key));
-                    assert_eq!(draft.text.unwrap().as_str(), "retained message draft");
-                    assert_eq!(draft.quotes, &[quote]);
+                    assert_eq!(
+                        draft.text.unwrap().as_str(),
+                        "retained message draft\nsource\n"
+                    );
+                    assert_eq!(draft.inline_quotes.len(), 1);
+                    assert_eq!(
+                        draft.inline_quotes.values().next(),
+                        Some(&QuoteSource::Exact {
+                            key: quote.key,
+                            range: quote.range
+                        })
+                    );
                     assert!(
                         app.composer.send_hit.borrow().is_none()
-                            && app.composer.quote_hit.borrow().is_some()
+                            && !app.composer.paste_hits.borrow().is_empty()
                     );
                 }
             }
@@ -1193,12 +1236,13 @@ fn blocking_owner_preserves_focused_composer_paint() {
     app.input
         .as_mut()
         .unwrap()
-        .response_quotes
-        .push(attached_quote(id, "source"));
+        .seed_quote(attached_quote(id, "source"));
     app.help = true;
     draw(&mut app, 160, 36);
     assert!(app.composer_projection().unwrap().focused);
-    assert!(app.composer.send_hit.borrow().is_some() && app.composer.quote_hit.borrow().is_some());
+    assert!(
+        app.composer.send_hit.borrow().is_some() && !app.composer.paste_hits.borrow().is_empty()
+    );
     assert!(app.input_viewport.get().is_some());
 }
 
@@ -1213,102 +1257,113 @@ fn literal_chat_chips_keep_text_and_survive_failed_send_without_source_identity(
         app.add_chat_quote("worker".into(), "first\nsecond".into()),
         Effect::None
     );
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "my comment");
-    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "my comment\nfirst\nsecond\n"
+    );
+    assert!(app.input.as_ref().unwrap().exact_quotes().next().is_none());
     let submitted = app.input.as_ref().unwrap().clone();
     let sent = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(sent, Effect::Act(Request::Talk { text, to, .. })
-        if to == "auth-fix" && text == "> \"first second\"\n\n[product · auth-fix] my comment"));
+        if to == "auth-fix" && text == "[product · auth-fix] my comment\n> \"first second\"\n"));
     app.sending_draft(&submitted);
     app.input.as_mut().unwrap().text.clear();
-    app.input.as_mut().unwrap().chat_quotes.clear();
+    app.input.as_mut().unwrap().inline_quotes.clear();
     app.finish_draft(false);
     assert_eq!(
-        app.input.as_ref().unwrap().chat_quotes,
-        submitted.chat_quotes
+        app.input.as_ref().unwrap().inline_quotes,
+        submitted.inline_quotes
     );
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "my comment");
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "my comment\nfirst\nsecond\n"
+    );
 }
 
 #[test]
 fn chip_navigation_and_removal_keep_the_editor_draft() {
-    use crate::board::app::Effect;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = app();
     open(&mut app, "auth-fix");
     for n in 0..3 {
         app.add_chat_quote("worker".into(), format!("quote {n}"));
     }
-    for (code, focused) in [
-        (KeyCode::Up, Some(0)),
-        (KeyCode::Right, Some(1)),
-        (KeyCode::Char('x'), Some(1)),
-        (KeyCode::Down, None),
-    ] {
-        assert_eq!(
-            app.input_key(KeyEvent::new(code, KeyModifiers::NONE)),
-            Effect::None
-        );
-        assert_eq!(app.input.as_ref().unwrap().chat_quote_focus, focused);
-    }
-    assert_eq!(
-        app.input
-            .as_ref()
-            .unwrap()
-            .chat_quotes
-            .iter()
-            .map(|q| q.text.as_str())
-            .collect::<Vec<_>>(),
-        ["quote 0", "quote 2"]
+    let input = app.input.as_mut().unwrap();
+    let second = input.text.folds()[1].clone();
+    input
+        .text
+        .replace_range(second.source.start..second.source.start, "", usize::MAX);
+    input.text.key(
+        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+        80,
+        usize::MAX,
     );
-    assert!(app.input.as_ref().unwrap().text.is_empty());
-    assert!(app.input.is_some());
+    assert_eq!(
+        input.text.cursor(),
+        second.source.end,
+        "one arrow skips the whole fold"
+    );
+    input.text.key(
+        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+        80,
+        usize::MAX,
+    );
+    assert_eq!(input.text.as_str(), "quote 0\n\nquote 2\n");
+    input.retain_quote_sources();
+    assert_eq!(input.inline_quotes.len(), 2);
+    assert_eq!(input.quoted_message(), "> \"quote 0\"\n\n> \"quote 2\"\n");
 }
 
 #[test]
-fn chat_chips_paint_above_the_box_remove_by_click_and_keep_geometry() {
+fn chat_chips_paint_in_the_editor_and_remove_only_the_clicked_fold() {
     use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     for width in [60, 100, 160] {
         let mut app = crate::board::app::workspace::tests::board();
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth: tmt_cli_style::Depth::TrueColor,
+        };
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .clear();
         app.add_chat_quote("worker".into(), "first passage".into());
-        app.input.as_mut().unwrap().text = "my draft".into();
-        draw(&mut app, width, 36);
-        let box_before = app.input_viewport.get().unwrap().0;
+        app.paste("my answer");
         app.add_chat_quote("other".into(), "second passage".into());
         app.add_chat_quote("third".into(), "third passage".into());
         let painted = draw(&mut app, width, 36);
-        assert_eq!(
-            app.input_viewport.get().unwrap().0,
-            box_before,
-            "adding chips shares one row"
+        let editor_area = app.input_viewport.get().unwrap().0;
+        let hits = app.composer.paste_hits.borrow().clone();
+        assert_eq!(hits.len(), 3, "three folds visible at {width}");
+        assert!(
+            hits.iter()
+                .all(|hit| hit.area.intersection(editor_area) == hit.area)
         );
-        let hits = app.composer.chat_quote_hits.borrow().clone();
-        assert_eq!(hits.len(), 3, "three whole controls fit at {width}");
-        assert!(hits.iter().all(|hit| hit.area.bottom() <= box_before.y));
         let text: String = painted.content.iter().map(|cell| cell.symbol()).collect();
         assert!(text.contains("worker:") && text.contains('×'));
         let hit = &hits[1];
         app.mouse(
             MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
-                column: hit.area.x,
-                row: hit.area.y,
+                column: hit.remove.x,
+                row: hit.remove.y,
                 modifiers: KeyModifiers::NONE,
             },
             std::time::Instant::now(),
         );
         let input = app.input.as_ref().unwrap();
-        assert_eq!(input.text.as_str(), "my draft");
         assert_eq!(
-            input
-                .chat_quotes
-                .iter()
-                .map(|q| q.text.as_str())
-                .collect::<Vec<_>>(),
-            ["first passage", "third passage"]
+            input.text.as_str(),
+            "first passage\nmy answer\n\nthird passage\n"
         );
+        assert_eq!(input.inline_quotes.len(), 2);
         assert!(
-            app.composer.chat_quote_hits.borrow().is_empty(),
+            app.composer.paste_hits.borrow().is_empty(),
             "activation expires old geometry"
         );
     }
@@ -1318,20 +1373,17 @@ fn chat_chips_paint_above_the_box_remove_by_click_and_keep_geometry() {
 fn chat_chips_follow_uuid_drafts_and_success_clears_only_the_sent_revision() {
     let mut app = app();
     open(&mut app, "auth-fix");
-    app.input.as_mut().unwrap().chat_quotes.push(ChatQuote {
-        author: "worker".into(),
-        text: "kept".into(),
-    });
+    app.add_chat_quote("worker".into(), "kept".into());
     close(&mut app);
     open(&mut app, "docs");
-    assert!(app.input.as_ref().unwrap().chat_quotes.is_empty());
+    assert!(app.input.as_ref().unwrap().inline_quotes.is_empty());
     open(&mut app, "auth-fix");
-    assert_eq!(app.input.as_ref().unwrap().chat_quotes[0].text, "kept");
+    assert_eq!(app.input.as_ref().unwrap().text.as_str().trim_end(), "kept");
     let sent = app.input.take().unwrap();
     app.sending_draft(&sent);
     app.finish_draft(true);
     open(&mut app, "auth-fix");
-    assert!(app.input.as_ref().unwrap().chat_quotes.is_empty());
+    assert!(app.input.as_ref().unwrap().inline_quotes.is_empty());
 }
 
 #[test]
@@ -1442,4 +1494,202 @@ fn capture_inline_quote_caret_demo() {
         }
         std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
     });
+}
+
+#[test]
+fn inline_quotes_keep_unicode_crlf_and_admit_three_answers_in_order() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    let editor = &mut app.input.as_mut().unwrap().text;
+    *editor = "漢字 e\u{301}\r\nlater\r\n".into();
+    editor.key(
+        KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
+        80,
+        usize::MAX,
+    );
+    editor.key(
+        KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+        80,
+        usize::MAX,
+    );
+    app.add_chat_quote("worker".into(), "first\r\nquestion".into());
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "漢字 e\u{301}\nfirst\r\nquestion\n\r\nlater\r\n"
+    );
+    app.paste("answer one");
+    app.add_chat_quote("worker".into(), "second".into());
+    app.paste("answer two");
+    app.add_chat_quote("worker".into(), "third".into());
+    app.paste("answer three");
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.text.folds().len(), 3);
+    assert_eq!(
+        input.quoted_message(),
+        "漢字 e\u{301}\n> \"first question\"\nanswer one\n> \"second\"\nanswer two\n> \"third\"\nanswer three\r\nlater\r\n"
+    );
+}
+
+#[test]
+fn inline_quote_refusal_retains_exact_source_caret_selection_and_folds() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    app.add_chat_quote("worker".into(), "held quote".into());
+    app.paste("my text");
+    let editor = &mut app.input.as_mut().unwrap().text;
+    editor.key(
+        KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT),
+        80,
+        usize::MAX,
+    );
+    let before = app.input.as_ref().unwrap().clone();
+    app.add_chat_quote(
+        "worker".into(),
+        "x".repeat(crate::board::app::MESSAGE_LIMIT),
+    );
+    let after = app.input.as_ref().unwrap();
+    assert!(after.text == before.text);
+    assert_eq!(after.inline_quotes, before.inline_quotes);
+    assert_eq!(after.draft_key, before.draft_key);
+    assert!(app.notice.as_deref().unwrap().contains("draft unchanged"));
+}
+
+#[test]
+fn a_quote_ending_in_a_break_is_still_one_visible_caret_line() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    app.add_chat_quote("worker".into(), "first\r\n".into());
+    app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+    app.add_chat_quote("worker".into(), "second".into());
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.text.as_str(), "first\r\n\nsecond\n\n");
+    let layout = input.text.layout(100);
+    assert_eq!(layout.lines.len(), 4);
+    assert!(layout.lines[layout.cursor.0].cells.is_empty());
+    assert_eq!(layout.cursor.0, 2);
+}
+
+pub(in crate::board) const QUOTE_SCENES: &[&str] = &[
+    "quote-empty",
+    "quote-caret-middle",
+    "quote-two",
+    "quote-three",
+    "quote-exact",
+    "quote-preview",
+    "quote-remove-middle",
+    "quote-mixed",
+    "quote-tiny",
+];
+
+/// The same Editor/fold projection as paste/files; no source or file I/O.
+pub(in crate::board) fn quote_capture_case(
+    scene: &str,
+    look: crate::look::Look,
+    width: u16,
+    height: u16,
+) -> App {
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    let mut app = crate::board::app::workspace::tests::board();
+    app.view.as_mut().unwrap().look = look;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    match scene {
+        "quote-caret-middle" | "quote-tiny" => {
+            app.paste("aaaa\nlater line kept");
+            app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+            app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+            app.add_chat_quote(
+                "worker".into(),
+                "First question?\nThe complete selected passage.".into(),
+            );
+        }
+        "quote-two" | "quote-three" | "quote-remove-middle" => {
+            let count = if scene == "quote-two" { 2 } else { 3 };
+            for n in 1..=count {
+                app.add_chat_quote(
+                    "worker".into(),
+                    format!("Question {n}: keep the reply inline?"),
+                );
+                if scene != "quote-remove-middle" && n < count {
+                    app.paste(&format!("Answer {n}."));
+                }
+            }
+        }
+        "quote-exact" => {
+            let id = crate::board::app::workspace::tests::MEMBER;
+            app.input.as_mut().unwrap().seed_quote(attached_quote(
+                id,
+                "Exact **raw** source\n\n漢字 e\u{301}\n",
+            ));
+            app.paste("My note on this passage.");
+        }
+        "quote-preview" => {
+            app.add_chat_quote(
+                "worker".into(),
+                (1..=30)
+                    .map(|n| format!("Full selected source line {n}\r\n"))
+                    .collect(),
+            );
+        }
+        "quote-mixed" => {
+            app.insert_dropped(vec![super::files::Dropped {
+                path: "/fixture/spec.txt".into(),
+                size: 4096,
+            }]);
+            app.paste(&"pasted source ".repeat(100));
+            app.add_chat_quote("worker".into(), "How do the sources fit together?".into());
+            app.paste("My answer.");
+        }
+        "quote-empty" => {
+            app.add_chat_quote(
+                "worker".into(),
+                "A selected passage with its full source.".into(),
+            );
+        }
+        _ => panic!("unknown quote capture: {scene}"),
+    }
+    draw(&mut app, width, height);
+    if scene == "quote-preview" || scene == "quote-remove-middle" {
+        let hits = app.composer.paste_hits.borrow().clone();
+        let hit = if scene == "quote-preview" {
+            &hits[0]
+        } else {
+            &hits[1]
+        };
+        let area = if scene == "quote-preview" {
+            hit.area
+        } else {
+            hit.remove
+        };
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+    }
+    app
+}
+
+pub(in crate::board) fn quote_capture_metadata(app: &App) -> serde_json::Value {
+    let input = app.input.as_ref().expect("quote fixture owns an editor");
+    json!({"source":input.text.as_str(),"caret":input.text.cursor(),"preview":app.paste_preview_shown(),
+        "folds":input.text.folds().iter().map(|fold|json!({"id":fold.id,"range":[fold.source.start,fold.source.end],"label":fold.label,
+            "kind": match input.inline_quotes.get(&fold.id) {Some(QuoteSource::Literal{..})=>"literal",Some(QuoteSource::Exact{..})=>"exact",None=>"paste-or-file"}})).collect::<Vec<_>>()})
 }

@@ -409,6 +409,12 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   Pasting while previewing closes the preview and admits that paste once at the
   kept editor caret/selection. A size refusal keeps the exact draft and displays
   the existing notice; paste never submits.
+  Quote insertion uses the same fold painter, preview and × removal path. It puts
+  the full selected source after the caret's logical line, on its own line, with
+  an empty answer line following. Editor retains bytes; `composer::chat_quotes`
+  keeps typed provenance by fold ID and formats quote ranges in place on send.
+  The [source guide](board-notebooks.md#inert-text-and-independent-notebooksource-utilities)
+  owns literal versus exact-response admission and send formats.
   Published chip hits are bounded to their draft UUIDs, fold ID and current range.
   Ctrl-P selects the Editor's current fold even between paints; the next paint
   publishes its anchor or closes the preview request when it cannot fit.

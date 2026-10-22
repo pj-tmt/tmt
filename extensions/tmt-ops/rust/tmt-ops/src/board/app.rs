@@ -492,10 +492,9 @@ impl RowSend {
 pub struct Input {
     pub(super) draft_key: Option<(String, String)>,
     pub(super) row_send: Option<RowSend>,
-    pub(super) response_quotes: Vec<super::response::Quote>,
-    pub(super) chat_quotes: Vec<super::composer::ChatQuote>,
+
     pub(super) inline_quotes: std::collections::BTreeMap<u64, super::composer::QuoteSource>,
-    pub(super) chat_quote_focus: Option<usize>,
+
     pub link: Option<LinkSend>,
     pub prompt: String,
     pub text: tmt_tui::components::Editor,
@@ -2559,10 +2558,9 @@ impl App {
         self.mentions = Default::default();
         self.input = Some(Input {
             draft_key: None,
-            response_quotes: Vec::new(),
-            chat_quotes: Vec::new(),
+
             inline_quotes: Default::default(),
-            chat_quote_focus: None,
+
             row_send: None,
             link: None,
             prompt,
@@ -3062,9 +3060,6 @@ impl App {
     }
 
     pub(in crate::board) fn input_key(&mut self, key: KeyEvent) -> Effect {
-        if let Some(effect) = self.chat_quote_key(key) {
-            return effect;
-        }
         // Enhanced terminal reporting distinguishes a held Enter from a new
         // submit press. Opening a retained message never arms a repeat send.
         if key.code == KeyCode::Enter
@@ -3156,15 +3151,14 @@ impl App {
                 .say("Still working on the previous request; press Enter again in a moment.");
         }
         if self.input.as_ref().is_some_and(|input| {
-            !input.response_quotes.is_empty()
-                && input.target().is_none_or(|target| {
-                    input.response_quotes.iter().any(|quote| {
-                        !self.response_quote_current(
-                            &super::row_detail::Target::Row(target.clone()),
-                            quote,
-                        )
-                    })
+            input.exact_quotes().any(|quote| {
+                input.target().is_none_or(|target| {
+                    !self.response_quote_current(
+                        &super::row_detail::Target::Row(target.clone()),
+                        &quote,
+                    )
                 })
+            })
         }) {
             return self.say("The response source changed; nothing sent. Draft retained.");
         }
@@ -3187,10 +3181,7 @@ impl App {
         if let Compose::Digest(granted) = input.compose {
             return self.digest_submit(*granted, &input.text);
         }
-        if input.text.as_str().trim().is_empty()
-            && input.response_quotes.is_empty()
-            && input.chat_quotes.is_empty()
-        {
+        if input.text.as_str().trim().is_empty() {
             return self.say("Nothing sent.");
         }
         if matches!(input.compose, Compose::Talk { .. } | Compose::Reply { .. })
@@ -3242,22 +3233,16 @@ impl App {
         } else {
             &input.squad
         };
-        let passages: Vec<_> = input
-            .response_quotes
+        let starts_quote = input
+            .text
+            .folds()
             .iter()
-            .map(|quote| quote.text.as_str())
-            .collect();
-        let text = crate::requests::message::body(
+            .any(|fold| fold.source.start == 0 && input.inline_quotes.contains_key(&fold.id));
+        let text = crate::requests::message::inline_body(
             row.map(|row| (squad, row)),
-            &passages,
-            input.text.as_str(),
+            &input.quoted_message(),
+            starts_quote,
         );
-        let chat_passages: Vec<_> = input
-            .chat_quotes
-            .iter()
-            .map(|quote| quote.text.as_str())
-            .collect();
-        let text = crate::requests::message::chat_body(&chat_passages, &text);
         if input
             .row_send
             .as_ref()
@@ -3315,10 +3300,9 @@ impl App {
         if persistent {
             self.input = Some(Input {
                 text: Default::default(),
-                response_quotes: Vec::new(),
-                chat_quotes: Vec::new(),
+
                 inline_quotes: Default::default(),
-                chat_quote_focus: None,
+
                 compose: match &input.compose {
                     Compose::Reply { from, .. } => Compose::Talk { to: from.clone() },
                     compose => compose.clone(),
@@ -4144,27 +4128,6 @@ impl App {
             return Effect::None;
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
-            let chat_quote = self
-                .composer
-                .chat_quote_hits
-                .borrow()
-                .iter()
-                .find(|hit| hit.area.contains((event.column, event.row).into()))
-                .cloned();
-            if let Some(hit) = chat_quote {
-                self.remove_chat_quote(&hit);
-                return Effect::None;
-            }
-            let quote = self
-                .composer
-                .quote_hit
-                .borrow()
-                .clone()
-                .filter(|hit| hit.area.contains((event.column, event.row).into()));
-            if let Some(hit) = quote {
-                self.remove_painted_quote(&hit);
-                return Effect::None;
-            }
             let send = self
                 .composer
                 .send_hit
@@ -5327,10 +5290,9 @@ pub(crate) mod tests {
             ] {
                 app.input = Some(Input {
                     draft_key: None,
-                    response_quotes: Vec::new(),
-                    chat_quotes: Vec::new(),
+
                     inline_quotes: Default::default(),
-                    chat_quote_focus: None,
+
                     row_send: None,
                     link: None,
                     prompt: "message".into(),
@@ -6086,10 +6048,9 @@ mod token_window_tests {
         ] {
             app.input = Some(Input {
                 draft_key: None,
-                response_quotes: Vec::new(),
-                chat_quotes: Vec::new(),
+
                 inline_quotes: Default::default(),
-                chat_quote_focus: None,
+
                 row_send: None,
                 link: None,
                 prompt: "message".into(),

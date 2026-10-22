@@ -4,30 +4,26 @@ use ratatui::layout::Rect;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use tmt_tui::components::Editor;
-use unicode_width::UnicodeWidthStr;
 
 use super::app::{App, Compose, Input, RowTarget};
 
 mod chat_quotes;
 pub(super) mod files;
 pub(super) mod paste;
-pub(super) use chat_quotes::{ChatQuote, QuoteSource};
+pub(super) use chat_quotes::QuoteSource;
 
 type DraftKey = (String, String);
+static EMPTY_QUOTES: BTreeMap<u64, QuoteSource> = BTreeMap::new();
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Draft {
     text: Editor,
     inline_quotes: BTreeMap<u64, QuoteSource>,
-    quotes: Vec<super::response::Quote>,
-    chat_quotes: Vec<ChatQuote>,
 }
 pub(super) struct Projection<'a> {
     pub key: Option<DraftKey>,
     pub recipient: &'a str,
     pub text: Option<&'a Editor>,
-    pub quotes: &'a [super::response::Quote],
-    pub chat_quotes: &'a [ChatQuote],
-    pub chat_quote_focus: Option<usize>,
+    pub inline_quotes: &'a BTreeMap<u64, QuoteSource>,
     pub focused: bool,
 }
 #[derive(Clone)]
@@ -35,22 +31,6 @@ pub(super) struct SendHit {
     pub area: Rect,
     pub key: DraftKey,
 }
-#[derive(Clone)]
-pub(super) struct QuoteHit {
-    pub area: Rect,
-    pub key: DraftKey,
-    pub source: super::home_leads::MessageKey,
-    pub range: std::ops::Range<usize>,
-}
-
-#[derive(Clone)]
-pub(super) struct ChatQuoteHit {
-    pub area: Rect,
-    pub key: DraftKey,
-    pub index: usize,
-    pub quote: ChatQuote,
-}
-
 /// Bound untrusted text before sanitizing or painting, independently of the
 /// full attachment retained for submission.
 pub(super) fn quote_excerpt(quote: &super::response::Quote) -> String {
@@ -70,8 +50,6 @@ impl Draft {
         Self {
             text: input.text.clone(),
             inline_quotes: input.inline_quotes.clone(),
-            quotes: input.response_quotes.clone(),
-            chat_quotes: input.chat_quotes.clone(),
         }
     }
 }
@@ -80,8 +58,6 @@ pub(super) struct State {
     drafts: BTreeMap<DraftKey, Draft>,
     pending: Option<(DraftKey, Draft)>,
     pub send_hit: RefCell<Option<SendHit>>,
-    pub quote_hit: RefCell<Option<QuoteHit>>,
-    pub chat_quote_hits: RefCell<Vec<ChatQuoteHit>>,
     pub(super) paste_hits: RefCell<Vec<paste::Hit>>,
     pub(super) paste_preview: RefCell<Option<paste::Preview>>,
     /// What is known of the files dropped in this session, and the worker that learns more.
@@ -92,8 +68,6 @@ pub(super) struct State {
 impl State {
     pub(super) fn invalidate(&self) {
         *self.send_hit.borrow_mut() = None;
-        *self.quote_hit.borrow_mut() = None;
-        self.chat_quote_hits.borrow_mut().clear();
         self.paste_hits.borrow_mut().clear();
         if let Some(preview) = self.paste_preview.borrow().as_ref() {
             preview.invalidate();
@@ -107,7 +81,7 @@ impl State {
             .values_mut()
             .chain(self.pending.iter_mut().map(|(_, draft)| draft))
         {
-            changed |= paste::relabel(&mut draft.text, path, label);
+            changed |= paste::relabel(&mut draft.text, &draft.inline_quotes, path, label);
         }
         changed
     }
@@ -117,12 +91,10 @@ impl State {
 }
 impl App {
     /// Rows the composer band needs at this band width: the content-sized box,
-    /// the info line and any quote rows.
+    /// and the info line.
     pub(in crate::board) fn composer_rows(&self, band_width: u16, padded: bool) -> u16 {
         self.composer_projection().map_or(0, |projection| {
             super::input_field::rows(projection.text, band_width, padded)
-                + u16::from(!projection.quotes.is_empty())
-                + u16::from(!projection.chat_quotes.is_empty())
         })
     }
     pub(in crate::board) fn composer_info<'a>(
@@ -169,24 +141,6 @@ impl App {
             .members
             .get(identity)
             .map(|member| member.name.as_str())
-    }
-    pub(in crate::board) fn quote_caption(
-        &self,
-        quote: &super::response::Quote,
-        width: usize,
-    ) -> String {
-        if width < 12 {
-            return super::view::fit("Quote", width);
-        }
-        let name = self.quote_author(&quote.key.lead).unwrap_or("response");
-        let name = super::notes::sanitize(name);
-        let name = super::view::fit(&name, width.saturating_sub(16).min(name.width()));
-        let prefix = format!("Quote · {}: \"", name.trim_end());
-        let excerpt = super::view::fit(
-            &quote_excerpt(quote),
-            width.saturating_sub(prefix.width() + 1),
-        );
-        format!("{prefix}{}\"", excerpt.trim_end())
     }
     /// The final Overview field advertises an admitted message key, retaining
     /// authored Enter even when it chooses Talk instead of the factory Reply.
@@ -243,12 +197,27 @@ impl App {
         else {
             return Vec::new();
         };
-        let matching = projection
-            .quotes
-            .iter()
-            .filter(|quote| quote.key.lead == identity);
-        let count = matching.clone().count();
+        let matching: Vec<_> = projection
+            .text
+            .into_iter()
+            .flat_map(|text| {
+                text.folds().iter().filter_map(|fold| {
+                    let QuoteSource::Exact { key, range } =
+                        projection.inline_quotes.get(&fold.id)?
+                    else {
+                        return None;
+                    };
+                    (key.lead == identity).then(|| super::response::Quote {
+                        key: key.clone(),
+                        range: range.clone(),
+                        text: text.as_str()[fold.source.clone()].to_owned(),
+                    })
+                })
+            })
+            .collect();
+        let count = matching.len();
         let mut lines: Vec<_> = matching
+            .iter()
             .take(8)
             .map(|quote| {
                 format!(
@@ -265,33 +234,6 @@ impl App {
             lines.push(format!("{} more attached quotes", count - 8));
         }
         lines
-    }
-
-    pub(in crate::board) fn remove_painted_quote(&mut self, hit: &QuoteHit) {
-        let current = self.composer_projection().is_some_and(|projection| {
-            projection.key.as_ref() == Some(&hit.key)
-                && projection
-                    .quotes
-                    .last()
-                    .is_some_and(|quote| quote.key == hit.source && quote.range == hit.range)
-        });
-        if !current {
-            return;
-        }
-        if self.input.is_none() {
-            self.focus_composer();
-        }
-        if let Some(input) = self.input.as_mut().filter(|input| {
-            input.draft_key.as_ref() == Some(&hit.key)
-                && input
-                    .response_quotes
-                    .last()
-                    .is_some_and(|quote| quote.key == hit.source && quote.range == hit.range)
-        }) {
-            input.response_quotes.pop();
-            self.remember_draft();
-        }
-        self.invalidate_frame_geometry();
     }
 
     pub(super) fn draft_identity(&self, input: &Input) -> Option<DraftKey> {
@@ -341,9 +283,7 @@ impl App {
                 key: input.draft_key.clone(),
                 recipient,
                 text: Some(&input.text),
-                quotes: &input.response_quotes,
-                chat_quotes: &input.chat_quotes,
-                chat_quote_focus: input.chat_quote_focus,
+                inline_quotes: &input.inline_quotes,
                 focused: true,
             });
         }
@@ -359,21 +299,19 @@ impl App {
             key: self.view.as_ref()?.me_id.as_ref().map(|_| key.clone()),
             recipient: row["name"].as_str()?,
             text: draft.map(|draft| &draft.text),
-            quotes: draft.map_or(&[], |draft| draft.quotes.as_slice()),
-            chat_quotes: draft.map_or(&[], |draft| draft.chat_quotes.as_slice()),
-            chat_quote_focus: None,
+            inline_quotes: draft.map_or(&EMPTY_QUOTES, |draft| &draft.inline_quotes),
             focused: false,
         })
     }
     pub(super) fn remember_draft(&mut self) {
         self.composer.paste_preview.get_mut().take();
+        if let Some(input) = self.input.as_mut() {
+            input.retain_quote_sources();
+        }
         if let Some(input) = self.input.as_ref()
             && let Some(key) = input.draft_key.clone()
         {
-            if input.text.is_empty()
-                && input.response_quotes.is_empty()
-                && input.chat_quotes.is_empty()
-            {
+            if input.text.is_empty() {
                 self.composer.drafts.remove(&key);
             } else {
                 self.composer.drafts.insert(key, Draft::from_input(input));
@@ -390,8 +328,6 @@ impl App {
         {
             input.text = text.text.clone();
             input.inline_quotes = text.inline_quotes.clone();
-            input.response_quotes = text.quotes.clone();
-            input.chat_quotes = text.chat_quotes.clone();
         }
     }
     pub(super) fn sending_draft(&mut self, input: &Input) {
@@ -407,16 +343,13 @@ impl App {
                     self.composer.drafts.remove(&key);
                 }
             } else {
-                if let Some(input) = self.input.as_mut().filter(|input| {
-                    input.draft_key.as_ref() == Some(&key)
-                        && input.text.is_empty()
-                        && input.response_quotes.is_empty()
-                        && input.chat_quotes.is_empty()
-                }) {
+                if let Some(input) = self
+                    .input
+                    .as_mut()
+                    .filter(|input| input.draft_key.as_ref() == Some(&key) && input.text.is_empty())
+                {
                     input.text = sent.text.clone();
                     input.inline_quotes = sent.inline_quotes.clone();
-                    input.response_quotes = sent.quotes.clone();
-                    input.chat_quotes = sent.chat_quotes.clone();
                 }
                 self.composer.drafts.entry(key).or_insert(sent);
             }
@@ -425,4 +358,4 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

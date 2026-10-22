@@ -952,3 +952,34 @@ fn too_small_preview_and_shrinking_layout_never_capture_invisible_input() {
     );
     assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
 }
+
+#[test]
+fn quote_preview_retains_full_source_at_narrow_width_without_editing() {
+    for width in [60, 100, 160] {
+        let mut app = crate::board::app::workspace::tests::board();
+        let raw = (0..30)
+            .map(|n| format!("full question {n} 漢字\r\n"))
+            .collect::<String>();
+        app.add_chat_quote("worker".into(), raw.clone());
+        draw(&mut app, width, 36);
+        key(&mut app, KeyCode::Home);
+        key(&mut app, KeyCode::Up);
+        app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        assert!(app.paste_preview_shown());
+        assert_eq!(app.current_paste_preview().unwrap().text.as_str(), raw);
+        let before = app.input.as_ref().unwrap().text.clone();
+        assert!(!draw(&mut app, width, 36));
+        key(&mut app, KeyCode::PageDown);
+        assert!(
+            app.current_paste_preview()
+                .unwrap()
+                .scroll
+                .borrow()
+                .offset()
+                > 0
+        );
+        key(&mut app, KeyCode::Esc);
+        assert!(!app.paste_preview_shown());
+        assert!(app.input.as_ref().unwrap().text == before);
+    }
+}
