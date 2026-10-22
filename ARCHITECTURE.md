@@ -26,6 +26,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | ------------------------- | ------------------------------------------------------------------------------------ |
 | Repository root           | Entry points, contributor guidance, license and required configuration               |
 | `.agents/`                | Contributor skills and their area references                                         |
+| `.claude/`                | Claude Code project settings: the host-tmux guard hook                               |
 | `.claude-plugin/`         | Claude Code marketplace manifest for the bundled Claude plugins                      |
 | `.github/`                | Ownership/layout maps, workflows, shared Actions and isolated release tooling        |
 | `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
@@ -40,8 +41,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
 are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/SKILL.md)
-owns moves and the tracked-file guard. Handbook language exceptions belong to
-[AGENTS](AGENTS.md#repository-content-language) and the allowlist.
+owns moves and the tracked-file guard.
 
 `tmt-ux-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
 `./ui` isolates React/Radix/cmdk/CVA, CSS/themes/portals; legacy/static unchanged; no domain state.
