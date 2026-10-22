@@ -160,17 +160,23 @@ pub(super) fn valid_name(name: &str) -> bool {
 pub(super) fn valid_socket(socket: &str) -> bool {
     std::path::Path::new(socket).is_absolute() && !socket.contains('\0')
 }
+/// The manual saves `tmt workspace save` keeps, and the unnamed rows `ls` lists beside them: the
+/// retained generations (or the legacy latest). Counted apart, since unnamed ones are many.
+const MAX_NAMED: usize = 16;
+const MAX_UNNAMED: usize = 35;
 impl Inventory {
     pub fn validate(&self, socket: Option<&str>) -> Result<(), SquadError> {
         let mut names = BTreeSet::new();
         if self.version != 1
             || !valid_socket(&self.socket)
             || socket.is_some_and(|s| s != self.socket)
-            || self.snapshots.len() > 17
+            || self.snapshots.iter().filter(|e| e.name.is_some()).count() > MAX_NAMED
+            || self.snapshots.iter().filter(|e| e.name.is_none()).count() > MAX_UNNAMED
             || self.snapshots.iter().any(|e| {
                 !valid_digest(&e.digest)
                     || e.name.as_deref().is_some_and(|s| !valid_name(s))
-                    || !names.insert(e.name.clone())
+                    // Unnamed generations are many and share no name; only real names are unique.
+                    || e.name.as_ref().is_some_and(|name| !names.insert(name.clone()))
             })
         {
             return Err(invalid());

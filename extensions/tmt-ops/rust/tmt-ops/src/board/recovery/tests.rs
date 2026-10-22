@@ -414,6 +414,42 @@ fn duplicate_name_and_cap_do_not_hide_errors_or_evict_saves() {
     assert!(render(&c, 160, 50).contains("16 named snapshots retained"));
 }
 #[test]
+fn unnamed_generations_are_a_valid_inventory_and_only_real_names_must_be_unique() {
+    // `tmt workspace ls --json` lists every retained generation with `name: null` (#4465).
+    let with = |unnamed: usize, named: usize| {
+        let mut v = inventory_value();
+        let entries = v["snapshots"].as_array_mut().unwrap();
+        entries.clear();
+        for _ in 0..unnamed {
+            entries.push(json!({"name":null,"digest":OTHER,"capturedAtMs":2000}));
+        }
+        for i in 0..named {
+            entries.push(json!({"name":format!("saved-{i}"),"digest":OTHER,"capturedAtMs":3000}));
+        }
+        v
+    };
+    let valid = |v: &Value| {
+        model::Inventory::decode(v)
+            .unwrap()
+            .validate(Some(SOCKET))
+            .is_ok()
+    };
+    // Ben's list: five unnamed generations beside named saves.
+    assert!(valid(&with(5, 2)));
+    assert!(valid(&with(2, 0)));
+    // The most the CLI lists: every retained generation beside the 16 named saves.
+    assert!(valid(&with(35, 16)));
+    assert!(!valid(&with(36, 0)), "more generations than are retained");
+    assert!(!valid(&with(0, 17)), "more named saves than are kept");
+    // A real name still appears once, whatever surrounds it.
+    let mut v = with(3, 2);
+    v["snapshots"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name":"saved-0","digest":OTHER,"capturedAtMs":4000}));
+    assert!(!valid(&v));
+}
+#[test]
 fn malformed_inventory_topology_and_foreign_socket_never_gain_confirmation() {
     let mut v = inventory_value();
     v["snapshots"][1]["name"] = json!("../foreign");

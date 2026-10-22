@@ -39,6 +39,7 @@ export function mountComposer(options: { agents: string[] }) {
       throw new Error('Not used');
     },
     async recheck() {},
+    async sendNow() {},
     async abandon() {},
   };
   const discussion = {

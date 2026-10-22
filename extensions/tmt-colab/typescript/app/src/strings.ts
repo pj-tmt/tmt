@@ -412,6 +412,27 @@ export const text = {
   agentActivityWorking: (elapsed: string) => `is working · ${elapsed}`,
   /** The countdown to a batched message's latest delivery, after Core's wording (#4317). */
   messageStateIn: (clock: string) => `in ${clock}`,
+  /** Send now (#4136): the button, its retry after a refusal, and what it came to. */
+  sendNow: 'Send now',
+  sendNowTryAgain: 'Try again',
+  sendNowSending: 'Sending now…',
+  sendNowUnconfirmed: 'It may have been sent, delivery unconfirmed, do not resend',
+  sendNowUnavailable: 'Your machine did not answer. Nothing was sent.',
+  sendNowNotSent: (reason: string) => `Could not send now: ${reason}`,
+  /** One reason per code Core refuses with (request-response-v1, Send now). A code a newer Core
+   * adds reads as `sendNowRefusedUnknown`, never as a bare code. */
+  sendNowReasons: {
+    SEND_NOW_UNREACHABLE: 'the agent could not be reached',
+    DELIVERY_AWAITING_APPROVAL: 'the agent is waiting for approval on its machine',
+    DELIVERY_CHANNEL_UNAVAILABLE: "the agent's channel is not available",
+    SEND_NOW_NOT_AVAILABLE: 'sending early is not available for it right now',
+    SEND_NOW_CLOSED: 'it already has an answer, or was withdrawn or expired',
+    SEND_NOW_NOT_APPLICABLE: 'it is not waiting in a batch',
+    SEND_NOW_NOT_ALLOWED: 'only the person who sent it can send it early',
+    SEND_NOW_UNCONFIRMED: 'an earlier delivery is unconfirmed, do not resend',
+    REMOTE_SCOPE_DENIED: 'only the browser that sent it can send it early',
+  } as Readonly<Record<string, string>>,
+  sendNowRefusedUnknown: 'Could not send now. It stays batched.',
   agentQueued: (elapsed: string) => `is finishing an earlier turn · ${elapsed}`,
   agentFinished: (elapsed: string) => `finished without replying · ${elapsed} ago`,
   agentActivityUnknown: "'s activity is not reported",
@@ -625,6 +646,8 @@ export const text = {
     moreWaiting: (count: number) => `${count} more waiting`,
     openToDecide: 'Open to decide →',
     openFullPage: 'Open the full page →',
+    decideHere: 'Decide here',
+    backToSummary: '← Summary',
     openPassage: 'Open the passage →',
     openOnPage: 'Open on the page →',
     panelNeeds: 'Waiting for you on this page',

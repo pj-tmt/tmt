@@ -157,3 +157,25 @@ it('treats a later read as the same message state unless something visible moved
   expect(sameMessageState(first, undefined)).toBe(false);
   expect(sameMessageState(undefined, undefined)).toBe(true);
 });
+
+it('a Send now that is under way, or came to something, is a change the page shows', () => {
+  const shown: ObservedMessageState = { ...parseMessageState(valid())!, receivedAt: 1000 };
+  const sending: ObservedMessageState = { ...shown, sendNow: { phase: 'sending' } };
+  const refused = (reason?: string): ObservedMessageState => ({
+    ...shown,
+    sendNow: { phase: 'outcome', outcome: 'refused', ...(reason ? { reason } : {}) },
+  });
+  expect(sameMessageState(shown, sending)).toBe(false);
+  expect(sameMessageState(sending, shown)).toBe(false);
+  expect(sameMessageState(sending, { ...sending })).toBe(true);
+  expect(sameMessageState(sending, refused())).toBe(false);
+  expect(sameMessageState(refused('SEND_NOW_CLOSED'), refused('SEND_NOW_CLOSED'))).toBe(true);
+  expect(sameMessageState(refused('SEND_NOW_CLOSED'), refused('SEND_NOW_NOT_ALLOWED'))).toBe(false);
+  expect(sameMessageState(refused(), refused('SEND_NOW_CLOSED'))).toBe(false);
+  expect(
+    sameMessageState(refused(), {
+      ...shown,
+      sendNow: { phase: 'outcome', outcome: 'unconfirmed' },
+    }),
+  ).toBe(false);
+});

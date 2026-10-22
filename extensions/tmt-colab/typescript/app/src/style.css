@@ -1174,6 +1174,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 @media (max-width: 600px) {
   .conversation-status {
     --tmt-ui-host-icon-action-size: 44px;
+    --tmt-ui-host-action-min-height: 44px;
   }
 }
 .conversation-status > [role='status'] {
@@ -1187,11 +1188,24 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .conversation-status[data-message-state] .ask-state {
   display: inline;
 }
+/* The gap sits after what it follows, never before the action: when an action wraps, the gap stays
+   at the end of the line above and the action starts flush with the status text. */
+.conversation-status[data-message-state] > [role='status'] {
+  margin-right: 8px;
+}
+.conversation-status[data-message-state] > .tmt-ui-action,
 .conversation-status[data-message-state] .tmt-ui-icon-action {
-  /* Sideways gap only: its box is taller than a line and must not open up the lines of the text. */
-  margin: calc((1lh - var(--tmt-ui-host-icon-action-size)) / 2) 0
-    calc((1lh - var(--tmt-ui-host-icon-action-size)) / 2) 8px;
+  /* Sideways gap only: the box is taller than a line and must not open up the lines of the text. */
+  margin-right: 8px;
   vertical-align: middle;
+}
+.conversation-status[data-message-state] > .tmt-ui-action {
+  margin-block: calc((1lh - var(--tmt-ui-host-action-min-height)) / 2);
+  /* The label itself starts where the status text starts when the action wraps. */
+  padding-inline: 0;
+}
+.conversation-status[data-message-state] .tmt-ui-icon-action {
+  margin-block: calc((1lh - var(--tmt-ui-host-icon-action-size)) / 2);
 }
 .conversation-status .ask-status-action {
   padding: 0;
@@ -1958,6 +1972,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   order: 0;
   flex: 1 1 auto;
 }
+/* An unsent message's hint is a line of its own under the send row, never beside the button. */
+.annotation-compose[data-chat] .annotation-status-row > .annotation-hint[data-unsent] {
+  order: 2;
+  flex-basis: 100%;
+}
 .annotation-compose[data-chat] .annotation-status-row > .annotation-hint:empty {
   display: none;
 }
@@ -2096,7 +2115,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 /* Core's states are grey but for the two outcomes: delivered (above) and not sent. */
 .agent-activity[data-message-state='not_sent'] > .agent-activity-mark {
-  color: var(--c-blocked);
+  color: var(--tmt-ui-color-blocked);
 }
 /* The one animated mark of a working agent in a thread (#3978): the line's own BusyMark in the
    working colour, ahead of the name. Agent chips never animate. */

@@ -1,7 +1,7 @@
 import { AgentActivityLine, useMessageStates } from './components/agent-activity.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import type { AnswerBatchContext, CommentContext } from './thread-store.js';
-import { BrowserIconAction, BusyMark, useBusyMark } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserIconAction, BusyMark, useBusyMark } from '@tmt/browser-ui/react';
 import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
@@ -47,6 +47,8 @@ export interface AskBinding {
     retryOf?: string | null;
   }): Promise<PreviewAttempt>;
   recheck(operationId: string): Promise<void>;
+  /** Asks Core to type an accepted message now (#4136); the page shows what came of it. */
+  sendNow(operationId: string): Promise<void>;
   abandon(operationId: string): Promise<void>;
 }
 export interface PageAsk {
@@ -136,7 +138,7 @@ export function AskPanel({
     setErrors(new Map());
   }, [binding]);
   useEffect(() => setErrors(new Map()), [records]);
-  async function action(record: PageAsk, kind: 'recheck' | 'abandon') {
+  async function action(record: PageAsk, kind: 'recheck' | 'abandon' | 'sendNow') {
     if (!binding || blocked || !record.canTrack || busy.current.has(record.operationId)) return;
     busy.current.add(record.operationId);
     setPending(new Set(busy.current));
@@ -210,6 +212,13 @@ export function AskPanel({
       !record.resultUnavailable &&
       shared?.state !== 'unconfirmed';
     const disabled = !binding || blocked || !record.canTrack || pending.has(record.operationId);
+    // Send now is Core's answer and nothing else (#4136): a message of the owner's own device that
+    // Core says may be sent now. Colab's approval hold has no Core state, so it never has it, and
+    // one that may already have been typed is never offered again.
+    const progress = shared?.sendNow;
+    const canSendNow =
+      shared?.canSendNow === true &&
+      !(progress?.phase === 'outcome' && progress.outcome === 'unconfirmed');
     const recipientRecords = records.filter(
       (value) =>
         value.writer === record.writer &&
@@ -267,6 +276,17 @@ export function AskPanel({
             input={retryInput!}
             recipient={record}
             retryOf={record.operationId}
+          />
+        )}
+        {!readOnly && canSendNow && (
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={progress?.phase === 'outcome' ? text.sendNowTryAgain : text.sendNow}
+            disabled={disabled || progress?.phase === 'sending'}
+            onActivate={(event) => {
+              if (event.isTrusted && record.canTrack) void action(record, 'sendNow');
+            }}
           />
         )}
         {!readOnly && canRecheck && (
