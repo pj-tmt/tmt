@@ -117,6 +117,9 @@ fn a_wide_row_shows_left_need_every_line_and_the_reset() {
 #[test]
 fn only_a_line_that_runs_out_takes_the_attention_colour() {
     let mut app = digest(vec![claude()]);
+    let view = app.view.as_mut().unwrap();
+    view.look = crate::look::Look::default();
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     let buffer = buffer(&mut app, 120, 40);
     let rows = rows(&buffer);
     let y = rows
@@ -124,11 +127,15 @@ fn only_a_line_that_runs_out_takes_the_attention_colour() {
         .position(|row| words(row).first() == Some(&"Claude"))
         .unwrap();
     let width = usize::from(buffer.area.width);
-    let waiting = app.look().role(tmt_cli_style::Role::Waiting).fg;
+    let waiting = app
+        .look()
+        .role(tmt_cli_style::Role::Waiting)
+        .fg
+        .expect("the pinned colour assertion needs an attention foreground");
     let mut coloured = Vec::new();
     for x in 0..width {
         let cell = &buffer[(x as u16, y as u16)];
-        if cell.fg == waiting.unwrap_or_default() && cell.symbol() != " " {
+        if cell.fg == waiting && cell.symbol() != " " {
             coloured.push(cell.symbol().to_owned());
         }
     }
