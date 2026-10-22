@@ -5127,13 +5127,13 @@ describe('large board responsiveness', () => {
           // The quote is an Editor fold on the preceding line. Moving to it
           // keeps the caret in the Editor and Ctrl-P previews its full source.
           tmux(['send-keys', '-t', pane, 'Home', 'Up', 'End', 'C-p']);
-          await vi.waitFor(() => expect(screen()).toContain('Quote · 12 chars · 1 line'), {
+          await vi.waitFor(() => expect(screen()).toContain('Quote · 16 chars · 1 line'), {
             timeout: 10_000,
             interval: 50,
           });
           capture('inline-quote-preview');
           tmux(['send-keys', '-t', pane, 'Escape']);
-          await vi.waitFor(() => expect(screen()).not.toContain('Quote · 12 chars · 1 line'), {
+          await vi.waitFor(() => expect(screen()).not.toContain('Quote · 16 chars · 1 line'), {
             timeout: 10_000,
             interval: 50,
           });
