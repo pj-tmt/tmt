@@ -47,6 +47,11 @@
   content: '✓ ';
   color: var(--c-accent);
 }
+/* The active option is the list's focus: the one inset frame, as on every focused control. */
+.tmt-listbox-option[data-active='true'] {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
 .tmt-listbox-option:disabled {
   color: var(--c-muted);
   background: var(--c-paper);
@@ -77,8 +82,4 @@
 }
 .tmt-listbox-results-list .tmt-listbox-option[aria-selected='true']::before {
   content: none;
-}
-.tmt-listbox-results-list .tmt-listbox-option[data-active='true'] {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
 }

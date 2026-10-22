@@ -1972,6 +1972,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   order: 0;
   flex: 1 1 auto;
 }
+/* An unsent message's hint is a line of its own under the send row, never beside the button. */
+.annotation-compose[data-chat] .annotation-status-row > .annotation-hint[data-unsent] {
+  order: 2;
+  flex-basis: 100%;
+}
 .annotation-compose[data-chat] .annotation-status-row > .annotation-hint:empty {
   display: none;
 }
