@@ -19,6 +19,7 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
+mod copy;
 pub(in crate::board) mod exchange;
 mod history;
 pub(super) mod layout;
@@ -134,6 +135,8 @@ struct Rendered {
     anchor_sources: Vec<usize>,
     response_sources: Option<Vec<Option<usize>>>,
     final_spans: Vec<(std::ops::Range<usize>, usize)>,
+    /// What each displayed line was written as, for copying a selection as source.
+    copy: copy::Map,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -499,6 +502,7 @@ impl Session {
                 anchor_sources,
                 response_sources: Some(response_sources),
                 final_spans: transcript.final_spans,
+                copy: transcript.copy,
             });
             self.stale = false;
         }
