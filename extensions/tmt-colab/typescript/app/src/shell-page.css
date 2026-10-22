@@ -305,6 +305,7 @@
 }
 .shell-panel .shell-open {
   margin-top: 0;
+  padding-inline: 0;
   justify-self: start;
 }
 
