@@ -152,6 +152,10 @@ same write. `SavingsUnit::shown` reads percent as tokens for lifetime, and `next
 it there. The `savings-unit` action ships without a default key so that no frozen
 binding table moves; a click on a painted estimate (`Choice::SavingsUnit`) and the Actions
 menu reach it, and the footer hint appears only while a frame painted an estimate.
+The Agents TOK figures read the same preference (`App::tok_money`: unit `cost`); a click on a
+painted figure (`Choice::TokMoney`) writes tokens or cost through the same CAS and skips percent.
+Money comes from the shared usage report through `usage_report::valuation` (the Digest table
+uses the same functions), which the Agents tab demands only while money is shown.
 Older Ops builds reject that unknown key; alpha publication is automatic, but
 installation requires an explicit upgrade. One effective action table resolves defaults/global/host/section overrides for
 dispatch, footer and help. Retired pane/view/tab keys get located notices; authored

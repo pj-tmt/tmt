@@ -268,12 +268,27 @@ impl AgentsLayout {
     }
 }
 
+/// How the TOK column is headed: its saved range, in tokens or in money.
+#[derive(Clone, Copy, Default)]
+pub struct TokHeading {
+    pub range: crate::config::TokRange,
+    pub money: bool,
+}
+
+impl TokHeading {
+    pub fn caption(self) -> &'static str {
+        self.range.caption_in(self.money)
+    }
+}
+
 /// The window word of the TOK caption (`1h` of `TOK 1h`) is its own control,
 /// separate from the rest of the caption. `slot` is the right-aligned TOK cell;
 /// a truncated caption has no whole word to hit.
-pub fn tok_window_chip(slot: Rect, range: crate::config::TokRange) -> Option<Rect> {
+pub fn tok_window_chip(slot: Rect, heading: TokHeading) -> Option<Rect> {
+    use unicode_width::UnicodeWidthStr;
+    let range = heading.range;
     let word = range.argument().len() as u16;
-    let caption = range.caption().len() as u16;
+    let caption = heading.caption().width() as u16;
     (slot.height > 0 && slot.width >= caption)
         .then(|| Rect::new(slot.x + slot.width - word, slot.y, word, 1))
 }
@@ -286,7 +301,7 @@ pub fn paint_agents_header(
     slots: &[(AgentsField, Rect)],
     look: crate::look::Look,
     glyphs: crate::board::overview::cron_counts::GlyphSet,
-    range: crate::config::TokRange,
+    tok: TokHeading,
     marks: &crate::board::header_sort::Marks,
 ) -> AgentsHeaderHits {
     use crate::board::header_sort::{Header, word_hit};
@@ -304,9 +319,9 @@ pub fn paint_agents_header(
         let mut word = field.caption(glyphs);
         let mut style = base;
         let caption = if *field == AgentsField::Tokens {
-            hits.window = tok_window_chip(*slot, range);
-            word = range.caption();
-            range.caption().to_owned()
+            hits.window = tok_window_chip(*slot, tok);
+            word = tok.caption();
+            word.to_owned()
         } else if let Some((header, lead)) = sorts {
             if let Some(hit) = word_hit(*slot, lead, word) {
                 hits.sorts.push((hit, header));

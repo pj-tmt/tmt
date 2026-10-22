@@ -320,6 +320,11 @@ A sum of percents needs one shared interval and a sum of costs one price table;
 otherwise it reads `— (intervals differ)` or `— (prices differ)`. The `savings-unit`
 action has no default key: bind one under `[bind]` and its hint appears beside a
 painted estimate, or choose `Savings unit` from the Actions menu.
+The Agents TOK figures follow the same unit. Click a TOK figure to switch every figure
+between tokens and the list price of the input tokens behind them (`≈$0.42`, `≈$12.3`,
+`≈$123`, `≈$1.2k`; the heading reads `≈$ 1d`). The click skips percent, a squad sums its
+members, and a figure is `—` until the usage report covers all of them completely, never a
+partial sum. It is an estimate at list price, not a bill; the heading still sorts by tokens.
 The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2` as input.
@@ -405,7 +410,8 @@ columns; self is blank, `·` observed none and `—` unavailable.
 Enter opens the selected member's Agents conversation. D uses the existing
 Digest chooser; e toggles details, u opens usage controls and w stays Snapshots.
 Hints follow configured bindings. The `≈ $ in` column requires full input-model
-attribution and held quotes: input tokens at list price; not a bill. Avoided
+attribution and held quotes: input tokens at list price; not a bill. A table narrower
+than 94 columns drops SHARE, `≈ $ in` and TALKS TO whole and says so on its last line. Avoided
 estimates remain supplier-owned and show unavailable when their window differs
 from the selected TOK range. Source windows and prices remain in details.
 Usage and traffic come from bounded background Core reads, even without Digest;
