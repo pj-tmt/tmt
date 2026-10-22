@@ -163,7 +163,7 @@ impl SendNowRejection {
     /// message and the Remote door's `reasonText` are these words, so no client keeps a table.
     pub fn message(self) -> String {
         match self {
-            Self::NotAllowed => refused("only its sender, or a person, can send it early"),
+            Self::NotAllowed => refused("only its sender or the owner can send it early"),
             Self::NotApplicable => refused("it is not an ordinary message to an agent"),
             Self::Closed => refused("it already has an answer, or was withdrawn or expired"),
             Self::Unconfirmed => refused("an earlier delivery is unconfirmed, do not resend"),
@@ -208,7 +208,9 @@ impl SendNowUntyped {
             }
             Self::Unreachable => "Could not send now: the agent could not be reached",
             Self::ChannelUnavailable => "Could not send now: the agent's channel is not available",
-            Self::Uncertain => "It may have been sent, delivery unconfirmed, do not resend",
+            Self::Uncertain => {
+                "It may have been sent. Delivery is not confirmed, so do not send it again."
+            }
         }
     }
 }

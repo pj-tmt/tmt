@@ -179,7 +179,7 @@ fn every_send_now_refusal_has_one_pinned_sentence() {
         (
             SendNowRejection::NotAllowed,
             "SEND_NOW_NOT_ALLOWED",
-            "Could not send now: only its sender, or a person, can send it early",
+            "Could not send now: only its sender or the owner can send it early",
         ),
         (
             SendNowRejection::NotApplicable,
@@ -231,7 +231,7 @@ fn every_send_now_refusal_has_one_pinned_sentence() {
         (
             SendNowUntyped::Uncertain,
             "DELIVERY_UNCERTAIN",
-            "It may have been sent, delivery unconfirmed, do not resend",
+            "It may have been sent. Delivery is not confirmed, so do not send it again.",
         ),
     ] {
         assert_eq!((untyped.code(), untyped.message()), (code, sentence));

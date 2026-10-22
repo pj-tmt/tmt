@@ -399,10 +399,10 @@ fn send_now_reports_what_core_did_and_never_a_guess() {
             Some("Could not send now: the agent is waiting for approval on its machine"),
         ),
         (
-            "err|DELIVERY_UNCERTAIN|It may have been sent, delivery unconfirmed, do not resend",
+            "err|DELIVERY_UNCERTAIN|It may have been sent. Delivery is not confirmed, so do not send it again.",
             "unconfirmed",
             Some("DELIVERY_UNCERTAIN"),
-            Some("It may have been sent, delivery unconfirmed, do not resend"),
+            Some("It may have been sent. Delivery is not confirmed, so do not send it again."),
         ),
         // A sentence that is not one plain bounded line is dropped; the code stays.
         (

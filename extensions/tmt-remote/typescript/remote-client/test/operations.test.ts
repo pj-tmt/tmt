@@ -191,12 +191,12 @@ for (const [reply, expected] of [
     {
       state: 'unconfirmed',
       reason: 'DELIVERY_UNCERTAIN',
-      reasonText: 'It may have been sent, delivery unconfirmed, do not resend',
+      reasonText: 'It may have been sent. Delivery is not confirmed, so do not send it again.',
     },
     {
       state: 'unconfirmed',
       reason: 'DELIVERY_UNCERTAIN',
-      reasonText: 'It may have been sent, delivery unconfirmed, do not resend',
+      reasonText: 'It may have been sent. Delivery is not confirmed, so do not send it again.',
     },
   ],
   [
