@@ -883,9 +883,6 @@ impl App {
             return Effect::None;
         };
         let mut state = self.conversation.borrow_mut();
-        if state.send_now_pending.is_some() {
-            return Effect::None;
-        }
         state.send_now_pending = Some(hit.request.clone());
         state.send_now_hit = None;
         Effect::Act(Request::SendNow {
