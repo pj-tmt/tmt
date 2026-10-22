@@ -21,12 +21,15 @@ export type OwnerReadReason = (typeof OWNER_READ_REASONS)[number] | 'unknown';
 
 /**
  * A read's outcome. `ok` carries the route's payload (the answer without `version`, `state` and
- * `observedAtMs`); `unavailable` is the owner's own answer with its reason; `unreachable` is no
- * answer at all: no owner session in this browser, a door without the reads, or no network.
+ * `observedAtMs`); `unavailable` is the owner's own answer with its reason. `no-session` is a
+ * browser the door names no owner mount for (not paired here); `unreachable` is a mount that gave
+ * no answer this time (a network blip, a restarting door, an answer off the contract), which a
+ * later read may get, so a paired browser is never told to pair again for it.
  */
 export type OwnerReadAnswer<T> =
   | { state: 'ok'; observedAtMs: number; payload: T }
   | { state: 'unavailable'; observedAtMs: number; reason: OwnerReadReason }
+  | { state: 'no-session' }
   | { state: 'unreachable' };
 
 const UNREACHABLE = { state: 'unreachable' } as const;
@@ -47,8 +50,36 @@ export function ownerAnswer<T>(document: unknown): OwnerReadAnswer<T> {
 
 let address: Promise<string | undefined> | undefined;
 
-/** Read `<address>/x/-/<name>` once. The mount address is found once per page and found again
- * after a read that had none. */
+/** Without an owner session, a pairing kept in this browser opens one again (a door restart ends
+ * them); `no-session` when there is no pairing to use, else `unreachable` (try again later). */
+async function reopen(signal: AbortSignal): Promise<'reopened' | 'no-session' | 'unreachable'> {
+  try {
+    const { reopenSession } = await import('./browser.js');
+    // With a signal, one attempt that fails with a typed reason.
+    await reopenSession(undefined, { signal });
+    return 'reopened';
+  } catch (error) {
+    const reason = (error as { reason?: string } | undefined)?.reason;
+    return reason === 'unpaired' || reason === 'revoked' || reason === 'expired'
+      ? 'no-session'
+      : 'unreachable';
+  }
+}
+
+async function readOnce(url: string, signal: AbortSignal): Promise<Response | undefined> {
+  try {
+    return await fetch(url, { credentials: 'same-origin', cache: 'no-store', signal });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read `<address>/x/-/<name>` once. The mount address is found once per page and found again
+ * after a read that had none. The door answers a request without a live owner session with its
+ * generic 404: the read then reopens the session from this browser's pairing and reads again, so
+ * only a browser with no pairing to use is told it has no session (#4018).
+ */
 export async function ownerRead<T>(
   name: OwnerReadName,
   signal: AbortSignal,
@@ -57,15 +88,17 @@ export async function ownerRead<T>(
   const base = await address;
   if (base === undefined) {
     address = undefined;
-    return UNREACHABLE;
+    return { state: 'no-session' };
   }
+  const url = `${base}/x/-/${name}`;
+  let response = await readOnce(url, signal);
+  if (response?.status === 404) {
+    const reopened = await reopen(signal);
+    if (reopened !== 'reopened') return { state: reopened };
+    response = await readOnce(url, signal);
+  }
+  if (response?.status !== 200) return UNREACHABLE;
   try {
-    const response = await fetch(`${base}/x/-/${name}`, {
-      credentials: 'same-origin',
-      cache: 'no-store',
-      signal,
-    });
-    if (response.status !== 200) return UNREACHABLE;
     return ownerAnswer<T>(await response.json());
   } catch {
     return UNREACHABLE;

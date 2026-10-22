@@ -102,7 +102,7 @@ function agentState(agent: OpsPayload['agents'][number]): AgentState {
 }
 
 /** One plain sentence per reason, each saying what the person can do. */
-const REASONS: Record<OwnerReadReason | 'unreachable', string> = {
+const REASONS: Record<OwnerReadReason | 'no-session' | 'unreachable', string> = {
   not_installed: 'Ops is not installed on your machine. Install it, then reload this page.',
   core_unavailable: 'TMT on your machine did not answer. This page tries again shortly.',
   timeout: 'Your machine took too long to read the board. This page tries again shortly.',
@@ -110,10 +110,11 @@ const REASONS: Record<OwnerReadReason | 'unreachable', string> = {
   too_large: 'The board is too large for the browser. Run `tmt ops ui` in a terminal to see it.',
   not_sampled: 'Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.',
   unknown: 'The board is not available right now. Run `tmt ops ui` in a terminal to see it.',
-  unreachable:
+  'no-session':
     'This browser has no owner session for your machine. Pair it from Remote to see the board.',
+  unreachable: 'Your machine did not answer. This page tries again shortly.',
 };
-function unavailableBoard(reason: OwnerReadReason | 'unreachable'): OpsBoard {
+function unavailableBoard(reason: OwnerReadReason | 'no-session' | 'unreachable'): OpsBoard {
   return { agents: [], squads: [], schedules: [], truncated: false, unavailable: REASONS[reason] };
 }
 
@@ -160,7 +161,7 @@ export function opsBoard(payload: OpsPayload): OpsBoard {
 /** The board from an owner read's answer. */
 export function boardFromAnswer(answer: OwnerReadAnswer<OpsPayload>): OpsBoard {
   if (answer.state === 'ok') return opsBoard(answer.payload);
-  return unavailableBoard(answer.state === 'unavailable' ? answer.reason : 'unreachable');
+  return unavailableBoard(answer.state === 'unavailable' ? answer.reason : answer.state);
 }
 
 /** The source the page reads: the owner's board through `x/-/ops`. */

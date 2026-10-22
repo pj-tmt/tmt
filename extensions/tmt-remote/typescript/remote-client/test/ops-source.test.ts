@@ -75,8 +75,12 @@ it('says why there is no board, with what to do, for every reason and no answer 
     expect(board).toMatchObject({ agents: [], squads: [], schedules: [] });
     texts.add(board.unavailable!);
   }
-  const unreachable = boardFromAnswer({ state: 'unreachable' });
-  expect(unreachable.unavailable).toMatch(/Pair it from Remote/);
+  // Only a browser the door names no owner mount for is asked to pair; a mount that did not
+  // answer this time is retried, never a reason to pair again (#4018).
+  expect(boardFromAnswer({ state: 'no-session' }).unavailable).toMatch(/Pair it from Remote/);
+  const unreachable = boardFromAnswer({ state: 'unreachable' }).unavailable!;
+  expect(unreachable).toBe('Your machine did not answer. This page tries again shortly.');
+  expect(unreachable).not.toMatch(/[Pp]air/);
   // Each reason, an unknown one included, reads as its own sentence, never as an empty list.
   expect(texts.size).toBe(6);
   expect(answer({ version: 1, state: 'ok', squads: 'x', agents: [] }).unavailable).toMatch(

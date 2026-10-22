@@ -3393,22 +3393,51 @@ function ownerAnswer(document) {
 	};
 }
 var address;
-/** Read `<address>/x/-/<name>` once. The mount address is found once per page and found again
-* after a read that had none. */
+/** Without an owner session, a pairing kept in this browser opens one again (a door restart ends
+* them); `no-session` when there is no pairing to use, else `unreachable` (try again later). */
+async function reopen(signal) {
+	try {
+		const { reopenSession } = await import("./remote-v1.js");
+		await reopenSession(void 0, { signal });
+		return "reopened";
+	} catch (error) {
+		const reason = error?.reason;
+		return reason === "unpaired" || reason === "revoked" || reason === "expired" ? "no-session" : "unreachable";
+	}
+}
+async function readOnce(url, signal) {
+	try {
+		return await fetch(url, {
+			credentials: "same-origin",
+			cache: "no-store",
+			signal
+		});
+	} catch {
+		return;
+	}
+}
+/**
+* Read `<address>/x/-/<name>` once. The mount address is found once per page and found again
+* after a read that had none. The door answers a request without a live owner session with its
+* generic 404: the read then reopens the session from this browser's pairing and reads again, so
+* only a browser with no pairing to use is told it has no session (#4018).
+*/
 async function ownerRead(name, signal) {
 	address ??= shellAddress();
 	const base = await address;
 	if (base === void 0) {
 		address = void 0;
-		return UNREACHABLE;
+		return { state: "no-session" };
 	}
+	const url = `${base}/x/-/${name}`;
+	let response = await readOnce(url, signal);
+	if (response?.status === 404) {
+		const reopened = await reopen(signal);
+		if (reopened !== "reopened") return { state: reopened };
+		response = await readOnce(url, signal);
+	}
+	if (response?.status !== 200) return UNREACHABLE;
 	try {
-		const response = await fetch(`${base}/x/-/${name}`, {
-			credentials: "same-origin",
-			cache: "no-store",
-			signal
-		});
-		if (response.status !== 200) return UNREACHABLE;
 		return ownerAnswer(await response.json());
 	} catch {
 		return UNREACHABLE;
@@ -3510,7 +3539,8 @@ var REASONS = {
 	too_large: "The board is too large for the browser. Run `tmt ops ui` in a terminal to see it.",
 	not_sampled: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
 	unknown: "The board is not available right now. Run `tmt ops ui` in a terminal to see it.",
-	unreachable: "This browser has no owner session for your machine. Pair it from Remote to see the board."
+	"no-session": "This browser has no owner session for your machine. Pair it from Remote to see the board.",
+	unreachable: "Your machine did not answer. This page tries again shortly."
 };
 function unavailableBoard(reason) {
 	return {
@@ -3558,7 +3588,7 @@ function opsBoard(payload) {
 /** The board from an owner read's answer. */
 function boardFromAnswer(answer) {
 	if (answer.state === "ok") return opsBoard(answer.payload);
-	return unavailableBoard(answer.state === "unavailable" ? answer.reason : "unreachable");
+	return unavailableBoard(answer.state === "unavailable" ? answer.reason : answer.state);
 }
 /** The source the page reads: the owner's board through `x/-/ops`. */
 var opsSource = { async board(signal) {

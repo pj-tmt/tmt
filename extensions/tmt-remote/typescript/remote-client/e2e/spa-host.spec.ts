@@ -748,6 +748,30 @@ test.describe('the Ops route on the owner read', () => {
     await page.close();
   });
 
+  test('a door that stops answering mid-route is retried, never a reason to pair again', async () => {
+    let down = false;
+    const { page } = await openApp('/ops', async (page) => {
+      await stub(page, [board]);
+      // The door stops: the read fails on the network, as a restart or a blip does.
+      await page.route(`${origin}/r/owner/x/-/ops`, (route) =>
+        down ? route.abort('connectionrefused') : route.fallback(),
+      );
+    });
+    const rows = page.locator('#ops-section .tmt-ui-list-row');
+    await expect(rows).toHaveCount(2);
+    down = true;
+    await expect(page.locator('#ops-note')).toHaveText(
+      'Your machine did not answer. This page tries again shortly.',
+      { timeout: 8000 },
+    );
+    await expect(page.locator('#ops-note')).not.toContainText('Pair');
+    // Back up: the next read (after the doubled wait) shows the board again and clears the note.
+    down = false;
+    await expect(rows).toHaveCount(2, { timeout: 15_000 });
+    await expect(page.locator('#ops-note')).toBeHidden();
+    await page.close();
+  });
+
   test('says why there is no board, never an empty list', async () => {
     const { page } = await openApp('/ops', async (page) => {
       await stub(page, [{ version: 1, state: 'unavailable', reason: 'not_installed' }]);

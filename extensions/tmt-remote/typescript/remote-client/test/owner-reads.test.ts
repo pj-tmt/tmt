@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { OWNER_READ_REASONS, ownerAnswer, whileVisible } from '../src/owner-reads.js';
+import { OWNER_READ_REASONS, ownerAnswer, ownerRead, whileVisible } from '../src/owner-reads.js';
+
+const reopenSession = vi.fn<() => Promise<void>>();
+vi.mock('../src/browser.js', () => ({ reopenSession: () => reopenSession() }));
 
 interface Vectors {
   reasons: string[];
@@ -88,4 +91,58 @@ it('refreshes only while visible, backs off after failures and stops with the ro
   page.show(true);
   await vi.advanceTimersByTimeAsync(10_000);
   expect(at).toHaveLength(6);
+});
+
+it('asks to pair only without an owner mount; a mount that fails to answer is unreachable', async () => {
+  const signal = new AbortController().signal;
+  let mount = 404;
+  let read: () => Promise<Response> = async () =>
+    Response.json({ version: 1, state: 'ok', observedAtMs: 1 });
+  vi.stubGlobal('location', new URL('https://door.test/ops'));
+  vi.stubGlobal('fetch', async (input: string) =>
+    input === '/sdk/mount'
+      ? mount === 200
+        ? Response.json({ address: 'https://door.test/r/owner' })
+        : new Response('', { status: mount })
+      : read(),
+  );
+  expect(await ownerRead('ops', signal)).toEqual({ state: 'no-session' });
+  mount = 200;
+  expect(await ownerRead('ops', signal)).toEqual({ state: 'ok', observedAtMs: 1, payload: {} });
+  // The door stopped, restarted or answered off the contract: unreachable, never no-session.
+  for (const failure of [
+    async () => {
+      throw new TypeError('Failed to fetch');
+    },
+    async () => new Response('', { status: 502 }),
+    async () => new Response('not json', { status: 200 }),
+  ]) {
+    read = failure;
+    expect(await ownerRead('ops', signal)).toEqual({ state: 'unreachable' });
+  }
+});
+
+it('a 404 reopens the session from the pairing before it names a missing session', async () => {
+  const signal = new AbortController().signal;
+  let open = false;
+  vi.stubGlobal('location', new URL('https://door.test/ops'));
+  vi.stubGlobal('fetch', async (input: string) =>
+    input === '/sdk/mount'
+      ? Response.json({ address: 'https://door.test/r/owner' })
+      : open
+        ? Response.json({ version: 1, state: 'ok', observedAtMs: 1 })
+        : new Response('', { status: 404 }),
+  );
+  // A door restart ended the session; the pairing opens a new one and the read is made again.
+  reopenSession.mockImplementationOnce(async () => {
+    open = true;
+  });
+  expect(await ownerRead('ops', signal)).toEqual({ state: 'ok', observedAtMs: 1, payload: {} });
+  open = false;
+  reopenSession.mockRejectedValueOnce(Object.assign(new Error('unpaired'), { reason: 'unpaired' }));
+  expect(await ownerRead('ops', signal)).toEqual({ state: 'no-session' });
+  reopenSession.mockRejectedValueOnce(
+    Object.assign(new Error('unreachable'), { reason: 'unreachable' }),
+  );
+  expect(await ownerRead('ops', signal)).toEqual({ state: 'unreachable' });
 });
