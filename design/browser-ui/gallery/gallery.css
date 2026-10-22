@@ -31,13 +31,8 @@
   --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
 }
 
-body {
-  margin: 0;
-  background: var(--tmt-ui-surface-paper);
-  color: var(--tmt-ui-color-text);
-  font: 14px / 1.5 var(--tmt-ui-font-body);
-}
-code,
+/* Under .gallery so the module's styles never reach the shell's own code. */
+.gallery code,
 .gallery-mono {
   font-family: var(--tmt-ui-font-mono);
   font-size: 12px;
@@ -47,6 +42,14 @@ code,
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
   min-height: 100dvh;
+}
+.gallery-embedded {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+.gallery-embedded .gallery-section {
+  /* The shell's bar stays above the content, so a section opened from the menu clears it. */
+  scroll-margin-top: calc(var(--tmt-ui-header-height) + var(--tmt-ui-space-l));
 }
 .gallery-nav {
   position: sticky;
