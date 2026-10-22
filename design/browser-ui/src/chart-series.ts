@@ -20,6 +20,10 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
   plot.setAttribute('aria-label', `${options.title}. Arrow keys read each position.`);
   const readout = htmlEl('p', 'tmt-ui-chart-readout');
   readout.setAttribute('aria-live', 'polite');
+  const frame = htmlEl('div', 'tmt-ui-chart-frame');
+  const tip = htmlEl('div', 'tmt-ui-chart-tip');
+  tip.hidden = true;
+  tip.setAttribute('aria-hidden', 'true');
   const legend = htmlEl('ul', 'tmt-ui-chart-legend');
   const first = seriesModel(options, 640);
   const valueNodes = first.legend.map(({ label, style }) => {
@@ -40,6 +44,27 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
   }
   let model = first;
   let active = options.x.length - 1;
+  /** The hover tip beside the column, flipped to the left half's other side near the right edge. */
+  function showTip(at: number) {
+    const data = model.tip(at);
+    const title = htmlEl('div', 'tmt-ui-chart-tip-title', data.title);
+    const rows = data.rows.map((row) => {
+      const line = htmlEl('div', 'tmt-ui-chart-tip-row');
+      const swatch = htmlEl('span', `tmt-ui-chart-swatch tmt-ui-chart-s${row.style}`);
+      line.append(
+        swatch,
+        htmlEl('span', 'tmt-ui-chart-tip-label', row.label),
+        htmlEl('span', 'tmt-ui-chart-legend-value', row.value),
+      );
+      return line;
+    });
+    tip.replaceChildren(title, ...rows);
+    tip.hidden = false;
+    const x = model.xs[at] ?? 0;
+    const flip = x > model.width / 2;
+    tip.classList.toggle('tmt-ui-chart-tip-left', flip);
+    tip.style.left = `${flip ? x - 12 : x + 12}px`;
+  }
   function select(at: number) {
     active = Math.max(0, Math.min(options.x.length - 1, at));
     model.values(active).forEach((text, i) => (valueNodes[i]!.textContent = text));
@@ -48,6 +73,7 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
     const x = String(model.xs[active] ?? 0);
     cursor?.setAttribute('x1', x);
     cursor?.setAttribute('x2', x);
+    if (!tip.hidden) showTip(active);
   }
   function paint(width: number) {
     model = seriesModel(options, width);
@@ -122,10 +148,18 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
       Math.round((event.clientX - plot.getBoundingClientRect().left - model.left) / model.step),
     );
   };
-  plot.addEventListener('pointermove', pointer);
-  plot.addEventListener('pointerdown', pointer);
+  const point = (event: PointerEvent) => {
+    pointer(event);
+    showTip(active);
+  };
+  plot.addEventListener('pointermove', point);
+  plot.addEventListener('pointerdown', point);
+  plot.addEventListener('pointerleave', () => (tip.hidden = true));
+  plot.addEventListener('focus', () => showTip(active));
+  plot.addEventListener('blur', () => (tip.hidden = true));
+  frame.append(plot, tip);
   figure.append(
-    plot,
+    frame,
     readout,
     legend,
     dataTable(options.title, first.table.columns, first.table.rows),

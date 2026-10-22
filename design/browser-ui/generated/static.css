@@ -71,6 +71,13 @@
   --tmt-ui-color-link: #006b8f;
   --tmt-ui-color-annotation-on-action: #ffffff;
   --tmt-ui-color-mention-person: #315e78;
+  --tmt-ui-color-series-1: #2a78d6;
+  --tmt-ui-color-series-2: #eb6834;
+  --tmt-ui-color-series-3: #1baf7a;
+  --tmt-ui-color-series-4: #eda100;
+  --tmt-ui-color-series-5: #e87ba4;
+  --tmt-ui-color-series-6: #008300;
+  --tmt-ui-color-series-7: #6250d6;
   --tmt-ui-surface-scrim: #0000001f;
   --tmt-ui-surface-command: #eaeaea;
   --tmt-ui-surface-code: #f0f0f0;
@@ -114,6 +121,13 @@
     --tmt-ui-color-link: #7dcfff;
     --tmt-ui-color-annotation-on-action: #ffffff;
     --tmt-ui-color-mention-person: #b6d8ec;
+    --tmt-ui-color-series-1: #3987e5;
+    --tmt-ui-color-series-2: #d95926;
+    --tmt-ui-color-series-3: #199e70;
+    --tmt-ui-color-series-4: #c98500;
+    --tmt-ui-color-series-5: #d55181;
+    --tmt-ui-color-series-6: #008300;
+    --tmt-ui-color-series-7: #9085e9;
     --tmt-ui-surface-scrim: #00000052;
     --tmt-ui-surface-command: #202020;
     --tmt-ui-surface-code: #171717;
@@ -157,6 +171,13 @@
   --tmt-ui-color-link: #006b8f;
   --tmt-ui-color-annotation-on-action: #ffffff;
   --tmt-ui-color-mention-person: #315e78;
+  --tmt-ui-color-series-1: #2a78d6;
+  --tmt-ui-color-series-2: #eb6834;
+  --tmt-ui-color-series-3: #1baf7a;
+  --tmt-ui-color-series-4: #eda100;
+  --tmt-ui-color-series-5: #e87ba4;
+  --tmt-ui-color-series-6: #008300;
+  --tmt-ui-color-series-7: #6250d6;
   --tmt-ui-surface-scrim: #0000001f;
   --tmt-ui-surface-command: #eaeaea;
   --tmt-ui-surface-code: #f0f0f0;
@@ -199,6 +220,13 @@
   --tmt-ui-color-link: #7dcfff;
   --tmt-ui-color-annotation-on-action: #ffffff;
   --tmt-ui-color-mention-person: #b6d8ec;
+  --tmt-ui-color-series-1: #3987e5;
+  --tmt-ui-color-series-2: #d95926;
+  --tmt-ui-color-series-3: #199e70;
+  --tmt-ui-color-series-4: #c98500;
+  --tmt-ui-color-series-5: #d55181;
+  --tmt-ui-color-series-6: #008300;
+  --tmt-ui-color-series-7: #9085e9;
   --tmt-ui-surface-scrim: #00000052;
   --tmt-ui-surface-command: #202020;
   --tmt-ui-surface-code: #171717;
@@ -2318,12 +2346,50 @@ svg.tmt-ui-mark {
   stroke: var(--tmt-ui-color-selected-text);
   stroke-width: var(--tmt-ui-rule-width);
 }
+/* The readout stays for assistive technology (a live region); sighted readers get the hover tip. */
 .tmt-ui-chart-readout {
-  min-height: 1.4em;
-  margin: var(--tmt-ui-space-s) 0 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.tmt-ui-chart-frame {
+  position: relative;
+  max-width: 100%;
+}
+.tmt-ui-chart-tip {
+  position: absolute;
+  top: var(--tmt-ui-space-s);
+  z-index: 1;
+  min-width: 12ch;
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-header-action-size) / 1.4 var(--tmt-ui-font-mono);
-  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.tmt-ui-chart-tip[hidden] {
+  display: none;
+}
+.tmt-ui-chart-tip-left {
+  transform: translateX(-100%);
+}
+.tmt-ui-chart-tip-title {
+  margin-bottom: var(--tmt-ui-space-xs);
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-chart-tip-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tmt-ui-space-s);
+  white-space: nowrap;
+}
+.tmt-ui-chart-tip-label {
+  flex: 1;
 }
 .tmt-ui-chart-legend {
   display: flex;
@@ -2464,44 +2530,44 @@ svg.tmt-ui-mark {
   font: var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
 }
 .tmt-ui-chart-s0 {
-  fill: color-mix(in srgb, var(--tmt-ui-color-text) 82%, var(--tmt-ui-surface-sheet));
+  fill: var(--tmt-ui-color-series-1);
   stroke-linecap: round;
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 82%, var(--tmt-ui-surface-sheet));
+  background: var(--tmt-ui-color-series-1);
 }
 .tmt-ui-chart-s1 {
-  fill: color-mix(in srgb, var(--tmt-ui-color-text) 68%, var(--tmt-ui-surface-sheet));
+  fill: var(--tmt-ui-color-series-2);
   stroke-linecap: round;
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 68%, var(--tmt-ui-surface-sheet));
+  background: var(--tmt-ui-color-series-2);
 }
 .tmt-ui-chart-s2 {
-  fill: color-mix(in srgb, var(--tmt-ui-color-text) 56%, var(--tmt-ui-surface-sheet));
+  fill: var(--tmt-ui-color-series-3);
   stroke-linecap: round;
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 56%, var(--tmt-ui-surface-sheet));
+  background: var(--tmt-ui-color-series-3);
 }
 .tmt-ui-chart-s3 {
-  fill: color-mix(in srgb, var(--tmt-ui-color-text) 46%, var(--tmt-ui-surface-sheet));
+  fill: var(--tmt-ui-color-series-4);
   stroke-linecap: round;
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 46%, var(--tmt-ui-surface-sheet));
+  background: var(--tmt-ui-color-series-4);
 }
 .tmt-ui-chart-s4 {
+  fill: var(--tmt-ui-color-series-5);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-5);
+}
+.tmt-ui-chart-s5 {
+  fill: var(--tmt-ui-color-series-6);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-6);
+}
+.tmt-ui-chart-s6 {
+  fill: var(--tmt-ui-color-series-7);
+  stroke-linecap: round;
+  background: var(--tmt-ui-color-series-7);
+}
+.tmt-ui-chart-s7 {
   fill: color-mix(in srgb, var(--tmt-ui-color-text) 38%, var(--tmt-ui-surface-sheet));
   stroke-linecap: round;
   background: color-mix(in srgb, var(--tmt-ui-color-text) 38%, var(--tmt-ui-surface-sheet));
-}
-.tmt-ui-chart-s5 {
-  fill: color-mix(in srgb, var(--tmt-ui-color-text) 30%, var(--tmt-ui-surface-sheet));
-  stroke-linecap: round;
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 30%, var(--tmt-ui-surface-sheet));
-}
-.tmt-ui-chart-s6 {
-  fill: color-mix(in srgb, var(--tmt-ui-color-text) 22%, var(--tmt-ui-surface-sheet));
-  stroke-linecap: round;
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 22%, var(--tmt-ui-surface-sheet));
-}
-.tmt-ui-chart-s7 {
-  fill: color-mix(in srgb, var(--tmt-ui-color-text) 14%, var(--tmt-ui-surface-sheet));
-  stroke-linecap: round;
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 14%, var(--tmt-ui-surface-sheet));
 }
 .tmt-ui-chart-line.tmt-ui-chart-s0,
 .tmt-ui-chart-line.tmt-ui-chart-s1,
@@ -2514,28 +2580,28 @@ svg.tmt-ui-mark {
   fill: none;
 }
 .tmt-ui-chart-line.tmt-ui-chart-s0 {
-  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 82%, var(--tmt-ui-surface-sheet));
+  stroke: var(--tmt-ui-color-series-1);
 }
 .tmt-ui-chart-line.tmt-ui-chart-s1 {
-  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 68%, var(--tmt-ui-surface-sheet));
+  stroke: var(--tmt-ui-color-series-2);
 }
 .tmt-ui-chart-line.tmt-ui-chart-s2 {
-  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 56%, var(--tmt-ui-surface-sheet));
+  stroke: var(--tmt-ui-color-series-3);
 }
 .tmt-ui-chart-line.tmt-ui-chart-s3 {
-  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 46%, var(--tmt-ui-surface-sheet));
+  stroke: var(--tmt-ui-color-series-4);
 }
 .tmt-ui-chart-line.tmt-ui-chart-s4 {
-  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 38%, var(--tmt-ui-surface-sheet));
+  stroke: var(--tmt-ui-color-series-5);
 }
 .tmt-ui-chart-line.tmt-ui-chart-s5 {
-  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 30%, var(--tmt-ui-surface-sheet));
+  stroke: var(--tmt-ui-color-series-6);
 }
 .tmt-ui-chart-line.tmt-ui-chart-s6 {
-  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 22%, var(--tmt-ui-surface-sheet));
+  stroke: var(--tmt-ui-color-series-7);
 }
 .tmt-ui-chart-line.tmt-ui-chart-s7 {
-  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 14%, var(--tmt-ui-surface-sheet));
+  stroke: color-mix(in srgb, var(--tmt-ui-color-text) 38%, var(--tmt-ui-surface-sheet));
 }
 .tmt-ui-chart-level-1 {
   background: color-mix(in srgb, var(--tmt-ui-color-text) 10%, var(--tmt-ui-surface-sheet));

@@ -533,11 +533,16 @@ lines on one time axis, with an optional dashed reference line and vertical guid
 model (`seriesModel`, `matrixModel`, `stripsModel`) that carries every number, label and
 intensity step; the painter only maps it to elements, so the model is what is unit-tested.
 
-- Colour comes only from tokens: series use eight steps of the text colour mixed into the sheet
-  (`tmt-ui-chart-s0` darkest to `s7`), separated by a sheet-coloured rule; intensity uses five
-  steps. Matrix and strip text meets 4.5:1 on every step in light and dark (a test computes it).
-  Colour is never the only carrier: every series is named in a legend with its value at the
-  selected column, and the hovered or arrowed column is read in a live line under the plot.
+- Colour comes only from tokens. Series use the categorical roles `browser.color.series-1` to
+  `series-7` (blue, orange, aqua, yellow, magenta, green, violet: the validated data-viz order,
+  each stepped for light and dark), separated by a sheet-coloured rule. A chart keeps a few
+  series and folds the rest into one `Other`, drawn in a neutral step of the text colour
+  (`tmt-ui-chart-s7`). Intensity (matrix, strips) uses five steps of the text colour; its text
+  meets 4.5:1 on every step in light and dark (a test computes it). Colour is never the only
+  carrier: every series is named in a legend with its value at the selected column and in the
+  hover tip, and the data table is always there.
+- Hovering the plot (or focusing it and using the arrows) shows a tip beside the column with the
+  time and every series' value; a visually hidden live line says the same to assistive technology.
 - A missing observation is never a zero. A line breaks, a cell reads `—`, a slot stays blank;
   a known none is `·` and the faintest step. Self is a blank cell in the matrix. The same
   conventions as the terminal Digest.
@@ -546,7 +551,7 @@ intensity step; the painter only maps it to elements, so the model is what is un
   container scrolls inside its own region; the page never scrolls sideways.
 - Text is repainted at the container's width (ResizeObserver), so type keeps its size at phone
   and desktop widths. Empty data shows one plain sentence, not an empty axis.
-- More than eight series fold into one `Other` with `topLayers`.
+- More series than a chart keeps (five on Digest) fold into one `Other` with `topLayers`.
 
 ### Status mark
 
