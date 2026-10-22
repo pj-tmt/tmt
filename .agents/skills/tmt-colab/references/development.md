@@ -46,7 +46,11 @@ Its files are published at the site root; `index.html` and `THIRD-PARTY-NOTICES.
 required. The shell must use absolute `/assets/` URLs with no `<base>` so rewritten
 short routes resolve the same assets. Build a hosted distribution with Vite's `--base /`
 option (`vp build --base / --outDir dist-hosted` in `extensions/tmt-colab/typescript/app`);
-native mounted distributions retain their relative base.
+native mounted distributions retain their relative base. Both distributions also carry the bundled
+page runtime (`assets/colab-runtime.js`, build mode `runtime`): the `build`, `build:bundles` and
+`build:hosted` scripts run it and fail when it differs from `typescript/app/runtime-pin.json`. After a
+deliberate change of React, htm or `@tailwindcss/browser` (including a dependency bump), run
+`node ../../scripts/verify-runtime.mjs dist --update` in the app directory and review the pin diff.
 
 The generator copies Remote's output, never editing it, to three reserved routes: the committed
 `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js` to `/sdk/remote-v1.js`, and Remote's

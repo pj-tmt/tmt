@@ -42,6 +42,7 @@ let sends: RemoteDouble;
 let dispatched: RemoteDouble[];
 let actions: string[];
 let projectRequests: ProjectChange[];
+let pinRequests: { pageId: string; pinned: boolean }[];
 let spaceHomeReads: number;
 let spaceHomeRunning: number;
 let spaceHomeAborted: number;
@@ -243,6 +244,8 @@ export async function mount(
       names: string[];
       current: string[];
       fail?: boolean;
+      /** The next `page.pin` request is refused with this code. */
+      pinFail?: string;
       deepLink?: boolean;
       /** The first owner-list read waits until it is aborted or `releaseSpaceHome()`. */
       slowRead?: boolean;
@@ -274,6 +277,7 @@ export async function mount(
   dispatched = [];
   actions = [];
   projectRequests = [];
+  pinRequests = [];
   spaceHomeReads = 0;
   spaceHomeRunning = 0;
   spaceHomeAborted = 0;
@@ -919,6 +923,8 @@ export async function mount(
   const projectState = options.projects && {
     names: new Set(options.projects.names),
     current: [...options.projects.current],
+    pinned: false,
+    pinFail: options.projects.pinFail,
   };
   const projectPort = projectState
     ? ({
@@ -931,6 +937,15 @@ export async function mount(
           }
         },
         async manageProject() {},
+        async setPinned(pageId: string, pinned: boolean) {
+          pinRequests.push({ pageId, pinned });
+          if (projectState.pinFail) {
+            const code = projectState.pinFail;
+            projectState.pinFail = undefined;
+            throw new ManagementError(code);
+          }
+          projectState.pinned = pinned;
+        },
       } as unknown as ManagementPort)
     : undefined;
   const projectPages = () => [
@@ -939,6 +954,7 @@ export async function mount(
       title: 'Live shared page',
       sharing: 'private' as const,
       projects: [...projectState!.current],
+      ...(projectState!.pinned ? { pinned: true } : {}),
     },
   ];
   const transport: PageTransport = {
@@ -1073,6 +1089,7 @@ export function proof() {
 export function projectProof() {
   return {
     requests: structuredClone(projectRequests),
+    pins: structuredClone(pinRequests),
     spaceHomeReads,
     spaceHomeRunning,
     spaceHomeAborted,

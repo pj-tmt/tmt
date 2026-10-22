@@ -283,7 +283,7 @@ fn closed(socket: &mut UnixStream) -> bool {
 }
 
 /// The smallest valid app inventory; public-entry proofs need no SPA build.
-const APP_FIXTURE: [(&str, &str, &[u8]); 12] = [
+const APP_FIXTURE: [(&str, &str, &[u8]); 13] = [
     (
         "index.html",
         "text/html; charset=utf-8",
@@ -323,6 +323,11 @@ const APP_FIXTURE: [(&str, &str, &[u8]); 12] = [
         "assets/recovery.js",
         "text/javascript; charset=utf-8",
         b"export const recovery = true;",
+    ),
+    (
+        "assets/colab-runtime.js",
+        "text/javascript; charset=utf-8",
+        b"window.tmt = {};",
     ),
     (
         "assets/app.css",

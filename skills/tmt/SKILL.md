@@ -165,7 +165,9 @@ Pre-send delay accepts zero or a positive finite value, up to 2,147,483,647 ms.
 `--passthrough` is for a person's own typed messages (a chat surface sends them for the
 user), not for agents: it types the text into the recipient's live pane exactly as written,
 with no reply command, and returns at once. An agent sender is refused
-(`PASSTHROUGH_NOT_ALLOWED`); never use it to make a message look like the user's.
+(`PASSTHROUGH_NOT_ALLOWED`); never use it to make a message look like the user's. If the
+agent has open requests to that person, the typed text also answers the oldest one once it
+is in the pane: the agent's waiting `talk` or `tmt result` returns it as the final.
 
 Without hook/runtime evidence, a verified pane retains plain delivery but agent
 readiness is unverified. Tmux cannot identify provider approval prompts. Never
@@ -216,10 +218,12 @@ an extension marks the current held range due through the API, the next ordinary
 talk/check touching a verified idle recipient may hand off one eligible
 checklist. Later arrivals stay held on the due-now idle path. The optional Digest
 extension can offer opportunities through its minute tick; without hooks, traffic
-or that tick the checklist remains pending. A checklist contains original receipt-bound reply
-commands for eligible requests and result inspection commands for finals.
-Use the printed sealed-checklist API read/cursor for overflow; an uncertain
-handoff is never replay permission. Reads and delivery do not acknowledge X.
+or that tick the checklist remains pending. A checklist pastes every item whole, each
+framed like one live message: a request with its full text and its own original
+receipt-bound `tmt reply` line, a final with its full reply body and `tmt result`
+line. Treat each item as an ordinary message; no follow-up read is needed. A paste is
+capped at 32 KiB at an item boundary and the rest waits for the next one. An
+uncertain handoff is never replay permission. Reads and delivery do not acknowledge X.
 
 An identity with no recorded binding receives through inbox pull. Ordinary
 `talk` waits for its durable reply, using the same 180-second default,

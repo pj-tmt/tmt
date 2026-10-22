@@ -91,29 +91,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 records.release_wait(&attempt.attempt_id, now)?;
                 attempt.wait_active = false;
             }
-            let response = FinalResponse {
-                request_id: input.request_id,
-                attempt_id: attempt.attempt_id.clone(),
-                route: attempt.route.clone(),
-                body_bytes: input.body.len() as u64,
-                body: input.body,
-                submitted_at_ms: now,
-                response_expires_at_ms: retention_deadline(now, attempt.retention_days)
-                    .ok_or(RequestError::Invalid("Invalid response deadline."))?,
-            };
-            records.create_response(&response)?;
-            flow::record(
-                records,
-                &attempt,
-                super::super::flow::FlowKind::Reply,
-                true,
-                response.body_bytes,
-                now,
-            )?;
-            if let Some(id) = attempt.originator.identity_id() {
-                let revision = reserve_revision(records, id)?;
-                records.set_attention_revision(&response.request_id, revision)?;
-            }
+            let response = store_final(records, &attempt, input.body, now)?;
             let hint = if claim_hint {
                 notification::claim(
                     records,
@@ -337,6 +315,40 @@ fn validate_proof<E>(
         }
     }
     Ok(())
+}
+
+/// Record the first final of an open request and give its originator the attention
+/// revision. The caller has already decided that the request accepts a final.
+pub(super) fn store_final<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    attempt: &RequestAttempt,
+    body: String,
+    now: u64,
+) -> Result<FinalResponse, RequestError<E>> {
+    let response = FinalResponse {
+        request_id: attempt.request_id.clone(),
+        attempt_id: attempt.attempt_id.clone(),
+        route: attempt.route.clone(),
+        body_bytes: body.len() as u64,
+        body,
+        submitted_at_ms: now,
+        response_expires_at_ms: retention_deadline(now, attempt.retention_days)
+            .ok_or(RequestError::Invalid("Invalid response deadline."))?,
+    };
+    records.create_response(&response)?;
+    flow::record(
+        records,
+        attempt,
+        super::super::flow::FlowKind::Reply,
+        true,
+        response.body_bytes,
+        now,
+    )?;
+    if let Some(id) = attempt.originator.identity_id() {
+        let revision = reserve_revision(records, id)?;
+        records.set_attention_revision(&response.request_id, revision)?;
+    }
+    Ok(response)
 }
 
 #[cfg(test)]

@@ -370,6 +370,65 @@ test('correctly signed foreign state IDs and malformed accepted shapes are unkno
     );
   }
 });
+/** A signed accepted reply whose payload carries `identity`, as the serve sends it (#4255). */
+function acceptedWith(identity: unknown, value: { operationId: string }) {
+  return (reply: Record<string, unknown>) => {
+    reply.payload = Buffer.from(
+      JSON.stringify({
+        state: 'accepted',
+        operationId: value.operationId,
+        requestId: request(),
+        identity,
+      }),
+    ).toString('base64url');
+  };
+}
+test('a send says when it went out anonymously or as a renamed person, and a plain one says nothing', async () => {
+  const plain = await ready();
+  const sentPlain = await plain.client.send(intent());
+  assert.equal(Object.hasOwn(sentPlain, 'identity'), false);
+  for (const identity of [
+    {
+      state: 'anonymous',
+      reason: 'USER_NAME_TAKEN',
+      message: 'Two agents hold that name. Run tmt config set user.name <name>.',
+    },
+    { state: 'person', name: 'ben-user', renamedFrom: 'ben' },
+  ]) {
+    const { door, client } = await ready();
+    const value = intent();
+    door.mutate = acceptedWith(identity, value);
+    const sent = await client.send(value);
+    assert.ok(sent.state === 'accepted');
+    assert.deepEqual(sent.identity, identity);
+  }
+});
+test('a malformed identity notice is an unverifiable reply, never a partial one', async () => {
+  const bad: unknown[] = [
+    'anonymous',
+    [],
+    { state: 'mystery' },
+    { state: 'anonymous', reason: 'USER_NAME_OTHER', message: 'm' },
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN' },
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN', message: 'm'.repeat(513) },
+    { state: 'anonymous', reason: 'USER_NAME_TAKEN', message: 'm', extra: true },
+    { state: 'person', name: 'ben-user' },
+    { state: 'person', name: '', renamedFrom: 'ben' },
+    { state: 'person', name: 'ben-user', renamedFrom: 'ben', extra: true },
+  ];
+  for (const identity of bad) {
+    const { door, client } = await ready();
+    const value = intent();
+    door.mutate = acceptedWith(identity, value);
+    await assert.rejects(
+      client.send(value),
+      (error) =>
+        unknown('unverifiable_response')(error) &&
+        (error as ClientError).operationId === value.operationId,
+      JSON.stringify(identity),
+    );
+  }
+});
 for (const mode of ['lost', 'timeout', 'unsigned-status'] as const) {
   test(`${mode} after dispatch adoption throws ClientError and recovers without reopening`, async () => {
     const { door, client } = await ready(undefined, mode === 'timeout' ? 100 : undefined);

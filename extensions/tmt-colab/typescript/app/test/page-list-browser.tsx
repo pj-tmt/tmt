@@ -17,6 +17,9 @@ declare global {
     __failProjectRequest?: number;
     /** Fail the next `project.manage` request once. */
     __failManage?: boolean;
+    /** Every `page.pin` request, in order; `__pinRefusal` makes the next one fail with that code. */
+    __pinRequests: { pageId: string; pinned: boolean }[];
+    __pinRefusal?: string;
     /** Hold the next `project.manage` request until `__releaseManage` runs. */
     __holdManage?: boolean;
     __releaseManage?: () => void;
@@ -96,6 +99,8 @@ export async function mountPageList(
   window.__projectManage = [];
   window.__failProjectRequest = undefined;
   window.__failManage = undefined;
+  window.__pinRequests = [];
+  window.__pinRefusal = undefined;
   window.__pageOperations = [];
   window.__operationMode = undefined;
   window.__opened = [];
@@ -289,6 +294,22 @@ export async function mountPageList(
         const change = changes.find((c) => c.pageId === p.id);
         return change ? { ...p, projects: [...change.projects] } : p;
       });
+    },
+    setPinned: async (pageId, pinned) => {
+      window.__pinRequests.push({ pageId, pinned });
+      if (window.__pinRefusal) {
+        const code = window.__pinRefusal;
+        window.__pinRefusal = undefined;
+        throw new ManagementError(code);
+      }
+      // The owner lists pinned pages first, in pin order; a new pin goes last among them.
+      const rest = state.pages.filter((p) => p.id !== pageId);
+      const target = state.pages.find((p) => p.id === pageId)!;
+      const pins = rest.filter((p) => p.pinned);
+      const others = rest.filter((p) => !p.pinned);
+      state.pages = pinned
+        ? [...pins, { ...target, pinned: true }, ...others]
+        : [...pins, { ...target, pinned: false }, ...others];
     },
     manageProject: async (change) => {
       window.__projectManage.push(change);

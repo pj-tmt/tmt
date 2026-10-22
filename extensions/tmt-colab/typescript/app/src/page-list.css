@@ -251,3 +251,17 @@
     display: none;
   }
 }
+
+/* A pinned row shows it without hover: a small mark before its title, in the muted colour. The
+   title link is a clipped block, so the mark floats and the link sits beside it. */
+.page-pinned-mark {
+  float: inline-start;
+  display: inline-flex;
+  margin-inline-end: 6px;
+  margin-block-start: 3px;
+  color: var(--tmt-ui-color-text-muted);
+}
+/* What follows the title (tasks, waiting, projects) starts under the mark, not beside it. */
+.page-pinned-mark ~ :not(a) {
+  clear: inline-start;
+}

@@ -38,6 +38,8 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly archived?: boolean;
   /** Display-only projects from the owner store; absent where a source has none (fixtures, a reader). */
   readonly projects?: readonly string[];
+  /** Pinned by the owner (display-only): the list leads with these, in the order the owner gives. */
+  readonly pinned?: boolean;
   /** The owner's display-only summary (comment count, pending-item count, the creator); absent until derived. */
   readonly summary?: PageActivity;
   /** `shell` for a shell page; absent on an ordinary page and where the list does not say (the

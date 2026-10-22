@@ -277,7 +277,13 @@ for (let run = 1; run <= 2; run++) {
       }
       expect(requests.every((url) => new URL(url).origin === server.origin)).toBe(true);
       // Owner files stay owner-only; only the exact public allowlist is anonymous.
-      const publicFiles = ['reader.js', 'reader.css', 'reader-fold.js', 'recovery.js'];
+      const publicFiles = [
+        'reader.js',
+        'reader.css',
+        'reader-fold.js',
+        'recovery.js',
+        'colab-runtime.js',
+      ];
       const anonymous = await fetch(
         server.origin + mount + 'assets/' + files.find((name) => !publicFiles.includes(name)),
       );
@@ -444,7 +450,7 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     expect(Buffer.from(await entry.arrayBuffer())).toEqual(await readFile(app + '/reader.html'));
     expect(entry.headers.get('content-security-policy')).toContain("script-src 'self'");
     expect(entry.headers.get('cache-control')).toBe('no-store');
-    for (const name of ['reader.js', 'reader.css', 'reader-fold.js']) {
+    for (const name of ['reader.js', 'reader.css', 'reader-fold.js', 'colab-runtime.js']) {
       const asset = await fetch(server.origin + mount + 'assets/' + name);
       expect(asset.status).toBe(200);
       expect(Buffer.from(await asset.arrayBuffer())).toEqual(

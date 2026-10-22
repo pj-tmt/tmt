@@ -33,7 +33,7 @@ Use a cadence agreed for the work: for example, `5m` for short routine batches o
 
 Ordinary automatic sends held by Digest return queued with remaining time. Preserve the request ID and wait for the recipient's reply. Remaining time describes the current hold window, not a delivery promise; a turn boundary or the flush threshold can offer delivery sooner, while readiness and approval can delay it. The recorded owner and `--urgent` bypass Digest only. Keep routine updates in the batch; use urgency for a time-sensitive intervention that cannot wait for the batch. No urgency flag bypasses channel, readiness or approval checks.
 
-The recipient receives one checklist with the original reply commands and receipt for each eligible request, plus result-inspection commands for completed replies. Use those commands for each item; reading or receiving the checklist does not acknowledge X. Follow a printed read/cursor for overflow. After an uncertain handoff, inspect Core's state and retain the original request IDs; Core owns settlement and the checklist must not be replayed.
+The recipient receives one paste with every batched message in full, each framed like a single live message: the original text with its own original reply command and receipt for each eligible request, and the complete reply body with its result command for each completed reply. Answer each item as an ordinary message; no extra read is needed, and receiving the paste does not acknowledge X. A paste is capped at 32 KiB, split only between items; the remaining items arrive in the next one, in order. After an uncertain handoff, inspect Core's state and retain the original request IDs; Core owns settlement and the checklist must not be replayed.
 
 ## Run the minute tick
 

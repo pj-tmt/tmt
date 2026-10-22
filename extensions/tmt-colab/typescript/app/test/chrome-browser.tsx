@@ -122,6 +122,7 @@ export async function mount(screen: Screen, failure: RecoveryFailure = 'uncertai
           throw new Error('No writes in layout fixture');
         },
         manageProject: async () => {},
+        setPinned: async () => {},
         setProjects: async () => {
           throw new Error('No writes in layout fixture');
         },

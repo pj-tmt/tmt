@@ -287,8 +287,8 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
-`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist), including the delivery mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, never a request to its recipient; `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
-Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
+`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist), including the delivery mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, never a request to its recipient, and answers the oldest request that agent has open to them; `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
+Adapters admit idle handoff; extensions schedule. `tmt-adapters::request_frame` owns the request frame that `talk` sends and Digest pastes per item; `digest` renders a sealed checklist from it within a 32 KiB cap, and a claim seals only the prefix that fits. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
@@ -527,7 +527,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 Store owns managed/adopted SQLite transactions and typed newer refusals.
 Document/Guard own atomic byte updates/fail-fast ownership.
 Existing Store files use lstat to preserve locks.
-Remote, Colab, Ops, adapters' config and Digest history consume it; no TMT/crypto.
+Remote, Colab, Ops, adapters' config/hook consent and Digest history consume it; no TMT/crypto.
 Core and Colab's model cannot consume it. Guards check reviewed
 manifest/source edges across dependency kinds, aliases and targets.
 

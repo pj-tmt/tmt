@@ -55,7 +55,10 @@ configuration. The owner map is in
   what the recipient is handed. A passthrough is a person's typed text: Core refuses it unless the
   originator carries the `user` mark, queues it without publishing recipient attention, keeps it
   out of `open_requests` and `answer_refusal`, and reports its final as `not_required`. The
-  mode joins the row's change-cursor comparison.
+  mode joins the row's change-cursor comparison. `settle_request_delivery(Sent)` of a passthrough
+  runs `answer_oldest_open` in the same transaction: the retained original text becomes the first
+  final (`store_final`, shared with `submit_response`, no originator hint) of the oldest open
+  request from that agent to the sender; any other settlement stores nothing.
 - Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
   metadata stays on the attempt, separate from delivery and the final-submission marker;
   same-reason retries retain the first timestamp. It releases waiters without a recipient

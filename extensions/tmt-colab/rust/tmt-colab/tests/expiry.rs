@@ -444,6 +444,35 @@ fn restore_restarts_activity_atomically_without_changing_keys_content_or_replayi
 }
 
 #[test]
+fn archiving_drops_a_pin_and_unarchiving_does_not_bring_it_back() {
+    let mut f = Fixture::new();
+    f.create();
+    let pins = |f: &mut Fixture| -> Vec<String> {
+        let key = &f.key;
+        f.store
+            .project_transaction(&key.space_id, &key.owner_public(), |tx| tx.pins())
+            .unwrap()
+    };
+    let pin = |f: &mut Fixture, pinned: bool| {
+        let key = &f.key;
+        f.store
+            .project_transaction(&key.space_id, &key.owner_public(), |tx| {
+                tx.set_pinned(PAGE, pinned)
+            })
+            .unwrap();
+    };
+    pin(&mut f, true);
+    assert_eq!(pins(&mut f), [PAGE]);
+    assert_eq!(f.projection()["pinned"], true);
+    f.apply(OwnerAction::Archive { page: PAGE });
+    assert!(pins(&mut f).is_empty());
+    assert!(f.projection().get("pinned").is_none());
+    f.apply(OwnerAction::Unarchive { page: PAGE });
+    assert!(pins(&mut f).is_empty());
+    assert!(f.projection().get("pinned").is_none());
+}
+
+#[test]
 fn restore_refuses_active_and_deleted_pages_without_recording_activity_or_an_operation() {
     let mut f = Fixture::new();
     f.create();
