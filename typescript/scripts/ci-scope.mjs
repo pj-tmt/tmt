@@ -511,6 +511,7 @@ const COLAB_APP_ROOTS = [
 ];
 
 const COLAB_APP_INPUTS = new Set([
+  '.github/actions/install-chromium-deps/action.yml',
   '.github/workflows/colab-browser.yml',
   'typescript/pnpm-lock.yaml',
 ]);

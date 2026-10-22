@@ -94,8 +94,8 @@ selects app-suite inputs, `ci.yml`, or `chrome.rs`, `socket.rs`, `assets.rs` and
 and applies the complete-listed-case guard (`colab-native-spec-report.mjs`) with one worker
 and no retries. `Native package matrix` requires it: selected means success, unselected
 means skipped; no required name changes. It restores caches without saving, except
-Chromium on main, and installs Chromium's system packages through the bounded apt action
-rather than Playwright's own unbounded `apt-get`.
+Chromium on main. Both Colab chrome and component jobs use `install-chromium-deps`,
+the one pinned Chromium package list through the bounded apt action; browser downloads stay separate.
 
 ## Trusted main verification
 
@@ -152,14 +152,16 @@ refusal, plus separate strict macOS WebKit corpus/interop. macOS never runs on P
 Rust restores never save; browser keys bind OS/architecture/pinned Playwright, and only
 successful main-ref runs save. Reports prove primitives, not product acceptance.
 
-`colab-app` uses `colab_app` for app/colab-client/browser-ui paths, workflow and pnpm lockfile,
-plus weekly/manual events. `@tmt/colab-app test:browser` runs Chromium with one
+`colab-app` uses `colab_app` for app/colab-client/browser-ui paths, its workflow,
+the shared Chromium dependency action and pnpm lockfile, plus weekly/manual events.
+`@tmt/colab-app test:browser` runs Chromium with one
 worker/no retries/no Rust; native-executable specs skip with a named reason, so
 the run proves the browser components only. Bounded logs/failure traces last seven days. Whole-file weights in
 `e2e/shard-weights.json` use `typescript/scripts/colab-acceptance-shards.mjs`;
 helper/matrix share a guarded count, assigning each spec exactly once, including
 new default-weight files. Keep the 20-minute job/30-second test limits, one worker
-and no retries. Dot/JSON reporters share the results artifact (`results.json`
+and no retries. Component jobs restore the main-owned Chromium cache without saving,
+and always install system dependencies. Dot/JSON reporters share the results artifact (`results.json`
 per-test durations); refits record source runs/method/variance and verify full
 test-ID equality before changing the split.
 
