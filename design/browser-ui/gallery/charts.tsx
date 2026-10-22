@@ -12,7 +12,7 @@ import {
   people,
   seatLayers,
   sentBetween,
-  slotLabel,
+  slotRange,
   strips,
   weeklyLeft,
   weeklyPace,
@@ -115,16 +115,16 @@ export function ChartsSection() {
       </Pair>
       <Pair
         title="Activity by seat"
-        note="48 half-hour slots, oldest on the left; blank is not observed."
+        note="Square slots, left-aligned, oldest on the left; a hollow slot is not observed."
       >
         {() => (
           <Mount
             build={() =>
               createStrips({
-                title: 'Activity, last 24 hours',
+                title: 'Tokens per hour, last 24 hours',
                 rows: strips(6),
-                slotCount: 48,
-                slotLabel,
+                slotCount: 24,
+                slotRange,
                 ends: ['24 h ago', 'now'],
               })
             }
@@ -154,7 +154,7 @@ export function ChartsSection() {
                   title: 'Activity',
                   rows: [],
                   slotCount: 24,
-                  slotLabel,
+                  slotRange,
                   ends: ['', ''],
                 })
               }

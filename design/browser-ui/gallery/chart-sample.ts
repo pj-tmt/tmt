@@ -49,15 +49,15 @@ export function sentBetween(from: string, to: string): number | null {
   return seed % 5 === 0 ? 0 : (seed * 13) % 240;
 }
 
-export const slotLabel = (at: number) =>
-  `${String(Math.floor(at / 2)).padStart(2, '0')}:${at % 2 ? '30' : '00'}`;
+export const slotRange = (at: number) =>
+  `${String(at).padStart(2, '0')}:00–${String((at + 1) % 24).padStart(2, '0')}:00`;
 export function strips(rows: number) {
   const next = random(11);
   return Array.from({ length: rows }, (_, at) => ({
     id: `seat-${at}`,
     label: at === 1 ? 'a-rather-long-seat-name-for-the-row' : `seat-${at + 1}`,
-    slots: Array.from({ length: 48 }, (_, slot) =>
-      at === 3 && slot < 20 ? null : next() < 0.35 ? 0 : Math.round(next() * 40),
+    slots: Array.from({ length: 24 }, (_, slot) =>
+      at === 3 && slot < 10 ? null : next() < 0.35 ? 0 : Math.round(next() * 40),
     ),
   }));
 }

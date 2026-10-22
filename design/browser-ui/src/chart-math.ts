@@ -105,13 +105,17 @@ export const LEVELS = 5;
 
 /**
  * Intensity of `value` against the largest `max`: null for a missing observation, 0 for a
- * known zero, otherwise 1..LEVELS on a square-root scale so small counts stay visible next to
+ * known zero, otherwise 1..`steps` (LEVELS by default) on a square-root scale so small counts stay visible next to
  * one busy pair.
  */
-export function level(value: number | null | undefined, max: number): number | null {
+export function level(
+  value: number | null | undefined,
+  max: number,
+  steps = LEVELS,
+): number | null {
   if (value == null) return null;
   if (value <= 0 || max <= 0) return 0;
-  return Math.min(LEVELS, Math.max(1, Math.ceil(Math.sqrt(value / max) * LEVELS)));
+  return Math.min(steps, Math.max(1, Math.ceil(Math.sqrt(value / max) * steps)));
 }
 
 /** SVG path data for a polyline through `points`. */

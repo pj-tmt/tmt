@@ -1,4 +1,7 @@
-import { level } from './chart-math.js';
+import { compactCount, level } from './chart-math.js';
+
+/** Intensity steps above empty in a strip: five swatches with the empty one, like a contribution graph. */
+export const STRIP_STEPS = 4;
 
 export interface StripRow {
   id: string;
@@ -10,19 +13,24 @@ export interface StripRow {
 export interface StripsOptions {
   title: string;
   rows: readonly StripRow[];
-  /** 24 or 48 slots per row. */
-  slotCount: 24 | 48;
-  /** A name for each slot (its time), for the slot's tooltip. */
-  slotLabel: (index: number) => string;
+  /** Squares per row; keep it at or under about 48. */
+  slotCount: number;
+  /** The time range a slot covers, for its tip ("14:00–15:00"). */
+  slotRange: (index: number) => string;
+  /** How a slot's value reads in the tip; default is a compact count. */
+  format?: (value: number) => string;
   /** The words under the strip's two ends. */
   ends: readonly [string, string];
   empty?: string;
 }
 
 export interface StripSlot {
-  /** Intensity step 1..LEVELS, 0 for a known quiet slot, null for not observed. */
+  /** Intensity step 1..STRIP_STEPS, 0 for a known quiet slot, null for not observed. */
   level: number | null;
-  title: string;
+  /** What the tip says: the seat, the time range and the value. */
+  tip: { seat: string; range: string; value: string };
+  /** The same as one sentence, for assistive technology. */
+  label: string;
 }
 
 export interface StripsModel {
@@ -31,9 +39,10 @@ export interface StripsModel {
 
 /**
  * Each row scaled to its own busiest slot, so a quiet seat still shows its pattern. An unknown
- * slot stays blank and a known quiet one is the faintest step: no data never reads as silence.
+ * slot stays hollow and a known quiet one is the empty step: no data never reads as silence.
  */
 export function stripsModel(options: StripsOptions): StripsModel {
+  const format = options.format ?? compactCount;
   return {
     rows: options.rows.map((row) => {
       const max = Math.max(0, ...row.slots.map((v) => v ?? 0));
@@ -44,9 +53,12 @@ export function stripsModel(options: StripsOptions): StripsModel {
         summary: `${row.label}: active in ${active} of ${known} observed slots`,
         slots: Array.from({ length: options.slotCount }, (_, at) => {
           const value = row.slots[at];
+          const range = options.slotRange(at);
+          const text = value == null ? 'not observed' : `${format(value)} tokens`;
           return {
-            level: level(value, max),
-            title: `${options.slotLabel(at)}: ${value == null ? 'not observed' : value}`,
+            level: level(value, max, STRIP_STEPS),
+            tip: { seat: row.label, range, value: text },
+            label: `${row.label}, ${range}: ${text}`,
           };
         }),
       };
