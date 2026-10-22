@@ -155,6 +155,26 @@ impl TokRange {
         }
     }
 
+    /// The caption while the column shows money: the same range word after `≈$`.
+    pub fn caption_money(self) -> &'static str {
+        match self {
+            Self::Hour => "≈$ 1h",
+            Self::ThreeHours => "≈$ 3h",
+            Self::SixHours => "≈$ 6h",
+            Self::Day => "≈$ 1d",
+            Self::Week => "≈$ 7d",
+        }
+    }
+
+    /// The caption of the TOK column in the unit it shows.
+    pub fn caption_in(self, money: bool) -> &'static str {
+        if money {
+            self.caption_money()
+        } else {
+            self.caption()
+        }
+    }
+
     pub fn milliseconds(self) -> u64 {
         match self {
             Self::Hour => 3_600_000,

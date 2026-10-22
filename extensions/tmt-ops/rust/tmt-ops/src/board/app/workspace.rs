@@ -176,7 +176,7 @@ impl App {
         (self.shell.tab == OpsTab::Digest
             || self.tok_range() != crate::config::TokRange::Hour
             || (self.shell.tab == OpsTab::Agents
-                && self.right_tab == super::super::shell::RightTab::Measure))
+                && (self.tok_money() || self.right_tab == super::super::shell::RightTab::Measure)))
             .then(|| {
                 super::super::usage_report::Request::new(
                     self.tok_range(),
@@ -213,6 +213,44 @@ impl App {
         let mut next = snapshot.preferences.clone();
         next.savings_unit = self.savings_unit().next(self.digest_window());
         self.workspace_save(next)
+    }
+    /// Whether the TOK figures show list-price money instead of tokens: the shared
+    /// unit preference is cost, so the Digest estimates and the Agents list agree.
+    pub(in crate::board) fn tok_money(&self) -> bool {
+        self.savings_unit() == crate::config::SavingsUnit::Cost
+    }
+    /// How the Agents TOK column is headed right now.
+    pub(in crate::board) fn tok_heading(&self) -> crate::board::workspace::columns::TokHeading {
+        crate::board::workspace::columns::TokHeading {
+            range: self.tok_range(),
+            money: self.tok_money(),
+        }
+    }
+    /// A click on a painted TOK figure switches every figure between tokens and
+    /// money. It writes the shared unit preference and skips percent, which a
+    /// token count cannot be.
+    pub(in crate::board) fn toggle_tok_money(&mut self) -> Effect {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return self.say("The workspace has not loaded.");
+        };
+        let mut next = snapshot.preferences.clone();
+        next.savings_unit = if self.tok_money() {
+            crate::config::SavingsUnit::Tokens
+        } else {
+            crate::config::SavingsUnit::Cost
+        };
+        self.workspace_save(next)
+    }
+    /// The list-price estimate of the input tokens of `ids` in the shared TOK range, as a
+    /// TOK cell: `—` until the usage report covers them completely, never a partial sum.
+    pub(in crate::board) fn tok_money_text(&self, ids: &[&str]) -> String {
+        use crate::board::usage_report::{View, valuation};
+        let report = match self.usage_report.view_for(self.tok_range()) {
+            View::Report(report) => Some(report),
+            View::Loading | View::Failed(_) => None,
+        };
+        valuation::input_price(self, report, ids)
+            .map_or_else(|| "—".into(), crate::board::savings::usd_compact)
     }
     pub(in crate::board) fn digest_savings<'a>(
         &self,

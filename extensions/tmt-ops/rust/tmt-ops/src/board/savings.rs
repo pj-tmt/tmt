@@ -138,6 +138,40 @@ pub(in crate::board) fn usd_text(micros: u64) -> String {
     format!("≈ ${grouped}.{:02}", cents % 100)
 }
 
+/// A list-price estimate that fits a 7-cell column: `≈$0.42`, `≈$12.3`, `≈$123`, `≈$1.2k`,
+/// `≈$12M`. Half up, like [`usd_text`]; a nonzero amount below a cent never reads as zero.
+pub(in crate::board) fn usd_compact(micros: u64) -> String {
+    if micros == 0 {
+        return "$0".into();
+    }
+    let cents = (u128::from(micros) + 5_000) / 10_000;
+    if cents == 0 {
+        return "<$0.01".into();
+    }
+    let dollars = cents / 100;
+    let amount = match dollars {
+        0..=9 => format!("{}.{:02}", dollars, cents % 100),
+        10..=99 => {
+            let tenths = (cents + 5) / 10;
+            format!("{}.{}", tenths / 10, tenths % 10)
+        }
+        100..=999 => dollars.to_string(),
+        1_000..=999_999 => scaled(dollars, 1_000, "k"),
+        _ => scaled(dollars, 1_000_000, "M"),
+    };
+    format!("≈${amount}")
+}
+
+/// One decimal below ten units, none from ten up; half up.
+fn scaled(dollars: u128, unit: u128, suffix: &str) -> String {
+    let tenths = (dollars * 10 + unit / 2) / unit;
+    if tenths < 100 {
+        format!("{}.{}{suffix}", tenths / 10, tenths % 10)
+    } else {
+        format!("{}{suffix}", (dollars + unit / 2) / unit)
+    }
+}
+
 /// Dates describe the included members' own collection starts, never a common
 /// reconstructed window. The caller supplies its local zone; tests pin one.
 pub(in crate::board) fn savings_start(
@@ -173,6 +207,32 @@ pub(in crate::board) fn savings_start(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn compact_money_fits_a_seven_cell_column_and_never_hides_a_nonzero_amount() {
+        use unicode_width::UnicodeWidthStr;
+        for (micros, text) in [
+            (0, "$0"),
+            (1, "<$0.01"),
+            (4_999, "<$0.01"),
+            (5_000, "≈$0.01"),
+            (420_000, "≈$0.42"),
+            (9_994_999, "≈$9.99"),
+            (12_340_000, "≈$12.3"),
+            (99_940_000, "≈$99.9"),
+            (123_400_000, "≈$123"),
+            (999_000_000, "≈$999"),
+            (1_234_000_000, "≈$1.2k"),
+            (12_340_000_000, "≈$12k"),
+            (999_400_000_000, "≈$999k"),
+            (1_500_000_000_000, "≈$1.5M"),
+            (123_000_000_000_000, "≈$123M"),
+        ] {
+            let shown = super::usd_compact(micros);
+            assert_eq!(shown, text, "{micros} micros");
+            assert!(shown.width() <= 7, "{shown} must fit the TOK column");
+        }
+    }
+
     #[test]
     fn savings_captions_keep_estimate_window_and_partial_coverage() {
         use crate::{

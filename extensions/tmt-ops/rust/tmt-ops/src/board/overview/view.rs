@@ -6,7 +6,7 @@ use crate::{
         empty_state,
         header_sort::Header,
         state_cell,
-        workspace::OpsTreeRow,
+        workspace::{OpsTarget, OpsTreeRow},
     },
     config::{OverviewColumn, Pane},
     look::Look,
@@ -109,7 +109,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             )
             .intersection(slot);
             if let Some(chip) =
-                crate::board::workspace::columns::tok_window_chip(tok, app.tok_range())
+                crate::board::workspace::columns::tok_window_chip(tok, app.tok_heading())
             {
                 app.workspace_strip_hits
                     .borrow_mut()
@@ -135,7 +135,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             header.plain(" ");
             header.tokens(
                 Header::Overview(OverviewColumn::TokensPerHour),
-                app.tok_range().caption(),
+                app.tok_heading().caption(),
                 7,
             );
             if model_width(slot.width, state_width(slot.width, widest)).is_some() {
@@ -211,6 +211,18 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 }
             }
             strip::paint_left(frame.buffer_mut(), slot, line);
+            // The figure answers a click with the other unit, so it never selects the row.
+            app.workspace_strip_hits.borrow_mut().push((
+                Rect::new(
+                    slot.x
+                        .saturating_add(AGENT_STATE_X as u16 + state_width(slot.width, widest) + 1),
+                    slot.y,
+                    7,
+                    1,
+                )
+                .intersection(slot),
+                Choice::TokMoney,
+            ));
             app.workspace_state_cells.borrow_mut().push(
                 Rect::new(
                     slot.x.saturating_add(AGENT_STATE_X as u16),
@@ -350,10 +362,17 @@ fn agent_line(
     state.push(Span::raw(
         " ".repeat(usize::from(width).saturating_sub(used)),
     ));
-    let tokens = value.tokens.map_or_else(
-        || "—".into(),
-        |tokens| crate::source::tokens(tokens.round() as u128),
-    );
+    let tokens = if app.tok_money() {
+        let OpsTarget::Member { identity_id, .. } = &row.target else {
+            unreachable!("monitor identity")
+        };
+        app.tok_money_text(&[identity_id.as_str()])
+    } else {
+        value.tokens.map_or_else(
+            || "—".into(),
+            |tokens| crate::source::tokens(tokens.round() as u128),
+        )
+    };
     let pin = crate::board::workspace::render::pin_mark(&row.target, &snapshot.preferences, look);
     let name_width = 23usize.saturating_sub(pin.width() + usize::from(row.lead));
     let model = model_width(row_width, width).map(|width| {
