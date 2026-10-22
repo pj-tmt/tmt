@@ -1,0 +1,2 @@
+# Approved article HTML is canonical importer output bound to its artifact hash.
+src/posts/**/article.html

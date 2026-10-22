@@ -218,12 +218,9 @@ export function validateStoredArticle(html, assets) {
 }
 
 export function approvedRecord(record, snapshot, proposals) {
-  if (
-    snapshot.pageId !== record.pageId ||
-    snapshot.revision !== record.pageRevision ||
-    sha256(snapshot.source) !== record.sourceSha256
-  )
-    throw new Error("Page revision drift: prepare a new proposal");
+  // Trusted decisions advance the document revision without changing its source.
+  if (snapshot.pageId !== record.pageId || sha256(snapshot.source) !== record.sourceSha256)
+    throw new Error("Page source drift: prepare a new proposal");
   if (proposals.pageId !== record.pageId || proposals.epoch !== snapshot.epoch)
     throw new Error("Proposal page/epoch mismatch");
   const rows = proposals.proposals.filter((row) => row.proposal?.proposalId === record.proposalId);
@@ -252,6 +249,8 @@ export function approvedRecord(record, snapshot, proposals) {
 }
 
 export function validateApproval(approval, meta, html, assets) {
+  const approvedAt = approval?.approvedAt;
+  const timestamp = /^\d+$/.test(approvedAt ?? "") ? Number(approvedAt) : Date.parse(approvedAt);
   if (
     !approval ||
     approval.decision !== "approved" ||
@@ -262,7 +261,9 @@ export function validateApproval(approval, meta, html, assets) {
     !hash.test(approval.sourceSha256 ?? "") ||
     typeof approval.pageRevision !== "string" ||
     !approval.pageRevision ||
-    !Number.isFinite(Date.parse(approval.approvedAt))
+    typeof approvedAt !== "string" ||
+    !Number.isSafeInteger(timestamp) ||
+    !Number.isFinite(new Date(timestamp).getTime())
   )
     throw new Error("Missing or invalid approval evidence");
   if (approval.artifactSha256 !== artifactHash(meta, html, assets))

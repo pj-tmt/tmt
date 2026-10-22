@@ -98,11 +98,17 @@ pnpm build
 ```
 
 Prepare inventories each article module/hash and the external-request policy in
-the proposal. Import checks the exact page revision/source hash, proposal body,
+the proposal. Import checks the page identity, full-source SHA-256, proposal body,
 trusted decision and artifact hash, then re-reads source before writing. Any
 source change requires a new proposal. Agents must never approve proposals or
 pair browsers. Colab authenticates any paired owner device, not Ben's human
 identity; Ben controls those devices and performs approval operationally.
+
+Approval evidence retains the prepared page revision. The opaque document
+revision may advance when a decision or discussion is stored; an unchanged
+full-source hash preserves the content binding across those updates.
+The trusted decision's timestamp is retained as returned by Colab (a decimal
+millisecond string); stored ISO timestamps also remain valid.
 
 The importer reads source and authenticated proposal state through the public
 CLI, never discussion exports. `.private/` review records and temporary

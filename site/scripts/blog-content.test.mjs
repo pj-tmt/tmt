@@ -136,6 +136,19 @@ test("approval digest binds body, scripts, image bytes and all metadata", () => 
     artifactSha256: artifactHash(meta, result.html, result.assets),
   };
   assert.doesNotThrow(() => validateApproval(approval, meta, result.html, result.assets));
+  assert.doesNotThrow(() =>
+    validateApproval(
+      { ...approval, approvedAt: "1792152000000" },
+      meta,
+      result.html,
+      result.assets,
+    ),
+  );
+  for (const approvedAt of ["not-a-date", "8640000000000001", "9007199254740993", null])
+    assert.throws(
+      () => validateApproval({ ...approval, approvedAt }, meta, result.html, result.assets),
+      /invalid approval/,
+    );
   for (const [changedMeta, changedHtml, changedAssets] of [
     [{ ...meta, title: "Changed" }, result.html, result.assets],
     [meta, result.html.replace("Approved", "Changed"), result.assets],
