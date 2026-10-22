@@ -1,6 +1,7 @@
 import { expect, test, chromium, type Browser, type Page, type Request } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -689,6 +690,79 @@ test.describe('a module entry', () => {
   test('falls back to the module link when its entry is refused', async () => {
     const { page } = await openColab(composed(MOUNT, 'https://evil.example/colab.js'));
     await expect(page.locator(`.tmt-ui-shell-main a[href$="${MOUNT}"]`)).toBeVisible();
+    await page.close();
+  });
+});
+
+/**
+ * The Ops route on the owner browser read `x/-/ops` (#4381). The door's read needs a live owner
+ * session, so these stub the mount answer and the read: the page's own fetch, timer and states are
+ * what is under test (the door's read has its own Rust tests and vectors).
+ */
+test.describe('the Ops route on the owner read', () => {
+  const vectors = JSON.parse(
+    readFileSync(new URL('../../../../../contracts/owner-reads-v1.json', import.meta.url), 'utf8'),
+  ) as { cases: { target: string; expect: Record<string, unknown> }[] };
+  const board = vectors.cases.find((vector) => vector.target === 'ops')!.expect;
+  async function stub(page: Page, answers: Record<string, unknown>[]) {
+    const reads: number[] = [];
+    await page.route(`${origin}/sdk/mount`, (route) =>
+      route.fulfill({ json: { address: `${origin}/r/owner` } }),
+    );
+    await page.route(`${origin}/r/owner/x/-/ops`, (route) => {
+      reads.push(Date.now());
+      const next = answers.length > 1 ? answers.shift()! : answers[0]!;
+      return route.fulfill({ json: { ...next, observedAtMs: Date.now() } });
+    });
+    return reads;
+  }
+
+  test('shows the board, refreshes it while visible and stops on leaving the route', async () => {
+    let reads: number[] = [];
+    const changed = structuredClone(board) as { agents: { task?: string }[] };
+    changed.agents[0]!.task = 'merge';
+    const { page } = await openApp('/ops', async (page) => {
+      reads = await stub(page, [board, changed]);
+    });
+    const rows = page.locator('#ops-section .tmt-ui-list-row');
+    await expect(rows).toHaveCount(2);
+    // Lead first; the board's own text beside the mark; what the agent waits on the person for.
+    await expect(rows.nth(0)).toContainText('tmt-lead');
+    await expect(rows.nth(0)).toContainText('Working · review');
+    await expect(rows.nth(1).locator('.tmt-ui-list-leading')).toHaveText('○');
+    await expect(rows.nth(1)).toContainText('Waiting on you: approve the plan');
+    await expect(page.locator('#ops-section h2')).toHaveText('tmt-core · lead tmt-lead');
+    // The next read, five seconds on, repaints only what changed.
+    await expect(rows.nth(0)).toContainText('Working · merge', { timeout: 8000 });
+    await page.goto(`${origin}/ops#schedules`);
+    await expect(page.locator('#ops-section .tmt-ui-list-row')).toContainText('Hourly pass');
+    await page.goto(`${origin}/ops#settings`);
+    await expect(page.locator('#ops-section')).toContainText(
+      'The Ops settings page is not in the browser yet.',
+    );
+    await page.locator('nav.tmt-ui-rail a[data-id="digest"]').click();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'digest');
+    const left = reads.length;
+    await page.waitForTimeout(6000);
+    expect(reads).toHaveLength(left);
+    await page.close();
+  });
+
+  test('says why there is no board, never an empty list', async () => {
+    const { page } = await openApp('/ops', async (page) => {
+      await stub(page, [{ version: 1, state: 'unavailable', reason: 'not_installed' }]);
+    });
+    await expect(page.locator('#ops-note')).toHaveText(
+      'Ops is not installed on your machine. Install it, then reload this page.',
+    );
+    await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
+    await page.close();
+  });
+
+  test('without an owner session it asks to pair', async () => {
+    const { page } = await openApp('/ops');
+    await expect(page.locator('#ops-note')).toContainText('Pair it from Remote');
+    await expect(page.locator('#ops-section .tmt-ui-list-row')).toHaveCount(0);
     await page.close();
   });
 });
