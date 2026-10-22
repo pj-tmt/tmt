@@ -2345,10 +2345,15 @@ response policy and prepending a trusted acknowledgement before author source.
 Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
 
-**Page runtime (#1693).** A page opts in with the first `<meta name="tmt-colab-runtime" content="…">`
-in document order whose space-separated tokens include `react` or `tailwind` (the runtime is one
-bundle, so either loads all of it; other tokens are ignored, and no marker means nothing extra loads
-and the bind message is exactly as above). The parent then fetches `assets/colab-runtime.js` once per
+**Page runtime (#1693).** A page opts in by its first `<meta name="tmt-colab-runtime">`
+element in document order, found by HTML parsing (never by text search, so a comment, a `textarea`
+or a script string holding the markup does not count). The `name` value matches exactly; the
+`content` value is split on ASCII whitespace into case-sensitive tokens, and the page opts in when
+any token is `react` or `tailwind`. The runtime is one bundle, so either loads all of it; other
+tokens are ignored, and no marker means nothing extra loads and the bind message is exactly as above.
+This rule is stated here once: the app's parent detection and the native standalone export both
+test against the shared cases in
+[`vectors/runtime-marker-v1.json`](vectors/runtime-marker-v1.json), so the two parsers cannot drift. The parent then fetches `assets/colab-runtime.js` once per
 path, next to the renderer on the mount or at the root of the hosted origin, and sends it as the
 optional `runtime` field: exactly `{script,style}`, two strings of at most 1.5 MiB and 256 KiB UTF-8
 (`style` is empty until the theme ships). The bootstrap refuses the whole bind when `runtime` has

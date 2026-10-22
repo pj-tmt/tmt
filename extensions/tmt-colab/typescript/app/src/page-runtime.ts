@@ -10,7 +10,9 @@ export function wantsRuntime(source: string): boolean {
   const meta = new DOMParser()
     .parseFromString(source, 'text/html')
     .querySelector(`meta[name="${MARKER}"]`);
-  return (meta?.getAttribute('content') ?? '').split(/\s+/).some((token) => TOKENS.has(token));
+  return (meta?.getAttribute('content') ?? '')
+    .split(/[ \t\n\f\r]+/)
+    .some((token) => TOKENS.has(token));
 }
 
 /** What the frame bootstrap writes into its trusted head before the author's HTML. `style` is

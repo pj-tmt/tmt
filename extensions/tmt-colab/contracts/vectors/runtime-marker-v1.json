@@ -1,0 +1,150 @@
+{
+  "description": "Opt-in marker cases for the bundled page runtime (#1693): whether a page's HTML source opts in. The rule is stated once in colab-v1.md, 'Page runtime'; the app's parent detection and the native standalone export both test against this file.",
+  "cases": [
+    {
+      "name": "react alone",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"react\">",
+      "optsIn": true
+    },
+    {
+      "name": "tailwind alone",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"tailwind\">",
+      "optsIn": true
+    },
+    {
+      "name": "both tokens",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"react tailwind\">",
+      "optsIn": true
+    },
+    {
+      "name": "extra ASCII whitespace around tokens",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"  tailwind \t\n react \">",
+      "optsIn": true
+    },
+    {
+      "name": "a known token among unknown ones",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"react unknown-part\">",
+      "optsIn": true
+    },
+    {
+      "name": "unknown token first, known second",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"unknown-part react\">",
+      "optsIn": true
+    },
+    {
+      "name": "single-quoted attributes in the other order",
+      "source": "<meta content='react' name='tmt-colab-runtime'>",
+      "optsIn": true
+    },
+    {
+      "name": "unquoted attribute values",
+      "source": "<meta name=tmt-colab-runtime content=react>",
+      "optsIn": true
+    },
+    {
+      "name": "attribute names are case-insensitive",
+      "source": "<meta NAME=\"tmt-colab-runtime\" CONTENT=\"react\">",
+      "optsIn": true
+    },
+    {
+      "name": "inside a full document head",
+      "source": "<!doctype html><html><head><title>t</title><meta name=\"tmt-colab-runtime\" content=\"react\"></head><body><p>x</p></body></html>",
+      "optsIn": true
+    },
+    {
+      "name": "in the body",
+      "source": "<p>x</p><meta name=\"tmt-colab-runtime\" content=\"tailwind\">",
+      "optsIn": true
+    },
+    {
+      "name": "the first marker decides: unknown, then react",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"unknown-part\"><meta name=\"tmt-colab-runtime\" content=\"react\">",
+      "optsIn": false
+    },
+    {
+      "name": "the first marker decides: empty, then react",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"\"><meta name=\"tmt-colab-runtime\" content=\"react\">",
+      "optsIn": false
+    },
+    {
+      "name": "the first marker decides: react, then empty",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"react\"><meta name=\"tmt-colab-runtime\" content=\"\">",
+      "optsIn": true
+    },
+    {
+      "name": "no marker",
+      "source": "<p>Plain page</p>",
+      "optsIn": false
+    },
+    {
+      "name": "empty content",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"\">",
+      "optsIn": false
+    },
+    {
+      "name": "only unknown tokens",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"unknown-part\">",
+      "optsIn": false
+    },
+    {
+      "name": "token values are case-sensitive",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"REACT\">",
+      "optsIn": false
+    },
+    {
+      "name": "the marker name is case-sensitive",
+      "source": "<meta name=\"TMT-COLAB-RUNTIME\" content=\"react\">",
+      "optsIn": false
+    },
+    {
+      "name": "a longer name is not the marker",
+      "source": "<meta name=\"tmt-colab-runtime-extra\" content=\"react\">",
+      "optsIn": false
+    },
+    {
+      "name": "another meta name",
+      "source": "<meta name=\"other\" content=\"react\">",
+      "optsIn": false
+    },
+    {
+      "name": "no content attribute",
+      "source": "<meta name=\"tmt-colab-runtime\">",
+      "optsIn": false
+    },
+    {
+      "name": "non-ASCII whitespace does not separate tokens",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"react tailwind\">",
+      "optsIn": false
+    },
+    {
+      "name": "a token with a prefix is not the token",
+      "source": "<meta name=\"tmt-colab-runtime\" content=\"reactive\">",
+      "optsIn": false
+    },
+    {
+      "name": "text that only mentions the marker",
+      "source": "<p>tmt-colab-runtime react</p>",
+      "optsIn": false
+    },
+    {
+      "name": "inside an HTML comment",
+      "source": "<!-- <meta name=\"tmt-colab-runtime\" content=\"react\"> -->",
+      "optsIn": false
+    },
+    {
+      "name": "inside a textarea",
+      "source": "<textarea><meta name=\"tmt-colab-runtime\" content=\"react\"></textarea>",
+      "optsIn": false
+    },
+    {
+      "name": "inside a script string",
+      "source": "<script>var m = '<meta name=\"tmt-colab-runtime\" content=\"react\">'</script>",
+      "optsIn": false
+    },
+    {
+      "name": "an opt-in after a commented-out marker",
+      "source": "<!-- <meta name=\"tmt-colab-runtime\" content=\"react\"> --><meta name=\"tmt-colab-runtime\" content=\"tailwind\">",
+      "optsIn": true
+    }
+  ]
+}

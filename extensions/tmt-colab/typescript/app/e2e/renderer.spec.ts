@@ -1,5 +1,6 @@
 import { homeList } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -570,56 +571,28 @@ test('a bind may carry a layout; only column and full select the page frame', as
   await expect(page.frameLocator('#target-wide').getByText('Bound text')).toHaveCount(0);
 });
 
-test('a page asks for the bundled runtime with the first marker that names a known part', async ({
+test('a page opts in to the bundled runtime exactly as the shared marker vectors say', async ({
   page,
 }) => {
+  const { cases } = JSON.parse(
+    readFileSync(
+      new URL('../../../contracts/vectors/runtime-marker-v1.json', import.meta.url),
+      'utf8',
+    ),
+  ) as { cases: { name: string; source: string; optsIn: boolean }[] };
+  expect(cases.length).toBeGreaterThan(20);
   await page.goto('/');
-  const wants = (sources: string[]) =>
-    page.evaluate(async (sources) => {
+  const answers = await page.evaluate(
+    async (sources) => {
       const path = '/src/page-runtime.ts';
       const { wantsRuntime } = await import(path);
       return sources.map((source: string) => wantsRuntime(source) as boolean);
-    }, sources);
-  const meta = (content: string) => `<meta name="tmt-colab-runtime" content="${content}">`;
-  expect(
-    await wants([
-      meta('react'),
-      meta('tailwind'),
-      meta('react tailwind'),
-      meta('  tailwind   react '),
-      meta('react unknown-part'),
-      // The first marker decides, even when a later one would opt in.
-      meta('unknown-part') + meta('react'),
-      meta('') + meta('react'),
-      // Not opted in: no marker, an empty or unknown one, a look-alike, or text that only mentions it.
-      '<p>Plain page</p>',
-      meta(''),
-      meta('unknown-part'),
-      meta('REACT'),
-      '<meta name="tmt-colab-runtime-extra" content="react">',
-      '<meta name="other" content="react">',
-      '<p>tmt-colab-runtime react</p>',
-      '<!-- <meta name="tmt-colab-runtime" content="react"> -->',
-      '<textarea><meta name="tmt-colab-runtime" content="react"></textarea>',
-    ]),
-  ).toEqual([
-    true,
-    true,
-    true,
-    true,
-    true,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ]);
+    },
+    cases.map(({ source }) => source),
+  );
+  expect(cases.map(({ name }, index) => [name, answers[index]])).toEqual(
+    cases.map(({ name, optsIn }) => [name, optsIn]),
+  );
 });
 
 test('only an opting-in page fetches the runtime, and its frame gets it before the page runs', async ({
