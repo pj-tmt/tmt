@@ -176,7 +176,7 @@ test('a child page names its parent page and task in the band header, with or wi
   await mountRoute(page, true, false, 'child');
   const band = page.getByRole('region', { name: 'Work on this page' });
   const link = band.locator('.work-parent a');
-  await expect(link).toHaveText('Release plan › T-3');
+  await expect(link).toHaveText('Release plan › T-3 · Draft the copy');
   await expect(link).toHaveAttribute('href', /#\/pages\/30000000-0000-4000-8000-000000000003/);
   // The header line sits above the summary and adds no row to the actions.
   const parent = (await band.locator('.work-parent').boundingBox())!;
@@ -186,7 +186,7 @@ test('a child page names its parent page and task in the band header, with or wi
   // A page that never had work still shows where it belongs, and nothing else.
   await mountRoute(page, false, false, 'child');
   const bare = page.getByRole('region', { name: 'Work on this page' });
-  await expect(bare.locator('.work-parent a')).toHaveText('Release plan › T-3');
+  await expect(bare.locator('.work-parent a')).toHaveText('Release plan › T-3 · Draft the copy');
   await expect(bare.locator('.work-head')).toHaveCount(0);
   await expect(bare.getByRole('button')).toHaveCount(0);
 });
@@ -466,10 +466,14 @@ for (const [width, height] of [
         .click();
       await page.screenshot({ path: capturePath(`work-followed-${width}-${scheme}.png`) });
       await mountRoute(page, true, false, 'child');
-      await expect(page.locator('.work-parent a')).toHaveText('Release plan › T-3');
+      await expect(page.locator('.work-parent a')).toHaveText(
+        'Release plan › T-3 · Draft the copy',
+      );
       await page.screenshot({ path: capturePath(`work-child-${width}-${scheme}.png`) });
       await mountRoute(page, false, false, 'child');
-      await expect(page.locator('.work-parent a')).toHaveText('Release plan › T-3');
+      await expect(page.locator('.work-parent a')).toHaveText(
+        'Release plan › T-3 · Draft the copy',
+      );
       await page.screenshot({ path: capturePath(`work-child-bare-${width}-${scheme}.png`) });
     });
   }
