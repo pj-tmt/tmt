@@ -455,10 +455,11 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
 - Annotation ranges use the mint `annotation-highlight` tint and a 1px
   `annotation-rule` underline, with no rounding or shadow, preserving authored text
   colour and weight. While the pointer is over one it takes the `-hover` tint and a
-  2px underline, with no outline box. Round number markers stand after the last text
-  on the passage's last line, centred on it: a 16px circle inside a 24px hit area
-  that covers no text and moves none; collision lanes keep every hit area distinct.
-  Only when the page leaves no room there does a marker hang just after the passage.
+  2px underline, with no outline box. Round number markers stand in the page's right
+  marker lane (28px, reserved on every page from its first paint, so the first thread
+  moves no text), centred on the passage's last line: a 16px circle inside a 24px hit
+  area that covers no text. Markers on lines closer than one hit area share one `+n`
+  marker that opens the thread list.
   Creation-order numbering includes every non-deleted thread before view filters.
   Deletion renumbers; resolved threads retain list numbers without page markers.
 - Annotation and thread windows are borderless, square grey panels with an uppercase

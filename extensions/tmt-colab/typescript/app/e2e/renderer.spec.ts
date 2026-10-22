@@ -67,6 +67,9 @@ async function mount(page: Page, source: string) {
         onOpenThread: (id: string) => {
           host.dataset.opened = id;
         },
+        onOpenList: () => {
+          host.dataset.listOpened = String(Number(host.dataset.listOpened ?? '0') + 1);
+        },
         onToggleSelectionMode: () => {
           host.dataset.toggles = String(Number(host.dataset.toggles ?? '0') + 1);
         },
@@ -543,7 +546,9 @@ async function bindFrame(page: Page, id: string, extra: Record<string, unknown>)
   );
 }
 
-test('a bind may carry a layout; only column and full select the page frame', async ({ page }) => {
+test('a bind may carry a layout; only column and full select the page column, every page gets the marker lane', async ({
+  page,
+}) => {
   await page.goto('/');
   for (const layout of [undefined, 'freeform', 'canvas', 'column', 'full'] as const) {
     const id = `target-${layout ?? 'none'}`;
@@ -553,17 +558,27 @@ test('a bind may carry a layout; only column and full select the page frame', as
     const framed = layout === 'column' || layout === 'full';
     if (framed) await expect(target.locator('html')).toHaveAttribute('data-colab-layout', layout);
     else expect(await target.locator('html').getAttribute('data-colab-layout')).toBeNull();
-    // The page frame's layer is in the document only for a framed layout.
-    const hasFrameRule = await target
-      .locator('html')
-      .evaluate((html) =>
-        [...html.ownerDocument.styleSheets].some((sheet) =>
+    // The frame's layer is in every document: the marker lane is for every page, the column only for
+    // a framed layout.
+    const frame = await target.locator('html').evaluate((html) => {
+      const style = getComputedStyle(html);
+      return {
+        layer: [...html.ownerDocument.styleSheets].some((sheet) =>
           [...sheet.cssRules].some(
             (rule) => rule instanceof CSSLayerBlockRule && rule.name === 'colab-frame',
           ),
         ),
-      );
-    expect(hasFrameRule).toBe(framed);
+        lane: style.getPropertyValue('--colab-lane').trim(),
+        padding: style.paddingRight,
+        column: style.getPropertyValue('--colab-column').trim(),
+      };
+    });
+    expect(frame).toEqual({
+      layer: true,
+      lane: '28px',
+      padding: '28px',
+      column: framed ? '1280px' : '',
+    });
   }
   // An unknown layout is not a bind: the frame stays unwritten.
   await bindFrame(page, 'target-wide', { layout: 'wide' });
@@ -942,7 +957,7 @@ test('range-end numbers keep distinct targets and quoted hints through resize an
   await page.goto('/');
   await mount(
     page,
-    '<style>body{margin:20px;position:relative}.space{height:1800px}</style><div id="space" class="space"></div><p id="quote">Anchored line</p><div class="space"></div>',
+    '<style>body{margin:20px;position:relative}.space{height:1800px}</style><div id="space" class="space"></div><p id="quote">Anchored line</p><p id="other">Another line</p><div class="space"></div>',
   );
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   await page.evaluate(() => {
@@ -950,10 +965,10 @@ test('range-end numbers keep distinct targets and quoted hints through resize an
       window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
     ).probe.handle;
     handle.highlight(
-      ['first', 'second'].map((id) => ({
-        id,
-        selector: { exact: 'Anchored line', prefix: '', suffix: '' },
-      })),
+      [
+        ['first', 'Anchored line'],
+        ['second', 'Another line'],
+      ].map(([id, exact]) => ({ id, selector: { exact, prefix: '', suffix: '' } })),
     );
   });
   const frame = page.frameLocator('#probe iframe');
@@ -997,7 +1012,7 @@ test('range-end numbers keep distinct targets and quoted hints through resize an
     node.textContent = 'Changed source';
   });
   await expect(marker).toHaveCount(0);
-  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["second"]');
 });
 
 test('only IDs, quote selectors and paint ordinals reach author code even when a caller supplies private comment fields', async ({
@@ -2080,53 +2095,27 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
 });
 
 for (const width of [1440, 390])
-  for (const room of [true, false])
-    test(`range-end markers keep a 24 px hit box around a 16 px circle without moving the text at ${width}px, ${room ? 'beside the line' : 'on a page with no room'}`, async ({
+  test(`range-end markers stand in the right lane, never on text, and the first thread moves no text at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    // One line per paragraph, so every marker has a line of its own except the two threads on the third.
+    await mount(
       page,
-    }) => {
-      await page.setViewportSize({ width, height: 844 });
-      await page.goto('/');
-      // With room the column leaves a gutter at the right, wide enough for three markers on one line;
-      // without it the text runs to the frame edge.
-      await mount(
-        page,
-        `<style>body{margin:0}p{font:16px/1.6 system-ui;margin:0 ${room ? 100 : 0}px 0 0}</style>` +
-          '<p id="quote">Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega and then some more words to wrap the paragraph over several lines</p>',
-      );
-      await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
-      const frame = page.frameLocator('#probe iframe');
-      const quote = frame.locator('#quote');
-      const before = await quote.evaluate((node) => ({
-        rect: JSON.stringify(node.getBoundingClientRect()),
-        scrollWidth: node.ownerDocument.documentElement.scrollWidth,
-        scrollHeight: node.ownerDocument.documentElement.scrollHeight,
-      }));
-      const passages = [
-        'Alpha beta',
-        'Alpha beta',
-        'beta gamma',
-        'delta epsilon zeta',
-        'lambda mu nu xi',
-        'sigma tau',
-        'several lines',
-      ];
-      await page.evaluate((passages) => {
-        (
-          window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
-        ).probe.handle.highlight(
-          passages.map((exact, index) => ({
-            id: `t${index}`,
-            selector: { exact, prefix: '', suffix: '' },
-          })),
-        );
-      }, passages);
-      const markers = frame.locator('[data-colab-thread]');
-      await expect(markers).toHaveCount(passages.length);
-      // One synchronous snapshot: markers are replaced when the renderer re-places them.
-      const snapshot = await markers.evaluateAll((nodes) => {
-        const doc = nodes[0]!.ownerDocument;
-        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-        const text: { left: number; right: number; top: number; bottom: number }[] = [];
+      '<style>body{margin:0}p{font:16px/32px system-ui;margin:0 0 0 24px}</style>' +
+        '<p>Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega and then some words that wrap to a second line of the first paragraph</p>' +
+        '<p>Second paragraph with a passage that ends before the line does and then runs on</p>' +
+        '<p>Third paragraph holds two threads on its one line</p>' +
+        '<p>Fourth paragraph holds the last thread, ending mid-line and running on to the very edge</p>',
+    );
+    await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+    const frame = page.frameLocator('#probe iframe');
+    const textRects = () =>
+      frame.locator('body').evaluate((body) => {
+        const doc = body.ownerDocument;
+        const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        const rects: number[][] = [];
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
           const parent = node.parentElement;
           if (!parent || parent.closest('[data-colab-markers], style, script')) continue;
@@ -2134,69 +2123,102 @@ for (const width of [1440, 390])
           range.selectNodeContents(node);
           for (const rect of range.getClientRects())
             if (rect.width && rect.height)
-              text.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
+              rects.push([rect.left, rect.top, rect.right, rect.bottom]);
         }
-        return {
-          text,
-          viewport: doc.documentElement.clientWidth,
-          placed: nodes.map((node) => {
-            const box = node.getBoundingClientRect();
-            const style = getComputedStyle(node);
-            return {
-              x: box.x,
-              y: box.y,
-              width: box.width,
-              height: box.height,
-              padding: style.paddingTop,
-              clip: style.backgroundClip,
-              background: style.backgroundColor,
-            };
-          }),
-        };
+        return rects;
       });
-      const { placed, text, viewport } = snapshot;
-      expect(placed).toHaveLength(passages.length);
-      expect(text.length).toBeGreaterThan(3);
-      for (const marker of placed) {
-        expect(marker).toMatchObject({
-          width: 24,
-          height: 24,
-          padding: '4px',
-          clip: 'content-box',
-        });
-        expect(marker.background).not.toBe('rgba(0, 0, 0, 0)');
-        expect(marker.x).toBeGreaterThanOrEqual(0);
-        expect(marker.x + marker.width).toBeLessThanOrEqual(viewport);
+    // The lane is part of the frame from its first paint: there is no thread yet.
+    expect(
+      await frame.locator('html').evaluate((node) => getComputedStyle(node).paddingRight),
+    ).toBe('28px');
+    const before = await textRects();
+    const passages = [
+      'Alpha beta',
+      'Second paragraph with a passage',
+      'holds two threads',
+      'two threads on its one line',
+      'ending mid-line',
+    ];
+    await page.evaluate((passages) => {
+      (
+        window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+      ).probe.handle.highlight(
+        passages.map((exact, index) => ({
+          id: `t${index}`,
+          selector: { exact, prefix: '', suffix: '' },
+        })),
+      );
+    }, passages);
+    const markers = frame.locator('[data-colab-thread], [data-colab-group]');
+    await expect(markers).toHaveCount(4);
+    await expect(markers).toHaveText(['1', '2', '+2', '5']);
+    // One synchronous snapshot: markers are replaced when the renderer re-places them.
+    const snapshot = await frame.locator('body').evaluate((body) => {
+      const doc = body.ownerDocument;
+      const text: number[][] = [];
+      const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest('[data-colab-markers], style, script')) continue;
+        const range = doc.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects())
+          if (rect.width && rect.height) text.push([rect.left, rect.top, rect.right, rect.bottom]);
       }
-      for (let first = 0; first < placed.length; first++)
-        for (let second = first + 1; second < placed.length; second++) {
-          const a = placed[first]!;
-          const b = placed[second]!;
-          const apart =
-            a.x + a.width <= b.x ||
-            b.x + b.width <= a.x ||
-            a.y + a.height <= b.y ||
-            b.y + b.height <= a.y;
-          expect(apart, `hit boxes ${first} and ${second} overlap`).toBe(true);
-        }
-      // Ben's rule: no element over text. Beside the line, no marker's target meets any text.
-      if (room)
-        for (const [index, marker] of placed.entries())
-          for (const glyphs of text)
-            expect(
-              marker.x < glyphs.right &&
-                marker.x + marker.width > glyphs.left &&
-                marker.y < glyphs.bottom &&
-                marker.y + marker.height > glyphs.top,
-              `marker ${index} covers text at ${JSON.stringify(glyphs)}`,
-            ).toBe(false);
-      const after = await quote.evaluate((node) => ({
-        rect: JSON.stringify(node.getBoundingClientRect()),
-        scrollWidth: node.ownerDocument.documentElement.scrollWidth,
-        scrollHeight: node.ownerDocument.documentElement.scrollHeight,
-      }));
-      expect(after).toEqual(before);
+      return {
+        text,
+        viewport: doc.documentElement.clientWidth,
+        placed: [...doc.querySelectorAll('[data-colab-thread], [data-colab-group]')].map((node) => {
+          const box = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            padding: style.paddingTop,
+            clip: style.backgroundClip,
+            background: style.backgroundColor,
+          };
+        }),
+      };
     });
+    const { placed, text, viewport } = snapshot;
+    expect(text.length).toBeGreaterThan(3);
+    for (const marker of placed) {
+      expect(marker).toMatchObject({ width: 24, height: 24, padding: '4px', clip: 'content-box' });
+      expect(marker.background).not.toBe('rgba(0, 0, 0, 0)');
+      // The 28 px lane at the right edge, the 24 px target centred in it.
+      expect(marker.x).toBe(viewport - 26);
+    }
+    for (let first = 0; first < placed.length; first++)
+      for (let second = first + 1; second < placed.length; second++) {
+        const a = placed[first]!;
+        const b = placed[second]!;
+        expect(
+          a.y + a.height + 4 <= b.y || b.y + b.height + 4 <= a.y,
+          `markers ${first} and ${second} stand closer than 4 px`,
+        ).toBe(true);
+      }
+    // Ben's rule: no element over text, whatever the width.
+    for (const [index, marker] of placed.entries())
+      for (const [left, top, right, bottom] of text)
+        expect(
+          marker.x < right &&
+            marker.x + marker.width > left &&
+            marker.y < bottom &&
+            marker.y + marker.height > top,
+          `marker ${index} covers text at ${[left, top, right, bottom]}`,
+        ).toBe(false);
+    // The first thread moved no text.
+    expect(await textRects()).toEqual(before);
+    // A single marker opens its thread; the `+n` marker opens the thread list and no thread.
+    await markers.filter({ hasText: /^2$/ }).click();
+    await expect(page.locator('#probe')).toHaveAttribute('data-opened', 't1');
+    await markers.filter({ hasText: /^\+2$/ }).click();
+    await expect(page.locator('#probe')).toHaveAttribute('data-list-opened', '1');
+    await expect(page.locator('#probe')).toHaveAttribute('data-opened', 't1');
+  });
 
 test('cosmetic key notifications admit only the current render and closed Escape/@ set', async ({
   page,

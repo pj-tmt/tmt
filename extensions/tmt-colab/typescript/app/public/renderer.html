@@ -12,7 +12,7 @@
         function install(renderId, port, theme, layout) {
           // Presentation only: author code can tamper with this projection.
           document.documentElement.dataset.theme = theme;
-          // Only a framed layout selects the page frame's rules; the rest leave the author's layout.
+          // Only a framed layout selects the column rules; every page gets the frame's marker lane.
           const framed = layout === 'column' || layout === 'full';
           if (framed) document.documentElement.dataset.colabLayout = layout;
           const utf8 = new TextEncoder();
@@ -296,15 +296,15 @@
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; }';
+            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread], .annotation-number[data-colab-group] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; }';
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
-            '@layer colab-frame { html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { align-self: stretch !important; width: auto !important; padding-inline: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
+            '@layer colab-frame { html { --colab-lane: 28px !important; box-sizing: border-box !important; padding-inline-end: var(--colab-lane) !important; } html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline-start: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; align-self: stretch !important; width: auto !important; margin-inline-end: calc(-1 * var(--colab-lane)) !important; padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
           // END GENERATED PAGE FRAME
           const highlightStyle =
             annotationTokens +
-            (framed ? pageFrame : '') +
+            pageFrame +
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px}' +
@@ -1155,114 +1155,61 @@
                   'position:absolute;top:0;left:0;width:100%;pointer-events:none;z-index:2147483647';
                 document.body.append(markers);
                 const origin = markers.getBoundingClientRect();
-                const placed = [];
-                const paint = batch
+                // The marker lane is a fixed column at the right edge of the frame, which page-frame.css
+                // reserves on every page from its first paint: a marker never stands on text, and the
+                // first thread moves none. A marker sits in the lane at its passage's last line, centred
+                // on it. Threads whose lines are closer than one marker share a `+n` marker that opens
+                // the thread list.
+                const size = 24;
+                const lane =
+                  parseFloat(
+                    getComputedStyle(document.documentElement).getPropertyValue('--colab-lane'),
+                  ) || 28;
+                const left = document.documentElement.clientWidth - lane + (lane - size) / 2;
+                const lines = batch
                   .filter((item) => item.id && anchorRanges.has(item.id))
                   .map((item) => {
                     const rects = [...anchorRanges.get(item.id).range.getClientRects()].filter(
                       (rect) => rect.width && rect.height,
                     );
-                    return { item, rect: rects.at(-1), range: anchorRanges.get(item.id).range };
+                    const tail = rects.at(-1);
+                    return { item, middle: tail ? tail.top + tail.height / 2 : NaN };
                   })
-                  .filter(({ rect }) => rect)
-                  .sort(
-                    (a, b) =>
-                      a.rect.top - b.rect.top ||
-                      a.rect.right - b.rect.right ||
-                      a.item.ordinal - b.item.ordinal,
-                  );
-                // The text fragments of each block, read once: a marker beside a line must clear them.
-                const fragments = new Map();
-                const fragmentsOf = (block) => {
-                  if (!fragments.has(block)) {
-                    const all = document.createRange();
-                    all.selectNodeContents(block);
-                    const rects = [...all.getClientRects()].filter(
-                      (rect) => rect.width && rect.height,
-                    );
-                    fragments.set(block, rects.length > 4096 ? null : rects);
-                  }
-                  return fragments.get(block);
-                };
-                // The right edge of the last text on the line the passage ends on, or null when this
-                // line cannot be read (right-to-left, vertical or an unusually large block).
-                const lineEnd = (range, tail) => {
-                  let element = range.endContainer;
-                  if (element.nodeType !== 1) element = element.parentElement;
-                  while (element && element !== document.body) {
-                    const display = getComputedStyle(element).display;
-                    if (!display.startsWith('inline') && display !== 'contents') break;
-                    element = element.parentElement;
-                  }
-                  const block = element ?? document.body;
-                  const style = getComputedStyle(block);
-                  if (style.direction !== 'ltr' || !style.writingMode.startsWith('horizontal'))
-                    return null;
-                  const rects = fragmentsOf(block);
-                  if (!rects) return null;
-                  const middle = tail.top + tail.height / 2;
-                  return rects
-                    .filter((rect) => rect.top <= middle && rect.bottom >= middle)
-                    .reduce((end, rect) => Math.max(end, rect.right), tail.right);
-                };
-                for (const { item, rect, range } of paint) {
-                  // A 24 px target around the 16 px circle. The circle stands after the last text on the
-                  // passage's last line, centred on it, so it never covers text and never moves any;
-                  // when the page leaves no room there it hangs just after the passage, a little above
-                  // its line. The lanes keep every target apart, including identical ranges.
-                  const size = 24;
-                  const inset = (size - 16) / 2;
-                  const maxLeft = Math.max(4, innerWidth - size - 4);
-                  const clash = (left, top) =>
-                    placed.find(
-                      (box) =>
-                        left < box.left + box.size + 4 &&
-                        left + size + 4 > box.left &&
-                        top < box.top + box.size + 4 &&
-                        top + size + 4 > box.top,
-                    );
-                  let left = null;
-                  let top = Math.max(4 - scrollY, rect.top + (rect.height - size) / 2);
-                  const end = lineEnd(range, rect);
-                  if (end !== null) {
-                    left = end + 2;
-                    for (let hit = clash(left, top); hit && left + size <= innerWidth;) {
-                      left = hit.left + hit.size + 4;
-                      hit = clash(left, top);
-                    }
-                    if (left + size > innerWidth) left = null;
-                  }
-                  if (left === null) {
-                    left = Math.max(4, Math.min(maxLeft, rect.right + 3 - inset));
-                    top = Math.max(4 - scrollY, rect.top - 10 - inset);
-                    for (let attempt = 0; attempt <= placed.length; attempt++) {
-                      const hit = clash(left, top);
-                      if (!hit) break;
-                      const before = hit.left - size - 4;
-                      if (before >= 4) left = before;
-                      else {
-                        left = Math.max(4, Math.min(maxLeft, rect.right + 3 - inset));
-                        top = hit.top + hit.size + 4;
-                      }
-                    }
-                  }
-                  placed.push({ left, top, size });
+                  .filter(({ middle }) => Number.isFinite(middle))
+                  .sort((a, b) => a.middle - b.middle || a.item.ordinal - b.item.ordinal);
+                const groups = [];
+                for (const { item, middle } of lines) {
+                  const group = groups.at(-1);
+                  if (group && middle - group.middle < size + 4) group.items.push(item);
+                  else groups.push({ middle, items: [item] });
+                }
+                for (const { middle, items } of groups) {
+                  const top = Math.max(4 - scrollY, middle - size / 2);
                   const marker = document.createElement('button');
                   marker.type = 'button';
-                  marker.dataset.colabThread = item.id;
                   marker.className = 'annotation-number';
-                  marker.textContent = String(item.ordinal);
-                  marker.title = 'Thread ' + item.ordinal + ': ' + item.selector.exact.slice(0, 80);
-                  marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
-                  marker.style.cssText = `position:absolute;left:${left - origin.left}px;top:${top - origin.top}px;pointer-events:auto;cursor:pointer${String(item.ordinal).length > 2 ? ';font-size:8px' : ''}`;
+                  const [only] = items;
+                  const label = items.length === 1 ? String(only.ordinal) : `+${items.length}`;
+                  marker.textContent = label;
+                  if (items.length === 1) {
+                    marker.dataset.colabThread = only.id;
+                    marker.title =
+                      'Thread ' + only.ordinal + ': ' + only.selector.exact.slice(0, 80);
+                    marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
+                  } else {
+                    marker.dataset.colabGroup = String(items.length);
+                    marker.title =
+                      items.length + ' threads: ' + items.map((i) => i.ordinal).join(', ');
+                    marker.setAttribute('aria-label', 'Open the thread list: ' + marker.title);
+                  }
+                  marker.style.cssText = `position:absolute;left:${left - origin.left}px;top:${top - origin.top}px;pointer-events:auto;cursor:pointer${label.length > 2 ? ';font-size:8px' : ''}`;
                   marker.addEventListener('click', (event) => {
                     if (event.isTrusted)
-                      port.postMessage({
-                        type: 'colab.render.open-thread',
-                        renderId,
-                        requestId,
-                        id: item.id,
-                      });
+                      port.postMessage(
+                        items.length === 1
+                          ? { type: 'colab.render.open-thread', renderId, requestId, id: only.id }
+                          : { type: 'colab.render.open-list', renderId, requestId },
+                      );
                   });
                   markers.append(marker);
                 }

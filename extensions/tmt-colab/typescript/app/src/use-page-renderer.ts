@@ -18,6 +18,7 @@ export interface RendererHandlers {
   onToggleSelectionMode(): void;
   onKey(key: Parameters<NonNullable<RendererOptions['onKey']>>[0]): void;
   onOpenThread(id: string): void;
+  onOpenList(): void;
 }
 
 /** The page's inline layers, which the renderer reports its slots and anchors to. A new function
@@ -144,6 +145,7 @@ export function usePageRenderer({
       onToggleSelectionMode: () => current.current.onToggleSelectionMode(),
       onKey: (key) => current.current.onKey(key),
       onOpenThread: (id) => current.current.onOpenThread(id),
+      onOpenList: () => current.current.onOpenList(),
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();

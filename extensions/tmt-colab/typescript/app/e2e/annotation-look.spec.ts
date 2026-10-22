@@ -51,9 +51,10 @@ for (const width of [1440, 390])
       await run(page, 'annotationLook');
       const app = page.locator('#ask-page-fixture');
       const frame = page.frameLocator('#ask-page-fixture iframe');
-      const markers = frame.locator('[data-colab-thread]');
-      await expect(markers).toHaveCount(4);
-      await expect(markers).toHaveText(['1', '2', '3', '4']);
+      // The two notes on one line share the right lane as one `+2` marker (#4489).
+      const markers = frame.locator('.annotation-number');
+      await expect(markers).toHaveCount(3);
+      await expect(markers).toHaveText(['1', '2', '+2']);
       for (const marker of await markers.all()) {
         await expect(marker).toHaveCSS('border-top-width', '0px');
         await expect(marker).toHaveCSS('box-shadow', 'none');
@@ -166,7 +167,7 @@ for (const width of [1440, 390])
         '3',
         '4',
       ]);
-      await expect(markers).toHaveText(['1', '2', '3']);
+      await expect(markers).toHaveText(['1', '+2']);
       expect(
         await frame.locator('body').evaluate((body) => {
           const clone = body.cloneNode(true) as HTMLElement;
