@@ -133,7 +133,7 @@
   flex-direction: column;
   width: var(--tmt-ui-rail-width);
   background: var(--tmt-ui-surface-sheet);
-  transition: width var(--tmt-ui-rail-motion);
+  transition: width var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail {
   width: var(--tmt-ui-rail-collapsed-width);
@@ -268,7 +268,7 @@
 /* Collapsed: icons only (labels hide once the slide ends); labels show as tooltips and counts
    become corner badges. */
 .tmt-ui-rail-label {
-  transition: visibility var(--tmt-ui-rail-motion);
+  transition: visibility var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-label {
   visibility: hidden;
@@ -294,11 +294,6 @@
 }
 .tmt-ui-shell[data-menu='none'] .tmt-ui-module-menu {
   display: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .tmt-ui-shell {
-    --tmt-ui-rail-motion: 0s;
-  }
 }
 .tmt-ui-module-menu-group {
   min-height: var(--tmt-ui-space-s);

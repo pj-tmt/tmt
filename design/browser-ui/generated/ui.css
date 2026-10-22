@@ -17,7 +17,6 @@
   --tmt-foundation-motion-ease-out: cubic-bezier(0.2, 0, 0, 1);
   --tmt-foundation-motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --tmt-foundation-motion-scale: 0.96;
-  --tmt-foundation-motion-rise: 6px;
   --tmt-foundation-font-display: 'Bricolage Grotesque', system-ui, sans-serif;
   --tmt-foundation-font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --tmt-foundation-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
