@@ -131,16 +131,35 @@
   generation's cancellation. Preview text is sanitized separately from retained bodies.
   The same results page supplies workspace member reply metadata. Conversations
   and the full-reply reader schedule `requests.show` on the selected-read lane, a second
-  worker thread with its own queue and the same generation fence, so a refresh's HOME
-  exchanges, cron or history work never queues in front of the selected member's reads
-  (only the newest selection runs). The user/recipient/request/kind key and selection
+  worker thread with its own queue and cancellation generation, so a refresh's HOME
+  exchanges, cron or history work never queues in front of the selected member's reads.
+  Selection replacement cancels that lane between reads without cancelling or restarting
+  base acquisition; explicit base preemption and shutdown cancel both lanes. `board::selected_conversation` gathers the selected
+  conversation's bounded finals, durable sends, missing bodies and provider observations
+  on this lane and publishes one projection. Full request documents are reused within
+  that refresh, so a prompt and reply for one request never cause two shows. Targeted
+  list reads remain unless held-page coverage is proven. There is no per-body publication
+  or growing-transcript render between reads; the existing Session keeps retained content
+  while the refresh runs. The live selected-lane demand belongs to App so painters can
+  show `refreshing` on the conversation rule without starting work or inventing a second
+  in-flight flag. With no prepared Session, one centred `Loading conversation…` mark
+  registers the viewport for acquisition; no body preview or per-item placeholder is
+  painted before the complete projection arrives. Retained source/render mappings stay
+  together during the read, and publication uses the existing scroll/selection owner.
+  Automatic snapshots retain the pending request until the next paint restores viewport
+  admission and the existing full-plan comparison runs: an unchanged plan continues,
+  while changed source, selection or sender starts a new revision. Explicit refresh clears
+  the pending demand before its snapshot, so even an unchanged plan restarts.
+  Compact details and frozen readers retain their individual
+  source reads. The user/recipient/request/kind key and selection
   revision fence delivery; detail verifies both participants before displaying
   the retained body. `board::row_detail` rejects late bodies whose exact request
   or target is no longer active. A pending reader closes when its reply or
   membership disappears; an acquired frozen source can remain readable while
   annotation revalidates current authority. Shared Cron expansions and cached
   bodies are pruned against their current targets and keys.
-- Priorities: full loads outrank selected response/status jobs and usage-only reads.
+- Priorities: full loads outrank deferred base and usage-only work; the selected
+  response/status lane remains independent.
 
 ## Workspace startup
 

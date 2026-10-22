@@ -333,3 +333,55 @@ fn resume_move_reports_a_failed_spawn_and_the_retry_resumes_here_without_moving_
     drop(old);
     assert_drivers_ended(&fixture);
 }
+
+#[test]
+fn ordinary_resume_names_the_live_old_pane_without_launching_or_mutating() {
+    register();
+    for (provider, stopped) in [("claude", false), ("codex", false), ("claude", true)] {
+        let fixture = Fixture::new(&format!("resume-live-{provider}-{stopped}"));
+        destination(&fixture);
+        let (old, process) = start(&fixture, provider, fixture.approve());
+        let before = remembered(&fixture);
+        let marker = fs::read(fixture.root.join("driver/marker")).unwrap();
+        if stopped {
+            nix::sys::signal::kill(process.pid(), nix::sys::signal::Signal::SIGSTOP).unwrap();
+            wait_until("owned provider stopped", || process.seen() == Seen::Stopped);
+        }
+        // Ordinary resume must not implicitly stop or move the old process.
+        let mut resume = fixture.command_in(Some("f2"), &["resume", "worker"]);
+        resume.env(
+            "PATH",
+            format!(
+                "{}:/usr/bin:/bin:/usr/sbin:/sbin",
+                fixture.root.join("bin").display()
+            ),
+        );
+        let output = resume.output().unwrap();
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(5), "{error}");
+        assert!(error.contains("recorded agent"), "{error}");
+        assert!(error.contains("fake-1"), "{error}");
+        assert!(error.contains("tmt resume --move -- worker"), "{error}");
+        assert!(error.contains("No new agent was launched"), "{error}");
+        assert_eq!(
+            process.seen(),
+            if stopped { Seen::Stopped } else { Seen::Live }
+        );
+        if stopped {
+            nix::sys::signal::kill(process.pid(), nix::sys::signal::Signal::SIGCONT).unwrap();
+            wait_until("owned provider continued", || process.seen() == Seen::Live);
+        }
+        let after = remembered(&fixture);
+        assert_eq!(after.entry, before.entry);
+        assert_eq!(after.preferences, before.preferences);
+        assert_eq!(
+            fs::read(fixture.root.join("driver/marker")).unwrap(),
+            marker
+        );
+        assert!(!fixture.root.join("driver/marker-2").exists());
+        assert!(!fixture.root.join("agent.pid").exists());
+        drop(old);
+        assert_eq!(process.seen(), Seen::Ended);
+        assert_drivers_ended(&fixture);
+    }
+}

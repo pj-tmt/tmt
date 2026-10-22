@@ -898,6 +898,7 @@ fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
                 disposition: Disposition::Queued,
                 passthrough: false,
                 message_state_label: None,
+                can_send_now: false,
                 fallback: None,
                 warning: None,
             }),
@@ -1005,6 +1006,7 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
             disposition: Disposition::Queued,
             passthrough: false,
             message_state_label: None,
+            can_send_now: false,
             fallback: None,
             warning: None,
         }),
@@ -1343,6 +1345,7 @@ fn a_visible_wrapped_continuation_keeps_elapsed_text_without_a_hidden_spinner_wa
 }
 
 pub(in crate::board) mod captures;
+mod send_now;
 
 #[test]
 fn grouped_outgoing_turns_keep_an_actual_earlier_reply_heading_and_its_age() {
@@ -1780,6 +1783,7 @@ fn a_restored_send_is_dropped_once_a_live_entry_has_the_same_request() {
         truncated: false,
         capture: None,
         message_state_label: None,
+        can_send_now: false,
     };
     session.sent = vec![sent("req-live"), sent("req-old")];
     let restored: Vec<_> = session.restored_sends().map(|send| &send.request).collect();

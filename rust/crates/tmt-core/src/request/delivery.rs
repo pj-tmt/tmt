@@ -159,18 +159,58 @@ impl SendNowRejection {
         }
     }
 
-    /// The one sentence every caller shows for it.
+    /// The one sentence every caller shows for it (#4455): the CLI, the extension API's fault
+    /// message and the Remote door's `reasonText` are these words, so no client keeps a table.
     pub fn message(self) -> String {
         match self {
-            Self::NotAllowed => "Only the request's originator, or a person, may send it now.".into(),
-            Self::NotApplicable => {
-                "Only an ordinary request to an identified recipient can be sent now.".into()
+            Self::NotAllowed => refused("only its sender or the owner can send it early"),
+            Self::NotApplicable => refused("it is not an ordinary message to an agent"),
+            Self::Closed => refused("it already has an answer, or was withdrawn or expired"),
+            Self::Unconfirmed => refused("an earlier delivery is unconfirmed, do not resend"),
+            Self::NotAvailable(why) => refused(why.text()),
+        }
+    }
+}
+
+fn refused(reason: &str) -> String {
+    format!("Could not send now: {reason}")
+}
+
+/// Why a send-now that released the hold still typed nothing, or may have typed it. A request
+/// whose paste was refused stays sendable; one whose paste may have happened is never retried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendNowUntyped {
+    /// The agent is waiting on its user.
+    AwaitingApproval,
+    /// The agent has no live pane.
+    Unreachable,
+    /// Its session cannot carry the message.
+    ChannelUnavailable,
+    /// The paste may have reached the pane.
+    Uncertain,
+}
+
+impl SendNowUntyped {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::AwaitingApproval => "DELIVERY_AWAITING_APPROVAL",
+            Self::Unreachable => "SEND_NOW_UNREACHABLE",
+            Self::ChannelUnavailable => "DELIVERY_CHANNEL_UNAVAILABLE",
+            Self::Uncertain => "DELIVERY_UNCERTAIN",
+        }
+    }
+
+    /// The one sentence every caller shows for it, like [`SendNowRejection::message`].
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::AwaitingApproval => {
+                "Could not send now: the agent is waiting for approval on its machine"
             }
-            Self::Closed => {
-                "The request already has its final, was withdrawn or has expired.".into()
+            Self::Unreachable => "Could not send now: the agent could not be reached",
+            Self::ChannelUnavailable => "Could not send now: the agent's channel is not available",
+            Self::Uncertain => {
+                "It may have been sent. Delivery is not confirmed, so do not send it again."
             }
-            Self::Unconfirmed => "Delivery is unconfirmed; the message may already be in the pane, so it is not sent again.".into(),
-            Self::NotAvailable(why) => format!("It cannot be sent now: {}.", why.text()),
         }
     }
 }

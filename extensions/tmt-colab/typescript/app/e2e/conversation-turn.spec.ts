@@ -1213,46 +1213,56 @@ for (const surface of ['chat', 'thread'] as const)
     await expect(status).toHaveText(text.sendNowSending);
     await expect(status.locator('.agent-activity-spinner')).toHaveCount(1);
     await expect(window.getByRole('button', { name: text.sendNow })).toBeDisabled();
-    // Core refused: its reason (the approved sentence of each code), the button as Try again,
-    // Check again beside it.
-    for (const [reason, sentence] of [
+    // Core refused with its own sentence: drawn as it is, whatever the code; Colab keeps no table of
+    // codes. The button reads Try again and Check again stays beside it.
+    for (const [reason, reasonText] of [
       ['SEND_NOW_UNREACHABLE', 'Could not send now: the agent could not be reached'],
       [
-        'DELIVERY_AWAITING_APPROVAL',
-        'Could not send now: the agent is waiting for approval on its machine',
+        'SEND_NOW_NOT_ALLOWED',
+        'Could not send now: only its sender or the owner can send it early',
       ],
-      ['DELIVERY_CHANNEL_UNAVAILABLE', "Could not send now: the agent's channel is not available"],
-      [
-        'SEND_NOW_NOT_AVAILABLE',
-        'Could not send now: sending early is not available for it right now',
-      ],
-      [
-        'SEND_NOW_CLOSED',
-        'Could not send now: it already has an answer, or was withdrawn or expired',
-      ],
-      ['SEND_NOW_NOT_APPLICABLE', 'Could not send now: it is not waiting in a batch'],
-      ['SEND_NOW_NOT_ALLOWED', 'Could not send now: only the person who sent it can send it early'],
-      [
-        'SEND_NOW_UNCONFIRMED',
-        'Could not send now: an earlier delivery is unconfirmed, do not resend',
-      ],
-      [
-        'REMOTE_SCOPE_DENIED',
-        'Could not send now: only the browser that sent it can send it early',
-      ],
-      // A code a newer Core adds, a code that is not one, and none: never the bare code.
-      ['A_CODE_FROM_A_NEWER_CORE', 'Could not send now. It stays batched.'],
-      ['constructor', 'Could not send now. It stays batched.'],
-      [undefined, 'Could not send now. It stays batched.'],
+      // A code Colab has never heard of still shows Core's sentence, never the bare code.
+      ['A_CODE_FROM_A_NEWER_CORE', 'Could not send now: a sentence from a newer Core'],
     ] as const) {
-      await show({ phase: 'outcome', outcome: 'refused', ...(reason ? { reason } : {}) });
-      await expect(status).toContainText(sentence);
+      await show({ phase: 'outcome', outcome: 'refused', reason, reasonText });
+      await expect(status).toContainText(reasonText);
       await expect(status).not.toContainText('Batched to save usage');
-      await expect(status).not.toContainText(reason ?? 'SEND_NOW_');
+      await expect(status).not.toContainText(reason);
       await expect(window.getByRole('button', { name: text.sendNowTryAgain })).toBeEnabled();
       await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(1);
     }
-    // It may have been typed: no button to ask again, Check again stays.
+    // Core's sentence is text, never markup.
+    await show({
+      phase: 'outcome',
+      outcome: 'refused',
+      reason: 'SEND_NOW_UNREACHABLE',
+      reasonText: '<img src=x onerror=alert(1)> Could not send now',
+    });
+    await expect(status).toContainText('<img src=x onerror=alert(1)> Could not send now');
+    await expect(status.locator('img')).toHaveCount(0);
+    // Remote's own refusal of a device that did not send it has no Core sentence: Colab's one.
+    await show({ phase: 'outcome', outcome: 'refused', reason: 'REMOTE_SCOPE_DENIED' });
+    await expect(status).toContainText(
+      'Could not send now: only the browser that sent it can send it early',
+    );
+    // No sentence and no code Colab knows: the one general line, never the bare code.
+    for (const reason of ['SEND_NOW_UNREACHABLE', 'A_CODE_FROM_A_NEWER_CORE', undefined] as const) {
+      await show({ phase: 'outcome', outcome: 'refused', ...(reason ? { reason } : {}) });
+      await expect(status).toContainText('Could not send now. It stays batched.');
+      await expect(status).not.toContainText(reason ?? 'SEND_NOW_');
+    }
+    // It may have been typed: Core's sentence when it has one (DELIVERY_UNCERTAIN), else Colab's.
+    // No button to ask again either way, Check again stays.
+    await show({
+      phase: 'outcome',
+      outcome: 'unconfirmed',
+      reason: 'DELIVERY_UNCERTAIN',
+      reasonText: 'It may have been sent. Delivery is not confirmed, so do not send it again.',
+    });
+    await expect(status).toContainText(
+      'It may have been sent. Delivery is not confirmed, so do not send it again.',
+    );
+    await expect(sendNowButton(window)).toHaveCount(0);
     await show({ phase: 'outcome', outcome: 'unconfirmed' });
     await expect(status).toContainText(text.sendNowUnconfirmed);
     await expect(sendNowButton(window)).toHaveCount(0);

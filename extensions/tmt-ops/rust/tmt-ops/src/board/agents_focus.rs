@@ -286,7 +286,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 || "Exchanges with you".to_owned(),
                 |target| conversation::screen::title(app, target, usize::from(area.width)),
             ),
-            Line::default(),
+            if recipient.as_ref().is_some_and(|target| {
+                app.conversation_refresh(target) == conversation::Refresh::Retained
+            }) {
+                neutral("refreshing", app.look())
+            } else {
+                Line::default()
+            },
         );
     }
     let Some(target) = recipient else {

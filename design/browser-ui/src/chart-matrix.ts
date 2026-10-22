@@ -56,6 +56,20 @@ export function createMatrix(options: MatrixOptions): HTMLElement {
   scroll.setAttribute('role', 'region');
   scroll.setAttribute('aria-label', options.title);
   scroll.append(table);
-  figure.append(scroll);
+  const viewport = htmlEl('div', 'tmt-ui-chart-matrix-viewport');
+  const edge = htmlEl('span', 'tmt-ui-chart-matrix-edge');
+  edge.setAttribute('aria-hidden', 'true');
+  edge.hidden = true;
+  const updateEdge = () => {
+    edge.hidden = scroll.scrollWidth - scroll.clientWidth - scroll.scrollLeft <= 1;
+  };
+  scroll.addEventListener('scroll', updateEdge, { passive: true });
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(updateEdge);
+    observer.observe(scroll);
+    observer.observe(table);
+  }
+  viewport.append(scroll, edge);
+  figure.append(viewport);
   return figure;
 }

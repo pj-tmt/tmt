@@ -304,9 +304,33 @@ impl Sampling {
                 .as_millis(),
         )
         .unwrap();
-        let stored = Storage::context_by_identity(&database, &identity, now)
-            .unwrap()
-            .unwrap();
+        // Hook exit and the provider's ready file precede the launcher's own
+        // committed attachment. Read-only storage is the readiness signal;
+        // activity and consumption below remain separate strict assertions.
+        let mut committed = None;
+        wait_until("the owned provider's committed Running binding", || {
+            let current = Storage::context_by_identity(&database, &identity, now).unwrap();
+            let ready = current.as_ref().is_some_and(|stored| {
+                stored.entry.binding.as_ref().is_some_and(|binding| {
+                    binding.session.state == tmt_core::binding::session::RuntimeState::Running
+                        && binding.session.key.as_ref().is_some_and(|key| {
+                            key.incarnation == self.run.as_ref().unwrap().owned[0].incarnation
+                                && key.provider_session.as_ref().map(|id| id.as_str())
+                                    == Some(SESSION)
+                        })
+                        && binding
+                            .session
+                            .launch_owner
+                            .as_ref()
+                            .is_some_and(|owner| owner.pid() == u64::from(self.run_pid()))
+                })
+            });
+            if ready {
+                committed = current;
+            }
+            ready
+        });
+        let stored = committed.unwrap();
         let binding = stored.entry.binding.unwrap();
         assert_eq!(
             binding.session.state,

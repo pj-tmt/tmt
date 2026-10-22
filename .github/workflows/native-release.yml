@@ -71,7 +71,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 26.12.1
+          # Temporary plan-only fallback; remove with the permanent #4443 fix.
+          node-version: 22.23.4
       - name: Plan the draft releases to build or publish
         id: plan
         env:

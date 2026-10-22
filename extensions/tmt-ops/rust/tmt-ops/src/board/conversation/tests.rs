@@ -12,6 +12,7 @@ mod markdown_packet;
 pub(in crate::board) mod performance;
 mod question;
 mod recent_output_packet;
+pub(in crate::board) mod refresh;
 mod tables;
 
 fn fixture() -> App {
@@ -1776,4 +1777,153 @@ fn the_loading_line_is_scheduled_for_its_instant_and_not_before() {
         "a repaint is due when the delay ends"
     );
     assert_eq!(marks(&app, START), marks(&app, START + 399));
+}
+
+fn loading_workspace() -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    let member = crate::board::app::workspace::tests::MEMBER;
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":member,"requestId":"loaded-thread","submittedAtMs":crate::status::now_ms() - 60_000,
+        "status":"retained"
+    })];
+    app.selected_request = crate::board::refresh::SelectedRequest::Ready(None);
+    app
+}
+
+fn workspace_frame(app: &App) -> ratatui::buffer::Buffer {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn frame_words(buffer: &ratatui::buffer::Buffer) -> String {
+    buffer.content.iter().map(|cell| cell.symbol()).collect()
+}
+
+#[test]
+fn first_open_paints_one_centred_loading_mark_then_one_complete_projection() {
+    let mut app = loading_workspace();
+    let first = workspace_frame(&app);
+    let words = frame_words(&first);
+    assert_eq!(words.matches("Loading conversation…").count(), 1, "{words}");
+    assert!(!words.contains("reading reply"));
+    assert!(!words.contains("no response in loaded history"));
+    assert!(!words.contains("refreshing"));
+    assert!(
+        app.scrolls.visible(crate::config::Pane::Replies),
+        "loading paint admits its read"
+    );
+    let area = app.scrolls.area(crate::config::Pane::Replies).unwrap();
+    let label: Vec<_> = "Loading conversation…"
+        .chars()
+        .map(|c| c.to_string())
+        .collect();
+    let first_cell = first
+        .content
+        .windows(label.len())
+        .position(|cells| {
+            cells
+                .iter()
+                .zip(&label)
+                .all(|(cell, wanted)| cell.symbol() == wanted)
+        })
+        .unwrap();
+    let x = (first_cell % 160) as u16;
+    let y = (first_cell / 160) as u16;
+    assert_eq!(
+        x,
+        area.x + (area.width - "Loading conversation…".width() as u16) / 2
+    );
+    assert_eq!(y, area.y + area.height.saturating_sub(1) / 2);
+    let plan = app
+        .conversation_read()
+        .expect("the first paint starts the selected read");
+    let completed = plan.test_projection(
+        "Full exact response\nwith its last line",
+        Some("provider output"),
+    );
+    app.apply_conversation(plan, completed);
+    let after = frame_words(&workspace_frame(&app));
+    assert!(after.contains("Full exact response"), "{after}");
+    assert!(after.contains("with its last line"));
+    assert!(!after.contains("Loading conversation"));
+    assert!(!after.contains("reading reply"));
+    assert!(!after.contains("refreshing"));
+    assert!(
+        app.conversation_read().is_none(),
+        "one publication completes the refresh"
+    );
+}
+
+#[test]
+fn retained_open_keeps_content_and_source_mapping_until_the_single_refresh_publication() {
+    let mut app = loading_workspace();
+    workspace_frame(&app);
+    let plan = app.conversation_read().unwrap();
+    app.apply_conversation(
+        plan.clone(),
+        plan.test_projection("Held response\nsecond source line", Some("held provider")),
+    );
+    workspace_frame(&app);
+    let target = app.conversation_target().unwrap();
+    let identity = (
+        app.view.as_ref().unwrap().me_id.clone(),
+        crate::board::app::workspace::tests::MEMBER.to_owned(),
+    );
+    app.scrolls.scroll(
+        crate::config::Pane::Replies,
+        crate::board::scroll::Step::Top,
+    );
+    app.conversation
+        .borrow_mut()
+        .sessions
+        .get_mut(&identity)
+        .unwrap()
+        .follow = false;
+    let before_sources = app.conversation.borrow().sessions[&identity]
+        .rendered
+        .as_ref()
+        .unwrap()
+        .anchor_sources
+        .clone();
+    app.refresh_sent();
+    app.conversation.borrow_mut().refresh_pane_output();
+    assert!(matches!(
+        app.conversation_refresh(&target),
+        Refresh::Retained
+    ));
+    let held = frame_words(&workspace_frame(&app));
+    assert!(held.contains("Held response"), "{held}");
+    assert!(held.contains("refreshing"));
+    assert!(!held.contains("Loading conversation"));
+    assert!(!held.contains("reading reply"));
+    assert_eq!(
+        app.conversation.borrow().sessions[&identity]
+            .rendered
+            .as_ref()
+            .unwrap()
+            .anchor_sources,
+        before_sources
+    );
+    let plan = app.conversation_read().unwrap();
+    app.apply_conversation(
+        plan.clone(),
+        plan.test_projection(
+            "not a replacement for an acquired source",
+            Some("fresh provider output"),
+        ),
+    );
+    let fresh = frame_words(&workspace_frame(&app));
+    assert!(fresh.contains("Held response"));
+    assert!(fresh.contains("fresh provider output"), "{fresh}");
+    assert!(!fresh.contains("refreshing"));
+    assert!(!fresh.contains("Loading conversation"));
+    assert!(!fresh.contains("reading reply"));
+    assert!(
+        !app.conversation.borrow().sessions[&identity].follow,
+        "refresh preserves reading position"
+    );
 }

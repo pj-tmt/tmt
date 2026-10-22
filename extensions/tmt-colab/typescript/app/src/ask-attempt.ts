@@ -491,6 +491,7 @@ export class AskController {
             phase: 'outcome',
             outcome: reply.state,
             ...(reply.reason === undefined ? {} : { reason: reply.reason }),
+            ...(reply.reasonText === undefined ? {} : { reasonText: reply.reasonText }),
           },
     );
     try {

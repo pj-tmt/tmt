@@ -124,6 +124,8 @@ pub(super) struct Sent {
     pub truncated: bool,
     pub capture: Option<Capture>,
     pub message_state_label: Option<String>,
+    /// Core's `canSendNow` from the same `messageState` as the label.
+    pub can_send_now: bool,
 }
 
 /// Core's captured turn, independent of ordinary replies and pane observations.
@@ -383,6 +385,7 @@ impl App {
                     truncated: send["truncated"].as_bool().unwrap_or(false),
                     capture: Capture::read(send),
                     message_state_label: crate::requests::message_state_label(send),
+                    can_send_now: crate::requests::can_send_now(send),
                 })
             })
             .collect()
@@ -630,6 +633,29 @@ impl App {
         self.detail(&Target::Row(self.conversation_target()?))?
             .agent
     }
+    /// Source demand for an admitted conversation painter. Unlike acquisition,
+    /// this does not consult Scrolls: the current frame is still registering it.
+    pub(super) fn conversation_sources_pending(&self, target: &RowTarget) -> bool {
+        let Some(detail) = self.detail(&Target::Row(target.clone())) else {
+            return false;
+        };
+        let Some(owner) = detail.agent.as_ref() else {
+            return false;
+        };
+        !self
+            .row_details
+            .agent_finals
+            .iter()
+            .any(|(key, _)| key == owner)
+            || self.row_details.sent_stale
+            || !self
+                .row_details
+                .agent_sent
+                .iter()
+                .any(|(key, _)| key == &sent_key(owner))
+            || detail.messages().iter().any(|message| !message.acquired)
+    }
+
     /// The conversation's agent, until its own finals have been read once.
     pub(super) fn finals_read(&self) -> Option<FinalsKey> {
         self.conversation_finals().filter(|key| {

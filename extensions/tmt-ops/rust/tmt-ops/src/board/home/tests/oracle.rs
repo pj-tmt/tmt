@@ -680,6 +680,27 @@ fn captures() -> Value {
                 }
             }
         }
+        // One loading mark or a retained conversation plus its refresh status,
+        // then a single complete publication through the real selected owner.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation::tests::refresh::SCENES {
+                for width in [160, 100, 80, 60] {
+                    for height in [36, 8] {
+                        let app = crate::board::conversation::tests::refresh::capture_case(
+                            scene, look, width, height,
+                        );
+                        frames.push(capture_frame(
+                            &app,
+                            scene,
+                            look_name,
+                            width,
+                            height,
+                            &mut styles,
+                        ));
+                    }
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

@@ -2125,6 +2125,24 @@ it('a send-now that did not type keeps the state and says why; one that may have
   }
 });
 
+it('the sentence Core gave for a refusal reaches the page with its code', async () => {
+  const { controller, remote, seen, operationId } = await sendableAsk();
+  remote.sendNowAnswer = async () => ({
+    state: 'refused',
+    reason: 'SEND_NOW_UNREACHABLE',
+    reasonText: 'Could not send now: the agent could not be reached',
+  });
+  await controller.sendNow(operationId);
+  expect(latest(seen)).toMatchObject({
+    sendNow: {
+      phase: 'outcome',
+      outcome: 'refused',
+      reason: 'SEND_NOW_UNREACHABLE',
+      reasonText: 'Could not send now: the agent could not be reached',
+    },
+  });
+});
+
 it('an outcome stays only while the message is in the state it was reported for', async () => {
   const { controller, remote, seen, show, operationId } = await sendableAsk();
   remote.sendNowAnswer = async () => ({ state: 'refused', reason: 'SEND_NOW_NOT_AVAILABLE' });
@@ -2204,6 +2222,39 @@ it('the SDK adapter answers a send-now with a verified reply, and a failure that
   expect(await adapter.sendNow(a)).toEqual({ state: 'refused', reason: 'SEND_NOW_UNREACHABLE' });
   answer = async () => ({ state: 'refused', requestId: a, reason: 'not a <b>code</b>' });
   expect(await adapter.sendNow(a)).toEqual({ state: 'refused' });
+  // Core's own sentence for the code rides with it, as one plain line; any other value is not shown.
+  const sentence = 'Could not send now: the agent could not be reached';
+  answer = async () => ({
+    state: 'refused',
+    requestId: a,
+    reason: 'SEND_NOW_UNREACHABLE',
+    reasonText: sentence,
+  });
+  expect(await adapter.sendNow(a)).toEqual({
+    state: 'refused',
+    reason: 'SEND_NOW_UNREACHABLE',
+    reasonText: sentence,
+  });
+  for (const reasonText of [
+    '',
+    'two\nlines',
+    'x'.repeat(257),
+    '火'.repeat(86),
+    7,
+    null,
+    { text: sentence },
+  ]) {
+    answer = async () => ({
+      state: 'refused',
+      requestId: a,
+      reason: 'SEND_NOW_UNREACHABLE',
+      reasonText,
+    });
+    expect(await adapter.sendNow(a)).toEqual({ state: 'refused', reason: 'SEND_NOW_UNREACHABLE' });
+  }
+  // A sentence needs the code it is for.
+  answer = async () => ({ state: 'refused', requestId: a, reasonText: sentence });
+  expect(await adapter.sendNow(a)).toEqual({ state: 'refused' });
   // The state read back after it is parsed like any other, and dropped whole when it is not.
   answer = async () => ({ state: 'sent', requestId: a, messageState: delivered() });
   expect(await adapter.sendNow(a)).toEqual({ state: 'sent', messageState: delivered() });
@@ -2232,5 +2283,5 @@ it('the SDK adapter answers a send-now with a verified reply, and a failure that
   };
   await expect(adapter.sendNow(a)).rejects.toBeInstanceOf(SessionEndedError);
   // One ask each: the adapter never repeats a call that failed.
-  expect(calls).toHaveLength(13);
+  expect(calls).toHaveLength(22);
 });

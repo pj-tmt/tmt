@@ -38,10 +38,16 @@ pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface)
         app.view.as_ref().and_then(|view| view.me_id.clone()),
         id.to_owned(),
     );
+    let refresh = app.conversation_refresh(&target);
+    if refresh == Refresh::Loading {
+        return u16::MAX;
+    }
     let mut state = app.conversation.borrow_mut();
     let session = state.sessions.entry(identity).or_default();
-    session.observe_context(app, &target, row);
-    session.prepare_grouped(usize::from(width), app.look(), &app.references);
+    if refresh == Refresh::Current {
+        session.observe_context(app, &target, row);
+        session.prepare_grouped(usize::from(width), app.look(), &app.references);
+    }
     let waiting = (session.outgoing.is_empty() || session.tail.is_some())
         && session.reply.as_ref().is_some_and(|reply| {
             reply
@@ -51,7 +57,8 @@ pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface)
         });
     (usize::from(session.group_heading_reply().is_some())
         + session.rendered.as_ref().unwrap().mapped.lines.len()
-        + usize::from(waiting))
+        + usize::from(waiting)
+        + usize::from(session.send_now_request().is_some()))
     .min(usize::from(u16::MAX)) as u16
 }
 
@@ -60,6 +67,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
     {
         let mut state = app.conversation.borrow_mut();
         state.header_hits.clear();
+        state.send_now_hit = None;
         state.response_area = None;
     }
     let target = surface.target.clone();
@@ -104,11 +112,23 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
         || app
             .composer_projection()
             .is_none_or(|projection| projection.key.is_none());
+    let refresh = app.conversation_refresh(&target);
+    if refresh == Refresh::Loading {
+        let mut state = app.conversation.borrow_mut();
+        state.active = Some(identity.clone());
+        state.sessions.entry(identity).or_default();
+        drop(state);
+        loading(frame, app, area);
+        return;
+    }
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
+    let send_now_pending = state.send_now_pending.clone();
     let session = state.sessions.entry(identity.clone()).or_default();
-    session.observe_context(app, &target, row);
+    if refresh == Refresh::Current {
+        session.observe_context(app, &target, row);
+    }
     let question = session.reply.as_ref().is_some_and(|reply| {
         reply
             .key
@@ -152,14 +172,18 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
             look,
         ),
     );
-    let rebuilt = session.prepare_grouped(usize::from(area.width), look, &app.references);
+    let rebuilt = refresh == Refresh::Current
+        && session.prepare_grouped(usize::from(area.width), look, &app.references);
+    // The Send now chip owns the last row while Core says the newest own message can go now.
+    let send_now = session.send_now_request().map(str::to_owned);
+    let chip_rows = u16::from(send_now.is_some() && area.height >= 3);
     let footer_rows = u16::from(
         question && (session.outgoing.is_empty() || session.tail.is_some()) && area.height >= 3,
     );
     // Long observations retain their viewport and paging indicator; optional
     // the waiting caption yields before the response or the filled input.
     let footer_rows = if session.rendered.as_ref().unwrap().mapped.lines.len()
-        + usize::from(header.height + footer_rows)
+        + usize::from(header.height + footer_rows + chip_rows)
         > usize::from(area.height)
     {
         0
@@ -170,7 +194,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
         area.x,
         area.y + header.height,
         area.width,
-        area.height.saturating_sub(header.height + footer_rows),
+        area.height
+            .saturating_sub(header.height + footer_rows + chip_rows),
     );
     if body.is_empty() {
         return;
@@ -281,8 +306,36 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
             exchange::waiting(look),
         );
     }
+    let mut send_now_hit = None;
+    if chip_rows > 0
+        && let Some(request) = &send_now
+    {
+        let footer = Rect::new(area.x, area.bottom() - 1, area.width, 1);
+        let (taken, hit) = super::send_now_chip(
+            frame,
+            app,
+            footer,
+            request,
+            send_now_pending.as_deref(),
+            name,
+            SEND_NOW_KEY_HINT.len() as u16 + 2,
+        );
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect {
+                width: footer.width.saturating_sub(taken),
+                ..footer
+            },
+            ratatui::text::Line::styled(SEND_NOW_KEY_HINT, look.role(Role::Dim)),
+        );
+        send_now_hit = hit;
+    }
+    state.send_now_hit = send_now_hit;
     state.response_area = Some(body);
 }
+
+/// The chip's key, listed beside it and in the key help.
+const SEND_NOW_KEY_HINT: &str = "Ctrl-S";
 
 /// Shared exchange/pane-output age wording; unknown and current stay unqualified.
 pub(super) fn age_stamp(age: &str) -> String {

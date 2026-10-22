@@ -64,6 +64,7 @@ mod screen_view;
 mod scroll;
 mod search_field;
 mod section_rule;
+mod selected_conversation;
 mod settings;
 mod spark_row;
 mod stat_tiles;
@@ -174,23 +175,17 @@ pub(in crate::board) enum BoardEvent {
         /// Absent when the listing failed; the shown limits then keep aging.
         limits: Option<limits::Snapshot>,
     },
+    Conversation {
+        cancellation: crate::runner::Cancellation,
+        plan: selected_conversation::Plan,
+        revision: u64,
+        projection: selected_conversation::Projection,
+    },
     Message {
         cancellation: crate::runner::Cancellation,
         key: home_leads::MessageKey,
         revision: u64,
         body: Result<String, String>,
-    },
-    Finals {
-        cancellation: crate::runner::Cancellation,
-        key: home_leads::FinalsKey,
-        revision: u64,
-        result: Result<Vec<serde_json::Value>, String>,
-    },
-    Sent {
-        cancellation: crate::runner::Cancellation,
-        key: home_leads::SentKey,
-        revision: u64,
-        result: Result<Vec<serde_json::Value>, String>,
     },
     PaneOutput {
         cancellation: crate::runner::Cancellation,
@@ -291,6 +286,7 @@ pub(super) enum ActionOutcome {
     },
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     Send(Box<conversation::outgoing::Completed>),
+    SendNow(Box<conversation::SendNowDone>),
     Status(Box<crate::membership::status_update::Outcome>),
     /// Core agreed that the person at the board may change a member's digest.
     Digest(Box<digest::Granted>),
@@ -445,6 +441,13 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 },
             )));
         }
+        Request::SendNow { me, request, to } => {
+            // Core's answer, success or refusal, is the notice; the chip frees on either.
+            let outcome = send::send_now(core, &me, &request, &to).map_err(|error| error.message);
+            return Ok(ActionOutcome::SendNow(Box::new(
+                conversation::SendNowDone { request, outcome },
+            )));
+        }
         Request::WorkspacePreferences {
             expected,
             next,
@@ -533,8 +536,8 @@ fn session(
     // Nothing below may start a command: jobs go to the lane, reads to the worker.
     let _no_commands = crate::runner::forbid_commands();
     let mut revision = 0;
-    // None defers selection work until a pending reload publishes its snapshot.
-    let mut requested = Some(None);
+    // A pending reload defers selection work until its snapshot publishes.
+    app.selected_request = refresh::SelectedRequest::Ready(None);
     let mut refreshed = Instant::now();
     let mut dirty = true;
     let mut marks = view::time_marks(app, crate::status::now_ms());
@@ -650,7 +653,7 @@ fn session(
         if demand != history_demand {
             history_demand = demand;
             revision += 1;
-            requested = None;
+            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
             request(app.current.clone(), true, app.settings.is_some(), history);
             refreshed = Instant::now();
             dirty = true;
@@ -671,10 +674,12 @@ fn session(
             dirty = false;
         }
         let identity = app.selected_read();
-        if requested.is_some() && requested.as_ref() != Some(&identity) {
+        if let refresh::SelectedRequest::Ready(requested) = &app.selected_request
+            && requested != &identity
+        {
             revision += 1;
             selected_read(revision, identity.clone());
-            requested = Some(identity);
+            app.selected_request = refresh::SelectedRequest::Ready(identity);
         }
         // Timers still wake for stop signals and interval reloads, but a
         // silent wake never rebuilds an unchanged view.
@@ -737,8 +742,15 @@ fn session(
                 snapshot,
             }) => {
                 if !cancellation.cancelled() {
-                    revision += 1;
-                    requested = Some(None);
+                    // Keep the selected batch until the next paint restores
+                    // viewport admission. The existing post-paint full-plan
+                    // comparison preserves it only if the demand is unchanged;
+                    // a source/selection/sender change starts a new revision.
+                    // Explicit refresh already cleared Ready before requesting.
+                    if app.selected_request.conversation().is_none() {
+                        revision += 1;
+                        app.selected_request = refresh::SelectedRequest::Ready(None);
+                    }
                     let previous_window = app.digest_window();
                     app.apply(*snapshot);
                     if app.digest_window() != previous_window {
@@ -776,6 +788,22 @@ fn session(
                 }
                 Effect::None
             }
+            Ok(BoardEvent::Conversation {
+                cancellation,
+                plan,
+                revision: read_revision,
+                projection,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.selected_read()
+                        == Some(refresh::SelectedRead::Conversation(plan.clone()))
+                {
+                    app.apply_conversation(plan, projection);
+                    dirty = true;
+                }
+                Effect::None
+            }
             Ok(BoardEvent::Message {
                 cancellation,
                 key,
@@ -787,36 +815,6 @@ fn session(
                     && app.selected_read() == Some(refresh::SelectedRead::Message(key.clone()))
                 {
                     app.apply_message(&key, body);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Finals {
-                cancellation,
-                key,
-                revision: read_revision,
-                result,
-            }) => {
-                if !cancellation.cancelled()
-                    && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::Finals(key.clone()))
-                {
-                    app.apply_finals(key, result);
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Sent {
-                cancellation,
-                key,
-                revision: read_revision,
-                result,
-            }) => {
-                if !cancellation.cancelled()
-                    && read_revision == revision
-                    && app.selected_read() == Some(refresh::SelectedRead::Sent(key.clone()))
-                {
-                    app.apply_sent(key, result);
                     dirty = true;
                 }
                 Effect::None
@@ -939,7 +937,12 @@ fn session(
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
                 let jumped = jump && outcome.is_ok();
-                if sends && !matches!(&outcome, Ok(ActionOutcome::Send(_))) {
+                if sends
+                    && !matches!(
+                        &outcome,
+                        Ok(ActionOutcome::Send(_) | ActionOutcome::SendNow(_))
+                    )
+                {
                     app.finish_draft(outcome.is_ok());
                 }
                 match outcome {
@@ -962,6 +965,7 @@ fn session(
                         app.finished_workspace_preferences(preferences, message);
                     }
                     Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
+                    Ok(ActionOutcome::SendNow(done)) => app.finished_send_now(*done),
                     Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                     Err(error) => app.finished(Err(error)),
                 }
@@ -970,7 +974,7 @@ fn session(
                 }
                 if sends {
                     revision += 1;
-                    requested = None;
+                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                     request(
                         app.current.clone(),
                         false,
@@ -1018,7 +1022,7 @@ fn session(
                     Ok(reload) => {
                         if reload {
                             revision += 1;
-                            requested = None;
+                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                             request(
                                 app.current.clone(),
                                 true,
@@ -1040,7 +1044,7 @@ fn session(
                         let notice = app.apply_token_window(&config);
                         app.set_notice(Some(notice), false);
                         revision += 1;
-                        requested = None;
+                        app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                         request(
                             app.current.clone(),
                             true,
@@ -1105,13 +1109,13 @@ fn session(
             Effect::Quit => return Ok(None),
             Effect::Load(squad) => {
                 revision += 1;
-                requested = None;
+                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                 request(Some(squad), true, false, app.history_demand());
                 refreshed = Instant::now();
             }
             Effect::Refresh => {
                 revision += 1;
-                requested = None;
+                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                 let history = app.history_demand();
                 request(
                     app.current.clone(),
@@ -1141,7 +1145,7 @@ fn session(
                 if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {
                     app.settings_preview();
                     revision += 1;
-                    requested = None;
+                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                     request(app.current.clone(), true, true, app.history_demand());
                     refreshed = Instant::now();
                 }
@@ -1158,7 +1162,7 @@ fn session(
                         app.apply_token_window(&config);
                     }
                     revision += 1;
-                    requested = None;
+                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                     request(app.current.clone(), true, true, app.history_demand());
                     refreshed = Instant::now();
                 }
@@ -1172,7 +1176,7 @@ fn session(
                             let notice = app.apply_token_window(&config);
                             app.set_notice(Some(notice), false);
                             revision += 1;
-                            requested = None;
+                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                             request(app.current.clone(), true, true, app.history_demand());
                             refreshed = Instant::now();
                         }
@@ -1183,7 +1187,7 @@ fn session(
             }
             Effect::CancelSettings => {
                 revision += 1;
-                requested = None;
+                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                 request(app.current.clone(), true, false, app.history_demand());
                 refreshed = Instant::now();
             }
@@ -1210,7 +1214,7 @@ fn session(
                             app.theme_picker = None;
                             app.finished(Ok(message));
                             revision += 1;
-                            requested = None;
+                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                             request(
                                 app.current.clone(),
                                 false,
@@ -1238,8 +1242,12 @@ fn session(
         }
         // A snapshot may change the interval, including turning reload off.
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
-            revision += 1;
-            requested = None;
+            // Keep the in-flight batch admitted until a snapshot proves its
+            // source plan changed. Base acquisition continues at its interval.
+            if app.selected_request.conversation().is_none() {
+                revision += 1;
+                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+            }
             request(
                 app.current.clone(),
                 false,
@@ -1641,30 +1649,6 @@ mod tests {
         app
     }
 
-    /// A worker whose per-agent finals read finds nothing beyond the windows.
-    fn answer_finals(events: &Sender<BoardEvent>, key: home_leads::FinalsKey, revision: u64) {
-        events
-            .send(BoardEvent::Finals {
-                cancellation: Default::default(),
-                key,
-                revision,
-                result: Ok(Vec::new()),
-            })
-            .unwrap();
-    }
-
-    /// A worker whose per-agent sends read finds none.
-    fn answer_sent(events: &Sender<BoardEvent>, key: home_leads::SentKey, revision: u64) {
-        events
-            .send(BoardEvent::Sent {
-                cancellation: Default::default(),
-                key,
-                revision,
-                result: Ok(Vec::new()),
-            })
-            .unwrap();
-    }
-
     #[test]
     fn selected_responses_are_lazy_and_late_selection_or_refresh_results_are_ignored() {
         use workspace::OpsTarget;
@@ -1719,44 +1703,45 @@ mod tests {
             &input,
             |_, _, _, _| {},
             |revision, selected| {
-                if let Some(refresh::SelectedRead::Finals(key)) = selected {
-                    answer_finals(&events, key, revision);
-                    return;
-                }
-                if let Some(refresh::SelectedRead::Sent(key)) = selected {
-                    answer_sent(&events, key, revision);
-                    return;
-                }
-                let Some(refresh::SelectedRead::Message(key)) = selected else {
+                let Some(refresh::SelectedRead::Conversation(plan)) = selected else {
                     return;
                 };
-                reads.borrow_mut().push(key.clone());
-                let result = |key, revision, text: &str| BoardEvent::Message {
-                    cancellation: Default::default(),
-                    key,
-                    revision,
-                    body: Ok(text.into()),
+                let key = plan.test_message_key();
+                reads.borrow_mut().push(plan.clone());
+                let result = |plan: selected_conversation::Plan, revision, text: &str| {
+                    BoardEvent::Conversation {
+                        cancellation: Default::default(),
+                        projection: plan.test_projection(text, None),
+                        plan,
+                        revision,
+                    }
                 };
                 if key.lead == app::workspace::tests::MEMBER {
                     events.send(self::key(KeyCode::Down)).unwrap();
-                    events.send(result(key, revision, "OLD A")).unwrap();
+                    events.send(result(plan, revision, "OLD A")).unwrap();
                 } else if reads.borrow().len() == 2 {
                     let mut fresh = loaded();
                     let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
                     snapshot.tabs.push(ALL.into());
                     snapshot.view = Ok(fresh.view.take().unwrap());
+                    events
+                        .send(BoardEvent::Input(Event::Key(KeyEvent::new(
+                            KeyCode::Char('r'),
+                            KeyModifiers::CONTROL,
+                        ))))
+                        .unwrap();
                     events.send(snapshot_event(snapshot)).unwrap();
                     events
-                        .send(result(key, revision, "BEFORE REFRESH"))
+                        .send(result(plan, revision, "BEFORE REFRESH"))
                         .unwrap();
                 } else {
                     events
                         .send(result(reads.borrow()[0].clone(), revision, "WRONG ID"))
                         .unwrap();
                     events
-                        .send(result(key.clone(), revision - 1, "OLD REFRESH"))
+                        .send(result(plan.clone(), revision - 1, "OLD REFRESH"))
                         .unwrap();
-                    events.send(result(key, revision, "CURRENT B")).unwrap();
+                    events.send(result(plan, revision, "CURRENT B")).unwrap();
                     events.send(self::key(KeyCode::Char('q'))).unwrap();
                 }
             },
@@ -1772,7 +1757,7 @@ mod tests {
         let targets = reads
             .borrow()
             .iter()
-            .map(|key| key.lead.clone())
+            .map(|plan| plan.test_message_key().lead.clone())
             .collect::<Vec<_>>();
         assert_eq!(targets, [app::workspace::tests::MEMBER, SECOND, SECOND]);
         let target = |identity| {
@@ -1840,54 +1825,48 @@ mod tests {
             &input,
             |_, _, _, _| {},
             |revision, selected| {
-                if let Some(refresh::SelectedRead::Finals(key)) = selected {
-                    answer_finals(&events, key, revision);
-                    return;
-                }
-                if let Some(refresh::SelectedRead::Sent(key)) = selected {
-                    answer_sent(&events, key, revision);
-                    return;
-                }
-                let Some(refresh::SelectedRead::PaneOutput(key)) = selected else {
+                let Some(refresh::SelectedRead::Conversation(plan)) = selected else {
                     return;
                 };
                 let count = reads.get() + 1;
                 reads.set(count);
-                let result = |key, revision, text: &str| BoardEvent::PaneOutput {
-                    cancellation: Default::default(),
-                    key,
-                    revision,
-                    observation: recent_responses::Observation::Observed(vec![
-                        recent_responses::Item {
-                            provider: "codex".into(),
-                            text: text.into(),
-                            ended_ms: 10,
-                            truncated: false,
-                        },
-                    ]),
+                let result = |plan: selected_conversation::Plan, revision, text: &str| {
+                    BoardEvent::Conversation {
+                        cancellation: Default::default(),
+                        projection: plan.test_projection("", Some(text)),
+                        plan,
+                        revision,
+                    }
                 };
                 if count == 1 {
                     events.send(self::key(KeyCode::Up)).unwrap();
-                    events.send(result(key, revision, "OLD SELECTION")).unwrap();
+                    events
+                        .send(result(plan, revision, "OLD SELECTION"))
+                        .unwrap();
                     events.send(self::key(KeyCode::Down)).unwrap();
                 } else if count == 2 {
                     let mut fresh = loaded();
                     let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
                     snapshot.tabs.push(ALL.into());
                     snapshot.view = Ok(fresh.view.take().unwrap());
+                    events
+                        .send(BoardEvent::Input(Event::Key(KeyEvent::new(
+                            KeyCode::Char('r'),
+                            KeyModifiers::CONTROL,
+                        ))))
+                        .unwrap();
                     events.send(snapshot_event(snapshot)).unwrap();
-                    events.send(result(key, revision, "OLD REFRESH")).unwrap();
+                    events.send(result(plan, revision, "OLD REFRESH")).unwrap();
                 } else {
-                    let mut wrong = key.clone();
-                    wrong.0 = Some("another sender".into());
+                    let wrong = plan.clone().test_wrong_sender();
                     events
                         .send(result(wrong, revision, "WRONG SENDER"))
                         .unwrap();
                     events
-                        .send(result(key.clone(), revision - 1, "OLD REVISION"))
+                        .send(result(plan.clone(), revision - 1, "OLD REVISION"))
                         .unwrap();
                     events
-                        .send(result(key, revision, "CURRENT PANE OUTPUT"))
+                        .send(result(plan, revision, "CURRENT PANE OUTPUT"))
                         .unwrap();
                     events.send(self::key(KeyCode::Char('q'))).unwrap();
                 }
