@@ -93,6 +93,15 @@ export function waitingCount(pages: readonly PageSummary[]): number {
   return pages.filter((page) => page.summary?.waiting).length;
 }
 
+/** The owner lists pinned pages first, in pin order: they keep that order and lead `others`. */
+export function pinnedFirst(
+  pages: readonly PageSummary[],
+  others: (rest: PageSummary[]) => PageSummary[],
+): PageSummary[] {
+  const pinned = pages.filter((page) => page.pinned && !page.archived);
+  return [...pinned, ...others(pages.filter((page) => !(page.pinned && !page.archived)))];
+}
+
 export function filterPages(
   pages: readonly PageSummary[],
   filter: PageFilter,
@@ -111,11 +120,14 @@ export function filterPages(
     );
     return words.every((word) => haystacks.some((value) => value.includes(word)));
   });
-  return sort === 'title'
-    ? [...kept].sort(
-        (a, b) => pageTitle(a).localeCompare(pageTitle(b), 'en') || a.id.localeCompare(b.id, 'en'),
-      )
-    : orderPages(kept);
+  return pinnedFirst(kept, (rest) =>
+    sort === 'title'
+      ? rest.sort(
+          (a, b) =>
+            pageTitle(a).localeCompare(pageTitle(b), 'en') || a.id.localeCompare(b.id, 'en'),
+        )
+      : orderPages(rest),
+  );
 }
 
 /** One page's whole set with a name added or removed; a full page is refused, never truncated. */

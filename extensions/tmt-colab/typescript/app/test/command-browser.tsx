@@ -64,6 +64,7 @@ const port: ManagementPort = {
     return view;
   },
   manageProject: async () => {},
+  setPinned: async () => {},
   setProjects: async () => {},
 };
 createRoot(document.getElementById('root')!).render(

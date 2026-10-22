@@ -96,6 +96,8 @@ export interface ManagementPort {
   setProjects(changes: readonly ProjectChange[]): Promise<void>;
   /** One display-only `project.manage` request: create, rename or delete a project, no page named. */
   manageProject(change: ProjectManage): Promise<void>;
+  /** One display-only `page.pin` request: pin or unpin a page, no view or revision (contract: Pins). */
+  setPinned(pageId: string, pinned: boolean): Promise<void>;
 }
 export class ManagementError extends Error {
   constructor(
@@ -513,10 +515,15 @@ export class ManagementClient implements ManagementPort {
       requireValue(projectNameError(change.to) === undefined && change.to !== change.name);
     await this.displayOnly(SPACE_SCOPE_PAGE, 'project.manage', change);
   }
+  /** A signed `page.pin` request: the owner pins or unpins the page it names. */
+  async setPinned(pageId: string, pinned: boolean): Promise<void> {
+    generatedId(pageId);
+    await this.displayOnly(pageId, 'page.pin', { pageId, pinned });
+  }
   /** Display-only requests sign an empty revision and are checked only for the shape of the reply. */
   private async displayOnly(
     page: string,
-    operation: 'page.projects' | 'project.manage',
+    operation: 'page.projects' | 'project.manage' | 'page.pin',
     payload: object,
   ): Promise<void> {
     const bytes = text(JSON.stringify(payload));

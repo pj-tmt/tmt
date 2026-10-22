@@ -96,6 +96,9 @@ export interface PageInfo extends ExpiryInfo {
   archived: boolean;
   /** Display-only projects the page is in; sorted by the owner store, at most 8. */
   projects: readonly string[];
+  /** Display-only pin (contract: Pins): present and true for a pinned page; the owner lists pinned
+   * pages first, in pin order. */
+  pinned?: true;
   /** Display-only and unsigned; absent until the owner has derived it for the page's current state. */
   summary?: PageActivity;
   /** The owner's local plaintext title, current for the page's state; absent until the owner has folded it
@@ -246,9 +249,11 @@ export async function discover(
       'expiresAtMs',
       'warnings',
       'projects',
+      ...(page !== null && typeof page === 'object' && 'pinned' in page ? ['pinned'] : []),
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
       ...(page !== null && typeof page === 'object' && 'title' in page ? ['title'] : []),
     ]);
+    if ('pinned' in page) requireValue(page.pinned === true && page.archived === false);
     if ('summary' in page) activity(page.summary);
     // Untrusted display text: one line of plain text, as the owner's store keeps it.
     if ('title' in page)

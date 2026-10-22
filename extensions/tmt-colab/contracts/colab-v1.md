@@ -488,8 +488,9 @@ follows the page's `page.history` mode, never possession of a new key.
 | `page.unarchive` | `pageId`; restore an archived, non-deleted page and restart its retention clock                                                                          |
 | `page.delete`    | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                        |
 
-`page.projects` and `project.manage` are not in this table: they are management requests that change
-display-only owner-store state and append no statement (see [Projects](#projects-3747)).
+`page.projects`, `project.manage` and `page.pin` are not in this table: they are management requests that
+change display-only owner-store state and append no statement (see [Projects](#projects-3747) and
+[Pins](#pins-4356)).
 
 **Page scope.** `epoch.advance`, `page.share`, `page.history`, `retention.set`, `page.archive`, `page.unarchive` and
 `page.delete` are page-scoped: each names exactly one page in `pageId` and changes only that page's
@@ -3806,7 +3807,7 @@ name the selected release and manual recovery, and the service exits unsuccessfu
 An older serve that predates this behavior still needs the named manual restart. Browser
 reload remains explicit and follows the existing draft rules.
 `pages`is sorted by page ID, at most 1,000 entries, each exactly`{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
-expiresAtMs, warnings, projects}`; `projects`is the page's [display-only project set](#projects-3747). These time/expiry hints use the same verified projection
+expiresAtMs, warnings, projects}` plus `pinned:true` on a pinned page ([Pins](#pins-4356)); `projects`is the page's [display-only project set](#projects-3747). These time/expiry hints use the same verified projection
 as`ls/show`, defined in [Local management CLI](#local-management-cli-1307).
 Local creation/epoch records own
 existence; sharing/history/archive/delete derive from verified owner statements.
@@ -4787,7 +4788,7 @@ recover authority by retrying. New operations fence the expected owner revision.
 
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
-positive decimal text (the empty string for `page.projects` and `project.manage`, see [Projects](#projects-3747))
+positive decimal text (the empty string for `page.projects`, `project.manage` and `page.pin`, see [Projects](#projects-3747) and [Pins](#pins-4356))
 and payload is canonical base64url of the same typed JSON.
 The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient` and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
 in the content-root definition above; it accepts
@@ -5137,6 +5138,32 @@ are one request each. A name that is not a project is `COLAB_PROJECT_NOT_FOUND` 
 `delete` and `ls --project`; a name outside the grammar is `COLAB_INPUT_INVALID`; a full page or
 space is `COLAB_CAPACITY`. `project ls` lists each name with its page count, including projects
 with none, and `ls --project <name>` lists only the pages in it.
+
+### Pins (#4356)
+
+A pin puts a page at the top of the owner's page list. Like a project it is display-only owner-store
+state: **not signed**, never an owner-log statement, never in a page's content or any stream, and
+never synced, published, exported or shared. It lives in the owner store (`page_pins`, one row per
+pinned page with its pin order `seq`, schema 17). Pinned pages are listed first, in pin order: the
+owner-served `GET /api/pages` reply and the CLI catalog put them before every other page and mark
+each with `pinned:true`; an unpinned page has no `pinned` field, and the remaining pages keep their
+page-ID order. A client treats the field as untrusted display state, and a reader link or member
+never sees it.
+
+`page.pin` is a management request, available to a device-signed browser request from an admitted
+owner device and to the local CLI over the same local management path as every other command. Like
+the project writes it appends no statement, changes no membership head, records no operation receipt
+and signs the empty `expectedRevision` (any other value is `INVALID`). It names its own page in
+`page`; its payload is exactly `{pageId, pinned}` with `pageId` equal to that page and `pinned` a
+boolean. It applies in one store transaction: a pin goes last in the pin order, pinning a pinned page
+or unpinning an unpinned one changes nothing, and an unknown or deleted page, or pinning an archived
+page, is refused (`INVALID`, `COLAB_PAGE_ARCHIVED` in the CLI). At most 20 pages are pinned
+(`SPACE_PINS`): a pin beyond that is `CAPACITY`, and no older pin is dropped. Archiving a page
+removes its pin in the same transaction as the archive statement, and deleting a page removes it with
+the page's data; unarchiving does not restore it.
+
+The CLI has `pin PAGE` and `unpin PAGE` (`--json` prints `{spaceId, pageId, pinned, changed}`;
+`changed:false` means nothing was written), and `ls --json` carries `pinned` on each pinned page.
 
 ### Page summary (#2588)
 

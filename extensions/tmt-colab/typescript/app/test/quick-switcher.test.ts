@@ -14,12 +14,14 @@ const page = (
     needsYou?: number;
     archived?: boolean;
     updated?: number;
+    pinned?: boolean;
   } = {},
 ): PageSummary => ({
   id: id(n),
   title,
   sharing: 'private',
   ...(extra.archived ? { archived: true } : {}),
+  ...(extra.pinned ? { pinned: true } : {}),
   ...(extra.labels ? { projects: extra.labels } : {}),
   ...(extra.updated === undefined ? {} : { lastUpdateAtMs: extra.updated }),
   ...(extra.author !== undefined || extra.waiting !== undefined
@@ -170,4 +172,28 @@ it('a title word matches by its prefix across punctuation and non-Latin letters,
 it('a page with no title is found by the text the list shows for it', () => {
   const pages = [page(1, '   ', { updated: 1 })];
   expect(rankPages(pages, { ...any, text: 'untitled' }, none)).toHaveLength(1);
+});
+
+it('without free text pinned pages lead in the order given, ahead of waiting and recent pages', () => {
+  const pages = [
+    page(1, 'Recent', { updated: 900 }),
+    page(2, 'Waits', { waiting: true, updated: 800 }),
+    page(3, 'Second pin', { pinned: true, updated: 1 }),
+    page(4, 'First pin', { pinned: true, updated: 2 }),
+  ];
+  // The owner gives pin order, so the order of the input is the pin order, not the title or time.
+  expect(titles([pages[3], pages[2], pages[0], pages[1]])).toEqual([
+    'First pin',
+    'Second pin',
+    'Waits',
+    'Recent',
+  ]);
+});
+
+it('with free text a pin never hides a better match', () => {
+  const pages = [
+    page(1, 'Quarterly plan', { updated: 1 }),
+    page(2, 'Notes', { pinned: true, labels: ['quarterly'], updated: 2 }),
+  ];
+  expect(titles(pages, { text: 'quarterly' })).toEqual(['Quarterly plan', 'Notes']);
 });

@@ -10,7 +10,7 @@ import {
   BrowserTabs,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ExternalLink } from 'lucide-react';
+import { Archive, ArchiveRestore, ExternalLink, Pin } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -20,6 +20,7 @@ import {
   projectFailureText,
 } from './project-dialogs.js';
 import { PageProjectsMenu } from './page-projects.js';
+import { pinFailureText } from './pins.js';
 import {
   applyProjectChanges,
   authorCounts,
@@ -205,6 +206,32 @@ function OpenInNewTabAction({ page }: { page: PageSummary }) {
           });
           window.open(router.history.createHref(location.href), '_blank', 'noopener');
         }}
+      />
+    </span>
+  );
+}
+
+/** Pins the page to the top of the list, or takes the pin away; an archived page has none. */
+function PagePinAction({
+  page,
+  busy,
+  toggle,
+}: {
+  page: PageSummary;
+  busy: boolean;
+  toggle(): void;
+}) {
+  if (page.archived) return null;
+  return (
+    <span className="page-pin-action">
+      <BrowserIconAction
+        type="button"
+        variant="text"
+        label={page.pinned ? t.unpinPage(pageTitle(page)) : t.pinPage(pageTitle(page))}
+        icon={<Pin />}
+        pressed={page.pinned === true}
+        busy={busy}
+        onActivate={toggle}
       />
     </span>
   );
@@ -545,6 +572,22 @@ export function Home() {
         : { text: writing.failureText(outcome.failure), failed: true },
     );
   }
+  const [pinning, setPinning] = useState<string>();
+  async function togglePin(page: PageSummary) {
+    if (pinning) return;
+    setPinning(page.id);
+    try {
+      await port!.setPinned(page.id, !page.pinned);
+      setStatus({
+        text: page.pinned ? t.unpinned(pageTitle(page)) : t.pinned(pageTitle(page)),
+        failed: false,
+      });
+    } catch (failure) {
+      setStatus({ text: pinFailureText(failure), failed: true });
+    }
+    setPinning(undefined);
+    await router.invalidate();
+  }
   const sortLabel = t.sortOptions[sort];
   const filtered =
     filter.projects.length > 0 ||
@@ -628,6 +671,12 @@ export function Home() {
                 }
                 title={
                   <>
+                    {p.pinned && !p.archived ? (
+                      // Display only: the pin button beside the row says it, with its state.
+                      <span className="page-pinned-mark" aria-hidden="true">
+                        <Pin size={14} />
+                      </span>
+                    ) : null}
                     <HomeTitleLink page={p} hints={titleHints} scope={scope} />
                     {p.summary?.work ? <PageWork work={p.summary.work} /> : null}
                     {p.summary?.waiting ? (
@@ -673,6 +722,11 @@ export function Home() {
                   port ? (
                     <>
                       <OpenInNewTabAction page={p} />
+                      <PagePinAction
+                        page={p}
+                        busy={pinning === p.id}
+                        toggle={() => void togglePin(p)}
+                      />
                       <PageProjectsMenu
                         page={p}
                         openRequest={

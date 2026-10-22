@@ -84,6 +84,7 @@ export async function mount() {
       throw new Error('No management command is admitted by this fixture');
     },
     async manageProject() {},
+    async setPinned() {},
     async setProjects() {
       throw new Error('No management command is admitted by this fixture');
     },

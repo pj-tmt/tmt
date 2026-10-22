@@ -109,8 +109,8 @@ fn current(catalog: &Value) -> (BTreeMap<String, Vec<String>>, BTreeMap<String, 
     }
     (by_page, counts)
 }
-/// One local management request; the acknowledgment must name this operation.
-fn send(
+/// One local display-only management request; the acknowledgment must name this operation.
+pub(crate) fn send(
     layout: &Layout,
     key: &Keyring,
     page: &str,
@@ -125,13 +125,13 @@ fn send(
         serde_json::from_slice(&mutate(layout, &key.space_id, &body)?).map_err(|_| {
             fail(
                 "COLAB_OUTCOME_UNKNOWN",
-                "Invalid project acknowledgment; inspect projects before retrying.",
+                "Invalid acknowledgment; inspect the page list before retrying.",
             )
         })?;
     if reply["operationId"] != operation_id.as_str() {
         return Err(fail(
             "COLAB_OUTCOME_UNKNOWN",
-            "Mismatched project acknowledgment; inspect projects before retrying.",
+            "Mismatched acknowledgment; inspect the page list before retrying.",
         ));
     }
     Ok(())
