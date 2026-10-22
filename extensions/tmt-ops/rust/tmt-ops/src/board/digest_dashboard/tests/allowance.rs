@@ -220,3 +220,45 @@ fn no_reading_or_no_room_shows_no_block_and_leaves_the_table_whole() {
         rows.join("\n")
     );
 }
+
+fn resetting_in(ms: u64, left: f64) -> Standing {
+    let mut standing = standing("claude", left, 0, 10 * 60_000, Rates::default());
+    standing.latest.as_mut().unwrap().weekly.resets_at_ms = NOW + ms;
+    standing
+}
+
+#[test]
+fn need_is_hidden_a_minute_before_the_reset_and_capped_just_outside_the_last_hour() {
+    for (width, shown_hidden, shown_capped) in [
+        (
+            120,
+            vec!["Claude", "week", "30%", "—"],
+            vec!["Claude", "week", "100%", ">99"],
+        ),
+        (
+            80,
+            vec!["Claude", "week", "30%", "—"],
+            vec!["Claude", "week", "100%", "need", ">99%/h"],
+        ),
+    ] {
+        let mut app = digest(vec![resetting_in(60_000, 30.0)]);
+        let hidden = rows(&buffer(&mut app, width, 40));
+        let row = words(row_of(&hidden, "Claude"));
+        assert!(
+            shown_hidden.iter().all(|word| row.contains(word)),
+            "{width}: {row:?}"
+        );
+        assert!(
+            !row.iter()
+                .any(|word| word.contains('%') && word.contains('/')),
+            "{width}: no figure in the last hour: {row:?}"
+        );
+        let mut app = digest(vec![resetting_in(HOUR, 100.0)]);
+        let capped = rows(&buffer(&mut app, width, 40));
+        let row = words(row_of(&capped, "Claude"));
+        assert!(
+            shown_capped.iter().all(|word| row.contains(word)),
+            "{width}: {row:?}"
+        );
+    }
+}

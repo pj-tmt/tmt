@@ -303,6 +303,11 @@ pub enum Choice {
     TokRange(crate::config::TokRange),
     /// A click on an Agents column header: sort by it, or reverse it.
     SortBy(super::header_sort::Header),
+    /// A click on an exchange matrix cell: Talk opens with the row's agent.
+    ExchangeCell {
+        sender: String,
+        recipient: String,
+    },
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
     ClearSearch,
@@ -2898,6 +2903,9 @@ impl App {
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::TokRange(range) => self.select_tok_range(range),
             Choice::SortBy(header) => self.sort_by_header(header),
+            Choice::ExchangeCell { sender, recipient } => {
+                self.open_exchange_pair(&sender, &recipient)
+            }
             Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::ClearSearch => {
                 super::search_field::clear(&mut self.search, &mut self.searching);

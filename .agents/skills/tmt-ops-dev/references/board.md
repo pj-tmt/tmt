@@ -169,6 +169,10 @@ state only, no squad data or durable preference policy.
   `overview` imports it only in tests. `exchange_matrix` is a reusable content-free
   painter: top five ranked identities with the selection retained, sender rows,
   recipient columns, talk/reply counts only, self/known-none/unknown distinct.
+  `Options` sets the limit (Digest five, Measure six) and an optional `sum` column;
+  `by_traffic` ranks by sent plus received, then name, then id. Measure's `exchanges`
+  section registers `Choice::ExchangeCell` strip hits and `usage_report_want` asks for
+  the report while Measure shows, so the matrix has traffic at the default range.
   Hosts keep navigation and effects. Ops quantizes six levels; shared
   `screen::neutral_ramp` supplies neutral endpoint interpolation, contrasting ink,
   ANSI greys and no-fill NO_COLOR. No new role or theme setting is introduced.
