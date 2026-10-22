@@ -24,6 +24,8 @@ const REQUEST_MS = 15_000;
 /** A read of the page's objects has no deadline: it ends with its reply or the connection closing,
  * however large the object or busy the server (#3982). */
 const NO_DEADLINE = Number.POSITIVE_INFINITY;
+/** Remote's cool-down after a failed object setup; an upgrade sooner would be refused the same way. */
+const OBJECT_REOPEN_MS = 1_000;
 
 export interface AttachmentInput {
   filename: string;
@@ -39,6 +41,8 @@ export interface StoredAttachment {
 export type RefusalReason =
   | 'denied'
   | 'unavailable'
+  /** The connection was upgraded without an object channel, and one reconnect did not fix it. */
+  | 'no-object-channel'
   | 'invalid'
   | 'conflict'
   | 'capacity'
@@ -108,6 +112,10 @@ export interface AttachmentServiceOptions {
    * recorded: the owner of the connection reopens it, once, when it has not. Without it a
    * read can only report that the cut is still unseen. */
   settled?(): Promise<Connection>;
+  /** A replacement for a connection the serve named as having no object channel, taken through
+   * the connection-loss path so pending writes and drafts survive it. Without it such a
+   * connection is refused as it is. */
+  reopen?(from: Connection): Promise<Connection>;
   available(): boolean;
   sharing: string | readonly string[];
   scope?(): string;
@@ -150,12 +158,34 @@ export class AttachmentService implements AttachmentBinding {
   #bound(ms = REQUEST_MS) {
     return performance.now() + ms;
   }
+  /** A connection the serve names as having no object channel (Remote's setup missed its budget,
+   * so the upgrade carried no origin) is reopened once per attachment attempt, no earlier than
+   * Remote's cool-down after the refusal; the request is then asked again on the replacement. A
+   * repeat is the typed refusal. A page that never attaches never reaches this. */
+  #wantsReopen(outcome: AttachmentObjectOutcome) {
+    return (
+      'error' in outcome &&
+      outcome.error.code === 'no-object-channel' &&
+      this.options.reopen !== undefined
+    );
+  }
+  async #reopened(from: Connection) {
+    await new Promise((resolve) => setTimeout(resolve, OBJECT_REOPEN_MS));
+    requireValue(this.options.available());
+    const replacement = await this.options.reopen!(from);
+    requireValue(replacement.active);
+    return replacement;
+  }
   async limits(): Promise<
     { payloadBytes: number } | { reason: RefusalReason; usage?: UsageDetails }
   > {
     try {
-      const c = await this.#channel(),
+      let c = await this.#channel(),
         outcome = await c.attachmentObjects.config(NO_DEADLINE);
+      if (this.#wantsReopen(outcome)) {
+        c = await this.#reopened(c);
+        outcome = await c.attachmentObjects.config(NO_DEADLINE);
+      }
       if ('error' in outcome) return { reason: refusal(outcome), usage: outcome.error.usage };
       const { capabilities, limits } = outcome.ok as {
         capabilities: Record<string, unknown>;
@@ -293,12 +323,26 @@ export class AttachmentService implements AttachmentBinding {
     const c = await this.#channel().catch(() => {
       throw new AttachmentUploadError({ kind: 'refused', reason: 'unavailable' });
     });
-    const channel = c.attachmentObjects;
-    let state = await answer(
-      first === 'begin'
-        ? channel.begin(original, this.#bound())
-        : channel.status(original, this.#bound()),
-    );
+    let channel = c.attachmentObjects;
+    const ask = (ch: Connection['attachmentObjects']) =>
+      first === 'begin' ? ch.begin(original, this.#bound()) : ch.status(original, this.#bound());
+    const asked = async () => {
+      let outcome = await ask(channel).catch(() => {
+        throw unknown();
+      });
+      if (this.#wantsReopen(outcome)) {
+        // Nothing reached the object channel, so a reopen that fails is a plain refusal.
+        const replacement = await this.#reopened(c).catch(() => {
+          throw new AttachmentUploadError({ kind: 'refused', reason: 'unavailable' });
+        });
+        channel = replacement.attachmentObjects;
+        outcome = await ask(channel).catch(() => {
+          throw unknown();
+        });
+      }
+      return outcome;
+    };
+    let state = await answer(asked());
     if (state.result === 'state') {
       // `unavailable` says nothing about the original: it stays unknown, never gone.
       if (state.state === 'unavailable') throw unknown();
@@ -411,6 +455,7 @@ function refusal(outcome: Extract<AttachmentObjectOutcome, { error: unknown }>):
   const code = outcome.error.code;
   return code === 'denied' ||
     code === 'unavailable' ||
+    code === 'no-object-channel' ||
     code === 'invalid' ||
     code === 'conflict' ||
     code === 'capacity'

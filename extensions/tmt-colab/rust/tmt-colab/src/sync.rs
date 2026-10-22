@@ -2308,10 +2308,18 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             }
         }
         values::generated_id(&id)?;
+        // A connection with no peer object handle was upgraded without an origin (Remote's object
+        // setup missed its budget). Name that cause, so the app can reconnect once for it; a full
+        // queue or a denied submission stays the bare `unavailable`.
+        let code = if self.objects.is_some() {
+            "unavailable"
+        } else {
+            "no-object-channel"
+        };
         let text = wire::output(
             scope,
             "object-result",
-            serde_json::json!({"requestId":id,"result":{"error":{"code":"unavailable"}}}),
+            serde_json::json!({"requestId":id,"result":{"error":{"code":code}}}),
         )?;
         let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
         state

@@ -1794,7 +1794,8 @@ object operation is refused before a ledger effect. Transport-only negative fixt
 acceptance: #1852 still requires Colab's upload/read proof on shipped binaries. Serve attempts each Local declaration
 before door readiness. Subsequently, a validated Local websocket upgrade with an absent or ended channel joins one
 bounded reactivation attempt; healthy channels are unchanged.
-Failure forwards the upgrade without an origin, preserving page sync. Channel end, assets and status never trigger
+Failure forwards the upgrade without an origin, preserving page sync; an extension that needs objects on such a
+connection may reconnect after the cool-down, and each new upgrade joins a fresh bounded attempt. Channel end, assets and status never trigger
 setup. New generations inherit no old origins; no object operation is replayed. On an opened channel it answers `config` after current `acquire` and `disclose`
 admissions, for a local-extension origin (the owner's limits) and for a mounted origin that stands (the reduced browser
 limits, whether or not an owner session is bound). It also answers observational original-ID `status` and bounded raw-byte

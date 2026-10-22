@@ -101,6 +101,8 @@ export interface ThreadStoreOptions extends DiscussionScope {
   connection(): Promise<Connection>;
   /** See `AttachmentServiceOptions.settled`. */
   settled?(): Promise<Connection>;
+  /** See `AttachmentServiceOptions.reopen`. */
+  reopen?(from: Connection): Promise<Connection>;
   publish(records: OwnRecord[]): Promise<void>;
   available(): boolean;
   sharing: string;
