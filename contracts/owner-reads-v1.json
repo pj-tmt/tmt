@@ -1,0 +1,293 @@
+{
+  "description": "Synthetic vectors for the owner browser reads (remote-channel-v1.md, Owner browser reads). Each case lists what the fixed public commands print and the exact document the door answers, without observedAtMs (a positive integer in every answer). Secrets in the inputs (pane address, cwd, room IDs, unlisted fields, schedule message beyond its first line) must appear nowhere in the answer.",
+  "routes": {
+    "ops": "<prefix>/x/-/ops",
+    "digest": "<prefix>/x/-/digest/{24h|7d|30d}"
+  },
+  "reasons": ["not_installed", "core_unavailable", "timeout", "read_failed", "too_large"],
+  "forbiddenInAnswers": [
+    "PANE-SECRET",
+    "/Users/secret",
+    "ROOM-SECRET",
+    "OWNER-SECRET",
+    "UNLISTED-SECRET",
+    "SECOND-LINE-SECRET",
+    "YOU-SECRET"
+  ],
+  "cases": [
+    {
+      "name": "ops board: allowlisted facts only, lead first, control characters removed",
+      "target": "ops",
+      "commands": {
+        "ops squad ls --json": {
+          "exit": 0,
+          "stdout": {
+            "squads": [
+              {
+                "squad": {
+                  "name": "tmt-core",
+                  "roomId": "ROOM-SECRET",
+                  "layout": "team",
+                  "lead": {
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "name": "tmt-lead",
+                    "presence": "active",
+                    "pane": { "id": "%1", "target": "PANE-SECRET", "cwd": "/Users/secret/work" },
+                    "activity": { "state": "working", "sinceMs": 1000, "lastActivityMs": 5 },
+                    "state": "working",
+                    "pending": null,
+                    "fields": { "task": "review", "UNLISTED": "UNLISTED-SECRET" },
+                    "staleness": { "state": "fresh" },
+                    "colors": { "state": "working" },
+                    "waitingOnYou": [],
+                    "digest": { "active": false, "digestUntilMs": 0, "remainingMs": 0, "heldCount": 0 }
+                  },
+                  "idleAlert": { "enabled": true, "afterMs": 1800000 },
+                  "attention": { "state": "normal", "waiting": 0, "blocked": 0 }
+                },
+                "sections": [
+                  {
+                    "title": "Members",
+                    "rows": [
+                      {
+                        "id": "00000000-0000-4000-8000-000000000002",
+                        "name": "core-3",
+                        "presence": "offline",
+                        "pane": null,
+                        "activity": null,
+                        "state": "blocked: waits on‮ CI\nnow",
+                        "pending": "approve the plan",
+                        "fields": {
+                          "task": "#4325",
+                          "next": "contract",
+                          "model": "sonnet",
+                          "link": "https://github.com/pj-tmt/tmt/issues/4325"
+                        },
+                        "staleness": { "state": "stale" },
+                        "colors": { "state": "blocked" },
+                        "waitingOnYou": [{ "id": "a" }, { "id": "b" }],
+                        "digest": null
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "you": { "id": "YOU-SECRET", "name": "ben", "source": "recorded" }
+          }
+        },
+        "ops squad cron ls --json": {
+          "exit": 0,
+          "stdout": {
+            "action": "ls",
+            "jobs": [
+              {
+                "id": "c1",
+                "squad": "tmt-core",
+                "roomId": "ROOM-SECRET",
+                "ownerId": "OWNER-SECRET",
+                "message": "Hourly pass\nfollow /Users/secret/runbook.md SECOND-LINE-SECRET",
+                "state": "on",
+                "owner": "tmt-core-pm",
+                "scheduleText": "cron 35 * * * *",
+                "nextMs": [1792636500000, 1792640100000]
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "ok",
+        "squads": [
+          {
+            "name": "tmt-core",
+            "layout": "team",
+            "lead": { "id": "00000000-0000-4000-8000-000000000001", "name": "tmt-lead" },
+            "idleAlertMs": 1800000,
+            "attention": { "state": "normal", "waiting": 0, "blocked": 0 }
+          }
+        ],
+        "agents": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "name": "tmt-lead",
+            "squad": "tmt-core",
+            "role": "lead",
+            "presence": "active",
+            "activity": { "state": "working", "sinceMs": 1000 },
+            "state": "working",
+            "stateTone": "working",
+            "task": "review",
+            "waitingOnYou": 0,
+            "digest": { "active": false, "remainingMs": 0, "heldCount": 0 },
+            "staleness": "fresh"
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "name": "core-3",
+            "squad": "tmt-core",
+            "role": "member",
+            "presence": "offline",
+            "state": "blocked: waits on CI now",
+            "stateTone": "blocked",
+            "task": "#4325",
+            "next": "contract",
+            "model": "sonnet",
+            "link": "https://github.com/pj-tmt/tmt/issues/4325",
+            "pending": "approve the plan",
+            "waitingOnYou": 2,
+            "staleness": "stale"
+          }
+        ],
+        "timers": [
+          {
+            "id": "c1",
+            "squad": "tmt-core",
+            "owner": "tmt-core-pm",
+            "state": "on",
+            "scheduleText": "cron 35 * * * *",
+            "nextMs": 1792636500000,
+            "what": "Hourly pass"
+          }
+        ],
+        "truncated": false
+      }
+    },
+    {
+      "name": "ops board: a failed schedule read leaves timers null, never an empty list",
+      "target": "ops",
+      "commands": {
+        "ops squad ls --json": { "exit": 0, "stdout": { "squads": [] } },
+        "ops squad cron ls --json": { "exit": 1, "stdout": { "error": { "code": "CRON_FAILED", "message": "x" } } }
+      },
+      "expect": { "version": 1, "state": "ok", "squads": [], "agents": [], "timers": null, "truncated": false }
+    },
+    {
+      "name": "ops board: a board with no squads is an ok empty board",
+      "target": "ops",
+      "commands": {
+        "ops squad ls --json": { "exit": 0, "stdout": { "squads": [], "you": { "id": "YOU-SECRET" } } },
+        "ops squad cron ls --json": { "exit": 0, "stdout": { "action": "ls", "jobs": [] } }
+      },
+      "expect": { "version": 1, "state": "ok", "squads": [], "agents": [], "timers": [], "truncated": false }
+    },
+    {
+      "name": "ops board: the Ops extension is absent",
+      "target": "ops",
+      "commands": {
+        "ops squad ls --json": {
+          "exit": 1,
+          "stdout": { "error": { "code": "USAGE_ERROR", "message": "error: unrecognized subcommand 'ops'" } }
+        },
+        "ops squad cron ls --json": {
+          "exit": 1,
+          "stdout": { "error": { "code": "USAGE_ERROR", "message": "error: unrecognized subcommand 'ops'" } }
+        }
+      },
+      "expect": { "version": 1, "state": "unavailable", "reason": "not_installed" }
+    },
+    {
+      "name": "ops board: not the expected document",
+      "target": "ops",
+      "commands": {
+        "ops squad ls --json": { "exit": 0, "stdout": { "squads": "none" } },
+        "ops squad cron ls --json": { "exit": 0, "stdout": { "jobs": [] } }
+      },
+      "expect": { "version": 1, "state": "unavailable", "reason": "read_failed" }
+    },
+    {
+      "name": "digest: the usage report passes through unchanged under report",
+      "target": "digest/7d",
+      "commands": {
+        "digest usage report --since 7d --json": {
+          "exit": 0,
+          "stdout": {
+            "version": 1,
+            "observedAtMs": 1792635300000,
+            "since": "7d",
+            "window": null,
+            "usage": { "seats": [], "unavailable": [], "otherSessions": { "name": "other sessions", "reason": "no_source" }, "lines": [] },
+            "limits": [],
+            "limitsUnavailable": [],
+            "credits": null,
+            "exchange": null,
+            "warnings": []
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "ok",
+        "since": "7d",
+        "report": {
+          "version": 1,
+          "observedAtMs": 1792635300000,
+          "since": "7d",
+          "window": null,
+          "usage": { "seats": [], "unavailable": [], "otherSessions": { "name": "other sessions", "reason": "no_source" }, "lines": [] },
+          "limits": [],
+          "limitsUnavailable": [],
+          "credits": null,
+          "exchange": null,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "name": "digest: the Digest extension is absent",
+      "target": "digest/24h",
+      "commands": {
+        "digest usage report --since 24h --json": {
+          "exit": 1,
+          "stdout": { "error": { "code": "USAGE_ERROR", "message": "error: unrecognized subcommand 'digest'" } }
+        }
+      },
+      "expect": { "version": 1, "state": "unavailable", "reason": "not_installed" }
+    },
+    {
+      "name": "digest: the report command fails with its own error",
+      "target": "digest/30d",
+      "commands": {
+        "digest usage report --since 30d --json": {
+          "exit": 1,
+          "stdout": { "version": 1, "error": { "code": "ROSTER_UNAVAILABLE", "message": "x" } }
+        }
+      },
+      "expect": { "version": 1, "state": "unavailable", "reason": "read_failed" }
+    },
+    {
+      "name": "digest: output that is not JSON",
+      "target": "digest/24h",
+      "commands": { "digest usage report --since 24h --json": { "exit": 0, "stdout": "not json" } },
+      "expect": { "version": 1, "state": "unavailable", "reason": "read_failed" }
+    },
+    {
+      "name": "digest: a report for another range is not accepted",
+      "target": "digest/30d",
+      "commands": {
+        "digest usage report --since 30d --json": { "exit": 0, "stdout": { "version": 1, "since": "24h" } }
+      },
+      "expect": { "version": 1, "state": "unavailable", "reason": "read_failed" }
+    },
+    {
+      "name": "digest: an unknown report version is not accepted",
+      "target": "digest/24h",
+      "commands": {
+        "digest usage report --since 24h --json": { "exit": 0, "stdout": { "version": 2, "since": "24h" } }
+      },
+      "expect": { "version": 1, "state": "unavailable", "reason": "read_failed" }
+    }
+  ],
+  "bounds": {
+    "freshMs": 5000,
+    "waitMs": 12000,
+    "subprocessStdoutBytes": 2097152,
+    "opsBytes": 524288,
+    "digestBytes": 1048576,
+    "opsSquads": 32,
+    "opsAgents": 256,
+    "opsTimers": 64,
+    "text": { "name": 64, "state": 80, "text": 200, "link": 300, "what": 120 }
+  }
+}

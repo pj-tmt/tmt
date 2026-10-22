@@ -473,6 +473,7 @@ fn foreground_with_native(
     let input_limit = core_limits(&core, stop)?;
     fence(stop)?;
     let root = core.storage_root(stop)?;
+    let executable = core.executable().to_owned();
     fence(stop)?;
     let layout = Layout::open(&root)?;
     fence(stop)?;
@@ -637,7 +638,8 @@ fn foreground_with_native(
             sessions,
             extensions,
         )
-        .with_origins(Arc::new(origins));
+        .with_origins(Arc::new(origins))
+        .with_reads(tmt_remote::reads::Reads::new(executable, Arc::clone(stop)));
         if let Some(reactivation) = &reactivation {
             mounts = mounts.with_activation(reactivation.clone());
         }

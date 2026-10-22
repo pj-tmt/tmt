@@ -107,7 +107,8 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. `/` is navigation-only Home, linking to Colab and Remote. `/settings` and
 `/settings/` are navigation-only TMT settings, with a visible Remote-settings link. Dashboard data,
-Home preferences and the full shared shell remain separate consumers. Remote's existing landing,
+Home preferences and the full shared shell remain separate consumers; the Ops and Digest data have
+their [owner browser reads](#owner-browser-reads). Remote's existing landing,
 pairing and settings pages live at `/remote/`, `/remote/pair` and `/remote/settings` respectively.
 
 Only legacy `/pair` GET/HEAD requests return 308 with constant `Location: /remote/pair` and an
@@ -1784,6 +1785,80 @@ The owner's machine never executes it, and page membership adds no operation sco
 extension records the ask and the reply in the shared resource, attributed to the asking member and
 to the answering agent and machine. Everyone who can see that resource sees them, like comments.
 Visibility is the extension's rule, not a remote grant.
+
+### Owner browser reads
+
+Two owner-session, read-only door GETs give the web app real Ops and Digest data. They reuse the
+public JSON the terminal already reads; they add no grant, scope, pairing rule, write or push
+channel, and dispatch stays unreachable from them. They are siblings of the composed shell's
+`GET <prefix>/x/-/shell` and share its admission:
+
+| Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)          |
+| --------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET <prefix>/x/-/ops`            | `ops squad ls --json` and `ops squad cron ls --json`, run in parallel               |
+| `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d`  |
+
+The range is a path segment because the edge target grammar admits no query string beyond its two
+fixed forms; any other path, a bare `/digest`, an unknown range, another method or an upgrade is the
+generic 404 (a query string is refused by the edge before any session check). Cross-site
+`Sec-Fetch-Site` is 403. A request needs a live owner-device session (the mount-space cookie); the
+same device and grant revision are rechecked after the read and a changed or ended session gets the
+generic 404, never the data. Replies carry the door's security headers (`no-store`, `nosniff`).
+Remote reaches Ops and Digest through the public CLI only, with no crate or state-file dependency.
+
+Every answer is HTTP 200 with one JSON document:
+
+```
+{"version":1,"state":"ok","observedAtMs":<ms>, ...payload}
+{"version":1,"state":"unavailable","observedAtMs":<ms>,"reason":<reason>}
+```
+
+`reason` is one of `not_installed` (the extension command is absent: a fixed argv exits with
+`USAGE_ERROR`), `core_unavailable` (spawn, interruption or I/O failure), `timeout`, `read_failed`
+(non-zero exit, output that is not one JSON document, an unexpected `version` or, for Digest, a
+report for another range) and `too_large`. An unavailable read is never an empty list and never
+sample data; each reason is one empty state in the web app, and a client treats an unknown reason as
+a generic unavailable. `observedAtMs` is the owner's clock when the read finished.
+
+**Ops payload** (`state:"ok"`) is an allowlist projection, not the board document:
+
+- `squads[]`: `name`, `layout?`, `lead? {id,name}`, `idleAlertMs?` (only when the squad's idle alert is
+  enabled), `attention? {state,waiting,blocked}`.
+- `agents[]`, the squad's lead first (`role:"lead"`) then its members (`role:"member"`): `id`, `name`,
+  `squad`, `role`, `presence?`, `activity? {state,sinceMs}` (the four-state rule of `agents.list`),
+  `state?` (the board's raw state text, at most 80 scalars, so free text stays readable), `stateTone?`
+  (the board's colour token for it, `[a-z0-9-]` up to 24 bytes; a client maps tokens it knows and treats
+  the rest as neutral), `task?`, `next?`, `model?`, `link?` (`https://` only, no whitespace),
+  `pending?`, `waitingOnYou` (a count), `digest? {active,remainingMs,heldCount}` and `staleness?`.
+- `timers[]`, or `null` when the schedule read failed: `id`, `squad`, `scheduleText`, `owner?`, `state?`,
+  `nextMs?` (the first only) and `what?` (the first line of the job message).
+- `truncated`: true when a bound below cut `squads`, `agents` or `timers`.
+
+Never forwarded: a pane's id, target, cwd or location, process data, room IDs, owner IDs, unlisted row
+fields, the rest of a schedule message and the person's own identity. Text has control and
+bidirectional-control characters removed (controls become spaces), is trimmed and is cut to the limit
+below; the browser renders it as inert text.
+
+**Digest payload** (`state:"ok"`): `{since, report}` where `report` is the
+[usage report document](../extensions/tmt-digest/contracts/usage-v1.md) unchanged. Digest keeps the
+document's contents (names, UUIDs, token counts and content-free exchange metadata). The web app
+derives a shorter window from the `24h` hourly `series`; there is no 5-minute read and no turn count.
+
+**Bounds.** The door never schedules a read. One request at a time runs a given route; concurrent
+requests wait for it (at most 12 seconds in total, then `timeout`), and a finished answer, ok or
+unavailable, answers every request for the next 5 seconds, so any number of tabs cost at most one read
+per route per 5 seconds. Nothing runs between requests and nothing is persisted. Each subprocess
+captures at most 2 MiB of stdout; an answer is at most 512 KiB (Ops) or 1 MiB (Digest) and a larger
+one is `too_large`. Ops projects at most 32 squads, 256 agents and 64 timers; text fields are cut to
+64 scalars (names, model), 80 (state, schedule text), 200 (task, next, pending), 300 bytes (link) and
+120 scalars (`what`). The browser refreshes only while its route is visible and at the terminal's own
+cadence: Ops every 5 seconds (the board's default reload) and Digest every 60 seconds, backing off
+after failures. The SDK owns that timer and stops it with the route; the door has none.
+
+**Vectors.** [`owner-reads-v1.json`](owner-reads-v1.json) holds, per case, what the public commands
+print and the exact answer, the reasons, the strings that must appear nowhere in an answer and the
+bounds. The Remote tests run every case through the door's reader and compare the reason set and the
+bounds with the code.
 
 ### Object channel frames
 

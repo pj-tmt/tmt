@@ -561,6 +561,9 @@ Deploy: `hosting` hash; frozen consent/history/`--details`; Rules/Hosting fences
 [Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
 [Background](contracts/extension-serve-v1.md).
+Owner browser reads (`x/-/ops`, `x/-/digest/<range>`, `reads.rs`): the door runs fixed public `tmt ops` and
+`tmt digest` commands for an owner session and projects them ([contract](contracts/remote-channel-v1.md#owner-browser-reads)).
+Edge Remote → Ops/Digest is the public CLI only, like Colab → Remote; no crate edge, no state files.
 
 ## Colab extension
 

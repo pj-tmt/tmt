@@ -66,6 +66,25 @@ pub const SPLICE_WRITE: Duration = Duration::from_secs(5);
 
 /// Deadline for one fixed public core subprocess, followed by the runner's bounded cleanup.
 pub const CORE_CALL: Duration = Duration::from_secs(15);
+
+/// Owner browser reads (`x/-/ops`, `x/-/digest`): a finished read, ok or not, answers every
+/// request in this window, so open tabs never multiply subprocesses.
+pub const READ_FRESH: Duration = Duration::from_secs(5);
+/// One read from the first request to its answer, inside the mounted-route budget.
+pub const READ_WAIT: Duration = Duration::from_secs(12);
+/// Captured stdout of one read subprocess.
+pub const READ_SUBPROCESS_BYTES: usize = 2 * 1024 * 1024;
+pub const READ_OPS_BYTES: usize = 512 * 1024;
+pub const READ_DIGEST_BYTES: usize = 1024 * 1024;
+pub const READ_OPS_SQUADS: usize = 32;
+pub const READ_OPS_AGENTS: usize = 256;
+pub const READ_OPS_TIMERS: usize = 64;
+/// Longest projected Ops text, in Unicode scalars.
+pub const READ_OPS_NAME: usize = 64;
+pub const READ_OPS_STATE: usize = 80;
+pub const READ_OPS_TEXT: usize = 200;
+pub const READ_OPS_LINK: usize = 300;
+pub const READ_OPS_WHAT: usize = 120;
 /// Largest registered-ID-shaped runtime driver disclosed in agents.list.
 pub const RUNNING_DRIVER_BYTES: usize = 32;
 /// Bounded SQLite contention admission. Expiry refuses; it never bypasses an effect fence.
