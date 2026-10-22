@@ -172,7 +172,14 @@ export function activity(doc: UsageDocument): Activity | null {
 
 const LINE_LABELS: Record<string, string> = { claude: 'Claude', gpt: 'OpenAI' };
 
+/** A provider keeps one hue across its meter and its chart: orange for Claude, aqua for OpenAI. */
+export function lineStyle(line: string): number {
+  return line === 'claude' ? 1 : line === 'gpt' ? 2 : 0;
+}
+
 export interface AllowanceRow {
+  /** The model family the window belongs to (`claude`, `gpt`), empty when unknown. */
+  line: string;
   provider: string;
   leftPercent: number;
   /** Share of the window elapsed, null for a stale window. */
@@ -191,6 +198,7 @@ export function allowance(doc: UsageDocument): AllowanceRow[] {
     .map((limit) => {
       const line = limit.seats.map((id) => lines.get(id)).find(Boolean) ?? '';
       return {
+        line,
         provider: LINE_LABELS[line] ?? (line ? line[0]!.toUpperCase() + line.slice(1) : 'Account'),
         leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
         elapsedPercent: limit.elapsedPercent,
@@ -210,8 +218,9 @@ export function historyCharts(doc: UsageDocument, zone?: string): SeriesChartOpt
       const x = history.points.map((point) => stamp(point.atMs, '7d', zone));
       const window = history.windowMinutes * 60_000;
       return {
-        title: `${LINE_LABELS[history.line] ?? history.line}, weekly percent left`,
+        title: 'Weekly percent left',
         kind: 'line' as const,
+        style: lineStyle(history.line),
         x,
         series: [
           {
@@ -230,6 +239,22 @@ export function historyCharts(doc: UsageDocument, zone?: string): SeriesChartOpt
         format: (value: number) => `${Math.round(value)}%`,
       };
     });
+}
+
+export interface ProviderView extends AllowanceRow {
+  style: number;
+  /** The percent-left history, when the read serves it for this provider. */
+  chart: SeriesChartOptions | undefined;
+}
+
+/** One entry per weekly window: its numbers beside its history chart, matched by provider. */
+export function providers(doc: UsageDocument, zone?: string): ProviderView[] {
+  const charts = new Map(historyCharts(doc, zone).map((chart) => [chart.series[0]!.key, chart]));
+  return allowance(doc).map((row) => ({
+    ...row,
+    style: lineStyle(row.line),
+    chart: charts.get(row.line),
+  }));
 }
 
 /** Days between two instants, for the page's "resets in" words. */

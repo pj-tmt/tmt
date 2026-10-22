@@ -18,14 +18,16 @@
     </div>
     <div class="tmt-ui-shell-main">
     <main class="tmt-page usage digest">
-      <p id="usage-note" class="usage-note" role="note" hidden></p>
-      <div class="tmt-ui-tabs">
-        <div class="tmt-ui-tabs-header">
-          <div id="usage-ranges" class="tmt-ui-tab-list" role="tablist" aria-label="Range"></div>
+      <div class="digest-head">
+        <p class="digest-subtitle">Your team's usage, at a glance.</p>
+        <div class="digest-controls">
+          <span id="usage-badge" class="digest-badge" hidden>Sample data</span>
+          <p id="usage-note" class="usage-note" role="note" hidden></p>
+          <div id="usage-ranges" class="digest-segments" role="tablist" aria-label="Range"></div>
         </div>
-        <div id="usage-panel" class="tmt-ui-tab-panel" role="tabpanel" aria-label="Usage report">
-          <div id="digest-sections" class="digest-sections" aria-live="polite"></div>
-        </div>
+      </div>
+      <div id="usage-panel" role="tabpanel" aria-label="Usage report">
+        <div id="digest-sections" class="digest-sections" aria-live="polite"></div>
       </div>
     </main>
     </div>

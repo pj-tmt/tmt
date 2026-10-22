@@ -111,7 +111,7 @@ async function openShell(page: Page, size: { width: number; height: number }) {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.goto(`${origin}/digest/`);
-  await expect(page.locator('#digest-sections .digest-section')).toHaveCount(6);
+  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(7);
   return errors;
 }
 
@@ -130,13 +130,22 @@ for (const [name, size] of [
     const width = await page.locator('#digest-sections').evaluate((node) => node.clientWidth);
     if (name === '1440') {
       expect(width).toBeGreaterThan(1000);
-      // Runway table beside its charts; the token chart beside the ranking.
-      const table = await page.locator('#digest-allowance .usage-table').boundingBox();
-      const chart = await page.locator('#digest-allowance .tmt-ui-chart').first().boundingBox();
-      expect(chart!.x).toBeGreaterThan(table!.x + table!.width - 1);
-      const burn = await page.locator('#digest-tokens').boundingBox();
-      const rank = await page.locator('#digest-ranking').boundingBox();
-      expect(rank!.x).toBeGreaterThan(burn!.x + burn!.width - 1);
+      // Two provider cards side by side; the token chart beside the ranking; the matrix beside
+      // the data coverage.
+      const beside = async (left: string, right: string) => {
+        const a = (await page.locator(left).boundingBox())!;
+        const b = (await page.locator(right).boundingBox())!;
+        expect(b.x, `${right} beside ${left}`).toBeGreaterThan(a.x + a.width - 1);
+        expect(Math.abs(b.y - a.y), `${right} on the same row`).toBeLessThan(2);
+      };
+      await beside('#digest-provider-claude', '#digest-provider-gpt');
+      await beside('#digest-tokens', '#digest-ranking');
+      await beside('#digest-exchange', '#digest-missing');
+    } else {
+      // One column on a phone: each card below the one before.
+      const first = (await page.locator('#digest-provider-claude').boundingBox())!;
+      const second = (await page.locator('#digest-provider-gpt').boundingBox())!;
+      expect(second.y).toBeGreaterThan(first.y + first.height - 1);
     }
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -193,44 +202,73 @@ test('hovering the plot shows a tip with every series, five hues and a neutral O
   await expect(tip).toBeHidden();
 });
 
-test('the sample report paints every section once, in order, with the sample note', async ({
+test('the sample report paints every card once, in the reference order, with the sample badge', async ({
   page,
 }) => {
   const errors = await open(page);
-  await expect(page.locator('#digest-sections .digest-section')).toHaveCount(6);
+  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(7);
   const headings = await page.locator('#digest-sections h2').allTextContents();
   expect(headings).toEqual([
-    'Runway',
-    'Who burns',
-    'Idle, stalled or gate-bound',
-    'Interaction volume: who talks to whom',
-    'Not in the usage read yet',
-    'Method and caveats',
+    'Claude',
+    'OpenAI',
+    'Token usage',
+    'Last 24h by seat',
+    'Activity by seat',
+    'Messages between seats',
+    'Data coverage',
   ]);
-  // Questions the usage read cannot answer say so in one block, never a zero or an empty chart.
-  await expect(page.locator('#digest-missing dt')).toHaveText([
+  await expect(page.locator('#usage-badge')).toHaveText('Sample data');
+  await expect(page.locator('#usage-note')).toContainText('Usage preview');
+  // Questions the usage read cannot answer: one row each with a badge, never a zero or a chart.
+  await expect(page.locator('#digest-missing .digest-gap dt')).toHaveText([
     'Throughput',
     'Gates and queue',
     'Cost per merged PR',
     'Machine',
   ]);
+  await expect(page.locator('#digest-missing .digest-gap .digest-badge')).toHaveText([
+    'Not connected',
+    'Not connected',
+    'Not connected',
+    'Not connected',
+  ]);
   await expect(page.locator('#digest-missing .tmt-ui-chart')).toHaveCount(0);
-  await expect(page.locator('#usage-note')).toContainText('Sample data');
+  // The method sits collapsed at the bottom of the coverage card.
+  const method = page.locator('#digest-method');
+  await expect(method).not.toHaveAttribute('open', '');
+  await method.locator('summary').click();
+  await expect(method.locator('p').first()).toBeVisible();
+  // The ranking's inline bars take the chart's series colours; the leader's bar is the longest.
+  const bars = page.locator('#digest-ranking .digest-bar');
+  await expect(bars).toHaveCount(6);
+  const widths = await bars.evaluateAll((nodes) =>
+    nodes.map((n) => n.getBoundingClientRect().width),
+  );
+  expect(widths[0]).toBeGreaterThanOrEqual(Math.max(...widths) - 0.5);
+  const colours = await bars.evaluateAll((nodes) =>
+    nodes.map((n) => getComputedStyle(n).backgroundColor),
+  );
+  expect(new Set(colours).size).toBe(6);
   expect(errors).toEqual([]);
 });
 
-test('the share toggle swaps the stacked chart for a 100 % one and reads shares', async ({
+test('the Absolute/Share control swaps the stacked chart for a 100 % one and reads shares', async ({
   page,
 }) => {
   await open(page);
   const chart = page.locator('#digest-tokens .tmt-ui-chart');
   await expect(chart.locator('.tmt-ui-chart-title')).toHaveText('Tokens by seat');
-  await page.getByRole('button', { name: 'Share of total (100%)' }).click();
-  await expect(chart.locator('.tmt-ui-chart-title')).toHaveText('Share of tokens by seat');
-  await expect(chart.locator('.tmt-ui-chart-readout')).toContainText('%');
-  await expect(page.getByRole('button', { name: 'Share of total (100%)' })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: 'Absolute' })).toHaveAttribute(
     'aria-pressed',
     'true',
+  );
+  await page.getByRole('button', { name: 'Share' }).click();
+  await expect(chart.locator('.tmt-ui-chart-title')).toHaveText('Share of tokens by seat');
+  await expect(chart.locator('.tmt-ui-chart-readout')).toContainText('%');
+  await expect(page.getByRole('button', { name: 'Share' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Absolute' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
   );
 });
 
@@ -303,23 +341,36 @@ test('the activity strips are square slots: 24 hourly, 7 daily, 30 daily, with a
   await expect(
     page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
   ).toHaveCount(30);
-  await expect(page.locator('#digest-ranking h3')).toHaveText('Last 30d by seat');
+  await expect(page.locator('#digest-ranking h2')).toHaveText('Last 30d by seat');
 });
 
-test('the allowance shows the latest weekly window and the history chart when it is served', async ({
+test('each provider card shows its allowance, meter, history chart and pace cells', async ({
   page,
 }) => {
   await open(page);
-  const table = page.locator('#digest-allowance table.usage-table');
-  await expect(table.locator('tbody tr')).toHaveCount(2);
-  await expect(table.locator('tbody tr').first()).toContainText('Claude');
-  await expect(page.locator('#digest-allowance .tmt-ui-chart')).toHaveCount(2);
+  const cards = page.locator('#digest-allowance .digest-provider');
+  await expect(cards).toHaveCount(2);
+  const claude = page.locator('#digest-provider-claude');
+  await expect(claude.locator('.digest-big')).toHaveText('26%');
+  await expect(claude.locator('.digest-big-label')).toHaveText('allowance left');
+  await expect(claude.locator('.digest-card-meta')).toContainText('Resets in');
+  await expect(claude.locator('.digest-stat dt')).toHaveText(['Elapsed', 'Pace', 'Resets in']);
+  await expect(claude.locator('.digest-stat dd').nth(1)).toHaveText(/pts$/);
+  await expect(claude.locator('.tmt-ui-chart')).toHaveCount(1);
+  // The meter fills to the percent left, in the provider's own hue (not the chart's first one).
+  const meter = (await claude.locator('.digest-meter').boundingBox())!;
+  const fill = (await claude.locator('.digest-meter-fill').boundingBox())!;
+  expect(Math.abs(fill.width / meter.width - 0.26)).toBeLessThan(0.03);
+  const hues = await page
+    .locator('.digest-meter-fill')
+    .evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).backgroundColor));
+  expect(new Set(hues).size).toBe(2);
 });
 
 for (const width of [390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
     await open(page, '', { width, height: 900 });
-    await expect(page.locator('#digest-sections .digest-section')).toHaveCount(6);
+    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(7);
     await page.waitForTimeout(200);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -369,6 +420,6 @@ test('the product source keeps the honest empty state and draws no chart', async
   await expect(page.locator('#usage-note')).toContainText('not in the browser yet');
   await expect(page.locator('#usage-note code')).toHaveText('tmt ops ui');
   await expect(page.locator('#digest-sections .tmt-ui-chart')).toHaveCount(0);
-  await expect(page.locator('#digest-sections .digest-section')).toHaveCount(0);
+  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

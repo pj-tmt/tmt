@@ -7,6 +7,7 @@ import {
   allowance,
   exchange,
   historyCharts,
+  providers,
   rankRows,
   resetsIn,
   seatName,
@@ -161,6 +162,17 @@ it('history charts exist only when the history field is served', () => {
   expect(charts[0]!.series[0]!.values.length).toBe(charts[0]!.x.length);
   expect(charts[0]!.reference!.values.every((v) => v !== null && v >= 0 && v <= 100)).toBe(true);
   expect(historyCharts({ ...day, limitHistory: undefined })).toEqual([]);
+});
+
+it('providers pair each weekly window with its history chart and a stable hue', () => {
+  const views = providers(day, 'UTC');
+  expect(views.map((view) => [view.provider, view.style])).toEqual([
+    ['Claude', 1],
+    ['OpenAI', 2],
+  ]);
+  expect(views.every((view) => view.chart?.series[0]!.key === view.line)).toBe(true);
+  expect(views[0]!.chart!.style).toBe(1);
+  expect(providers({ ...day, limitHistory: undefined }).every((view) => !view.chart)).toBe(true);
 });
 
 it('the product entry never pulls in the sample: no import of the mock from page code', () => {

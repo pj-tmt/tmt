@@ -901,7 +901,7 @@ var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
 function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function row$3(value, keys) {
+function row$4(value, keys) {
 	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
 	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
@@ -909,7 +909,7 @@ function row$3(value, keys) {
 }
 function parseSyncMapping(value) {
 	valid$4(typeof value === "object" && value !== null);
-	const r = row$3(value, [
+	const r = row$4(value, [
 		"fields",
 		"spaceField",
 		"uidField",
@@ -929,7 +929,7 @@ function parseSyncMapping(value) {
 	let query = null;
 	if (r.query !== null) {
 		valid$4(typeof r.query === "object" && r.query !== null);
-		const q = row$3(r.query, [
+		const q = row$4(r.query, [
 			"scopeFields",
 			"streamField",
 			"seqField",
@@ -942,7 +942,7 @@ function parseSyncMapping(value) {
 		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
-			const d = row$3(q.discovery, [
+			const d = row$4(q.discovery, [
 				"name",
 				"scopeFields",
 				"seqEquals"
@@ -1297,7 +1297,7 @@ function hostRemote(slot, signal) {
 	};
 }
 /** A shared list row (`tmt-ui-list*`): mark, linked title, then its detail as metadata. */
-function row$2(href, mark, title, detail) {
+function row$3(href, mark, title, detail) {
 	const item = document.createElement("li");
 	item.className = "tmt-ui-list-row";
 	item.dataset.leading = "";
@@ -1333,8 +1333,8 @@ function homePage(shell, open) {
 	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
 	shell.described(async (answer) => {
 		const rows = [];
-		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
-		if (await offer) rows.push(row$2(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$3(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
+		if (await offer) rows.push(row$3(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
 		needs.replaceChildren(...rows);
 		if (answer) note.textContent = rows.length ? "" : "Nothing needs you.";
 		else {
@@ -1345,7 +1345,7 @@ function homePage(shell, open) {
 			note.replaceChildren(pair, " in Remote to see what needs you.");
 		}
 		note.hidden = !note.textContent;
-		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(open(card.path), "▤", card.title, module.rail.label)));
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$3(open(card.path), "▤", card.title, module.rail.label)));
 		recent.replaceChildren(...cards);
 		recentBlock.hidden = cards.length === 0;
 	});
@@ -3137,7 +3137,7 @@ var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"t
 var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\">\n        <!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">Ops</span>\n      </span>\n      <span class=\"header-divider\" aria-hidden=\"true\">/</span>\n      <h1 class=\"header-title tmt-ui-title\">Ops</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/digest.html?raw
-var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page usage digest\">\n      <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <div class=\"tmt-ui-tabs\">\n        <div class=\"tmt-ui-tabs-header\">\n          <div id=\"usage-ranges\" class=\"tmt-ui-tab-list\" role=\"tablist\" aria-label=\"Range\"></div>\n        </div>\n        <div id=\"usage-panel\" class=\"tmt-ui-tab-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n          <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n        </div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page usage digest\">\n      <div class=\"digest-head\">\n        <p class=\"digest-subtitle\">Your team's usage, at a glance.</p>\n        <div class=\"digest-controls\">\n          <span id=\"usage-badge\" class=\"digest-badge\" hidden>Sample data</span>\n          <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n          <div id=\"usage-ranges\" class=\"digest-segments\" role=\"tablist\" aria-label=\"Range\"></div>\n        </div>\n      </div>\n      <div id=\"usage-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n        <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-math.ts
 /**
@@ -3392,7 +3392,7 @@ function createMatrix(options) {
 	return figure;
 }
 var OTHER_STYLE = 7;
-var styleOf = (layer, i) => layer.key === "other" ? OTHER_STYLE : i % 7;
+var styleOf = (layer, i, first = 0) => layer.key === "other" ? OTHER_STYLE : (first + i) % 7;
 var MARGIN = {
 	left: 46,
 	right: 10,
@@ -3421,7 +3421,7 @@ function seriesModel(options, width) {
 	const marks = [];
 	if (stack) stack.layers.forEach((layer, i) => marks.push({
 		kind: "area",
-		style: styleOf(layer, i),
+		style: styleOf(layer, i, options.style),
 		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt))
 	}));
 	else if (options.kind === "bars") {
@@ -3445,7 +3445,7 @@ function seriesModel(options, width) {
 		const flush = () => {
 			if (run.length) marks.push({
 				kind: "line",
-				style: styleOf(layer, i),
+				style: styleOf(layer, i, options.style),
 				d: linePath(run)
 			});
 			run = [];
@@ -3503,14 +3503,14 @@ function seriesModel(options, width) {
 		readout: (at) => `${options.x[at]}: ${options.series.map((layer) => `${layer.label} ${cell(layer, at)}`).join(", ")}`,
 		legend: options.series.map((layer, i) => ({
 			label: layer.label,
-			style: styleOf(layer, i)
+			style: styleOf(layer, i, options.style)
 		})),
 		tip: (at) => ({
 			title: options.x[at] ?? "",
 			rows: options.series.map((layer, i) => ({
 				label: layer.label,
 				value: cell(layer, at),
-				style: styleOf(layer, i)
+				style: styleOf(layer, i, options.style)
 			}))
 		}),
 		table: {
@@ -3693,6 +3693,15 @@ function stripsModel(options) {
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-strips.ts
+/** `Less ▢▢▢▢▢ More`: the swatches of the intensity steps, for a strip's caption or card header. */
+function stripsLegend() {
+	const legend = htmlEl("div", "tmt-ui-chart-strip-legend");
+	legend.setAttribute("aria-hidden", "true");
+	legend.append(htmlEl("span", void 0, "Less"));
+	for (let step = 0; step <= 4; step += 1) legend.append(htmlEl("span", `tmt-ui-chart-slot tmt-ui-chart-slot-${step}`));
+	legend.append(htmlEl("span", void 0, "More"));
+	return legend;
+}
 /**
 * Rows of fixed square slots, like a contribution graph: when each seat was active, scaled to
 * that row's busiest slot. The row is as long as its slot count; a slot's tip (hover or focus)
@@ -3805,12 +3814,8 @@ function createStrips(options) {
 		next.focus();
 	});
 	frame.append(list, tip);
-	const legend = htmlEl("div", "tmt-ui-chart-strip-legend");
-	legend.setAttribute("aria-hidden", "true");
-	legend.append(htmlEl("span", void 0, "Less"));
-	for (let step = 0; step <= 4; step += 1) legend.append(htmlEl("span", `tmt-ui-chart-slot tmt-ui-chart-slot-${step}`));
-	legend.append(htmlEl("span", void 0, "More"));
-	figure.append(frame, legend);
+	figure.append(frame);
+	if (options.legend !== false) figure.append(stripsLegend());
 	return figure;
 }
 //#endregion
@@ -3980,12 +3985,17 @@ var LINE_LABELS = {
 	claude: "Claude",
 	gpt: "OpenAI"
 };
+/** A provider keeps one hue across its meter and its chart: orange for Claude, aqua for OpenAI. */
+function lineStyle(line) {
+	return line === "claude" ? 1 : line === "gpt" ? 2 : 0;
+}
 /** The weekly windows, one row each: how much is left and whether the pace is even. */
 function allowance(doc) {
 	const lines = new Map(doc.usage.seats.map((seat) => [seat.id, seat.lines[0] ?? ""]));
 	return doc.limits.filter((limit) => limit.windowMinutes === 10080).map((limit) => {
 		const line = limit.seats.map((id) => lines.get(id)).find(Boolean) ?? "";
 		return {
+			line,
 			provider: LINE_LABELS[line] ?? (line ? line[0].toUpperCase() + line.slice(1) : "Account"),
 			leftPercent: Math.round((100 - limit.usedPercent) * 10) / 10,
 			elapsedPercent: limit.elapsedPercent,
@@ -4001,8 +4011,9 @@ function historyCharts(doc, zone) {
 		const x = history.points.map((point) => stamp(point.atMs, "7d", zone));
 		const window = history.windowMinutes * 6e4;
 		return {
-			title: `${LINE_LABELS[history.line] ?? history.line}, weekly percent left`,
+			title: "Weekly percent left",
 			kind: "line",
+			style: lineStyle(history.line),
 			x,
 			series: [{
 				key: history.line,
@@ -4017,6 +4028,15 @@ function historyCharts(doc, zone) {
 			format: (value) => `${Math.round(value)}%`
 		};
 	});
+}
+/** One entry per weekly window: its numbers beside its history chart, matched by provider. */
+function providers(doc, zone) {
+	const charts = new Map(historyCharts(doc, zone).map((chart) => [chart.series[0].key, chart]));
+	return allowance(doc).map((row) => ({
+		...row,
+		style: lineStyle(row.line),
+		chart: charts.get(row.line)
+	}));
 }
 /** Days between two instants, for the page's "resets in" words. */
 function resetsIn(resetsAtMs, nowMs) {
@@ -4052,34 +4072,39 @@ function notAvailable(note, text) {
 //#endregion
 //#region src/digest-page.ts
 /**
-* The Digest web view: the usage report as sections of charts and tables, ordered by the questions
-* the PM reads it for (runway, who burns, idle or gate-bound), then who talks to whom, one block
-* naming the questions the usage read cannot answer yet (throughput, gates, cost per merged PR,
-* machine) and the method. It depends only on
-* `DigestSource`; the product source says "not in the browser yet" until Core serves the read
-* (#4325), and a sample source is only ever passed in by tests, the gallery and dev.
+* The Digest web view: the usage report as cards of charts and tables. The arrangement is the
+* team's usage at a glance: provider allowance (meter, weekly history, pace), who burns (tokens
+* over time beside the ranking), activity by seat, then who talks to whom beside the data the
+* read does not carry yet and the method. It depends only on `DigestSource`; the product source
+* says "not in the browser yet" until Core serves the read (#4325), and a sample source is only
+* ever passed in by tests, the gallery and dev.
 */
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
 var SERIES_KEPT = 5;
+/** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
+var OTHER_STEP = 7;
 function el(name, className, text) {
 	const node = document.createElement(name);
 	if (className) node.className = className;
 	if (text !== void 0) node.textContent = text;
 	return node;
 }
-function section(title, id, ...body) {
-	const node = el("section", "digest-section");
+/** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
+function card(id, title, body, options = {}) {
+	const node = el("section", options.className ? `digest-card ${options.className}` : "digest-card");
 	node.id = id;
 	node.setAttribute("aria-labelledby", `${id}-title`);
-	const heading = el("h2", "home-heading", title);
+	const heading = el("h2", "digest-card-title", title);
 	heading.id = `${id}-title`;
-	node.append(heading, ...body);
+	const head = el("div", "digest-card-head");
+	head.append(heading);
+	if (options.actions) head.append(options.actions);
+	node.append(head, ...body);
 	return node;
 }
-/** Two blocks side by side where the shell is wide, stacked where it is not. */
-function split(className, ...blocks) {
-	const node = el("div", `digest-split ${className}`);
-	node.append(...blocks);
+function row$2(className, ...cards) {
+	const node = el("div", `digest-row ${className}`);
+	node.append(...cards);
 	return node;
 }
 function table(head, rows) {
@@ -4096,50 +4121,80 @@ function table(head, rows) {
 	const body = el("tbody");
 	for (const [first, ...rest] of rows) {
 		const line = el("tr");
-		const name = el("th", void 0, first);
+		const name = el("th");
 		name.scope = "row";
-		line.append(name, ...rest.map((text) => el("td", void 0, text)));
+		name.append(first);
+		line.append(name, ...rest.map((value) => {
+			const cell = el("td");
+			cell.append(value);
+			return cell;
+		}));
 		body.append(line);
 	}
 	node.append(body);
 	return node;
 }
-function allowanceSection(doc) {
-	const rows = allowance(doc);
-	const charts = historyCharts(doc);
-	if (!rows.length) return section("Runway", "digest-allowance", el("p", "usage-note", "No weekly window has been observed yet."));
-	const summary = table([
-		"Provider",
-		"Left",
-		"Elapsed",
-		"Pace",
-		"Resets in"
-	], rows.map((row) => [
-		row.provider,
-		`${row.leftPercent}%`,
-		row.elapsedPercent === null ? "—" : `${Math.round(row.elapsedPercent)}%`,
-		row.paceDeltaPoints === null ? "—" : `${row.paceDeltaPoints > 0 ? "+" : ""}${row.paceDeltaPoints.toFixed(1)} pts`,
-		row.stale ? "stale" : resetsIn(row.resetsAtMs, doc.observedAtMs)
-	]));
-	if (!charts.length) return section("Runway", "digest-allowance", summary, el("p", "usage-note", "The weekly history is not served yet; this shows the latest window."));
-	const history = el("div", "digest-charts");
-	history.append(...charts.map((chart) => createSeriesChart(chart)));
-	return section("Runway", "digest-allowance", split("digest-split-runway", summary, history));
+/** A segmented control of buttons; `aria-pressed` marks the active one. */
+function segments(label, options, initial, change) {
+	const group = el("div", "digest-segments");
+	group.setAttribute("role", "group");
+	group.setAttribute("aria-label", label);
+	const buttons = options.map((option) => {
+		const button = el("button", "digest-segment", option.text);
+		button.type = "button";
+		button.addEventListener("click", () => {
+			sync(option.value);
+			change(option.value);
+		});
+		return {
+			button,
+			value: option.value
+		};
+	});
+	const sync = (active) => {
+		for (const { button, value } of buttons) button.setAttribute("aria-pressed", String(value === active));
+	};
+	sync(initial);
+	group.append(...buttons.map(({ button }) => button));
+	return group;
 }
-function tokensBlock(doc) {
+function providerCard(view, nowMs) {
+	const resets = view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs);
+	const meter = el("div", "digest-meter");
+	meter.setAttribute("role", "img");
+	meter.setAttribute("aria-label", `${view.leftPercent}% of the weekly allowance left`);
+	const fill = el("div", `digest-meter-fill tmt-ui-chart-s${view.style}`);
+	fill.style.setProperty("--digest-fill", String(Math.max(0, Math.min(100, view.leftPercent))));
+	meter.append(fill);
+	const figure = el("div", "digest-provider-figure");
+	figure.append(el("p", "digest-big", `${view.leftPercent}%`), el("p", "digest-big-label", "allowance left"), meter);
+	const history = view.chart ? createSeriesChart(view.chart) : el("p", "usage-note", "The weekly history is not served yet; this shows the latest window.");
+	const stat = (label, value) => {
+		const cell = el("div", "digest-stat");
+		cell.append(el("dt", void 0, label), el("dd", void 0, value));
+		return cell;
+	};
+	const stats = el("dl", "digest-stats");
+	stats.append(stat("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), stat("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), stat("Resets in", resets));
+	const body = el("div", "digest-provider-body");
+	body.append(figure, history);
+	return card(`digest-provider-${view.line || "account"}`, view.provider, [body, stats], {
+		actions: el("span", "digest-card-meta", `Resets in ${resets}`),
+		className: "digest-provider"
+	});
+}
+function allowanceRow(doc) {
+	const views = providers(doc);
+	const node = views.length ? row$2("digest-row-providers", ...views.map((view) => providerCard(view, doc.observedAtMs))) : row$2("digest-row-providers", card("digest-provider-none", "Allowance", [el("p", "usage-note", "No weekly window has been observed yet.")]));
+	node.id = "digest-allowance";
+	return node;
+}
+function tokensCard(doc) {
 	const data = tokenSeries(doc);
-	const block = el("div", "digest-block");
-	block.id = "digest-tokens";
+	const body = el("div", "digest-card-body");
 	const host = el("div");
-	const toggle = el("button", "tmt-ui-toggle");
-	toggle.type = "button";
-	const mark = el("span", "tmt-ui-toggle-indicator");
-	mark.setAttribute("aria-hidden", "true");
-	toggle.append(mark, el("span", void 0, "Share of total (100%)"));
 	let share = false;
 	const draw = () => {
-		toggle.setAttribute("aria-pressed", String(share));
-		mark.textContent = share ? "✓" : "";
 		host.replaceChildren(createSeriesChart({
 			title: share ? "Share of tokens by seat" : "Tokens by seat",
 			kind: share ? "share" : "stack",
@@ -4148,43 +4203,44 @@ function tokensBlock(doc) {
 			empty: "No token observations in this range."
 		}));
 	};
-	toggle.addEventListener("click", () => {
-		share = !share;
+	draw();
+	body.append(host);
+	if (data.partial) body.append(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
+	const scale = segments("Scale", [{
+		value: "absolute",
+		text: "Absolute"
+	}, {
+		value: "share",
+		text: "Share"
+	}], "absolute", (value) => {
+		share = value === "share";
 		draw();
 	});
-	draw();
-	block.append(toggle, host);
-	if (data.partial) block.append(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
-	return block;
+	return card("digest-tokens", "Token usage", [body], { actions: scale });
 }
-function rankingBlock(doc) {
+function rankingCard(doc) {
 	const rows = rankRows(doc);
-	const block = el("div", "digest-block");
-	block.id = "digest-ranking";
-	block.append(el("h3", "tmt-ui-chart-title", `Last ${doc.since} by seat`), rows.length ? table([
+	const hue = new Map(topLayers(tokenSeries(doc).layers, SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at]));
+	const largest = Math.max(1, ...rows.map((entry) => entry.tokens));
+	const bar = (id, tokens) => {
+		const node = el("span", `digest-bar tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
+		node.style.setProperty("--digest-bar", String(Math.round(tokens / largest * 100)));
+		node.setAttribute("aria-hidden", "true");
+		return node;
+	};
+	return card("digest-ranking", `Last ${doc.since} by seat`, rows.length ? [table([
 		"Seat",
+		"",
 		"Tokens",
 		"Share"
-	], rows.map((row) => [
-		row.partial ? `${row.name} (partial)` : row.name,
-		compactCount(row.tokens),
-		`${row.share}%`
-	])) : el("p", "usage-note", "No seat has token observations in this range."));
-	return block;
+	], rows.map((entry) => [
+		entry.partial ? `${entry.name} (partial)` : entry.name,
+		bar(entry.id, entry.tokens),
+		compactCount(entry.tokens),
+		`${entry.share}%`
+	]))] : [el("p", "usage-note", "No seat has token observations in this range.")]);
 }
-function burnSection(doc) {
-	return section("Who burns", "digest-burn", split("digest-split-burn", tokensBlock(doc), rankingBlock(doc)));
-}
-function exchangeSection(doc) {
-	const flow = exchange(doc);
-	return section("Interaction volume: who talks to whom", "digest-exchange", flow ? createMatrix({
-		title: `Messages, last ${doc.since}`,
-		participants: flow.participants,
-		value: flow.value,
-		sum: true
-	}) : el("p", "usage-note", "Message traffic is not available in this read."));
-}
-function activitySection(doc) {
+function activityCard(doc) {
 	const view = activity(doc);
 	if (!view) return void 0;
 	const clock = (at) => new Date(at).toLocaleTimeString("en-GB", {
@@ -4201,48 +4257,62 @@ function activitySection(doc) {
 		const start = view.starts[at];
 		return hourly ? `${clock(start)}–${clock(start + 36e5)}` : day(start);
 	};
-	return section("Idle, stalled or gate-bound", "digest-activity", createStrips({
+	return card("digest-activity", "Activity by seat", [createStrips({
 		title: hourly ? "Tokens per hour, oldest on the left" : "Tokens per day, oldest on the left",
 		rows: view.rows,
 		slotCount: view.starts.length,
 		slotRange: range,
-		ends: hourly ? ["24 h ago", "now"] : [`${view.starts.length} days ago`, "today"]
-	}), el("p", "usage-note", "Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet."));
+		ends: hourly ? ["24 h ago", "now"] : [`${view.starts.length} days ago`, "today"],
+		legend: false
+	}), el("p", "usage-note", "Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet.")], { actions: stripsLegend() });
 }
-/** The questions the usage read cannot answer yet: one line each, never a zero or an empty chart. */
-function missingSection() {
-	const lines = [
+function exchangeCard(doc) {
+	const flow = exchange(doc);
+	return card("digest-exchange", "Messages between seats", [flow ? createMatrix({
+		title: `Messages, last ${doc.since}`,
+		participants: flow.participants,
+		value: flow.value,
+		sum: true
+	}) : el("p", "usage-note", "Message traffic is not available in this read.")]);
+}
+/** The sources the usage read does not carry yet, one line each, with the method below. */
+function coverageCard() {
+	const gaps = [
 		["Throughput", "merged pull requests per provider and publishes in flight (GitHub, from the PR Agent lines)"],
 		["Gates and queue", "green-not-armed and review waits, merge-queue entries and merge-group failures (GitHub)"],
 		["Cost per merged PR", "merged pull requests joined to the allowance points burned in the same window"],
 		["Machine", "load, free disk and the biggest worktrees with their owners"]
 	];
 	const list = el("dl", "digest-gaps");
-	for (const [term, source] of lines) list.append(el("dt", void 0, term), el("dd", void 0, source));
-	return section("Not in the usage read yet", "digest-missing", list);
-}
-function methodSection() {
-	return section("Method and caveats", "digest-method", ...[
+	for (const [term, source] of gaps) {
+		const line = el("div", "digest-gap");
+		line.append(el("dt", void 0, term), el("dd", "digest-badge", "Not connected"), el("dd", "digest-gap-source", source));
+		list.append(line);
+	}
+	const method = el("details", "digest-method");
+	method.id = "digest-method";
+	method.append(el("summary", void 0, "Method & caveats"), ...[
 		"Tokens are input plus output as Core reports them; cached input is part of input and is not counted again.",
 		"An incomplete bucket is a lower bound. A seat with no evidence for part of the range is marked partial, never shown as zero.",
 		"Allowance windows are the account percent as the provider reports it, in whole percent; usage on other machines is not seen.",
 		"Message counts include talk and reply only."
 	].map((text) => el("p", "usage-note", text)));
+	return card("digest-missing", "Data coverage", [list, method]);
 }
 function digestPage(source = digestSource) {
 	const tabs = document.getElementById("usage-ranges");
 	const panel = document.getElementById("digest-sections");
 	const note = document.getElementById("usage-note");
-	if (!tabs || !panel || !note) return;
+	const badge = document.getElementById("usage-badge");
+	if (!tabs || !panel || !note || !badge) return;
 	let current = USAGE_RANGES[0];
 	let generation = 0;
 	const buttons = USAGE_RANGES.map((range) => {
-		const button = el("button", "tmt-ui-tab");
+		const button = el("button", "digest-segment", range);
 		button.type = "button";
 		button.setAttribute("role", "tab");
 		button.setAttribute("aria-controls", "usage-panel");
 		button.dataset.range = range;
-		button.append(el("span", "tmt-ui-tab-label", range));
 		button.addEventListener("click", () => void show(range));
 		button.addEventListener("keydown", (event) => {
 			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -4265,21 +4335,18 @@ function digestPage(source = digestSource) {
 		panel.replaceChildren(pageLoading());
 		const report = await source.report(range);
 		if (mine !== generation) return;
+		badge.hidden = true;
 		if (report.unavailable || !report.document) {
 			panel.replaceChildren();
 			return notAvailable(note, report.unavailable ?? "Usage is not available.");
 		}
 		const doc = report.document;
-		panel.replaceChildren(...[
-			allowanceSection(doc),
-			burnSection(doc),
-			activitySection(doc),
-			exchangeSection(doc),
-			missingSection(),
-			methodSection()
-		].filter((node) => node !== void 0));
-		if (report.sample) notAvailable(note, "Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers.");
-		else {
+		const activityBlock = activityCard(doc);
+		panel.replaceChildren(allowanceRow(doc), row$2("digest-row-burn", tokensCard(doc), rankingCard(doc)), ...activityBlock ? [activityBlock] : [], row$2("digest-row-coverage", exchangeCard(doc), coverageCard()));
+		if (report.sample) {
+			badge.hidden = false;
+			notAvailable(note, "Usage preview. Real numbers: `tmt digest usage report`.");
+		} else {
 			note.replaceChildren();
 			note.hidden = true;
 		}
