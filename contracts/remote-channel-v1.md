@@ -1526,9 +1526,12 @@ The reply is `{state, requestId, reason?, messageState?}` with `state`:
 - `sent`: Core typed it. `already`: it had reached the agent, and nothing was typed again.
 - `refused`: nothing was typed; `reason` is Core's code (`SEND_NOW_*`, `DELIVERY_AWAITING_APPROVAL`,
   `DELIVERY_CHANNEL_UNAVAILABLE`).
-- `unconfirmed`: it may have been typed (`DELIVERY_UNCERTAIN`, or Core did not answer in time).
-  Read `result` before asking again; Remote never retries.
-- `unavailable`: Core could not be asked, or the person could not be resolved; nothing was typed.
+- `unconfirmed`: it may have been typed: `DELIVERY_UNCERTAIN`, or the call to Core failed on this
+  side after the person was resolved (a timeout, an interruption, an I/O failure or an unreadable
+  answer: `REMOTE_CORE_UNAVAILABLE`, `REMOTE_CORE_UNCERTAIN`, `REMOTE_IO`). Read `result` before
+  asking again; Remote never retries.
+- `unavailable`: nothing was typed: the person could not be resolved, or Core answered with some
+  other error.
 
 No journal row is kept; a repeat is answered from Core's own state, and the audit row
 (`requests.sendNow`, the request as its resource) is written with the call's fence.

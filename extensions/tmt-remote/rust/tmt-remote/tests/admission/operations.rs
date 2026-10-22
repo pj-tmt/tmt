@@ -349,11 +349,15 @@ fn send_now_reports_what_core_did_and_never_a_guess() {
             "unconfirmed",
             Some("DELIVERY_UNCERTAIN"),
         ),
+        // Core answered with some other error: it typed nothing.
         (
             "err|API_UNAVAILABLE",
             "unavailable",
             Some("API_UNAVAILABLE"),
         ),
+        // The call itself failed on this side (here an unreadable answer; a timeout or an
+        // interruption takes the same path): the outcome is unknown, never `unavailable`.
+        ("raw|broken", "unconfirmed", Some("REMOTE_CORE_UNAVAILABLE")),
     ] {
         core.send_now_answers(answer);
         sequence += 1;
@@ -389,6 +393,24 @@ fn send_now_reports_what_core_did_and_never_a_guess() {
     assert_eq!(asked["identity"], Core::PERSON);
     assert_eq!(asked["input"]["requestId"], request);
     assert_eq!(core.sends(), 1, "asking to send now sends no new request");
+    // The person could not be resolved: nothing was asked of Core, so nothing was typed.
+    core.identity_fails("USER_NAME_INVALID", "no name");
+    let before = core.calls().len();
+    sequence += 1;
+    let reply = ask(
+        &owner,
+        &operations,
+        &session,
+        sequence,
+        "requests.sendNow",
+        &request,
+    );
+    assert_eq!(reply["state"], "unavailable", "{reply}");
+    assert_eq!(reply["reason"], "USER_NAME_INVALID", "{reply}");
+    assert_eq!(
+        core.operations_since(before),
+        ["user.identity", "requests.show"]
+    );
 }
 #[test]
 fn send_now_is_refused_with_core_never_called_unless_the_owner_browser_sent_the_request() {

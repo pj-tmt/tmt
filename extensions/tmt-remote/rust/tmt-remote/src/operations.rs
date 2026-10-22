@@ -605,22 +605,26 @@ impl Operations {
         let input: ResultInput = read_input(permit)?;
         let reference = request_reference(&input.request_id)?;
         let digest = crate::journal::intent(&permit.message)?;
-        let reply = permit.with_store(|store| {
+        let (state, reason) = permit.with_store(|store| {
             store.send_now(
                 &permit.grant,
                 permit.message.envelope().id,
                 &reference,
                 &digest,
                 now_ms,
-                || self.send_now_reply(&input.request_id),
+                || self.send_now_outcome(&input.request_id),
             )
         })?;
+        // Read back after the fence has committed, so the lock is not held for it.
+        let reply = self.send_now_reply(&input.request_id, state, reason);
         permit.response(&reply)
     }
     /// What the ask came to, from Core's own answers and never a guess: `sent` only when Core
-    /// typed it, `unconfirmed` when it may have been typed, `refused` with Core's code when nothing
-    /// was, `unavailable` when Core could not be asked. The fresh `messageState` follows.
-    fn send_now_reply(&self, id: &str) -> Value {
+    /// typed it; `refused` with Core's code when it typed nothing; `unconfirmed` when it may have
+    /// typed it, which includes every failure on this side of the call (a timeout, an interruption,
+    /// an unreadable answer); `unavailable` when the person could not be resolved or Core answered
+    /// with some other error, so nothing was typed.
+    fn send_now_outcome(&self, id: &str) -> (&'static str, Option<String>) {
         let who = json!({"version":1,"operation":"user.identity","input":{}});
         let person = match self.api(who.to_string().as_bytes()) {
             Ok(person) => person["identityId"]
@@ -630,33 +634,36 @@ impl Operations {
                 .ok_or_else(|| "REMOTE_CORE_UNAVAILABLE".to_owned()),
             Err(error) => Err(error.code),
         };
-        let (state, reason) = match person {
-            Err(code) => ("unavailable", Some(code)),
-            Ok(person) => {
-                let ask = json!({"version":1,"operation":"requests.sendNow","identity":person,"input":{"requestId":id}});
-                match self.api(ask.to_string().as_bytes()) {
-                    Ok(done) => match done["status"].as_str() {
-                        Some("sent") => ("sent", None),
-                        Some("already") => ("already", None),
-                        _ => ("unavailable", None),
-                    },
-                    Err(error) => match error.code.as_str() {
-                        "DELIVERY_UNCERTAIN" | "REMOTE_CORE_UNCERTAIN" => {
-                            ("unconfirmed", Some(error.code))
-                        }
-                        code if code.starts_with("SEND_NOW_")
-                            || matches!(
-                                code,
-                                "DELIVERY_AWAITING_APPROVAL" | "DELIVERY_CHANNEL_UNAVAILABLE"
-                            ) =>
-                        {
-                            ("refused", Some(error.code))
-                        }
-                        _ => ("unavailable", Some(error.code)),
-                    },
-                }
-            }
+        let person = match person {
+            Ok(person) => person,
+            Err(code) => return ("unavailable", Some(code)),
         };
+        let ask = json!({"version":1,"operation":"requests.sendNow","identity":person,"input":{"requestId":id}});
+        match self.api(ask.to_string().as_bytes()) {
+            Ok(done) => match done["status"].as_str() {
+                Some("sent") => ("sent", None),
+                Some("already") => ("already", None),
+                _ => ("unconfirmed", None),
+            },
+            Err(error) => match error.code.as_str() {
+                "DELIVERY_UNCERTAIN"
+                | "REMOTE_CORE_UNAVAILABLE"
+                | "REMOTE_CORE_UNCERTAIN"
+                | "REMOTE_IO" => ("unconfirmed", Some(error.code)),
+                code if code.starts_with("SEND_NOW_")
+                    || matches!(
+                        code,
+                        "DELIVERY_AWAITING_APPROVAL" | "DELIVERY_CHANNEL_UNAVAILABLE"
+                    ) =>
+                {
+                    ("refused", Some(error.code))
+                }
+                _ => ("unavailable", Some(error.code)),
+            },
+        }
+    }
+    /// The reply to the browser: the outcome plus Core's fresh `messageState`.
+    fn send_now_reply(&self, id: &str, state: &str, reason: Option<String>) -> Value {
         let mut reply = json!({"state":state,"requestId":id});
         if let Some(reason) = reason.filter(|reason| {
             reason.len() <= 64 && reason.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')

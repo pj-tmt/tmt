@@ -63,6 +63,8 @@ elif wire['operation']=='requests.show':
 elif wire['operation']=='requests.sendNow':
     answer=(root/'send-now').read_text() if (root/'send-now').exists() else 'ok|sent'
     kind,value=answer.split('|',1)
+    if kind=='raw':
+        print(value);sys.exit(0)
     if kind=='err':
         print(json.dumps({'error':{'code':value,'message':'refused by the fixture'}}));sys.exit(1)
     print(json.dumps({'status':value,'requestId':wire['input']['requestId'],'state':'delivered'}))
@@ -110,7 +112,7 @@ else: raise RuntimeError('unexpected operation')
     pub fn message_state(&self, state: &Value) {
         fs::write(self.root.join("message-state"), state.to_string()).unwrap();
     }
-    /// What `requests.sendNow` answers: `ok|sent`, `ok|already` or `err|<CODE>`.
+    /// What `requests.sendNow` answers: `ok|sent`, `ok|already`, `err|<CODE>` or `raw|<unreadable text>`.
     pub fn send_now_answers(&self, answer: &str) {
         fs::write(self.root.join("send-now"), answer).unwrap();
     }
