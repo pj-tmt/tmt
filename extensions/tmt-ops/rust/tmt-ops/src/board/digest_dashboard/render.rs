@@ -151,7 +151,7 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
     }
     let savings = metrics::savings(app, &ids);
     let savings_available = savings.as_ref().is_some_and(|summary| {
-        model::savings_value(
+        crate::board::savings::savings_value(
             summary,
             if app.tok_range() == TokRange::Day {
                 crate::config::DigestWindow::Day
@@ -169,7 +169,7 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             crate::config::DigestWindow::Week
         };
-        parts.push(model::savings_caption(
+        parts.push(crate::board::savings::savings_caption(
             &savings,
             window,
             app.savings_unit(),
@@ -340,7 +340,7 @@ fn detail_lines(
     if let Some(cost) = metrics::input_price(app, report, &ids) {
         text.push(format!(
             "Input list-price estimate: {}",
-            model::usd_text(cost)
+            crate::board::savings::usd_text(cost)
         ));
     } else if !price_column_shown {
         text.push("Input list-price estimate: —".into());

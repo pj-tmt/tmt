@@ -57,6 +57,7 @@ mod response;
 mod resume;
 mod row_chips;
 mod row_detail;
+mod savings;
 mod scroll;
 mod search_field;
 mod section_rule;

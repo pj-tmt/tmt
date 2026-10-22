@@ -542,7 +542,7 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
     let error = Store::open(&f.layout).err().unwrap();
     assert!(matches!(
         error.downcast_ref::<Fault>(),
-        Some(Fault::UnsupportedSchema(version)) if *version == SCHEMA_VERSION + 1
+        Some(Fault::UnsupportedSchema(version, _)) if *version == SCHEMA_VERSION + 1
     ));
     assert_eq!(fs::read(&path).unwrap(), bytes);
     assert_eq!(legacy_rows(&db), before);
