@@ -637,6 +637,7 @@ fn owner_and_urgent_bypass_digest_but_explicit_inbox_stays_pull_only() {
                     urgent,
                     automatic,
                     kind: DigestKind::Review,
+                    ..DeliveryPolicy::default()
                 },
             )
             .unwrap();

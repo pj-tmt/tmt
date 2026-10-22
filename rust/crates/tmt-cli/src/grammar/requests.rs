@@ -27,6 +27,7 @@ pub(in crate::grammar) fn talk() -> Command {
         )
         .visible_alias("send")
         .arg(clap::Arg::new("urgent").long("urgent").action(clap::ArgAction::SetTrue).help("Bypass Digest only; all delivery guards still apply"))
+        .arg(clap::Arg::new("passthrough").long("passthrough").action(clap::ArgAction::SetTrue).help("Type a person's own message into the agent's pane as is; not a request, returns at once"))
         .arg(clap::Arg::new("kind").long("kind").value_parser(["decision", "review", "fyi"]).default_value("fyi").help("Checklist purpose (default: fyi)"))
         .arg(operand("target", true))
         .arg(operand("message", true))

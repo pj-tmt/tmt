@@ -143,6 +143,7 @@ mod tests {
         use crate::invocation::{ContentInput, ListScope, TalkOptions};
         let talk = TalkOptions {
             urgent: false,
+            passthrough: false,
             digest_kind: tmt_core::request::digest::DigestKind::Fyi,
             room: None,
             force: false,

@@ -98,7 +98,10 @@ pub(crate) fn response_failure(
     };
     let (status, message) = match reason {
         ResponseRejection::Withdrawn => (5, "Request was withdrawn by its originator."),
-        ResponseRejection::NotRequired => (1, "Announcements do not accept replies."),
+        ResponseRejection::NotRequired => (
+            1,
+            "Announcements and typed passthrough messages do not accept replies.",
+        ),
         ResponseRejection::InputInvalid => (1, "Response input is invalid."),
         ResponseRejection::InputTooLarge => (1, "Response body exceeds the UTF-8 byte limit."),
         ResponseRejection::RequestNotFound => (3, "Request was not found."),

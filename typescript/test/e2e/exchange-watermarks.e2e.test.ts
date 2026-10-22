@@ -261,6 +261,7 @@ describe('exchange attention watermarks and revision fencing', { concurrent: fal
             delivery: 'queued',
             urgent: false,
             digestKind: 'fyi',
+            mode: 'request',
             final: {
               status: 'retained',
               response: body,

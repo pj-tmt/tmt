@@ -162,6 +162,11 @@ suffixes, at most 24 hours. Do not combine explicit timeout with detach.
 Pre-send delay accepts zero or a positive finite value, up to 2,147,483,647 ms.
 `--wait` is retired and rejected; `--lines` applies to check, not talk.
 
+`--passthrough` is for a person's own typed messages (a chat surface sends them for the
+user), not for agents: it types the text into the recipient's live pane exactly as written,
+with no reply command, and returns at once. An agent sender is refused
+(`PASSTHROUGH_NOT_ALLOWED`); never use it to make a message look like the user's.
+
 Without hook/runtime evidence, a verified pane retains plain delivery but agent
 readiness is unverified. Tmux cannot identify provider approval prompts. Never
 bypass a driver's denial or pending approval by manually pasting the request.

@@ -1,8 +1,8 @@
 //! Digest row admission and bounded SQL inside the canonical request transaction.
 use super::*;
 use tmt_core::request::digest::{
-    DeliveryPolicy, DigestChecklist, DigestItem, DigestKind, DigestPolicy, DigestSource,
-    DigestState,
+    DeliveryMode, DeliveryPolicy, DigestChecklist, DigestItem, DigestKind, DigestPolicy,
+    DigestSource, DigestState,
 };
 
 pub(super) fn policy(db: &Connection, id: &str) -> Result<Option<DigestPolicy>, StorageError> {
@@ -20,13 +20,15 @@ pub(super) fn write_policy(db: &Connection, p: &DigestPolicy) -> Result<(), Stor
 pub(super) fn delivery_policy(db: &Connection, id: &str) -> Result<DeliveryPolicy, StorageError> {
     Ok(db
         .query_row(
-            "SELECT urgent,kind,automatic FROM request_delivery_policies WHERE request_id=?",
+            "SELECT urgent,kind,automatic,mode FROM request_delivery_policies WHERE request_id=?",
             [id],
             |r| {
                 let urgent: i64 = r.get(0)?;
                 let automatic: i64 = r.get(2)?;
                 let kind = DigestKind::parse(&r.get::<_, String>(1)?)
                     .filter(|k| *k != DigestKind::Result)
+                    .ok_or(rusqlite::Error::InvalidQuery)?;
+                let mode = DeliveryMode::parse(&r.get::<_, String>(3)?)
                     .ok_or(rusqlite::Error::InvalidQuery)?;
                 if ![0, 1].contains(&urgent) || ![0, 1].contains(&automatic) {
                     return Err(rusqlite::Error::InvalidQuery);
@@ -35,6 +37,7 @@ pub(super) fn delivery_policy(db: &Connection, id: &str) -> Result<DeliveryPolic
                     urgent: urgent == 1,
                     kind,
                     automatic: automatic == 1,
+                    mode,
                 })
             },
         )
@@ -47,9 +50,9 @@ pub(super) fn write_delivery_policy(
     id: &str,
     p: &DeliveryPolicy,
 ) -> Result<(), StorageError> {
-    db.execute("INSERT INTO request_delivery_policies(request_id,urgent,kind,automatic) VALUES(?1,?2,?3,?4)
-        ON CONFLICT(request_id) DO UPDATE SET urgent=excluded.urgent,kind=excluded.kind,automatic=excluded.automatic",
-        params![id,i64::from(p.urgent),p.kind.as_str(),i64::from(p.automatic)]).map_err(|e|classify(e,"Write request delivery policy"))?;
+    db.execute("INSERT INTO request_delivery_policies(request_id,urgent,kind,automatic,mode) VALUES(?1,?2,?3,?4,?5)
+        ON CONFLICT(request_id) DO UPDATE SET urgent=excluded.urgent,kind=excluded.kind,automatic=excluded.automatic,mode=excluded.mode",
+        params![id,i64::from(p.urgent),p.kind.as_str(),i64::from(p.automatic),p.mode.as_str()]).map_err(|e|classify(e,"Write request delivery policy"))?;
     Ok(())
 }
 pub(super) fn hold(

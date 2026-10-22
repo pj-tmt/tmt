@@ -46,6 +46,9 @@ pub(super) fn json_document(
             value["waitingFor"] = "digest_checklist".into();
         }
     }
+    if correlation.passthrough {
+        value["mode"] = "passthrough".into();
+    }
     if correlation.delivery_uncertain {
         value["deliveryState"] = "uncertain".into();
     }
@@ -130,6 +133,15 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 terminal,
                 &unconfirmed_handoff(&correlation),
                 Some("the channel gives no receipt; do not resend"),
+            )?;
+        } else if correlation.passthrough {
+            tmt_cli_style::message::success(
+                &mut stdout,
+                terminal,
+                &format!(
+                    "Typed {} into {}'s pane as written",
+                    correlation.request_id, correlation.target
+                ),
             )?;
         } else {
             tmt_cli_style::message::success(

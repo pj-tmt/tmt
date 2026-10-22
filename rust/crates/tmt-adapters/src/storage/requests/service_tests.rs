@@ -11,6 +11,7 @@ mod history;
 mod lifecycle;
 mod notification;
 mod origin;
+mod passthrough;
 mod receipts;
 mod response;
 mod results;

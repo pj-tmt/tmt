@@ -109,6 +109,7 @@ fn room_dispatch_uses_the_shared_request_kind_and_operation_identity() {
         parsed(&["talk", "Alice", "Only Alice", "--room", "Design", "--detach"]).invocation,
         Invocation::Talk { options: TalkOptions {
             urgent: false,
+            passthrough: false,
             digest_kind: tmt_core::request::digest::DigestKind::Fyi, room: Some(room), .. }, .. } if room == "Design"
     ));
     for (verb, kind) in [
