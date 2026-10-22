@@ -99,11 +99,15 @@ A prompt not read yet or no longer retained keeps its listed preview, marked tru
 `tmt x show <request>`. They are
 `Detail.sent` and render as time-sorted "you" blocks among the finals; a live session entry
 with the same request ID replaces its restored copy, so sends survive an Ops restart and are not
-capped by the session's own list. The same read carries Core's passthrough capture
-by exact sender/recipient/request ID: pending/bound show `working…`, answered
-shows bounded safe Markdown as `turn output` (with Core's truncation flag), and
-`no_answer` names the missing output. A bound turn has no local ten-minute
-expiry. Captures never become ordinary replies or exact response attachments;
+capped by the session's own list. The same read carries Core's
+[message state](../../../../contracts/request-response-v1.md#message-state) and passthrough
+capture by exact sender/recipient/request ID. Delivery labels keep `reason.text`
+verbatim, beside a mark from Core's state and its supplied countdown; capture and
+local activity never override that line. The ordered send worker also observes the
+accepted request once through `requests.show`. Missing state keeps the legacy
+local label. Answered captures show bounded safe Markdown as `turn output` (with
+Core's truncation flag), and `no_answer` names the missing output. A bound turn has
+no local ten-minute expiry. Captures never become ordinary replies or exact response attachments;
 no pane observation decides capture or settlement. The exact provider/time/body
 observation already captured under its message is not repeated as recent pane
 output. A failed refresh preserves acquired sends until the next normal refresh.
