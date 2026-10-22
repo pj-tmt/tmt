@@ -650,7 +650,9 @@ target. `returnFocus` can name a persistent target; `focusFallback` must name a
 usable surviving control if the opener may disappear. Radix retains focus
 return to a menu trigger by default. Supply both `returnFocus` and `focusFallback`
 on menu content when that trigger can disappear; pointer entry does not infer
-an opener from whichever unrelated control happened to have focus. Radix owns
+an opener from whichever unrelated control happened to have focus. The
+`focusFallback` takes focus only when it is lost: a nested layer that outlasts its parent's
+close finds focus already returned to the parent's target and leaves it there. Radix owns
 containment for modal surfaces. Host autofocus handlers run first and can consume
 the event. Pinned Radix Popover is nonmodal by default: outside pointer or focus can leave
 and dismiss it, but Tab/Shift+Tab loop within its open content. Escape closes

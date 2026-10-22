@@ -231,6 +231,41 @@ it('uses a persistent fallback when an opener disappears and preserves it across
   expect(document.activeElement).toBe(fallback);
   expect(close.defaultPrevented).toBe(true);
 });
+it('keeps focus a parent already returned instead of taking it to the fallback', () => {
+  vi.stubGlobal('HTMLElement', FocusTarget);
+  const document = {
+    activeElement: null as FocusTarget | null,
+    body: null as FocusTarget | null,
+    documentElement: null as FocusTarget | null,
+  };
+  document.body = new FocusTarget(document);
+  document.documentElement = new FocusTarget(document);
+  const opener = new FocusTarget(document);
+  const surface = new FocusTarget(document);
+  const fallback = new FocusTarget(document);
+  const elsewhere = new FocusTarget(document);
+  document.activeElement = opener;
+  const focus = useLayerFocus({ focusFallback: () => fallback as unknown as HTMLElement });
+  focus.captureOrigin(surface as unknown as HTMLElement);
+  // The opener left with its parent, which has already put focus on its own target: a nested
+  // layer whose exit outlasts the parent's close leaves that focus alone.
+  opener.isConnected = false;
+  document.activeElement = elsewhere;
+  const close = cancelable('autofocus');
+  focus.onCloseAutoFocus(close);
+  expect(document.activeElement).toBe(elsewhere);
+  expect(close.defaultPrevented).toBe(true);
+  // A connected opener still takes focus back after an outside interaction moved it.
+  const reopened = new FocusTarget(document);
+  document.activeElement = reopened;
+  const again = useLayerFocus({ focusFallback: () => fallback as unknown as HTMLElement });
+  again.captureOrigin(surface as unknown as HTMLElement);
+  document.activeElement = elsewhere;
+  const next = cancelable('autofocus');
+  again.onCloseAutoFocus(next);
+  expect(document.activeElement).toBe(reopened);
+  expect(next.defaultPrevented).toBe(true);
+});
 it('never focuses disconnected, invisible, inert or disabled return targets', () => {
   const document = { activeElement: null as FocusTarget | null };
   for (const property of ['isConnected', 'visible', 'inert', 'disabled'] as const) {

@@ -132,7 +132,9 @@ export function focusLayerTarget(target: HTMLElement | null | undefined): boolea
 
 export function useLayerFocus(options: LayerFocusOptions, titleEntry = false) {
   const origin = useRef<HTMLElement | null>(null);
+  const surfaceNode = useRef<HTMLElement | null>(null);
   const captureOrigin = useCallback((surface: HTMLElement) => {
+    surfaceNode.current = surface;
     const active = surface.ownerDocument.activeElement;
     // Ref replay must not replace a persistent origin with focus already inside.
     if (
@@ -160,9 +162,23 @@ export function useLayerFocus(options: LayerFocusOptions, titleEntry = false) {
       // A pointer-opened menu can have no focused opener. Leave its trigger return
       // to Radix unless the host supplied an explicit persistent target.
       if (!options.returnFocus && !origin.current) return;
+      const fallback = options.focusFallback?.();
+      // The fallback is for lost focus. A layer whose exit outlasts its parent's close (a nested
+      // Popover leaving while its Dialog closes) finds focus already returned to the parent's
+      // target, and leaves it there rather than taking it to the fallback.
+      const surface = surfaceNode.current;
+      const active = surface?.ownerDocument.activeElement;
+      const placed =
+        !!surface &&
+        active instanceof HTMLElement &&
+        active !== surface.ownerDocument.body &&
+        active !== surface.ownerDocument.documentElement &&
+        active !== fallback &&
+        !surface.contains(active);
       if (
         focusLayerTarget(options.returnFocus?.() ?? origin.current) ||
-        focusLayerTarget(options.focusFallback?.())
+        (!placed && focusLayerTarget(fallback)) ||
+        placed
       )
         event.preventDefault();
       origin.current = null;
