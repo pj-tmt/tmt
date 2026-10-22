@@ -452,9 +452,11 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   Opening captures the quote without publishing or sending. The dark pill has a
   speech-bubble icon and `Annotate`, with a short thin leader at the focus end.
   Shortcut help is accessible through `aria-keyshortcuts`, without visible hotkey copy.
-- Annotation ranges use flat neutral grey token paint, no underline, rounding or
-  shadow, preserving authored text colour and weight. Round dark badges with white
-  numbers sit at the final text rect; collision lanes keep each target distinct.
+- Annotation ranges use the mint `annotation-highlight` tint (`-hover` while the
+  pointer is over one, with no outline box) and a 1px `annotation-rule` underline,
+  with no rounding or shadow, preserving authored text colour and weight. Round
+  number markers sit at the final text rect: a 16px circle inside a 24px hit area
+  that never moves the text; collision lanes keep every hit area distinct.
   Creation-order numbering includes every non-deleted thread before view filters.
   Deletion renumbers; resolved threads retain list numbers without page markers.
 - Annotation and thread windows are borderless, square grey panels with an uppercase
@@ -507,8 +509,10 @@ above it and 16px side padding. Recipient chips precede the text; labeled Attach
 the existing creator preference and the square arrow Send share its bottom row,
 aligned to the text edges. The composer retains one editor and draft owner.
 
-Annotation anchors and thread headers share one 22px circle, 12px semibold system
-font and grid-centered number. Header items align vertically with an 8px gap.
+Annotation anchors and thread headers share the annotation action fill, semibold
+system font and grid-centered number: an anchor is a 16px circle with a 10px number
+inside its 24px hit area, a thread header's number a 22px circle with a 12px number.
+Header items align vertically with an 8px gap.
 An anchored window adds no decorative connector line beside the circle.
 
 One message in Chat or a thread: author line (`name AGENT · time` for agents, `name · time` for people), body,

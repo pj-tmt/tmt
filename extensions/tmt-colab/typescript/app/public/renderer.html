@@ -296,7 +296,7 @@
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; }';
+            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; }';
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
@@ -307,7 +307,8 @@
             (framed ? pageFrame : '') +
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
-            '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:none}' +
+            '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px}' +
+            '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px}' +
             `
             [data-colab-question-group]:not([hidden]){display:block!important}
             [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
@@ -378,6 +379,7 @@
             hoverFrame = undefined;
             hoverPointer = undefined;
             sheet.textContent = highlightStyle;
+            CSS.highlights?.delete('colab-hover');
             hover?.remove();
             hover = undefined;
             hint?.remove();
@@ -447,7 +449,15 @@
             hover.dataset.colabHighlight = '';
             hover.dataset.colabSelectionOutline = '';
             if (hit) hover.dataset.colabThreadOutline = hit.id;
-            hover.style.cssText = `position:absolute;pointer-events:none;z-index:2147483646;outline:2px solid #386ca3;outline-offset:2px;left:${box.left + scrollX}px;top:${box.top + scrollY}px;width:${box.width}px;height:${box.height}px`;
+            // A commented passage is tinted by a highlight that outranks the rest one, so the text stays
+            // above it; the element stays to carry the thread and to outline a block to comment on.
+            const tinted = hit && typeof Highlight === 'function' && CSS.highlights;
+            if (tinted) {
+              const tint = new Highlight(hit.range);
+              tint.priority = 1;
+              CSS.highlights.set('colab-hover', tint);
+            }
+            hover.style.cssText = `position:absolute;pointer-events:none;z-index:2147483646;${tinted ? '' : 'outline:2px solid #386ca3;outline-offset:2px;'}left:${box.left + scrollX}px;top:${box.top + scrollY}px;width:${box.width}px;height:${box.height}px`;
             document.body.append(hover);
           }
           function chooseTarget(event) {
@@ -1133,7 +1143,7 @@
                   for (const rect of range.getClientRects()) {
                     if (++rectangles > 2048) throw new Error('highlight budget');
                     const mark = document.createElement('div');
-                    mark.style.cssText = `position:absolute;pointer-events:none;background:var(--tmt-ui-surface-annotation-highlight);left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
+                    mark.style.cssText = `position:absolute;pointer-events:none;background:var(--tmt-ui-surface-annotation-highlight);border-bottom:1px solid var(--tmt-ui-color-annotation-rule);left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
                     layer.append(mark);
                   }
               }
@@ -1162,10 +1172,14 @@
                       a.item.ordinal - b.item.ordinal,
                   );
                 for (const { item, rect } of paint) {
-                  const size = 22;
+                  // A 24 px target around the 16 px circle: the lanes below keep the targets apart, so
+                  // neither the circles nor the places a click lands ever overlap. The circle sits just
+                  // after the passage and a little above its line.
+                  const size = 24;
+                  const inset = (size - 16) / 2;
                   const maxLeft = Math.max(4, innerWidth - size - 4);
-                  let left = Math.max(4, Math.min(maxLeft, rect.right - 5));
-                  let top = Math.max(4 - scrollY, rect.top - size * 0.7);
+                  let left = Math.max(4, Math.min(maxLeft, rect.right + 3 - inset));
+                  let top = Math.max(4 - scrollY, rect.top - 10 - inset);
                   // Collision lanes preserve each thread's target, including identical ranges.
                   for (let attempt = 0; attempt <= placed.length; attempt++) {
                     const hit = placed.find(
@@ -1179,7 +1193,7 @@
                     const before = hit.left - size - 4;
                     if (before >= 4) left = before;
                     else {
-                      left = Math.max(4, Math.min(maxLeft, rect.right - 5));
+                      left = Math.max(4, Math.min(maxLeft, rect.right + 3 - inset));
                       top = hit.top + hit.size + 4;
                     }
                   }
@@ -1191,7 +1205,7 @@
                   marker.textContent = String(item.ordinal);
                   marker.title = 'Thread ' + item.ordinal + ': ' + item.selector.exact.slice(0, 80);
                   marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
-                  marker.style.cssText = `position:absolute;left:${left - origin.left}px;top:${top - origin.top}px;pointer-events:auto;cursor:pointer`;
+                  marker.style.cssText = `position:absolute;left:${left - origin.left}px;top:${top - origin.top}px;pointer-events:auto;cursor:pointer${String(item.ordinal).length > 2 ? ';font-size:8px' : ''}`;
                   marker.addEventListener('click', (event) => {
                     if (event.isTrusted)
                       port.postMessage({

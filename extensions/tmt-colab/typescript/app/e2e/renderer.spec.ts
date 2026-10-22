@@ -965,10 +965,10 @@ test('range-end numbers keep distinct targets and quoted hints through resize an
   const alignment = await frame.locator('#quote').evaluate((node) => {
     const range = node.ownerDocument.createRange();
     range.selectNodeContents(node);
-    return Math.abs(
-      node.ownerDocument.querySelector('[data-colab-thread]')!.getBoundingClientRect().bottom -
-        range.getBoundingClientRect().top,
-    );
+    // The marker is a 24 px hit box around a 16 px circle; align the circle, not the box.
+    const circleBottom =
+      node.ownerDocument.querySelector('[data-colab-thread]')!.getBoundingClientRect().bottom - 4;
+    return Math.abs(circleBottom - range.getBoundingClientRect().top);
   });
   expect(alignment).toBeLessThanOrEqual(8);
   const initial = await marker.evaluate((node) => parseFloat((node as HTMLElement).style.top));
@@ -1999,6 +1999,160 @@ test('highlight hover coalesces trusted pointer bursts and cancels pending geome
   await page.clock.runFor(20);
   expect(await reads()).toBe(3);
 });
+
+test('a hovered thread passage is tinted through the highlight API, without an outline box', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote" style="font:20px monospace">One highlighted passage</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(() => {
+    (
+      window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+    ).probe.handle.highlight([
+      { id: 'one', selector: { exact: 'One highlighted passage', prefix: '', suffix: '' } },
+    ]);
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["one"]');
+  const frame = page.frameLocator('#probe iframe');
+  const quote = frame.locator('#quote');
+  const box = (await quote.boundingBox())!;
+  const tinted = () => quote.evaluate(() => CSS.highlights.has('colab-hover'));
+  expect(await tinted()).toBe(false);
+  await page.mouse.move(box.x + 10, box.y + box.height / 2);
+  await expect.poll(tinted).toBe(true);
+  expect(await quote.evaluate(() => CSS.highlights.get('colab-hover')?.size)).toBe(1);
+  const outline = frame.locator('[data-colab-thread-outline]');
+  await expect(outline).toHaveAttribute('data-colab-thread-outline', 'one');
+  expect(await outline.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+  // Past the end of the line of text, still inside the frame: the pointer leaves the passage.
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+  await expect.poll(tinted).toBe(false);
+  await expect(outline).toHaveCount(0);
+});
+
+test('the rest highlight underlines the passage in the annotation rule colour', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote">One highlighted passage</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  const rules = await frame.locator('body').evaluate(() => {
+    const read = (selector: string) =>
+      [...document.styleSheets]
+        .flatMap((sheet) => [...sheet.cssRules])
+        .filter((rule): rule is CSSStyleRule => (rule as CSSStyleRule).selectorText === selector)
+        .map((rule) => ({
+          line: rule.style.getPropertyValue('text-decoration-line'),
+          color: rule.style.getPropertyValue('text-decoration-color'),
+          thickness: rule.style.getPropertyValue('text-decoration-thickness'),
+          background: rule.style.getPropertyValue('background'),
+        }));
+    const root = getComputedStyle(document.documentElement);
+    return {
+      rest: read('::highlight(colab-comments)'),
+      hover: read('::highlight(colab-hover)'),
+      rule: root.getPropertyValue('--tmt-ui-color-annotation-rule').trim(),
+      tint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight').trim(),
+      hoverTint: root.getPropertyValue('--tmt-ui-surface-annotation-highlight-hover').trim(),
+    };
+  });
+  expect(rules.rule).toMatch(/^#[0-9a-f]{6}$/i);
+  expect(rules.tint).toMatch(/^#[0-9a-f]{6}$/i);
+  expect(rules.hoverTint).toMatch(/^#[0-9a-f]{6}$/i);
+  expect(rules.rest).toEqual([
+    {
+      line: 'underline',
+      color: 'var(--tmt-ui-color-annotation-rule)',
+      thickness: '1px',
+      background: 'var(--tmt-ui-surface-annotation-highlight)',
+    },
+  ]);
+  expect(rules.hover).toEqual([
+    {
+      line: 'underline',
+      color: 'var(--tmt-ui-color-annotation-rule)',
+      thickness: '1px',
+      background: 'var(--tmt-ui-surface-annotation-highlight-hover)',
+    },
+  ]);
+});
+
+for (const width of [1440, 390]) {
+  test(`range-end markers keep a 24 px hit box around a 16 px circle without moving the text at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    await mount(
+      page,
+      '<p id="quote" style="font:16px monospace">Alpha beta gamma delta epsilon zeta</p>',
+    );
+    await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+    const frame = page.frameLocator('#probe iframe');
+    const quote = frame.locator('#quote');
+    const before = await quote.evaluate((node) => ({
+      rect: JSON.stringify(node.getBoundingClientRect()),
+      scrollWidth: node.ownerDocument.documentElement.scrollWidth,
+      scrollHeight: node.ownerDocument.documentElement.scrollHeight,
+    }));
+    await page.evaluate(() => {
+      (
+        window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+      ).probe.handle.highlight(
+        ['Alpha beta', 'Alpha beta', 'beta gamma', 'delta epsilon'].map((exact, index) => ({
+          id: `t${index}`,
+          selector: { exact, prefix: '', suffix: '' },
+        })),
+      );
+    });
+    const markers = frame.locator('[data-colab-thread]');
+    await expect(markers).toHaveCount(4);
+    // One synchronous snapshot: markers are replaced when the renderer re-places them.
+    const placed = await markers.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const box = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return {
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+          viewport: innerWidth,
+          padding: style.paddingTop,
+          clip: style.backgroundClip,
+          background: style.backgroundColor,
+        };
+      }),
+    );
+    expect(placed).toHaveLength(4);
+    const boxes = placed.map(({ x, y, width: w, height }) => ({ x, y, width: w, height }));
+    for (const marker of placed) {
+      expect(marker).toMatchObject({ width: 24, height: 24, padding: '4px', clip: 'content-box' });
+      expect(marker.background).not.toBe('rgba(0, 0, 0, 0)');
+      expect(marker.x).toBeGreaterThanOrEqual(0);
+      expect(marker.x + marker.width).toBeLessThanOrEqual(marker.viewport);
+    }
+    for (let first = 0; first < boxes.length; first++)
+      for (let second = first + 1; second < boxes.length; second++) {
+        const a = boxes[first]!;
+        const b = boxes[second]!;
+        const apart =
+          a.x + a.width <= b.x ||
+          b.x + b.width <= a.x ||
+          a.y + a.height <= b.y ||
+          b.y + b.height <= a.y;
+        expect(apart, `hit boxes ${first} and ${second} overlap`).toBe(true);
+      }
+    const after = await quote.evaluate((node) => ({
+      rect: JSON.stringify(node.getBoundingClientRect()),
+      scrollWidth: node.ownerDocument.documentElement.scrollWidth,
+      scrollHeight: node.ownerDocument.documentElement.scrollHeight,
+    }));
+    expect(after).toEqual(before);
+  });
+}
 
 test('cosmetic key notifications admit only the current render and closed Escape/@ set', async ({
   page,

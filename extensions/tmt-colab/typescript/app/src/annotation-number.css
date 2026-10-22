@@ -29,3 +29,16 @@
   content: none;
   display: none;
 }
+
+/* The marker the renderer draws in the page (#4489): a 16 px circle inside a 24 px target. The target
+   is the box and the circle is its content, so the fill stays the one `background-color` and the
+   target takes no room of its own (the renderer places markers by their targets). The thread
+   panel's numbers have no `data-colab-thread` and keep the circle above. */
+.annotation-number[data-colab-thread] {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 4px;
+  background-clip: content-box;
+  font-size: 10px;
+}

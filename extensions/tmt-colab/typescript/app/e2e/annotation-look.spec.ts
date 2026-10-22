@@ -324,11 +324,31 @@ for (const width of [1440, 1024, 390])
       await expect(thread).toBeVisible();
       const circle = thread.locator('.annotation-number');
       const metrics = await numberMetrics(marker);
-      expect(await numberMetrics(circle)).toEqual(metrics);
-      expect(metrics).toMatchObject({
+      const panelMetrics = await numberMetrics(circle);
+      // One number circle in two sizes (#4489): the page's marker is a 16 px circle in a 24 px
+      // target, the thread's number the 22 px circle. They share typeface, weight and alignment.
+      for (const key of [
+        'font-family',
+        'font-weight',
+        'align-items',
+        'justify-items',
+        'letter-spacing',
+        'border-radius',
+      ])
+        expect(panelMetrics[key], key).toBe(metrics[key]);
+      expect(panelMetrics).toMatchObject({
         width: '22px',
         height: '22px',
         'font-size': '12px',
+        'font-weight': '600',
+        'align-items': 'center',
+        'justify-items': 'center',
+      });
+      expect(metrics).toMatchObject({
+        width: '24px',
+        height: '24px',
+        padding: '4px',
+        'font-size': '10px',
         'font-weight': '600',
         'align-items': 'center',
         'justify-items': 'center',
