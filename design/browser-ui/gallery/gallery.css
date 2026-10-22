@@ -307,8 +307,3 @@ code,
   width: 1em;
   height: 1em;
 }
-.gallery-check {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tmt-ui-space-s);
-}

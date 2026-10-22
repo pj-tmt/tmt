@@ -453,6 +453,21 @@ export function MenusSection() {
             <Cell label="field focus" pin="focus">
               <BrowserMenu label="Sort" valueLabel={sort} items={sortItems} onSelect={noop} />
             </Cell>
+            <Cell label="select (static page markup)">
+              <button type="button" className="tmt-ui-menu-trigger" data-variant="select">
+                <span className="tmt-ui-menu-value">Ask first</span>
+              </button>
+            </Cell>
+            <Cell label="select focus" pin="focus">
+              <button type="button" className="tmt-ui-menu-trigger" data-variant="select">
+                <span className="tmt-ui-menu-value">Ask first</span>
+              </button>
+            </Cell>
+            <Cell label="select disabled">
+              <button type="button" className="tmt-ui-menu-trigger" data-variant="select" disabled>
+                <span className="tmt-ui-menu-value">Ask first</span>
+              </button>
+            </Cell>
             <Cell label="crumb">
               <BrowserMenu
                 label="Project"
@@ -666,7 +681,7 @@ export function CheckboxSection() {
               ] as const
             ).map(([label, { pin, ...props }]: readonly [string, CheckboxState]) => (
               <Cell key={label} label={label} pin={pin}>
-                <label className="gallery-check">
+                <label className="tmt-ui-checkbox-label">
                   <BrowserCheckbox {...props} />
                   Notify me
                 </label>

@@ -1,6 +1,7 @@
 import { remoteShell, type RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
 import { remoteState, currentRemote } from './remote-state.js';
+import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
 import {
   remoteRegistry,
@@ -112,16 +113,22 @@ export function remoteRegistryPage(
   } => {
     currentDialog?.close();
     const box = node('dialog');
-    box.className = 'remote-dialog';
+    box.className = browserUiClasses.dialog;
+    const header = node('header');
+    header.className = browserUiClasses.dialogHeader;
     const heading = node('h2', title);
     heading.id = 'remote-dialog-heading';
+    header.append(heading);
     box.setAttribute('aria-labelledby', heading.id);
+    const content = node('div');
+    content.className = browserUiClasses.dialogBody;
     const body = node('div');
     const message = node('p');
     message.setAttribute('role', 'status');
-    const buttons = node('div');
-    buttons.className = 'remote-actions';
-    box.append(heading, body, message, buttons);
+    content.append(body, message);
+    const buttons = node('footer');
+    buttons.className = browserUiClasses.dialogActions;
+    box.append(header, content, buttons);
     root.append(box);
     const end = (): void => box.close();
     box.addEventListener(
@@ -163,11 +170,11 @@ export function remoteRegistryPage(
     const choices: (() => string | null)[] = [];
     for (const row of plan.rows) {
       const item = node('section');
-      item.className = 'remote-import-row';
-      item.append(
-        node('h3', row.entry.name),
-        node('p', `${kindLabel(row.entry)} · ${row.entry.url}`),
-      );
+      item.className = browserUiClasses.section;
+      const name = node('h3', row.entry.name);
+      name.className = browserUiClasses.sectionHeading;
+      name.dataset.variant = 'title';
+      item.append(name, node('p', `${kindLabel(row.entry)} · ${row.entry.url}`));
       if (row.status === 'duplicate') {
         item.append(node('p', `Already added as ${row.existingName}`));
         choices.push(() => null);
@@ -176,7 +183,9 @@ export function remoteRegistryPage(
         const alias = field('Remote name', row.suggestedName);
         const skip = node('input');
         skip.type = 'checkbox';
+        skip.className = browserUiClasses.checkbox;
         const skipLabel = node('label', 'Skip');
+        skipLabel.className = browserUiClasses.checkboxLabel;
         skipLabel.prepend(skip);
         item.append(alias.label, skipLabel);
         choices.push(() => (skip.checked ? null : alias.input.value));
@@ -253,16 +262,25 @@ export function remoteRegistryPage(
       catalog = await remoteRegistry.list();
       const rows = catalog.entries.map((entry) => {
         const row = node('li');
+        row.className = browserUiClasses.listRow;
         row.dataset.remote = entry.name;
         row.dataset.url = entry.url;
         row.dataset.kind = entry.kind;
-        row.append(node('h3', entry.name), node('p', `${kindLabel(entry)} · ${entry.url}`));
-        const state = node('p', remoteState(observed, current(entry)).text);
-        state.className = 'remote-state';
+        const title = node('div');
+        title.className = browserUiClasses.listTitle;
+        const label = node('span', entry.name);
+        label.className = browserUiClasses.listLabel;
+        const description = node('span', `${kindLabel(entry)} · ${entry.url}`);
+        description.className = browserUiClasses.listDescription;
+        title.append(label, description);
+        const meta = node('div');
+        meta.className = browserUiClasses.listMeta;
+        const state = node('div', remoteState(observed, current(entry)).text);
+        state.className = browserUiClasses.listState;
         state.dataset.tone = remoteState(observed, current(entry)).tone;
-        row.append(state);
+        meta.append(state);
         const actions = node('div');
-        actions.className = 'remote-actions';
+        actions.className = browserUiClasses.listActions;
         const open = action('Open', () => {
           void (async () => {
             try {
@@ -283,11 +301,18 @@ export function remoteRegistryPage(
           actions.append(open);
         }
         actions.append(renameButton, removeButton);
-        row.append(actions);
+        row.append(title, meta, actions);
         return row;
       });
       list.replaceChildren(...rows);
-      if (!rows.length) list.append(node('li', 'No remotes added in this browser.'));
+      if (!rows.length) {
+        const empty = node('li');
+        empty.className = browserUiClasses.listRow;
+        const text = node('div', 'No remotes added in this browser.');
+        text.className = browserUiClasses.listTitle;
+        empty.append(text);
+        list.append(empty);
+      }
       menu(catalog, observed, address ?? '');
     } catch (error) {
       showError(error, status);
@@ -345,7 +370,7 @@ export function remoteRegistryPage(
     observed = state;
     if (checkedAddress) address = checkedAddress;
     for (const row of list.querySelectorAll<HTMLElement>('[data-remote]')) {
-      const stateNode = row.querySelector<HTMLElement>('.remote-state')!;
+      const stateNode = row.querySelector<HTMLElement>('.tmt-ui-list-state')!;
       const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
       const isCurrent = !!entry && currentRemote(entry, address, location.href);
       const view = remoteState(observed, isCurrent);

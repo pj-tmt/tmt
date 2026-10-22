@@ -337,7 +337,7 @@ export async function settingsPage(shell?: RemoteShell): Promise<void> {
     for (const field of [opening, mode, custom])
       field.disabled = !editable || (field === custom && mode.value !== 'custom');
     for (const button of document.querySelectorAll<HTMLButtonElement>(
-      'form button:not(.settings-choice):not([role="option"])',
+      'form button:not(.tmt-ui-menu-trigger):not([role="option"])',
     ))
       fence(button, !page.writableWhenIdle);
     if (page.settings) {

@@ -56,3 +56,12 @@
   border-color: var(--tmt-ui-surface-rule);
   cursor: default;
 }
+
+/* A checkbox with its text beside it, the whole label clickable. */
+.tmt-ui-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-text);
+  cursor: pointer;
+}

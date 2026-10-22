@@ -25,6 +25,10 @@
   letter-spacing: normal;
   text-transform: none;
 }
+/* In a grid section the gap already separates the title from its content. */
+.tmt-ui-section > .tmt-ui-section-heading[data-variant='title'] {
+  margin-bottom: 0;
+}
 /* A heading that follows content in the same section opens a new group. */
 .tmt-ui-section > :not(.tmt-ui-section-heading) + .tmt-ui-section-heading {
   margin-top: var(--tmt-ui-space-l);
