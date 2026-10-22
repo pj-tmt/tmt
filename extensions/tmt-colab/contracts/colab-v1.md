@@ -2044,7 +2044,9 @@ ciphertext staging and append retry. No second stream owner or keyring is added.
 The browser ledger publishes `dispatching` before one signed Remote
 `dispatch.create`, with envelope ID equal to the frozen operation UUID, anonymous
 originator, one agent UUID and exact unprefixed message. Remote owns dispatch
-admission and core owns acceptance/advisory wake/final retention. Accepted is not
+admission and, once a send is admitted, its attribution to the person at the machine
+([Identity attribution](../../../contracts/remote-channel-v1.md#operations)); the ledger
+still sends only the anonymous form. Core owns acceptance/advisory wake/final retention. Accepted is not
 an agent final. Valid states are:
 
 ```text

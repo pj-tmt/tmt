@@ -47,6 +47,13 @@ elif wire['operation']=='dispatch.create':
     if (root/'lost').exists(): print('broken')
     else:
         receipt['wake']={'status':'uncertain','paneAttempted':True};print(json.dumps(receipt))
+elif wire['operation']=='user.identity':
+    if (root/'identity-error').exists():
+        code,message=(root/'identity-error').read_text().split('|',1)
+        print(json.dumps({'error':{'code':code,'message':message}}));sys.exit(1)
+    person={'identityId':'22222222-2222-4222-8222-222222222222','name':'owner','created':False}
+    if (root/'identity-renamed').exists(): person.update({'name':'owner-user','renamedFrom':'owner'})
+    print(json.dumps(person))
 elif wire['operation']=='identities.status':
     print(json.dumps({'identities':[{'id':id,'found':True,'status':{'state':'stale'}} for id in wire['input']['identityIds']]}))
 elif wire['operation']=='requests.show':
@@ -76,6 +83,20 @@ else: raise RuntimeError('unexpected operation')
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()
+    }
+    /// The person the fixture's `user.identity` resolves.
+    pub const PERSON: &'static str = "22222222-2222-4222-8222-222222222222";
+    /// Make `user.identity` fail the way Core does: a code and its message.
+    pub fn identity_fails(&self, code: &str, message: &str) {
+        fs::write(
+            self.root.join("identity-error"),
+            format!("{code}|{message}"),
+        )
+        .unwrap();
+    }
+    /// Make `user.identity` answer with the `-user` name an agent's name forced.
+    pub fn identity_renamed(&self) {
+        fs::write(self.root.join("identity-renamed"), "").unwrap();
     }
     pub fn sends(&self) -> usize {
         self.calls()

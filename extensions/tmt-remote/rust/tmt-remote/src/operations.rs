@@ -21,7 +21,10 @@ use std::sync::{
 struct Dispatch {
     version: u64,
     operation: String,
-    originator: String,
+    /// Exactly one of `originator` and `identity`, as Core takes them. A client sends only
+    /// `originator:"anonymous"`; the journal may also hold the person's `identity` (#4255).
+    originator: Option<String>,
+    identity: Option<String>,
     input: Intent,
 }
 #[derive(Deserialize)]
@@ -100,11 +103,26 @@ fn result_state(id: &str, result: Result<Value, RemoteError>) -> Result<Value, R
 pub(crate) fn invalid() -> RemoteError {
     RemoteError::new("REMOTE_INPUT_INVALID", "Invalid remote operation input.")
 }
+/// A client's `dispatch.create`: only the anonymous originator. A caller never selects an identity.
 fn dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
+    let value = frozen_dispatch(bytes)?;
+    if value.identity.is_some() {
+        return Err(invalid());
+    }
+    Ok(value)
+}
+/// A journaled `dispatch.create`: the anonymous form a client sent, or the same send attributed to
+/// the person at this machine. Never both and never neither.
+fn frozen_dispatch(bytes: &[u8]) -> Result<Dispatch, RemoteError> {
     let value: Dispatch = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+    let attribution = match (&value.originator, &value.identity) {
+        (Some(originator), None) => originator == "anonymous",
+        (None, Some(identity)) => canonical::is_core_id(identity),
+        _ => false,
+    };
     if value.version != 1
         || value.operation != "dispatch.create"
-        || value.originator != "anonymous"
+        || !attribution
         || value.input.kind != "request"
         || value.input.recipient_ids.len() != 1
         || !canonical::is_core_id(&value.input.operation_id)
@@ -124,7 +142,7 @@ fn permits(grant: &Grant, intent: &Intent) -> Result<(), RemoteError> {
     Ok(())
 }
 pub(crate) fn held_intent(grant: &Grant, id: &str, frozen: &[u8]) -> Result<Intent, RemoteError> {
-    let intent = dispatch(frozen)?.input;
+    let intent = frozen_dispatch(frozen)?.input;
     if intent.operation_id != id {
         return Err(invalid());
     }
@@ -250,7 +268,7 @@ impl Operations {
         }) {
             return self.read(permit);
         }
-        let id = match operation {
+        let (id, notice) = match operation {
             "dispatch.create" => {
                 let mut value = dispatch(&permit.message.payload)?;
                 if value.input.operation_id != permit.message.envelope().id {
@@ -265,7 +283,27 @@ impl Operations {
                 if frozen.len() > self.input_limit {
                     return Err(invalid());
                 }
-                permit.adopt(Some(&frozen), &value.input.recipient_ids)?.id
+                // A retry finds the send already frozen: it asks Core nothing.
+                let known = permit
+                    .with_store(|store| {
+                        store.owned(&permit.grant, &value.input.operation_id, now_ms()?)
+                    })
+                    .is_ok();
+                let (attributed, said) = if known {
+                    (frozen.clone(), None)
+                } else {
+                    self.attributed(&frozen)
+                };
+                let (frozen, said) = if attributed.len() > self.input_limit {
+                    (frozen, None)
+                } else {
+                    (attributed, said)
+                };
+                let adopted = permit.adopt(Some(&frozen), &value.input.recipient_ids)?;
+                // What was said is about this freeze: a retry that finds an earlier one stored says
+                // nothing about it.
+                let notice = said.filter(|_| adopted.frozen.as_deref() == Some(frozen.as_slice()));
+                (adopted.id, notice)
             }
             _ => return Err(invalid()),
         };
@@ -299,6 +337,10 @@ impl Operations {
                 _ => uncertain(&id),
             }
         };
+        let mut payload = payload;
+        if let (Some(notice), Some(fields)) = (notice, payload.as_object_mut()) {
+            fields.insert("identity".into(), notice);
+        }
         let metadata = match permit.sessions.operation_response(
             &permit.grant,
             &id,
@@ -477,8 +519,45 @@ impl Operations {
         }
         permit.response(&payload)
     }
+    /// The Core payload for a send from a paired owner device: attributed to the person at this
+    /// machine through `user.identity`, so Digest does not hold the person's own messages (#4255).
+    /// It runs once the send is admitted and its bytes are frozen with the result, so a held send
+    /// is replayed as frozen and never asks Core again. A refusal of the name (`USER_NAME_*`) keeps
+    /// the send anonymous and returns the typed notice for the surface; any other failure keeps it
+    /// anonymous silently. A send is never blocked or retried by it.
+    fn attributed(&self, frozen: &[u8]) -> (Vec<u8>, Option<Value>) {
+        let ask = json!({"version":1,"operation":"user.identity","input":{}});
+        let anonymous = |notice| (frozen.to_vec(), notice);
+        let person = match self.api(ask.to_string().as_bytes()) {
+            Ok(person) => person,
+            Err(error) if error.code.starts_with("USER_NAME_") => {
+                return anonymous(Some(
+                    json!({"state":"anonymous","reason":error.code,"message":error.message}),
+                ));
+            }
+            Err(_) => return anonymous(None),
+        };
+        let Some(identity) = person["identityId"]
+            .as_str()
+            .filter(|id| canonical::is_core_id(id))
+        else {
+            return anonymous(None);
+        };
+        let Ok(mut payload) = serde_json::from_slice::<Value>(frozen) else {
+            return anonymous(None);
+        };
+        let Some(fields) = payload.as_object_mut() else {
+            return anonymous(None);
+        };
+        fields.remove("originator");
+        fields.insert("identity".into(), json!(identity));
+        let notice = person["renamedFrom"]
+            .as_str()
+            .map(|from| json!({"state":"person","name":person["name"],"renamedFrom":from}));
+        (payload.to_string().into_bytes(), notice)
+    }
     fn resolve(&self, frozen: &[u8], retry: bool, grant: &Grant) -> Result<Value, RemoteError> {
-        let intent = dispatch(frozen)?.input;
+        let intent = frozen_dispatch(frozen)?.input;
         let id = &intent.operation_id;
         let show = json!({"version":1,"operation":"dispatch.show","input":{"operationId":id}});
         match self.api(show.to_string().as_bytes()) {
