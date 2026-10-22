@@ -4,8 +4,8 @@
 //! own progress (`Store::page_progress`: the epoch and the content counts, not the membership head,
 //! so creating or sharing another page does not refold every page): a page whose key is unchanged is
 //! not folded again. The file holds nothing the pages do not; deleting it, or any entry going
-//! stale, only costs a fold. It is never signed or synced. A revocation alone can leave an entry
-//! stale until the page's next write: the list and the limit are display and a working agreement,
+//! stale, only costs a fold on a scan; the metadata list omits it instead. It is never signed or
+//! synced. A revocation alone can leave an entry stale until the page's next write: the list and the limit are display and a working agreement,
 //! never authority.
 use crate::{
     Result,
@@ -149,6 +149,21 @@ fn save(layout: &Layout, pages: &BTreeMap<String, (String, Option<PageWork>)>) -
     Ok(())
 }
 
+/// Current cached work only. Missing, stale or unreadable entries are omitted without a fold,
+/// lock or write; callers needing freshly derived work use [`scan`].
+pub fn cached(layout: &Layout, store: &Store, key: &Keyring, pages: &[String]) -> Result<Found> {
+    let fingerprints =
+        store.owner_read(&key.space_id, &key.owner_public(), |tx| tx.page_progress())?;
+    let known = load(layout);
+    Ok(pages
+        .iter()
+        .filter_map(|id| {
+            let (was, work) = known.get(id)?;
+            (fingerprints.get(id) == Some(was)).then(|| (id.clone(), work.clone()))
+        })
+        .collect())
+}
+
 /// The work of each given page: `None` for a page with no work, a shell or a page that cannot be
 /// read now. Folds only the pages whose fingerprint changed since the last scan, and keeps the file
 /// to the given pages.
@@ -241,6 +256,54 @@ pub fn held_elsewhere(found: &Found, page: &str) -> Vec<Held> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_reads_only_current_entries_and_never_creates_or_rewrites_the_index() {
+        let root =
+            std::env::temp_dir().join(format!("tmt-work-index-cache-{}", std::process::id()));
+        let layout = Layout::open(&root).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let mut store = Store::open(&layout).unwrap();
+        let pages: Vec<_> = (1..=3)
+            .map(|n| format!("10000000-0000-4000-8000-{n:012}"))
+            .collect();
+        for page in &pages {
+            store.create_page(page).unwrap();
+        }
+        assert!(cached(&layout, &store, &key, &pages).unwrap().is_empty());
+        assert!(!layout.directory.join(FILE).exists());
+        let fingerprints = store
+            .owner_read(&key.space_id, &key.owner_public(), |tx| tx.page_progress())
+            .unwrap();
+        let work = Some(PageWork {
+            derived: json!({"stage":"in-progress","done":0,"total":1,"working":[],"signoff":0}),
+            held: vec![],
+            lines: vec![],
+        });
+        save(
+            &layout,
+            &BTreeMap::from([
+                (
+                    pages[0].clone(),
+                    (fingerprints[&pages[0]].clone(), work.clone()),
+                ),
+                (pages[1].clone(), (fingerprints[&pages[1]].clone(), None)),
+            ]),
+        )
+        .unwrap();
+        store.advance_epoch(&pages[1], 1).unwrap();
+        let before = std::fs::read(layout.directory.join(FILE)).unwrap();
+        // These pages deliberately have no decryptable content. The current projection remains
+        // usable; a stale/missing one is omitted rather than causing any materialization.
+        assert_eq!(
+            cached(&layout, &store, &key, &pages).unwrap(),
+            BTreeMap::from([(pages[0].clone(), work)])
+        );
+        assert_eq!(std::fs::read(layout.directory.join(FILE)).unwrap(), before);
+        assert!(!layout.directory.join(LOCK).exists());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn an_entry_survives_the_file_and_a_damaged_one_is_dropped() {

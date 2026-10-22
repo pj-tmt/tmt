@@ -1,5 +1,5 @@
-//! The owner's local plaintext page titles (#4218): a display-only projection a summary worker
-//! writes from the verified fold it already runs, so Home, cards and search need no decrypt step.
+//! The owner's local plaintext page titles (#4218): a display-only projection summary workers and
+//! CLI list misses write from their verified folds, so Home, cards and search need no decrypt step.
 //! It lives in the owner store (`page_titles`), is never a log statement and is never synced,
 //! published, exported or shared; deleting or archiving a page removes its row, and losing the rows
 //! loses nothing because the next fold writes them again (contract: Schema 16).
@@ -59,11 +59,11 @@ pub(crate) fn attach_to_catalog(
     }
 }
 
-/// One worker's best-effort writer: its own writable store handle, opened on first use. A write that
+/// One caller's best-effort writer: its own writable store handle, opened on first use. A write that
 /// cannot happen (no handle, a busy or stale store) leaves the page without a row, never fails the
-/// summary, and is tried again at the page's next fold. The handle never creates or migrates the
-/// store: only the serve's own open does, and a worker that raced it would upgrade the store behind
-/// the caller that expects it to be behind (#4300).
+/// fold, and is tried again at the page's next fold. The handle never creates or migrates the
+/// store: a background worker or CLI list must not upgrade a store whose lifecycle owner expects
+/// it to be behind (#4300).
 pub(crate) struct TitleWriter {
     layout: Layout,
     store: Option<Store>,

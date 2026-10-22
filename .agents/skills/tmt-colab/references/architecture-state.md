@@ -610,8 +610,10 @@ is added.
   bounded by `SUMMARY_DETAILS_BYTES`, pending/failed entries remain unknown. The summary values are
   not persisted; the title is, by the next entry.
 - Page titles (`page_titles.rs`, `page_titles` in schema 16) are the owner's local plaintext title
-  projection of an active page. The same two summary workers write it as a by-product of the fold
-  they already do (`summary::summarize_current`), through `TitleWriter`'s own lazily opened store:
+  projection of an active page. The two summary workers write it as a by-product of their fold
+  (`summary::summarize_current`); CLI `inspection::ListTitles` reads current rows once and folds only
+  missing/stale titles, also filling them through `TitleWriter`'s lazily opened `Store::write_existing`
+  handle, which never creates or migrates state:
   the page's full fingerprint is captured before the fold and compared again inside the immediate
   `project_transaction`, so a concurrent edit, membership change, archive or delete installs
   nothing. A row keeps the head-less `page_progress` key, and `page_titles()` serves only a row whose key is current.
@@ -783,6 +785,10 @@ from the verified complete catalog, including retained deleted IDs, before
 read/write/export/management effects. Domain requests, JSON and confirmations keep
 full IDs. Ambiguity lists authenticated titles and shortest candidate IDs;
 missing/deleted prefixes refuse without changing state. Other ID operands stay strict.
+`ls` keeps verified catalog metadata and membership-head consistency, but full content checks run
+only for title misses. It omits layout fields; `show` retains full title/content/layout inspection.
+Its work/parent display uses only current `work_index::cached` entries, without a second fold or
+index write; work admission and explicit work reads retain their existing scan path.
 Member removal/role changes capture complete verified assignments, and deletion requires `--yes`.
 Explicit frozen delete retries bypass only the missing catalog view so the engine
 can replay the retained receipt. Retention reads use verified policy without a decoder.
