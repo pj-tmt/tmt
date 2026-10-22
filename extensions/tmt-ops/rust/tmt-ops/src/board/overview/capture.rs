@@ -442,7 +442,7 @@ fn capture_squads_packet(output: &str) {
                         "selected":format!("{:?}",app.workspace.selected),"hits":format!("{:?}",app.hits.borrow()),"controls":format!("{:?}",app.workspace_strip_hits.borrow()),
                         "inputBand":format!("{:?}",app.input_band.get()),"inputViewport":format!("{:?}",app.input_viewport.get()),"cursor":cursor,
                         "sendHit":app.composer.send_hit.borrow().as_ref().map(|hit|json!({"area":format!("{:?}",hit.area),"sender":hit.key.0,"recipient":hit.key.1})),
-                        "quoteHit":app.composer.quote_hit.borrow().as_ref().map(|hit|format!("{:?}",hit.area))}));
+                        "quoteHits":app.composer.paste_hits.borrow().iter().map(|hit|format!("{:?}",hit.area)).collect::<Vec<_>>()}));
                 }
             }
         }

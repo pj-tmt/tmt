@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const MAX_BYTES = 1.5 * 1024 * 1024;
+const MAX_THEME_BYTES = 16 * 1024;
 const app = new URL('../typescript/app/', import.meta.url).pathname;
 const [directory, flag] = process.argv.slice(2);
 if (!directory) throw new Error('usage: verify-runtime.mjs <dist directory> [--update]');
@@ -18,15 +19,18 @@ const packages = Object.fromEntries(
   ['react', 'react-dom', 'htm', '@tailwindcss/browser', 'lucide-react'].map((name) => [name, installed(name)]),
 );
 const bytes = readFileSync(join(directory, 'assets/colab-runtime.js'));
+const themeBytes = readFileSync(join(directory, 'assets/colab-runtime.css'));
+const entry = (path, content) => ({
+  path,
+  sha256: createHash('sha256').update(content).digest('hex'),
+  length: content.length,
+});
 const built = {
   version: 1,
   packages,
   files: [
-    {
-      path: 'assets/colab-runtime.js',
-      sha256: createHash('sha256').update(bytes).digest('hex'),
-      length: bytes.length,
-    },
+    entry('assets/colab-runtime.js', bytes),
+    entry('assets/colab-runtime.css', themeBytes),
   ],
 };
 
@@ -50,10 +54,18 @@ const text = bytes.toString('utf8');
 expect(bytes.length <= MAX_BYTES, `runtime is ${bytes.length} bytes, over ${MAX_BYTES}`);
 // The frame injects this as an inline script: it must not close its own tag, must not need
 // `process`, must not load a source map, and must not need eval (the frame has no unsafe-eval).
-expect(!text.includes('</script'), 'contains a script end tag');
+expect(!text.toLowerCase().includes('</script'), 'contains a script end tag');
+  expect(!text.includes('<' + '!--'), 'contains an HTML comment opener');
 expect(!text.includes('process.env'), 'reads process.env');
 expect(!text.includes('sourceMappingURL'), 'references a source map');
 expect(!/\beval\s*\(/.test(text) && !text.includes('new Function('), 'uses eval or new Function');
+// The theme goes into a `<style type="text/tailwindcss">` block: an `@import` there makes the
+// browser build skip its own default import of Tailwind, and `</style` would end the block.
+const theme = themeBytes.toString('utf8');
+expect(themeBytes.length <= MAX_THEME_BYTES, `theme is ${themeBytes.length} bytes, over ${MAX_THEME_BYTES}`);
+expect(!theme.includes('@import'), 'theme contains @import');
+expect(!theme.toLowerCase().includes('</style'), 'theme contains a style end tag');
+expect(!theme.includes('<' + '!--'), 'theme contains an HTML comment opener');
 const notices = read(join(directory, 'THIRD-PARTY-NOTICES.txt'));
 for (const name of Object.keys(packages))
   expect(notices.includes(`\n## ${name} - ${packages[name]} (`), `notices lack ${name} ${packages[name]}`);
@@ -62,4 +74,4 @@ if (failures.length) {
   console.error(`Page runtime check failed:\n- ${failures.join('\n- ')}`);
   process.exit(1);
 }
-console.log(`page runtime ok: ${bytes.length} bytes`);
+console.log(`page runtime ok: ${bytes.length} bytes, theme ${themeBytes.length} bytes`);

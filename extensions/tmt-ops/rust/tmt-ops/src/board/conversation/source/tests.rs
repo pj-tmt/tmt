@@ -155,10 +155,14 @@ fn refresh_keeps_the_selected_literal_quote_without_request_identity_checks() {
         .input
         .as_ref()
         .expect("quote opens the admitted member draft");
-    assert_eq!(input.chat_quotes[0].text, "literal passage");
-    assert!(input.text.is_empty(), "a chip does not become editor text");
+    assert_eq!(input.literal_quotes()[0].text, "literal passage");
+    assert_eq!(
+        input.text.as_str(),
+        "literal passage\n",
+        "Editor owns the full quote source"
+    );
     assert!(
-        input.response_quotes.is_empty(),
+        input.exact_quotes().next().is_none(),
         "literal chips grant no exact-source authority"
     );
 }
@@ -635,7 +639,7 @@ fn a_selection_survives_the_input_band_growing_and_still_quotes() {
             button.x,
             button.y,
         );
-        let quotes = &app.input.as_ref().unwrap().chat_quotes;
+        let quotes = &app.input.as_ref().unwrap().literal_quotes();
         assert_eq!(quotes.len(), 1);
         assert_eq!(quotes[0].text, "passage 070");
     }
@@ -666,7 +670,7 @@ fn quote_does_not_depend_on_what_the_agent_is_doing() {
         draw(&mut app, 100, TALL);
         assert!(quote_button(&app).is_some(), "{phase:?}");
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let quotes = &app.input.as_ref().unwrap().chat_quotes;
+        let quotes = &app.input.as_ref().unwrap().literal_quotes();
         assert_eq!(quotes[0].text, "passage 005", "{phase:?}");
     }
 }
@@ -755,7 +759,7 @@ fn a_keyboard_selection_quotes_whole_lines_without_the_mouse() {
     draw(&mut app, 100, TALL);
     assert!(quote_button(&app).is_some());
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let quotes = &app.input.as_ref().unwrap().chat_quotes;
+    let quotes = &app.input.as_ref().unwrap().literal_quotes();
     let text = &quotes[0].text;
     assert_eq!(text.lines().count(), 3, "{text}");
     assert!(text.contains(" │ passage 000"), "{text}");

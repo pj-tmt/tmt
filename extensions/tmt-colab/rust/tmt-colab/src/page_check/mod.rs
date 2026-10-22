@@ -200,6 +200,25 @@ pub fn check(source: &str) -> Result<Report, SourceTooLarge> {
     Ok(inspect(&tree))
 }
 
+/// A source nested past the depth where a browser's parse and ours stop agreeing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TooDeep;
+
+/// The `content` of the first `<meta name="tmt-colab-runtime">` in document order: the marker a
+/// page uses to ask for the bundled runtime (#1693), found the way the browser's `querySelector`
+/// finds it, not by text search (a copy in a comment, a `textarea` or a script string is no
+/// element). `Ok(None)` when there is no such element, `Ok(Some(""))` when it has no `content`,
+/// and `Err` when the source nests past [`crate::limits::PAGE_DEPTH`], where no verdict matches a
+/// browser's.
+pub(crate) fn runtime_marker(source: &str) -> Result<Option<String>, TooDeep> {
+    let tree = tree::Tree::parse(source).map_err(|_| TooDeep)?;
+    Ok(tree
+        .elements()
+        .into_iter()
+        .find(|&id| tree.name(id) == "meta" && tree.attr(id, "name") == Some("tmt-colab-runtime"))
+        .map(|id| tree.attr(id, "content").unwrap_or_default().to_owned()))
+}
+
 /// One static source parse for the owner summary's markup and normal quote associations.
 pub(crate) fn summary(
     source: &str,

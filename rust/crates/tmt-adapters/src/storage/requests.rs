@@ -5,10 +5,12 @@
 //! held.
 
 mod attention;
+mod delivery;
 mod digest;
 mod flow;
 mod history;
 mod notification;
+pub(super) mod passthrough;
 mod reply_batch;
 mod rows;
 
@@ -209,6 +211,15 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<(), Self::Error> {
         digest::write_delivery_policy(self.0, id, p)
     }
+    fn passthrough_capture(
+        &self,
+        id: &str,
+    ) -> Result<Option<tmt_core::request::passthrough::PassthroughCapture>, Self::Error> {
+        passthrough::capture(self.0, id)
+    }
+    fn create_passthrough_capture(&mut self, id: &str, at: u64) -> Result<(), Self::Error> {
+        passthrough::start_capture(self.0, id, at)
+    }
     fn hold_digest_item(
         &mut self,
         id: &str,
@@ -255,6 +266,13 @@ impl RequestRecords for RequestRows<'_> {
     }
     fn digest_oldest_held(&self, id: &str, now: u64) -> Result<Option<u64>, Self::Error> {
         digest::oldest_held(self.0, id, now)
+    }
+    fn delivery_facts(
+        &self,
+        attempt: &RequestAttempt,
+        now: u64,
+    ) -> Result<tmt_core::request::delivery::DeliveryFacts, Self::Error> {
+        delivery::facts(self.0, attempt, now)
     }
     fn digest_items(
         &self,

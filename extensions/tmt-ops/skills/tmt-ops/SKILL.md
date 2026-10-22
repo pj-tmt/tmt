@@ -672,8 +672,21 @@ recipient for a hidden, removed or unknown target.
 
 Conversation Markdown includes filled, unwrapped code blocks, muted quote gutters
 and boxed tables (literal source when the grid is too wide). Links and member
-references use neutral underlined text; GitHub issue URLs shorten to
-`owner/repo#N`. Conversation bodies always render in full; the pane scrolls.
+references use underlined text; GitHub issue URLs shorten to `owner/repo#N`.
+Conversation bodies always render in full; the pane scrolls.
+
+Clicking a link label, a bare `http(s)` address in the text, or pressing Enter on a
+keyboard-focused link opens a small popover under it. It names the address up to its
+host first, because a label can differ from its target, then offers Open, Copy and
+Show full (`o`, `y`, `f`). Copy puts the whole address on the clipboard; Show full
+lists every character, wrapped. Only `http`, `https` and `mailto` open; any other
+scheme stays plain text. Open runs the board's opener: the `opener` row of the Ops
+settings (a JSON argv such as `["firefox","--new-tab","{url}"]`; `{url}` is replaced by
+the address as one argument, never through a shell, and an opener without `{url}` gets
+the address appended), else `open` on macOS, `wslview` (or `cmd.exe /c start`) under
+WSL, `xdg-open` with a graphical session. Over SSH there is none unless `opener` is
+set: Open shows "no browser here" and Copy stays. A failure to start it is reported in
+the status line.
 
 Default Enter focuses Talk for the selected agent through the shared conversation
 composer; clicking it also focuses. The composer stays visible while idle and
@@ -1254,8 +1267,18 @@ Common pool quotations use Talk to the same UUID; squad notes keep their actual
 recipient. The quote carries the response/request identity and source byte
 range. Selecting text never acknowledges a request. If the source changes or the
 agent disappears, the retained text can still be read/copied but cannot be attached
-to another response. The composer shows a readable author/excerpt quote caption;
-its remove control removes the most recent quote while keeping message text.
+to another response. Quotes appear as inline folds after the line containing
+the composer caret, with an empty line after each fold for the answer. An empty
+draft starts with the quote and answer line. Quote, answer, then quote again to
+address several passages in one message; existing text and later lines stay in place.
+Quoted CRLF and lone CR breaks become LF, and one terminal break is removed before
+insertion; additional empty lines remain. Original response identity and source
+byte ranges still fence exact quotations.
+Click a quote for its full-source preview; × or Backspace/Delete at its boundary
+removes that fold only, and caret motion skips collapsed folds. There is no undo.
+Sending expands each quote where it sits: literal rendered selections keep the
+flattened excerpt of at most 200 characters, while exact response selections keep
+full multiline Markdown blockquotes. Preview shows the complete admitted quote text.
 Alt-Backspace deletes the word before the draft cursor. Details shows bounded, frozen provenance only for quotes matching
 both the selected source UUID and the draft's actual recipient UUID, including
 full request/identity and exact byte range.

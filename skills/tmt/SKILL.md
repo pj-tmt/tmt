@@ -167,7 +167,9 @@ user), not for agents: it types the text into the recipient's live pane exactly 
 with no reply command, and returns at once. An agent sender is refused
 (`PASSTHROUGH_NOT_ALLOWED`); never use it to make a message look like the user's. If the
 agent has open requests to that person, the typed text also answers the oldest one once it
-is in the pane: the agent's waiting `talk` or `tmt result` returns it as the final.
+is in the pane: the agent's waiting `talk` or `tmt result` returns it as the final. The final
+message of the turn that text starts is also shown to the person as the answer, as plain
+untrusted turn output; write it to be read by them.
 
 Without hook/runtime evidence, a verified pane retains plain delivery but agent
 readiness is unverified. Tmux cannot identify provider approval prompts. Never

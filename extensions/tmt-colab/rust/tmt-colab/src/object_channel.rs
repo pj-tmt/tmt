@@ -30,6 +30,17 @@ pub(crate) mod rekey;
 pub(crate) mod sealed;
 pub(crate) use client::CommittedReader;
 pub(crate) use peer::{ObjectRequest, PeerObjects};
+
+/// Why a connection has no peer object handle. Only an upgrade that carried no origin (Remote's
+/// object setup missed its budget) is answered `no-object-channel`: a reconnect is what fixes
+/// that one, because the next upgrade joins a fresh bounded setup. Every other cause (no
+/// channel client, an origin that is not a UUID, a handle that could not be built) stays the
+/// bare `unavailable`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Missing {
+    WithoutOrigin,
+    Unavailable,
+}
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -519,9 +530,10 @@ impl ChannelOwner {
         forwarded: Option<String>,
         reader: bool,
         admission: crate::registration::OwnerAdmission,
-    ) -> Option<PeerObjects> {
-        let client = self.client()?;
-        let origin = Origin::Mounted(Uuid4::parse(origin?).ok()?);
+    ) -> std::result::Result<PeerObjects, Missing> {
+        let origin = origin.ok_or(Missing::WithoutOrigin)?;
+        let client = self.client().ok_or(Missing::Unavailable)?;
+        let origin = Origin::Mounted(Uuid4::parse(origin).map_err(|_| Missing::Unavailable)?);
         PeerObjects::new(Arc::new(admission::PeerIdentity {
             client,
             origin,
@@ -531,7 +543,7 @@ impl ChannelOwner {
             closed: Arc::new(AtomicBool::new(false)),
             admission,
         }))
-        .ok()
+        .map_err(|_| Missing::Unavailable)
     }
     pub(crate) fn accept(
         &self,

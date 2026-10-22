@@ -1748,14 +1748,42 @@
             { once: true },
           );
         }
+        // The parent's bundled page runtime (#1693): two plain strings the bootstrap writes into the
+        // trusted head. Nothing else crosses, and neither string can end its own element.
+        // Built without a literal comment opener: inside this inline script it would start the
+        // HTML parser's escaped script state.
+        const opener = '<' + '!--';
+        const closes = (text, tag) =>
+          text.includes(opener) || text.toLowerCase().includes('</' + tag);
+        const runtimeBundle = (value) => {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+          const keys = Object.keys(value);
+          if (keys.length !== 2 || !keys.includes('script') || !keys.includes('style'))
+            return false;
+          const { script, style } = value;
+          const size = (text) =>
+            typeof text === 'string' ? new TextEncoder().encode(text).byteLength : -1;
+          return (
+            size(script) >= 0 &&
+            size(script) <= 1.5 * 1024 * 1024 &&
+            size(style) >= 0 &&
+            size(style) <= 256 * 1024 &&
+            !closes(script, 'script') &&
+            !closes(style, 'style')
+          );
+        };
         const bind = (event) => {
           if (window.parent === window || event.source !== window.parent) return;
           const value = event.data;
           if (!value || typeof value !== 'object' || Array.isArray(value)) return;
           if (
-            Object.keys(value).length !== (Object.hasOwn(value, 'layout') ? 6 : 5) ||
+            Object.keys(value).length !==
+              5 +
+                (Object.hasOwn(value, 'layout') ? 1 : 0) +
+                (Object.hasOwn(value, 'runtime') ? 1 : 0) ||
             (Object.hasOwn(value, 'layout') &&
               !['column', 'full', 'canvas', 'freeform'].includes(value.layout)) ||
+            (Object.hasOwn(value, 'runtime') && !runtimeBundle(value.runtime)) ||
             value.type !== 'colab.render.bind' ||
             (value.theme !== 'light' && value.theme !== 'dark') ||
             typeof value.renderId !== 'string' ||
@@ -1777,9 +1805,12 @@
             install(value.renderId, port, value.theme, value.layout);
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
+          const runtime = value.runtime
+            ? `<style type="text/tailwindcss">${value.runtime.style}</style><script>${value.runtime.script}<\/script>`
+            : '';
           document.open();
           document.write(
-            `<!doctype html><html><head>${acknowledgement}</head><body>${value.source}</body></html>`,
+            `<!doctype html><html><head>${acknowledgement}${runtime}</head><body>${value.source}</body></html>`,
           );
           document.close();
         };

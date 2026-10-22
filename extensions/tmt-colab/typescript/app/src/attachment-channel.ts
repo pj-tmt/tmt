@@ -167,9 +167,16 @@ export function objectOutcome(
     );
     const error = result.error as Record<string, unknown>;
     requireValue(
-      ['denied', 'unavailable', 'invalid', 'conflict', 'capacity', 'not-found', 'unknown'].includes(
-        error.code as string,
-      ),
+      [
+        'denied',
+        'unavailable',
+        'no-object-channel',
+        'invalid',
+        'conflict',
+        'capacity',
+        'not-found',
+        'unknown',
+      ].includes(error.code as string),
     );
     exactKeys(
       error,

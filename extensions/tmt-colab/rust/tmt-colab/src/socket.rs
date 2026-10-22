@@ -972,7 +972,7 @@ fn serve(
             let _ = response(&mut socket, 503, b"CAPACITY", false);
             return;
         }
-        let mut object_peer = None;
+        let mut object_peer = Err(crate::object_channel::Missing::Unavailable);
         let _ = server.update_admission(|admission| {
             object_peer = objects.peer(
                 request.origin.as_deref(),
@@ -1473,7 +1473,10 @@ fn drive(
     server: &Server<OwnerAdmission>,
     device: String,
     prefetched: Vec<u8>,
-    objects: Option<crate::object_channel::PeerObjects>,
+    objects: std::result::Result<
+        crate::object_channel::PeerObjects,
+        crate::object_channel::Missing,
+    >,
 ) {
     let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
     let head = format!(

@@ -26,8 +26,9 @@ let root: Root | undefined;
 
 /** Opens `url` (path, query and fragment, as a link would) in the router the TMT app hosts at
  * `/colab/`: the location is rewritten by the module entry exactly as it is on a real load. A
- * `body` is also shown as a comment body (`#spa-body`), so its links click inside the router. */
-export function mountAt(url: string, body?: string) {
+ * `body` is also shown as a comment body (`#spa-body`), so its links click inside the router;
+ * `pageSource` replaces the page's own source. */
+export function mountAt(url: string, body?: string, pageSource = source) {
   root?.unmount();
   document.getElementById('spa-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -38,7 +39,7 @@ export function mountAt(url: string, body?: string) {
   hostInShell(null);
   shellLocation();
   const transport = localTransport('Colab', [
-    { id: pageId, title: 'Original proposal', sharing: 'private' as const, source },
+    { id: pageId, title: 'Original proposal', sharing: 'private' as const, source: pageSource },
   ]);
   const spaceHome = transport.spaceHome;
   transport.spaceHome = async () => ({

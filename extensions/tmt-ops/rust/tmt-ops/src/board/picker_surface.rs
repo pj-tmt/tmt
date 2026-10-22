@@ -24,12 +24,16 @@ impl Sources for Data {
     }
 }
 pub(super) fn schema(fields: &[&str]) -> Schema {
+    schema_with(fields, &[])
+}
+/// `schema` with extra scalar fields on the scene itself, beside `footer`.
+pub(super) fn schema_with(fields: &[&str], scene: &[&str]) -> Schema {
     let mut row = BTreeMap::from([
         ("id".into(), Schema::StableId),
         ("disabled".into(), Schema::Boolean),
     ]);
     row.extend(fields.iter().map(|field| ((*field).into(), Schema::Scalar)));
-    Schema::Object(BTreeMap::from([
+    let mut scene_fields = BTreeMap::from([
         (
             "rows".into(),
             Schema::Collection(Box::new(Schema::Object(row))),
@@ -44,7 +48,9 @@ pub(super) fn schema(fields: &[&str]) -> Schema {
                 ("text".into(), Schema::Scalar),
             ])))),
         ),
-    ]))
+    ]);
+    scene_fields.extend(scene.iter().map(|field| ((*field).into(), Schema::Scalar)));
+    Schema::Object(scene_fields)
 }
 pub(super) fn compile(file: &str, markup: &str, schema: Schema) -> surface::Template<()> {
     let parsed = tmt_tui::parse(file, markup).expect("embedded picker markup");

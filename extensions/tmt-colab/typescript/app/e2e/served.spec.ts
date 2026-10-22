@@ -283,6 +283,7 @@ for (let run = 1; run <= 2; run++) {
         'reader-fold.js',
         'recovery.js',
         'colab-runtime.js',
+        'colab-runtime.css',
       ];
       const anonymous = await fetch(
         server.origin + mount + 'assets/' + files.find((name) => !publicFiles.includes(name)),
@@ -359,6 +360,46 @@ for (let run = 1; run <= 2; run++) {
         };
       });
       expect(isolation).toEqual({ storage: true, cookie: true, indexedDB: true });
+
+      // The real bundled runtime (#1693) runs in the opaque frame under the production CSP:
+      // `window.tmt` exists before the page script, and Tailwind styles the page without eval.
+      await page.goto(server.origin + '/');
+      await page.evaluate(async (base) => {
+        const script = await (await fetch(base + 'assets/colab-runtime.js')).text();
+        const style = await (await fetch(base + 'assets/colab-runtime.css')).text();
+        const probe = document.createElement('iframe');
+        probe.id = 'runtime-probe';
+        probe.setAttribute('sandbox', 'allow-scripts');
+        probe.src = base + 'renderer.html';
+        await new Promise<void>((resolve) => {
+          probe.onload = () => resolve();
+          document.body.append(probe);
+        });
+        const digest = 'd'.repeat(64);
+        probe.contentWindow!.postMessage(
+          {
+            type: 'colab.render.bind',
+            renderId: `00000000-0000-4000-8000-000000000004:${digest}`,
+            sourceDigest: digest,
+            source:
+              '<meta name="tmt-colab-runtime" content="react tailwind"><div id="t" class="p-4 bg-paper"></div>' +
+              '<script>document.getElementById("t").dataset.react = window.tmt.React.version</script>',
+            theme: 'light',
+            runtime: { script, style },
+          },
+          '*',
+          [new MessageChannel().port2],
+        );
+      }, mount);
+      const probed = page.frameLocator('#runtime-probe').locator('#t');
+      await expect(probed).toHaveAttribute('data-react', /^19\./);
+      await expect
+        .poll(() => probed.evaluate((element) => getComputedStyle(element).paddingTop))
+        .toBe('16px');
+      // The theme's colour names resolve too (`bg-paper` is the page colour, never transparent).
+      expect(
+        await probed.evaluate((element) => getComputedStyle(element).backgroundColor),
+      ).not.toBe('rgba(0, 0, 0, 0)');
 
       // The same served build at the test door's root selects its sample adapter,
       // exercising the opaque renderer beneath the production response CSP.
@@ -450,7 +491,13 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     expect(Buffer.from(await entry.arrayBuffer())).toEqual(await readFile(app + '/reader.html'));
     expect(entry.headers.get('content-security-policy')).toContain("script-src 'self'");
     expect(entry.headers.get('cache-control')).toBe('no-store');
-    for (const name of ['reader.js', 'reader.css', 'reader-fold.js', 'colab-runtime.js']) {
+    for (const name of [
+      'reader.js',
+      'reader.css',
+      'reader-fold.js',
+      'colab-runtime.js',
+      'colab-runtime.css',
+    ]) {
       const asset = await fetch(server.origin + mount + 'assets/' + name);
       expect(asset.status).toBe(200);
       expect(Buffer.from(await asset.arrayBuffer())).toEqual(

@@ -62,6 +62,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             digest_identity(records, &input.setter_identity_id)?;
             if input.until_ms > MAX_JS_SAFE_INTEGER
                 || (input.until_ms != 0 && input.until_ms <= now)
+                || input.max_hold_ms.is_some_and(|hold| {
+                    input.until_ms == 0 || !(1..=MAX_JS_SAFE_INTEGER).contains(&hold)
+                })
             {
                 return Err(digest_error(DigestRejection::Invalid));
             }
@@ -79,6 +82,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 until_ms: input.until_ms,
                 owner_identity_id: input.owner_identity_id,
                 setter_identity_id: input.setter_identity_id,
+                max_hold_ms: input.max_hold_ms,
             };
             records.write_digest_policy(&policy)?;
             policy_view(records, &policy.identity_id.clone(), Some(policy), now)

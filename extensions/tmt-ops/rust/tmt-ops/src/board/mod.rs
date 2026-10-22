@@ -3384,9 +3384,9 @@ mod tests {
     fn a_board_with_a_draft_open_keeps_running_until_it_is_cancelled() {
         let draft = || app::Input {
             draft_key: None,
-            response_quotes: Vec::new(),
-            chat_quotes: Vec::new(),
-            chat_quote_focus: None,
+
+            inline_quotes: Default::default(),
+
             row_send: None,
             link: None,
             prompt: String::new(),

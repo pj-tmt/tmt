@@ -33,6 +33,7 @@ import {
 import { hunksOf } from './save-hunks.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { gatherAttachments } from './export-attachments.js';
+import { standaloneRequest } from './export-runtime.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 
@@ -108,6 +109,7 @@ export class Live implements PageBinding {
       own: () => this.#admitted.own ?? {},
       connection: () => this.#current,
       settled: () => this.#settled(),
+      reopen: (from) => this.#reopenForObjects(from),
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () =>
         !this.#closed && !this.#error && !this.#opening?.pending && this.#discussionVerified,
@@ -585,6 +587,16 @@ export class Live implements PageBinding {
     this.#failed(new Error('RESYNC_REQUIRED'));
     return this.#current;
   }
+  /** A connection the serve named as having no object channel goes through the same path as a
+   * lost one: the writer, its pending appends and the drafts stay, and catch-up admits the
+   * replacement. One call reopens at most once, and only when `from` is still the connection in
+   * force; the caller decides what a replacement that is still without a channel means. */
+  async #reopenForObjects(from: Connection): Promise<Connection> {
+    if (!this.#closed && !this.#error && from === this.#connection) {
+      this.#failed(new Error('RESYNC_REQUIRED'));
+    }
+    return this.#current;
+  }
   async export(): Promise<ExportBundle> {
     const c = await this.#settled();
     const view = await c.run(async () => {
@@ -628,7 +640,12 @@ export class Live implements PageBinding {
       },
       (selector) => this.discussion.attachments.read(selector),
     );
-    return prepareExport({ ...page, attachmentEntries: attachments });
+    const standalone = await standaloneRequest(page);
+    return prepareExport({
+      ...page,
+      attachmentEntries: attachments,
+      ...(standalone === undefined ? {} : { standalone }),
+    });
   }
   #statusSeen() {
     const deviceId = this.registration.deviceId;
