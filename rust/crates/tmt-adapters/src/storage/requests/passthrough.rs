@@ -5,7 +5,8 @@
 use super::*;
 use tmt_core::{
     request::passthrough::{
-        BIND_WINDOW_MS, CaptureState, PassthroughAnswer, PassthroughCapture, same_prompt,
+        BIND_WINDOW_MS, BOUND_WINDOW_MS, CaptureState, PassthroughAnswer, PassthroughCapture,
+        same_prompt,
     },
     responses::FinalText,
 };
@@ -63,20 +64,45 @@ pub(in crate::storage) fn capture(
     .map_err(|error| classify(error, "Read passthrough capture"))
 }
 
-/// A capture bound to a session that is no longer the agent's can never see its turn end.
-fn release_other_sessions(
+/// A bound capture whose end can no longer be seen settles without an answer: its session is
+/// no longer the agent's, a later turn of its own session began without this one ending, or the
+/// turn has run past [`BOUND_WINDOW_MS`]. `turn` is the turn an event now reports, when it
+/// starts one; the turn a capture is bound to is never overtaken by itself.
+fn release_unseen_ends(
     db: &Connection,
     identity: &str,
     session: &str,
+    started_turn: Option<Option<&str>>,
     now: u64,
 ) -> Result<(), StorageError> {
+    let settled_at = checked_i64(now, "Passthrough settlement time")?;
+    let expired = checked_i64(
+        now.saturating_sub(BOUND_WINDOW_MS),
+        "Passthrough bound window",
+    )?;
+    let of_agent =
+        "request_id IN (SELECT request_id FROM request_attempts WHERE recipient_identity_id=?1)";
     db.execute(
-        "UPDATE request_passthrough SET state='no_answer',settled_at_ms=?3
-         WHERE state='bound' AND bound_session<>?2
-           AND request_id IN (SELECT request_id FROM request_attempts WHERE recipient_identity_id=?1)",
-        params![identity, session, checked_i64(now, "Passthrough settlement time")?],
+        &format!(
+            "UPDATE request_passthrough SET state='no_answer',settled_at_ms=?3
+             WHERE state='bound' AND {of_agent} AND (bound_session<>?2 OR bound_at_ms<?4)"
+        ),
+        params![identity, session, settled_at, expired],
     )
-    .map_err(|error| classify(error, "Release passthrough captures of an earlier session"))?;
+    .map_err(|error| classify(error, "Release passthrough captures that can no longer end"))?;
+    if let Some(turn) = started_turn {
+        // A turn began in the session: any capture still bound to an earlier turn of it has
+        // been overtaken. Claude names no turn, so every earlier bound capture is.
+        db.execute(
+            &format!(
+                "UPDATE request_passthrough SET state='no_answer',settled_at_ms=?3
+                 WHERE state='bound' AND {of_agent} AND bound_session=?2
+                   AND (?4 IS NULL OR bound_turn IS NULL OR bound_turn<>?4)"
+            ),
+            params![identity, session, settled_at, turn],
+        )
+        .map_err(|error| classify(error, "Release passthrough captures of an earlier turn"))?;
+    }
     Ok(())
 }
 
@@ -91,7 +117,7 @@ pub(in crate::storage) fn bind(
     prompt: &str,
     now: u64,
 ) -> Result<bool, StorageError> {
-    release_other_sessions(db, identity, session, now)?;
+    release_unseen_ends(db, identity, session, Some(turn), now)?;
     let now_i64 = checked_i64(now, "Passthrough binding time")?;
     if let Some(turn) = turn {
         // The same provider turn is never bound twice.
@@ -155,7 +181,7 @@ pub(in crate::storage) fn settle_turn(
     final_text: Option<(&FinalText, &str)>,
     now: u64,
 ) -> Result<bool, StorageError> {
-    release_other_sessions(db, identity, session, now)?;
+    release_unseen_ends(db, identity, session, None, now)?;
     let now_i64 = checked_i64(now, "Passthrough settlement time")?;
     let in_turn = "state='bound' AND bound_session=?2 AND (?3 IS NULL OR bound_turn IS NULL OR bound_turn=?3)
          AND request_id IN (SELECT request_id FROM request_attempts WHERE recipient_identity_id=?1)";

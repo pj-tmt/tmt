@@ -62,8 +62,11 @@ configuration. The owner map is in
   pending `request_passthrough` row (one per passthrough, cascading with the request). The hook's
   runtime-observation transaction binds it at an admitted turn start (`TurnBoundary::Started`: the
   prompt matches the typed text, first in first out) and settles it at the admitted turn end
-  (`Ended`: the captured final, else `no_answer`); `Capture::state_at` reads an unbound row past its
-  window as `no_answer`, so no sweeper exists.
+  (`Ended`: the captured final, else `no_answer`); `PassthroughCapture::state_at` reads a row past its
+  bind window (unbound) or `BOUND_WINDOW_MS` (bound) as `no_answer`, so no sweeper exists. The same
+  transaction writes what a read would show: `release_unseen_ends` settles a bound row whose session was
+  replaced, whose window passed, or that a later `Started` of its session overtook (before binding, so a
+  start never overtakes the capture it binds).
 - A message's state (`request::delivery::delivery_view`, pure) is derived at read time inside the
   history/detail transaction from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
   route and status, the wake state (an identified recipient's request stays `queued`; its paste is the
