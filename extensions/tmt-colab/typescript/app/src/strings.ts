@@ -507,6 +507,14 @@ export const text = {
   exportPartial: 'Some files requested. Download the others to complete this copy.',
   exportRequested: 'All downloads requested. Check your browser downloads for the saved files.',
   exportDownload: (name: string) => `Download ${name}`,
+  exportStandaloneNote:
+    'page.standalone.html opens on its own in any browser, with no network. page.html stays exactly as published.',
+  exportStandaloneMissing: {
+    'runtime-unavailable':
+      'No standalone copy was made: this page needs a runtime that could not be loaded.',
+    'runtime-unusable':
+      'No standalone copy was made: the page runtime cannot be written into an HTML file.',
+  },
   exportAttachments: 'Attachments',
   exportAttachmentRequested: 'Download requested',
   exportAttachmentState: {
