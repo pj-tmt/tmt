@@ -4024,14 +4024,18 @@ function limitHistoryFrom(answer) {
 	if (answer.state !== "ok") return void 0;
 	const histories = answer.payload.limitHistory;
 	if (!Array.isArray(histories)) return void 0;
-	return histories.flatMap((history) => {
-		const last = history.points.at(-1);
+	const isPoint = (point) => Array.isArray(point) && point.length === 3 && point.every((value) => Number.isFinite(value));
+	return histories.flatMap((entry) => {
+		const history = entry;
+		if (typeof history?.provider !== "string" || !Number.isFinite(history.windowMinutes) || !Array.isArray(history.points)) return [];
+		const points = history.points.filter(isPoint);
+		const last = points.at(-1);
 		if (!last) return [];
 		return [{
 			line: DRIVER_LINES[history.provider] ?? history.provider,
 			windowMinutes: history.windowMinutes,
 			resetsAtMs: last[2],
-			points: history.points.filter((point) => point[2] === last[2]).map(([atMs, percentLeft]) => ({
+			points: points.filter((point) => point[2] === last[2]).map(([atMs, percentLeft]) => ({
 				atMs,
 				percentLeft
 			}))
@@ -4538,6 +4542,7 @@ function digestPage(source = digestSource, signal) {
 	let current = USAGE_RANGES[0];
 	let generation = 0;
 	let shown = "";
+	let good;
 	const scale = { share: false };
 	const buttons = USAGE_RANGES.map((range) => {
 		const button = el("button", "digest-segment", range);
@@ -4558,23 +4563,44 @@ function digestPage(source = digestSource, signal) {
 	tabs.replaceChildren(...buttons);
 	function paint(report) {
 		shown = fingerprint(report);
+		good = void 0;
 		badge.hidden = true;
 		badge.textContent = "";
 		if (report.unavailable || !report.document) {
 			panel.replaceChildren();
 			return notAvailable(note, report.unavailable ?? "Usage is not available.");
 		}
+		good = report;
 		const doc = report.document;
 		const activityBlock = activityCard(doc);
 		panel.replaceChildren(allowanceRow(doc), row$2("digest-row-burn", tokensCard(doc, scale), rankingCard(doc)), ...activityBlock ? [activityBlock] : [], row$2("digest-row-coverage", exchangeCard(doc), coverageCard()));
-		if (report.sample) {
-			badge.textContent = "Sample data";
-			badge.hidden = false;
-			notAvailable(note, "Usage preview. Real numbers: `tmt digest usage report`.");
-		} else {
+		if (report.sample) badge.textContent = "Sample data";
+		badge.hidden = !report.sample;
+		ordinaryNote(report);
+	}
+	/** The note a good report carries: the sample's preview line, else nothing. */
+	function ordinaryNote(report) {
+		if (report.sample) notAvailable(note, "Usage preview. Real numbers: `tmt digest usage report`.");
+		else {
 			note.replaceChildren();
 			note.hidden = true;
 		}
+	}
+	/**
+	* A refresh that could not read keeps the last good report on screen and says why in a small
+	* note; only a first read with nothing to show empties the panel. The next good read clears it.
+	*/
+	function refreshed(report) {
+		if (report.unavailable || !report.document) {
+			if (!good?.document) return paint(report);
+			const at = new Date(good.document.observedAtMs).toLocaleTimeString("en-GB", {
+				hour: "2-digit",
+				minute: "2-digit"
+			});
+			return notAvailable(note, `${report.unavailable ?? "Usage is not available."} Showing the last report, read at ${at}.`);
+		}
+		if (fingerprint(report) !== shown) return paint(report);
+		ordinaryNote(report);
 	}
 	async function show(range) {
 		current = range;
@@ -4600,7 +4626,7 @@ function digestPage(source = digestSource, signal) {
 		const mine = generation;
 		const report = await source.report(range, signal);
 		if (signal.aborted || range !== current || mine !== generation) return true;
-		if (fingerprint(report) !== shown) paint(report);
+		refreshed(report);
 		return !report.unavailable;
 	});
 }

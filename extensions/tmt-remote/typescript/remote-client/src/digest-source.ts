@@ -163,19 +163,31 @@ export function limitHistoryFrom(
   answer: OwnerReadAnswer<LimitsPayload>,
 ): readonly LimitHistory[] | undefined {
   if (answer.state !== 'ok') return undefined;
-  const histories: LimitsPayload['limitHistory'] | undefined = answer.payload.limitHistory;
+  const histories: unknown = answer.payload.limitHistory;
   if (!Array.isArray(histories)) return undefined;
-  return histories.flatMap((history) => {
-    const last = history.points.at(-1);
+  // The door projects these, but a client reads each entry as data: one that is not the shape of
+  // the contract (a provider, a window, points of three numbers) shows no history for its provider.
+  const isPoint = (point: unknown): point is readonly [number, number, number] =>
+    Array.isArray(point) && point.length === 3 && point.every((value) => Number.isFinite(value));
+  return histories.flatMap((entry: unknown) => {
+    const history = entry as Partial<LimitsPayload['limitHistory'][number]> | null;
+    if (
+      typeof history?.provider !== 'string' ||
+      !Number.isFinite(history.windowMinutes) ||
+      !Array.isArray(history.points)
+    )
+      return [];
+    const points = history.points.filter(isPoint);
+    const last = points.at(-1);
     if (!last) return [];
     return [
       {
         line: DRIVER_LINES[history.provider] ?? history.provider,
-        windowMinutes: history.windowMinutes,
+        windowMinutes: history.windowMinutes as number,
         resetsAtMs: last[2],
-        points: history.points
-          .filter((point: readonly [number, number, number]) => point[2] === last[2])
-          .map(([atMs, percentLeft]: readonly [number, number, number]) => ({ atMs, percentLeft })),
+        points: points
+          .filter((point) => point[2] === last[2])
+          .map(([atMs, percentLeft]) => ({ atMs, percentLeft })),
       },
     ];
   });
