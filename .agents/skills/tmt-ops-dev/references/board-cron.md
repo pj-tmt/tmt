@@ -73,7 +73,8 @@ semantic version is taken over (#4107), and its owner finds the lease changed at
 and stops. Equal, newer or non-semver versions never preempt, and the one-shot `tick` uses plain
 `acquire`, which never disturbs a live lease.
 `tmt digest status` shows the last admitted tick (`tick.lastAtMs`), so a clock held by a UI that
-does not tick is visible.
+does not tick is visible; the Digest tab's summary strip turns it into the `waiting` chip
+`No tick for N min` / `No tick yet` (`digest_dashboard::model::tick_notice`).
 
 ## Idle alert scan
 

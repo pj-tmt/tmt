@@ -1613,3 +1613,100 @@ fn legacy_panel_bytes_survive_details_toggle_and_picker_save() {
             .is_empty()
     );
 }
+
+fn ticking_board(
+    last_at_ms: Option<serde_json::Value>,
+    enabled: Option<bool>,
+) -> crate::board::app::App {
+    let mut document = savings_document();
+    document["observedAtMs"] = serde_json::json!(1_000_000_000u64);
+    if let Some(last) = last_at_ms {
+        document["tick"] = serde_json::json!({ "lastAtMs": last });
+    }
+    if let Some(enabled) = enabled {
+        let text = if enabled {
+            "Digest: on (auto)"
+        } else {
+            "Digest: off"
+        };
+        document["global"] = serde_json::json!({"enabled":enabled,"default":"auto","text":text});
+    }
+    let mut app = savings_board();
+    app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+    app
+}
+
+#[test]
+fn the_digest_tab_says_when_the_tick_stopped_only_past_three_minutes_and_while_on() {
+    let ago = |ms: u64| Some(serde_json::json!(1_000_000_000u64 - ms));
+    for (last, enabled, expected) in [
+        (
+            ago(7 * 60_000 + 59_000),
+            Some(true),
+            Some("No tick for 7 min"),
+        ),
+        (ago(180_001), Some(true), Some("No tick for 3 min")),
+        (ago(180_000), Some(true), None),
+        (ago(30_000), Some(true), None),
+        (ago(90 * 60_000), Some(true), Some("No tick for 1 h")),
+        (ago(5 * 86_400_000), Some(true), Some("No tick for 5 d")),
+        (
+            Some(serde_json::json!(null)),
+            Some(true),
+            Some("No tick yet"),
+        ),
+        (ago(7 * 60_000), None, Some("No tick for 7 min")),
+        (ago(7 * 60_000), Some(false), None),
+        (Some(serde_json::json!(null)), Some(false), None),
+        (None, Some(true), None),
+    ] {
+        let mut app = ticking_board(last.clone(), enabled);
+        press(&mut app, '2');
+        let shown = paint(&mut app, 160, 36);
+        match expected {
+            Some(text) => assert!(shown.contains(text), "{last:?} {enabled:?}: {shown}"),
+            None => assert!(!shown.contains("No tick"), "{last:?} {enabled:?}: {shown}"),
+        }
+    }
+}
+
+#[test]
+fn the_stopped_tick_notice_is_the_only_waiting_part_of_the_summary_and_outlives_the_savings() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut app = ticking_board(
+        Some(serde_json::json!(1_000_000_000u64 - 600_000)),
+        Some(true),
+    );
+    press(&mut app, '2');
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let row = |text: &str| {
+        let line: Vec<_> = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        let at = line
+            .windows(text.chars().count())
+            .position(|w| w.concat() == text);
+        at.map(|at| buffer.content[at].clone())
+            .unwrap_or_else(|| panic!("{text} is painted"))
+    };
+    let waiting = app.look().role(tmt_cli_style::Role::Waiting);
+    let plain = app.look().role(tmt_cli_style::Role::Text);
+    assert_eq!(row("No tick for 10 min").fg, waiting.fg.unwrap_or_default());
+    assert_eq!(row("Digest: on (auto)").fg, plain.fg.unwrap_or_default());
+    assert_ne!(waiting.fg, plain.fg);
+    // A narrow strip drops the trailing savings caption before the stopped tick.
+    let narrow = {
+        let mut app = ticking_board(
+            Some(serde_json::json!(1_000_000_000u64 - 600_000)),
+            Some(true),
+        );
+        press(&mut app, '2');
+        paint(&mut app, 100, 36)
+    };
+    assert!(narrow.contains("No tick for 10 min"), "{narrow}");
+}

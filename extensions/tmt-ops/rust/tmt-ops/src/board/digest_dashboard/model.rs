@@ -47,6 +47,27 @@ pub(in crate::board) fn summary(
     )
 }
 
+/// The clock ticks every minute; a Digest whose last admitted tick is older than this holds and
+/// delivers nothing, and no other screen says so.
+const TICK_STALE_MS: u64 = 3 * 60_000;
+
+/// What the Digest tab says about a tick that stopped: only while Digest is on, since a stopped
+/// tick has no effect otherwise, and only for a supplier that reports its liveness record. Both
+/// times come from the one status document, so the age never depends on this machine's clock.
+pub(super) fn tick_notice(supplied: &Supplied) -> Option<String> {
+    let (status, _) = supplied.digest()?;
+    if status.global.as_ref().is_some_and(|global| !global.enabled) {
+        return None;
+    }
+    match status.tick?.last_at_ms {
+        None => Some("No tick yet".into()),
+        Some(last) => {
+            let age = status.observed_at_ms.saturating_sub(last);
+            (age > TICK_STALE_MS).then(|| format!("No tick for {}", human_duration(age)))
+        }
+    }
+}
+
 /// Supplier labels own wording and actions; truncation never invents a status.
 pub(in crate::board) fn labels(
     supplied: &Supplied,
