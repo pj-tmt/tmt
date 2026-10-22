@@ -95,6 +95,8 @@ declare global {
   interface Window {
     /** Page IDs asked for chapter details, in order. */
     detailCalls: string[];
+    /** Live page bindings the app opened and closed, by page, and the most open at once for a page. */
+    bindings: { opened: string[]; closed: string[]; mostAtOnce: number };
   }
 }
 
@@ -174,6 +176,30 @@ export function mount(kind: ShellCase = 'full') {
         summary: { comments: 0, waiting: true, needsYou: 1, author: 'tmt-feat-lead' },
       });
   window.detailCalls = [];
+  window.bindings = { opened: [], closed: [], mostAtOnce: 0 };
+  /** A live binding that only counts: a page opened through it is connected until it is closed. */
+  const bind = (id: string) => {
+    window.bindings.opened.push(id);
+    let live = true;
+    const open = () =>
+      window.bindings.opened.filter((value) => value === id).length -
+      window.bindings.closed.filter((value) => value === id).length;
+    window.bindings.mostAtOnce = Math.max(window.bindings.mostAtOnce, open());
+    return {
+      subscribe: () => () => undefined,
+      edit: async () => {
+        throw new Error('The fixture binding does not save');
+      },
+      export: async () => {
+        throw new Error('The fixture binding does not export');
+      },
+      close() {
+        if (!live) return;
+        live = false;
+        window.bindings.closed.push(id);
+      },
+    };
+  };
   const ready = (
     id: string,
     needs: NonNullable<Extract<ReadingDetails, { state: 'ready' }>['needs']>,
@@ -250,6 +276,7 @@ export function mount(kind: ShellCase = 'full') {
         ? { ...row, source: '', pageType: 'shell', ...(kind === 'not-admitted' ? {} : { shell }) }
         : {
             ...row,
+            binding: bind(id),
             source: `<h1>${row.title}</h1><div style="height:2400px">Spacer</div><section id="decisions"><h2>Decisions</h2></section><div style="height:2400px">End</div>`,
           };
     },

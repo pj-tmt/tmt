@@ -625,6 +625,8 @@ export const text = {
     moreWaiting: (count: number) => `${count} more waiting`,
     openToDecide: 'Open to decide →',
     openFullPage: 'Open the full page →',
+    decideHere: 'Decide here',
+    backToSummary: '← Summary',
     openPassage: 'Open the passage →',
     openOnPage: 'Open on the page →',
     panelNeeds: 'Waiting for you on this page',
