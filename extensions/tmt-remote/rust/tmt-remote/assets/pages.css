@@ -193,6 +193,11 @@ body:not(:has(.tmt-ui-shell)) {
   margin: 8px 0 0;
 }
 
+/* A part the module menu opens (a heading scrolled to the top) clears the sticky header row. */
+:where(.tmt-page) h2[id] {
+  scroll-margin-top: calc(var(--tmt-ui-header-height) + 16px);
+}
+
 /* A page's first read in progress: the shell's busy mark, centred in the page as a route load
    shows it. */
 .tmt-page-loading {

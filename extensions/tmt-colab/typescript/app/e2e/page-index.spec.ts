@@ -127,8 +127,9 @@ for (const width of [1440, 390])
             .map((node) => node.className),
         };
       });
-      // Only the shell's own chrome stays fixed: the bar with the rail and module menu (a phone's
-      // menu button instead of the rail); the index adds nothing and scrolls with the window.
+      // Only the shell's own chrome stays fixed: the TMT mark and the bar (one header row) with the
+      // rail and module menu (a phone's menu button instead of the mark and rail); the index adds
+      // nothing and scrolls with the window.
       expect(scroll).toEqual({
         window: true,
         horizontal: false,
@@ -136,7 +137,7 @@ for (const width of [1440, 390])
         fixed:
           width < 480
             ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar']
-            : ['tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-module-menu'],
+            : ['tmt-ui-shell-brand', 'tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-module-menu'],
       });
     });
   }
