@@ -500,20 +500,36 @@ fn observation_drop_releases_the_view_before_a_second_serving_lease() {
     drop(service);
     assert!(weak.upgrade().is_none());
     drop(peer);
-    // Move the original lease out without moving out of a Drop type. The replacement
-    // is unrelated; the second lock is taken on the exact original directory.
+    reacquire(
+        &mut env,
+        &lease,
+        "view vanished, service/peer joined and original lease handle dropped",
+    );
+}
+
+/// Release the original serving lease, then take a second one on the exact original directory.
+/// A refusal names the holder it can: the failure family of #2220, which no fixed wait or retry
+/// may paper over. `lease` is `lease_diagnostics()` read before the service was dropped.
+pub(super) fn reacquire(env: &mut Env, lease: &str, after: &str) {
+    release_original(env);
+    take_second(env, lease, after);
+}
+// Move the original lease out without moving out of a Drop type. The replacement is unrelated;
+// the second lock is then taken on the exact original directory.
+fn release_original(env: &mut Env) {
     let replacement = Layout::open(&env.root.join("replacement"))
         .unwrap()
         .serve_lock()
         .unwrap();
     let original = std::mem::replace(&mut env.serving, replacement);
     drop(original);
+}
+fn take_second(env: &Env, lease: &str, after: &str) {
     let layout = Layout::open(&env.root).unwrap();
     let second = layout.serve_lock().unwrap_or_else(|error| {
         let path = env.root.join("remote/serve.lock");
         panic!(
-            "second serving lease refused after view vanished, service/peer joined and original \
-             lease handle dropped: {}: {}; path={}; {lease}; holder={}",
+            "second serving lease refused after {after}: {}: {}; path={}; {lease}; holder={}",
             error.code,
             error.message,
             path.display(),
@@ -521,6 +537,34 @@ fn observation_drop_releases_the_view_before_a_second_serving_lease() {
         )
     });
     drop(second);
+}
+
+#[test]
+fn a_refused_second_lease_reports_the_path_the_original_handle_and_the_holder() {
+    let mut env = Env::new();
+    let lease = env.serving.lease_diagnostics();
+    release_original(&mut env);
+    // A handle this test keeps locked on the exact file stands in for an unknown holder: the
+    // second lease must be refused and the report must say everything known, with no wait or retry.
+    let path = env.root.join("remote/serve.lock");
+    let holder = fs::File::open(&path).unwrap();
+    holder.try_lock().unwrap();
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        take_second(&env, &lease, "the test released the original lease")
+    }))
+    .unwrap_err();
+    let message = caught.downcast_ref::<String>().unwrap();
+    assert!(
+        message.contains("second serving lease refused after the test released the original lease")
+            && message.contains("REMOTE_ALREADY_SERVING")
+            && message.contains(&format!("path={}", path.display()))
+            && message.contains("dev/inode=Ok((")
+            && message.contains("pre-drop cloexec=Ok(true)")
+            && (message.contains(&format!("holder=p{}", std::process::id()))
+                || message.contains("holder=unknown")),
+        "{message}"
+    );
+    drop(holder);
 }
 
 // Query only this lock, on failure; no retained descriptor or unbounded diagnostic child.
