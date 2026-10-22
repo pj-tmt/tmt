@@ -753,12 +753,12 @@ theme through `[data-theme=dark]`, so a page needs no author code; no default Ta
 `browser.metric.radius` on every `rounded-*` scale; no shadows; the system part of the token font stacks; and one
 focus outline of `browser.metric.focus-width` in the focus colour. It is source for a `<style type="text/tailwindcss">`
 block, so it never contains `@import`. Both files are ordinary inventory files, and `/assets/colab-runtime.js` and
-`/assets/colab-runtime.css` are on the anonymous list above so a reader can load them. No page loads it until the opt-in slice ships, and the renderer CSP is
-unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
+`/assets/colab-runtime.css` are on the anonymous list above so a reader can load them. Only a page that opts in loads them (see the bind
+message below), and the renderer CSP is unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
 ReactDOM, htm, `@tailwindcss/browser` and `lucide-react` and the SHA-256 and length of both assets, and `scripts/verify-runtime.mjs`
 fails the app build when the bytes or versions differ, when the script exceeds 1.5 MiB, ends a script
-tag, reads `process.env`, references a source map or uses `eval`/`new Function`, when the theme exceeds 16 KiB, contains
-`@import` or ends a style tag, or when the notices lack
+tag or opens an HTML comment, reads `process.env`, references a source map or uses `eval`/`new Function`, when the theme exceeds 16 KiB, contains
+`@import`, ends a style tag or opens an HTML comment, or when the notices lack
 any of those five packages. `scripts/runtime-notices.mjs` appends htm's and the Tailwind browser
 script's licenses to `THIRD-PARTY-NOTICES.txt`, since the default build bundles neither. A changed
 dependency or output is therefore a reviewed `runtime-pin.json` diff.
@@ -2334,7 +2334,7 @@ Send retain the captured source/quote/final bytes.
 After the bootstrap document loads, the parent sends exactly one source-init
 message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest`,
 `source` and `theme` (`"light"` or `"dark"`), and optionally `layout` (`"column"`,
-`"full"`, `"canvas"` or `"freeform"`; absent is `freeform`), plus one MessagePort. The renderer accepts only these exact fields,
+`"full"`, `"canvas"` or `"freeform"`; absent is `freeform`) and `runtime`, plus one MessagePort. The renderer accepts only these exact fields,
 valid UUIDv4/digest metadata and source at most 2 MiB UTF-8, from
 `event.source === window.parent`; origin is not an admission predicate for this
 opaque channel. Direct top-level opening cannot initialize source. Invalid or
@@ -2344,6 +2344,20 @@ replaces its own document using `document.open/write/close`, retaining the
 response policy and prepending a trusted acknowledgement before author source.
 Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
+
+**Page runtime (#1693).** A page opts in with the first `<meta name="tmt-colab-runtime" content="…">`
+in document order whose space-separated tokens include `react` or `tailwind` (the runtime is one
+bundle, so either loads all of it; other tokens are ignored, and no marker means nothing extra loads
+and the bind message is exactly as above). The parent then fetches `assets/colab-runtime.js` once per
+path, next to the renderer on the mount or at the root of the hosted origin, and sends it as the
+optional `runtime` field: exactly `{script,style}`, two strings of at most 1.5 MiB and 256 KiB UTF-8
+(`style` is empty until the theme ships). The bootstrap refuses the whole bind when `runtime` has
+other keys or types, exceeds a cap, or either string contains an HTML comment opener or the closing
+tag of its own element. It writes `<style>` and `<script>` into the trusted head after the
+acknowledgement and before the author's document, so `window.tmt` exists before any page script. If
+the asset cannot be fetched, the render ends `failed` rather than running a page that needs it. The
+same `mountRenderer` serves the owner view and the reader; no capability, message type or CSP
+allowance is added.
 The parent sets no deadline on the `colab.render.bound` acknowledgement, which follows the author
 document's own `load`: a very large page binds late and shows its loading state meanwhile, and only
 navigation or the page being left ends the frame (#3982).

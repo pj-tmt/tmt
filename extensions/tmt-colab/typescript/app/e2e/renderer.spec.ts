@@ -570,6 +570,101 @@ test('a bind may carry a layout; only column and full select the page frame', as
   await expect(page.frameLocator('#target-wide').getByText('Bound text')).toHaveCount(0);
 });
 
+test('a page asks for the bundled runtime with the first marker that names a known part', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const wants = (sources: string[]) =>
+    page.evaluate(async (sources) => {
+      const path = '/src/page-runtime.ts';
+      const { wantsRuntime } = await import(path);
+      return sources.map((source: string) => wantsRuntime(source) as boolean);
+    }, sources);
+  const meta = (content: string) => `<meta name="tmt-colab-runtime" content="${content}">`;
+  expect(
+    await wants([
+      meta('react'),
+      meta('tailwind'),
+      meta('react tailwind'),
+      meta('  tailwind   react '),
+      meta('react unknown-part'),
+      // The first marker decides, even when a later one would opt in.
+      meta('unknown-part') + meta('react'),
+      meta('') + meta('react'),
+      // Not opted in: no marker, an empty or unknown one, a look-alike, or text that only mentions it.
+      '<p>Plain page</p>',
+      meta(''),
+      meta('unknown-part'),
+      meta('REACT'),
+      '<meta name="tmt-colab-runtime-extra" content="react">',
+      '<meta name="other" content="react">',
+      '<p>tmt-colab-runtime react</p>',
+      '<!-- <meta name="tmt-colab-runtime" content="react"> -->',
+      '<textarea><meta name="tmt-colab-runtime" content="react"></textarea>',
+    ]),
+  ).toEqual([
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+  ]);
+});
+
+test('only an opting-in page fetches the runtime, and its frame gets it before the page runs', async ({
+  page,
+}) => {
+  let fetches = 0;
+  await page.route('**/assets/colab-runtime.js', (route) => {
+    fetches += 1;
+    return route.fulfill({
+      contentType: 'text/javascript',
+      body: 'window.tmt = Object.freeze({ stub: true });',
+    });
+  });
+  await page.goto('/');
+  await mount(
+    page,
+    '<p id="plain">No marker</p><script>document.getElementById("plain").dataset.tmt = String(typeof window.tmt)</script>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const plain = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+  await expect(plain.locator('#plain')).toHaveAttribute('data-tmt', 'undefined');
+  expect(fetches).toBe(0);
+  await page.evaluate(() => {
+    (window as unknown as { probe: { controller: AbortController } }).probe.controller.abort();
+    document.querySelector('#probe')?.remove();
+  });
+  await mount(
+    page,
+    '<meta name="tmt-colab-runtime" content="react tailwind"><p id="opted">Marker</p><script>document.getElementById("opted").dataset.tmt = String(window.tmt && window.tmt.stub)</script>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const opted = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+  await expect(opted.locator('#opted')).toHaveAttribute('data-tmt', 'true');
+  expect(fetches).toBe(1);
+});
+
+test('an opting-in page whose runtime cannot load fails visibly instead of rendering half-working', async ({
+  page,
+}) => {
+  await page.route('**/assets/colab-runtime.js', (route) => route.fulfill({ status: 500 }));
+  await page.goto('/');
+  await mount(page, '<meta name="tmt-colab-runtime" content="react"><p>Needs React</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'failed');
+});
+
 test('selection admits bounded text from the current frame, rejects foreign and stale render IDs, and clears on teardown', async ({
   page,
 }) => {

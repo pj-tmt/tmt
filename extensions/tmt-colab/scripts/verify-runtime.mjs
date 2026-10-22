@@ -54,7 +54,8 @@ const text = bytes.toString('utf8');
 expect(bytes.length <= MAX_BYTES, `runtime is ${bytes.length} bytes, over ${MAX_BYTES}`);
 // The frame injects this as an inline script: it must not close its own tag, must not need
 // `process`, must not load a source map, and must not need eval (the frame has no unsafe-eval).
-expect(!text.includes('</script'), 'contains a script end tag');
+expect(!text.toLowerCase().includes('</script'), 'contains a script end tag');
+  expect(!text.includes('<' + '!--'), 'contains an HTML comment opener');
 expect(!text.includes('process.env'), 'reads process.env');
 expect(!text.includes('sourceMappingURL'), 'references a source map');
 expect(!/\beval\s*\(/.test(text) && !text.includes('new Function('), 'uses eval or new Function');
