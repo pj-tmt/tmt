@@ -102,13 +102,13 @@ fn a_wide_row_shows_left_need_every_line_and_the_reset() {
     assert_eq!(
         words(header),
         [
-            "SOURCE", "PLAN", "LEFT", "NEED", "%/h", "3h", "6h", "1d", "SINCE", "RESET", "RESETS"
+            "SOURCE", "LEFT", "NEED", "%/h", "3h", "6h", "1d", "TOKENS", "SINCE", "RESET", "RESETS"
         ]
     );
     assert_eq!(
         words(row_of(&rows, "Claude")),
         [
-            "Claude", "week", "26%", "0.65", "✗", "Su", "04:40", "6%", "18%", "26%", "Su", "18:40"
+            "Claude", "26%", "0.65", "✗", "Su", "04:40", "6%", "18%", "—", "26%", "Su", "18:40"
         ]
     );
     assert!(!rows.iter().any(|row| row.contains("5h")), "no 5h rows");
@@ -155,11 +155,11 @@ fn missing_data_is_a_dash_and_a_stale_reading_is_not_quoted() {
     let fresh_without_rates = standing("openai", 55.0, 100, 60_000, Rates::default());
     let mut app = digest(vec![claude(), stale, unsampled, fresh_without_rates]);
     let rows = rows(&buffer(&mut app, 120, 40));
-    assert_eq!(words(row_of(&rows, "Muse")), ["Muse", "week", "—", "—"]);
+    assert_eq!(words(row_of(&rows, "Muse")), ["Muse", "—", "—"]);
     assert_eq!(
         words(row_of(&rows, "Openai")),
         [
-            "Openai", "week", "55%", "0.55", "—", "—", "—", "—", "We", "06:40"
+            "Openai", "55%", "0.55", "—", "—", "—", "—", "—", "We", "06:40"
         ]
     );
     assert!(
@@ -187,15 +187,11 @@ fn a_narrow_row_is_one_line_with_the_worst_projection() {
     );
     assert_eq!(
         words(row_of(&rows, "Claude")),
-        [
-            "Claude", "week", "26%", "need", "0.65%/h", "✗", "Su", "04:40"
-        ]
+        ["Claude", "26%", "need", "0.65%/h", "✗", "Su", "04:40"]
     );
     assert_eq!(
         words(row_of(&rows, "Openai")),
-        [
-            "Openai", "week", "55%", "need", "0.55%/h", "lasts", "·", "25%"
-        ]
+        ["Openai", "55%", "need", "0.55%/h", "lasts", "·", "25%"]
     );
     assert!(
         !rows.iter().any(|row| row.contains("NEED %/h")),
@@ -208,7 +204,7 @@ fn an_ascii_terminal_gets_an_ascii_marker() {
     let mut app = digest(vec![claude()]);
     app.cron_glyphs = GlyphSet::Ascii;
     let rows = rows(&buffer(&mut app, 120, 40));
-    assert_eq!(words(row_of(&rows, "Claude"))[4..7], ["x", "Su", "04:40"]);
+    assert_eq!(words(row_of(&rows, "Claude"))[3..6], ["x", "Su", "04:40"]);
 }
 
 #[test]
@@ -228,6 +224,89 @@ fn no_reading_or_no_room_shows_no_block_and_leaves_the_table_whole() {
     );
 }
 
+/// A claude window at 20 % left, 40 h to the reset, that lost 0.5 points an hour over the last
+/// day (12 points), with one member "a" on claude spending `cells` tokens an hour-cell.
+fn claude_with_tokens(cells: [u64; 24], complete: [bool; 24], ends_ago_ms: u64) -> App {
+    let mut app = digest(vec![standing(
+        "claude",
+        20.0,
+        40,
+        10 * 60_000,
+        Rates::measured(Some(0.5), Some(0.5), Some(0.5), Some(0.5)),
+    )]);
+    crate::board::app::workspace::tests::install_hourly_tokens(
+        &mut app,
+        NOW,
+        ends_ago_ms,
+        complete,
+        &[("a", "claude", cells)],
+    );
+    app
+}
+
+fn claude_row(app: &mut App, width: u16) -> Vec<String> {
+    let rows = rows(&buffer(app, width, 40));
+    words(row_of(&rows, "Claude"))
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The wide row of the claude window above (20 % left, 40 h to the reset, 0.5 points an hour on
+/// every sampled line, so each empties it at Su 18:40) with `tokens` in the TOKENS cell.
+fn wide_row_with(tokens: [&str; 3]) -> Vec<String> {
+    let mut row = vec!["Claude", "20%", "0.50"];
+    for _ in 0..3 {
+        row.extend(["✗", "Su", "18:40"]);
+    }
+    row.extend(tokens);
+    row.extend(["✗", "Su", "18:40", "Su", "18:40"]);
+    row.into_iter().map(str::to_owned).collect()
+}
+
+/// The same row with a dash where the tokens cell would be.
+fn dash_row() -> Vec<String> {
+    let mut row = wide_row_with(["✗", "Su", "01:10"]);
+    row.splice(12..15, ["—".to_owned()]);
+    row
+}
+
+#[test]
+fn the_tokens_cell_projects_the_last_three_hours_at_the_cost_of_the_last_day() {
+    // 12 points (0.5 an hour for 24 h) over 27 000 tokens, of which 6 000 in the last three
+    // cells: 2 000 tokens an hour at 12 / 27 000 points a token is 0.89 points an hour, which
+    // empties the 20 % in 22.5 h, at Su 01:10.
+    let mut cells = [1_000u64; 24];
+    cells[21..].copy_from_slice(&[1_000, 2_000, 3_000]);
+    let mut app = claude_with_tokens(cells, [true; 24], 0);
+    assert_eq!(
+        claude_row(&mut app, 120),
+        wide_row_with(["✗", "Su", "01:10"])
+    );
+}
+
+#[test]
+fn the_tokens_cell_is_a_dash_without_a_usable_report_or_complete_cells() {
+    // No report yet.
+    let mut app = digest(vec![standing(
+        "claude",
+        20.0,
+        40,
+        10 * 60_000,
+        Rates::measured(Some(0.5), Some(0.5), Some(0.5), Some(0.5)),
+    )]);
+    assert_eq!(claude_row(&mut app, 120), dash_row());
+    let mut incomplete = [true; 24];
+    incomplete[5] = false;
+    for (label, complete, ends_ago) in [
+        ("an incomplete cell", incomplete, 0),
+        ("a stale series", [true; 24], 3 * HOUR),
+    ] {
+        let mut app = claude_with_tokens([1_000; 24], complete, ends_ago);
+        assert_eq!(claude_row(&mut app, 120), dash_row(), "{label}");
+    }
+}
+
 fn resetting_in(ms: u64, left: f64) -> Standing {
     let mut standing = standing("claude", left, 0, 10 * 60_000, Rates::default());
     standing.latest.as_mut().unwrap().weekly.resets_at_ms = NOW + ms;
@@ -239,13 +318,13 @@ fn need_is_hidden_a_minute_before_the_reset_and_capped_just_outside_the_last_hou
     for (width, shown_hidden, shown_capped) in [
         (
             120,
-            vec!["Claude", "week", "30%", "—"],
-            vec!["Claude", "week", "100%", ">99"],
+            vec!["Claude", "30%", "—"],
+            vec!["Claude", "100%", ">99"],
         ),
         (
             80,
-            vec!["Claude", "week", "30%", "—"],
-            vec!["Claude", "week", "100%", "need", ">99%/h"],
+            vec!["Claude", "30%", "—"],
+            vec!["Claude", "100%", "need", ">99%/h"],
         ),
     ] {
         let mut app = digest(vec![resetting_in(60_000, 30.0)]);

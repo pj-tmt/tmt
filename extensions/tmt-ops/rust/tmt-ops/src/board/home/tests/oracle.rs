@@ -360,6 +360,7 @@ fn captures() -> Value {
                 "agents-header-hover",
                 "digest",
                 "digest-allowance",
+                "digest-allowance-tokens",
                 "empty",
                 "pool",
                 "dense",

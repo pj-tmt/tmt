@@ -497,6 +497,15 @@ impl Member {
 }
 
 impl Rate {
+    /// The driver the member is currently on, when it is one a limit is shown for.
+    pub(in crate::board) fn current_driver_of(&self, id: &str) -> Option<&str> {
+        let member = self.members.get(id)?;
+        member
+            .drivers
+            .get(usize::from(member.current_driver?))
+            .map(String::as_str)
+    }
+
     pub fn new(longest: TokenWindow) -> Self {
         Self {
             members: BTreeMap::new(),
