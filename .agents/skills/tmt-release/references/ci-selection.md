@@ -267,6 +267,16 @@ never blocks PRs. [ci-gate-budgets.json](../../../../typescript/scripts/ci-gate-
 owns figures/provenance: gate median/p90 and job p90. Exceeding a figure is over
 budget; increases need Infra's written note on #3283.
 
+`node typescript/scripts/ci-macos-demand.mjs --output PREFIX` measures macOS demand
+for a run-created UTC cohort (default seven days; explicit `--since`/`--until`).
+Only source-traced macOS-capable workflows are hydrated; JSON/Markdown list excluded
+workflows, occupancy and queue samples by workflow/event, job and PR association,
+pending/skipped jobs and the REST core ledger before/after. Shared or missing PR
+associations stay explicit; absent timings are unavailable, never zero. All GET attempts share a 400-call cap, including retries
+and rate snapshots. An over-cap census refuses without totals; choose an explicit
+smaller window, never sample or resume. Required-check policy and estimated demand
+reductions are separate from measured execution; this changes no CI selection.
+
 Monday hygiene compares budgets: two consecutive over-budget weeks require an
 issue to the dominating suite's squad for sharding/consumers/trimming. A PR expected
 to add more than about 20 s to a required job must say so in its body and update
