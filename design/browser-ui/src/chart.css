@@ -205,15 +205,16 @@
 }
 .tmt-ui-chart-strips {
   display: grid;
-  gap: var(--tmt-ui-space-xs);
+  grid-template-columns: minmax(6ch, 12ch) minmax(0, max-content);
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .tmt-ui-chart-strip-row {
   display: grid;
-  grid-template-columns: minmax(6ch, 12ch) minmax(0, 1fr);
-  gap: var(--tmt-ui-space-s);
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
 }
 .tmt-ui-chart-strip-label {
@@ -223,28 +224,71 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Square slots of a fixed size, left-aligned: the row's length comes from its slot count. On a
+   narrow screen the gap shrinks first and then the slots, so a row never scrolls sideways. */
 .tmt-ui-chart-strip {
-  display: grid;
-  gap: 1px;
-  height: 14px;
-}
-.tmt-ui-chart-strip-24 {
-  grid-template-columns: repeat(24, minmax(0, 1fr));
-}
-.tmt-ui-chart-strip-48 {
-  grid-template-columns: repeat(48, minmax(0, 1fr));
+  --tmt-chart-strip-gap: 3px;
+  display: flex;
+  gap: var(--tmt-chart-strip-gap);
+  /* A definite width from the slot count (`--tmt-chart-strip-count`), so the column is as long as
+     the row and no longer; it gives way only to the container. */
+  width: calc(
+    var(--tmt-chart-strip-count) * 12px + (var(--tmt-chart-strip-count) - 1) *
+      var(--tmt-chart-strip-gap)
+  );
+  max-width: 100%;
+  min-width: 0;
 }
 .tmt-ui-chart-slot {
-  background: var(--tmt-ui-surface-paper);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  flex: 0 1 12px;
+  min-width: 0;
+  aspect-ratio: 1;
   box-sizing: border-box;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+}
+.tmt-ui-chart-slot:focus-visible {
+  outline: none;
+  border: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+.tmt-ui-chart-slot-none {
+  border-style: dashed;
+  background: transparent;
 }
 .tmt-ui-chart-strip-ends {
   display: flex;
   justify-content: space-between;
-  margin: var(--tmt-ui-space-xs) 0 0 calc(12ch + var(--tmt-ui-space-s));
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+}
+.tmt-ui-chart-strip-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: var(--tmt-ui-space-m);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.tmt-ui-chart-strip-legend > span:first-child {
+  margin-right: var(--tmt-ui-space-xs);
+}
+.tmt-ui-chart-strip-legend > span:last-child {
+  margin-left: var(--tmt-ui-space-xs);
+}
+.tmt-ui-chart-strip-legend .tmt-ui-chart-slot {
+  flex: none;
+  width: 12px;
+}
+@media (max-width: 520px) {
+  .tmt-ui-chart-strips {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tmt-ui-chart-strip {
+    --tmt-chart-strip-gap: 1px;
+  }
+  .tmt-ui-chart-strip-label:empty {
+    display: none;
+  }
 }
 .tmt-ui-chart-s0 {
   fill: var(--tmt-ui-color-series-1);
@@ -341,20 +385,14 @@
   color: var(--tmt-ui-surface-sheet);
 }
 .tmt-ui-chart-slot-1 {
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 10%, var(--tmt-ui-surface-sheet));
+  background: color-mix(in srgb, var(--tmt-ui-color-series-1) 30%, var(--tmt-ui-surface-sheet));
 }
 .tmt-ui-chart-slot-2 {
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 22%, var(--tmt-ui-surface-sheet));
+  background: color-mix(in srgb, var(--tmt-ui-color-series-1) 50%, var(--tmt-ui-surface-sheet));
 }
 .tmt-ui-chart-slot-3 {
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 30%, var(--tmt-ui-surface-sheet));
+  background: color-mix(in srgb, var(--tmt-ui-color-series-1) 75%, var(--tmt-ui-surface-sheet));
 }
 .tmt-ui-chart-slot-4 {
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 72%, var(--tmt-ui-surface-sheet));
-}
-.tmt-ui-chart-slot-5 {
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 88%, var(--tmt-ui-surface-sheet));
-}
-.tmt-ui-chart-slot-0 {
-  background: color-mix(in srgb, var(--tmt-ui-color-text) 5%, var(--tmt-ui-surface-sheet));
+  background: color-mix(in srgb, var(--tmt-ui-color-series-1) 100%, var(--tmt-ui-surface-sheet));
 }

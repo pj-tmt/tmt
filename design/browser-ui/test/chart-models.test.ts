@@ -130,19 +130,23 @@ it('the matrix model keeps self blank, a known none distinct from unavailable, a
   expect(model.rows[1]!.cells[0]!.label).toBe('seat-b to seat-a: 1');
 });
 
-it('strips scale each row to its busiest slot and leave unknown slots blank', () => {
+it('strips scale each row to its busiest slot, in four steps, and leave unknown slots hollow', () => {
   const model = stripsModel({
     title: 't',
     slotCount: 24,
-    slotLabel: (at) => `slot ${at}`,
+    slotRange: (at) => `range ${at}`,
     ends: ['old', 'new'],
-    rows: [{ id: 'a', label: 'seat-a', slots: [0, 4, null, 16] }],
+    rows: [{ id: 'a', label: 'seat-a', slots: [0, 4, null, 16, 1_500_000] }],
   });
   const slots = model.rows[0]!.slots;
   expect(slots).toHaveLength(24);
-  expect(slots.slice(0, 4).map((slot) => slot.level)).toEqual([0, 3, null, 5]);
-  expect(slots[2]!.title).toBe('slot 2: not observed');
-  expect(model.rows[0]!.summary).toBe('seat-a: active in 2 of 3 observed slots');
+  // Against the busiest slot (1.5M) 4 and 16 are faint; null stays null, a known zero is step 0.
+  expect(slots.slice(0, 5).map((slot) => slot.level)).toEqual([0, 1, null, 1, 4]);
+  expect(Math.max(...slots.map((slot) => slot.level ?? 0))).toBe(4);
+  expect(slots[2]!.tip).toEqual({ seat: 'seat-a', range: 'range 2', value: 'not observed' });
+  expect(slots[4]!.tip.value).toBe('1.5M tokens');
+  expect(slots[4]!.label).toBe('seat-a, range 4: 1.5M tokens');
+  expect(model.rows[0]!.summary).toBe('seat-a: active in 3 of 4 observed slots');
 });
 
 /** WCAG contrast of the matrix ramp text on its fill, both themes (sRGB color-mix). */
@@ -158,7 +162,7 @@ const ratio = (a: number[], b: number[]) => {
 const mixOf = (text: number[], sheet: number[], percent: number) =>
   text.map((channel, at) => (channel * percent + sheet[at]! * (100 - percent)) / 100);
 
-it('keeps matrix and strip text readable on every intensity step in light and dark', () => {
+it('keeps matrix text readable on every intensity step in light and dark', () => {
   for (const theme of ['light', 'dark'] as const) {
     const text = hex(tokens.browser.color.text[theme]);
     const sheet = hex(tokens.browser.surface.sheet[theme]);
