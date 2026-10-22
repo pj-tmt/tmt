@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import htm from 'htm';
+import { icons } from './icons.js';
 
 /**
  * The bundled page runtime (#1693): what an opted-in page's own script finds on `window.tmt`, with
@@ -11,7 +12,6 @@ const runtime = Object.freeze({
   React,
   createRoot,
   html: htm.bind(React.createElement),
-  /** The curated icon set joins in a later slice; an empty frozen namespace until then. */
-  icons: Object.freeze({}),
+  icons,
 });
 Object.defineProperty(window, 'tmt', { value: runtime, enumerable: true });

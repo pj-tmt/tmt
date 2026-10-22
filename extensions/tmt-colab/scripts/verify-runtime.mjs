@@ -15,7 +15,7 @@ const read = (path) => readFileSync(path, 'utf8');
 const manifest = JSON.parse(read(join(app, 'package.json')));
 const installed = (name) => JSON.parse(read(join(app, 'node_modules', name, 'package.json'))).version;
 const packages = Object.fromEntries(
-  ['react', 'react-dom', 'htm', '@tailwindcss/browser'].map((name) => [name, installed(name)]),
+  ['react', 'react-dom', 'htm', '@tailwindcss/browser', 'lucide-react'].map((name) => [name, installed(name)]),
 );
 const bytes = readFileSync(join(directory, 'assets/colab-runtime.js'));
 const built = {
