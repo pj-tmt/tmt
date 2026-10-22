@@ -21,6 +21,8 @@ import digest from '../../../rust/tmt-remote/assets/digest.html?raw';
 import { digestPage } from './digest-page.js';
 import { moduleLoad, type ModuleLoad } from './module-entry.js';
 import { opsPage } from './ops-page.js';
+import { remoteApp } from './remote-app.js';
+import { REMOTE_PATHS } from './remote-routes.js';
 import { homePage, hostRemote, remoteShell } from './remote-shell.js';
 import { tmtSettingsPage } from './tmt-settings-page.js';
 import { applyStoredTheme } from '@tmt/browser-ui/theme';
@@ -78,14 +80,61 @@ async function pageStyles(page: Document): Promise<() => void> {
   return () => added.forEach((link) => link.remove());
 }
 
+/**
+ * Remote's connection check and settings forms as one document of views: both pages' markup in the
+ * slot (each page's `main` marked `data-page`), the connection page's header in the bar. The
+ * page's own code decides which view shows (`remote-app.ts`). The settings stylesheet loads with
+ * the first settings view, not with the route: the connection check stays a page that asks the
+ * door for nothing. `settingsStyles` resolves once it has loaded.
+ */
+async function adoptRemote(
+  slot: ShellSlot,
+  status: string,
+  forms: string,
+  settingsStyles: { load?: () => Promise<void> },
+): Promise<() => void> {
+  const parser = new DOMParser();
+  const landingPage = parser.parseFromString(status, 'text/html');
+  const settingsPage = parser.parseFromString(forms, 'text/html');
+  const releaseLanding = await pageStyles(landingPage);
+  let settingsSheets: Promise<() => void> | undefined;
+  settingsStyles.load = async () => {
+    settingsSheets ??= pageStyles(settingsPage);
+    await settingsSheets;
+  };
+  const bar = landingPage.querySelector('.tmt-ui-shell-bar');
+  slot.bar.replaceChildren(
+    ...(bar ? [...bar.childNodes].map((node) => document.adoptNode(node)) : []),
+  );
+  slot.main.replaceChildren(
+    ...(
+      [
+        ['landing', landingPage],
+        ['settings', settingsPage],
+      ] as const
+    ).flatMap(([name, page]) =>
+      [...(page.querySelector('.tmt-ui-shell-main')?.childNodes ?? [])].map((node) => {
+        if (node instanceof Element && node.localName === 'main')
+          (node as HTMLElement).dataset.page = name;
+        return document.adoptNode(node);
+      }),
+    ),
+  );
+  document.documentElement.dataset.tmtPage = 'landing';
+  return () => {
+    releaseLanding();
+    void settingsSheets?.then((release) => release());
+  };
+}
+
 /** A Remote page as a route module: its markup, then its page code, released on unmount. */
 function remotePage(
-  html: string,
+  html: string | ((slot: ShellSlot) => Promise<() => void>),
   run: (slot: ShellSlot) => void | (() => void) | Promise<void>,
 ): ShellRouteModule {
   return {
     async mount(slot) {
-      const unstyle = await adopt(slot, html);
+      const unstyle = await (typeof html === 'string' ? adopt(slot, html) : html(slot));
       const lifetime = new AbortController();
       hostRemote(slot, lifetime.signal);
       const end = () => {
@@ -161,25 +210,34 @@ export const routes: readonly ShellRoute[] = [
   },
   {
     id: 'remote',
-    paths: ['/remote', '/remote/'],
+    paths: REMOTE_PATHS,
     rail: 'remote',
-    // The landing reads nothing from the door until its own check connects.
+    // The connection check reads nothing from the door until its own check connects; the settings
+    // views ask for the composed shell themselves when they first show.
     quiet: true,
-    load: async () =>
-      remotePage(landing, async () => {
-        const { landingPage } = await import('./browser.js');
-        await landingPage(remoteShell()!.signal);
-      }),
-  },
-  {
-    id: 'remote-settings',
-    paths: ['/remote/settings'],
-    rail: 'remote',
-    load: async () =>
-      remotePage(settings, async () => {
-        const { settingsPage } = await import(/* @vite-ignore */ settingsEntry);
-        await settingsPage(remoteShell());
-      }),
+    load: async () => {
+      const sheets: { load?: () => Promise<void> } = {};
+      return remotePage(
+        (slot) => adoptRemote(slot, landing, settings, sheets),
+        (slot) =>
+          remoteApp(
+            remoteShell()!,
+            slot.main,
+            slot.bar,
+            () => sheets.load!(),
+            async () => ({
+              landing: async (lifetime, registry) => {
+                const { landingPage } = await import('./browser.js');
+                await landingPage(lifetime, registry);
+              },
+              settings: async (shell, registry) => {
+                const { settingsPage } = await import(/* @vite-ignore */ settingsEntry);
+                await settingsPage(shell, registry);
+              },
+            }),
+          ),
+      );
+    },
   },
   {
     id: 'ops',

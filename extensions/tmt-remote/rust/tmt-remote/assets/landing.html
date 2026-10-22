@@ -27,6 +27,7 @@
         id="notice"
         class="sheet tmt-ui-notice"
         data-tone="waiting"
+        data-view="status"
         aria-labelledby="heading"
       >
         <div class="sheet-body tmt-ui-notice-body">
@@ -183,12 +184,40 @@
           </details>
         </div>
       </section>
-      <section id="remotes" class="remote-registry" aria-labelledby="remote-heading">
-        <h2 id="remote-heading">Remotes in this browser</h2>
-        <p class="entry-note">Names and addresses are saved here. Each remote keeps its own pairing.</p>
-        <ul id="remote-list" class="remote-list"></ul>
-        <p id="remote-status" role="status"></p>
-        <button id="remote-add" class="tmt-ui-action" type="button">Add remote</button>
+      <section
+        id="connect"
+        class="sheet tmt-ui-notice"
+        data-tone="neutral"
+        data-view="connect"
+        aria-labelledby="connect-heading"
+        hidden
+      >
+        <div class="sheet-body tmt-ui-notice-body">
+          <h2 id="connect-heading" class="tmt-ui-notice-heading">Connect a device</h2>
+          <p>Give another browser or device its own access to this machine.</p>
+          <ol class="entry-steps">
+            <li>
+              On the machine that runs Remote, run
+              <span class="entry-command tmt-ui-command"
+                ><code class="tmt-ui-command-text">tmt remote pair</code>
+                <button
+                  id="copy-connect-pair"
+                  aria-label="Copy tmt remote pair"
+                  type="button"
+                  class="tmt-ui-command-copy"
+                >
+                  Copy</button
+                ><span
+                  id="copy-feedback-connect-pair"
+                  class="tmt-ui-command-feedback"
+                  role="status"
+                ></span
+              ></span>
+            </li>
+            <li>Open the link it prints in the browser you want to connect.</li>
+          </ol>
+          <p class="entry-note">Pair links are private and work once.</p>
+        </div>
       </section>
     </main>
     </div>

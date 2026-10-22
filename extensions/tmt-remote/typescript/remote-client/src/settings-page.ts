@@ -1,5 +1,5 @@
 import { settingsChoice } from './settings-controls.js';
-import { remoteRegistryPage } from './remote-registry-page.js';
+import { remoteRegistryPage, type RemoteRegistryPage } from './remote-registry-page.js';
 import type { RemoteShell } from './remote-shell.js';
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
 import { renderFirestore } from './firestore-page.js';
@@ -7,9 +7,13 @@ import { ManagementPage, type PageIntent } from './management-page.js';
 import { createActionMark } from '@tmt/browser-ui/static';
 import { createBusyMarkGate } from '@tmt/browser-ui/busy-mark';
 
-/** The Remote settings page (`/remote/settings`): run once per mount of its markup. This bundle
- * is loaded apart from the SDK, so the app hands it its part of the shell. */
-export async function settingsPage(shell?: RemoteShell): Promise<void> {
+/** The Remote settings views (`/remote/devices`, `/machine`, `/settings`): run once per mount of
+ * their markup. This bundle is loaded apart from the SDK, so the app hands it its part of the
+ * shell and the route's one remotes controller. */
+export async function settingsPage(
+  shell?: RemoteShell,
+  registry?: RemoteRegistryPage,
+): Promise<void> {
   function element<T extends HTMLElement>(id: string): T {
     const found = document.getElementById(id);
     if (!found) throw new Error(`Settings page lacks #${id}.`);
@@ -69,7 +73,8 @@ export async function settingsPage(shell?: RemoteShell): Promise<void> {
     return false;
   }
   let page: ManagementPage;
-  const registryState = remoteRegistryPage(() => {
+  const registryState = registry ?? remoteRegistryPage(undefined, shell);
+  registryState.blockedBy(() => {
     if (!page) return '';
     if (page.busy) return 'A request is in progress. Wait for its outcome.';
     if (page.outcome?.state === 'unknown')
@@ -80,7 +85,7 @@ export async function settingsPage(shell?: RemoteShell): Promise<void> {
         return 'Save or restore the unsent device name before changing pages.';
     }
     return '';
-  }, shell);
+  });
 
   /** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
   function commandNotice(target: HTMLElement, text: string): void {
