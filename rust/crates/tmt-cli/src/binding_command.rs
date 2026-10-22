@@ -106,14 +106,16 @@ fn remembered_session(
         })
 }
 
-/// The caller's own pane with the label the user knows it by, or `missing`.
+/// The caller's own pane with the label the user knows it by, or `missing`. These commands
+/// cannot do without the pane, so a slow tmux is reported as slow, not as a missing pane
+/// (`Host::caller_pane_required`, #4260).
 fn labeled_caller_pane(
     host: &Host,
     environment: &CallerEnvironment,
     missing: impl FnOnce() -> Failure,
 ) -> Result<Option<ResolvedPane>, Failure> {
     let id = host
-        .caller_pane(environment)
+        .caller_pane_required(environment)
         .map_err(endpoint_failure)?
         .ok_or_else(missing)?;
     let label = host.caller_label(&id).map_err(endpoint_failure)?;

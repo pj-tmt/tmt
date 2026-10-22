@@ -5,7 +5,7 @@ use crate::host::CallerEnvironment;
 use crate::process::ancestry::AncestryError;
 use std::{
     collections::{HashMap, HashSet},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tmt_core::host::{HostKind, ServerSelector};
 
@@ -68,9 +68,21 @@ fn context(text: &str) -> Option<Context<'_>> {
     })
 }
 
+/// Whether the caller supplied both `TMUX` and `TMUX_PANE` as well-formed evidence: the one case
+/// where [`resolve`] checks a claim with a single command instead of discovering a pane.
+pub(super) fn claims_pane(environment: &CallerEnvironment) -> bool {
+    let tmux = environment.tmux.as_ref().and_then(|value| value.to_str());
+    let pane = environment.pane.as_ref().and_then(|value| value.to_str());
+    matches!((tmux, pane), (Some(tmux), Some(pane))
+        if context(tmux).is_some() && valid_pane_id(pane))
+}
+
+/// `budget` bounds the command that checks supplied evidence; discovery without supplied
+/// evidence always keeps the shared one second deadline.
 pub(super) fn resolve<R: CommandRunner>(
     tmux: &Tmux<R>,
     environment: &CallerEnvironment,
+    budget: Duration,
 ) -> Result<String, TmuxError> {
     // Invalid supplied bytes are explicit invalid evidence, not absence that
     // permits discovery to bind an unrelated ambient pane.
@@ -90,10 +102,10 @@ pub(super) fn resolve<R: CommandRunner>(
     } else {
         Some(context(tmux_text).ok_or_else(unavailable)?)
     };
-    let deadline = Instant::now() + OPERATION_TIMEOUT;
     if !pane.is_empty()
         && let Some(context) = &context
     {
+        let deadline = Instant::now() + budget;
         let format = ["#{pane_id}", "#{socket_path}", "#{pid}"].join(SEPARATOR);
         let output = tmux.run(
             "tmux",
@@ -118,6 +130,7 @@ pub(super) fn resolve<R: CommandRunner>(
         .then(|| pane.into())
         .ok_or_else(unavailable);
     }
+    let deadline = Instant::now() + OPERATION_TIMEOUT;
     let ancestry = ancestry(tmux, environment.process_id, deadline)?;
     let mut args = context
         .as_ref()
