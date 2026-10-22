@@ -334,6 +334,14 @@ pub fn age(now_ms: u64, then_ms: u64) -> String {
     }
 }
 
+/// Core owns delivery wording; absence preserves the caller's legacy line.
+pub(crate) fn message_state_text(item: &Value) -> Option<String> {
+    item["messageState"]["reason"]["text"]
+        .as_str()
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+}
+
 /// Reads one request's detail through `requests.show`, which acknowledges
 /// nothing.
 pub fn show_request(core: &Core, id: &str) -> Result<Value, SquadError> {

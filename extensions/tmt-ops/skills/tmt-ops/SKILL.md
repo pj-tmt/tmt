@@ -742,8 +742,10 @@ from the row's Actions menu (or an authored `update-status` binding); the form
 reuses the existing preview, permission and conflict checks.
 
 Captured answers appear under their message as `turn output`, never a reply.
-`working…` means Core has a pending or bound capture; a bound turn may run beyond
-ten minutes. `No turn output was captured for this message.` reports Core's
+Delivery lines use Core's `messageState.reason.text` verbatim; activity and capture
+state never replace that wording. Older Core or an unavailable observation keeps
+the existing local status line. A bound capture may run beyond ten minutes.
+`No turn output was captured for this message.` reports Core's
 `no_answer` outcome, without sending again. Truncated output is marked. These
 messages and captures survive restart through Core request history.
 

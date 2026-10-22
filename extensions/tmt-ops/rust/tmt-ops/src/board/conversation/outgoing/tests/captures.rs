@@ -57,6 +57,7 @@ pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
                     request: REQUEST.into(),
                     disposition: Disposition::Sent,
                     passthrough: false,
+                    message_state_text: None,
                     fallback: None,
                     warning: None,
                 }),
@@ -136,6 +137,16 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
                     Disposition::Sent
                 },
                 passthrough: !fallback,
+                message_state_text: Some(
+                    if fallback {
+                        "not sent, the agent could not be reached"
+                    } else if scene == "chat-pending" {
+                        "delivered"
+                    } else {
+                        "the agent has started on it"
+                    }
+                    .into(),
+                ),
                 fallback: fallback.then(|| "There is no live pane.".into()),
                 warning: None,
             }),
@@ -155,6 +166,7 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
         };
         app.apply_sent(crate::board::home_leads::SentKey { sender, agent: MEMBER.into() }, Ok(vec![json!({
             "requestId":REQUEST,"preparedAtMs":at,"text":QUESTION,"truncated":false,"mode":"passthrough",
+            "messageState":{"reason":{"text":if scene=="chat-pending" {"delivered"} else {"the agent has started on it"}}},
             "passthrough":{"state":state,"boundAtMs":at+1,"answer":{"text":REPLY,"truncated":scene=="chat-truncated","provider":"codex","endedMs":now_ms-1000}}
         })]));
     }
@@ -172,7 +184,8 @@ pub(in crate::board) fn expected(scene: &str) -> &'static str {
         "sent-replied" => REPLY,
         "sent-finished" => "✓ night-2 finished without replying · 2m ago",
         "sent-unknown" => "✓ sent · mkt-gemini's activity is not reported",
-        "chat-pending" | "chat-bound" => "working…",
+        "chat-pending" => "delivered",
+        "chat-bound" => "the agent has started on it",
         "chat-answered" => "turn output",
         "chat-truncated" => "turn output · truncated",
         "chat-no-answer" => "No turn output was captured for this message.",
@@ -354,4 +367,79 @@ fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
             std::fs::write(path,serde_json::to_vec(&json!({"source":"Approved Colab739017fe exchange colours; Colab6e70ab55 activity states; accepted-send composer explicitly closed to show idle input; ordinary request feedback and Core capture states; literal fixture answer", "frames":frames})).unwrap()).unwrap();
         }
     });
+}
+
+#[test]
+fn core_text_changes_reach_live_and_restored_chat_without_local_activity_inference() {
+    const NOW: u64 = 1_791_600_000_160;
+    crate::status::with_now_ms(NOW, || {
+        let mut app = fixture("chat-bound", Look::default(), NOW);
+        let _ = board_frame(&app, 160, 51);
+        let text = "Core changed its wording: waiting for permission.";
+        let owner = app
+            .conversation_finals()
+            .expect("visible conversation lease");
+        app.apply_sent(
+            crate::board::home_leads::SentKey {
+                sender: owner.sender,
+                agent: owner.agent,
+            },
+            Ok(vec![json!({
+                "requestId":REQUEST,"preparedAtMs":NOW-42_000,"text":QUESTION,"truncated":false,
+                "mode":"passthrough","passthrough":{"state":"bound"},
+                "messageState":{"reason":{"text":text}}
+            })]),
+        );
+        let _ = board_frame(&app, 160, 51);
+        {
+            let mut state = app.conversation.borrow_mut();
+            let session = state.sessions.values_mut().next().unwrap();
+            session.observe_progress("night-2", None, NOW, true);
+            assert_eq!(session.outgoing[0].status(), text);
+            assert!(session.outgoing[0].feedback_clock.is_none());
+            assert!(session.outgoing[0].capture.is_some());
+        }
+        let live = board_frame(&app, 160, 51);
+        assert!(live.contains(text), "{live}");
+        assert!(!live.contains("working…"), "{live}");
+        {
+            let mut state = app.conversation.borrow_mut();
+            let session = state.sessions.values_mut().next().unwrap();
+            session.outgoing.clear();
+            session.refresh_outgoing();
+        }
+        let restored = board_frame(&app, 160, 51);
+        assert!(restored.contains(text), "{restored}");
+        assert!(!restored.contains("working…"), "{restored}");
+    });
+}
+
+#[test]
+fn core_text_overrides_every_accepted_disposition_but_missing_state_keeps_the_local_line() {
+    for disposition in [
+        Disposition::Sent,
+        Disposition::Queued,
+        Disposition::Offline,
+        Disposition::Held,
+        Disposition::Uncertain,
+    ] {
+        let app = fixture("chat-bound", Look::default(), 1_791_600_000_160);
+        let mut state = app.conversation.borrow_mut();
+        let entry = &mut state.sessions.values_mut().next().unwrap().outgoing[0];
+        let Some(Ok(accepted)) = &mut entry.outcome else {
+            panic!("accepted fixture")
+        };
+        accepted.disposition = disposition;
+        accepted.passthrough = false;
+        accepted.message_state_text = Some("Core owns these exact words.".into());
+        entry.sending_held = true;
+        assert_eq!(entry.status(), "Core owns these exact words.");
+        entry.sending_held = false;
+        let Some(Ok(accepted)) = &mut entry.outcome else {
+            unreachable!()
+        };
+        accepted.message_state_text = None;
+        entry.feedback = "legacy delivered line".into();
+        assert!(!entry.status().is_empty());
+    }
 }

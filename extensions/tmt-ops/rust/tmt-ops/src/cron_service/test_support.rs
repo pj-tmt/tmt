@@ -135,6 +135,9 @@ if a[0]=='api':
    structured=m[response_key]=='storage'; m[response_key]=False; save(m)
    if structured: fail('STORAGE_UNAVAILABLE')
    print('interrupted'); sys.exit(0)
+ elif op=='requests.show':
+  if m.get('requestShowFailure'): save(m); fail('STORAGE_UNAVAILABLE')
+  out=m.get('requestShow',{})
  elif op=='dispatch.show':
   if m.get('dispatchShowFailure'): save(m); fail('STORAGE_UNAVAILABLE')
   previous=m.get('dispatches',{}).get(i['operationId']) or m.get('announcements',{}).get(i['operationId'])

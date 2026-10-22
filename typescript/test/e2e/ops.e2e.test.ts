@@ -1283,7 +1283,13 @@ renameSync(output+'.tmp',output);
         ).toEqual([expect.objectContaining({ request_id: questions[0], body: '/yes!' })]);
         const request = sends()[0]!.request_id;
         await step('chat-prompt', { prompt: true, promptText: '/yes！' });
-        await fixture.waitForCapture((screen) => screen.includes('working…'), board.pane);
+        await fixture.waitFor(
+          () => api('requests.show', { requestId: request }).messageState?.state === 'working',
+          5_000,
+          'Core observes the bound turn working'
+        );
+        const workingText = api('requests.show', { requestId: request }).messageState.reason.text;
+        await fixture.waitForCapture((screen) => screen.includes(workingText), board.pane);
         await step('chat-stop', { message: 'Captured answer from this turn' });
         await fixture.waitFor(
           () => api('requests.show', { requestId: request }).passthrough?.state === 'answered',
@@ -1337,7 +1343,7 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'hello there']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => screen.includes('Sent to auth-fix'), shell.pane);
+      await fixture.waitForCapture((screen) => screen.includes('auth-fix: '), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
 
       const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
@@ -1409,7 +1415,7 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'first question']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => screen.includes('Sent to auth-fix'), shell.pane);
+      await fixture.waitForCapture((screen) => screen.includes('auth-fix: '), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
 
       const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);

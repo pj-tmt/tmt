@@ -412,6 +412,7 @@ fn capture_squads_packet(output: &str) {
                                     request: "captured-chat".into(),
                                     disposition: crate::send::Disposition::Sent,
                                     passthrough: true,
+                                    message_state_text: None,
                                     fallback: None,
                                     warning: None,
                                 }),

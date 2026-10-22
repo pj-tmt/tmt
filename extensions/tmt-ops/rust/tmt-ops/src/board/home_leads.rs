@@ -161,6 +161,7 @@ impl SentKey {
                 let full = texts.known.get(request).cloned().flatten();
                 let mut send = json!({
                     "requestId": request,
+                    "messageState": item["messageState"],
                     "preparedAtMs": item["preparedAtMs"],
                     "truncated": full.is_none(),
                     "text": full.unwrap_or_else(|| item["preview"].as_str().unwrap_or_default().to_owned()),

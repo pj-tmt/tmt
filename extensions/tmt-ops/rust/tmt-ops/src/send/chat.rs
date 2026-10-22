@@ -81,6 +81,11 @@ pub(crate) fn chat(
     let (_, receipt, warning) = intent.submit(core, config)?;
     let mut result = accepted(&receipt, recipient, passthrough, reason)?;
     result.warning = warning;
+    // Acceptance already happened. A failed observation must never turn it into
+    // a send failure or admit a second dispatch.
+    result.message_state_text = crate::requests::show_request(core, &result.request)
+        .ok()
+        .and_then(|detail| crate::requests::message_state_text(&detail));
     Ok(result)
 }
 
@@ -117,6 +122,7 @@ fn accepted(
     Ok(Accepted {
         request: request.into(),
         disposition,
+        message_state_text: None,
         passthrough,
         fallback: reason.map(str::to_owned),
         warning: None,
@@ -126,6 +132,54 @@ fn accepted(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn core_delivery_text_is_observed_after_acceptance_without_resending_on_read_failure() {
+        use crate::cron_service::test_support::{Fixture, LEAD, USER};
+        for fails in [false, true] {
+            let fixture = Fixture::new();
+            let text = "Core changed its words: waiting, not a client guess.";
+            fixture.change_model(|model| {
+                model["canPassthrough"] = json!({"available":true});
+                model["members"][0]["metadata"]["user"] = json!("true");
+                model["dispatchWake"] = json!("sent");
+                model["requestShowFailure"] = json!(fails);
+                model["requestShow"] = json!({"messageState":{"reason":{"text":text}}});
+            });
+            let accepted = chat(
+                &fixture.core,
+                &fixture.config,
+                USER,
+                LEAD,
+                "hello",
+                "fallback",
+            )
+            .unwrap();
+            assert_eq!(
+                accepted.message_state_text.as_deref(),
+                (!fails).then_some(text)
+            );
+            assert_eq!(accepted.disposition, Disposition::Sent);
+            let model = fixture.model();
+            let operations: Vec<_> = model["calls"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|call| call["request"]["operation"].as_str())
+                .collect();
+            assert_eq!(
+                operations
+                    .iter()
+                    .filter(|op| **op == "dispatch.create")
+                    .count(),
+                1
+            );
+            assert!(
+                operations.iter().position(|op| *op == "dispatch.create")
+                    < operations.iter().position(|op| *op == "requests.show")
+            );
+        }
+    }
+
     #[test]
     fn capability_never_guesses_and_reasons_are_an_open_set() {
         assert!(unavailable(&json!({}), "a").is_some());
