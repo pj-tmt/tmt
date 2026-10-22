@@ -88,7 +88,7 @@ import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
-import type { AnchorPosition, PageScheme, RenderState, SelectionRect } from './renderer.js';
+import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
@@ -112,8 +112,8 @@ import { isChatThread, threadNumbers } from './thread-records.js';
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
 import { usePageEditor } from './use-page-editor.js';
 import { usePagePanels } from './use-page-panels.js';
+import { usePageRenderer } from './use-page-renderer.js';
 import { SaveNotice } from './save-notice.js';
-import { toolbarInset } from './toolbar-inset.js';
 
 /** In-page cards whose controls the floating actions move above, never over. */
 const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
@@ -1305,8 +1305,6 @@ function Page() {
     currentSelector.current = null;
     currentRectangle.current = null;
     setRectangle(null);
-    setResolved([]);
-    setAnchorsChecked(false);
   }, [snapshot.id]);
   useEffect(() => {
     const store = transport.drafts;
@@ -1454,20 +1452,8 @@ function Page() {
     });
     panelsRef.current.clear();
   }
-  const [resolved, setResolved] = useState<string[]>([]);
-  const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
-  const imageBinding = snapshot.binding?.files?.attachments;
-  const imageScope = imageBinding?.scope?.();
-  const imageDescriptors = JSON.stringify(view.attachments ?? []);
-  const imageInput = useRef({ binding: imageBinding, descriptors: view.attachments ?? [] });
-  imageInput.current = { binding: imageBinding, descriptors: view.attachments ?? [] };
-  useEffect(() => {
-    renderer.current?.images(imageInput.current);
-  }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
-  // Until the frame reports what its page paints, the cards keep the app theme.
-  const [pageScheme, setPageScheme] = useState<PageScheme>();
   const accessLabel = archived
     ? text.archiveReadOnly
     : recoveryRequired
@@ -1557,23 +1543,6 @@ function Page() {
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
   const { read: readingHint, anchor, task } = page.useSearch();
-  // A shell item can open the page at one exact element; when it is not there, say so once.
-  const [missingAnchor, setMissingAnchor] = useState<string>();
-  const revealed = useRef('');
-  const [rendererMounts, setRendererMounts] = useState(0);
-  useEffect(() => {
-    const key = anchor ? `${snapshot.id}:${anchor}` : '';
-    if (!anchor || !renderer.current || revealed.current === key) return;
-    // Once per opening: a later live edit of the page never pulls the reader back to it.
-    revealed.current = key;
-    setMissingAnchor(undefined);
-    void renderer.current.reveal(anchor).then((found) => {
-      if (found === false) setMissingAnchor(anchor);
-    });
-  }, [anchor, rendererMounts, snapshot.id]);
-  useEffect(() => {
-    if (!anchor) setMissingAnchor(undefined);
-  }, [anchor]);
   const {
     readings,
     inlineSlots,
@@ -1610,48 +1579,29 @@ function Page() {
     activeThread,
     setActiveThread,
   });
-  useEffect(() => {
-    const controller = new AbortController();
-    if (view.pageType === 'shell') {
-      host.current?.replaceChildren();
-      setState('ready');
-      return () => controller.abort();
-    }
-    if (endedError) {
-      host.current?.replaceChildren();
-      setState('failed');
-      return () => controller.abort();
-    }
-    setState('loading');
-    resetPageLinks();
-    // Source revisions replace only author content. Parent selection and composer
-    // state keep the original quote and rectangle even if that quote is now stale.
-    setResolved([]);
-    setAnchorsChecked(false);
-    setPageScheme(undefined);
-    void mountRenderer(host.current!, view.source, {
-      signal: controller.signal,
-      layout: view.layout,
-      onState: (next) => {
-        if (next !== 'ready') resetPageLinks();
-        setState(next);
-      },
-      onScheme: setPageScheme,
-      onLink: requestPageLink,
+  const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
+    snapshot,
+    view,
+    endedError,
+    host,
+    renderer,
+    setState,
+    toolbar,
+    anchor,
+    layers: {
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
       onReadings: onReadingAnchors,
-      viewportInset: () => toolbarInset(toolbar.current),
-      onSelection: (_value, quote, rect) => {
+    },
+    resetPageLinks,
+    requestPageLink,
+    handlers: {
+      onSelection: (quote, rect) => {
         setSelector(quote ?? null);
         currentSelector.current = quote ?? null;
         currentRectangle.current = rect ?? null;
         setRectangle(rect ?? null);
         if (!quote) selectionCleared.current();
-      },
-      onAnchors: (ids, checked = false) => {
-        setResolved(ids);
-        setAnchorsChecked(checked);
       },
       onAnnotate: annotate,
       onToggleSelectionMode: () => toggleSelectionMode.current(),
@@ -1667,41 +1617,8 @@ function Page() {
         );
         if (thread) openAnchoredThread(thread.ref);
       },
-    })
-      .then((handle) => {
-        if (controller.signal.aborted) handle.destroy();
-        else {
-          renderer.current = handle;
-          handle.images(imageInput.current);
-          setRendererMounts((count) => count + 1);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          host.current?.replaceChildren();
-          setState('failed');
-        }
-      });
-    return () => {
-      // Retire messages before replacing the frame, retaining its layout and the
-      // parent's frozen selection. Unmount removes the host itself.
-      renderer.current?.release();
-      resetPageLinks();
-      controller.abort();
-      renderer.current = null;
-    };
-  }, [
-    snapshot.id,
-    view.source,
-    view.layout,
-    view.pageType,
-    endedError,
-    inlineSlots.onSlots,
-    onQuestionAnchors,
-    onReadingAnchors,
-    resetPageLinks,
-    requestPageLink,
-  ]);
+    },
+  });
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
   // A reply or a status change elsewhere leaves this list as it was, so the document is not told
   // to highlight again.
