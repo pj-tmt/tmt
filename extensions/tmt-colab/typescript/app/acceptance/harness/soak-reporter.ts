@@ -1,5 +1,5 @@
 import type { Reporter, TestCase, TestResult, TestStep } from '@playwright/test/reporter';
-import { loadSoakDictionary, policy } from './soak-literals.js';
+import { loadSoakDictionary, policy } from './soak-literals.mjs';
 import { projectSoakFailure } from './soak-diagnostics.js';
 
 /** Closed Playwright API labels only. User/test-authored step titles are never evidence. */

@@ -11,7 +11,7 @@ import {
 } from '../../../../../../typescript/test/support/private-tmux.js';
 import { alive, OwnedProcess, until } from './process.js';
 import { serveLockOwners, signalServeLockOwner } from './serve-lock.js';
-import { loadSoakDictionary, type SoakDictionary } from './soak-literals.js';
+import { loadSoakDictionary, type SoakDictionary } from './soak-literals.mjs';
 import { appendSoakInvocation } from './soak-diagnostics.js';
 
 const harness = path.dirname(fileURLToPath(import.meta.url));

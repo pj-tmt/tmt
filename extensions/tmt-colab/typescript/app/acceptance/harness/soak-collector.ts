@@ -2,7 +2,7 @@ import net from 'node:net';
 import path from 'node:path';
 import type { BrowserContext, Page, TestInfo } from '@playwright/test';
 import { assertPrivateSocket } from '../../../../../../typescript/test/support/private-tmux.js';
-import { loadSoakDictionary, policy } from './soak-literals.js';
+import { loadSoakDictionary, policy } from './soak-literals.mjs';
 import { projectSoakFailure, readSoakTail } from './soak-diagnostics.js';
 
 // The collector consumes only owned observations; it does not depend on scenario/browser helpers.

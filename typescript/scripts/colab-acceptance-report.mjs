@@ -3,7 +3,7 @@ import path from 'node:path';
 import {
   loadSoakDictionary,
   policy,
-} from '../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-literals.ts';
+} from '../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-literals.mjs';
 import { projectSoakFailure } from '../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-diagnostics.ts';
 
 const input = process.env.PLAYWRIGHT_JSON_OUTPUT_FILE;
@@ -17,7 +17,7 @@ const sources = new Set(
     : []
 );
 const tests = [];
-const dictionary = loadSoakDictionary();
+let dictionary;
 let soakEvidence;
 
 // Only this synthetic failing case may create the separate, bounded diagnostic artifact.
@@ -42,7 +42,10 @@ function retainSoak(spec, result) {
     try {
       const bytes = Buffer.from(attachment.body, 'base64');
       if (bytes.length > 65536 || bytes.toString('base64') !== attachment.body) continue;
-      const value = projectSoakFailure(JSON.parse(bytes.toString('utf8')), dictionary);
+      const value = projectSoakFailure(
+        JSON.parse(bytes.toString('utf8')),
+        (dictionary ??= loadSoakDictionary())
+      );
       if (value && !soakEvidence) soakEvidence = value;
     } catch {
       // Unknown private input and attachment paths never belong in retained evidence.

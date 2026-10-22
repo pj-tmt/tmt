@@ -1,23 +1,32 @@
 import fs from 'node:fs';
-import ts from 'typescript';
-import policy from './soak-policy.json' with { type: 'json' };
-
-export { policy };
-export interface SoakDictionary {
-  codes: Set<string>;
-  messages: Set<string>;
-  assertions: Record<string, string>;
+import { createRequire } from 'node:module';
+// Tooling-only and app-only installs use the same already locked workspace compiler.
+let ts;
+function compiler() {
+  const local = createRequire(new URL('../../package.json', import.meta.url));
+  const tooling = createRequire(
+    new URL('../../../../../../typescript/package.json', import.meta.url),
+  );
+  let file;
+  try {
+    file = tooling.resolve('./node_modules/typescript');
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    file = local.resolve('./node_modules/typescript');
+  }
+  return local(file);
 }
+import policy from './soak-policy.json' with { type: 'json' };
+export { policy };
 const root = new URL('../../../../../../', import.meta.url);
 const scenarioFile = 'extensions/tmt-colab/typescript/app/acceptance/connection-soak.spec.ts';
-const readOwner = (file: string) => fs.readFileSync(new URL(file, root), 'utf8');
-
-function unwrap(node: ts.Expression): ts.Expression {
+const readOwner = (file) => fs.readFileSync(new URL(file, root), 'utf8');
+function unwrap(node) {
   return ts.isAsExpression(node) || ts.isSatisfiesExpression(node) ? unwrap(node.expression) : node;
 }
-function staticObject(source: ts.SourceFile, name: string) {
-  let found: ts.ObjectLiteralExpression | undefined;
-  const visit = (node: ts.Node) => {
+function staticObject(source, name) {
+  let found;
+  const visit = (node) => {
     if (ts.isVariableDeclaration(node) && node.name.getText(source) === name && node.initializer) {
       const value = unwrap(node.initializer);
       if (ts.isObjectLiteralExpression(value)) found = value;
@@ -28,8 +37,8 @@ function staticObject(source: ts.SourceFile, name: string) {
   if (!found) throw new Error(`Missing static object: ${name}`);
   return found;
 }
-function objectEntries(source: ts.SourceFile, name: string) {
-  const entries = new Map<string, ts.Expression>();
+function objectEntries(source, name) {
+  const entries = new Map();
   for (const member of staticObject(source, name).properties) {
     if (!ts.isPropertyAssignment(member)) continue;
     const key = member.name;
@@ -37,18 +46,18 @@ function objectEntries(source: ts.SourceFile, name: string) {
   }
   return entries;
 }
-
 /** Only explicitly named owner files and literals can enter the public diagnostic vocabulary. */
-export function loadSoakDictionary(read = readOwner): SoakDictionary {
-  const messages = new Set<string>();
+export function loadSoakDictionary(read = readOwner) {
+  ts ??= compiler();
+  const messages = new Set();
   for (const owner of policy.owners) {
     const text = read(owner.file);
-    const found = new Set<string>();
+    const found = new Set();
     if (owner.kind === 'json') {
-      const entries = JSON.parse(text)[owner.name] as { code: unknown }[];
+      const entries = JSON.parse(text)[owner.name];
       if (!Array.isArray(entries) || entries.some((entry) => typeof entry.code !== 'string'))
         throw new Error(`Non-static contract codes: ${owner.file}`);
-      for (const entry of entries) found.add(entry.code as string);
+      for (const entry of entries) found.add(entry.code);
     } else if (owner.kind === 'rust') {
       const constructor = owner.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const quoted = '"(?:[^"\\\\]|\\\\.)*"';
@@ -57,15 +66,15 @@ export function loadSoakDictionary(read = readOwner): SoakDictionary {
         'g',
       );
       for (const match of text.matchAll(pattern)) {
-        found.add(JSON.parse(match[1]) as string);
-        found.add(JSON.parse(match[2]) as string);
+        found.add(JSON.parse(match[1]));
+        found.add(JSON.parse(match[2]));
       }
     } else {
       const source = ts.createSourceFile(owner.file, text, ts.ScriptTarget.Latest, true);
       if (owner.kind === 'keys') {
         for (const key of objectEntries(source, owner.name).keys()) found.add(key);
       } else {
-        const visit = (node: ts.Node) => {
+        const visit = (node) => {
           if (
             owner.kind === 'type' &&
             ts.isTypeAliasDeclaration(node) &&
@@ -115,7 +124,7 @@ export function loadSoakDictionary(read = readOwner): SoakDictionary {
     true,
   );
   const entries = objectEntries(source, 'SOAK_ASSERTIONS');
-  const assertions: Record<string, string> = {};
+  const assertions = {};
   for (const id of policy.assertions) {
     const value = entries.get(id);
     if (!value || !ts.isStringLiteral(value)) throw new Error(`Non-static assertion: ${id}`);

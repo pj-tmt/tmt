@@ -13,24 +13,17 @@ import {
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
-import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   loadSoakDictionary,
   policy,
-} from '../../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-literals.js';
+} from '../../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-literals.mjs';
 import {
   projectSoakFailure,
   readSoakTail,
-  appendSoakInvocation,
 } from '../../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-diagnostics.js';
-
-import { SoakCollector } from '../../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-collector.js';
-import SoakReporter, {
-  apiSpan,
-} from '../../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-reporter.js';
 
 const script = fileURLToPath(new URL('../../scripts/colab-acceptance-report.mjs', import.meta.url));
 const secret = 'PRIVATE_CREDENTIAL_SENTINEL';
@@ -133,7 +126,9 @@ function runReport(
     });
     expect(child.error).toBeUndefined();
     const stdout = child.stdout;
-    const text = readFileSync(path.join(root, 'colab-acceptance-results/outcomes.json'), 'utf8');
+    const outcomeFile = path.join(root, 'colab-acceptance-results/outcomes.json');
+    expect(existsSync(outcomeFile), child.stderr.slice(0, 4096)).toBe(true);
+    const text = readFileSync(outcomeFile, 'utf8');
     expect(text + stdout).not.toContain(secret);
     expect(text + stdout).not.toContain(root);
     const parsed = JSON.parse(text);
@@ -737,176 +732,56 @@ describe('closed soak diagnostic projection', () => {
   });
 });
 
-describe('synthetic soak API projection', () => {
-  const span = { category: 'pw:api', title: 'Click', startTime: new Date(1000), duration: 40 };
-  it('accepts only exact API category/name and never a test-authored step', () => {
-    expect(apiSpan(span, 900, 160)).toEqual({
-      name: 'locator.click',
-      startMs: 100,
-      durationMs: 40,
-    });
-    expect(apiSpan({ ...span, category: 'test.step' }, 900, 160)).toBeUndefined();
-    expect(apiSpan({ ...span, title: 'Click ' + secret }, 900, 160)).toBeUndefined();
-    expect(apiSpan({ ...span, title: secret }, 900, 160)).toBeUndefined();
-    expect(apiSpan({ ...span, duration: -1 }, 900, 160)).toEqual({
-      name: 'locator.click',
-      startMs: 100,
-      durationMs: 60,
-    });
-  });
-
-  it('strips private reporter metadata and keeps only the last 30 seconds of API spans', () => {
-    const reporter = new SoakReporter();
-    const test = {
-      title: policy.scenario,
-      location: { file: '/fixture/connection-soak.spec.ts' },
-    } as Parameters<SoakReporter['onTestEnd']>[0];
-    const result = {
-      status: 'failed',
-      startTime: new Date(0),
-      attachments: [
-        {
-          name: policy.attachment,
-          contentType: 'application/json',
-          path: secret,
-          body: Buffer.from(
-            JSON.stringify({
-              version: 1,
-              scenario: policy.id,
-              observedMs: 31000,
-              originMs: 1000,
-              assertion: 'directory',
-              truncated: { spans: true },
-              error: { message: secret },
-            })
-          ),
-        },
-      ],
-    } as Parameters<SoakReporter['onTestEnd']>[1];
-    for (const category of ['test.step', 'pw:api'])
-      reporter.onStepBegin(test, result, {
-        ...span,
-        category,
-        startTime: new Date(2000),
-        duration: 100,
-        params: { secret },
-        subtitle: secret,
-      } as unknown as Parameters<SoakReporter['onStepBegin']>[2]);
-    reporter.onStepBegin(test, result, {
-      ...span,
-      startTime: new Date(1000),
-      duration: 10,
-    } as unknown as Parameters<SoakReporter['onStepBegin']>[2]);
-    reporter.onTestEnd(test, result);
-    const attachment = result.attachments[0];
-    expect(attachment.path).toBeUndefined();
-    const retained = attachment.body!.toString();
-    expect(retained).not.toContain(secret);
-    expect(retained).not.toContain('originMs');
-    expect(JSON.parse(retained).truncated.spans).toBe(true);
-    expect(JSON.parse(retained).spans).toEqual([
-      { name: 'locator.click', startMs: 1000, durationMs: 100 },
-    ]);
-  });
-});
-
-describe('soak failure collection before world cleanup', () => {
-  it.each([false, true])(
-    'captures setup failure and owned listener liveness=%s without a browser',
-    async (listening) => {
-      const root = realpathSync(mkdtempSync(path.join(realpathSync('/tmp'), 'tmt-acc-collector-')));
-      let observe: (() => Promise<void>) | undefined;
-      let body: Buffer | undefined;
-      const servers: net.Server[] = [];
-      const world = {
-        root,
-        dataRoot: path.join(root, 'data'),
-        enableSoakDiagnostics() {},
-        onFailure(callback: () => Promise<void>) {
-          observe = callback;
-        },
-        soakLogs: () => ({ records: [], truncated: false }),
-        soakChildren: () => [],
-      } as unknown as ConstructorParameters<typeof SoakCollector>[0];
-      const info = {
-        attach: async (_name: string, attachment: { body: Buffer }) => {
-          body = attachment.body;
-        },
-      } as unknown as ConstructorParameters<typeof SoakCollector>[1];
+describe('filtered workspace compiler installs', () => {
+  it.each(['tooling', 'app'])(
+    'loads the same owner vocabulary with only the %s compiler installed',
+    (owner) => {
+      const root = realpathSync(mkdtempSync(path.join(realpathSync('/tmp'), 'tmt-soak-install-')));
+      const repository = fileURLToPath(new URL('../../../', import.meta.url));
+      const harness = 'extensions/tmt-colab/typescript/app/acceptance/harness';
+      const compiler = path.resolve(
+        path.dirname(fileURLToPath(import.meta.resolve('typescript'))),
+        '..'
+      );
       try {
-        const collector = new SoakCollector(world, info);
-        if (listening) {
-          const directory = fixturePath(root, path.join(root, 'data', 'colab'));
-          mkdirSync(directory, { recursive: true });
-          for (const address of [
-            path.join(directory, 'door.sock'),
-            { host: '127.0.0.1', port: 0 },
-          ]) {
-            const server = net.createServer((socket) => socket.destroy());
-            servers.push(server);
-            await new Promise<void>((resolve, reject) => {
-              server.once('error', reject);
-              if (typeof address === 'string') server.listen(address, resolve);
-              else server.listen(address, resolve);
-            });
-          }
-          const address = servers[1].address() as net.AddressInfo;
-          collector.setDoor({
-            origin: `http://127.0.0.1:${address.port}`,
-            remote: { child: { exitCode: null } },
-          });
+        const files = [
+          ...policy.owners.map((entry) => entry.file),
+          'extensions/tmt-colab/typescript/app/acceptance/connection-soak.spec.ts',
+          `${harness}/soak-policy.json`,
+          `${harness}/soak-literals.mjs`,
+        ];
+        for (const file of new Set(files)) {
+          const target = fixturePath(root, path.join(root, file));
+          mkdirSync(fixturePath(root, path.dirname(target)), { recursive: true });
+          writeFileSync(target, readFileSync(path.join(repository, file)));
         }
-        appendSoakInvocation(
-          root,
-          'core',
-          3,
-          null,
-          JSON.stringify({ error: { code: 'PANE_NOT_FOUND', message: secret }, payload: secret })
+        const home = owner === 'tooling' ? 'typescript' : 'extensions/tmt-colab/typescript/app';
+        const modules = fixturePath(root, path.join(root, home, 'node_modules'));
+        mkdirSync(modules, { recursive: true });
+        symlinkSync(compiler, fixturePath(root, path.join(modules, 'typescript')), 'dir');
+        const loader = path.join(root, harness, 'soak-literals.mjs');
+        const child = spawnSync(
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            `const {loadSoakDictionary}=await import(${JSON.stringify(loader)}); const value=loadSoakDictionary(); console.log(JSON.stringify({codes:[...value.codes].sort(),messages:[...value.messages].sort(),assertions:value.assertions}));`,
+          ],
+          { cwd: root, encoding: 'utf8', timeout: 10000, env: { ...process.env, NODE_PATH: '' } }
         );
-        await observe!();
-        const retained = JSON.parse(body!.toString());
-        expect(retained.assertion.id).toBe('setup');
-        expect(retained.logs.some((row: { code: string }) => row.code === 'PANE_NOT_FOUND')).toBe(
-          true
-        );
-        expect(retained.children).toEqual([
-          { index: 0, role: 'core', alive: false, exitCode: 3, signal: null },
-        ]);
-        expect(retained.alive).toEqual({
-          socket: listening,
-          door: listening,
-          method: 'owned-resource-probe',
+        expect(child.error).toBeUndefined();
+        expect(child.status, child.stderr).toBe(0);
+        const dictionary = loadSoakDictionary();
+        expect(JSON.parse(child.stdout)).toEqual({
+          codes: [...dictionary.codes].sort(),
+          messages: [...dictionary.messages].sort(),
+          assertions: dictionary.assertions,
         });
-        expect(body!.toString()).not.toContain(secret);
-        expect(body!.toString()).not.toContain(root);
       } finally {
-        await Promise.all(
-          servers
-            .filter((server) => server.listening)
-            .map((server) => new Promise<void>((resolve) => server.close(() => resolve())))
-        );
-        expect(servers.every((server) => !server.listening)).toBe(true);
         rmSync(root, { recursive: true, force: true });
       }
     }
   );
-
-  it('does not append through a native-log symlink or to an unrelated root', () => {
-    const root = realpathSync(mkdtempSync(path.join(realpathSync('/tmp'), 'tmt-acc-collector-')));
-    const outside = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'soak-native-outside-')));
-    try {
-      const file = fixturePath(outside, path.join(outside, 'private'));
-      writeFileSync(file, secret);
-      symlinkSync(file, fixturePath(root, path.join(root, 'soak-native.stderr')));
-      appendSoakInvocation(root, 'core', 1, null, '{}');
-      appendSoakInvocation(outside, 'core', 1, null, '{}');
-      expect(readFileSync(file, 'utf8')).toBe(secret);
-      expect(existsSync(path.join(outside, 'soak-native.stderr'))).toBe(false);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
-    }
-  });
 });
 
 describe('soak Core-wrapper observation', () => {

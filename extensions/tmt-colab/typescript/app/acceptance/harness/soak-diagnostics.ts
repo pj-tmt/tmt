@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import policy from './soak-policy.json' with { type: 'json' };
-import type { SoakDictionary } from './soak-literals.js';
+import type { SoakDictionary } from './soak-literals.mjs';
 
 const row = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
