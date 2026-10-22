@@ -1,6 +1,6 @@
 /** Remote's routes inside the one TMT web app (design/browser-ui `shell-host.ts`). */
-import type { ShellAnswer, ShellMenu } from '../../../../../design/browser-ui/src/shell.js';
-import type { ShellSlot } from '../../../../../design/browser-ui/src/shell-host.js';
+import type { ShellAnswer, ShellMenu } from '@tmt/browser-ui/shell';
+import type { ShellSlot } from '@tmt/browser-ui/shell-host';
 
 type Select = (id: string, href: string) => boolean;
 export interface RemoteShell {

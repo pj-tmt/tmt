@@ -10,12 +10,8 @@ import {
   type ShellRoute,
   type ShellRouteModule,
   type ShellSlot,
-} from '../../../../../design/browser-ui/src/shell-host.js';
-import {
-  mountShell,
-  rememberedShellAnswer,
-  type ShellAnswer,
-} from '../../../../../design/browser-ui/src/shell.js';
+} from '@tmt/browser-ui/shell-host';
+import { mountShell, rememberedShellAnswer, type ShellAnswer } from '@tmt/browser-ui/shell';
 import home from '../../../rust/tmt-remote/assets/home.html?raw';
 import landing from '../../../rust/tmt-remote/assets/landing.html?raw';
 import settings from '../../../rust/tmt-remote/assets/settings.html?raw';
@@ -27,7 +23,7 @@ import { moduleLoad, type ModuleLoad } from './module-entry.js';
 import { opsPage } from './ops-page.js';
 import { homePage, hostRemote, remoteShell } from './remote-shell.js';
 import { tmtSettingsPage } from './tmt-settings-page.js';
-import { applyStoredTheme } from '../../../../../design/browser-ui/src/theme.js';
+import { applyStoredTheme } from '@tmt/browser-ui/theme';
 
 /**
  * Put a page's markup into the slot: its header into the shell bar, its content into the main

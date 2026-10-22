@@ -1,4 +1,4 @@
-import { createBusyMark } from '../../../../../design/browser-ui/src/static.js';
+import { createBusyMark } from '@tmt/browser-ui/static';
 
 /** A Remote page's wait for its first read: the busy mark, centred where the read fills. */
 export function pageLoading(): HTMLElement {

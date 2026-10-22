@@ -224,3 +224,93 @@ it('admits foundation dependencies only inside the separate UI graph, with no al
   for (const peer of ['@base-ui/react'])
     expect(violations(uiFile, `export * from '${peer}';`, false)).toEqual([peer]);
 });
+
+/**
+ * Products reach the leaf only through its package exports (`@tmt/browser-ui/<export>`), never by
+ * a path into `design/browser-ui`; the test-only subpaths (`test-fixtures/*`, `gallery/*`) stay out
+ * of every extension's production `src`. Byte reads of generated files (`new URL(…)`) are not
+ * module edges and stay allowed.
+ */
+const extensions = path.join(root, 'extensions');
+/** Owned by ux-2's spa-components (#4394 split): they move to the exports when it lands. */
+const PENDING_DEEP_IMPORTS = new Set([
+  'extensions/tmt-remote/typescript/remote-client/src/tmt-settings-page.ts',
+  'extensions/tmt-remote/typescript/remote-client/test/tmt-settings-page.test.ts',
+]);
+const CONSUMER_ROOTS = new Set(['src', 'test', 'e2e', 'acceptance']);
+function consumerViolations(file: string, text: string): string[] {
+  const failures: string[] = [];
+  const production = path.relative(extensions, file).split(path.sep).includes('src');
+  for (const edge of imports(file, text)) {
+    const target = edge.startsWith('.') ? path.resolve(path.dirname(file), edge) : edge;
+    if (
+      target === home ||
+      target.startsWith(`${home}/`) ||
+      /(^|\/)design\/browser-ui(\/|$)/.test(edge)
+    )
+      failures.push(`deep path ${edge}`);
+    else if (production && /^@tmt\/browser-ui\/(test-fixtures|gallery)(\/|$)/.test(edge))
+      failures.push(`test-only subpath ${edge}`);
+  }
+  return failures;
+}
+function consumerFiles(directory: string, inside = false): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.'))
+      return [];
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) return consumerFiles(file, inside || CONSUMER_ROOTS.has(entry.name));
+    return inside && /\.[cm]?[jt]sx?$/.test(entry.name) ? [file] : [];
+  });
+}
+it('extensions import the leaf only through its package exports', () => {
+  const failures = consumerFiles(extensions).flatMap((file) => {
+    const name = path.relative(root, file);
+    if (PENDING_DEEP_IMPORTS.has(name)) return [];
+    return consumerViolations(file, readFileSync(file, 'utf8')).map((edge) => `${name}: ${edge}`);
+  });
+  expect(failures).toEqual([]);
+});
+it('names a deep leaf path in any import form and a test-only subpath in production src', () => {
+  const client = path.join(extensions, 'tmt-remote/typescript/remote-client');
+  const deep = '../../../../../design/browser-ui/src/shell.js';
+  const cases: [string, string, string[]][] = [
+    // A relative import into the leaf, as a value, a type, a re-export and a dynamic import.
+    ['src/a.ts', `import { shellAddress } from '${deep}';`, [`deep path ${deep}`]],
+    ['src/b.tsx', `import type { ShellAnswer } from '${deep}';`, [`deep path ${deep}`]],
+    ['src/c.mts', `export type { ShellMenu } from '${deep}';`, [`deep path ${deep}`]],
+    ['src/d.ts', `const shell = await import('${deep}');`, [`deep path ${deep}`]],
+    ['test/e.ts', `type T = import('${deep}').ShellAnswer;`, [`deep path ${deep}`]],
+    // A path that names the leaf's source tree without walking up to it.
+    [
+      'src/f.ts',
+      "import { x } from 'tmt/design/browser-ui/src/static';",
+      ['deep path tmt/design/browser-ui/src/static'],
+    ],
+    // Test-only subpaths: refused in production src, admitted in tests.
+    [
+      'src/g.tsx',
+      "import { DialogFixture } from '@tmt/browser-ui/test-fixtures/dialog.tsx';",
+      ['test-only subpath @tmt/browser-ui/test-fixtures/dialog.tsx'],
+    ],
+    [
+      'src/h.ts',
+      "import { frameFor } from '@tmt/browser-ui/gallery/frames';",
+      ['test-only subpath @tmt/browser-ui/gallery/frames'],
+    ],
+    ['test/i.tsx', "import { DialogFixture } from '@tmt/browser-ui/test-fixtures/dialog.tsx';", []],
+    // The exports themselves and byte reads of generated files are fine.
+    [
+      'src/j.ts',
+      "import type { ShellAnswer } from '@tmt/browser-ui/shell'; import '@tmt/browser-ui/static.css';",
+      [],
+    ],
+    [
+      'e2e/k.ts',
+      "const svg = new URL('../../../../../design/browser-ui/generated/favicon.svg', import.meta.url);",
+      [],
+    ],
+  ];
+  for (const [name, source, expected] of cases)
+    expect(consumerViolations(path.join(client, name), source), name).toEqual(expected);
+});

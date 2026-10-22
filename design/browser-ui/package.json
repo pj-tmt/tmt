@@ -12,7 +12,10 @@
     "./chart": "./src/chart.ts",
     "./react": "./src/react.ts",
     "./ui": "./src/ui/index.ts",
-    "./ui.css": "./generated/ui.css"
+    "./ui.css": "./generated/ui.css",
+    "./theme": "./src/theme.ts",
+    "./gallery/frames": "./gallery/frames.tsx",
+    "./test-fixtures/*": "./test/fixtures/*"
   },
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write",

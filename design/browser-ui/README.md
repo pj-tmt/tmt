@@ -22,6 +22,14 @@ lucide-react 1.52.0. React components use built-in icons for controls such as Dr
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
 
+`@tmt/browser-ui/shell-host` exports the app router and route slots, `@tmt/browser-ui/theme` the
+stored theme choice. Products import the leaf only through these entries, never by a path into
+`design/browser-ui`; the test-only `@tmt/browser-ui/test-fixtures/*` (files under
+`test/fixtures/`, imported with their extension) and `@tmt/browser-ui/gallery/frames` serve
+product tests and stay out of every production `src`. The TypeScript boundary test
+(`typescript/test/tooling/browser-ui-boundary.test.ts`) enforces both; reading a generated file's
+bytes (`new URL(…)`) is not an import.
+
 The browser color, surface and shared metric roles live in the `browser` group
 of `../tokens/tokens.json`. Legacy terminal/soft roles remain separately owned.
 Fonts and header metrics use the existing authoritative groups. One owner

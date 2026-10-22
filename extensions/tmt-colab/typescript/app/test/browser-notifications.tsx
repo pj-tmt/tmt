@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Notifications } from '../../../../../design/browser-ui/test/fixtures/notifications.js';
+import { Notifications } from '@tmt/browser-ui/test-fixtures/notifications.tsx';
 export function mount() {
   document.getElementById('root')?.setAttribute('hidden', '');
   // The product's fixed header reserves body padding; this fixture has its own sticky header.
