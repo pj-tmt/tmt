@@ -1,7 +1,7 @@
-import { htmlEl } from './chart-dom';
-import { type MatrixOptions, matrixModel } from './chart-matrix-model';
+import { htmlEl } from './chart-dom.js';
+import { type MatrixOptions, matrixModel } from './chart-matrix-model.js';
 
-export type { MatrixOptions, MatrixParticipant } from './chart-matrix-model';
+export type { MatrixOptions, MatrixParticipant } from './chart-matrix-model.js';
 
 /**
  * Who talks to whom: sender rows, recipient columns. A cell reads a number, `·` (observed none)

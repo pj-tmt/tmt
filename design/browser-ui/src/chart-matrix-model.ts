@@ -1,4 +1,4 @@
-import { compactCount, level } from './chart-math';
+import { compactCount, level } from './chart-math.js';
 
 export interface MatrixParticipant {
   id: string;

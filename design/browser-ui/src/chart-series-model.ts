@@ -6,7 +6,7 @@ import {
   niceMax,
   stackLayers,
   ticks,
-} from './chart-math';
+} from './chart-math.js';
 
 export interface SeriesChartOptions {
   /** The chart's name: the figure caption, the plot's label and the data table's caption. */

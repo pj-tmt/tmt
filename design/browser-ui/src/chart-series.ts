@@ -1,7 +1,7 @@
-import { dataTable, htmlEl, paintAtWidth, svgEl } from './chart-dom';
-import { type SeriesChartOptions, seriesModel } from './chart-series-model';
+import { dataTable, htmlEl, paintAtWidth, svgEl } from './chart-dom.js';
+import { type SeriesChartOptions, seriesModel } from './chart-series-model.js';
 
-export type { SeriesChartOptions } from './chart-series-model';
+export type { SeriesChartOptions } from './chart-series-model.js';
 
 /** A time-series chart: stacked areas, a 100 % share, columns or lines on one axis. */
 export function createSeriesChart(options: SeriesChartOptions): HTMLElement {

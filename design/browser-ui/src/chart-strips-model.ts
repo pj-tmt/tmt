@@ -1,4 +1,4 @@
-import { level } from './chart-math';
+import { level } from './chart-math.js';
 
 export interface StripRow {
   id: string;

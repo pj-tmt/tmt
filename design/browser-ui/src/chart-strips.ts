@@ -1,7 +1,7 @@
-import { htmlEl } from './chart-dom';
-import { type StripsOptions, stripsModel } from './chart-strips-model';
+import { htmlEl } from './chart-dom.js';
+import { type StripsOptions, stripsModel } from './chart-strips-model.js';
 
-export type { StripRow, StripsOptions } from './chart-strips-model';
+export type { StripRow, StripsOptions } from './chart-strips-model.js';
 
 /** Rows of fixed slots: when each seat was active, scaled to that row's busiest slot. */
 export function createStrips(options: StripsOptions): HTMLElement {
