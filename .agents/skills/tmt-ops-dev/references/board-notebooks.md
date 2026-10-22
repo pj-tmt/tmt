@@ -218,7 +218,12 @@ A drag reads the pointer against the transcript as it is now and, at the pane's
 first or last row, scrolls one line per pointer event, so holding the pointer still
 at the edge does not keep scrolling. The selection ends on Esc, an outside press, a
 new drag, a conversation switch, or when it can no longer be shown: its lines are
-gone, an end's text changed before its end, or a resize re-wrapped the transcript. Quoting never
+gone, an end's text changed before its end, or a resize re-wrapped the transcript.
+Copy and `+ Quote` carry the Markdown source of the selected messages
+(`conversation/copy.rs`; each displayed line keeps its message and source line): tables,
+code (with its fences), headings, lists and quotes as whole source lines, and a selection
+that starts or ends inside a plain paragraph line as the exact source characters. Rows
+without a source (headers, status lines, pane output) keep their displayed text. Quoting never
 depends on the agent's state. The
 `+ Quote` control or Enter inserts a literal quote fold after the logical line
 containing the composer caret. The whole current line and later text remain;

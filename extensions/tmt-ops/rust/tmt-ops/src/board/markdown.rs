@@ -141,6 +141,14 @@ impl Renderer<'_> {
         }
     }
 
+    /// The block a line break opens starts on the source line after the break.
+    fn continue_on_next_source_line(&mut self) {
+        let next = self.source_line + 1;
+        if let Some(block) = &mut self.current {
+            block.source_line = next;
+        }
+    }
+
     fn finish(&mut self) {
         if let Some(block) = self.current.take() {
             self.blocks.push(block);
@@ -350,6 +358,7 @@ impl Renderer<'_> {
             Event::SoftBreak => {
                 let indent = self.current.as_ref().map_or(0, |block| block.indent);
                 self.start(" ".repeat(indent), indent);
+                self.continue_on_next_source_line();
             }
             Event::HardBreak => {
                 let indent = self
@@ -358,6 +367,7 @@ impl Renderer<'_> {
                     .map_or(0, |block| block.indent)
                     .saturating_sub(self.quote_depth * 2);
                 self.start(" ".repeat(indent), indent);
+                self.continue_on_next_source_line();
             }
             Event::Rule => {
                 self.separate();
