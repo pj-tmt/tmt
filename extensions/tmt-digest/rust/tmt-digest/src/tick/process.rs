@@ -87,7 +87,7 @@ impl TickProcess {
         // The rule's own limit, recorded so Core can state a held message's latest send time.
         let max_hold = match &mode {
             Mode::Interval { milliseconds, .. } => Some(*milliseconds),
-            Mode::Auto => Some(super::AUTO_CAP_MS),
+            Mode::Auto => Some(settings.auto_caps(id)?.max_wait_ms),
             Mode::Off => None,
         };
         let adopts = revision > 0

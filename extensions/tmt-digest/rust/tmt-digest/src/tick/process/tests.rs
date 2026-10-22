@@ -800,7 +800,7 @@ fn an_inherited_auto_hold_is_owned_by_the_global_default_setter_and_none_means_t
 fn every_hold_records_the_limit_of_the_rule_that_decides_it() {
     // (setting, the limit the rule enforces on the oldest held message)
     for (setting, limit) in [
-        ("auto", Some(super::super::AUTO_CAP_MS)),
+        ("auto", Some(300_000)),
         ("20s", Some(20_000)),
         ("1h", Some(3_600_000)),
     ] {
@@ -817,6 +817,21 @@ fn every_hold_records_the_limit_of_the_rule_that_decides_it() {
         assert_eq!(sets.len(), 1, "{setting}");
         assert_eq!(sets[0]["input"]["maxHoldMs"].as_u64(), limit, "{setting}");
     }
+    // An auto member's own wait is the limit, and a changed wait updates the active hold.
+    let fixture = Fixture::new();
+    fixture.policy(0, false);
+    fs::write(
+        fixture.0.join("digest.toml"),
+        format!("[members.'{MEMBER}']\nmode = 'auto'\nmaxWait = '90s'\nsetAtMs = 1\n"),
+    )
+    .unwrap();
+    fixture.port().observe().unwrap();
+    let set = fixture
+        .writes()
+        .into_iter()
+        .find(|row| row["operation"] == "digest.policy.set")
+        .unwrap();
+    assert_eq!(set["input"]["maxHoldMs"].as_u64(), Some(90_000));
     // Off holds nothing, so there is nothing to bound.
     let fixture = Fixture::new();
     fixture.policy(3, true);
