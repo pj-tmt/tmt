@@ -102,7 +102,7 @@
             >
             <button
               id="opening"
-              class="tmt-ui-menu-trigger settings-choice"
+              class="tmt-ui-menu-trigger" data-variant="select"
               type="button"
               aria-haspopup="listbox"
               aria-controls="opening-options"
@@ -112,11 +112,11 @@
               disabled
             >
               <span id="opening-choice-value" data-choice-value>Loading…</span
-              ><span aria-hidden="true">▾</span>
+              >
             </button>
             <div
               id="opening-options"
-              class="tmt-ui-menu-surface settings-options"
+              class="tmt-ui-menu-surface"
               popover="auto"
               role="listbox"
               aria-labelledby="opening-label"
@@ -188,7 +188,7 @@
             >
             <button
               id="limit-mode"
-              class="tmt-ui-menu-trigger settings-choice"
+              class="tmt-ui-menu-trigger" data-variant="select"
               type="button"
               aria-haspopup="listbox"
               aria-controls="limit-mode-options"
@@ -198,11 +198,11 @@
               disabled
             >
               <span id="limit-mode-choice-value" data-choice-value>Loading…</span
-              ><span aria-hidden="true">▾</span>
+              >
             </button>
             <div
               id="limit-mode-options"
-              class="tmt-ui-menu-surface settings-options"
+              class="tmt-ui-menu-surface"
               popover="auto"
               role="listbox"
               aria-labelledby="limit-mode-label"
@@ -337,12 +337,12 @@
           </button>
         </div>
       </section>
-      <section id="remotes" class="remote-registry" aria-labelledby="remote-heading">
-        <h2 id="remote-heading">Remotes in this browser</h2>
+      <section id="remotes" class="tmt-ui-section" data-divided aria-labelledby="remote-heading">
+        <h2 id="remote-heading" class="tmt-ui-section-heading" data-variant="title">Remotes in this browser</h2>
         <p class="entry-note">
           Names and addresses are saved here. Each remote keeps its own pairing.
         </p>
-        <ul id="remote-list" class="remote-list"></ul>
+        <ul id="remote-list" class="tmt-ui-list"></ul>
         <p id="remote-status" role="status"></p>
         <button id="remote-add" class="tmt-ui-action" type="button">Add remote</button>
       </section>

@@ -342,6 +342,135 @@ function remoteMenu(actions, shell = void 0) {
 		paint();
 	};
 }
+//#endregion
+//#region ../../../../design/browser-ui/src/static.ts
+var browserUiClasses = Object.freeze({
+	chips: "tmt-ui-chips",
+	chip: "tmt-ui-chip",
+	chipLabel: "tmt-ui-chip-label",
+	chipsAdd: "tmt-ui-chips-add",
+	chipsStatus: "tmt-ui-chips-status",
+	chipsSurface: "tmt-ui-chips-surface",
+	chipsSearch: "tmt-ui-chips-search",
+	chipsOption: "tmt-ui-chips-option",
+	notifications: "tmt-ui-notifications",
+	notification: "tmt-ui-notification",
+	notificationStatus: "tmt-ui-notification-status",
+	notificationHeading: "tmt-ui-notification-heading",
+	notificationTag: "tmt-ui-notification-tag",
+	notificationLine: "tmt-ui-notification-line",
+	notificationQuote: "tmt-ui-notification-quote",
+	notificationWaiting: "tmt-ui-notification-waiting",
+	drawer: "tmt-ui-drawer",
+	drawerHeader: "tmt-ui-drawer-header",
+	drawerBody: "tmt-ui-drawer-body",
+	dialog: "tmt-ui-dialog",
+	dialogHeader: "tmt-ui-dialog-header",
+	dialogBody: "tmt-ui-dialog-body",
+	dialogActions: "tmt-ui-dialog-actions",
+	menu: "tmt-ui-menu",
+	menuSurface: "tmt-ui-menu-surface",
+	menuItem: "tmt-ui-menu-item",
+	command: "tmt-ui-command",
+	commandText: "tmt-ui-command-text",
+	commandCopy: "tmt-ui-command-copy",
+	commandFeedback: "tmt-ui-command-feedback",
+	code: "tmt-ui-code",
+	header: "tmt-ui-header",
+	brand: "tmt-ui-brand",
+	mark: "tmt-ui-mark",
+	wordmark: "tmt-ui-wordmark",
+	heading: "tmt-ui-heading",
+	headingSuffix: "tmt-ui-heading-suffix",
+	title: "tmt-ui-title",
+	caption: "tmt-ui-caption",
+	status: "tmt-ui-status",
+	actions: "tmt-ui-actions",
+	icon: "tmt-ui-icon",
+	notice: "tmt-ui-notice",
+	noticeMark: "tmt-ui-notice-mark",
+	noticeEyebrow: "tmt-ui-notice-eyebrow",
+	noticeHeading: "tmt-ui-notice-heading",
+	noticeBody: "tmt-ui-notice-body",
+	noticeActions: "tmt-ui-notice-actions",
+	field: "tmt-ui-field",
+	fieldLabel: "tmt-ui-field-label",
+	fieldControl: "tmt-ui-field-control",
+	fieldDescription: "tmt-ui-field-description",
+	fieldError: "tmt-ui-field-error",
+	action: "tmt-ui-action",
+	actionLabel: "tmt-ui-action-label",
+	actionMark: "tmt-ui-action-mark",
+	busyMark: "tmt-ui-busy-mark",
+	busyFrames: "tmt-ui-busy-frames",
+	checkbox: "tmt-ui-checkbox",
+	checkboxLabel: "tmt-ui-checkbox-label",
+	iconAction: "tmt-ui-icon-action",
+	iconActionControl: "tmt-ui-icon-action-control",
+	iconActionIcon: "tmt-ui-icon-action-icon",
+	iconActionTooltip: "tmt-ui-icon-action-tooltip",
+	iconActionTooltipLabel: "tmt-ui-icon-action-tooltip-label",
+	toggle: "tmt-ui-toggle",
+	toggleIndicator: "tmt-ui-toggle-indicator",
+	list: "tmt-ui-list",
+	listRow: "tmt-ui-list-row",
+	listLeading: "tmt-ui-list-leading",
+	listTitle: "tmt-ui-list-title",
+	listMeta: "tmt-ui-list-meta",
+	listLabel: "tmt-ui-list-label",
+	listDescription: "tmt-ui-list-description",
+	listUpdated: "tmt-ui-list-updated",
+	listState: "tmt-ui-list-state",
+	listActions: "tmt-ui-list-actions",
+	tabs: "tmt-ui-tabs",
+	tabsHeader: "tmt-ui-tabs-header",
+	tabList: "tmt-ui-tab-list",
+	tab: "tmt-ui-tab",
+	tabMark: "tmt-ui-tab-mark",
+	tabLabel: "tmt-ui-tab-label",
+	tabsStatus: "tmt-ui-tabs-status",
+	tabPanel: "tmt-ui-tab-panel",
+	section: "tmt-ui-section",
+	sectionHeading: "tmt-ui-section-heading",
+	table: "tmt-ui-table",
+	visuallyHidden: "tmt-ui-visually-hidden"
+});
+/** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
+var busyFrames = [
+	"⠋",
+	"⠙",
+	"⠹",
+	"⠸",
+	"⠼",
+	"⠴",
+	"⠦",
+	"⠧",
+	"⠇",
+	"⠏"
+];
+/**
+* The reserved busy-mark slot of a static Action: a leading span holding the leaf busy mark (the
+* braille cycle `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
+* to `true` from `createBusyMarkGate`. Non-React pages use this instead of copying the markup.
+*/
+function createActionMark(doc = document) {
+	const mark = doc.createElement("span");
+	mark.className = browserUiClasses.actionMark;
+	mark.setAttribute("aria-hidden", "true");
+	mark.dataset.busy = "false";
+	const busy = doc.createElement("span");
+	busy.className = browserUiClasses.busyMark;
+	const frames = doc.createElement("span");
+	frames.className = browserUiClasses.busyFrames;
+	for (const value of busyFrames) {
+		const frame = doc.createElement("span");
+		frame.dataset.frame = value;
+		frames.append(frame);
+	}
+	busy.append(frames);
+	mark.append(busy);
+	return mark;
+}
 new TextEncoder();
 function requireValue(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
@@ -817,16 +946,22 @@ function remoteRegistryPage(blocked = () => "", shell) {
 	const dialog = (title, opener) => {
 		currentDialog?.close();
 		const box = node$1("dialog");
-		box.className = "remote-dialog";
+		box.className = browserUiClasses.dialog;
+		const header = node$1("header");
+		header.className = browserUiClasses.dialogHeader;
 		const heading = node$1("h2", title);
 		heading.id = "remote-dialog-heading";
+		header.append(heading);
 		box.setAttribute("aria-labelledby", heading.id);
+		const content = node$1("div");
+		content.className = browserUiClasses.dialogBody;
 		const body = node$1("div");
 		const message = node$1("p");
 		message.setAttribute("role", "status");
-		const buttons = node$1("div");
-		buttons.className = "remote-actions";
-		box.append(heading, body, message, buttons);
+		content.append(body, message);
+		const buttons = node$1("footer");
+		buttons.className = browserUiClasses.dialogActions;
+		box.append(header, content, buttons);
 		root.append(box);
 		const end = () => box.close();
 		box.addEventListener("close", () => {
@@ -868,8 +1003,11 @@ function remoteRegistryPage(blocked = () => "", shell) {
 		const choices = [];
 		for (const row of plan.rows) {
 			const item = node$1("section");
-			item.className = "remote-import-row";
-			item.append(node$1("h3", row.entry.name), node$1("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
+			item.className = browserUiClasses.section;
+			const name = node$1("h3", row.entry.name);
+			name.className = browserUiClasses.sectionHeading;
+			name.dataset.variant = "title";
+			item.append(name, node$1("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
 			if (row.status === "duplicate") {
 				item.append(node$1("p", `Already added as ${row.existingName}`));
 				choices.push(() => null);
@@ -878,7 +1016,9 @@ function remoteRegistryPage(blocked = () => "", shell) {
 				const alias = field("Remote name", row.suggestedName);
 				const skip = node$1("input");
 				skip.type = "checkbox";
+				skip.className = browserUiClasses.checkbox;
 				const skipLabel = node$1("label", "Skip");
+				skipLabel.className = browserUiClasses.checkboxLabel;
 				skipLabel.prepend(skip);
 				item.append(alias.label, skipLabel);
 				choices.push(() => skip.checked ? null : alias.input.value);
@@ -933,16 +1073,25 @@ function remoteRegistryPage(blocked = () => "", shell) {
 			catalog = await remoteRegistry.list();
 			const rows = catalog.entries.map((entry) => {
 				const row = node$1("li");
+				row.className = browserUiClasses.listRow;
 				row.dataset.remote = entry.name;
 				row.dataset.url = entry.url;
 				row.dataset.kind = entry.kind;
-				row.append(node$1("h3", entry.name), node$1("p", `${kindLabel(entry)} · ${entry.url}`));
-				const state = node$1("p", remoteState(observed, current(entry)).text);
-				state.className = "remote-state";
+				const title = node$1("div");
+				title.className = browserUiClasses.listTitle;
+				const label = node$1("span", entry.name);
+				label.className = browserUiClasses.listLabel;
+				const description = node$1("span", `${kindLabel(entry)} · ${entry.url}`);
+				description.className = browserUiClasses.listDescription;
+				title.append(label, description);
+				const meta = node$1("div");
+				meta.className = browserUiClasses.listMeta;
+				const state = node$1("div", remoteState(observed, current(entry)).text);
+				state.className = browserUiClasses.listState;
 				state.dataset.tone = remoteState(observed, current(entry)).tone;
-				row.append(state);
+				meta.append(state);
 				const actions = node$1("div");
-				actions.className = "remote-actions";
+				actions.className = browserUiClasses.listActions;
 				const open = action("Open", () => {
 					(async () => {
 						try {
@@ -963,11 +1112,18 @@ function remoteRegistryPage(blocked = () => "", shell) {
 					actions.append(open);
 				}
 				actions.append(renameButton, removeButton);
-				row.append(actions);
+				row.append(title, meta, actions);
 				return row;
 			});
 			list.replaceChildren(...rows);
-			if (!rows.length) list.append(node$1("li", "No remotes added in this browser."));
+			if (!rows.length) {
+				const empty = node$1("li");
+				empty.className = browserUiClasses.listRow;
+				const text = node$1("div", "No remotes added in this browser.");
+				text.className = browserUiClasses.listTitle;
+				empty.append(text);
+				list.append(empty);
+			}
 			menu(catalog, observed, address ?? "");
 		} catch (error) {
 			showError(error, status);
@@ -1011,7 +1167,7 @@ function remoteRegistryPage(blocked = () => "", shell) {
 		observed = state;
 		if (checkedAddress) address = checkedAddress;
 		for (const row of list.querySelectorAll("[data-remote]")) {
-			const stateNode = row.querySelector(".remote-state");
+			const stateNode = row.querySelector(".tmt-ui-list-state");
 			const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
 			const isCurrent = !!entry && currentRemote(entry, address, location.href);
 			const view = remoteState(observed, isCurrent);
@@ -1821,7 +1977,7 @@ async function settingsPage(shell) {
 			mode,
 			custom
 		]) field.disabled = !editable || field === custom && mode.value !== "custom";
-		for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
+		for (const button of document.querySelectorAll("form button:not(.tmt-ui-menu-trigger):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
 		if (page.settings) {
 			choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
 			for (const update of choices) update();

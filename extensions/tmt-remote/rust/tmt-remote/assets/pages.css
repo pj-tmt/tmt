@@ -201,68 +201,6 @@ body:not(:has(.tmt-ui-shell)) {
   white-space: nowrap;
 }
 
-/* Origin-local public references and static switcher; foreign entries are never probed. */
-.remote-registry {
-  margin-top: 36px;
-  padding-top: 24px;
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.remote-registry h2 {
-  margin: 0 0 12px;
-  font: 600 16px/1.5 var(--tmt-ui-font-body);
-}
-.remote-list {
-  list-style: none;
-  padding: 0;
-}
-.remote-list li,
-.remote-import-row {
-  padding-block: 20px;
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.remote-list h3,
-.remote-import-row h3 {
-  margin: 0 0 8px;
-}
-.remote-list p,
-.remote-import-row p {
-  overflow-wrap: anywhere;
-  margin-bottom: 12px;
-}
-.remote-state {
-  color: var(--tmt-ui-color-secondary);
-}
-.remote-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
-}
-.remote-dialog {
-  color: var(--tmt-ui-color-text);
-  background: var(--tmt-ui-surface-paper);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: 0;
-  padding: 24px;
-  width: min(100% - 32px, 600px);
-  max-height: calc(100svh - 32px);
-  overflow: auto;
-}
-.remote-dialog h2 {
-  margin: 0 0 20px;
-}
-.remote-dialog p {
-  overflow-wrap: anywhere;
-}
-.remote-dialog input[type='checkbox'] {
-  display: inline-block;
-  width: auto;
-  margin-right: 8px;
-}
-
-.remote-state[data-tone='working'] {
-  color: var(--tmt-ui-color-working);
-}
 [data-tmt-auto='true'] #pair {
   display: none;
 }
