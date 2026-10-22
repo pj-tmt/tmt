@@ -289,8 +289,16 @@ impl App {
         }
         detail.finals = self.finals(row, squad, id, sender.as_deref(), now);
         // An agent answers by sending the user a new request as often as by replying to one
-        // of the user's, so its open request belongs in the thread at the time it was sent.
-        if let Some(question) = self.pending_question(target, None) {
+        // of the user's, so every open request of the agent belongs in the thread at the time
+        // it was sent; a second one must not hide behind the first.
+        let mut open: Vec<Reply> = row["waitingOnYou"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|item| self.pending_question(target, item["requestId"].as_str()))
+            .collect();
+        open.sort_by_key(|question| question.at_ms);
+        for question in open {
             let at = detail
                 .finals
                 .iter()

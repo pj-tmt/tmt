@@ -75,9 +75,9 @@ also requests one bounded originator-results page for HOME, member boards and
 boards configured with a Replies pane. `home_leads::State` fences that projection by sender
 UUID. `row_detail` keeps the newest eight finals (`Detail.finals`, oldest first, one per
 request ID, with author, exact text and `submittedAtMs`) for the selected recipient UUID
-across room and global observations; `Detail.reply` is the newest of them. In the Squads tree the
-agent's oldest open request to the user (`pending_question`, from `waitingOnYou`) is placed among
-them by its send time, so an agent that answers by sending a new request still shows in the
+across room and global observations; `Detail.reply` is the newest of them. In the Squads tree every
+open request of the agent to the user (`pending_question`, from `waitingOnYou`) is placed among
+them by its send time, so an agent that answers by sending new requests still shows in the
 thread. Those windows are
 bounded and shared, so the painted conversation (`pane_output_enabled`, Replies pane visible)
 also reads its agent's own newest eight once per activation (`SelectedRead::Finals`,
