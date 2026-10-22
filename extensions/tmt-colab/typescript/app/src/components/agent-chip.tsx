@@ -17,7 +17,8 @@ export type AgentChipState = 'checking' | 'not-found' | 'offline' | 'online' | '
  * trailing control as children; `inline` sits inside a sentence, a menu row or a byline. While the
  * agent works the icon carries a small status dot and the name gains a hidden ", working"; the chip
  * never animates, and any other or unknown activity shows the plain icon (#3978). Where the agent's
- * own avatar already stands beside it, `mark={false}` leaves the icon out and keeps the name.
+ * own avatar already stands beside it, `mark={false}` leaves the idle icon out and keeps the name;
+ * a working agent keeps the icon, because its dot is the working state.
  */
 export function AgentChip({
   name,
@@ -55,7 +56,7 @@ export function AgentChip({
       data-activity={currentActivity}
       title={working ? `${title ?? name}, ${text.agentWorking}` : title}
     >
-      {mark && (
+      {(mark || working) && (
         <span className="agent-chip-mark" data-working={working || undefined} aria-hidden>
           <Bot className="agent-chip-icon" />
         </span>

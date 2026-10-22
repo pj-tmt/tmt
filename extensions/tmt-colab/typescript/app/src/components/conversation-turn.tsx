@@ -6,8 +6,8 @@ import {
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from 'react';
+import { BrowserAvatar } from '@tmt/browser-ui/react';
 import { compactRelativeTime } from '../display-time.js';
-import { UserRound } from 'lucide-react';
 import { AgentChip } from './agent-chip.js';
 
 /** Presentation only: callers supply admitted labels, text and trusted actions. */
@@ -42,23 +42,11 @@ export function ConversationTurn({
     <article {...attributes} className={`conversation-turn ${className}`} data-turn-role={role}>
       <div className="comment-main conversation-main">
         <header>
+          {!chat && <BrowserAvatar name={author} size="s" decorative />}
           <p className="comment-byline" title={authorTitle} data-testid={bylineTestId}>
-            {role === 'agent' ? (
-              <>
-                <span className="conversation-author">
-                  <AgentChip name={author} />
-                </span>{' '}
-              </>
-            ) : (
-              <>
-                {!chat && (
-                  <span className="conversation-avatar" aria-hidden="true">
-                    <UserRound size={16} />
-                  </span>
-                )}
-                <span className="conversation-author">{author}</span>{' '}
-              </>
-            )}
+            <span className="conversation-author">
+              {role === 'agent' ? <AgentChip name={author} mark={chat} /> : author}
+            </span>{' '}
             <span className="conversation-time-separator">· </span>
             <time dateTime={new Date(at).toISOString()} title={new Date(at).toISOString()}>
               {compactRelativeTime(at, now)}

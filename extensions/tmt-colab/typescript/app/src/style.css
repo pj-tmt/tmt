@@ -1319,13 +1319,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   border: 0;
   background: transparent;
 }
-.comment-thread .conversation-avatar {
-  width: 18px;
-  height: 18px;
-  margin-right: 4px;
-  background: transparent;
-  color: var(--tmt-ui-color-text);
-}
 .comment-thread .conversation-body {
   margin-top: calc(var(--conversation-gap) / 2);
 }
@@ -1534,9 +1527,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--c-muted);
   font-size: 12px;
 }
-.proposal-card .conversation-turn .conversation-avatar {
-  color: var(--c-text);
-}
 .proposal-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1623,17 +1613,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .proposal-row-reopen .tmt-ui-action {
   color: var(--c-muted);
-}
-
-.conversation-avatar {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  vertical-align: middle;
-  margin-right: 6px;
-  color: var(--c-paper);
 }
 
 .question-card {

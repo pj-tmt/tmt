@@ -137,8 +137,9 @@ for (const width of [1440, 390])
       await expect(thread.locator('.annotation-number')).toHaveText('1');
       const human = thread.locator('.conversation-turn[data-turn-role="user"]');
       const agent = thread.locator('.conversation-turn[data-turn-role="agent"]');
-      await expect(human.locator('.lucide-user-round')).toBeVisible();
-      await expect(agent.locator('.lucide-bot')).toBeVisible();
+      await expect(human.locator('header > .tmt-ui-avatar')).toBeVisible();
+      await expect(agent.locator('header > .tmt-ui-avatar')).toBeVisible();
+      await expect(agent.locator('.comment-byline .lucide-bot')).toHaveCount(0);
       await expect(agent.locator('.conversation-agent-label')).toHaveCount(0);
       await expect(agent).toHaveCSS('border-left-width', '0px');
       await expect(human).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -306,13 +307,19 @@ async function sharedComposer(window: Locator) {
   });
   return geometry;
 }
-/** The agent byline is the shared chip, icon then name, with no boxed role badge. */
-async function sharedAgentByline(window: Locator) {
+/**
+ * The agent byline is the shared chip's name with no boxed role badge. A discussion turn leads
+ * with the shared avatar, so the chip drops its icon; Chat has no avatar, so the chip keeps it.
+ */
+async function sharedAgentByline(window: Locator, lead: 'avatar' | 'icon') {
   const byline = window.locator('[data-turn-role="agent"] .comment-byline');
   await expect(byline.locator('.conversation-agent-label')).toHaveCount(0);
   const chip = byline.locator('.conversation-author .agent-chip');
   await expect(chip).toHaveCount(1);
-  await expect(chip.locator('.lucide-bot')).toBeVisible();
+  await expect(chip.locator('.lucide-bot')).toHaveCount(lead === 'icon' ? 1 : 0);
+  await expect(window.locator('[data-turn-role="agent"] .tmt-ui-avatar')).toHaveCount(
+    lead === 'avatar' ? 1 : 0,
+  );
   await expect(chip).toHaveCSS('border-top-width', '0px');
   const geometry = await byline.evaluate((node) => {
     const chip = node.querySelector('.conversation-author')!.getBoundingClientRect();
@@ -392,7 +399,7 @@ for (const width of [1440, 1024, 390])
         'none',
       );
       const annotationComposer = await sharedComposer(thread);
-      const annotationByline = await sharedAgentByline(thread);
+      const annotationByline = await sharedAgentByline(thread, 'avatar');
       await page.screenshot({ path: `${captures}/unified-annotation-${width}-${theme}.png` });
       await page.keyboard.press('Escape');
       await run(page, 'mount', { ...options, creator: false });
@@ -412,7 +419,7 @@ for (const width of [1440, 1024, 390])
       );
       await page.screenshot({ path: `${captures}/unified-chat-recipient-${width}-${theme}.png` });
       await run(page, 'conversation', { surface: 'chat', state: 'replied' });
-      expect(await sharedAgentByline(chat)).toEqual(annotationByline);
+      expect(await sharedAgentByline(chat, 'icon')).toEqual(annotationByline);
       await page.screenshot({ path: `${captures}/unified-chat-agent-${width}-${theme}.png` });
       expect(await run(page, 'proof')).toMatchObject({ sends: [], actions: [] });
     });

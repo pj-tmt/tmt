@@ -260,13 +260,20 @@ for (const width of [1440, 390]) {
               await expect(user.locator('.ask-supporting')).toHaveText(text.askUncertain);
           }
           await expect(window.locator('script,img')).toHaveCount(0);
-          // The person's avatar is the only one left; an agent turn shows its chip.
-          await expect(window.locator('.conversation-avatar')).toHaveCount(
-            surface === 'chat' ? 0 : 1,
+          // A discussion turn leads with the shared round mark, the person's and the agent's alike;
+          // Chat has none. The agent's name stays as the chip's text, with its icon only in Chat.
+          await expect(window.locator('.tmt-ui-avatar')).toHaveCount(
+            surface === 'chat' ? 0 : state === 'replied' ? 2 : 1,
           );
+          await expect(
+            window.locator('.conversation-turn .tmt-ui-avatar[aria-hidden="true"]'),
+          ).toHaveCount(surface === 'chat' ? 0 : state === 'replied' ? 2 : 1);
           await expect(
             window.locator('[data-turn-role="agent"] .conversation-author .agent-chip'),
           ).toHaveCount(state === 'replied' ? 1 : 0);
+          await expect(
+            window.locator('[data-turn-role="agent"] .conversation-author .agent-chip-mark'),
+          ).toHaveCount(surface === 'chat' && state === 'replied' ? 1 : 0);
           expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
           await capture(page, window, `${surface}-${width}-${theme}-${state}`);
         }
@@ -797,7 +804,10 @@ for (const width of [1440, 390]) {
         const retained = await agent.elementHandle();
         await expect(agent).not.toHaveAttribute('data-running-driver');
         await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
-        await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(1);
+        // The chip's icon names the agent in Chat; a thread turn's avatar does, so the icon is gone.
+        await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(
+          surface === 'chat' ? 1 : 0,
+        );
         await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
         await editor.focus();
         await capture(page, window, `reply-${surface}-finished-${width}-${theme}`);
@@ -815,7 +825,7 @@ for (const width of [1440, 390]) {
           await expect(agent).not.toHaveAttribute('data-running-driver');
           await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
           expect(await edge()).toBe(finishedEdge);
-          await expect(agent.locator('.agent-chip svg')).toHaveCount(1);
+          await expect(agent.locator('.agent-chip svg')).toHaveCount(surface === 'chat' ? 1 : 0);
           await expect(agent.locator('.agent-chip-name')).toHaveCSS('font-weight', '500');
           await flat(agent);
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
@@ -843,7 +853,9 @@ for (const width of [1440, 390]) {
           await run(page, 'driverObservation', options);
           await expect(agent).not.toHaveAttribute('data-running-driver');
           await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
-          await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(1);
+          await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(
+            surface === 'chat' ? 1 : 0,
+          );
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
           await expect(editor).toBeFocused();
         }
