@@ -204,12 +204,19 @@
   color: var(--tmt-ui-color-selected-text);
 }
 .tmt-ui-chart-strips {
+  --tmt-chart-strip-gap: 3px;
+  --tmt-chart-strip-max: 12px;
   display: grid;
-  grid-template-columns: minmax(6ch, 12ch) minmax(0, max-content);
+  grid-template-columns: minmax(6ch, 12ch) minmax(0, 1fr);
   gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+@media (min-width: 640px) {
+  .tmt-ui-chart-strips {
+    --tmt-chart-strip-max: 40px;
+  }
 }
 .tmt-ui-chart-strip-row {
   display: grid;
@@ -224,24 +231,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Square slots of a fixed size, left-aligned: the row's length comes from its slot count. On a
-   narrow screen the gap shrinks first and then the slots, so a row never scrolls sideways. */
+/* Square slots that fill the card: each is the card's width over the slot count, from 12 px up to
+   40 px on a wide screen, left-aligned. On a narrow screen the gap shrinks first and then the
+   slots, so a row never scrolls sideways. The slot count (`--tmt-chart-strip-count`, set on the
+   list) bounds the row and its end labels to the same width. */
+.tmt-ui-chart-strip,
+.tmt-ui-chart-strip-ends {
+  width: min(
+    100%,
+    calc(
+      var(--tmt-chart-strip-count) * var(--tmt-chart-strip-max) +
+        (var(--tmt-chart-strip-count) - 1) * var(--tmt-chart-strip-gap)
+    )
+  );
+}
 .tmt-ui-chart-strip {
-  --tmt-chart-strip-gap: 3px;
   display: flex;
   gap: var(--tmt-chart-strip-gap);
-  /* A definite width from the slot count (`--tmt-chart-strip-count`), so the column is as long as
-     the row and no longer; it gives way only to the container. */
-  width: calc(
-    var(--tmt-chart-strip-count) * 12px + (var(--tmt-chart-strip-count) - 1) *
-      var(--tmt-chart-strip-gap)
-  );
-  max-width: 100%;
   min-width: 0;
 }
 .tmt-ui-chart-slot {
-  flex: 0 1 12px;
+  flex: 1 1 12px;
   min-width: 0;
+  max-width: var(--tmt-chart-strip-max);
   aspect-ratio: 1;
   box-sizing: border-box;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -283,7 +295,7 @@
   .tmt-ui-chart-strips {
     grid-template-columns: minmax(0, 1fr);
   }
-  .tmt-ui-chart-strip {
+  .tmt-ui-chart-strips {
     --tmt-chart-strip-gap: 1px;
   }
   .tmt-ui-chart-strip-label:empty {
