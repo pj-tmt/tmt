@@ -4210,8 +4210,8 @@ as a search key, before anything else reads the location:
 - `/p/<shortId>[?query][#fragment]`: the door answers 308 to `/colab/p/<shortId>` with the query;
   the browser keeps the fragment.
 - The mount root `<mount>` with an owner fragment (`#space=…&path=/pages/<id>&read=<id>` or
-  `anchor=`/`open=`) or a preview fragment (`#/pages/<id>`): the mounted document moves to
-  `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `open`).
+  `anchor=`/`task=`/`open=`) or a preview fragment (`#/pages/<id>`): the mounted document moves to
+  `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `task`, `open`).
 - `#t=<threadId>` stays a fragment.
 
 ### Short owner-page aliases (#1688)
@@ -4226,8 +4226,13 @@ for them. Public recovery admits through the SDK before loading protected app as
 in place, retaining the visible short URL. Mounted legacy entry canonicalizes only
 after verified discovery and carries its owner reading or anchor hint over. Internal mount and
 space pins remain separate from visible location; reload and history use short paths, with at
-most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>` or
-`#anchor=<elementId>`; short-page resolution retains the anchor until the full page opens.
+most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>`,
+`#anchor=<elementId>` or `#task=<taskId>`; short-page resolution retains the anchor or task until the
+full page opens. A `task` is `T-` and a decimal number from 1 without a leading zero, and picks which
+task of the page's own work list the band opens with the list (once; a task the page does not have
+opens the page and nothing else). Like every hint it is cosmetic and admits nothing: at most one hint
+is read, a second or a malformed one is dropped, and the child page's breadcrumb links to its parent
+page with `task=` naming the parent task.
 A plain `#<elementId>` names the same element, and the location then
 keeps it as `#anchor=<elementId>`. A fragment that names no display target is ignored: the page
 opens at the top and the location drops the fragment. Only a fragment that carries `space`, `path`

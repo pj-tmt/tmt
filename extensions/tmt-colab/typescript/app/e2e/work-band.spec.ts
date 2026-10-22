@@ -7,12 +7,15 @@ declare global {
   }
 }
 
-async function mountBand(page: Page, name: string) {
+async function mountBand(page: Page, name: string, focusTask?: string) {
   await page.goto('/');
-  await page.evaluate(async (name) => {
-    const path = '/test/work-band-browser.tsx';
-    (await import(path)).mount(name);
-  }, name);
+  await page.evaluate(
+    async ({ name, focusTask }) => {
+      const path = '/test/work-band-browser.tsx';
+      (await import(path)).mount(name, focusTask);
+    },
+    { name, focusTask },
+  );
   return page.locator('#work-band-fixture');
 }
 
@@ -136,6 +139,40 @@ test('a page that follows a task shows the way back above its summary', async ({
   await expect(link).toHaveAttribute('href', /#\/pages\/2000/);
 });
 
+test('the way back names the parent task itself, so the parent page opens at it (#4263)', async ({
+  page,
+}) => {
+  const host = await mountBand(page, 'parent');
+  await expect(host.locator('.work-parent a')).toHaveAttribute(
+    'href',
+    '#/pages/20000000-0000-4000-8000-000000000002?task=T-6',
+  );
+});
+
+test('a page opened at one of its tasks shows the list with that task open, once', async ({
+  page,
+}) => {
+  const host = await mountBand(page, 'full', 'T-2');
+  await expect(host.locator('.work-row')).toHaveCount(7);
+  await expect(host.locator('.work-detail-state')).toHaveText('In progress');
+  await expect(host.locator('.work-row[data-selected="true"]')).toContainText('Wire the export');
+  // The task is scrolled into view, and a later toggle by the reader is never undone.
+  await expect(host.getByRole('button', { name: 'Hide tasks' })).toBeInViewport();
+  await host.getByRole('button', { name: 'Hide tasks' }).click();
+  await expect(host.locator('.work-list')).toHaveCount(0);
+  await expect(host.locator('.work-detail-state')).toHaveCount(0);
+});
+
+test('a task the page does not have opens the page and nothing else', async ({ page }) => {
+  for (const task of ['T-99', 'T-0', 'bad']) {
+    const host = await mountBand(page, 'full', task);
+    await expect(host.locator('.work-list')).toHaveCount(0);
+    await expect(host.locator('.work-detail-state')).toHaveCount(0);
+    await expect(host.getByRole('alert')).toHaveCount(0);
+    await expect(host.getByRole('button', { name: 'Show 7 tasks' })).toBeVisible();
+  }
+});
+
 test('a summary alone shows two lines; no summary and no tasks shows nothing', async ({ page }) => {
   let host = await mountBand(page, 'summary-only');
   await expect(host.locator('.work-line1')).toHaveText('Reading notes');
@@ -189,6 +226,22 @@ test('a child page names its parent page and task in the band header, with or wi
   await expect(bare.locator('.work-parent a')).toHaveText('Release plan › T-3 · Draft the copy');
   await expect(bare.locator('.work-head')).toHaveCount(0);
   await expect(bare.getByRole('button')).toHaveCount(0);
+});
+
+test('the child page crumb opens the parent page at that task (#4263)', async ({ page }) => {
+  await mountRoute(page, true, false, 'child');
+  const link = page.locator('.work-parent a');
+  await expect(link).toHaveAttribute(
+    'href',
+    /#\/pages\/30000000-0000-4000-8000-000000000003\?task=T-3$/,
+  );
+  await link.click();
+  await expect(page.locator('.work-parent')).toHaveCount(0);
+  const band = page.getByRole('region', { name: 'Work on this page' });
+  await expect(band.getByRole('button', { name: 'Hide tasks' })).toBeVisible();
+  await expect(band.locator('.work-detail-state')).toHaveText('In review · ◆ sign-off');
+  // The address keeps the task, so reload and Back reopen the same view.
+  expect(page.url()).toMatch(/#\/pages\/30000000-0000-4000-8000-000000000003\?task=T-3$/);
 });
 
 test('work with no summary, no task and no parent draws no band, for a viewer and for the owner', async ({
@@ -470,6 +523,10 @@ for (const [width, height] of [
         'Release plan › T-3 · Draft the copy',
       );
       await page.screenshot({ path: capturePath(`work-child-${width}-${scheme}.png`) });
+      // The crumb opens the parent page at that task (#4263).
+      await page.locator('.work-parent a').click();
+      await expect(page.locator('.work-detail-state')).toBeVisible();
+      await page.screenshot({ path: capturePath(`work-parent-task-${width}-${scheme}.png`) });
       await mountRoute(page, false, false, 'child');
       await expect(page.locator('.work-parent a')).toHaveText(
         'Release plan › T-3 · Draft the copy',

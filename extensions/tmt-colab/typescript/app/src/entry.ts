@@ -1,6 +1,6 @@
 import { generatedId, requireValue } from '@tmt/colab-client';
 import { isHostedOrigin } from './hosted-location.js';
-import { validReadingId, type PageHint } from './reading-link.js';
+import { hintFragment, pageSearch, type PageHint } from './reading-link.js';
 import { validShellAnchor } from './shell.js';
 
 /** Colab inside the one TMT web app at `/colab/...` (Remote's shell host): the paired mount its
@@ -51,12 +51,14 @@ export function entryFragment(hash: string): boolean {
     return false;
   }
 }
-/** One thread, one reading or one shell element, or nothing: anything else refuses. */
+/** One thread, one reading, one shell element or one task, or nothing: anything else refuses. */
 export function entryTarget(hash = location.hash): EntryTarget | null {
   requireValue(hash === '' || hash.startsWith('#'));
   const fields = new URLSearchParams(hash.slice(1));
   const keys = [...fields.keys()];
-  requireValue(keys.length <= 1 && keys.every((key) => ['t', 'read', 'anchor'].includes(key)));
+  requireValue(
+    keys.length <= 1 && keys.every((key) => ['t', 'read', 'anchor', 'task'].includes(key)),
+  );
   if (!keys.length) return null;
   const key = keys[0];
   requireValue(fields.getAll(key).length === 1);
@@ -65,12 +67,10 @@ export function entryTarget(hash = location.hash): EntryTarget | null {
     generatedId(value);
     return { thread: value };
   }
-  if (key === 'read') {
-    requireValue(validReadingId(value));
-    return { read: value };
-  }
-  requireValue(validShellAnchor(value));
-  return { anchor: value };
+  // The page hints share one parse with the router's search, so each key has one shape.
+  const hint = pageSearch({ [key]: value });
+  requireValue(key in hint);
+  return { [key]: value } as PageHint;
 }
 
 /** The keys this entry never takes from a link: the owner's own location and a reader's capability. */
@@ -94,5 +94,5 @@ export function entryOpenTarget(hash = location.hash): EntryTarget | null {
 export function entryHash(target: EntryTarget | null): string {
   if (!target) return '';
   if ('thread' in target) return `#t=${target.thread}`;
-  return 'read' in target ? `#read=${target.read}` : `#anchor=${target.anchor}`;
+  return hintFragment(target);
 }

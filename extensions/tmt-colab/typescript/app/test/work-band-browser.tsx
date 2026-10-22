@@ -57,7 +57,7 @@ const cases: Record<string, { work: Work; parent?: WorkParent }> = {
 
 let root: Root | undefined;
 /** One band on the app's paper; `name` picks the work it shows. */
-export function mount(name: keyof typeof cases = 'full') {
+export function mount(name: keyof typeof cases = 'full', focusTask?: string) {
   document.getElementById('root')?.setAttribute('hidden', '');
   root?.unmount();
   document.getElementById('work-band-fixture')?.remove();
@@ -72,7 +72,10 @@ export function mount(name: keyof typeof cases = 'full') {
       <WorkBand
         work={shown.work}
         parent={shown.parent}
-        pageHref={(pageId) => `#/pages/${pageId}`}
+        focusTask={focusTask}
+        pageHref={(pageId, hint) =>
+          `#/pages/${pageId}${hint && 'task' in hint ? `?task=${hint.task}` : ''}`
+        }
         actions={(_task, id) => <button type="button">Edit {id}</button>}
       />
       <p data-after>The page starts here.</p>
