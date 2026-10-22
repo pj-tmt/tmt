@@ -1865,9 +1865,19 @@ fn refuses(
 }
 
 #[test]
-fn state_consumers_stay_in_config_and_digest_history() {
+fn state_consumers_stay_in_config_hook_consent_and_digest_history() {
     for (consumer, owner, outside) in [
         ("tmt-adapters", "config/document.rs", "storage.rs"),
+        (
+            "tmt-adapters",
+            "extension_hooks.rs",
+            "extension_hooks_other.rs",
+        ),
+        (
+            "tmt-adapters",
+            "extension_hooks/tests.rs",
+            "extension_hooks_other/tests.rs",
+        ),
         ("tmt-digest", "history/store.rs", "status.rs"),
     ] {
         for kind in ["dev", "build"] {
