@@ -6,9 +6,7 @@ use std::ops::Range;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) enum QuoteSource {
-    Literal {
-        author: String,
-    },
+    Literal,
     Exact {
         key: MessageKey,
         range: Range<usize>,
@@ -39,7 +37,12 @@ fn excerpt(text: &str) -> String {
 impl Input {
     /// Insert after the current logical line. A retained fold is one unit even
     /// when its source contains newlines; no insertion can split that source.
-    pub(in crate::board) fn insert_quote(&mut self, raw: &str, source: QuoteSource) -> bool {
+    pub(in crate::board) fn insert_quote(
+        &mut self,
+        raw: &str,
+        author: &str,
+        source: QuoteSource,
+    ) -> bool {
         let text = normalized_quote(raw);
         if text.is_empty() {
             return false;
@@ -59,25 +62,18 @@ impl Input {
                 .find(['\r', '\n'])
                 .map(|at| end + at);
             match next {
-                Some(at)
-                    if self
-                        .text
-                        .folds()
-                        .iter()
-                        .any(|fold| fold.source.contains(&at)) =>
-                {
-                    end = self
+                Some(at) => {
+                    if let Some(fold) = self
                         .text
                         .folds()
                         .iter()
                         .find(|fold| fold.source.contains(&at))
-                        .unwrap()
-                        .source
-                        .end;
-                }
-                Some(at) => {
-                    end = at;
-                    break;
+                    {
+                        end = fold.source.end;
+                    } else {
+                        end = at;
+                        break;
+                    }
                 }
                 None => {
                     end = self.text.as_str().len();
@@ -104,12 +100,7 @@ impl Input {
         {
             return false;
         }
-        let author = match &source {
-            QuoteSource::Literal { author } => {
-                super::super::notes::single_line(&author.chars().take(40).collect::<String>())
-            }
-            QuoteSource::Exact { .. } => "response".into(),
-        };
+        let author = super::super::notes::single_line(&author.chars().take(40).collect::<String>());
         let label = format!("Quote · {author}: {} ×", excerpt(raw));
         // Work on a copy so even an unexpected grapheme-boundary refusal is atomic.
         let mut editor = self.text.clone();
@@ -166,7 +157,7 @@ impl Input {
             body.push_str(&self.text.as_str()[end..fold.source.start]);
             let text = &self.text.as_str()[fold.source.clone()];
             body.push_str(&match source {
-                QuoteSource::Literal { .. } => crate::requests::message::inline_quote(text),
+                QuoteSource::Literal => crate::requests::message::inline_quote(text),
                 QuoteSource::Exact { .. } => crate::requests::message::blockquote(text),
             });
             end = fold.source.end;
@@ -204,7 +195,7 @@ impl App {
         let Some(input) = &mut self.input else {
             return effect;
         };
-        if !input.insert_quote(&text, QuoteSource::Literal { author }) {
+        if !input.insert_quote(&text, &author, QuoteSource::Literal) {
             return self.say("Quote exceeds the 1 MiB attachment limit; draft unchanged.");
         }
         self.remember_draft();
@@ -219,6 +210,7 @@ impl Input {
     pub(in crate::board) fn seed_quote(&mut self, quote: super::super::response::Quote) {
         assert!(self.insert_quote(
             &quote.text,
+            "response",
             QuoteSource::Exact {
                 key: quote.key,
                 range: quote.range
@@ -238,7 +230,7 @@ impl Input {
             .folds()
             .iter()
             .filter_map(|fold| {
-                let QuoteSource::Literal { .. } = self.inline_quotes.get(&fold.id)? else {
+                let QuoteSource::Literal = self.inline_quotes.get(&fold.id)? else {
                     return None;
                 };
                 Some(LiteralQuote {

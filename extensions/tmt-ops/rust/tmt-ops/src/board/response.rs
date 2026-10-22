@@ -145,9 +145,14 @@ impl super::app::App {
             };
             self.compose_row(send, verb, squad)
         };
+        let author = self
+            .quote_author(&quote.key.lead)
+            .unwrap_or("response")
+            .to_owned();
         if let Some(input) = &mut self.input
             && !input.insert_quote(
                 &quote.text,
+                &author,
                 super::composer::QuoteSource::Exact {
                     key: quote.key,
                     range: quote.range,

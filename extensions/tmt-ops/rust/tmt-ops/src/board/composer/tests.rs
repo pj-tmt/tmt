@@ -1672,9 +1672,15 @@ pub(in crate::board) fn quote_capture_case(
         }
         "quote-exact" => {
             let id = crate::board::app::workspace::tests::MEMBER;
-            app.input.as_mut().unwrap().seed_quote(attached_quote(
-                id,
-                "Exact **raw** source\n\n漢字 e\u{301}\n",
+            let author = app.quote_author(id).unwrap_or("response").to_owned();
+            let quote = attached_quote(id, "Exact **raw** source\n\n漢字 e\u{301}\n");
+            assert!(app.input.as_mut().unwrap().insert_quote(
+                &quote.text,
+                &author,
+                QuoteSource::Exact {
+                    key: quote.key,
+                    range: quote.range
+                },
             ));
             app.paste("My note on this passage.");
         }
@@ -1733,5 +1739,5 @@ pub(in crate::board) fn quote_capture_metadata(app: &App) -> serde_json::Value {
     let input = app.input.as_ref().expect("quote fixture owns an editor");
     json!({"source":input.text.as_str(),"caret":input.text.cursor(),"preview":app.paste_preview_shown(),
         "folds":input.text.folds().iter().map(|fold|json!({"id":fold.id,"range":[fold.source.start,fold.source.end],"label":fold.label,
-            "kind": match input.inline_quotes.get(&fold.id) {Some(QuoteSource::Literal{..})=>"literal",Some(QuoteSource::Exact{..})=>"exact",None=>"paste-or-file"}})).collect::<Vec<_>>()})
+            "kind": match input.inline_quotes.get(&fold.id) {Some(QuoteSource::Literal)=>"literal",Some(QuoteSource::Exact{..})=>"exact",None=>"paste-or-file"}})).collect::<Vec<_>>()})
 }

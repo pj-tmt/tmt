@@ -17,6 +17,34 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> Event {
 }
 
 #[test]
+fn exact_quote_label_uses_the_roster_name_at_insertion() {
+    let mut app = source_reader("exact source");
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .name = "Named lead".into();
+    app.reader_event(&key(KeyCode::Char('a'), KeyModifiers::NONE));
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(
+        input.text.folds()[0].label,
+        "Quote · Named lead: exact source ×"
+    );
+    let quote = input.exact_quotes().next().unwrap();
+    assert_eq!(quote.key.lead, MEMBER);
+    assert_eq!(quote.range, 0..12);
+    assert_eq!(quote.text, "exact source");
+    assert_eq!(input.quoted_message(), "> exact source\n");
+}
+
+#[test]
 fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
     for case in ["attached", "changed", "limit", "boundary"] {
         let source = if case == "boundary" {
