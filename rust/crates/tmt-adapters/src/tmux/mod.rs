@@ -113,6 +113,15 @@ impl TmuxError {
 }
 
 fn socket_permission_denied(cause: &CommandError) -> bool {
+    socket_permission_denied_with(cause, connect_denied)
+}
+
+/// `connect_denied` is the OS evidence for a socket the process may open yet cannot
+/// connect to; it is a parameter so a test can stand in for a blocking sandbox.
+fn socket_permission_denied_with(
+    cause: &CommandError,
+    connect_denied: impl FnOnce(&std::path::Path) -> bool,
+) -> bool {
     if !matches!(cause.kind, CommandFailure::Exit { .. }) {
         return false;
     }
@@ -135,17 +144,28 @@ fn socket_permission_denied(cause: &CommandError) -> bool {
             error.raw_os_error(),
             Some(nix::libc::EACCES | nix::libc::EPERM)
         ),
-        Ok(metadata) if metadata.file_type().is_socket() => matches!(
-            nix::unistd::faccessat(
-                nix::fcntl::AT_FDCWD,
-                path,
-                nix::unistd::AccessFlags::W_OK,
-                nix::fcntl::AtFlags::AT_EACCESS
-            ),
-            Err(Errno::EACCES | Errno::EPERM)
-        ),
+        Ok(metadata) if metadata.file_type().is_socket() => {
+            matches!(
+                nix::unistd::faccessat(
+                    nix::fcntl::AT_FDCWD,
+                    path,
+                    nix::unistd::AccessFlags::W_OK,
+                    nix::fcntl::AtFlags::AT_EACCESS
+                ),
+                Err(Errno::EACCES | Errno::EPERM)
+            ) || connect_denied(path)
+        }
         _ => false,
     }
+}
+
+/// An agent sandbox can block `connect(2)` while `stat` and `access` still succeed, so
+/// the connect itself is the evidence. A refused or missing server is not a denial.
+fn connect_denied(path: &std::path::Path) -> bool {
+    matches!(
+        std::os::unix::net::UnixStream::connect(path).map_err(|error| error.raw_os_error()),
+        Err(Some(nix::libc::EACCES | nix::libc::EPERM))
+    )
 }
 
 impl fmt::Display for TmuxError {

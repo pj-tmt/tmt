@@ -27,6 +27,55 @@ fn socket_permission_requires_os_evidence_not_diagnostic_words() {
     }
 }
 
+fn socket_diagnostic(socket: &std::path::Path) -> CommandError {
+    let mut error = CommandError::new(CommandFailure::Exit {
+        code: Some(1),
+        signal: None,
+    });
+    error.output = Some(CommandOutput {
+        stdout: Vec::new(),
+        stderr: format!(
+            "error connecting to {} (Operation not permitted)\n",
+            socket.display()
+        )
+        .into_bytes(),
+    });
+    error
+}
+
+#[test]
+fn a_connect_the_sandbox_blocks_is_a_socket_denial_only_for_a_reachable_socket() {
+    let directory = crate::test_support::TestDirectory::new();
+    let socket = directory.path.join("s.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let error = socket_diagnostic(&socket);
+    // stat and access succeed here, so only the connect evidence can classify it.
+    assert!(socket_permission_denied_with(&error, |_| true));
+    assert!(!socket_permission_denied_with(&error, |_| false));
+    // A missing path is never probed, and a non-socket is never a denial.
+    let missing = socket_diagnostic(&directory.path.join("missing.sock"));
+    assert!(!socket_permission_denied_with(&missing, |_| true));
+    let plain = directory.path.join("plain");
+    std::fs::write(&plain, b"").unwrap();
+    assert!(!socket_permission_denied_with(
+        &socket_diagnostic(&plain),
+        |_| true
+    ));
+}
+
+#[test]
+fn a_listening_or_stale_socket_is_not_a_connect_denial() {
+    let directory = crate::test_support::TestDirectory::new();
+    let socket = directory.path.join("s.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    assert!(!connect_denied(&socket));
+    drop(listener);
+    // The socket file stays behind after its server is gone: refused, not denied.
+    assert!(!connect_denied(&socket));
+    assert!(!connect_denied(&directory.path.join("missing.sock")));
+    assert!(!socket_permission_denied(&socket_diagnostic(&socket)));
+}
+
 fn marked_row() -> String {
     [
         SERVER_ID,
