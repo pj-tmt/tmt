@@ -133,6 +133,15 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         self.select_response(input, true)
     }
 
+    /// CLI selection only: the retained request an exact ID or the unique prefix `tmt result`
+    /// accepts names. An ID nothing retains comes back unchanged for the caller to report.
+    pub fn select_request_id(&mut self, input: &str) -> Result<String, RequestError<R::Error>> {
+        if input.is_empty() {
+            return Err(RequestError::Response(ResponseRejection::InputInvalid));
+        }
+        self.read(|records, now| selected_id(records, input, now))
+    }
+
     fn select_response(
         &mut self,
         input: &str,
@@ -142,25 +151,8 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             return Err(RequestError::Response(ResponseRejection::InputInvalid));
         }
         self.read(|records, now| {
-            let selected = (|| {
-                // Historical service clients may have stored non-UUID IDs. Exact
-                // retained IDs take precedence and keep their original spelling.
-                if records.find_request(input)?.is_some() || records.find_response(input)?.is_some()
-                {
-                    return Ok((input.into(), response_lookup(records, input, now)?));
-                }
-                let Some((lower, upper)) = prefix_range(input)? else {
-                    return Ok((input.into(), ResponseLookup::Unavailable));
-                };
-                let matches = records.retained_request_ids(&lower, &upper, now, 5)?;
-                match matches.ids.as_slice() {
-                    [] => Ok((input.into(), ResponseLookup::Unavailable)),
-                    [id] => Ok((id.clone(), response_lookup(records, id, now)?)),
-                    _ => Err(RequestError::ResultSelection(
-                        ResultSelectionRejection::Ambiguous(matches),
-                    )),
-                }
-            })()?;
+            let id = selected_id(records, input, now)?;
+            let selected = (id.clone(), response_lookup(records, &id, now)?);
             if record_retrieval && matches!(&selected.1, ResponseLookup::Available(_)) {
                 if let Some(attempt) = records.find_request(&selected.0)? {
                     flow::record(
@@ -184,6 +176,29 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             }
             Ok(selected)
         })
+    }
+}
+
+/// Exact retained IDs take precedence and keep their original spelling (historical service
+/// clients may have stored non-UUID IDs); otherwise a unique UUID prefix selects its request.
+fn selected_id<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    input: &str,
+    now: u64,
+) -> Result<String, RequestError<E>> {
+    if records.find_request(input)?.is_some() || records.find_response(input)?.is_some() {
+        return Ok(input.into());
+    }
+    let Some((lower, upper)) = prefix_range(input)? else {
+        return Ok(input.into());
+    };
+    let matches = records.retained_request_ids(&lower, &upper, now, 5)?;
+    match matches.ids.as_slice() {
+        [] => Ok(input.into()),
+        [id] => Ok(id.clone()),
+        _ => Err(RequestError::ResultSelection(
+            ResultSelectionRejection::Ambiguous(matches),
+        )),
     }
 }
 

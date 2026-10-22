@@ -54,6 +54,30 @@ fn input_failure(error: ResponseInputError) -> Failure {
     Failure::new(error.code(), error.to_string(), status).caused_by(error)
 }
 
+/// A request-ID prefix that selects nothing usable or too many, worded for every command that
+/// accepts the short form.
+pub(crate) fn selection_failure(error: RequestError<StorageError>) -> Failure {
+    let RequestError::ResultSelection(reason) = &error else {
+        unreachable!("selection failures carry a ResultSelection");
+    };
+    let message = match reason {
+        ResultSelectionRejection::PrefixTooShort => error.to_string(),
+        ResultSelectionRejection::Ambiguous(matches) => {
+            let more = matches.total.saturating_sub(matches.ids.len() as u64);
+            format!(
+                "Request-ID prefix is ambiguous: {}{}",
+                matches.ids.join(", "),
+                if more > 0 {
+                    format!("; …and {more} more")
+                } else {
+                    String::new()
+                }
+            )
+        }
+    };
+    Failure::new("USAGE_ERROR", message, 1).caused_by(error)
+}
+
 pub(crate) fn response_failure(
     error: RequestError<StorageError>,
     directory: &Path,
@@ -75,23 +99,8 @@ pub(crate) fn response_failure(
         }
         other => other,
     };
-    if let RequestError::ResultSelection(reason) = &error {
-        let message = match reason {
-            ResultSelectionRejection::PrefixTooShort => error.to_string(),
-            ResultSelectionRejection::Ambiguous(matches) => {
-                let more = matches.total.saturating_sub(matches.ids.len() as u64);
-                format!(
-                    "Request-ID prefix is ambiguous: {}{}",
-                    matches.ids.join(", "),
-                    if more > 0 {
-                        format!("; …and {more} more")
-                    } else {
-                        String::new()
-                    }
-                )
-            }
-        };
-        return Failure::new("USAGE_ERROR", message, 1).caused_by(error);
+    if matches!(error, RequestError::ResultSelection(_)) {
+        return selection_failure(error);
     }
     let RequestError::Response(reason) = &error else {
         return unavailable(error);

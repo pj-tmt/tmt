@@ -6,6 +6,7 @@ use crate::{
     identity_context,
     invocation::{Invocation, OutputMode},
     output::{Failure, after_cleanup},
+    response_command::selection_failure,
 };
 use serde_json::json;
 use std::{
@@ -14,14 +15,15 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    delivery::{self, Delivery, Released},
+    delivery::Delivery,
     request_runtime::wall_time_ms,
+    send_now::{self, SendNow},
     storage::{Storage, StorageError},
 };
 use tmt_cli_style::message;
 use tmt_core::request::{
     RequestError, RequestService,
-    delivery::{DeliveryState, SendNowOutcome, SendNowRejection},
+    delivery::{DeliveryState, SendNowRejection},
 };
 
 /// What a send-now ended as. Only `Sent` and `Already` are successes.
@@ -35,29 +37,7 @@ fn unavailable(error: impl std::error::Error + 'static) -> Failure {
 }
 
 fn rejection(reason: SendNowRejection, request_id: &str) -> Failure {
-    let (message, status) = match reason {
-        SendNowRejection::NotAllowed => (
-            "Only the request's originator, or a person, may send it now.".to_owned(),
-            1,
-        ),
-        SendNowRejection::NotApplicable => (
-            "Only an ordinary request to an identified recipient can be sent now.".to_owned(),
-            1,
-        ),
-        SendNowRejection::Closed => (
-            "The request already has its final, was withdrawn or has expired.".to_owned(),
-            1,
-        ),
-        SendNowRejection::Unconfirmed => (
-            "Delivery is unconfirmed; the message may already be in the pane, so it is not sent again."
-                .to_owned(),
-            1,
-        ),
-        SendNowRejection::NotAvailable(why) => {
-            (format!("It cannot be sent now: {}.", why.text()), 1)
-        }
-    };
-    let failure = Failure::new(reason.code(), message, status);
+    let failure = Failure::new(reason.code(), reason.message(), 1);
     match reason {
         SendNowRejection::Unconfirmed => {
             failure.suggestion(format!("Inspect with 'tmt result {}'.", request_id))
@@ -68,6 +48,7 @@ fn rejection(reason: SendNowRejection, request_id: &str) -> Failure {
 
 fn failure(error: RequestError<StorageError>, request_id: &str) -> Failure {
     match error {
+        RequestError::ResultSelection(_) => selection_failure(error),
         RequestError::SendNow(reason) => rejection(reason, request_id),
         RequestError::NotFound => Failure::new(
             "SEND_NOW_NOT_FOUND",
@@ -81,40 +62,20 @@ fn failure(error: RequestError<StorageError>, request_id: &str) -> Failure {
 /// A delivery that typed nothing keeps the request queued and reopenable; one that may have
 /// typed it is never retried.
 fn delivery_failure(delivery: Delivery, request_id: &str) -> Failure {
-    let retry = format!(
-        "Nothing was typed; retry 'tmt send-now {}' after it continues.",
-        request_id
-    );
-    match delivery {
-        Delivery::AwaitingApproval => Failure::new(
-            "DELIVERY_AWAITING_APPROVAL",
-            "The recipient is waiting on its user; nothing was sent.",
-            1,
-        )
-        .suggestion(retry),
-        Delivery::Offline | Delivery::Unavailable => Failure::new(
-            "SEND_NOW_UNREACHABLE",
-            "The recipient could not be reached; nothing was sent.",
-            1,
-        )
-        .suggestion(retry),
-        Delivery::ChannelUnavailable(_) => Failure::new(
-            "DELIVERY_CHANNEL_UNAVAILABLE",
-            "The recipient's session cannot carry the message; nothing was sent.",
-            1,
-        )
-        .suggestion(retry),
-        Delivery::Uncertain | Delivery::Unacknowledged | Delivery::Transport(_) => Failure::new(
-            "DELIVERY_UNCERTAIN",
-            "The message may have reached the pane; it is not sent again.",
-            1,
-        )
-        .suggestion(format!("Inspect with 'tmt result {}'.", request_id)),
-        Delivery::Sent => unreachable!("a delivered message is a success"),
+    let (code, message) = send_now::untyped_failure(&delivery);
+    let failure = Failure::new(code, message, 1);
+    if code == "DELIVERY_UNCERTAIN" {
+        failure.suggestion(format!("Inspect with 'tmt result {}'.", request_id))
+    } else {
+        failure.suggestion(format!(
+            "Nothing was typed; retry 'tmt send-now {}' after it continues.",
+            request_id
+        ))
     }
 }
 
-fn run(request: Invocation) -> Result<Report, Failure> {
+/// The full request ID the command acted on, with what happened.
+fn run(request: Invocation) -> Result<(String, Report), Failure> {
     let Invocation::SendNow {
         request_id,
         identity,
@@ -141,35 +102,26 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     })?;
     let pending = (|| {
         let me = identity_context::resolve(&mut storage, selected)?;
-        let outcome = RequestService::new(&mut storage, wall_time_ms)
-            .send_now(&request_id, &me.id)
-            .map_err(|error| failure(error, &request_id))?;
-        let recipient = match outcome {
-            SendNowOutcome::Already(state) => return Ok(Report::Already(state)),
-            SendNowOutcome::Release {
-                recipient_identity_id,
-            } => recipient_identity_id,
-        };
         let delay = Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0);
-        match delivery::deliver_released(&mut storage, &request_id, &recipient, delay)
+        // The same short prefix `tmt result` accepts; reports below name the full ID.
+        let request_id = RequestService::new(&mut storage, wall_time_ms)
+            .select_request_id(&request_id)
+            .map_err(|error| failure(error, &request_id))?;
+        match send_now::send_now(&mut storage, &request_id, &me.id, delay)
             .map_err(|error| failure(error, &request_id))?
         {
-            Released::Typed(Delivery::Sent) => Ok(Report::Sent),
-            Released::Typed(other) => Err(delivery_failure(other, &request_id)),
-            Released::NotClaimed(_) => Ok(Report::Already(DeliveryState::Sent)),
-            Released::Closed => Err(rejection(SendNowRejection::Closed, &request_id)),
+            SendNow::Typed => Ok((request_id, Report::Sent)),
+            SendNow::Already(state) => Ok((request_id, Report::Already(state))),
+            SendNow::Untyped(other) => Err(delivery_failure(other, &request_id)),
+            SendNow::Closed => Err(rejection(SendNowRejection::Closed, &request_id)),
         }
     })();
     after_cleanup(pending, || storage.close())
 }
 
 pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let request_id = match &request {
-        Invocation::SendNow { request_id, .. } => request_id.clone(),
-        _ => unreachable!("send-now dispatch only accepts send-now"),
-    };
-    let report = match run(request) {
-        Ok(report) => report,
+    let (request_id, report) = match run(request) {
+        Ok(done) => done,
         Err(error) => return error.publish(mode),
     };
     let (status, state, line) = match &report {

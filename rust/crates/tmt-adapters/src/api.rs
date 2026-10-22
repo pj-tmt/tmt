@@ -48,6 +48,7 @@ const OPS: &[&str] = &[
     "changes.cursor",
     "requests.list",
     "requests.show",
+    "requests.sendNow",
     "responses.recent",
     "pane.screen",
     "dispatch.show",
@@ -197,6 +198,11 @@ pub enum Request {
     ChangeCursor,
     History(HistoryQuery),
     Detail(String),
+    /// Types one held or waiting message now; the envelope identity is the caller.
+    SendNow {
+        identity: Option<DispatchIdentity>,
+        request_id: String,
+    },
     Receipt(String),
     Dispatch {
         /// `None` is the anonymous originator.
@@ -282,7 +288,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
     let input = wire.input.get().as_bytes();
     let writing = matches!(
         wire.operation.as_str(),
-        "dispatch.create" | "rooms.write" | "rooms.retire"
+        "dispatch.create" | "rooms.write" | "rooms.retire" | "requests.sendNow"
     );
     // Originator-attributed writes name exactly one identity or `"anonymous"`.
     // Other operations, including metadata target mutations, name neither.
@@ -333,6 +339,10 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         op if op.starts_with("digest.") => digest::decode(op, input)?,
         "requests.list" => Request::History(requests::decode_list(input)?),
         "requests.show" => Request::Detail(requests::decode_show(input)?),
+        "requests.sendNow" => Request::SendNow {
+            identity: wire.identity.map(DispatchIdentity::Explicit),
+            request_id: requests::decode_show(input)?,
+        },
         "responses.recent" => responses::decode(input)?,
         "pane.screen" => pane::decode(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
@@ -416,8 +426,10 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     }
     // Delivery uses configured input delay and the user identity the `user.name` setting; reads
     // do not depend on unrelated config.
-    let settings = if matches!(request, Request::Dispatch { .. } | Request::UserIdentity)
-        || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
+    let settings = if matches!(
+        request,
+        Request::Dispatch { .. } | Request::SendNow { .. } | Request::UserIdentity
+    ) || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
     {
         Some(
             ConfigFiles {
@@ -495,6 +507,10 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         Request::HookAck(hook) => identity_hooks::ack(&mut storage, hook),
         Request::History(query) => requests::list_history(&mut storage, query),
         Request::Detail(id) => requests::show_request(&mut storage, id),
+        Request::SendNow {
+            identity: selector,
+            request_id,
+        } => requests::send_now(&mut storage, selector, &request_id, settings),
         Request::Receipt(id) => dispatch::show_receipt(&storage, id),
         Request::Room {
             identity: selector,
@@ -1188,10 +1204,12 @@ mod tests {
             decode(&envelope.to_string())
         };
         let room_retire = json!({"roomId": room, "expectedRevision": 1});
+        let send_now = json!({"requestId": "req_77777777-7777-4777-8777-777777777777"});
         for (operation, input) in [
             ("dispatch.create", &dispatch),
             ("rooms.write", &room_write),
             ("rooms.retire", &room_retire),
+            ("requests.sendNow", &send_now),
         ] {
             assert!(decode_with(operation, json!({"originator": "anonymous"}), input).is_ok());
             assert!(decode_with(operation, json!({"identity": "Ada"}), input).is_ok());
@@ -1241,6 +1259,86 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(originators, vec![None]);
+    }
+
+    #[test]
+    fn send_now_names_its_caller_and_refuses_before_touching_a_request() {
+        let directory = crate::test_support::TestDirectory::new();
+        let paths = ConfigPaths::resolve(
+            &directory.path,
+            &directory.path,
+            Some(&directory.path),
+            None,
+        );
+        Storage::open(&paths.database).unwrap().close().unwrap();
+        let ada = "11111111-1111-4111-8111-111111111111";
+        rusqlite::Connection::open(&paths.database)
+            .unwrap()
+            .execute(
+                "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES (?, 'Ada', 'ada', 't', 't', 'saved')",
+                [ada],
+            )
+            .unwrap();
+        let input = json!({"requestId": "req_77777777-7777-4777-8777-777777777777"});
+        let code = |extra: serde_json::Value| {
+            let mut envelope =
+                json!({"version": 1, "operation": "requests.sendNow", "input": input});
+            for (key, value) in extra.as_object().unwrap() {
+                envelope[key] = value.clone();
+            }
+            let request = decode(&envelope.to_string()).unwrap();
+            execute(&paths, request).expect_err("refused").code
+        };
+        // No caller is not the person: refused without a lookup.
+        assert_eq!(
+            code(json!({"originator": "anonymous"})),
+            "SEND_NOW_NOT_ALLOWED"
+        );
+        assert_eq!(code(json!({"identity": "Nobody"})), "NAME_NOT_FOUND");
+        // A known caller reaches the request lookup.
+        assert_eq!(code(json!({"identity": "Ada"})), "REQUEST_NOT_FOUND");
+
+        // Only the originator sends a real request now; a third identity is refused.
+        let bob = "22222222-2222-4222-8222-222222222222";
+        let eve = "33333333-3333-4333-8333-333333333333";
+        for (id, name) in [(bob, "Bob"), (eve, "Eve")] {
+            rusqlite::Connection::open(&paths.database)
+                .unwrap()
+                .execute(
+                    "INSERT INTO identities (id, name, canonical_name, created_at, updated_at, lifetime) VALUES (?, ?, lower(?), 't', 't', 'saved')",
+                    [id, name, name],
+                )
+                .unwrap();
+        }
+        let dispatch = json!({"version": 1, "operation": "dispatch.create", "identity": "Ada",
+            "input": {"operationId": "66666666-6666-4666-8666-666666666666",
+                "recipientIds": [bob], "message": "hello"}});
+        let receipt: serde_json::Value = serde_json::from_slice(
+            &execute(&paths, decode(&dispatch.to_string()).unwrap()).unwrap(),
+        )
+        .unwrap();
+        let request_id = receipt["items"][0]["requestId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let send = |caller: &str| {
+            let body = json!({"version": 1, "operation": "requests.sendNow", "identity": caller,
+                "input": {"requestId": request_id}});
+            execute(&paths, decode(&body.to_string()).unwrap())
+        };
+        assert_eq!(
+            send("Eve").expect_err("refused").code,
+            "SEND_NOW_NOT_ALLOWED"
+        );
+        assert_eq!(
+            send("Bob").expect_err("refused").code,
+            "SEND_NOW_NOT_ALLOWED"
+        );
+        // The originator reaches delivery; an unbound recipient has nowhere to type.
+        assert_eq!(
+            send("Ada").expect_err("refused").code,
+            "SEND_NOW_UNREACHABLE"
+        );
     }
 
     /// The cursor is the same for every read and advances with each write,

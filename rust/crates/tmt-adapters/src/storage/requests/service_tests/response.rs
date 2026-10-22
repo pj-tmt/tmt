@@ -369,6 +369,41 @@ fn result_prefix_preserves_exact_body_state_and_full_id_lookup() {
 }
 
 #[test]
+fn select_request_id_resolves_the_result_prefix_without_reading_a_body() {
+    use tmt_core::request::ResultSelectionRejection;
+    let mut fixture = Fixture::new();
+    let id = "req_a1b2c3d4-1234-4234-8234-123456789abc";
+    let other = "req_a1b2c3d4-9999-4999-8999-123456789abc";
+    for request in [id, other] {
+        let (_attempt, _target) = prepare_sending(&mut fixture, request);
+    }
+    for selection in [id, "req_a1b2c3d4-1", "A1B2C3D4-1234", &id[4..16]] {
+        assert_eq!(
+            service(&mut fixture).select_request_id(selection).unwrap(),
+            id,
+            "{selection}"
+        );
+    }
+    // Unretained input comes back unchanged for the caller to report.
+    assert_eq!(
+        service(&mut fixture).select_request_id("aaaaaaaa").unwrap(),
+        "aaaaaaaa"
+    );
+    assert!(matches!(
+        service(&mut fixture).select_request_id("a1b2c3d4"),
+        Err(RequestError::ResultSelection(
+            ResultSelectionRejection::Ambiguous(_)
+        ))
+    ));
+    assert!(matches!(
+        service(&mut fixture).select_request_id("a1b2c3d"),
+        Err(RequestError::ResultSelection(
+            ResultSelectionRejection::PrefixTooShort
+        ))
+    ));
+}
+
+#[test]
 fn result_prefix_ambiguity_is_sorted_capped_and_excludes_logically_expired_rows() {
     use tmt_core::request::{ResponseLookup, ResultSelectionRejection};
     let mut fixture = Fixture::new();
