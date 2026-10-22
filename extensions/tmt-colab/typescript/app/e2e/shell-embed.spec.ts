@@ -10,16 +10,20 @@ import { text } from '../src/strings.js';
 /** The look a capture run uses, `COLAB_LOOK=1440:dark`; the assertions hold in every look. */
 const look = process.env.COLAB_LOOK ?? '1440:light';
 const capture = async (page: Page, name: string) => {
-  if (process.env.COLAB_CAPTURE_DIR)
+  if (process.env.COLAB_CAPTURE_DIR) {
+    // At rest: the pointer of the last click would otherwise leave its hover fill in the capture.
+    await page.mouse.move(300, 600);
     await page.screenshot({
       path: capturePath(`shell-embed-${name}-${look.replace(':', '-')}.png`),
     });
+  }
 };
 
 const PLAN = '10000000-0000-4000-8000-0000000000a1';
 const t = text.shellPage;
 
 async function openShell(page: Page, kind = 'named') {
+  await page.emulateMedia({ colorScheme: look.endsWith('dark') ? 'dark' : 'light' });
   await page.route('**/src/main.tsx', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
@@ -51,6 +55,12 @@ test('Decide here hosts the page in the panel without touching the tab title', a
   await page.setViewportSize({ width: 1440, height: 900 });
   await openShell(page);
   const title = await page.title();
+  await capture(page, 'dashboard');
+  // A text action lines up with the text above it, not 12 px in (the shared action pads its sides).
+  const chapter = page.locator('.shell-chapter').first();
+  const titleLeft = (await chapter.locator('.shell-chapter-title').boundingBox())!.x;
+  const openLeft = (await chapter.locator('.shell-open').first().boundingBox())!.x;
+  expect(Math.abs(openLeft - titleLeft)).toBeLessThanOrEqual(1);
   await trigger(page).click();
   const decide = (await panel(page).getByRole('button', { name: t.decideHere }).boundingBox())!;
   const left = (await panel(page).locator('.tmt-ui-drawer-heading').first().boundingBox())!.x;

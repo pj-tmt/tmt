@@ -169,6 +169,8 @@
 }
 .shell-open {
   margin-top: 22px;
+  /* The shared text action pads its sides; here the link lines up with the text above it. */
+  padding-inline: 0;
 }
 .shell-chapter a:focus-visible,
 .shell-earlier a:focus-visible {
@@ -305,7 +307,6 @@
 }
 .shell-panel .shell-open {
   margin-top: 0;
-  padding-inline: 0;
   justify-self: start;
 }
 
