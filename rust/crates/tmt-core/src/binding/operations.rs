@@ -147,7 +147,34 @@ pub fn move_identity<R: BindingRepository, O: BindingEndpoint>(
         endpoint.begin_coordination();
         let current = records
             .entry_by_id(&expected.identity.id)?
-            .filter(|current| current == expected)
+            .filter(|current| {
+                if current == expected {
+                    return true;
+                }
+                // The stopped launch's wrapper may settle after the caller's
+                // post-stop snapshot. Admit only its exact Ended observation;
+                // every identity, attachment, key and owner field stays fenced.
+                let mut settled = expected.clone();
+                let Some(binding) = settled.binding.as_mut() else {
+                    return false;
+                };
+                let Some(key) = binding
+                    .session
+                    .key
+                    .as_ref()
+                    .filter(|key| &key.incarnation == ended)
+                else {
+                    return false;
+                };
+                let Some(owner) = binding.session.launch_owner.clone() else {
+                    return false;
+                };
+                let Some(next) = binding.session.record_launched_exit(key.clone(), owner) else {
+                    return false;
+                };
+                binding.session = next;
+                current == &settled
+            })
             .ok_or(BindingError::Unverified)?;
         if records.session_preferences(&expected.identity.id)? != *preferences {
             return Err(BindingError::Unverified);

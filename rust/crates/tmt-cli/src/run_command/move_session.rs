@@ -47,6 +47,15 @@ pub(super) fn launch_failure(
             error.message.push_str(" No new agent was launched.");
             format!("tmt resume --move -- {}", crate::output::shell_word(name))
         }
+        super::LaunchEffect::OldStopped => {
+            error
+                .message
+                .push_str(" The old agent was stopped. No new agent was launched.");
+            return error.suggestion(format!(
+                "To resume in this pane, run: tmt resume -- {}",
+                crate::output::shell_word(name)
+            ));
+        }
         super::LaunchEffect::BoundHere => {
             error
                 .message
@@ -77,15 +86,25 @@ fn context(paths: &ConfigPaths, identity: &Identity) -> Result<IdentityContextSn
         .ok_or_else(|| refusal("IDENTITY_CONFLICT", "The identity changed before moving."))
 }
 
+pub(super) struct MoveRequest<'a> {
+    pub identity: &'a Identity,
+    pub preferences: &'a SessionPreferences,
+    pub lifecycle: &'a dyn RuntimeLifecycle,
+}
+
 pub(super) fn move_binding(
     storage: &mut Storage,
     host: &Host,
     paths: &ConfigPaths,
     pane: &str,
-    identity: &Identity,
-    preferences: &SessionPreferences,
-    lifecycle: &dyn RuntimeLifecycle,
+    request: MoveRequest<'_>,
+    effect: &mut super::LaunchEffect,
 ) -> Result<Option<BoundIdentity>, Failure> {
+    let MoveRequest {
+        identity,
+        preferences,
+        lifecycle,
+    } = request;
     let session = preferences.remembered.as_ref().ok_or_else(|| {
         refusal(
             "RESUME_UNAVAILABLE",
@@ -315,6 +334,7 @@ pub(super) fn move_binding(
             )
         })?;
     requested?.wait().map_err(stop_failed)?;
+    *effect = super::LaunchEffect::OldStopped;
     let refreshed = context(paths, identity)?;
     let same_attachment = refreshed.entry.binding.as_ref().is_some_and(|binding| {
         binding.id == old.id
@@ -365,22 +385,16 @@ pub(super) fn move_binding(
         &target,
     )
     .map(Some)
-    .map_err(|error| {
-        let error = binding_failure(error);
-        let mut failure = refusal(
-            error.code,
-            format!(
-                "The old agent stopped, but the binding move was not confirmed: {}",
-                error.message
-            ),
-        );
-        failure.status = error.status;
-        failure
-    })
+    .map_err(binding_failure)
 }
 
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core("tmt resume --move -- {}", &[""], &[("{}", "worker")]),
     crate::cli_style_tests::HintSpec::core("tmt resume -- {}", &[""], &[("{}", "worker")]),
+    crate::cli_style_tests::HintSpec::core(
+        "To resume in this pane, run: tmt resume -- {}",
+        &[""],
+        &[("{}", "worker")],
+    ),
 ];

@@ -235,8 +235,11 @@ delivery. They install and launch nothing.
   for exit confirmation and no force or signal retry. Request under binding coordination,
   release the writer while waiting, and leave binding/preferences unchanged on stop failure.
   After exit, re-read final hook state and fence binding, owner, session and launch choices.
-  Pure `binding::move_identity` shares `bind_selected`, preserving identity lifetime and
-  preferences; host publication failures remain partial. Existing foreground resume owns
+  Pure `binding::move_identity` admits a concurrent Ended settlement only for that same
+  attachment, process/session key and launch owner; all other captured fields and preferences
+  remain fenced. It shares `bind_selected`, preserving identity lifetime and preferences;
+  host publication failures remain partial. A post-stop refusal states that the old agent
+  stopped and offers ordinary resume in the caller pane. Existing foreground resume owns
   the new child. It does not roll back a delivered signal or silently start fresh.
 - Observation writes compare the complete expected observation inside the binding transaction,
   so a late update for a superseded conversation cannot win. Admission needs fresh live
