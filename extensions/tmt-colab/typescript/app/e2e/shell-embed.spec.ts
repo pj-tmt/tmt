@@ -184,3 +184,23 @@ test('below 900 px the full page route keeps its own drawer and menu, which look
   await expect(page.getByRole('menu')).toBeVisible();
   await capture(page, 'narrow-menu');
 });
+
+test('with the page in the panel, @ opens the embedded page’s Chat and Esc closes only that', async ({
+  page,
+}) => {
+  await decideHere(page);
+  await expect(panel(page).locator('iframe')).toBeVisible();
+  // Typing in the panel, not in a field: the shell page behind it and the embedded page both listen
+  // on the document, and only the page in the panel may act.
+  await panel(page).getByRole('link', { name: t.openFullPage }).focus();
+  await page.keyboard.press('Shift+2');
+  const chat = page.getByRole('dialog', { name: text.chat });
+  await expect(chat).toBeVisible();
+  await expect(chat).toHaveCount(1);
+  // The Chat that opened is the embedded page's: it sits inside the panel, not beside it.
+  await expect(panel(page).getByRole('dialog', { name: text.chat })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(chat).toBeHidden();
+  await expect(panel(page)).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`\\?open=${PLAN}`));
+});
