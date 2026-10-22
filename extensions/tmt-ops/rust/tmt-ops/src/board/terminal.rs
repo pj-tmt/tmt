@@ -168,20 +168,52 @@ impl Screen for Crossterm {
 /// scrolls; `Terminal` shows it again where it belongs once the diff is
 /// written, and a frame with no changes touches nothing.
 pub struct Backend<W: io::Write> {
-    inner: ratatui::backend::CrosstermBackend<W>,
+    inner: ratatui::backend::CrosstermBackend<Shared<W>>,
+    /// The same output, for the OSC 8 bytes between the backend's own writes.
+    out: Shared<W>,
     /// What `Terminal` last asked for: the caret is shown for the input.
     caret: bool,
     /// The caret was hidden for this frame's cells and is shown again once it
     /// has been placed, so it never appears at the last written cell.
     resume: bool,
+    /// The web links this frame paints, wrapped in OSC 8 when the terminal
+    /// supports them; off, every byte is the plain backend's.
+    links: super::hyperlinks::Links,
+}
+
+/// One output, two writers: ratatui's backend keeps its writer private.
+struct Shared<W>(std::rc::Rc<std::cell::RefCell<W>>);
+
+impl<W> Clone for Shared<W> {
+    fn clone(&self) -> Self {
+        Self(std::rc::Rc::clone(&self.0))
+    }
+}
+
+impl<W: io::Write> io::Write for Shared<W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.borrow_mut().write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.borrow_mut().flush()
+    }
 }
 
 impl<W: io::Write> Backend<W> {
+    #[cfg(test)]
     pub fn new(output: W) -> Self {
+        Self::with_links(output, super::hyperlinks::Links::default())
+    }
+
+    pub fn with_links(output: W, links: super::hyperlinks::Links) -> Self {
+        let out = Shared(std::rc::Rc::new(std::cell::RefCell::new(output)));
         Self {
-            inner: ratatui::backend::CrosstermBackend::new(output),
+            inner: ratatui::backend::CrosstermBackend::new(out.clone()),
+            out,
             caret: false,
             resume: false,
+            links,
         }
     }
 }
@@ -198,7 +230,20 @@ impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
             self.inner.hide_cursor()?;
             self.resume = true;
         }
-        self.inner.draw(content)
+        if !self.links.enabled() {
+            return self.inner.draw(content);
+        }
+        let cells: Vec<_> = content.collect();
+        for (run, open) in self.links.runs(&cells) {
+            if let Some(open) = &open {
+                io::Write::write_all(&mut self.out, open)?;
+            }
+            self.inner.draw(cells[run].iter().copied())?;
+            if open.is_some() {
+                io::Write::write_all(&mut self.out, &super::hyperlinks::close())?;
+            }
+        }
+        Ok(())
     }
 
     fn append_lines(&mut self, lines: u16) -> io::Result<()> {
@@ -438,6 +483,84 @@ mod tests {
             })
             .unwrap();
         String::from_utf8(sink.0.borrow().clone()).unwrap()
+    }
+
+    /// Draws "see docs now" with the span `docs` set, on a fresh viewport.
+    fn linked(
+        links: &super::super::hyperlinks::Links,
+        area: ratatui::layout::Rect,
+        url: &str,
+    ) -> String {
+        let sink = Sink::default();
+        let mut terminal = ratatui::Terminal::with_options(
+            Backend::with_links(sink.clone(), links.clone()),
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, 20, 3)),
+            },
+        )
+        .unwrap();
+        terminal
+            .draw(|frame| {
+                frame.buffer_mut().set_string(
+                    0,
+                    0,
+                    "see docs now",
+                    ratatui::style::Style::default(),
+                );
+                links.set(
+                    super::super::hyperlinks::Span::new(area, url, 7)
+                        .into_iter()
+                        .collect(),
+                );
+            })
+            .unwrap();
+        String::from_utf8(sink.0.borrow().clone()).unwrap()
+    }
+
+    #[test]
+    fn a_supported_link_label_is_wrapped_in_osc_8_and_the_text_around_it_is_not() {
+        let links = super::super::hyperlinks::Links::default();
+        links.enable(true);
+        let area = ratatui::layout::Rect::new(4, 0, 4, 1);
+        let out = linked(&links, area, "https://example.com/a?b=1");
+        let open = out
+            .find("\x1b]8;id=7;https://example.com/a?b=1\x1b\\")
+            .expect("the link opens");
+        let close = out.find("\x1b]8;;\x1b\\").expect("the link closes");
+        let label = out.find("docs").expect("the label is written");
+        assert!(open < label && label < close, "{out:?}");
+        assert_eq!(out.matches("\x1b]8;").count(), 2, "{out:?}");
+        // The words around the label are outside the pair.
+        for plain in ["see", "now"] {
+            let at = out.find(plain).unwrap();
+            assert!(at < open || at > close, "{plain} inside the link: {out:?}");
+        }
+    }
+
+    #[test]
+    fn links_off_or_refused_add_no_byte_to_the_plain_backend() {
+        let area = ratatui::layout::Rect::new(4, 0, 4, 1);
+        let plain = linked(
+            &super::super::hyperlinks::Links::default(),
+            ratatui::layout::Rect::default(),
+            "",
+        );
+        assert!(!plain.contains("\x1b]8"), "{plain:?}");
+        // Off: the spans are ignored whatever the view hands over.
+        let off = super::super::hyperlinks::Links::default();
+        assert_eq!(linked(&off, area, "https://example.com/"), plain);
+        // On, but nothing sets a span or the address is not http(s): the same bytes.
+        let on = super::super::hyperlinks::Links::default();
+        on.enable(true);
+        for refused in [
+            "",
+            "mailto:a@example.com",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "https://example.com/\x1b]8;;\x07",
+        ] {
+            assert_eq!(linked(&on, area, refused), plain, "{refused:?}");
+        }
     }
 
     #[test]

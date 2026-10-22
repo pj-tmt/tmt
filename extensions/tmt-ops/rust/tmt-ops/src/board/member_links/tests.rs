@@ -294,6 +294,36 @@ mod interaction_tests {
             == Target::Member(crate::board::app::workspace::tests::MEMBER.into())));
         assert_eq!(members.iter().map(|link| link.width).sum::<usize>(), 6);
     }
+    #[test]
+    fn painted_web_links_become_spans_that_share_an_id_per_link_and_skip_other_schemes() {
+        let mut app = app();
+        app.view.as_mut().unwrap().replies = vec![serde_json::json!({
+            "recipientId":crate::board::app::workspace::tests::MEMBER,
+            "requestId":"web-spans",
+            "response":"See [docs](https://example.com/x), [docs](https://example.com/y) and [mail](mailto:a@example.com)."
+        })];
+        app.focus = 1;
+        let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let spans = app.member_links.borrow().web_spans();
+        // Two web links; the mail address stays a popover-only link.
+        assert_eq!(spans.len(), 2, "{spans:?}");
+        assert!(spans.iter().all(|span| span.area.width == 4));
+        let open = |index: usize| String::from_utf8(spans[index].open().to_vec()).unwrap();
+        assert!(
+            open(0).contains(";https://example.com/x\x1b\\"),
+            "{:?}",
+            open(0)
+        );
+        assert!(
+            open(1).contains(";https://example.com/y\x1b\\"),
+            "{:?}",
+            open(1)
+        );
+        assert_ne!(open(0).split(';').nth(1), open(1).split(';').nth(1));
+    }
     fn painted_reader() -> App {
         let mut app = app();
         app.view.as_mut().unwrap().replies = vec![serde_json::json!({

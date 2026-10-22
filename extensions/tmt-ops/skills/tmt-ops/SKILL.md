@@ -688,6 +688,14 @@ WSL, `xdg-open` with a graphical session. Over SSH there is none unless `opener`
 set: Open shows "no browser here" and Copy stays. A failure to start it is reported in
 the status line.
 
+A terminal that supports OSC 8 hyperlinks also makes an `http(s)` label itself clickable
+(its own modifier-click, usually Cmd or Ctrl); the popover, Enter and selection stay as
+above. The board turns them on only on a positive signal: iTerm2, WezTerm, Ghostty, VS
+Code, kitty, Windows Terminal, Konsole, VTE 0.50+, foot or Alacritty, and inside tmux only
+3.4+ whose client reports the `hyperlinks` feature. `FORCE_HYPERLINK=1` forces them on and
+`FORCE_HYPERLINK=0` off; there is no setting. A `mailto:` address, any other scheme or an
+address with control characters is written as plain text without the escape.
+
 Default Enter focuses Talk for the selected agent through the shared conversation
 composer; clicking it also focuses. The composer stays visible while idle and
 after Send. Factory `t` is unassigned; compatible explicit bindings retain their

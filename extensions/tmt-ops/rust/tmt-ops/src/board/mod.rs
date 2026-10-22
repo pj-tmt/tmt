@@ -27,6 +27,7 @@ mod header_sort;
 mod help;
 mod home;
 mod home_leads;
+mod hyperlinks;
 mod identity_line;
 mod input_field;
 mod inventory;
@@ -1380,7 +1381,9 @@ pub fn run(
     // and the terminal background query. A later failure drops the guard and
     // restores the terminal before the error is reported.
     let mut guard = terminal::Guard::enter(terminal::Crossterm::default()).map_err(failed)?;
-    let mut screen = Terminal::new(terminal::Backend::new(io::stdout())).map_err(failed)?;
+    let links = hyperlinks::Links::default();
+    let mut screen = Terminal::new(terminal::Backend::with_links(io::stdout(), links.clone()))
+        .map_err(failed)?;
     timing::measure(startup.as_ref(), "startup.placeholder", || {
         screen.draw(|frame| {
             let area = ratatui::layout::Rect {
@@ -1459,6 +1462,7 @@ pub fn run(
         .as_ref()
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
     let keyboard_enhanced = guard.enable_keyboard_enhancement().map_err(failed)?;
+    links.enable(hyperlinks::detect());
     let mut app = App::new(squad);
     // Dropped files' first bytes are read away from the paste and draw paths.
     app.composer.probe = Some(composer::files::Probe::spawn({
@@ -1540,6 +1544,9 @@ pub fn run(
                     // The vertical board bands, including its body, occupy the full width.
                     view::prepare(app, frame.area());
                     view::render(frame, app);
+                    if links.enabled() {
+                        links.set(app.member_links.borrow().web_spans());
+                    }
                 })
                 .map(|_| ())
         },
