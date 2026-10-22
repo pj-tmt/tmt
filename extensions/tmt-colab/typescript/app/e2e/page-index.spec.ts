@@ -48,6 +48,11 @@ for (const width of [1440, 390])
         ).toBeFocused();
         await page.keyboard.press('Tab');
       }
+      // The pin leads the project picker on every width.
+      await expect(
+        first.getByRole('button', { name: 'Pin Alpha update to the top' }),
+      ).toBeFocused();
+      await page.keyboard.press('Tab');
       await expect(first.getByRole('button', { name: 'Projects for Alpha update' })).toBeFocused();
       await page.keyboard.press('Tab');
       if (wide) {
