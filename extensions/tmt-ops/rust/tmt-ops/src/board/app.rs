@@ -4460,12 +4460,8 @@ impl App {
                 .pane_screen_read()
                 .map(|(key, round)| super::refresh::SelectedRead::PaneScreen(key, round));
         }
-        // Before bodies: a final found here is read like any other.
-        if let Some(key) = self.finals_read() {
-            return Some(super::refresh::SelectedRead::Finals(key));
-        }
-        if let Some(key) = self.sent_read() {
-            return Some(super::refresh::SelectedRead::Sent(key));
+        if let Some(plan) = self.conversation_read() {
+            return Some(super::refresh::SelectedRead::Conversation(plan));
         }
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));

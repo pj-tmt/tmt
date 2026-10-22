@@ -10,7 +10,8 @@ the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priorit
 
 The workspace has no notebook/detail pane or notebook-link activation route.
 Selecting an agent never queues `notes.read`; selected worker jobs are typed
-Status previews, exact Message sources and bounded recent pane-output observations. The old notebook event, eight-entry
+Status previews, coherent selected-conversation projections, exact Message sources for
+compact details/readers, and bounded recent pane-output observations. The old notebook event, eight-entry
 cache, per-squad cursor/link maps and painters are removed. Notebook storage,
 public source APIs and saved-identity behavior retain their independent owners.
 `board::refresh` calls `observe::observe`, which reads the lead's notes only when

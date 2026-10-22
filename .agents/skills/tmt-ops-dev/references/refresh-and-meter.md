@@ -133,7 +133,14 @@
   and the full-reply reader schedule `requests.show` on the selected-read lane, a second
   worker thread with its own queue and the same generation fence, so a refresh's HOME
   exchanges, cron or history work never queues in front of the selected member's reads
-  (only the newest selection runs). The user/recipient/request/kind key and selection
+  (only the newest selection runs). `board::selected_conversation` gathers the selected
+  conversation's bounded finals, durable sends, missing bodies and provider observations
+  on this lane and publishes one projection. Full request documents are reused within
+  that refresh, so a prompt and reply for one request never cause two shows. Targeted
+  list reads remain unless held-page coverage is proven. There is no per-body publication
+  or growing-transcript render between reads; the existing Session keeps retained content
+  while the refresh runs. Compact details and frozen readers retain their individual
+  source reads. The user/recipient/request/kind key and selection
   revision fence delivery; detail verifies both participants before displaying
   the retained body. `board::row_detail` rejects late bodies whose exact request
   or target is no longer active. A pending reader closes when its reply or

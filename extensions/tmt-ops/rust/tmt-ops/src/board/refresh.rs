@@ -63,15 +63,12 @@ impl Generation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SelectedRead {
+    Conversation(super::selected_conversation::Plan),
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
     PaneOutput(super::conversation::ConversationKey),
     /// The shown live screen of one agent, and which read of it this is.
     PaneScreen(super::conversation::ConversationKey, u64),
-    /// One agent's own newest finals, for finals the shared windows scrolled past.
-    Finals(super::home_leads::FinalsKey),
-    /// The user's own durable sends to one agent, read after its finals.
-    Sent(super::home_leads::SentKey),
 }
 
 pub struct Worker {
@@ -113,6 +110,12 @@ impl Worker {
                         let cancellation = read_generation.cancellation(generation);
                         let reader = core.cancellable(cancellation.clone());
                         let event = match read {
+                            SelectedRead::Conversation(plan) => super::BoardEvent::Conversation {
+                                projection: plan.read(&reader, &mut sent_texts, &cancellation),
+                                plan,
+                                revision,
+                                cancellation: cancellation.clone(),
+                            },
                             SelectedRead::Status(target) => super::BoardEvent::Status {
                                 result: crate::membership::status_update::read(&reader, &target)
                                     .map_err(|error| error.message),
@@ -130,20 +133,6 @@ impl Worker {
                                 observation: super::screen_view::read(&reader, &key.1),
                                 key,
                                 round,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                            SelectedRead::Finals(key) => super::BoardEvent::Finals {
-                                result: key.read(&reader).map_err(|error| error.to_string()),
-                                key,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                            SelectedRead::Sent(key) => super::BoardEvent::Sent {
-                                result: key
-                                    .read(&reader, &mut sent_texts)
-                                    .map_err(|error| error.to_string()),
-                                key,
                                 revision,
                                 cancellation: cancellation.clone(),
                             },
@@ -3559,19 +3548,10 @@ printf '%s\n' '{{}}'
             sender: "owner".into(),
             agent: "agent".into(),
         };
-        let (events, input) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(22, Some(SelectedRead::Sent(key.clone())));
-        let super::super::BoardEvent::Sent {
-            key: delivered,
-            revision,
-            result,
-            cancellation,
-        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
-        else {
-            panic!("sent event")
-        };
-        assert_eq!((delivered, revision), (key, 22));
+        let result = key.read(
+            &Core::at(fake),
+            &mut super::super::home_leads::SentTexts::default(),
+        );
         assert_eq!(
             result.unwrap(),
             [
@@ -3579,7 +3559,6 @@ printf '%s\n' '{{}}'
                 json!({"requestId":"req-new","preparedAtMs":30,"truncated":false,"text":"the whole new message","messageState":{"state":"working","reason":{"text":"Core changes this exact sentence."}}}),
             ]
         );
-        assert!(!cancellation.cancelled());
         let logged: Vec<Value> = std::fs::read_to_string(calls)
             .unwrap()
             .lines()
@@ -3598,7 +3577,6 @@ printf '%s\n' '{{}}'
             json!({"recipientId":"agent","limit":50}),
             "core's largest page, with no originator filter"
         );
-        drop(worker);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3704,7 +3682,7 @@ printf '%s\n' '{{}}'
     }
 
     /// The selected agent's own finals are one `requests.list` call with that
-    /// originator and recipient, delivered as a `Finals` event for the revision.
+    /// originator and recipient, ready for the coherent conversation projection.
     #[test]
     fn a_selected_finals_read_lists_one_agents_finals_for_the_user() {
         let dir = std::env::temp_dir().join(format!(
@@ -3733,26 +3711,13 @@ printf '%s\n' '{{}}'
             sender: "owner".into(),
             agent: "agent".into(),
         };
-        let (events, input) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(21, Some(SelectedRead::Finals(key.clone())));
-        let super::super::BoardEvent::Finals {
-            key: delivered,
-            revision,
-            result,
-            cancellation,
-        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
-        else {
-            panic!("finals event")
-        };
-        assert_eq!((delivered, revision), (key, 21));
+        let result = key.read(&Core::at(fake));
         assert_eq!(
             result.unwrap(),
             [
                 json!({"requestId":"req-old","recipientId":"agent","submittedAtMs":7,"status":"retained"})
             ]
         );
-        assert!(!cancellation.cancelled());
         let calls: Vec<Value> = std::fs::read_to_string(calls)
             .unwrap()
             .lines()
@@ -3764,7 +3729,6 @@ printf '%s\n' '{{}}'
                 "originatorId":"owner","recipientId":"agent","view":"results",
                 "limit":super::super::row_detail::FINALS}})]
         );
-        drop(worker);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
