@@ -90,3 +90,28 @@ it('maps the kept weekly samples to the history of the newest window, by model f
   expect(limitHistoryFrom({ state: 'unreachable' })).toBeUndefined();
   expect(limitHistoryFrom(notSampled as never)).toBeUndefined();
 });
+
+it('reads each history entry as data: a malformed one shows no history for its provider', () => {
+  const ok = { provider: 'claude', windowMinutes: 10080, points: [[1, 50, 100]] };
+  const answer = (limitHistory: unknown) => ({
+    state: 'ok' as const,
+    observedAtMs: 1,
+    payload: { limitHistory } as never,
+  });
+  const history = limitHistoryFrom(
+    answer([
+      ok,
+      { provider: 'codex', windowMinutes: 10080, points: 'not points' },
+      { provider: 7, windowMinutes: 10080, points: [[1, 2, 3]] },
+      { provider: 'codex', windowMinutes: Number.NaN, points: [[1, 2, 3]] },
+      null,
+      { provider: 'codex', windowMinutes: 10080, points: [[1, 'x', 3], [2, 40, 100], 'bad'] },
+    ]),
+  )!;
+  expect(history.map((entry) => [entry.line, entry.points.length])).toEqual([
+    ['claude', 1],
+    ['gpt', 1],
+  ]);
+  expect(limitHistoryFrom(answer('not a list'))).toBeUndefined();
+  expect(limitHistoryFrom(answer(undefined))).toBeUndefined();
+});

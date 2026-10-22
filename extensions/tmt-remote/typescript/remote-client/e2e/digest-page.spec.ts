@@ -457,9 +457,23 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await expect(page.locator('#digest-tokens .tmt-ui-chart-title')).toHaveText(
     'Share of tokens by seat',
   );
+  // A read that fails after a good one keeps the last good report and says why in a small note;
+  // the panel is not emptied.
+  await page.clock.fastForward(60_000);
+  await expect.poll(reads).toBe(4);
+  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('10%');
+  await expect(page.locator('#digest-tokens')).toBeVisible();
+  await expect(page.locator('#usage-note')).toContainText('Your machine did not answer');
+  await expect(page.locator('#usage-note')).toContainText('Showing the last report, read at');
+  // The next good read clears it: the sample's own preview line is back.
+  await page.clock.fastForward(120_000);
+  await expect.poll(reads).toBe(5);
+  await expect(page.locator('#usage-note')).toContainText('Usage preview');
+  await expect(page.locator('#usage-note')).not.toContainText('Showing the last report');
+  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('10%');
   // Leaving the route stops the reads.
   await page.evaluate(() => window.digestRoute.abort());
   await page.clock.fastForward(300_000);
-  expect(await reads()).toBe(3);
+  expect(await reads()).toBe(5);
   expect(errors).toEqual([]);
 });
