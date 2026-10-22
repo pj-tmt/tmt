@@ -76,6 +76,12 @@
   z-index: 1;
   display: inline-flex;
 }
+/* A phone's title needs the room (the chips are hidden there too): the Home row pins. */
+@media (max-width: 639px) {
+  .page-header-pin {
+    display: none;
+  }
+}
 .page-header-projects-status {
   position: absolute;
   inline-size: 1px;

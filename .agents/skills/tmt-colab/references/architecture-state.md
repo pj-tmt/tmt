@@ -562,7 +562,7 @@ is added.
   `delete_page_data` removes the row, so unarchive restores nothing. `SPACE_PINS` (20) bounds them.
   The app keeps the owner's order for pinned pages (`pinnedFirst` in `projects.ts`, the quick switcher's
   `pin` rank when nothing is typed), `ManagementPort.setPinned` signs the request, and Home's
-  `PagePinAction` and the page header's pin control call it. `cli_pins.rs` is `pin`/`unpin`.
+  `PagePinAction` and the page header's pin control (hidden on a phone, where the title needs the room) call it. `cli_pins.rs` is `pin`/`unpin`.
 - Projects (`projects.rs`, `projects` and `page_projects` in schema 13) are display-only owner-store
   state; a project exists on its own, so one may hold no page. Schema 13 turned every earlier page
   label into a project of the same name. The two writes, `page.projects` (whole-set replacements for

@@ -171,17 +171,23 @@ test('the header pins the page and unpins it, and a refusal is told beside the c
   expect((await pins(page)).map((request) => request.pinned)).toEqual([true, false]);
 });
 
-for (const width of [1440, 390])
-  for (const theme of ['light', 'dark'] as const)
-    test(`the page header shows its pin beside the chips at ${width} ${theme}`, async ({
-      page,
-    }) => {
-      const header = await open(page, width, theme);
-      await header.getByRole('button', { name: /^Pin Live shared page/ }).click();
-      await expect(header.getByRole('button', { name: /^Unpin Live shared page/ })).toBeVisible();
-      expect(await noOverflow(page)).toBe(true);
-      await capture(page, `4356-header-pinned-${width}-${theme}.png`);
-    });
+for (const theme of ['light', 'dark'] as const)
+  test(`the page header shows its pin beside the chips at 1440 ${theme}`, async ({ page }) => {
+    const header = await open(page, 1440, theme);
+    await header.getByRole('button', { name: /^Pin Live shared page/ }).click();
+    await expect(header.getByRole('button', { name: /^Unpin Live shared page/ })).toBeVisible();
+    expect(await noOverflow(page)).toBe(true);
+    await capture(page, `4356-header-pinned-1440-${theme}.png`);
+  });
+
+test('a phone header leaves its room to the title and keeps the pin on the Home row', async ({
+  page,
+}) => {
+  const header = await open(page, 390);
+  await expect(header.getByRole('button', { name: /^Pin Live shared page/ })).toBeHidden();
+  expect(await noOverflow(page)).toBe(true);
+});
+
 test('the header says why a pin was refused and keeps the page unpinned', async ({ page }) => {
   const header = await open(page, 1440, 'light', { pinFail: 'CAPACITY' });
   await header.getByRole('button', { name: /^Pin Live shared page/ }).click();
