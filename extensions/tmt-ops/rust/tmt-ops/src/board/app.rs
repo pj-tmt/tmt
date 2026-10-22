@@ -185,6 +185,13 @@ pub enum Request {
         row: String,
         text: String,
     },
+    /// Take one of the person's own held or waiting messages out of the recipient's Digest hold
+    /// and type it now; Core decides whether it may.
+    SendNow {
+        me: String,
+        request: String,
+        to: String,
+    },
     Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     WorkspacePreferences {
@@ -216,6 +223,7 @@ impl Request {
             Self::DigestSwitch(_) => "Switching Digest…",
             Self::Copy { .. } => "Copying…",
             Self::Talk { .. } | Self::Chat { .. } | Self::Annotate { .. } => "Sending…",
+            Self::SendNow { .. } => "Sending now…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
@@ -232,6 +240,7 @@ impl Request {
             Self::Talk { .. }
                 | Self::Chat { .. }
                 | Self::Annotate { .. }
+                | Self::SendNow { .. }
                 | Self::WorkspacePreferences { .. }
                 | Self::WorkspaceOperation(_)
                 | Self::Cron(_)
@@ -3801,6 +3810,17 @@ impl App {
                 | super::shell::OpsInputOwner::Search
                 | super::shell::OpsInputOwner::Completion
         );
+        // The painted Send now chip's key. It does nothing while no chip is painted. In the
+        // message editor it is the chip's key, as no binding is active while typing; elsewhere an
+        // authored binding on the same key wins, so it never swallows a chord others could read.
+        if key.modifiers == KeyModifiers::CONTROL
+            && key.code == KeyCode::Char('s')
+            && self.conversation.borrow().send_now_hit.is_some()
+            && (owner == super::shell::OpsInputOwner::Composer
+                || !typing && !self.bindings().contains_key("ctrl-s"))
+        {
+            return self.send_now_press();
+        }
         if !typing
             && (self.modal_open() || self.usage_chart.borrow().focused())
             && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
@@ -4395,6 +4415,17 @@ impl App {
             }
         }
 
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && self
+                .conversation
+                .borrow()
+                .send_now_hit
+                .as_ref()
+                .is_some_and(|hit| hit.area.contains((event.column, event.row).into()))
+        {
+            return self.send_now_press();
+        }
         if event.kind == MouseEventKind::Down(MouseButton::Left) && !self.loading() {
             let control = self
                 .conversation

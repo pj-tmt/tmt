@@ -265,6 +265,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
     sections.push(section("chat-delivery", "chat delivery", &[
         ("direct message", "A person's eligible message goes straight to the agent's pane. Core settles the oldest open request after delivery; capture hooks do not decide eligibility."),
         ("request fallback", "If Core cannot offer direct input, the composer explains that it sent a request instead. A refusal keeps the draft; uncertain acceptance never resends."),
+        ("Send now", "While Core says the newest message you sent can go now (held for a Digest checklist, or waiting to be typed), a Send now chip and Ctrl-S type it at once. Core decides who may and what the state allows; its sentence is the result, and nothing is retried."),
         ("turn output", "Captured output appears under its message, marked truncated when needed. working… follows Core's pending or bound capture; Missing capture says no turn output was captured; it is never presented as a reply."),
     ]));
     sections.push(section("editor", "message editor", &[

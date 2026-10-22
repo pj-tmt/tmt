@@ -100,17 +100,18 @@ function DashedCircle() {
 }
 
 /** Core's wording of the message, unless a Send now is under way or came to nothing (#4136): that
- * replaces it while the message is in the state the press was made in. */
+ * replaces it while the message is in the state the press was made in. Core's own sentence for a
+ * refusal is drawn as it is; Colab writes one only where Core has none (a device that did not send
+ * the message, a failure on Remote's side) and the one general line for a code it does not know. */
 function stateWording(shared: ObservedMessageState): string {
   const progress = shared.sendNow;
   if (progress?.phase === 'sending') return text.sendNowSending;
   if (progress?.phase === 'outcome') {
+    if (progress.reasonText) return progress.reasonText;
     if (progress.outcome === 'unconfirmed') return text.sendNowUnconfirmed;
     if (progress.outcome === 'unavailable') return text.sendNowUnavailable;
-    const known =
-      progress.reason !== undefined && Object.hasOwn(text.sendNowReasons, progress.reason);
-    return known
-      ? text.sendNowNotSent(text.sendNowReasons[progress.reason!])
+    return progress.reason === 'REMOTE_SCOPE_DENIED'
+      ? text.sendNowScopeDenied
       : text.sendNowRefusedUnknown;
   }
   return sentenceCase(shared.reason.text);

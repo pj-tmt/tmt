@@ -359,6 +359,12 @@ pub(crate) fn message_state_label(item: &Value) -> Option<String> {
     Some(label)
 }
 
+/// Whether Core says a send-now applies to this message right now. Only an explicit `true`
+/// counts, so a missing or unknown `messageState` never offers the action.
+pub(crate) fn can_send_now(item: &Value) -> bool {
+    item["messageState"]["canSendNow"] == true
+}
+
 /// Reads one request's detail through `requests.show`, which acknowledges
 /// nothing.
 pub fn show_request(core: &Core, id: &str) -> Result<Value, SquadError> {
@@ -368,6 +374,17 @@ pub fn show_request(core: &Core, id: &str) -> Result<Value, SquadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_send_now_is_offered_only_on_an_explicit_true_from_core() {
+        let state = |value: Value| json!({"messageState":{"state":"batched","canSendNow":value}});
+        assert!(can_send_now(&state(json!(true))));
+        for not_true in [json!(false), json!("true"), json!(1), json!(null)] {
+            assert!(!can_send_now(&state(not_true.clone())), "{not_true}");
+        }
+        assert!(!can_send_now(&json!({"messageState":{"state":"batched"}})));
+        assert!(!can_send_now(&json!({})), "no state, no action");
+    }
 
     #[test]
     fn delivery_marks_depend_only_on_core_state_and_never_rewrite_its_words() {

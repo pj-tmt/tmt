@@ -172,6 +172,13 @@ it('a Send now that is under way, or came to something, is a change the page sho
   expect(sameMessageState(refused('SEND_NOW_CLOSED'), refused('SEND_NOW_CLOSED'))).toBe(true);
   expect(sameMessageState(refused('SEND_NOW_CLOSED'), refused('SEND_NOW_NOT_ALLOWED'))).toBe(false);
   expect(sameMessageState(refused(), refused('SEND_NOW_CLOSED'))).toBe(false);
+  const worded = (reasonText: string): ObservedMessageState => ({
+    ...shown,
+    sendNow: { phase: 'outcome', outcome: 'refused', reason: 'SEND_NOW_CLOSED', reasonText },
+  });
+  expect(sameMessageState(worded('a'), worded('a'))).toBe(true);
+  expect(sameMessageState(worded('a'), worded('b'))).toBe(false);
+  expect(sameMessageState(worded('a'), refused('SEND_NOW_CLOSED'))).toBe(false);
   expect(
     sameMessageState(refused(), {
       ...shown,
