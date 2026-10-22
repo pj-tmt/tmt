@@ -42,9 +42,17 @@ export function uiCandidates(source) {
     )
       throw new Error('Arbitrary UI styling must reference the foundation token namespace');
     if (candidate.includes('border-radius:') && !candidate.includes('--tmt-foundation-radius'))
-      throw new Error('UI radius must reference the square foundation token');
-    if (/(?:^|:)(?:rounded|shadow|ring)(?:-|$)/.test(candidate))
-      throw new Error('UI is square and shadow-free; use token-backed outline for focus');
+      throw new Error('UI radius must reference a foundation radius token');
+    // A radius is a named token (`rounded-control`, `-small`, `-surface`, `-pill`); the one shadow is
+    // `shadow-overlay`, for floating layers only. A ring stays rejected: focus is a token outline.
+    if (/(?:^|:)rounded(?:-(?!(?:control|small|surface|pill)$)|$)/.test(candidate))
+      throw new Error(
+        'UI radius must be a named token: rounded-control, -small, -surface or -pill',
+      );
+    if (/(?:^|:)shadow(?:-(?!overlay$)|$)/.test(candidate))
+      throw new Error('UI has one shadow, shadow-overlay, and only on a floating layer');
+    if (/(?:^|:)ring(?:-|$)/.test(candidate))
+      throw new Error('UI focus is a token-backed outline, never a ring');
     if (
       /(?:#|\b(?:rgb|hsl|oklch|oklab|lab|lch)\()|(?:^|:)(?:bg|text|border|outline|fill|stroke)-(?:black|white|red|blue|gray|slate|zinc|neutral|stone|orange|yellow|green|emerald|teal|cyan|sky|indigo|violet|purple|fuchsia|pink|rose)(?:-|$)/.test(
         candidate,

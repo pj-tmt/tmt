@@ -40,10 +40,20 @@ it('publishes only a separate scoped namespace, without preflight, global variab
   expect(() => assertUiUtilities(css)).not.toThrow();
   expect(css).toContain(':where([data-tmt-ui]) {');
   expect(css).toContain('.tmt\\:bg-background');
-  expect(css).not.toMatch(/box-shadow:/);
+  // The one shadow is the overlay token, from the `shadow-overlay` utility alone.
+  for (const match of css.matchAll(/\.tmt\\:shadow[^\s{]*/g))
+    expect(match[0]).toBe('.tmt\\:shadow-overlay');
+  for (const match of css.matchAll(/--tmt-foundation-tw-shadow:\s*([^;]+);/g))
+    expect(match[1]).toBe('var(--tmt-foundation-shadow-overlay)');
+  // Global registrations are limited to the prefixed motion keyframes layers name.
+  const keyframes = [...css.matchAll(/@keyframes\s+([\w-]+)/g)].map((match) => match[1]!);
+  expect(keyframes.length).toBeGreaterThan(0);
+  expect(keyframes.every((name) => name.startsWith('tmt-foundation-'))).toBe(true);
   const radiusValues = [...css.matchAll(/border-radius:\s*([^;]+);/g)].map((match) => match[1]);
   expect(radiusValues.length).toBeGreaterThan(0);
-  expect(radiusValues.every((value) => value === 'var(--tmt-foundation-radius)')).toBe(true);
+  expect(
+    radiusValues.every((value) => /^var\(--tmt-foundation-radius(?:-s|-l|-pill)?\)$/.test(value!)),
+  ).toBe(true);
   const tokens = JSON.parse(
     readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
   );

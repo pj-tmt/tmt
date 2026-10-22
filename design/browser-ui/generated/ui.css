@@ -4,11 +4,20 @@
   --tmt-foundation-z-layer: 50;
   --tmt-foundation-z-tooltip: 60;
   --tmt-foundation-radius: 0;
+  --tmt-foundation-radius-s: 6px;
+  --tmt-foundation-radius-l: 12px;
+  --tmt-foundation-radius-pill: 999px;
   --tmt-foundation-rule-width: 1px;
   --tmt-foundation-focus-width: 1px;
   --tmt-foundation-command-size: 14px;
   --tmt-foundation-caption-size: 11px;
   --tmt-foundation-eyebrow-weight: 600;
+  --tmt-foundation-motion-fast: 120ms;
+  --tmt-foundation-motion-base: 180ms;
+  --tmt-foundation-motion-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --tmt-foundation-motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --tmt-foundation-motion-scale: 0.96;
+  --tmt-foundation-motion-rise: 6px;
   --tmt-foundation-font-display: 'Bricolage Grotesque', system-ui, sans-serif;
   --tmt-foundation-font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --tmt-foundation-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -33,6 +42,7 @@
   --tmt-foundation-indicator: #626262;
   --tmt-foundation-ring: #626262;
   --tmt-foundation-scrim: #0000001f;
+  --tmt-foundation-shadow-overlay: 0 18px 60px #1b3d2c1c;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -58,6 +68,7 @@
     --tmt-foundation-indicator: #7d7d7d;
     --tmt-foundation-ring: #b0b0b0;
     --tmt-foundation-scrim: #00000052;
+    --tmt-foundation-shadow-overlay: 0 18px 60px #02080e50;
     color-scheme: dark;
   }
 }
@@ -83,6 +94,7 @@
   --tmt-foundation-indicator: #626262;
   --tmt-foundation-ring: #626262;
   --tmt-foundation-scrim: #0000001f;
+  --tmt-foundation-shadow-overlay: 0 18px 60px #1b3d2c1c;
   color-scheme: light;
 }
 [data-tmt-ui][data-tmt-theme='dark'] {
@@ -107,7 +119,76 @@
   --tmt-foundation-indicator: #7d7d7d;
   --tmt-foundation-ring: #b0b0b0;
   --tmt-foundation-scrim: #00000052;
+  --tmt-foundation-shadow-overlay: 0 18px 60px #02080e50;
   color-scheme: dark;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-tmt-ui] {
+    --tmt-foundation-motion-fast: 0ms;
+    --tmt-foundation-motion-base: 0ms;
+  }
+}
+@keyframes tmt-foundation-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tmt-foundation-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes tmt-foundation-pop-in {
+  from {
+    opacity: 0;
+    scale: var(--tmt-foundation-motion-scale);
+  }
+}
+@keyframes tmt-foundation-pop-out {
+  to {
+    opacity: 0;
+    scale: var(--tmt-foundation-motion-scale);
+  }
+}
+@keyframes tmt-foundation-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes tmt-foundation-slide-out-right {
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes tmt-foundation-slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+@keyframes tmt-foundation-slide-out-left {
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes tmt-foundation-slide-in-top {
+  from {
+    transform: translateY(-100%);
+  }
+}
+@keyframes tmt-foundation-slide-out-top {
+  to {
+    transform: translateY(-100%);
+  }
+}
+@keyframes tmt-foundation-slide-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes tmt-foundation-slide-out-bottom {
+  to {
+    transform: translateY(100%);
+  }
 }
 :where([data-tmt-ui]) {
   &,
