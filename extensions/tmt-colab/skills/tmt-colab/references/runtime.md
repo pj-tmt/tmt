@@ -27,6 +27,11 @@ so components are tagged templates, and `{...}` values are escaped like React te
 <script>
   const { React, createRoot, html, icons } = tmt;
   const { useState } = React;
+  const stateClass = {
+    working: 'text-working',
+    waiting: 'text-waiting',
+    blocked: 'text-blocked',
+  };
   const rows = [
     { name: 'Build', state: 'working' },
     { name: 'Review', state: 'waiting' },
@@ -50,7 +55,7 @@ so components are tagged templates, and `{...}` values are escaped like React te
           ${shown.map(
             (row) => html`
               <li key=${row.name} class="flex items-center gap-2 border-b border-rule pb-2">
-                <span class="text-${row.state}">◆</span>
+                <span class=${stateClass[row.state]}>◆</span>
                 <span class="grow">${row.name}</span>
                 <span class="text-secondary">${row.state}</span>
               </li>
@@ -78,14 +83,14 @@ the TMT roles and follow Colab's light or dark theme by themselves, so a page ne
 `black`, `white`, `transparent` and `current`. Radius is square on every `rounded-*`, shadows are
 removed and focus is one outline in the focus colour; spacing, flex, grid and type scales are
 Tailwind's. Do not use a colour Tailwind's default palette names (`bg-blue-500`): it does not exist
-here. Mark every state with a symbol and a word, never colour alone.
+here. Write each class name in full (a lookup of complete names, never `text-${state}`). Mark every state with a symbol and a word, never colour alone.
 
 On a `column` or `full` page Colab sets the width and gaps ([layout](layout.md)); do not set your own
 page width, margin or block gap. Do not add a header, product mark or sticky bar.
 
 ## Icons
 
-`icons` holds a curated Lucide set, listed in one file in the app (`src/runtime/icons.ts`); use a
+`icons` holds a curated Lucide set; list it with `Object.keys(tmt.icons)` where the page runs, and use a
 member as a component: `<${icons.Check} />`. Icons are 16 px, square-capped and `currentColor` by
 default, and decorative unless you give `aria-label` or `title`. An icon that is not listed is
 `undefined`: if you need one, use a text mark (`◆ ● ✓ ✗`) instead of drawing SVG paths by hand, and ask
