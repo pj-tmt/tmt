@@ -9,6 +9,7 @@ use unicode_width::UnicodeWidthStr;
 use super::app::{App, Compose, Input, RowTarget};
 
 mod chat_quotes;
+pub(super) mod files;
 pub(super) mod paste;
 pub(super) use chat_quotes::ChatQuote;
 
@@ -81,6 +82,9 @@ pub(super) struct State {
     pub chat_quote_hits: RefCell<Vec<ChatQuoteHit>>,
     pub(super) paste_hits: RefCell<Vec<paste::Hit>>,
     pub(super) paste_preview: RefCell<Option<paste::Preview>>,
+    /// What is known of the files dropped in this session, and the worker that learns more.
+    pub(super) files: RefCell<files::Table>,
+    pub(in crate::board) probe: Option<files::Probe>,
 }
 
 impl State {
@@ -92,6 +96,18 @@ impl State {
         if let Some(preview) = self.paste_preview.borrow().as_ref() {
             preview.invalidate();
         }
+    }
+    /// Relabels the file chips over `path` in every kept draft.
+    pub(super) fn relabel_drafts(&mut self, path: &str, label: &str) -> bool {
+        let mut changed = false;
+        for draft in self
+            .drafts
+            .values_mut()
+            .chain(self.pending.iter_mut().map(|(_, draft)| draft))
+        {
+            changed |= paste::relabel(&mut draft.text, path, label);
+        }
+        changed
     }
     pub(super) fn has_drafts(&self) -> bool {
         !self.drafts.is_empty()

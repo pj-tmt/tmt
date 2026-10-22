@@ -594,6 +594,22 @@ fn captures() -> Value {
                 }
             }
         }
+        // Dropped files become chips in the same composer; the scenes use fixed, synthetic paths.
+        for (look_name, look) in looks() {
+            for state in crate::board::composer::files::tests::SCENES {
+                let height = if *state == "file-tiny" { 8 } else { 36 };
+                for width in [160, 100, 80] {
+                    let app = crate::board::composer::files::tests::capture_case(
+                        state, look, width, height,
+                    );
+                    let mut captured =
+                        capture_frame(&app, state, look_name, width, height, &mut styles);
+                    captured["files"] =
+                        crate::board::composer::files::tests::capture_metadata(&app);
+                    frames.push(captured);
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

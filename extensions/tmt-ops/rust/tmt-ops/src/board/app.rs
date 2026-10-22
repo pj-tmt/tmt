@@ -3028,6 +3028,9 @@ impl App {
             self.update_mentions();
             return Effect::None;
         }
+        if let Some(effect) = self.drop_files(text) {
+            return effect;
+        }
         let message = self.message_field();
         let limit = if message { MESSAGE_LIMIT } else { INPUT_LIMIT };
         if let Some(input) = self.input.as_mut()

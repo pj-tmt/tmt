@@ -1217,6 +1217,17 @@ sit between typed text; sending uses every original byte. With ASCII glyphs or
 NO_COLOR, the chip reads `[Pasted … x]`. Draftless message forms and cron message
 prefill/re-entry use the same counts and label body; Ctrl-P expands their folds
 inline and keyboard deletion removes them atomically, with no × or popup preview.
+Dropping files onto the pane pastes their paths (quoted, escaped or `file://`); a paste that
+is only existing regular files, at most 16, becomes one chip per file, such as
+`screenshot.png · 1200×800 · 312 KB ×` (ASCII `[screenshot.png 1200x800 312 KB x]`). With no composer
+open it starts a message to the selected member; with nobody selected it says
+`Select an agent to send files` and inserts nothing. The chip shows the size at once; an
+image's size from its header and the popup's text fill in from a background read, and a
+file that cannot be read keeps the chip without them. Click the chip for a popup with the
+full path, size, type and a text file's first lines; × removes it. Sending carries each
+file's absolute path, in single quotes when it holds a space, quote or backslash so the
+boundary between files is clear; only an agent on this machine can read it. A paste of any other
+text, or of a path that does not exist, stays ordinary text.
 Name/configuration/search fields keep their smaller bounds and do not gain message
 completion. The status reason keeps its 4,000-byte bound and explicit Apply step.
 

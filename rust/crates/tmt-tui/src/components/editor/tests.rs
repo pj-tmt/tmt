@@ -305,3 +305,26 @@ fn release_and_unassigned_modified_keys_leave_the_editor_untouched() {
         assert_eq!(editor, before);
     }
 }
+
+#[test]
+fn relabeling_a_collapsed_range_keeps_its_source_and_resets_the_layout() {
+    let mut editor = Editor::from("a ");
+    assert!(editor.insert_folded("/f/x.png", "x.png · 1 KB ×".into(), 100));
+    let source = editor.folds()[0].source.clone();
+    let before = editor.layout(40).lines[0].cells.len();
+    assert!(editor.relabel_fold(source.clone(), "x.png · 10×10 · 1 KB ×".into()));
+    assert_eq!(editor.as_str(), "a /f/x.png");
+    assert_eq!(editor.folds()[0].label, "x.png · 10×10 · 1 KB ×");
+    assert!(
+        editor.layout(40).lines[0].cells.len() >= before,
+        "the new label is what the layout reserves"
+    );
+    assert!(
+        !editor.relabel_fold(source, "x.png · 10×10 · 1 KB ×".into()),
+        "an unchanged label is no change"
+    );
+    assert!(
+        !editor.relabel_fold(0..1, "other".into()),
+        "only an exact source matches"
+    );
+}
