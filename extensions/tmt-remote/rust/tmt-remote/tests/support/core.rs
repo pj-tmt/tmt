@@ -57,7 +57,15 @@ elif wire['operation']=='user.identity':
 elif wire['operation']=='identities.status':
     print(json.dumps({'identities':[{'id':id,'found':True,'status':{'state':'stale'}} for id in wire['input']['identityIds']]}))
 elif wire['operation']=='requests.show':
-    print(json.dumps({'requestId':wire['input']['requestId'],'final':json.loads((root/'final').read_text())}))
+    detail={'requestId':wire['input']['requestId'],'final':json.loads((root/'final').read_text())}
+    if (root/'message-state').exists(): detail['messageState']=json.loads((root/'message-state').read_text())
+    print(json.dumps(detail))
+elif wire['operation']=='requests.sendNow':
+    answer=(root/'send-now').read_text() if (root/'send-now').exists() else 'ok|sent'
+    kind,value=answer.split('|',1)
+    if kind=='err':
+        print(json.dumps({'error':{'code':value,'message':'refused by the fixture'}}));sys.exit(1)
+    print(json.dumps({'status':value,'requestId':wire['input']['requestId'],'state':'delivered'}))
 else: raise RuntimeError('unexpected operation')
 "#).unwrap();
         executable_fixture::write_executable(
@@ -97,6 +105,22 @@ else: raise RuntimeError('unexpected operation')
     /// Make `user.identity` answer with the `-user` name an agent's name forced.
     pub fn identity_renamed(&self) {
         fs::write(self.root.join("identity-renamed"), "").unwrap();
+    }
+    /// What `requests.show` reports as the message state.
+    pub fn message_state(&self, state: &Value) {
+        fs::write(self.root.join("message-state"), state.to_string()).unwrap();
+    }
+    /// What `requests.sendNow` answers: `ok|sent`, `ok|already` or `err|<CODE>`.
+    pub fn send_now_answers(&self, answer: &str) {
+        fs::write(self.root.join("send-now"), answer).unwrap();
+    }
+    /// The operations Core was asked for after `since` calls, in order.
+    pub fn operations_since(&self, since: usize) -> Vec<String> {
+        self.calls()
+            .iter()
+            .skip(since)
+            .map(|call| call["operation"].as_str().unwrap_or_default().to_owned())
+            .collect()
     }
     pub fn sends(&self) -> usize {
         self.calls()

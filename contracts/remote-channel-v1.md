@@ -1338,6 +1338,7 @@ Remote narrows supported operations/authority before core calls.
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                             |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                        |
+| `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                         |
 | `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`                  | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                               |
 | `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                 |
 | `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                        |
@@ -1505,6 +1506,32 @@ Signed response payloads discriminate `{state:"held",operationId}`,
 `{state:"unavailable",requestId,reason?}`. Pending/not-retained/expired distinction follows the
 public core observation; never assert why a body is unavailable without evidence. Optional reason is
 a sanitized string of at most 256 UTF-8 bytes; never expose raw process output.
+
+A pending `result`, and `requests.show`, also carry Core's `messageState` when it reports one:
+`{state, reason:{code,text}, latestMs, remainingMs, canSendNow}` exactly as
+[Message state](request-response-v1.md#message-state) defines it. `canSendNow` is display only: the
+owner's own browser sees Core's answer, every other grant sees `false`, and a `requests.sendNow`
+from it is refused regardless.
+
+### Send now
+
+`requests.sendNow` `{requestId}` asks that a message the person sent be typed now instead of
+waiting out the Digest hold. Only the owner's own paired browser may call it, and only for a request
+this device sent; anything else is `REMOTE_SCOPE_DENIED` and Core is never asked. Remote carries the
+ask: it resolves the person through `user.identity`, calls Core's `requests.sendNow` as that identity
+and reads `requests.show` back. Core alone decides whether it may be sent and does the typing.
+
+The reply is `{state, requestId, reason?, messageState?}` with `state`:
+
+- `sent`: Core typed it. `already`: it had reached the agent, and nothing was typed again.
+- `refused`: nothing was typed; `reason` is Core's code (`SEND_NOW_*`, `DELIVERY_AWAITING_APPROVAL`,
+  `DELIVERY_CHANNEL_UNAVAILABLE`).
+- `unconfirmed`: it may have been typed (`DELIVERY_UNCERTAIN`, or Core did not answer in time).
+  Read `result` before asking again; Remote never retries.
+- `unavailable`: Core could not be asked, or the person could not be resolved; nothing was typed.
+
+No journal row is kept; a repeat is answered from Core's own state, and the audit row
+(`requests.sendNow`, the request as its resource) is written with the call's fence.
 
 ### Browser use and audit
 
