@@ -299,6 +299,10 @@ async function openApp(path: string, prepare?: (page: Page) => Promise<void>) {
   return { page, requests, url: (request: Request) => new URL(request.url()) };
 }
 
+/** The module's pages: nested in the rail on a wide screen, a tab strip on a phone. */
+const modulePages = (page: Page) =>
+  page.locator('.tmt-ui-rail-sub:visible, nav.tmt-ui-module-menu:visible');
+
 /** Requests that are not the document or the door's own static SDK files. */
 const beyondAssets = (requests: Request[]) =>
   requests
@@ -428,8 +432,8 @@ test.describe('the app in a browser', () => {
     },
   ] as const;
   const litRow = (page: Page) =>
-    page
-      .locator('nav.tmt-ui-module-menu [aria-current="page"]')
+    modulePages(page)
+      .locator('[aria-current="page"]')
       .evaluateAll((items) => items.map((item) => item.getAttribute('data-id')));
   const expectView = async (page: Page, view: (typeof REMOTE_VIEWS)[number]) => {
     expect(new URL(page.url()).pathname, view.id).toBe(view.path);
@@ -473,7 +477,7 @@ test.describe('the app in a browser', () => {
       watch.observe(bar, { childList: true });
       watch.observe(main, { childList: true });
     });
-    const menu = page.locator('nav.tmt-ui-module-menu');
+    const menu = modulePages(page);
     for (const view of REMOTE_VIEWS.slice(1).concat(REMOTE_VIEWS[0])) {
       await menu.locator(`a[data-id="${view.id}"]`).click();
       await expectView(page, view);
@@ -509,7 +513,7 @@ test.describe('the app in a browser', () => {
 
   test('Back and forward land on the same row, selected', async () => {
     const { page } = await openApp('/remote/');
-    const menu = page.locator('nav.tmt-ui-module-menu');
+    const menu = modulePages(page);
     const order = [REMOTE_VIEWS[1]!, REMOTE_VIEWS[3]!, REMOTE_VIEWS[4]!, REMOTE_VIEWS[2]!];
     for (const view of order) {
       await menu.locator(`a[data-id="${view.id}"]`).click();
@@ -556,16 +560,14 @@ test.describe('the app in a browser', () => {
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
     await page.locator('nav.tmt-ui-rail a[data-id="remote"]').click();
     await expectView(page, REMOTE_VIEWS[0]!);
-    await page.locator('nav.tmt-ui-module-menu a[data-id="status"]').click();
+    await modulePages(page).locator('a[data-id="status"]').click();
     await expectView(page, REMOTE_VIEWS[0]!);
     // The menu has no Remotes heading; This machine's group keeps its own.
-    await expect(
-      page.locator('nav.tmt-ui-module-menu .tmt-ui-module-menu-group'),
-    ).not.toContainText(['Remotes']);
-    await expect(page.locator('nav.tmt-ui-module-menu')).toContainText('This machine');
-    await expect(page.locator('nav.tmt-ui-module-menu a[data-id="status"]')).toContainText(
-      'Status',
-    );
+    await expect(modulePages(page).locator('.tmt-ui-rail-sub-group')).not.toContainText([
+      'Remotes',
+    ]);
+    await expect(modulePages(page)).toContainText('This machine');
+    await expect(modulePages(page).locator('a[data-id="status"]')).toContainText('Status');
     await page.close();
   });
 
@@ -629,33 +631,42 @@ test.describe('the app in a browser', () => {
     await page.close();
   });
 
-  test('joins the TMT mark and the bar in one header row; the rail toggle has its own row', async () => {
+  test('puts the TMT mark in the rail head and the module breadcrumb in the bar; the rail toggle has its own row', async () => {
     const { page } = await openApp('/ops');
     await page.setViewportSize({ width: 1440, height: 900 });
-    const brand = page.locator('.tmt-ui-shell-brand');
+    const rail = page.locator('nav.tmt-ui-rail');
+    const brand = rail.locator('> .tmt-ui-shell-brand');
     const header = page.locator('.tmt-ui-shell-bar > .tmt-ui-header');
-    // One breadcrumb, TMT · Ops / Agents: the host's header starts where the mark ends, on the
-    // same row, in one type.
-    await expect(brand).toHaveText('TMT·');
+    // The brand sits once, at the head of the rail; the host's header (Ops / Agents) starts the
+    // content column beside it, in one type.
+    await expect(brand).toContainText('tmt');
     await expect(header).toContainText('Ops');
-    const [b, h] = [(await brand.boundingBox())!, (await header.boundingBox())!];
-    expect(Math.round(b.x + b.width)).toBe(Math.round(h.x));
-    expect(Math.round(b.y)).toBe(Math.round(h.y));
-    for (const part of [
-      brand.locator('.tmt-ui-shell-brand-word'),
-      header.locator('.tmt-ui-wordmark'),
-      header.locator('.tmt-ui-title'),
-    ])
-      await expect(part).toHaveCSS('font-size', '16px');
+    const [railBox, brandBox, headerBox] = await Promise.all(
+      [rail, brand, header].map(async (node) => (await node.boundingBox())!),
+    );
+    expect(Math.round(brandBox!.x)).toBeGreaterThanOrEqual(Math.round(railBox!.x));
+    expect(Math.round(brandBox!.y + brandBox!.height)).toBeLessThanOrEqual(
+      Math.round(railBox!.y + railBox!.height),
+    );
+    expect(Math.round(headerBox!.x)).toBeGreaterThanOrEqual(
+      Math.round(railBox!.x + railBox!.width),
+    );
+    await expect(header.locator('.tmt-ui-wordmark')).toHaveCSS('font-size', '16px');
+    await expect(header.locator('.tmt-ui-title')).toHaveCSS('font-size', '16px');
     // Ops is the module: the header names no second TMT.
     await expect(header.locator('.tmt-ui-wordmark')).toHaveText('Ops');
     await expect(page.locator('.tmt-ui-module-menu-title')).toHaveCount(0);
-    // The toggle is the rail's first row, ruled off above Home.
+    // The toggle is the rail's foot row, ruled off above TMT settings.
     const toggle = page.locator('nav.tmt-ui-rail > .tmt-ui-rail-top > .tmt-ui-rail-toggle');
     await expect(toggle).toHaveAttribute('aria-label', 'Collapse sidebar');
     const home = page.locator('nav.tmt-ui-rail a[data-id="home"]');
-    expect((await toggle.boundingBox())!.y).toBeLessThan((await home.boundingBox())!.y);
-    await expect(page.locator('.tmt-ui-rail-top')).toHaveCSS('border-bottom-style', 'solid');
+    const settings = page.locator('nav.tmt-ui-rail').getByRole('link', {
+      name: 'TMT settings',
+      exact: true,
+    });
+    expect((await toggle.boundingBox())!.y).toBeGreaterThan((await home.boundingBox())!.y);
+    expect((await toggle.boundingBox())!.y).toBeLessThan((await settings.boundingBox())!.y);
+    await expect(page.locator('.tmt-ui-rail-top')).toHaveCSS('border-top-style', 'solid');
     // Expanded, a label needs no tooltip.
     await home.hover();
     await expect(page.locator('.tmt-ui-rail-tip')).toBeHidden();
@@ -665,8 +676,9 @@ test.describe('the app in a browser', () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-label', 'Expand sidebar');
     await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '56px');
-    // The breadcrumb does not move with the rail.
-    expect((await brand.boundingBox())!.width).toBe(b.width);
+    // The brand keeps its mark and drops its words.
+    await expect(brand.locator('.tmt-ui-shell-brand-text')).toBeHidden();
+    await expect(brand.locator('svg').first()).toBeVisible();
     expect((await home.locator('svg').boundingBox())!.x).toBe(icon!.x);
     await expect(home.locator('.tmt-ui-rail-label')).toBeHidden();
     // Collapsed, hovering or focusing an item shows its label beside the rail.
@@ -674,8 +686,10 @@ test.describe('the app in a browser', () => {
     const tip = page.locator('.tmt-ui-rail-tip');
     await expect(tip).toBeVisible();
     await expect(tip).toHaveText('Home');
-    const tipBox = (await tip.boundingBox())!;
-    expect(tipBox.x).toBeGreaterThanOrEqual(56);
+    const [tipBox, homeBox] = await Promise.all(
+      [tip, home].map(async (node) => (await node.boundingBox())!),
+    );
+    expect(tipBox!.x).toBeGreaterThanOrEqual(homeBox!.x + homeBox!.width);
     await page.mouse.move(800, 600);
     await expect(tip).toBeHidden();
     await page.locator('nav.tmt-ui-rail a[data-id="digest"]').focus();

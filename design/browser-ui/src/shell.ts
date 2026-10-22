@@ -539,7 +539,7 @@ export function mountShell(
       brand,
       railList(next.rail.main, undefined, onPhone ? undefined : next.menu),
       top,
-      railList(next.rail.bottom, 'tmt-ui-rail-bottom'),
+      railList(next.rail.bottom, 'tmt-ui-rail-bottom', onPhone ? undefined : next.menu),
     );
     root.dataset.menu = next.menu ? 'shown' : 'none';
     if (!next.menu || !onPhone) {

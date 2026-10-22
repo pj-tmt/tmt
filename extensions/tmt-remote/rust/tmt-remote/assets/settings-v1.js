@@ -295,7 +295,7 @@ function remoteMenu(actions, shell = void 0) {
 		actions.refresh();
 	};
 	const entered = (event) => {
-		const menu = event.target?.closest?.(".tmt-ui-module-menu");
+		const menu = event.target?.closest?.(".tmt-ui-module-menu, .tmt-ui-rail-sub");
 		if (menu && !menu.contains(event.relatedTarget)) refresh();
 	};
 	document.addEventListener("pointerover", entered, { signal: shell.signal });
@@ -319,6 +319,22 @@ var browserUiClasses = Object.freeze({
 	chipsSurface: "tmt-ui-chips-surface",
 	chipsSearch: "tmt-ui-chips-search",
 	chipsOption: "tmt-ui-chips-option",
+	countChip: "tmt-ui-count-chip",
+	count: "tmt-ui-count",
+	avatar: "tmt-ui-avatar",
+	radio: "tmt-ui-radio",
+	choices: "tmt-ui-choices",
+	choicesLegend: "tmt-ui-choices-legend",
+	choice: "tmt-ui-choice",
+	choiceText: "tmt-ui-choice-text",
+	choiceDescription: "tmt-ui-choice-description",
+	pager: "tmt-ui-pager",
+	pagerPosition: "tmt-ui-pager-position",
+	statusTiles: "tmt-ui-status-tiles",
+	statusTile: "tmt-ui-status-tile",
+	statusTileLabel: "tmt-ui-status-tile-label",
+	statusTileValue: "tmt-ui-status-tile-value",
+	statusTileDot: "tmt-ui-status-tile-dot",
 	notifications: "tmt-ui-notifications",
 	notification: "tmt-ui-notification",
 	notificationStatus: "tmt-ui-notification-status",
