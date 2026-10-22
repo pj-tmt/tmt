@@ -5,6 +5,14 @@ use super::*;
 use WorkspaceLayoutError::{DuplicatePane, Geometry, Limit, Syntax};
 
 pub(super) fn parse(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutError> {
+    parse_with_order(value).map(|(root, _)| root)
+}
+
+pub(super) fn creation_ordered(value: &str) -> Result<bool, WorkspaceLayoutError> {
+    parse_with_order(value).map(|(_, ordered)| ordered)
+}
+
+fn parse_with_order(value: &str) -> Result<(WorkspaceLayoutCell, bool), WorkspaceLayoutError> {
     let mut p = Parser {
         bytes: value.as_bytes(),
         offset: 0,
@@ -12,6 +20,8 @@ pub(super) fn parse(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutE
         indexes: HashSet::new(),
         last: HashSet::new(),
         active: false,
+        previous_index: None,
+        creation_ordered: true,
     };
     p.take(b'{')?;
     let mut version = None;
@@ -36,7 +46,7 @@ pub(super) fn parse(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutE
     if version != Some(2) || p.offset != p.bytes.len() {
         return Err(Syntax);
     }
-    root.ok_or(Syntax)
+    Ok((root.ok_or(Syntax)?, p.creation_ordered))
 }
 
 struct Parser<'a> {
@@ -46,6 +56,8 @@ struct Parser<'a> {
     indexes: HashSet<u32>,
     last: HashSet<u32>,
     active: bool,
+    previous_index: Option<u32>,
+    creation_ordered: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -198,9 +210,16 @@ impl<'a> Parser<'a> {
                 if self.panes.len() > MAX_PANES {
                     return Err(Limit);
                 }
-                if !self.indexes.insert(index.ok_or(Syntax)?) {
+                let index = index.ok_or(Syntax)?;
+                if !self.indexes.insert(index) {
                     return Err(Syntax);
                 }
+                // tmux assigns v2 cells by sorted pane index, ignoring I.
+                // Invocation-created panes instead follow the geometry tree.
+                if self.previous_index.is_some_and(|previous| previous > index) {
+                    self.creation_ordered = false;
+                }
+                self.previous_index = Some(index);
                 if let Some(last) = last
                     && !self.last.insert(last)
                 {

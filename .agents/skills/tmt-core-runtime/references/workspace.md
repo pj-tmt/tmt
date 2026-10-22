@@ -162,7 +162,8 @@ recorded directories checked before creation and read back afterwards. No saved
 identity, provider session or external command is replayed or bound. Window-local
 geometry and border settings affect only created windows; existing server options and pre-existing resources are preserved.
 A fenced layout read from a created window determines the live server encoding.
-Matching encodings keep the saved bytes; conversion uses only validated geometry.
+Compatible encoding and assignment order keep the saved bytes; adaptation uses
+only validated geometry and invocation creation order.
 Client versions never stand in for server evidence, and snapshots need no migration.
 
 Outside tmux, select the socket explicitly. The first `new-session` starts an

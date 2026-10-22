@@ -167,8 +167,10 @@ Both encodings require the same contiguous tiled geometry and snapshot correspon
 
 Restore reads the layout of an invocation-created window behind the live server
 incarnation fence to select its encoding; the client version is not evidence.
-Matching encodings pass the original saved layout bytes; differing encodings
-serialize the validated model, including the legacy checksum. Native targets
+Matching encodings pass the original saved layout bytes only when v2 pane-index
+order also agrees with native creation order. Otherwise, restore serializes the
+validated model with creation-order indexes (including for v2 to v2), or a legacy
+checksum. This changes only application bytes, never the saved document. Native targets
 still come only from this invocation. Existing documents are not migrated.
 
 Preview and restoration keep the existing native incarnation, socket, layout,

@@ -403,7 +403,8 @@ fn validate_cell(cell: &WorkspaceLayoutCell) -> Result<(), WorkspaceLayoutError>
 
 impl WorkspaceLayoutWindow<'_> {
     /// Adapt admitted saved geometry to a fenced, invocation-owned window's
-    /// observed layout encoding. Matching encodings preserve the original bytes.
+    /// observed encoding. Preserve original bytes only when tmux's assignment
+    /// order agrees with the invocation's tree-ordered native creation.
     pub fn layout_for_server(&self, live: &str) -> Result<String, WorkspaceLayoutError> {
         parse_layout(live)?;
         let is_json = |value: &str| {
@@ -411,10 +412,13 @@ impl WorkspaceLayoutWindow<'_> {
                 .trim_start_matches([' ', '\t', '\r', '\n'])
                 .starts_with('{')
         };
-        if is_json(live) == is_json(&self.window.layout) {
+        let live_json = is_json(live);
+        if live_json == is_json(&self.window.layout)
+            && (!live_json || json::creation_ordered(&self.window.layout)?)
+        {
             return Ok(self.window.layout.clone());
         }
-        let result = if is_json(live) {
+        let result = if live_json {
             json::serialize(&self.root)
         } else {
             let mut body = String::new();
