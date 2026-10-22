@@ -13,6 +13,7 @@ import {
 import { dispatchIntent, RemoteOwner } from '../support/remote-owner.js';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
+import { namePerson, PERSON } from './remote-person.js';
 import { requestAttempts, requestResponses } from './request-state-oracle.js';
 import { installTmuxTrace } from './tmux-trace.js';
 
@@ -31,7 +32,7 @@ async function queuedWake(
     (event) => event.event === 'input' && event.line?.includes(requestId) === true
   );
   expect(wake.line).toBe(
-    `▚ ◆ anonymous · ${preview} · tmt x show ${requestId} --incoming --identity ${recipientId} --json`
+    `▚ ◆ ${PERSON} · ${preview} · tmt x show ${requestId} --incoming --identity ${recipientId} --json`
   );
 }
 const accepted = (operationId: string, requestId: string) => ({
@@ -46,6 +47,7 @@ describe('Remote owner-device operations (#1055)', () => {
     await withE2EFixture(
       async (fixture) => {
         const id = await name(fixture, 'remote-direct');
+        await namePerson(fixture);
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();
@@ -99,6 +101,7 @@ describe('Remote owner-device operations (#1055)', () => {
     await withE2EFixture(
       async (fixture) => {
         const id = await name(fixture, 'remote-held');
+        await namePerson(fixture);
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();
@@ -194,6 +197,7 @@ describe('Remote owner-device operations (#1055)', () => {
         const allowed = await name(fixture, 'remote-allowed');
         const otherPane = await fixture.createMockPane('remote-denied');
         const denied = await name(fixture, 'remote-denied', otherPane.pane);
+        await namePerson(fixture);
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();
@@ -270,6 +274,7 @@ describe('Remote owner-device operations (#1055)', () => {
         const allowed = await name(fixture, 'remote-read');
         const other = await fixture.createMockPane('remote-read-denied');
         const denied = await name(fixture, 'remote-read-denied', other.pane);
+        await namePerson(fixture);
         const owner = new RemoteOwner(fixture);
         try {
           await owner.start();

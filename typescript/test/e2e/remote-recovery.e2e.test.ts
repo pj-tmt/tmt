@@ -4,6 +4,7 @@ import { object, text } from '../support/remote-device.js';
 import { dispatchIntent, RemoteOwner } from '../support/remote-owner.js';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture } from './harness.js';
+import { namePerson, PERSON } from './remote-person.js';
 import { requestAttempts } from './request-state-oracle.js';
 import { installTmuxTrace } from './tmux-trace.js';
 
@@ -15,6 +16,7 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
           const identity = expectJsonResult(
             await fixture.runJsonCli<{ id: string }>(['name', `remote-recovery-${phase}`, '--save'])
           );
+          await namePerson(fixture);
           const owner = new RemoteOwner(fixture);
           const trace = installTmuxTrace(fixture);
           try {
@@ -88,7 +90,7 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
               (e) => e.event === 'input' && e.line?.includes(requestId) === true
             );
             expect(wake.line).toBe(
-              `▚ ◆ anonymous · [remote: E2E owner device] Original intent acros… · tmt x show ${requestId} --incoming --identity ${identity.id} --json`
+              `▚ ◆ ${PERSON} · [remote: E2E owner device] Original intent acros… · tmt x show ${requestId} --incoming --identity ${identity.id} --json`
             );
             const settled = requestAttempts(fixture);
             const events = fixture.events();
