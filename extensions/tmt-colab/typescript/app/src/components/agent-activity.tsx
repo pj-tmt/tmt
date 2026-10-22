@@ -1,4 +1,5 @@
 import { BusyMark } from '@tmt/browser-ui/react';
+import { CircleDashed } from 'lucide-react';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { activityAt, type ActivityObservation } from '../agent-activity.js';
 import type { PageAsk } from '../ask-panel.js';
@@ -19,6 +20,11 @@ const ActivityPresentation = createContext<{
 }>({
   now: 0,
 });
+
+/** Core's state of each sent message, as the observer last read it; none outside the provider. */
+export function useMessageStates(): MessageStates | undefined {
+  return useContext(ActivityPresentation).messages;
+}
 
 /** One page clock paints elapsed time and the countdowns; network reads belong only to the Ask
  * observer. `messages` is Core's state of each sent message, as the observer last read it. */
@@ -77,14 +83,20 @@ function duration(ms: number, seconds: boolean): string {
 }
 
 /** One symbol per state, the same as the Ops TUI; `working` is the line's spinner instead. */
-const MARKS: Record<MessageStateName, string> = {
+const MARKS: Record<MessageStateName, ReactNode> = {
   sent: '○',
-  batched: '◌',
+  batched: <DashedCircle />,
   delivered: '✓',
   working: '',
   unconfirmed: '?',
   not_sent: '✗',
 };
+
+/** ◌ is missing from most text fonts and falls back to a tiny, faint glyph; the icon set draws it
+ * at the size and weight of ○. */
+function DashedCircle() {
+  return <CircleDashed className="agent-activity-dashed" />;
+}
 
 /** Delivery outcomes stay in AskPanel; this line never changes the signed ledger. When Core has
  * given the state of the message (#4317) the line draws it: Core's wording, one symbol, and the
@@ -130,7 +142,7 @@ export function AgentActivityLine({ record }: { record: PageAsk }) {
     <span className="agent-activity" data-activity={kind}>
       {kind === 'queued' && (
         <span className="agent-activity-mark" aria-hidden>
-          ◌{' '}
+          <DashedCircle />{' '}
         </span>
       )}
       {(kind === 'finished' || kind === 'unknown') && (

@@ -1,4 +1,4 @@
-import { AgentActivityLine } from './components/agent-activity.js';
+import { AgentActivityLine, useMessageStates } from './components/agent-activity.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import type { AnswerBatchContext, CommentContext } from './thread-store.js';
 import { BrowserIconAction, BusyMark, useBusyMark } from '@tmt/browser-ui/react';
@@ -117,6 +117,7 @@ export function AskPanel({
   retryInput?: AskRetryInput;
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
+  const messageStates = useMessageStates();
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const busy = useRef(new Set<string>());
@@ -197,10 +198,17 @@ export function AskPanel({
                   ? text.askTrackingAbandoned
                   : text.askNotDelivered,
           };
+    // Core's state of a message it accepted, drawn on the line below (#4317).
+    const shared =
+      record.state === 'accepted' && !record.resultUnavailable
+        ? messageStates?.[record.operationId]
+        : undefined;
+    // "Do not resend" is the answer: a state read beside it would read as the way to resend.
     const canRecheck =
       ['uncertain', 'held', 'dispatching', 'accepted'].includes(record.state) &&
       record.reply === undefined &&
-      !record.resultUnavailable;
+      !record.resultUnavailable &&
+      shared?.state !== 'unconfirmed';
     const disabled = !binding || blocked || !record.canTrack || pending.has(record.operationId);
     const recipientRecords = records.filter(
       (value) =>
@@ -219,7 +227,11 @@ export function AskPanel({
       recipientRecords.every(provablyUnsent) &&
       recipientRecords.at(-1) === record;
     const status = record.reply === undefined && (
-      <span className="conversation-status" aria-label={`Ask ${agent}`}>
+      <span
+        className="conversation-status"
+        aria-label={`Ask ${agent}`}
+        data-message-state={shared?.state}
+      >
         <span role="status" data-testid="ask-state" data-state={record.state}>
           <span className="ask-state" data-tone={deliveryState.tone}>
             {!(

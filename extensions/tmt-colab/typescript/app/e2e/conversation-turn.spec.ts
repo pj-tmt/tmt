@@ -1013,8 +1013,8 @@ for (const surface of ['chat', 'thread'] as const)
             'batched to save usage, sends when the agent finishes this turn',
             { remainingMs: 151_000, canSendNow: true },
           ),
-          /^◌ Batched to save usage, sends when the agent finishes this turn · in 2:[0-5]\d$/,
-          '◌',
+          /^\s?Batched to save usage, sends when the agent finishes this turn · in 2:[0-5]\d$/,
+          'dashed',
         ],
         [core('delivered', 'reached_the_agent', 'delivered'), 'Delivered', '✓'],
         [
@@ -1042,7 +1042,22 @@ for (const surface of ['chat', 'thread'] as const)
         await expect(line).toHaveAttribute('data-message-state', state.state);
         if (typeof expected === 'string') await expect(status).toContainText(expected);
         else await expect(status).toHaveText(expected);
-        if (mark) await expect(line.locator('.agent-activity-mark')).toHaveText(mark);
+        // ◌ is drawn from the icon set, at the size of the ○ beside it: no text glyph to fall back.
+        if (mark === 'dashed') {
+          const dashed = line.locator('.agent-activity-mark > svg.agent-activity-dashed');
+          await expect(dashed).toHaveCount(1);
+          const [circle, box] = await Promise.all([
+            dashed.boundingBox(),
+            line.locator('.agent-activity-mark').boundingBox(),
+          ]);
+          expect(circle!.width).toBeGreaterThanOrEqual(8);
+          expect(circle!.width).toBeLessThanOrEqual(12);
+          expect(box!.height).toBeLessThan(24);
+        } else if (mark) await expect(line.locator('.agent-activity-mark')).toHaveText(mark);
+        // Check again re-reads the state and never resends; it is not offered beside "do not resend".
+        await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(
+          state.state === 'unconfirmed' ? 0 : 1,
+        );
         await expect(line.locator('.agent-activity-spinner')).toHaveCount(
           state.state === 'working' ? 1 : 0,
         );
@@ -1082,6 +1097,45 @@ for (const surface of ['chat', 'thread'] as const)
       await run(page, 'conversationMessageState', {});
       await expect(status).toHaveText('Sent');
       expect(await run(page, 'proof')).toEqual(before);
+    });
+
+// A batched line runs to several lines in a narrow Chat; the control follows its last word.
+for (const surface of ['chat', 'thread'] as const)
+  for (const width of [1440, 390])
+    test(`Check again stays inline after the batched countdown: ${surface} ${width}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
+      await mount(page, surface);
+      const window =
+        surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+      await run(page, 'conversationMessageState', {
+        state: core(
+          'batched',
+          'held_to_save_usage',
+          'batched to save usage, sends when the agent finishes this turn',
+          { remainingMs: 151_000 },
+        ),
+      });
+      const clockLine = window.getByTestId('ask-state').locator('.agent-activity-clock');
+      await expect(clockLine).toContainText('· in 2:');
+      const button = window.getByRole('button', { name: text.askRecheck });
+      await expect(button).toHaveCount(1);
+      await expect(button).toHaveAccessibleName('Check again');
+      const [clock, control] = await Promise.all([clockLine.boundingBox(), button.boundingBox()]);
+      // The same line as the countdown, and after it.
+      expect(
+        Math.abs(control!.y + control!.height / 2 - (clock!.y + clock!.height / 2)),
+      ).toBeLessThan(control!.height / 2);
+      expect(control!.x).toBeGreaterThanOrEqual(clock!.x + clock!.width);
+      const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
+      if (captures) {
+        mkdirSync(captures, { recursive: true });
+        await page.screenshot({
+          path: `${captures}/message-state-${surface}-${width}-light-batched.png`,
+        });
+      }
     });
 
 for (const surface of ['chat', 'thread'] as const)
