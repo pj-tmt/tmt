@@ -57,6 +57,8 @@ export async function draft({ root, sourcePath, meta, call = tmt }) {
     "create",
     "--title",
     meta.title,
+    "--layout",
+    "column",
     "--file",
     path,
     "--no-open",
@@ -64,7 +66,7 @@ export async function draft({ root, sourcePath, meta, call = tmt }) {
   );
   if (!uuid.test(created.pageId))
     throw new Error("Uncertain Colab creation; inspect page list before retrying");
-  await call("label", "add", created.pageId, "blog");
+  await call("project", "add", created.pageId, "blog");
   return created;
 }
 
