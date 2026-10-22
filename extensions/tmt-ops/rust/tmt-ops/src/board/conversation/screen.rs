@@ -4,7 +4,7 @@
 use super::{ConversationKey, RowTarget, Session};
 use crate::board::{
     app::{App, Effect},
-    screen_view::{self, Observation, Row},
+    screen_view::Observation,
 };
 use crate::{config::Pane, look::Look};
 use ratatui::{
@@ -13,7 +13,10 @@ use ratatui::{
     text::{Line, Span},
 };
 use std::time::Duration;
-use tmt_cli_style::Role;
+use tmt_cli_style::{
+    Role,
+    foreign::{self, Row},
+};
 use unicode_width::UnicodeWidthChar;
 
 /// Milliseconds between two reads of a shown screen.
@@ -157,7 +160,7 @@ fn clip<'a>(row: &Row, width: usize, look: Look) -> Line<'a> {
         }
         let cut = text.len() < run.text.len();
         if !text.is_empty() {
-            spans.push(Span::styled(text, screen_view::style(run.attr, look)));
+            spans.push(Span::styled(text, foreign::style(run.attr, look.depth)));
         }
         if cut {
             break;
@@ -344,8 +347,8 @@ pub(in crate::board) mod tests {
         app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
     }
     fn screen(text: &str, read_ms: u64) -> Observation {
-        let rows = screen_view::parse(text);
-        let width = rows.iter().map(screen_view::width).max().unwrap_or(0);
+        let rows = foreign::parse(text);
+        let width = rows.iter().map(foreign::width).max().unwrap_or(0);
         Observation::Screen(Screen {
             rows,
             width,
@@ -500,7 +503,7 @@ pub(in crate::board) mod tests {
         });
         for _ in 0..5 {
             round += 1;
-            at = { app.conversation.borrow().sessions[&key].screen_due_ms };
+            at = app.conversation.borrow().sessions[&key].screen_due_ms;
             crate::status::with_now_ms(at, || {
                 assert_eq!(app.pane_screen_read(), Some((key.clone(), round)));
                 app.apply_pane_screen(key.clone(), round, Observation::Unavailable("down".into()));

@@ -40,6 +40,12 @@ is the only place a color is named: elsewhere, production code writes no
 `Color::Red`, `Color::Rgb`, `AnsiColor` or `RgbColor`, and the native
 architecture test enforces it for the CLIs and the Rust extensions.
 
+Text that another program drew, such as an agent's pane screen, keeps that
+program's colours. `foreign::parse` reads it, keeping only SGR colours and
+attributes and dropping every other escape and control, and `foreign::style`
+maps those colours to the stream's `Depth`. They are the program's colours, not
+design tokens, and this crate stays the only place that names them.
+
 ## Themes
 
 `theme` owns what the design tokens (`design/tokens/tokens.json`) look like in
