@@ -232,6 +232,7 @@ export async function mount(
         };
       },
       recheck: async () => {},
+      sendNow: async () => {},
       abandon: async () => {},
     });
     const [binding, setBinding] = useState<AskBinding>(makeBinding);

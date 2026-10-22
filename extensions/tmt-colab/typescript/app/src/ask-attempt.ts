@@ -1,6 +1,11 @@
 import { ActivityTracker, type ActivityObservation } from './agent-activity.js';
 import { ASK_OBSERVATION_MS } from './ask-records.js';
-import { sameMessageState, type MessageState, type ObservedMessageState } from './message-state.js';
+import {
+  sameMessageState,
+  type MessageState,
+  type ObservedMessageState,
+  type SendNowProgress,
+} from './message-state.js';
 import { decodeText, requireValue, text } from '@tmt/colab-client';
 import { FrozenAsk, type AdmittedSelection, type AskDestination } from './ask-intent.js';
 import {
@@ -16,6 +21,7 @@ import {
   type SessionEndCode,
   type ResultState,
   type SendIdentity,
+  type SendNowReply,
   type SendState,
 } from './ask-remote.js';
 import { AskRecordStore } from './ask-record-store.js';
@@ -84,11 +90,27 @@ export class AskController {
   // unless it differs, so a countdown costs one publication, not one per read.
   #messages = new Map<string, ObservedMessageState>();
   #showMessage(operationId: string, state: MessageState | undefined) {
-    const read = state && { ...state, receivedAt: performance.now() };
-    if (sameMessageState(this.#messages.get(operationId), read)) return;
+    const shown = this.#messages.get(operationId);
+    // What a Send now came to is about the state it was asked in: it goes when the state moves.
+    const read = state && {
+      ...state,
+      receivedAt: performance.now(),
+      ...(shown?.sendNow && shown.state === state.state ? { sendNow: shown.sendNow } : {}),
+    };
+    if (sameMessageState(shown, read)) return;
     if (read) this.#messages.set(operationId, read);
     else this.#messages.delete(operationId);
     this.options.messageStateObserved?.(operationId, read);
+  }
+  #showSendNow(operationId: string, progress: SendNowProgress | undefined) {
+    const shown = this.#messages.get(operationId);
+    if (!shown) return;
+    const next: ObservedMessageState = { ...shown };
+    if (progress) next.sendNow = progress;
+    else delete next.sendNow;
+    if (sameMessageState(shown, next)) return;
+    this.#messages.set(operationId, next);
+    this.options.messageStateObserved?.(operationId, next);
   }
   #clearMessages() {
     // Removing the key being visited is safe for a Map.
@@ -424,6 +446,59 @@ export class AskController {
         return store.state(id, 'accepted', view.requestId, 'RESULT_UNAVAILABLE');
       return view;
     });
+  }
+  /**
+   * Asks Core, through Remote, to type an accepted ask's message now (#4136). Only while the last
+   * read of its state said it may be sent now; one ask however often it is pressed, never repeated
+   * by Colab, and nothing of it is written to the ledger. The line then moves on from a read of
+   * Core's state; what a refusal or an uncertain ask came to stays beside that state until it moves.
+   */
+  sendNow(id: string): Promise<SendNowReply> {
+    const running = this.#askingNow.get(id);
+    if (running) return running;
+    const task = this.#askNow(id).finally(() => this.#askingNow.delete(id));
+    this.#askingNow.set(id, task);
+    return task;
+  }
+  #askingNow = new Map<string, Promise<SendNowReply>>();
+  async #askNow(id: string): Promise<SendNowReply> {
+    requireValue(!this.#ended);
+    const { store, remote } = this.options;
+    const view = await store.view(id);
+    requireValue(
+      view.state === 'accepted' &&
+        !view.reply &&
+        view.requestId !== null &&
+        this.#messages.get(id)?.canSendNow === true,
+    );
+    this.#showSendNow(id, { phase: 'sending' });
+    let reply: SendNowReply;
+    try {
+      reply = await remote.sendNow(view.requestId);
+    } catch (error) {
+      this.#showSendNow(id, undefined);
+      if (error instanceof SessionEvictedError) this.#endSession(error);
+      else if (error instanceof SessionEndedError) this.#endSession();
+      throw error;
+    }
+    // What Remote read back is Core's state now; an ask that typed nothing leaves its outcome.
+    if (reply.messageState) this.#showMessage(id, reply.messageState);
+    this.#showSendNow(
+      id,
+      reply.state === 'sent' || reply.state === 'already'
+        ? undefined
+        : {
+            phase: 'outcome',
+            outcome: reply.state,
+            ...(reply.reason === undefined ? {} : { reason: reply.reason }),
+          },
+    );
+    try {
+      await this.recover(id);
+    } catch {
+      // The reply stands; the next observation reads the state again.
+    }
+    return reply;
   }
   /** A bounded visible-page observer. It calls only receipt/final/inventory reads and
    * owns no send capability on reload, reconnect or a timer wake. */

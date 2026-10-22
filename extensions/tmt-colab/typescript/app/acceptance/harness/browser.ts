@@ -182,7 +182,7 @@ export async function pairBrowser(
   await page.goto(offer.link as string);
   await page.waitForFunction(() => location.hash === '');
   await page.fill('#name', name);
-  await page.click('button');
+  await page.locator('form#pair').getByRole('button', { name: 'Pair', exact: true }).click();
   await expect(page.locator('#words')).toBeVisible();
   const candidate = await pair.event((value) => value.event === 'candidate');
   await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));

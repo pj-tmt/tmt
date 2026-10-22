@@ -56,8 +56,12 @@ pub struct WorkspaceLayoutSplit {
 /// References keep the snapshot as the sole owner of names and directories.
 pub struct WorkspaceLayoutWindow<'a> {
     pub window: &'a WorkspaceWindow,
+    /// The tiled tree only; floating panes are not part of it.
     pub root: WorkspaceLayoutCell,
     pub panes: Vec<&'a WorkspacePane>,
+    /// Panes that floated above the tiled tree (tmux 3.8 `new-pane`), frontmost first.
+    /// Restore creates none of them and targets none of their historical IDs.
+    pub floating: Vec<&'a WorkspacePane>,
     pub zoomed: bool,
     pub border_status: &'static str,
     pub splits: Vec<WorkspaceLayoutSplit>,
@@ -171,6 +175,18 @@ impl WorkspaceLayoutCell {
     }
 }
 
+/// Old IDs of the panes the snapshot's layouts say floated. A layout that does not
+/// parse names none here; restore refuses it on its own, so a preview never guesses.
+pub fn floating_pane_ids(snapshot: &WorkspaceSnapshot) -> HashSet<String> {
+    snapshot
+        .windows
+        .iter()
+        .filter_map(|window| parse_saved_layout(&window.layout).ok())
+        .flat_map(|layout| layout.floating)
+        .map(|id| format!("%{id}"))
+        .collect()
+}
+
 /// A checksum-valid layout alone is insufficient: it must describe exactly the
 /// recorded panes. Zoomed pane geometry belongs to the visible layout, not the
 /// saved full tree, so correspondence uses old IDs rather than screen positions.
@@ -226,31 +242,46 @@ pub fn prepare_layout(
             {
                 return Err(Topology);
             }
-            let root = parse_layout(&window.layout)?;
+            let SavedLayout {
+                tiled: root,
+                floating,
+            } = parse_saved_layout(&window.layout)?;
             if u64::from(root.width) != window.width || u64::from(root.height) != window.height {
                 return Err(WorkspaceLayoutError::Geometry);
             }
-            let ids = root.leaf_ids();
-            let panes = ids
+            let in_window = |id: &u32| {
+                snapshot
+                    .panes
+                    .iter()
+                    .find(|pane| pane.window == window.id && pane.id == format!("%{id}"))
+                    .ok_or(Topology)
+            };
+            let panes = root
+                .leaf_ids()
                 .iter()
-                .map(|id| {
-                    snapshot
-                        .panes
-                        .iter()
-                        .find(|pane| pane.window == window.id && pane.id == format!("%{id}"))
-                        .ok_or(Topology)
-                })
+                .map(in_window)
+                .collect::<Result<Vec<_>, _>>()?;
+            let floating_panes = floating
+                .iter()
+                .map(in_window)
                 .collect::<Result<Vec<_>, _>>()?;
             if snapshot
                 .panes
                 .iter()
                 .filter(|pane| pane.window == window.id)
                 .count()
-                != panes.len()
+                != panes.len() + floating_panes.len()
             {
                 return Err(Topology);
             }
-            let visible = parse_layout(&window.visible_layout)?;
+            let SavedLayout {
+                tiled: visible,
+                floating: visible_floating,
+            } = parse_saved_layout(&window.visible_layout)?;
+            // A zoom hides every floating pane except the ones made to stay above it.
+            if visible_floating.iter().any(|id| !floating.contains(id)) {
+                return Err(Topology);
+            }
             let zoomed = window.visible_layout != window.layout;
             if zoomed
                 && (visible.leaf_ids().len() != 1
@@ -298,6 +329,7 @@ pub fn prepare_layout(
                 window,
                 root,
                 panes,
+                floating: floating_panes,
                 zoomed,
                 border_status,
                 splits,
@@ -306,8 +338,28 @@ pub fn prepare_layout(
         .collect()
 }
 
+/// A saved layout as restore sees it: the tiled tree it can recreate, and the
+/// panes that floated above it, which it cannot.
+pub struct SavedLayout {
+    pub tiled: WorkspaceLayoutCell,
+    /// Old pane IDs, frontmost first.
+    pub floating: Vec<u32>,
+}
+
+/// A live layout: tiled only. A floating cell is refused here.
 /// Saved pane IDs describe the old layout, never select a current tmux target.
 pub fn parse_layout(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutError> {
+    parse_with(value, false).map(|layout| layout.tiled)
+}
+
+/// A saved layout (#4405): the same strict grammar, plus tmux 3.8 floating cells
+/// directly under the root, which are set aside and reported, never admitted into
+/// the tiled model.
+pub fn parse_saved_layout(value: &str) -> Result<SavedLayout, WorkspaceLayoutError> {
+    parse_with(value, true)
+}
+
+fn parse_with(value: &str, floating: bool) -> Result<SavedLayout, WorkspaceLayoutError> {
     use WorkspaceLayoutError::{Checksum, Limit, Syntax};
     let bytes = value.as_bytes();
     if bytes.len() > MAX_LAYOUT_BYTES {
@@ -317,9 +369,12 @@ pub fn parse_layout(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutE
         .trim_start_matches([' ', '\t', '\r', '\n'])
         .starts_with('{')
     {
-        let root = json::parse(value)?;
+        let (root, floating) = json::parse(value, floating)?;
         validate_root(&root)?;
-        return Ok(root);
+        return Ok(SavedLayout {
+            tiled: root,
+            floating,
+        });
     }
     if bytes.len() < 6 || bytes[4] != b',' || !bytes[..4].iter().all(u8::is_ascii_hexdigit) {
         return Err(Syntax);
@@ -342,7 +397,10 @@ pub fn parse_layout(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutE
         return Err(Syntax);
     }
     validate_root(&root)?;
-    Ok(root)
+    Ok(SavedLayout {
+        tiled: root,
+        floating: Vec::new(),
+    })
 }
 
 fn validate_root(root: &WorkspaceLayoutCell) -> Result<(), WorkspaceLayoutError> {
@@ -413,7 +471,9 @@ impl WorkspaceLayoutWindow<'_> {
                 .starts_with('{')
         };
         let live_json = is_json(live);
+        // The saved bytes name floating cells the live window does not have.
         if live_json == is_json(&self.window.layout)
+            && self.floating.is_empty()
             && (!live_json || json::creation_ordered(&self.window.layout)?)
         {
             return Ok(self.window.layout.clone());

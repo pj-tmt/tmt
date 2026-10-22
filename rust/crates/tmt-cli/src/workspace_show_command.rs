@@ -138,6 +138,7 @@ fn pane_description(action: tmt_core::workspace::plan::WorkspacePaneAction) -> &
         WorkspacePaneAction::NoRememberedSession => "no remembered session",
         WorkspacePaneAction::Resumable => "resume remembered session",
         WorkspacePaneAction::StaleRequiresRetry => "stale remembered session",
+        WorkspacePaneAction::Floating => "floating pane, not restored",
     }
 }
 

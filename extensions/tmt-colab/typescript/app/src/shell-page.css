@@ -169,6 +169,8 @@
 }
 .shell-open {
   margin-top: 22px;
+  /* The shared text action pads its sides; here the link lines up with the text above it. */
+  padding-inline: 0;
 }
 .shell-chapter a:focus-visible,
 .shell-earlier a:focus-visible {
@@ -306,4 +308,23 @@
 .shell-panel .shell-open {
   margin-top: 0;
   justify-self: start;
+}
+
+/* "Decide here": the page itself in the panel, under one row that goes back or on to the full page. */
+.shell-panel-page {
+  gap: var(--tmt-ui-space-s);
+}
+.shell-panel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-m);
+}
+.shell-panel-page .page {
+  min-height: 0;
+}
+
+/* The wrapper only marks where the hosted page sits; it adds no box. */
+.shell-embedded {
+  display: contents;
 }

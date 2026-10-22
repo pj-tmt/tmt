@@ -236,6 +236,24 @@ mod tests {
     }
 
     #[test]
+    fn resume_move_is_completed_with_remembered_identity_names() {
+        assert_eq!(
+            inspect(&["resume", "--move", "Al"]),
+            Context::Identities {
+                prefix: "Al".into(),
+                remembered: true,
+            }
+        );
+        for shell in ["bash", "zsh", "fish"] {
+            let mut bytes = Vec::new();
+            generate(shell, &mut bytes).unwrap();
+            let script = String::from_utf8(bytes).unwrap();
+            let flag = if shell == "fish" { "-l move" } else { "--move" };
+            assert!(script.contains(flag), "{shell}: missing {flag}");
+        }
+    }
+
+    #[test]
     fn generated_scripts_keep_the_static_grammar_and_dynamic_entry() {
         for shell in ["bash", "zsh", "fish"] {
             let mut bytes = Vec::new();

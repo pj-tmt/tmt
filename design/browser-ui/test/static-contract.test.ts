@@ -15,15 +15,26 @@ it('exports frozen static names and an exact non-writing generated stylesheet', 
   ]);
   expect(readFileSync(file, 'utf8')).toBe(before);
   for (const name of Object.values(browserUiClasses)) expect(before).toContain(`.${name}`);
-  // Flat, opaque surfaces. The one exception is the busy mark (Ben's a2): its dots fade in turn,
-  // so its dot rules and keyframes are the only place opacity below 1 may appear.
+  // Flat, opaque surfaces. Opacity below 1 appears only in the busy mark (its dots fade in turn)
+  // and in the enter and exit states of floating overlays; colours carry their alpha in hex.
   const busy =
     /\.tmt-ui-busy-dot[^{]*\{[^}]*\}|@keyframes tmt-ui-busy\s*\{(?:[^{}]*\{[^}]*\})*\s*\}/g;
   expect(before.match(busy)?.length).toBeGreaterThan(1);
-  expect(before.replace(busy, '')).not.toMatch(/rgba?\(|hsla?\(|opacity:\s*0/);
-  expect(
-    [...before.matchAll(/box-shadow:\s*([^;]+);/g)].every((match) => match[1] === 'none'),
-  ).toBe(true);
+  const overlay = '\\.tmt-ui-(?:dialog|drawer|menu-surface|chips-surface|icon-action-tooltip)';
+  const motion = new RegExp(
+    `@starting-style\\s*\\{(?:[^{}]*\\{[^}]*\\})*\\s*\\}|${overlay}[^{]*\\{[^}]*opacity:\\s*0[^}]*\\}`,
+    'g',
+  );
+  expect(before.replace(busy, '').replace(motion, '')).not.toMatch(/rgba?\(|hsla?\(|opacity:\s*0/);
+  // The one shadow is the overlay token, and only floating layers draw it.
+  const shadows = [...before.matchAll(/([^{}]+)\{[^{}]*box-shadow:\s*([^;]+);/g)];
+  for (const [, selector, value] of shadows) {
+    if (value === 'none') continue;
+    expect(value).toBe('var(--tmt-ui-shadow-overlay)');
+    expect(selector!.trim()).toMatch(
+      /^\.tmt-ui-(?:dialog|drawer|menu-surface|chips-surface|notification|rail-tip)$|^\.tmt-ui-shell\[data-drawer='open'\] \.tmt-ui-rail$/,
+    );
+  }
   expect(before).not.toMatch(/(?:^|\n)(?:body|input|button|h[12]|\*)\s*[{,]/);
   expect(before).toContain("[data-theme='dark']");
   expect(before).toContain('--tmt-ui-header-height: 56px');

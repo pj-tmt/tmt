@@ -13,8 +13,8 @@ pub use observation::{
 };
 pub use operations::{
     bind_auto_identity, bind_guarded, bind_identity, bind_identity_at, bind_identity_with_creation,
-    bind_identity_with_creation_at, name_auto_identity, remove_identity, rename_identity,
-    rename_identity_by_id, retire_failed_auto_launch, unbind_identity,
+    bind_identity_with_creation_at, move_identity, name_auto_identity, remove_identity,
+    rename_identity, rename_identity_by_id, retire_failed_auto_launch, unbind_identity,
 };
 
 use crate::{

@@ -160,10 +160,25 @@ through one bounded geometry model. JSON has exactly `V:2` and `L`; cells have
 at least two cells; panes have canonical historical `%<u32>` `I` and nonnegative
 `i` (at most i32::MAX), with optional boolean `a` or nonnegative `l` (mutually
 exclusive). Keys are unique and type-specific, indexes and pane IDs are unique,
-and at most one pane is active. Unknown keys, floating `z`, malformed numbers,
-unsupported versions, trailing input and trees beyond 8196 bytes, 64 cell levels
-or the pane bound are refused. JSON whitespace and member order carry no authority.
-Both encodings require the same contiguous tiled geometry and snapshot correspondence.
+and at most one pane is active. Unknown keys, `z` outside the floating cells below,
+malformed numbers, unsupported versions, trailing input and trees beyond 8196 bytes,
+64 cell levels or the pane bound are refused. JSON whitespace and member order carry
+no authority. Both encodings require the same contiguous tiled geometry and snapshot
+correspondence.
+
+A saved layout may also carry tmux 3.8 floating panes: a pane cell directly under the
+root cell with a `z` (the stacking order, a unique u16; 0 is frontmost). Restore sets
+them aside before any other check, so the strict tiled admission above sees only the
+tiled tree. A root left with one cell becomes that cell, which must fill the root's
+rectangle exactly; a root left with none is refused. A `z` on a split, below a nested
+split or on the root is refused, and a layout read back from a live window never
+admits one. Each floating pane needs its saved pane in the window, and every saved pane
+of the window needs a cell. A zoomed window's visible layout is set aside the same way
+and may name only floats its layout names. Restore creates and targets no floating pane
+and applies the tiled tree, never the saved bytes. Each is reported in the restore
+result as `skipped (floating pane)`; one that held an agent identity or a recorded
+command is `needs_you` instead, like any pane restore cannot resume. Neither changes
+the exit status, and the preview's plan action for it is `floating`.
 
 Restore reads the layout of an invocation-created window behind the live server
 incarnation fence to select its encoding; the client version is not evidence.

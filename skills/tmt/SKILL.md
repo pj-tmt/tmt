@@ -914,6 +914,15 @@ a fresh substitute. Claude exact resume also creates a fresh channel enrollment
 when selected. `--channel` fails if
 enrollment cannot finish safely before startup. Details: <https://pj-tmt.github.io/tmt/working#tmt-resume>.
 
+To move a member to this pane on the same computer, use `tmt resume <name> --move`.
+TMT verifies the old agent, sends it one TERM, and waits up to three seconds before
+moving the binding and resuming that exact session here. TMT never closes either
+pane; the identity and its notes, role and requests stay the same. A pane process
+or an unverified/shared agent cannot be stopped this way. TMT never stops a
+shared Codex channel server. If the old agent does not exit, nothing new starts and the
+binding stays put. Exit the old agent in its pane, then rerun the exact command
+printed in the error. TMT never force-kills it or falls back to a fresh session.
+
 TMT records the owned command's exit and keeps the pane binding. Its exit status
 is the command's status, or 128 plus a terminating signal number. It reaps only
 its direct child; harness-created background processes are the harness's

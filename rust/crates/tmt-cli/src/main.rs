@@ -282,6 +282,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Resume {
             name,
+            move_running,
             show,
             forget_launch,
             model,
@@ -295,7 +296,10 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 show,
                 forget_launch,
                 forget,
-                retry,
+                run_command::Resume {
+                    retry,
+                    move_running,
+                },
                 tmt_adapters::runtime::launch_preset::LaunchSettings { model, effort },
                 channel,
             );

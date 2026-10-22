@@ -1,11 +1,11 @@
 //! Bounded process-start observations. These do not establish interface ownership.
 
-use super::{CommandError, CommandRunner, ps::query_ps};
+use super::{CommandError, CommandRequest, CommandRunner, ps::query_ps};
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
 use std::{
     collections::{BTreeSet, HashMap},
-    ffi::OsString,
-    time::Instant,
+    ffi::{OsStr, OsString},
+    time::{Duration, Instant},
 };
 use tmt_core::binding::session::RuntimeLiveness;
 use tmt_core::endpoint::ProcessIncarnation;
@@ -47,6 +47,101 @@ pub fn observe_runtime_process<R: CommandRunner>(
     observe_process(runner, pid, deadline).map(|observation| match observation {
         ProcessObservation::UnreapedZombie(_) => ProcessObservation::Gone,
         other => other,
+    })
+}
+
+#[derive(Debug)]
+pub enum StopRuntimeError {
+    Unverified,
+    TimedOut,
+    Command(CommandError),
+}
+
+impl std::fmt::Display for StopRuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unverified => {
+                f.write_str("The agent's process incarnation could not be verified")
+            }
+            Self::TimedOut => {
+                f.write_str("The agent did not conclusively exit within the stop allowance")
+            }
+            Self::Command(error) => error.fmt(f),
+        }
+    }
+}
+impl std::error::Error for StopRuntimeError {}
+
+/// A requested stop is observation only after its one TERM. Waiting belongs
+/// outside the binding writer; dropping this handle never signals anything.
+pub struct RuntimeStop<'a, R> {
+    runner: &'a R,
+    expected: Option<ProcessIncarnation>,
+    deadline: Instant,
+}
+
+impl<R: CommandRunner> RuntimeStop<'_, R> {
+    pub fn wait(self) -> Result<(), StopRuntimeError> {
+        let Some(expected) = self.expected else {
+            return Ok(());
+        };
+        loop {
+            if Instant::now() >= self.deadline {
+                return Err(StopRuntimeError::TimedOut);
+            }
+            let observation = observe_runtime_process(self.runner, expected.pid(), self.deadline)
+                .map_err(StopRuntimeError::Command)?;
+            match observation.matches(&expected) {
+                RuntimeLiveness::Gone => return Ok(()),
+                RuntimeLiveness::Unknown => return Err(StopRuntimeError::Unverified),
+                RuntimeLiveness::Alive => (),
+            }
+            std::thread::sleep(
+                Duration::from_millis(25)
+                    .min(self.deadline.saturating_duration_since(Instant::now())),
+            );
+        }
+    }
+}
+
+/// The caller must first prove this incarnation belongs exclusively to its
+/// verified binding, and is not the pane process. Recheck immediately before
+/// one TERM; never signal a process group, force termination, or retry.
+/// Request under the binding coordination lock, then release it before wait.
+pub fn request_runtime_stop<'a, R: CommandRunner>(
+    runner: &'a R,
+    expected: &ProcessIncarnation,
+    deadline: Instant,
+) -> Result<RuntimeStop<'a, R>, StopRuntimeError> {
+    if Instant::now() >= deadline {
+        return Err(StopRuntimeError::TimedOut);
+    }
+    let observation = observe_runtime_process(runner, expected.pid(), deadline)
+        .map_err(StopRuntimeError::Command)?;
+    match observation.matches(expected) {
+        RuntimeLiveness::Gone => {
+            return Ok(RuntimeStop {
+                runner,
+                expected: None,
+                deadline,
+            });
+        }
+        RuntimeLiveness::Unknown => return Err(StopRuntimeError::Unverified),
+        RuntimeLiveness::Alive => (),
+    }
+    runner
+        .execute(CommandRequest {
+            program: OsStr::new("/bin/kill"),
+            args: &["-TERM".into(), expected.pid().to_string().into()],
+            input: &[],
+            deadline,
+            max_output_bytes: 1024,
+        })
+        .map_err(StopRuntimeError::Command)?;
+    Ok(RuntimeStop {
+        runner,
+        expected: Some(expected.clone()),
+        deadline,
     })
 }
 
@@ -577,5 +672,136 @@ mod tests {
         let first = read();
         assert!(matches!(first, ProcessObservation::Live(_)));
         assert_eq!(first, read());
+    }
+
+    /// Native observations and the signal command are scripted separately:
+    /// no test PID is ever signalled, even when the incarnation is invalid.
+    #[test]
+    fn stopping_a_runtime_signals_only_one_verified_incarnation_and_requires_confirmed_exit() {
+        use std::cell::RefCell;
+        use std::collections::VecDeque;
+        struct StopRunner {
+            observations: RefCell<VecDeque<ProcessObservation>>,
+            signals: RefCell<Vec<Vec<OsString>>>,
+            fail: bool,
+        }
+        impl CommandRunner for StopRunner {
+            fn execute(
+                &self,
+                request: CommandRequest<'_>,
+            ) -> Result<super::super::CommandOutput, CommandError> {
+                if request.program == OsStr::new("/usr/bin/env") {
+                    let observation = self
+                        .observations
+                        .borrow_mut()
+                        .pop_front()
+                        .expect("unexpected probe");
+                    let text = match observation {
+                        ProcessObservation::Live(process) => format!(
+                            "{} S+\n",
+                            process.start_identity().strip_prefix("ps-v1:").unwrap()
+                        ),
+                        ProcessObservation::Stopped(process) => format!(
+                            "{} T+\n",
+                            process.start_identity().strip_prefix("ps-v1:").unwrap()
+                        ),
+                        ProcessObservation::Gone | ProcessObservation::UnreapedZombie(_) => {
+                            "Sun Sep 27 10:00:00 2026 Z\n".into()
+                        }
+                        ProcessObservation::Unknown => "unavailable\n".into(),
+                    };
+                    return Ok(super::super::CommandOutput {
+                        stdout: text.into_bytes(),
+                        stderr: vec![],
+                    });
+                }
+                assert_eq!(request.program, OsStr::new("/bin/kill"));
+                assert!(request.input.is_empty());
+                self.signals.borrow_mut().push(request.args.to_vec());
+                if self.fail {
+                    Err(crate::scripted_runner::failure(false))
+                } else {
+                    Ok(super::super::CommandOutput {
+                        stdout: vec![],
+                        stderr: vec![],
+                    })
+                }
+            }
+        }
+        let expected = ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap();
+        let live = ProcessObservation::Live(expected.clone());
+        for (case, observations, fail, signal_count, success) in [
+            (
+                "exited",
+                vec![live.clone(), live.clone(), ProcessObservation::Gone],
+                false,
+                1,
+                true,
+            ),
+            (
+                "unknown-before",
+                vec![ProcessObservation::Unknown],
+                false,
+                0,
+                false,
+            ),
+            (
+                "stopped-before",
+                vec![ProcessObservation::Stopped(expected.clone())],
+                false,
+                0,
+                false,
+            ),
+            (
+                "reused-before",
+                vec![ProcessObservation::Live(
+                    ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:01 2026").unwrap(),
+                )],
+                false,
+                0,
+                true,
+            ),
+            (
+                "gone-before",
+                vec![ProcessObservation::Gone],
+                false,
+                0,
+                true,
+            ),
+            (
+                "unknown-after",
+                vec![live.clone(), ProcessObservation::Unknown],
+                false,
+                1,
+                false,
+            ),
+            ("refused-signal", vec![live.clone()], true, 1, false),
+        ] {
+            let runner = StopRunner {
+                observations: RefCell::new(observations.into()),
+                signals: RefCell::new(vec![]),
+                fail,
+            };
+            let result =
+                request_runtime_stop(&runner, &expected, Instant::now() + Duration::from_secs(2))
+                    .and_then(RuntimeStop::wait);
+            assert_eq!(result.is_ok(), success, "{case}: {result:?}");
+            let signals = runner.signals.borrow();
+            assert_eq!(signals.len(), signal_count, "{case}");
+            for args in signals.iter() {
+                assert_eq!(args, &[OsString::from("-TERM"), OsString::from("42")]);
+            }
+            assert!(runner.observations.borrow().is_empty(), "{case}");
+        }
+        let runner = StopRunner {
+            observations: RefCell::new(VecDeque::new()),
+            signals: RefCell::new(vec![]),
+            fail: false,
+        };
+        assert!(matches!(
+            request_runtime_stop(&runner, &expected, Instant::now()).and_then(RuntimeStop::wait),
+            Err(StopRuntimeError::TimedOut)
+        ));
+        assert!(runner.signals.borrow().is_empty());
     }
 }

@@ -29,6 +29,7 @@ const binding: AskBinding = {
   destinations: async () => [{ ...destination(), agentName: 'astra', presence: 'active' }],
   prepare: unused,
   recheck: unused,
+  sendNow: unused,
   abandon: unused,
 };
 

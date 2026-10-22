@@ -24,9 +24,15 @@ export interface MessageState {
   /** Display only: Core's answer for the owner's own browser, `false` for every other grant. */
   canSendNow: boolean;
 }
+/** What the page shows of a Send now it asked for (#4136) while the message is in the state the
+ * press was made in: that it is on its way, or why nothing came of it. `reason` is Core's code. */
+export type SendNowProgress =
+  | { phase: 'sending' }
+  | { phase: 'outcome'; outcome: 'refused' | 'unconfirmed' | 'unavailable'; reason?: string };
 /** A state with the local time of the read, so the page counts down without a clock of Core's. */
 export interface ObservedMessageState extends MessageState {
   receivedAt: number;
+  sendNow?: SendNowProgress;
 }
 
 const REASON_CODE = /^[a-z][a-z0-9_]{0,63}$/;
@@ -97,6 +103,15 @@ export function sentenceCase(text: string): string {
   return text.slice(0, 1).toUpperCase() + text.slice(1);
 }
 
+function sameSendNow(shown: SendNowProgress | undefined, read: SendNowProgress | undefined) {
+  if (!shown || !read) return shown === read;
+  return (
+    shown.phase === read.phase &&
+    (shown.phase === 'sending' ||
+      (read.phase === 'outcome' && shown.outcome === read.outcome && shown.reason === read.reason))
+  );
+}
+
 /** The most the page's countdown and Core's remainder may differ before a read is worth showing. */
 const DRIFT_MS = 2000;
 
@@ -116,6 +131,7 @@ export function sameMessageState(
     shown.reason.code === read.reason.code &&
     shown.reason.text === read.reason.text &&
     shown.canSendNow === read.canSendNow &&
+    sameSendNow(shown.sendNow, read.sendNow) &&
     shown.latestMs === read.latestMs &&
     (predicted === null || read.remainingMs === null
       ? predicted === read.remainingMs

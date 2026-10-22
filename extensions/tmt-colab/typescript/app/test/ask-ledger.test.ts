@@ -20,6 +20,7 @@ import {
 } from '../src/ask-remote.js';
 import type { OwnState } from '../src/fold-protocol.js';
 import type { MessageState } from '../src/message-state.js';
+import type { SendNowReply } from '../src/ask-remote.js';
 import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
 const draft = new Map<string, unknown>();
 let storageFailure: 'read' | 'write' | 'delete' | undefined;
@@ -2046,4 +2047,190 @@ it('the SDK adapter parses the state a pending result carries and leaves any oth
   expect(await adapter.result(b)).toEqual({ state: 'replied', requestId: b, message: 'done' });
   results[b] = { state: 'unavailable', requestId: b, reason: 'gone', messageState: valid };
   expect(await adapter.result(b)).toEqual({ state: 'unavailable', requestId: b, reason: 'gone' });
+});
+
+// Send now (#4136): one ask to Remote per press, never repeated by Colab, the line moving on from a
+// read of Core's state and not from the reply alone. Nothing of it is written to the signed ledger.
+const delivered = (): MessageState => ({
+  state: 'delivered',
+  reason: { code: 'reached_the_agent', text: 'delivered' },
+  latestMs: null,
+  remainingMs: null,
+  canSendNow: false,
+});
+async function sendableAsk() {
+  const parts = await observedAsk();
+  let shown: MessageState = batched();
+  const reads: string[] = [];
+  parts.remote.result = async (requestId) => {
+    reads.push(requestId);
+    return { state: 'pending', requestId, messageState: shown };
+  };
+  await parts.controller.recover(parts.operationId);
+  reads.length = 0;
+  return { ...parts, reads, show: (state: MessageState) => (shown = state) };
+}
+const latest = (seen: [string, unknown][]) => seen.at(-1)![1] as Record<string, unknown>;
+
+it('Send now asks Remote once however often it is pressed, shows it is sending, then reads the state again', async () => {
+  const { controller, remote, seen, own, reads, show, operationId } = await sendableAsk();
+  const before = structuredClone(own);
+  let release!: (reply: SendNowReply) => void;
+  remote.sendNowAnswer = () => new Promise((resolve) => (release = resolve));
+  const first = controller.sendNow(operationId);
+  const second = controller.sendNow(operationId);
+  await vi.waitFor(() => expect(remote.sendNows).toHaveLength(1));
+  expect(latest(seen)).toMatchObject({ state: 'batched', sendNow: { phase: 'sending' } });
+  show(delivered());
+  release({ state: 'sent', messageState: delivered() });
+  expect(await first).toEqual(await second);
+  expect(remote.sendNows).toEqual([`req_${id(8)}`]);
+  // The line moved on from a read of Core's state, and the press is over.
+  expect(reads).toEqual([`req_${id(8)}`]);
+  expect(latest(seen)).toMatchObject({ state: 'delivered' });
+  expect(latest(seen)).not.toHaveProperty('sendNow');
+  expect(own).toEqual(before);
+  // Core said it is delivered: nothing to send now, so no ask, however the page got here.
+  await expect(controller.sendNow(operationId)).rejects.toThrow();
+  expect(remote.sendNows).toHaveLength(1);
+  // A press after the first has finished is a new ask, once Core says the message may be sent.
+  show(batched());
+  await controller.recover(operationId);
+  remote.sendNowAnswer = async () => ({ state: 'already' });
+  await controller.sendNow(operationId);
+  expect(remote.sendNows).toHaveLength(2);
+});
+
+it('a send-now that did not type keeps the state and says why; one that may have typed asks for no second press', async () => {
+  for (const [reply, outcome] of [
+    [
+      { state: 'refused', reason: 'SEND_NOW_UNREACHABLE' },
+      { outcome: 'refused', reason: 'SEND_NOW_UNREACHABLE' },
+    ],
+    [{ state: 'unconfirmed', reason: 'DELIVERY_UNCERTAIN' }, { outcome: 'unconfirmed' }],
+    [{ state: 'unavailable' }, { outcome: 'unavailable' }],
+  ] as const) {
+    const { controller, remote, seen, operationId } = await sendableAsk();
+    remote.sendNowAnswer = async () => reply;
+    await controller.sendNow(operationId);
+    expect(latest(seen)).toMatchObject({
+      state: 'batched',
+      sendNow: { phase: 'outcome', ...outcome },
+    });
+    // Colab never asks again by itself, however often it reads the message.
+    await controller.recover(operationId);
+    await controller.recover(operationId);
+    expect(remote.sendNows).toHaveLength(1);
+    expect(latest(seen)).toMatchObject({ sendNow: { phase: 'outcome', ...outcome } });
+  }
+});
+
+it('an outcome stays only while the message is in the state it was reported for', async () => {
+  const { controller, remote, seen, show, operationId } = await sendableAsk();
+  remote.sendNowAnswer = async () => ({ state: 'refused', reason: 'SEND_NOW_NOT_AVAILABLE' });
+  await controller.sendNow(operationId);
+  expect(latest(seen)).toHaveProperty('sendNow');
+  show(delivered());
+  await controller.recover(operationId);
+  expect(latest(seen)).toMatchObject({ state: 'delivered' });
+  expect(latest(seen)).not.toHaveProperty('sendNow');
+});
+
+it('a send-now for an ask that is not waiting on Core asks nobody', async () => {
+  const { controller, remote, operationId } = await sendableAsk();
+  await expect(controller.sendNow(id(77))).rejects.toThrow();
+  remote.result = async (requestId) => ({ state: 'replied', requestId, message: 'done' });
+  await controller.recover(operationId);
+  await expect(controller.sendNow(operationId)).rejects.toThrow();
+  expect(remote.sendNows).toEqual([]);
+});
+
+it('a send-now that throws ends the press and shows nothing it cannot vouch for', async () => {
+  const { controller, remote, seen, operationId } = await sendableAsk();
+  remote.sendNowAnswer = async () => {
+    throw new SessionEndedError('REMOTE_SESSION_ENDED');
+  };
+  await expect(controller.sendNow(operationId)).rejects.toBeInstanceOf(SessionEndedError);
+  expect(seen.at(-1)).toEqual([operationId, undefined]);
+  expect(remote.sendNows).toHaveLength(1);
+});
+
+it('a send-now that fails for any other reason leaves the state as it was, not sending', async () => {
+  const { controller, remote, seen, operationId } = await sendableAsk();
+  remote.sendNowAnswer = async () => {
+    throw new Error('Lost transport response with secret diagnostics');
+  };
+  await expect(controller.sendNow(operationId)).rejects.toThrow();
+  expect(latest(seen)).toMatchObject({ state: 'batched' });
+  expect(latest(seen)).not.toHaveProperty('sendNow');
+  // The press is over: a later one is a new ask.
+  remote.sendNowAnswer = async () => ({ state: 'refused', reason: 'SEND_NOW_CLOSED' });
+  await controller.sendNow(operationId);
+  expect(remote.sendNows).toHaveLength(2);
+});
+
+it('the SDK adapter answers a send-now with a verified reply, and a failure that may have reached Core is unconfirmed', async () => {
+  class RefusalError extends Error {
+    constructor(readonly code: string) {
+      super(code);
+    }
+  }
+  const calls: string[] = [];
+  let answer: () => Promise<unknown> = async () => ({});
+  const adapter = await createRemoteClient(
+    new URL('http://example.test/x/colab/'),
+    {
+      RefusalError,
+      operations: () => ({
+        listAgents: async () => [],
+        send: async () => ({ state: 'held' as const, operationId: id(9) }),
+        operation: async () => ({ state: 'held' as const, operationId: id(9) }),
+        result: async () => ({ state: 'pending' as const }),
+        sendNow: async (requestId: string) => {
+          calls.push(requestId);
+          return answer() as never;
+        },
+      }),
+    },
+    { sessionId: id(7), serverTimeMs: Date.now(), grantRevision: 1, expiresAtMs: null },
+  );
+  const a = `req_${id(8)}`;
+  for (const state of ['sent', 'already', 'refused', 'unconfirmed', 'unavailable'] as const) {
+    answer = async () => ({ state, requestId: a });
+    expect(await adapter.sendNow(a)).toEqual({ state });
+  }
+  // The reason is Core's code; anything that is not one is not shown.
+  answer = async () => ({ state: 'refused', requestId: a, reason: 'SEND_NOW_UNREACHABLE' });
+  expect(await adapter.sendNow(a)).toEqual({ state: 'refused', reason: 'SEND_NOW_UNREACHABLE' });
+  answer = async () => ({ state: 'refused', requestId: a, reason: 'not a <b>code</b>' });
+  expect(await adapter.sendNow(a)).toEqual({ state: 'refused' });
+  // The state read back after it is parsed like any other, and dropped whole when it is not.
+  answer = async () => ({ state: 'sent', requestId: a, messageState: delivered() });
+  expect(await adapter.sendNow(a)).toEqual({ state: 'sent', messageState: delivered() });
+  answer = async () => ({
+    state: 'sent',
+    requestId: a,
+    messageState: { ...delivered(), state: 'queued' },
+  });
+  expect(await adapter.sendNow(a)).toEqual({ state: 'sent' });
+  // A state it does not know may have typed: never "sent", never "refused".
+  answer = async () => ({ state: 'a_new_state', requestId: a });
+  expect(await adapter.sendNow(a)).toEqual({ state: 'unconfirmed' });
+  // A call that failed on the way may have reached Core.
+  answer = async () => {
+    throw new Error('socket closed with secret diagnostics');
+  };
+  expect(await adapter.sendNow(a)).toEqual({ state: 'unconfirmed' });
+  // A refusal Remote signed typed nothing.
+  answer = async () => {
+    throw new RefusalError('REMOTE_SCOPE_DENIED');
+  };
+  expect(await adapter.sendNow(a)).toEqual({ state: 'refused', reason: 'REMOTE_SCOPE_DENIED' });
+  // The session itself ending is the session's to handle.
+  answer = async () => {
+    throw new RefusalError('REMOTE_SESSION_ENDED');
+  };
+  await expect(adapter.sendNow(a)).rejects.toBeInstanceOf(SessionEndedError);
+  // One ask each: the adapter never repeats a call that failed.
+  expect(calls).toHaveLength(13);
 });

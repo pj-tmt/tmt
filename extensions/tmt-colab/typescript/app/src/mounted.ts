@@ -70,6 +70,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         send: (input) => owned(() => port.send(input)),
         operation: (id) => owned(() => port.operation(id)),
         result: (id) => owned(() => port.result(id)),
+        sendNow: (id) => owned(() => port.sendNow(id)),
       };
     } catch {
       // Old SDKs keep source usable while Ask remains unavailable.
