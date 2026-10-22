@@ -1521,12 +1521,24 @@ test('every focusable in the shell list shows one inset frame (#3998 tab walk)',
     for (let step = 0; step < 80; step++) {
       await page.keyboard.press('Tab');
       const focus = await page.evaluate(() => {
+        // Focus moves nothing: the control that just lost focus has the size it had with it.
+        const store = window as unknown as { last?: { element: Element; size: string } };
+        const box = (element: Element) => {
+          const rect = element.getBoundingClientRect();
+          return `${rect.width}x${rect.height}`;
+        };
+        const last = store.last;
+        const moved =
+          last && last.element.isConnected && box(last.element) !== last.size
+            ? `${last.element.className} ${last.size} unfocused ${box(last.element)}`
+            : '';
         const element = document.activeElement as HTMLElement | null;
         if (!element || element === document.body) return undefined;
+        store.last = { element, size: box(element) };
         const style = getComputedStyle(element);
         const width = Number.parseFloat(style.outlineWidth);
         const outline = style.outlineStyle !== 'none' && width > 0;
-        const wrong: string[] = [];
+        const wrong: string[] = moved ? [`a size change on focus (${moved})`] : [];
         if (style.outlineStyle === 'auto') wrong.push('a browser default ring');
         if (outline && Number.parseFloat(style.outlineOffset) > -width)
           wrong.push(`an outline outside its border (offset ${style.outlineOffset})`);

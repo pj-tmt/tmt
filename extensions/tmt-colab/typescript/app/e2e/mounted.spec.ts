@@ -759,8 +759,10 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await page.keyboard.press('Tab');
   const close = dialog.getByRole('button', { name: 'Close', exact: true });
   await expect(close).toBeFocused();
+  // An edge-bordered Colab button: one 2px frame of the focus colour drawn over its border.
   await expect(close).toHaveCSS('outline-style', 'solid');
-  await expect(close).toHaveCSS('outline-width', '1px');
+  await expect(close).toHaveCSS('outline-width', '2px');
+  await expect(close).toHaveCSS('outline-offset', '-2px');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(row(pageId).getByRole('button', { name: /^Actions for/ })).toBeFocused();

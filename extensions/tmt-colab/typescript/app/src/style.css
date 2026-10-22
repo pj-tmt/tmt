@@ -51,11 +51,14 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-/* Colab's own buttons rest on the edge colour, which the light focus colour equals: focus adds a 2px
-   inset ring inside the edge, so the change shows in both themes with no layout shift. A button
-   with its own focus rule keeps it. */
+/* Colab's own buttons rest on the edge colour, which the light focus colour equals: focus turns the
+   edge into one 2px frame of the focus colour, drawn over the border itself (the border recolours
+   too), so nothing moves whatever padding a button has and no second layer shows. A button with
+   its own focus rule keeps it. */
 :where(button:not([class*='tmt-ui-'])):focus-visible {
-  box-shadow: inset 0 0 0 calc(2 * var(--tmt-ui-focus-width)) var(--tmt-ui-color-focus);
+  border-color: var(--tmt-ui-color-focus);
+  outline: calc(2 * var(--tmt-ui-focus-width)) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-2 * var(--tmt-ui-focus-width));
 }
 .local,
 .eyebrow,
