@@ -78,7 +78,7 @@ impl App {
         let session = state.sessions.entry(key).or_default();
         if session.pane_output != observation {
             session.pane_output = observation;
-            session.rendered = None;
+            session.stale = true;
         }
         session.pane_output_fresh = true;
     }
@@ -202,7 +202,7 @@ impl Session {
         };
         if self.transcript_context != context {
             self.transcript_context = context;
-            self.rendered = None;
+            self.stale = true;
         }
     }
 

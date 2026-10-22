@@ -7,8 +7,8 @@ use ratatui::{crossterm::event::KeyEvent, layout::Rect};
 use std::{cmp::Reverse, collections::BTreeMap, ops::Range};
 use tmt_tui::components::Editor;
 
-/// One end of a selection. `identity` is the transcript line's text when the end
-/// was set; a rebuilt transcript is searched for that line again.
+/// One end of a selection. `identity` is the displayed text of its transcript line
+/// when the end was set; a rebuilt transcript is searched for that line again.
 #[derive(Clone)]
 struct Spot {
     line: usize,
@@ -21,15 +21,39 @@ impl Spot {
         Self {
             line,
             column,
-            identity: rendered
-                .anchor_text
-                .line(line)
-                .unwrap_or_default()
-                .to_owned(),
+            identity: displayed_line(rendered, line),
         }
     }
     fn position(&self) -> (usize, usize) {
         (self.line, self.column)
+    }
+    /// The line of `text` this end stands on now, as `resolve` describes.
+    fn follow(&self, lines: &[String], width: u16, gutter: usize) -> Option<usize> {
+        let nearest = |keep: &dyn Fn(&str) -> bool| {
+            (0..lines.len())
+                .filter(|index: &usize| keep(&lines[*index]))
+                .min_by_key(|index: &usize| (index.abs_diff(self.line), Reverse(*index)))
+        };
+        let old = self.identity.as_str();
+        if lines.get(self.line).map(String::as_str) == Some(old) {
+            return Some(self.line);
+        }
+        nearest(&|line| line == old)
+            .or_else(|| {
+                (!old.is_empty())
+                    .then(|| nearest(&|line| line.starts_with(old)))
+                    .flatten()
+            })
+            .or_else(|| {
+                // Text changed in place (an age stamp, a progress line): the same line, as
+                // long as what lies before this end is what it was.
+                // Columns count displayed cells; the transcript's text has no gutter.
+                let kept = glyphs(old, width, 0, self.column.saturating_sub(gutter))
+                    .1
+                    .end;
+                let now = lines.get(self.line)?;
+                (now.get(..kept) == old.get(..kept)).then_some(self.line)
+            })
     }
 }
 
@@ -47,6 +71,22 @@ pub(in crate::board::conversation) struct Anchored {
     rows: BTreeMap<usize, String>,
     pub(super) dragging: bool,
     pub(super) control: Option<Rect>,
+}
+
+/// The transcript's text on displayed `line`, without the gutter.
+fn displayed_line(rendered: &Rendered, line: usize) -> String {
+    rendered
+        .mapped
+        .lines
+        .get(line)
+        .map_or_else(String::new, |line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
 }
 
 /// The glyph-aligned byte range of `row` between two cell columns.
@@ -154,12 +194,10 @@ impl Anchored {
     }
 
     fn backfill(&mut self, rendered: &Rendered, lines: Range<usize>) {
-        for line in lines {
-            if let Some(text) = rendered.anchor_text.line(line) {
-                self.rows
-                    .entry(line)
-                    .or_insert_with(|| text.trim_end().to_owned());
-            }
+        for line in lines.filter(|line| *line < rendered.mapped.lines.len()) {
+            self.rows
+                .entry(line)
+                .or_insert_with(|| displayed_line(rendered, line));
         }
     }
 
@@ -171,30 +209,34 @@ impl Anchored {
         self.control = None;
     }
 
-    /// Keep both ends on their text through a rebuilt transcript: the same line
-    /// nearest to where it was. `false` when the transcript was re-wrapped or an
-    /// end's text is gone; the selection can no longer be shown, so it ends.
+    /// Keep both ends on their line through a rebuilt transcript. An end follows the
+    /// same text; failing that, the line its old text grew into (a streaming agent
+    /// appends to the line being read); failing that, the line at the same place whose
+    /// text changed in place after the end (an age stamp, a progress line). `false` when the transcript
+    /// was re-wrapped or an end's line is gone: the selection can no longer be shown, so
+    /// it ends.
     pub(super) fn resolve(&mut self, rendered: &Rendered) -> bool {
         if rendered.width != self.wrap {
             return false;
         }
-        let text = &rendered.anchor_text;
-        let mut lines = [self.fixed.line, self.moving.line];
-        for (line, spot) in lines.iter_mut().zip([&self.fixed, &self.moving]) {
-            if text.line(spot.line) == Some(spot.identity.as_str()) {
-                continue;
-            }
-            match (0..text.line_count())
-                .filter(|index| text.line(*index) == Some(spot.identity.as_str()))
-                .min_by_key(|index| (index.abs_diff(spot.line), Reverse(*index)))
-            {
-                Some(found) => *line = found,
-                None => return false,
-            }
+        let lines: Vec<String> = (0..rendered.mapped.lines.len())
+            .map(|line| displayed_line(rendered, line))
+            .collect();
+        let (Some(fixed), Some(moving)) = (
+            self.fixed.follow(&lines, self.width, rendered.gutter),
+            self.moving.follow(&lines, self.width, rendered.gutter),
+        ) else {
+            return false;
+        };
+        let moved = [fixed, moving] != [self.fixed.line, self.moving.line];
+        self.fixed.line = fixed;
+        self.moving.line = moving;
+        // The ends now stand for what the transcript shows, so the next rebuild
+        // compares against it.
+        for spot in [&mut self.fixed, &mut self.moving] {
+            spot.identity = lines[spot.line].clone();
         }
-        if lines != [self.fixed.line, self.moving.line] {
-            self.fixed.line = lines[0];
-            self.moving.line = lines[1];
+        if moved {
             self.rows.clear();
             let (first, last) = self.lines();
             self.backfill(rendered, first..last + 1);
@@ -219,10 +261,10 @@ impl Anchored {
                 line.checked_sub(offset)
                     .and_then(|row| painted.get(row).copied())
                     .or_else(|| self.rows.get(&line).map(String::as_str))
-                    .or_else(|| rendered.anchor_text.line(line))
-                    .unwrap_or_default()
-                    .trim_end()
-                    .to_owned()
+                    .map_or_else(
+                        || displayed_line(rendered, line),
+                        |row| row.trim_end().to_owned(),
+                    )
             })
             .collect();
         let mut editor = Editor::from(rows.join("\n"));

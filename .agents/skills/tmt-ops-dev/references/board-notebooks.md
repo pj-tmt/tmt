@@ -196,12 +196,16 @@ field is frozen as the cells it displayed. The transcript changes and scrolls un
 the pointer, so its selection (`source/anchored.rs`) is anchored to transcript
 lines and cell columns instead: a progress tick, new output, a growing input band
 or a scroll keeps the highlight and the button, text out of view is clipped and
-comes back with its line, and a rebuilt transcript finds the line again by its text.
+comes back with its line, and a rebuilt transcript finds the line again by its
+displayed text: the same line, else the line it grew into while the agent streams,
+else the same line with only its tail changed (an age stamp). Pointer events use the
+last painted transcript until the next frame rebuilds it, so output that lands
+between a press, a drag and the release never drops a press, the drag or the copy.
 A drag reads the pointer against the transcript as it is now and, at the pane's
 first or last row, scrolls one line per pointer event, so holding the pointer still
 at the edge does not keep scrolling. The selection ends on Esc, an outside press, a
 new drag, a conversation switch, or when it can no longer be shown: its lines are
-gone, an end's text changed, or a resize re-wrapped the transcript. Quoting never
+gone, an end's text changed before its end, or a resize re-wrapped the transcript. Quoting never
 depends on the agent's state. The
 `+ Quote` control or Enter adds a literal author/excerpt chip above the input,
 without replacing the draft text or granting request authority. Up from the first

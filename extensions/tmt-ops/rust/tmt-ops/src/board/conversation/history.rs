@@ -70,7 +70,7 @@ impl Session {
             });
         self.finals = next;
         if changed {
-            self.rendered = None;
+            self.stale = true;
         }
     }
 
