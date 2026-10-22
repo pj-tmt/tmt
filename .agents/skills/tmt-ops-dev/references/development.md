@@ -98,9 +98,13 @@ CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase
   samples/outliers and match baseline/candidate source, toolchain and profile.
   The agreed local regression profile is Mac16,8, 12 logical CPUs, 48 GiB RAM,
   macOS 26.6.2, arm64 Rust 1.98.1/LLVM 22.1.8, release opt-level 3. Event+draw
-  p95 must be ≤10/50/50 ms at 150/1,000/10,000 agents for each vector, with footprint
-  ≤64 MB. Run main and candidate once, back to back on the same quiet machine and
-  build mode; the ANSI probe's candidate whole-process user+system CPU must be
+  p95 must be ≤10/50/50 ms at 150/1,000/10,000 agents for each vector. Every probe
+  process must have whole-process peak RSS ≤70 MB; use `--test-threads=2` for both
+  matched revisions. This leaves at least 4.5 MB above the
+  [measured baseline maximum](https://github.com/pj-tmt/tmt/issues/4324#issuecomment-6331627671).
+  An overage is not cleared by being within a percentage of main. Run
+  main and candidate once, back to back on the same quiet machine and build mode;
+  the ANSI probe's candidate whole-process user+system CPU must be
   ≤main × 1.05. On a noisy host, run three interleaved main/candidate pairs and
   compare CPU medians; report footprint medians and ranges. Retain every result and
   sample, without retries or dropped samples.
