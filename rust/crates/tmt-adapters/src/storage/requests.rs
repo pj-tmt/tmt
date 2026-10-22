@@ -267,6 +267,23 @@ impl RequestRecords for RequestRows<'_> {
     fn digest_oldest_held(&self, id: &str, now: u64) -> Result<Option<u64>, Self::Error> {
         digest::oldest_held(self.0, id, now)
     }
+    fn release_digest_item(
+        &mut self,
+        id: &str,
+        request: &str,
+        source: tmt_core::request::digest::DigestSource,
+    ) -> Result<bool, Self::Error> {
+        digest::release_item(self.0, id, request, source)
+    }
+    fn reopen_wake(&mut self, request_id: &str) -> Result<bool, Self::Error> {
+        self.0
+            .execute(
+                "UPDATE request_attempts SET wake_state='not_attempted' WHERE request_id=?1 AND wake_state='unavailable'",
+                [request_id],
+            )
+            .map(|changed| changed > 0)
+            .map_err(|error| classify(error, "Reopen a wake that typed nothing"))
+    }
     fn delivery_facts(
         &self,
         attempt: &RequestAttempt,

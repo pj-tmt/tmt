@@ -780,6 +780,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 .transpose()?,
         },
         ["answer"] => answer(m)?,
+        ["send-now"] => Invocation::SendNow {
+            request_id: request_id(m)?,
+            identity: text(m, "identity"),
+        },
         ["install"] => {
             let target = text(m, "agent");
             let directory = text(m, "dir");

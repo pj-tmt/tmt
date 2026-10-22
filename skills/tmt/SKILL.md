@@ -196,6 +196,8 @@ and `waitingFor:"digest_checklist"`. Preserve the request ID; do not resend just
 because it was held. `--urgent` bypasses Digest only, and `--kind decision|review|fyi`
 records its checklist purpose (default `fyi`). The pinned recorded owner UUID
 also bypasses. All channel, host and pending-approval guards still apply.
+`tmt send-now <request-id>` sends one held request now (its originator or a
+person only); it skips just the hold and never types a delivered request twice.
 Existing `tmt focus` still switches panes.
 
 For a lead doing a review or other work that benefits from fewer interruptions,
