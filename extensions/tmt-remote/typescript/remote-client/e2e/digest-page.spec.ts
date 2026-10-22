@@ -97,7 +97,7 @@ async function open(page: Page, query = '', size = { width: 1280, height: 900 })
   return errors;
 }
 
-async function openShell(page: Page, size: { width: number; height: number }) {
+async function openShell(page: Page, size: { width: number; height: number }, query = '') {
   await page.setViewportSize(size);
   await page.route(`${origin}/**`, (route) => {
     const url = new URL(route.request().url());
@@ -111,8 +111,8 @@ async function openShell(page: Page, size: { width: number; height: number }) {
   });
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(String(error)));
-  await page.goto(`${origin}/digest/`);
-  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(7);
+  await page.goto(`${origin}/digest/${query}`);
+  await expect(page.locator('#digest-sections .digest-card').first()).toBeVisible();
   return errors;
 }
 
@@ -330,7 +330,10 @@ test('the activity strips are square slots: 24 hourly, 7 daily, 30 daily, with a
   await cells.nth(5).hover();
   const tip = page.locator('#digest-activity .tmt-ui-chart-tip');
   await expect(tip).toBeVisible();
-  await expect(tip).toContainText('tmt-lead');
+  // The first row is the seat with the most tokens, as in the ranking.
+  await expect(tip).toContainText(
+    (await page.locator('#digest-ranking tbody th').first().textContent())!.replace(/\*$/, ''),
+  );
   await expect(tip).toContainText('–');
   await expect(tip).toContainText('tokens');
   // One tab stop; arrows move between slots and rows.
@@ -373,6 +376,79 @@ test('each provider card shows its allowance, meter, history chart and pace cell
     .evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).backgroundColor));
   expect(new Set(hues).size).toBe(2);
 });
+
+test('a team of 24 lists the top 8, one Other row, a single partial note and Show all', async ({
+  page,
+}) => {
+  const errors = await open(page, '?seats=24', { width: 1440, height: 900 });
+  const ranking = page.locator('#digest-ranking');
+  const names = ranking.locator('tbody th');
+  await expect(names).toHaveCount(9);
+  await expect(names.last()).toHaveText('Other (16 seats)');
+  await expect(ranking.locator('.usage-note')).toHaveText([
+    '* Partial: some of this range has no data for the seat.',
+  ]);
+  await expect(ranking.getByText('(partial)')).toHaveCount(0);
+  // Every name is one line: no row is taller than the shortest.
+  const heights = await ranking
+    .locator('tbody tr')
+    .evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height));
+  expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(1);
+  const toggle = ranking.getByRole('button', { name: 'Show all 24 seats' });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
+  await expect(names).toHaveCount(24);
+  await expect(ranking.getByText(/^Other \(/)).toHaveCount(0);
+  await ranking.getByRole('button', { name: 'Show top 8' }).click();
+  await expect(names).toHaveCount(9);
+  // Cards keep their own height: the ranking does not stretch to the token chart's.
+  const tokens = (await page.locator('#digest-tokens').boundingBox())!;
+  const listed = (await ranking.boundingBox())!;
+  expect(Math.abs(tokens.y - listed.y)).toBeLessThan(2);
+  expect(Math.abs(tokens.height - listed.height)).toBeGreaterThan(1);
+  // Activity rows run in the ranking's order.
+  await ranking.getByRole('button', { name: 'Show all 24 seats' }).click();
+  const ranked = (await names.allTextContents()).map((name) => name.replace(/\*$/, ''));
+  const rows = await page
+    .locator('#digest-activity .tmt-ui-chart-strip-row:has(.tmt-ui-chart-strip)')
+    .evaluateAll((nodes) => nodes.map((node) => node.firstElementChild!.textContent!.trim()));
+  expect(rows).toEqual(ranked);
+  expect(errors).toEqual([]);
+});
+
+test('one provider fills the row, its figure beside its chart', async ({ page }) => {
+  const errors = await open(page, '?one-provider', { width: 1440, height: 900 });
+  const card = page.locator('#digest-provider-gpt');
+  await expect(page.locator('#digest-allowance .digest-card')).toHaveCount(1);
+  const row = (await page.locator('#digest-allowance').boundingBox())!;
+  const box = (await card.boundingBox())!;
+  expect(Math.abs(box.width - row.width)).toBeLessThan(1);
+  const figure = (await card.locator('.digest-provider-figure').boundingBox())!;
+  const chart = (await card.locator('.digest-provider-body > :last-child').boundingBox())!;
+  expect(chart.x).toBeGreaterThan(figure.x + figure.width - 1);
+  expect(errors).toEqual([]);
+});
+
+/** Acceptance captures: the shell at 1440 and 390, light and dark, sample and a 24-seat team. */
+for (const [label, query] of [
+  ['sample', ''],
+  ['24-seats', '?seats=24'],
+  ['24-seats-one-provider', '?seats=24&one-provider'],
+] as const)
+  for (const scheme of ['light', 'dark'] as const)
+    for (const width of [1440, 390])
+      test(`capture ${label} ${scheme} ${width}`, async ({ page }) => {
+        const dir = process.env.DIGEST_CAPTURE_DIR;
+        test.skip(!dir, 'captures only when DIGEST_CAPTURE_DIR is set');
+        await page.emulateMedia({ colorScheme: scheme });
+        const errors = await openShell(page, { width, height: 900 }, query);
+        await page.waitForTimeout(300);
+        await page.screenshot({
+          path: path.join(dir!, `digest-${label}-${scheme}-${width}.png`),
+          fullPage: true,
+        });
+        expect(errors).toEqual([]);
+      });
 
 for (const width of [390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
