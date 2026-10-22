@@ -133,8 +133,9 @@ retains the exact `capturedAtMs`. A stale conversation is labeled as stale witho
 advertising restore flags that this read-only command does not implement.
 
 Pane actions are `shell`, `relaunch_command` (literal external argv),
-`identity_missing`, `no_remembered_session`, `resumable`, or
-`stale_requires_retry`. Exact current unretired UUIDs and durable preferences take
+`identity_missing`, `no_remembered_session`, `resumable`,
+`stale_requires_retry`, or `floating` (a tmux 3.8 floating pane that restore leaves
+out). Exact current unretired UUIDs and durable preferences take
 precedence over snapshot names and conversation annotations, including unbound
 saved identities. A same-name replacement is missing, never resurrected. Pending
 resume marks remain informational; stale marks require explicit retry. Public
@@ -151,7 +152,9 @@ It bypasses identity learning, provider observation, SQLite and advisory capture
 Core parses legacy checksum and tiled JSON v2 layouts into one geometry model,
 validating the [layout grammar](../../../../contracts/workspace-v1.md#restore-authority),
 bounded tree, dimensions, leaf correspondence, selection and zoom before host effects.
-Historical IDs are correspondence keys, never live targets.
+Historical IDs are correspondence keys, never live targets. Floating panes (tmux 3.8)
+are set aside by `parse_saved_layout` before the strict tiled checks; restore applies
+the tiled tree only and reports each float skipped.
 
 The built-in tmux adapter owns a finite 30-second creation budget and native
 server-incarnation fencing. Matching live session names are skipped whole,

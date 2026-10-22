@@ -28,6 +28,9 @@ pub enum WorkspacePaneAction {
     NoRememberedSession,
     Resumable,
     StaleRequiresRetry,
+    /// A tmux 3.8 floating pane: restore recreates the tiled layout around it and
+    /// reports it skipped. Its annotations stay in the plan for the report.
+    Floating,
 }
 
 impl WorkspacePaneAction {
@@ -39,6 +42,7 @@ impl WorkspacePaneAction {
             Self::NoRememberedSession => "no_remembered_session",
             Self::Resumable => "resumable",
             Self::StaleRequiresRetry => "stale_requires_retry",
+            Self::Floating => "floating",
         }
     }
 }
@@ -76,6 +80,7 @@ pub fn restore_plan<'a>(
             (session.id.as_str(), action)
         })
         .collect();
+    let floating = super::layout::floating_pane_ids(snapshot);
     let panes = snapshot
         .panes
         .iter()
@@ -86,7 +91,9 @@ pub fn restore_plan<'a>(
                     .find(|record| record.entry.identity.id == saved.id)
             });
             let remembered = identity.and_then(|record| record.preferences.remembered.as_ref());
-            let action = if pane.command.is_some() {
+            let action = if floating.contains(&pane.id) {
+                WorkspacePaneAction::Floating
+            } else if pane.command.is_some() {
                 WorkspacePaneAction::RelaunchCommand
             } else if pane.identity.is_none() {
                 WorkspacePaneAction::Shell
@@ -251,6 +258,50 @@ mod tests {
         assert_eq!(
             restore_plan(&snapshot, &records, Some(&[])).panes[0].action,
             WorkspacePaneAction::RelaunchCommand
+        );
+    }
+
+    #[test]
+    fn a_floating_pane_is_planned_as_left_out_and_keeps_its_annotations_for_the_report() {
+        let mut snapshot = sample();
+        // %2 floats above the tiled %1 (the producer's shape: a `z` cell under the root).
+        let layout = r#"{"V":2,"L":{"t":"v","w":80,"h":24,"x":0,"y":0,"c":[{"t":"p","w":80,"h":24,"x":0,"y":0,"a":true,"i":0,"I":"%1"},{"t":"p","w":20,"h":5,"x":2,"y":2,"i":1,"z":0,"I":"%2"}]}}"#;
+        snapshot.windows[0].layout = layout.into();
+        snapshot.windows[0].visible_layout = layout.into();
+        snapshot.panes.push(WorkspacePane {
+            id: "%2".into(),
+            index: 1,
+            identity: Some(WorkspaceIdentity {
+                id: "float-uuid".into(),
+                name: "float".into(),
+                lifetime: "saved".into(),
+                binding: "old-binding".into(),
+                harness: None,
+                session: None,
+                mode: None,
+                channel: None,
+            }),
+            ..snapshot.panes[0].clone()
+        });
+        let plan = restore_plan(&snapshot, &[], Some(&[]));
+        let actions: Vec<_> = plan
+            .panes
+            .iter()
+            .map(|pane| (pane.pane, pane.action))
+            .collect();
+        assert_eq!(
+            actions,
+            [
+                ("%1", WorkspacePaneAction::Shell),
+                ("%2", WorkspacePaneAction::Floating)
+            ]
+        );
+        assert_eq!(WorkspacePaneAction::Floating.as_str(), "floating");
+        // A layout that does not parse names no float; restore refuses it on its own.
+        snapshot.windows[0].layout = "layout".into();
+        assert_eq!(
+            restore_plan(&snapshot, &[], Some(&[])).panes[1].action,
+            WorkspacePaneAction::IdentityMissing
         );
     }
 
