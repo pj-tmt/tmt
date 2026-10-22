@@ -13,15 +13,7 @@ async function json(sandbox: Sandbox, args: string[], stdin?: string) {
 }
 
 async function ask(sandbox: Sandbox, from: string, text: string) {
-  const queued = await json(sandbox, [
-    'talk',
-    'ben',
-    text,
-    '--inbox',
-    '--identity',
-    from,
-    '--detach',
-  ]);
+  const queued = await json(sandbox, ['talk', 'ben', text, '--identity', from, '--detach']);
   return queued.requestId as string;
 }
 
@@ -167,7 +159,7 @@ describe('tmt inbox and tmt answer', () => {
       // and is answered by its request ID alone.
       const anonymousTalk = await runCli(
         sandbox,
-        ['talk', 'ben', 'who am I?', '--inbox', '--detach', '--json'],
+        ['talk', 'ben', 'who am I?', '--detach', '--json'],
         {
           deadlineMs: 5_000,
         }

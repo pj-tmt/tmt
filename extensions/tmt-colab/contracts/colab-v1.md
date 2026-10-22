@@ -5197,8 +5197,10 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
   ([A task that follows a page](#a-task-that-follows-a-page-4118)), so the stage agrees with the
   counts: `total` 0 is `discussion`, `done == total` is `done`. A followed page without a fresh
   summary is unavailable, and its task counts as its own stored state.
-- `parent` is `{page, task}`, the task that follows this page, omitted when none does. With
-  several (two writers raced) it is the first by page ID, then by task number.
+- `parent` is `{page, task, title?}`, the task that follows this page, omitted when none does. With
+  several (two writers raced) it is the first by page ID, then by task number. `title` is that task's
+  own title, clipped to 32 code points (a longer one ends in `…`), so the child's band can name the task
+  without reading the parent page; a row without it (an owner from before) names the task by number.
 
 The owner's static-source projection uses the same admitted markup, normalized quote context,
 unique-match and containment rules, canonical thread order and verified device provenance as the

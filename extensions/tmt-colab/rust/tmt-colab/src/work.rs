@@ -314,6 +314,9 @@ fn derived_with(work: &Value, stage_of: &dyn Fn(&str) -> Option<String>) -> Resu
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
     pub id: String,
+    /// The task's own title (inert text, at most 120 code points), so a page that is followed can
+    /// name the task in its list row.
+    pub title: String,
     pub state: String,
     pub signoff: bool,
     pub assignee: Option<Value>,
@@ -329,6 +332,7 @@ pub fn lines(work: &Value) -> Result<Vec<Line>> {
             let task = &tasks[text(key)?];
             Ok(Line {
                 id: text(key)?.to_owned(),
+                title: text(&task["title"])?.to_owned(),
                 state: text(&task["state"])?.to_owned(),
                 signoff: task.get("needsSignoff").is_some(),
                 assignee: task.get("assignee").cloned(),

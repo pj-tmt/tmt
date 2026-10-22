@@ -903,7 +903,7 @@ whose list row names a parent, draws `WorkBand` (`work-band.tsx`) in the page ro
 with the page and pushes it down when the list opens. The band itself is read-only: `derivedWork`
 gives the stage, progress, workers and sign-off count; `work-list.tsx` lists the tasks and
 `work-detail.tsx` shows one, with an `actions` slot, a `listActions` slot and an optional `parent`
-breadcrumb for a page that follows a task (#4118). Where this device may change the work
+breadcrumb for a page that follows a task (#4118), `Parent page › T-n · task title` with the title from the owner list row's `summary.parent.title` (absent from an older owner). Where this device may change the work
 (`PageBinding.canWork`, the owner device's alone), `PageWorkBand` (`work-band-live.tsx`) fills the
 slots from `work-controls.tsx`: state (with a reason for blocked), sign-off and send back, assign,
 edit title and detail, convert to Colab (`task.convert`: the serve makes a page from the task and links it;

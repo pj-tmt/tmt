@@ -360,6 +360,7 @@ fn captures() -> Value {
                 "agents-header-hover",
                 "digest",
                 "digest-allowance",
+                "digest-allowance-tokens",
                 "empty",
                 "pool",
                 "dense",
@@ -577,11 +578,10 @@ fn captures() -> Value {
                 }
             }
         }
-        // Paste attachments belong only to the Agents conversation. #4100
-        // carries these scenes into Talk when it migrates the shell.
+        // Paste attachments and forms share their scene owner with decoded review.
         for (look_name, look) in looks() {
             for state in crate::board::composer::paste::tests::SCENES {
-                let height = if *state == "paste-tiny" { 8 } else { 36 };
+                let height = crate::board::composer::paste::tests::capture_height(state);
                 for width in [160, 100, 80] {
                     let app = crate::board::composer::paste::tests::capture_case(
                         state, look, width, height,
@@ -590,6 +590,22 @@ fn captures() -> Value {
                         capture_frame(&app, state, look_name, width, height, &mut styles);
                     captured["paste"] =
                         crate::board::composer::paste::tests::capture_metadata(&app);
+                    frames.push(captured);
+                }
+            }
+        }
+        // Dropped files become chips in the same composer; the scenes use fixed, synthetic paths.
+        for (look_name, look) in looks() {
+            for state in crate::board::composer::files::tests::SCENES {
+                let height = if *state == "file-tiny" { 8 } else { 36 };
+                for width in [160, 100, 80] {
+                    let app = crate::board::composer::files::tests::capture_case(
+                        state, look, width, height,
+                    );
+                    let mut captured =
+                        capture_frame(&app, state, look_name, width, height, &mut styles);
+                    captured["files"] =
+                        crate::board::composer::files::tests::capture_metadata(&app);
                     frames.push(captured);
                 }
             }

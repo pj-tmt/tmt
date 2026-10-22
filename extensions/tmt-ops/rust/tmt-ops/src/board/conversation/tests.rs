@@ -10,6 +10,7 @@ use unicode_width::UnicodeWidthStr;
 mod finals;
 mod markdown_packet;
 pub(in crate::board) mod performance;
+mod question;
 mod recent_output_packet;
 
 fn fixture() -> App {

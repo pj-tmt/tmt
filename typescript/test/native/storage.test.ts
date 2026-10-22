@@ -128,6 +128,10 @@ function expectNativeSchema(
     },
     { version: 57, name: 'record whether a person or automation made each request' },
     { version: 58, name: 'follow the Codex sessions a bound session started as part of its seat' },
+    {
+      version: 59,
+      name: "record whether a request is a request or a person's passthrough text",
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

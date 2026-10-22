@@ -32,6 +32,9 @@ fn counts(text: &str) -> (usize, usize) {
             lines += 1;
         }
     }
+    if text.ends_with('\n') || text.ends_with('\r') {
+        lines -= 1;
+    }
     (text.chars().count(), lines)
 }
 
@@ -55,24 +58,28 @@ pub(in crate::board) fn label(text: &str) -> Option<String> {
         } else {
             (chars, "chars")
         };
-        format!("⧉ Pasted · {} {unit} ×", number(count))
+        format!("⧉ Pasted · {} {unit}", number(count))
     })
 }
 
 #[derive(Clone)]
 pub(in crate::board) struct Hit {
-    area: Rect,
-    remove: Rect,
+    pub(in crate::board) area: Rect,
+    pub(in crate::board) remove: Rect,
     key: DraftKey,
     id: u64,
     source: Range<usize>,
-    label: String,
+    pub(in crate::board) label: String,
 }
 
 pub(in crate::board) struct Preview {
     key: DraftKey,
     id: u64,
     text: Editor,
+    /// The fold's source when the preview opened; a changed source closes it.
+    source: String,
+    /// A dropped file: the popup is built from the file's facts, not from the source.
+    file: bool,
     scroll: RefCell<ScrollState>,
 }
 
@@ -92,13 +99,20 @@ fn display(label: &str, width: usize, ascii: bool) -> (String, usize) {
     }
     let content = label.strip_suffix(" ×").unwrap_or(label);
     let content = if ascii {
-        format!(
-            "[{}",
-            content
-                .strip_prefix("⧉ ")
-                .unwrap_or(content)
-                .replace(" · ", " ")
-        )
+        content
+            .strip_prefix("⧉ ")
+            .unwrap_or(content)
+            .replace(" · ", " ")
+    } else {
+        content.to_owned()
+    };
+    fit_chip(&content, width, ascii)
+}
+
+/// The chip's cells for its text: the remove mark at the end, `[… x]` in ASCII.
+fn fit_chip(content: &str, width: usize, ascii: bool) -> (String, usize) {
+    let content = if ascii {
+        format!("[{content}")
     } else {
         content.to_owned()
     };
@@ -110,7 +124,7 @@ fn display(label: &str, width: usize, ascii: bool) -> (String, usize) {
         );
     }
     let mut visible = if content.width() + suffix.width() <= width {
-        content + suffix
+        content.clone() + suffix
     } else {
         let head = crate::board::view::fit(&content, width - suffix.width());
         head + suffix
@@ -194,7 +208,21 @@ impl App {
                 if rect.is_empty() {
                     continue;
                 }
-                let (label, remove) = display(&fold.label, usize::from(rect.width), ascii);
+                let file = text
+                    .as_str()
+                    .get(fold.source.clone())
+                    .filter(|_| !fold.label.starts_with('⧉'))
+                    .and_then(super::files::path_of)
+                    .and_then(|path| {
+                        let table = self.composer.files.borrow();
+                        table
+                            .get(&path)
+                            .map(|info| super::files::content(&path, info, ascii))
+                    });
+                let (label, remove) = match file {
+                    Some(content) => fit_chip(&content, usize::from(rect.width), ascii),
+                    None => display(&fold.label, usize::from(rect.width), ascii),
+                };
                 let style = if fold.source.start < selected.end && fold.source.end > selected.start
                 {
                     base.add_modifier(Modifier::REVERSED)
@@ -257,10 +285,15 @@ impl App {
         let Some(source) = input.text.as_str().get(source) else {
             return Effect::None;
         };
+        let file = !source.contains('\n')
+            && super::files::path_of(source)
+                .is_some_and(|path| self.composer.files.borrow().get(&path).is_some());
         *self.composer.paste_preview.get_mut() = Some(Preview {
             key,
             id,
             text: source.into(),
+            source: source.to_owned(),
+            file,
             scroll: RefCell::default(),
         });
         Effect::None
@@ -342,7 +375,7 @@ impl App {
             && projection.text.is_some_and(|text| {
                 text.folds().iter().any(|fold| {
                     fold.id == preview.id
-                        && text.as_str().get(fold.source.clone()) == Some(preview.text.as_str())
+                        && text.as_str().get(fold.source.clone()) == Some(preview.source.as_str())
                 })
             }))
         .then_some(preview)
@@ -389,14 +422,36 @@ impl App {
             .saturating_sub(anchor.x)
             .min(64)
             .saturating_sub(4);
-        let layout = preview.text.layout(width);
+        let file_path = super::files::path_of(&preview.source).filter(|_| preview.file);
+        let (shown, title): (Editor, String) = match file_path.as_deref().and_then(|path| {
+            let table = self.composer.files.borrow();
+            table
+                .get(path)
+                .map(|info| (path.to_owned(), super::files::popup(path, info)))
+        }) {
+            Some((path, popup)) => (
+                popup.as_str().into(),
+                format!("File · {}", super::files::name(&path)),
+            ),
+            None => {
+                let (chars, lines) = counts(preview.text.as_str());
+                let line_unit = if lines == 1 { "line" } else { "lines" };
+                (
+                    preview.text.clone(),
+                    format!(
+                        "Pasted · {} chars · {} {line_unit}",
+                        number(chars),
+                        number(lines)
+                    ),
+                )
+            }
+        };
+        let layout = shown.layout(width);
         let Some(outer) = preview_area(bounds, anchor, layout.lines.len()) else {
             drop(preview);
             self.composer.paste_preview.borrow_mut().take();
             return;
         };
-        let (chars, lines) = counts(preview.text.as_str());
-        let title = format!("Pasted · {} chars · {} lines", number(chars), number(lines));
         let modal = Modal {
             title: String::new(),
             placement: Placement::Body,
@@ -441,6 +496,122 @@ impl App {
             Line::styled(hint, border),
         );
         self.peek_areas.set(crate::board::peek::Peek::Paste, outer);
+    }
+}
+
+/// Gives every collapsed file chip over `path` the label its facts now call for.
+pub(super) fn relabel(editor: &mut Editor, path: &str, label: &str) -> bool {
+    let sent = super::files::send_text(path);
+    let ranges: Vec<_> = editor
+        .folds()
+        .iter()
+        .filter(|fold| {
+            !fold.label.starts_with('⧉')
+                && editor.as_str().get(fold.source.clone()) == Some(sent.as_str())
+        })
+        .map(|fold| fold.source.clone())
+        .collect();
+    let mut changed = false;
+    for range in ranges {
+        changed |= editor.relabel_fold(range, label.to_owned());
+    }
+    changed
+}
+
+impl App {
+    /// A paste that is only existing files becomes one chip per file in the message composer,
+    /// opened for the selected member when it is not already. None for any other paste.
+    pub(in crate::board) fn drop_files(&mut self, text: &str) -> Option<Effect> {
+        let files = super::files::parse(text)?;
+        self.insert_dropped(files)
+    }
+
+    /// Opens the composer for the selected member when needed and inserts the chips; None when
+    /// the open input is not a message composer, so the paste stays ordinary text.
+    pub(in crate::board) fn insert_dropped(
+        &mut self,
+        files: Vec<super::files::Dropped>,
+    ) -> Option<Effect> {
+        use crate::board::app::{Compose, MESSAGE_LIMIT};
+        match &self.input {
+            Some(input)
+                if input.draft_key.is_none() || matches!(input.compose, Compose::Status) =>
+            {
+                return None;
+            }
+            Some(_) => {}
+            None => {
+                let effect = self.focus_composer();
+                if !self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.draft_key.is_some())
+                {
+                    return Some(match effect {
+                        Effect::None => self.say("Select an agent to send files"),
+                        effect => effect,
+                    });
+                }
+            }
+        }
+        let input = self.input.as_mut()?;
+        let extra: usize = files
+            .iter()
+            .map(|file| super::files::send_text(&file.path).len() + 2)
+            .sum();
+        if input.text.as_str().len() + extra > MESSAGE_LIMIT {
+            return Some(self.say(format!(
+                "Files exceed {MESSAGE_LIMIT} bytes; draft unchanged."
+            )));
+        }
+        let mut probes = Vec::new();
+        for file in &files {
+            let before = input.text.as_str()[..input.text.selection().start]
+                .chars()
+                .next_back();
+            if before.is_some_and(|ch| !ch.is_whitespace()) {
+                input.text.insert(" ", MESSAGE_LIMIT);
+            }
+            let mut table = self.composer.files.borrow_mut();
+            if table.note(file) {
+                probes.push(file.path.clone());
+            }
+            let label = table
+                .get(&file.path)
+                .map(|info| super::files::label(&file.path, info))
+                .unwrap_or_default();
+            drop(table);
+            input
+                .text
+                .insert_folded(&super::files::send_text(&file.path), label, MESSAGE_LIMIT);
+            input.text.insert(" ", MESSAGE_LIMIT);
+        }
+        if let Some(probe) = &self.composer.probe {
+            for path in probes {
+                probe.request(&path);
+            }
+        }
+        self.remember_draft();
+        self.update_mentions();
+        self.composer.invalidate();
+        self.invalidate_frame_geometry();
+        Some(Effect::None)
+    }
+
+    /// A finished probe: the facts replace what the chip knew, in the open draft and the kept ones.
+    pub(in crate::board) fn apply_file_info(&mut self, delivery: super::files::Delivery) -> bool {
+        let path = delivery.path.clone();
+        let Some(info) = self.composer.files.borrow_mut().apply(delivery).cloned() else {
+            return false;
+        };
+        let label = super::files::label(&path, &info);
+        let mut changed = self.composer.relabel_drafts(&path, &label);
+        if let Some(input) = self.input.as_mut() {
+            changed |= relabel(&mut input.text, &path, &label);
+        }
+        self.composer.invalidate();
+        self.invalidate_frame_geometry();
+        changed
     }
 }
 

@@ -106,10 +106,11 @@ fn room_dispatch_uses_the_shared_request_kind_and_operation_identity() {
     use crate::invocation::RoomOperation;
     use tmt_core::request::RequestKind;
     assert!(matches!(
-        parsed(&["talk", "Alice", "Only Alice", "--room", "Design", "--inbox", "--detach"]).invocation,
+        parsed(&["talk", "Alice", "Only Alice", "--room", "Design", "--detach"]).invocation,
         Invocation::Talk { options: TalkOptions {
             urgent: false,
-            digest_kind: tmt_core::request::digest::DigestKind::Fyi, room: Some(room), inbox: true, .. }, .. } if room == "Design"
+            passthrough: false,
+            digest_kind: tmt_core::request::digest::DigestKind::Fyi, room: Some(room), .. }, .. } if room == "Design"
     ));
     for (verb, kind) in [
         ("send", RequestKind::Request),

@@ -99,7 +99,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 .map(|row| {
                     let delivery_policy =
                         records.delivery_policy(&row.attention.attempt.request_id)?;
-                    let final_state = attention::final_state(&row.attention, now, Some(()))?;
+                    let final_state = attention::final_state(
+                        &row.attention,
+                        now,
+                        Some(()),
+                        delivery_policy.mode,
+                    )?;
                     Ok(HistorySummary {
                         item: item(row.attention, final_state, delivery_policy),
                         preview: row.preview,
@@ -134,8 +139,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             let response = records
                 .find_response(request_id)?
                 .filter(|response| now < response.response_expires_at_ms);
-            let final_state =
-                attention::final_state(&record, now, response.map(|response| response.body))?;
+            let final_state = attention::final_state(
+                &record,
+                now,
+                response.map(|response| response.body),
+                delivery_policy.mode,
+            )?;
             Ok(HistoryDetail {
                 item: item(record, final_state, delivery_policy),
                 prompt: context.prompt,

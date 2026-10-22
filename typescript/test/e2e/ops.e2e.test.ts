@@ -1196,6 +1196,126 @@ renameSync(output+'.tmp',output);
     });
   });
 
+  it('keeps a chat selection, its Copy and its Quote while the agent is busy (#4344)', async () => {
+    await withE2EFixture(async (fixture) => {
+      const member = await squadWithMember(fixture);
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('busy-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'tmt ops ui --squad product; echo BUSY_BOARD_EXIT=$?',
+        'Enter',
+      ]);
+      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('⏎ to message auth-fix'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'first question']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture((screen) => /\bsent\b/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+
+      const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
+      const where = (needle: string) => {
+        const rows = screen().split('\n');
+        const y = rows.findIndex((row) => row.includes(needle));
+        expect(y, `${needle} on screen:\n${screen()}`).toBeGreaterThanOrEqual(0);
+        return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
+      };
+      const pointer = (code: number, final: 'M' | 'm', x: number, y: number) =>
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          shell.pane,
+          '-l',
+          `\u001b[<${code};${x + 1};${y + 1}${final}`,
+        ]);
+      const buffer = () => {
+        try {
+          return fixture.tmux(['show-buffer']).trim();
+        } catch {
+          return '';
+        }
+      };
+      // Select the sent question, as the user does, then let the agent work around it.
+      const text = where('first question');
+      pointer(0, 'M', text.x, text.y);
+      pointer(32, 'M', text.x + 'first question'.length, text.y);
+      pointer(0, 'm', text.x + 'first question'.length, text.y);
+      await fixture.waitForCapture(
+        (current) => /first question\s+\+ Quote/.test(current),
+        shell.pane
+      );
+      await fixture.waitFor(
+        () => buffer() === 'first question',
+        5_000,
+        'the release copied the selection'
+      );
+
+      // A busy turn: the agent's finals land in the product's own store, one after another,
+      // and the last one grows in place. Each lands as a board event between pointer events.
+      const store = new Database(path.join(fixture.globalDir, 'tmt.db'));
+      try {
+        const agent = store.prepare('SELECT id FROM identities WHERE name = ?').get('auth-fix') as {
+          id: string;
+        };
+        const land = store.prepare(
+          "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms) VALUES (?, ?, ?, 'claude', 0, NULL, ?)"
+        );
+        const grow = store.prepare(
+          'UPDATE recent_responses SET text = ? WHERE sequence = (SELECT max(sequence) FROM recent_responses WHERE identity_id = ?)'
+        );
+        const now = Date.now();
+        for (let round = 1; round <= 4; round += 1) {
+          land.run(agent.id, `step ${round} is done`, now + round, now + 3_600_000);
+          await fixture.waitForCapture(
+            (current) => current.includes(`step ${round} is done`),
+            shell.pane
+          );
+          grow.run(`step ${round} is done and the agent keeps writing`, agent.id);
+          await fixture.waitForCapture(
+            (current) => current.includes(`step ${round} is done and the agent keeps writing`),
+            shell.pane
+          );
+          expect(screen(), `Quote stays after round ${round}:\n${screen()}`).toMatch(
+            /first question\s+\+ Quote/
+          );
+        }
+      } finally {
+        store.close();
+      }
+      expect(screen(), 'the selection is still on its text').toContain('first question');
+
+      // Copy again through the reader's key, then Quote: both work mid-turn.
+      fixture.tmux(['set-buffer', 'stale']);
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'y']);
+      await fixture.waitFor(
+        () => buffer() === 'first question',
+        5_000,
+        `y copied during the busy turn:\n${screen()}`
+      );
+      const button = where('+ Quote');
+      pointer(0, 'M', button.x + 1, button.y);
+      pointer(0, 'm', button.x + 1, button.y);
+      await fixture.waitForCapture((current) => /first question\s+×/.test(current), shell.pane);
+
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((current) => current.includes('Nothing sent.'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((current) => !current.includes('Esc clear filter'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture((current) => current.includes('BUSY_BOARD_EXIT=0'), shell.pane);
+    });
+  }, 60_000);
+
   it('closes a --popup board after its jump and keeps the pane board open', async () => {
     await withE2EFixture(async (fixture) => {
       const member = await squadWithMember(fixture);

@@ -352,7 +352,7 @@ Missing windows, stale balances or insufficient rate evidence remain explicit.
 The Subscriptions panel ID controls these inline cells; Usage controls the section.
 At 103/148 columns the quota track occupies 37/49 cells plus its three-cell gap.
 Smaller widths admit complete fields or leave full values in the existing Details.
-Digest leaves Allowance empty until its provider projection is implemented.
+The Digest tab owns the Allowance block ([board reference](board.md)).
 
 Agents quota pace uses the last two hours of the actual clock, including the
 latest admitted observation and both horizon endpoints, independent of token

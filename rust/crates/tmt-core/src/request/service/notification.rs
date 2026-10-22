@@ -56,7 +56,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         })
     }
 
-    /// Called before external delivery. Missing rows mean explicit queue-only,
+    /// Called before external delivery. Missing rows mean API-dispatched,
     /// anonymous or pre-migration requests, and never acquire notification rights.
     pub fn enable_notifications(
         &mut self,

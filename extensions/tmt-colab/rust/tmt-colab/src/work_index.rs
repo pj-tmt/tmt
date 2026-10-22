@@ -23,7 +23,8 @@ const FILE: &str = "work-index.json";
 const LOCK: &str = "work-index.lock";
 /// A larger file is not ours; it reads as empty.
 const LIMIT: u64 = 1024 * 1024;
-const VERSION: u64 = 1;
+/// 2: a kept task line carries its title.
+const VERSION: u64 = 2;
 
 /// The work of the pages of the space: a page missing from it is unavailable (not asked, deleted,
 /// unreadable), and `None` is a page with no work.
@@ -56,7 +57,7 @@ fn entry_json(work: &Option<PageWork>, fingerprint: &str) -> Value {
     entry
 }
 fn line_json(line: &Line) -> Value {
-    let mut value = json!({"id":line.id,"state":line.state});
+    let mut value = json!({"id":line.id,"title":line.title,"state":line.state});
     if line.signoff {
         value["signoff"] = json!(true);
     }
@@ -71,6 +72,7 @@ fn line_json(line: &Line) -> Value {
 fn line_from(value: &Value) -> Option<Line> {
     Some(Line {
         id: value["id"].as_str()?.to_owned(),
+        title: value["title"].as_str()?.to_owned(),
         state: value["state"].as_str()?.to_owned(),
         signoff: value.get("signoff") == Some(&Value::Bool(true)),
         assignee: value.get("assignee").cloned(),
@@ -251,6 +253,7 @@ mod tests {
             }],
             lines: vec![Line {
                 id: "T-1".into(),
+                title: "Do it".into(),
                 state: "todo".into(),
                 signoff: true,
                 assignee: Some(json!({"kind":"agent","name":"ada"})),

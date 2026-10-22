@@ -237,6 +237,24 @@ fn prepare_records<E>(
             return Err(RequestError::RoomRecipientNotMember);
         }
     }
+    if delivery.mode == super::digest::DeliveryMode::Passthrough {
+        // Typed input is a person's own: no one else's message may reach a pane as if the
+        // person had typed it, and no agent is asked to reply to it.
+        let person = match input.originator.identity_id() {
+            Some(id) => records.identity_is_user(id)?,
+            None => false,
+        };
+        if !person
+            || input.kind != RequestKind::Request
+            || !matches!(input.route, RequestRoute::Inbox { .. })
+        {
+            return Err(RequestError::Invalid(
+                "Passthrough is a person's own message to an identified agent.",
+            ));
+        }
+        input.wait = false;
+        input.preamble = None;
+    }
     let expires = input
         .expires_at_ms
         .max(deadline(now, REQUEST_MIN_EXPIRY_MS)?);

@@ -81,7 +81,11 @@ export function watchRememberedPages(
   let set = spaces.get(space);
   if (!set) spaces.set(space, (set = new Set()));
   set.add(watcher);
-  return () => void set.delete(watcher);
+  return () => {
+    set.delete(watcher);
+    // A space nobody watches keeps no empty set, unless a later watcher already replaced it.
+    if (set.size === 0 && spaces.get(space) === set) spaces.delete(space);
+  };
 }
 
 /**

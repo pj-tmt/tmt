@@ -61,7 +61,9 @@ pub(crate) fn attach_to_catalog(
 
 /// One worker's best-effort writer: its own writable store handle, opened on first use. A write that
 /// cannot happen (no handle, a busy or stale store) leaves the page without a row, never fails the
-/// summary, and is tried again at the page's next fold.
+/// summary, and is tried again at the page's next fold. The handle never creates or migrates the
+/// store: only the serve's own open does, and a worker that raced it would upgrade the store behind
+/// the caller that expects it to be behind (#4300).
 pub(crate) struct TitleWriter {
     layout: Layout,
     store: Option<Store>,
@@ -85,7 +87,7 @@ impl TitleWriter {
         title: Option<&str>,
     ) {
         if self.store.is_none() {
-            self.store = Store::open(&self.layout).ok();
+            self.store = Store::write_existing(&self.layout).ok();
         }
         let Some(store) = self.store.as_mut() else {
             return;
@@ -184,6 +186,37 @@ mod tests {
         assert_eq!(titled(&value), [1]);
         assert_eq!(value["pages"][0]["title"], "\"\"\"\"");
         assert!(serde_json::to_vec(&value).unwrap().len() <= crate::limits::DISCOVERY_BYTES);
+    }
+
+    /// The summary worker runs in the background of a live serve. If it finds the store behind
+    /// this build, its title write is best effort and leaves the page without a row; it must not
+    /// be the thing that upgrades the store, since only the serve's own open does that (#4300).
+    #[test]
+    fn the_background_writer_never_migrates_a_store_that_is_behind() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "tmt-4300-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let layout = Layout::open(&root).unwrap();
+        drop(Store::open(&layout).unwrap());
+        let keyring = Keyring::open(&layout).unwrap();
+        let db = layout.directory.join("space.db");
+        // Schema 15: before the title projection.
+        rusqlite::Connection::open(&db)
+            .unwrap()
+            .execute_batch("DROP TABLE page_titles; PRAGMA user_version=15")
+            .unwrap();
+        TitleWriter::new(&layout).record(&keyring, "page", "progress", Some("Title"));
+        let version: u32 = rusqlite::Connection::open(&db)
+            .unwrap()
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(version, 15, "the title writer upgraded the store");
     }
 
     #[test]

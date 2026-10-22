@@ -526,7 +526,6 @@ describe('public local extension API', () => {
         'talk',
         'Recipient',
         message,
-        '--inbox',
         '--detach',
         '--identity',
         'Sender',

@@ -211,4 +211,4 @@ fn invocation_error(error: InvokeError) -> RemoteError {
 
 #[cfg(test)]
 #[path = "core_tests.rs"]
-mod tests;
+pub(crate) mod tests;

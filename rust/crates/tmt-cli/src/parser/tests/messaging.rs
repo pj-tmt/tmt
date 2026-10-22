@@ -65,6 +65,40 @@ fn withdrawal_requires_reason_and_keeps_originator_selection_command_local() {
 }
 
 #[test]
+fn passthrough_is_one_flag_that_takes_no_reply_options() {
+    let passthrough = |argv: &[&str]| match parsed(argv).invocation {
+        Invocation::Talk { options, .. } => options.passthrough,
+        other => panic!("talk expected: {other:?}"),
+    };
+    assert!(passthrough(&["talk", "peer", "hello", "--passthrough"]));
+    assert!(!passthrough(&["talk", "peer", "hello"]));
+    for extra in [
+        &["--timeout", "5"][..],
+        &["--room", "design"],
+        &["--no-preamble"],
+    ] {
+        let mut argv = vec!["talk", "peer", "hello", "--passthrough"];
+        argv.extend_from_slice(extra);
+        assert_usage_error(
+            &argv,
+            "--passthrough sends the message as typed and returns at once",
+            OutputMode::default(),
+        );
+    }
+    // A bare flag still composes with --detach, --urgent and an explicit sender.
+    assert!(passthrough(&[
+        "talk",
+        "peer",
+        "hello",
+        "--passthrough",
+        "--detach",
+        "--urgent",
+        "--identity",
+        "ben",
+    ]));
+}
+
+#[test]
 fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
     let timeout = parsed(&["talk", "peer", "hello", "--timeout", "86400s"]);
     assert_eq!(
@@ -75,9 +109,9 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
+                passthrough: false,
                 digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
-                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: None,
@@ -95,9 +129,9 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
+                passthrough: false,
                 digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
-                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: Some(2_147_483.647),
@@ -137,9 +171,9 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
+                passthrough: false,
                 digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
-                inbox: false,
                 force: false,
                 detach: true,
                 delay_seconds: None,
@@ -157,11 +191,15 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
 
 #[test]
 fn inbox_and_listener_options_have_typed_defaults_and_minutes() {
-    let talk = parsed(&["talk", "Receiver", "hello", "--inbox", "--detach"]);
-    let Invocation::Talk { options, .. } = talk.invocation else {
-        panic!("talk invocation")
-    };
-    assert!(options.inbox);
+    // Queue-only delivery is not a sender's choice (#4302): talk and room send
+    // refuse the retired option like any other unknown one.
+    for argv in [
+        &["talk", "Receiver", "hello", "--inbox", "--detach"][..],
+        &["talk", "Receiver", "hello", "--room", "Design", "--inbox"][..],
+        &["room", "send", "Design", "hello", "--inbox"][..],
+    ] {
+        assert_usage_error(argv, "unexpected argument '--inbox'", OutputMode::default());
+    }
 
     assert_eq!(
         parsed(&["x", "listen", "--identity", "Receiver"]).invocation,

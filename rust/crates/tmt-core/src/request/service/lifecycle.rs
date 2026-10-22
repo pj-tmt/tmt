@@ -159,8 +159,13 @@ pub(super) fn queue_records<E>(
         }
         return Ok(false);
     }
-    let revision = reserve_recipient_revision(records, recipient_identity_id)?;
-    records.set_recipient_attention_revision(&attempt.request_id, revision)?;
+    // A passthrough is typed text, not a request to the agent: it publishes no attention.
+    if records.delivery_policy(&attempt.request_id)?.mode
+        != super::super::digest::DeliveryMode::Passthrough
+    {
+        let revision = reserve_recipient_revision(records, recipient_identity_id)?;
+        records.set_recipient_attention_revision(&attempt.request_id, revision)?;
+    }
     let horizon = Some(
         attempt
             .retention_expires_at_ms

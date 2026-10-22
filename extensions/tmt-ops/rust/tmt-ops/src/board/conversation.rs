@@ -89,6 +89,10 @@ struct Session {
     finals: Vec<Reply>,
     text: String,
     rendered: Option<Rendered>,
+    /// The content changed after `rendered` was built. Pointer events keep using the last
+    /// painted frame until the next `prepare` rebuilds it; clearing it would drop a press,
+    /// a drag or a release that lands in between (#4344).
+    stale: bool,
     anchor: NotesCursor,
     follow: bool,
     change: Change,
@@ -122,6 +126,7 @@ impl Default for Session {
             finals: Vec::new(),
             text: "(no response in loaded history)".into(),
             rendered: None,
+            stale: false,
             anchor: Default::default(),
             follow: true,
             change: Change::Current,
@@ -222,7 +227,7 @@ impl Session {
                 .map_or("(no response in loaded history)", |reply| &reply.body),
         );
         self.reply = incoming;
-        self.rendered = None;
+        self.stale = true;
     }
 
     /// The one acquired-context update used by legacy and grouped placements.
@@ -237,7 +242,7 @@ impl Session {
         self.observe_finals(detail.finals);
         if self.sent != detail.sent {
             self.sent = detail.sent;
-            self.rendered = None;
+            self.stale = true;
         }
         self.update(detail.reply);
         let projected = match target {
@@ -311,16 +316,17 @@ impl Session {
         inventory: &super::inventory::Inventory,
     ) -> bool {
         let identities = Some(std::sync::Arc::clone(&inventory.generation));
-        let changed = self.rendered.as_ref().is_none_or(|rendered| {
-            rendered.width != width
-                || rendered.gutter != gutter
-                || rendered.look != look
-                || match (&rendered.identities, &identities) {
-                    (None, None) => false,
-                    (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(old, new),
-                    _ => true,
-                }
-        });
+        let changed = self.stale
+            || self.rendered.as_ref().is_none_or(|rendered| {
+                rendered.width != width
+                    || rendered.gutter != gutter
+                    || rendered.look != look
+                    || match (&rendered.identities, &identities) {
+                        (None, None) => false,
+                        (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(old, new),
+                        _ => true,
+                    }
+            });
         if changed {
             let mut mapped = markdown::render_conversation_with_members(
                 &self.text,
@@ -404,6 +410,7 @@ impl Session {
                 response_sources: Some(response_sources),
                 final_spans: transcript.final_spans,
             });
+            self.stale = false;
         }
         changed
     }

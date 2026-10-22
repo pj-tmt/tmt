@@ -26,6 +26,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | ------------------------- | ------------------------------------------------------------------------------------ |
 | Repository root           | Entry points, contributor guidance, license and required configuration               |
 | `.agents/`                | Contributor skills and their area references                                         |
+| `.claude/`                | Claude Code project settings: the host-tmux guard hook                               |
 | `.claude-plugin/`         | Claude Code marketplace manifest for the bundled Claude plugins                      |
 | `.github/`                | Ownership/layout maps, workflows, shared Actions and isolated release tooling        |
 | `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
@@ -40,8 +41,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
 are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/SKILL.md)
-owns moves and the tracked-file guard. Handbook language exceptions belong to
-[AGENTS](AGENTS.md#repository-content-language) and the allowlist.
+owns moves and the tracked-file guard.
 
 `tmt-ux-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
 `./ui` isolates React/Radix/cmdk/CVA, CSS/themes/portals; legacy/static unchanged; no domain state.
@@ -287,7 +287,7 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
-`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist); `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
+`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist), including the delivery mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, never a request to its recipient; `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
 Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient

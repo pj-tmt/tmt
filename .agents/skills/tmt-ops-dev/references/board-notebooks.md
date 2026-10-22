@@ -75,7 +75,10 @@ also requests one bounded originator-results page for HOME, member boards and
 boards configured with a Replies pane. `home_leads::State` fences that projection by sender
 UUID. `row_detail` keeps the newest eight finals (`Detail.finals`, oldest first, one per
 request ID, with author, exact text and `submittedAtMs`) for the selected recipient UUID
-across room and global observations; `Detail.reply` is the newest of them. Those windows are
+across room and global observations; `Detail.reply` is the newest of them. In the Squads tree every
+open request of the agent to the user (`pending_question`, from `waitingOnYou`) is placed among
+them by its send time, so an agent that answers by sending new requests still shows in the
+thread. Those windows are
 bounded and shared, so the painted conversation (`pane_output_enabled`, Replies pane visible)
 also reads its agent's own newest eight once per activation (`SelectedRead::Finals`,
 `requests.list` with `originatorId`, `recipientId`, `view:"results"`); a core that refuses
@@ -193,12 +196,16 @@ field is frozen as the cells it displayed. The transcript changes and scrolls un
 the pointer, so its selection (`source/anchored.rs`) is anchored to transcript
 lines and cell columns instead: a progress tick, new output, a growing input band
 or a scroll keeps the highlight and the button, text out of view is clipped and
-comes back with its line, and a rebuilt transcript finds the line again by its text.
+comes back with its line, and a rebuilt transcript finds the line again by its
+displayed text: the same line, else the line it grew into while the agent streams,
+else the same line with only its tail changed (an age stamp). Pointer events use the
+last painted transcript until the next frame rebuilds it, so output that lands
+between a press, a drag and the release never drops a press, the drag or the copy.
 A drag reads the pointer against the transcript as it is now and, at the pane's
 first or last row, scrolls one line per pointer event, so holding the pointer still
 at the edge does not keep scrolling. The selection ends on Esc, an outside press, a
 new drag, a conversation switch, or when it can no longer be shown: its lines are
-gone, an end's text changed, or a resize re-wrapped the transcript. Quoting never
+gone, an end's text changed before its end, or a resize re-wrapped the transcript. Quoting never
 depends on the agent's state. The
 `+ Quote` control or Enter adds a literal author/excerpt chip above the input,
 without replacing the draft text or granting request authority. Up from the first

@@ -1,4 +1,4 @@
-use super::{responses::first_final_refusal, *};
+use super::{responses::answer_refusal, *};
 use crate::request::{
     attention::AttentionRejection,
     correlation,
@@ -10,23 +10,23 @@ fn open_items<E>(
     query: &OpenQuery,
     now: u64,
 ) -> Result<Vec<OpenRequest>, RequestError<E>> {
-    Ok(records
-        .list_open_requests(query, now)?
-        .into_iter()
+    let mut open = Vec::new();
+    for row in records.list_open_requests(query, now)? {
         // Storage only narrows; the acceptance rule decides.
-        .filter(|row| first_final_refusal(&row.attention.attempt, now).is_none())
-        .map(|row| {
-            let attempt = row.attention.attempt;
-            OpenRequest {
-                request_id: attempt.request_id,
-                room_id: attempt.room_id,
-                originator: attempt.originator,
-                prepared_at_ms: attempt.prepared_at_ms,
-                delivery: attempt.status,
-                preview: row.preview,
-            }
-        })
-        .collect())
+        if answer_refusal(records, &row.attention.attempt, now)?.is_some() {
+            continue;
+        }
+        let attempt = row.attention.attempt;
+        open.push(OpenRequest {
+            request_id: attempt.request_id,
+            room_id: attempt.room_id,
+            originator: attempt.originator,
+            prepared_at_ms: attempt.prepared_at_ms,
+            delivery: attempt.status,
+            preview: row.preview,
+        });
+    }
+    Ok(open)
 }
 
 fn query(recipient: &str, originator: Option<&str>, limit: u64, now: u64) -> OpenQuery {
