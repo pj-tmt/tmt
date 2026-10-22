@@ -26,9 +26,9 @@ import type { FrozenAttachmentUpload } from '../src/attachment-channel.js';
 import { text } from '../src/strings.js';
 import { destination, id } from './ask-fixtures.js';
 
-/** What the frame shows: an empty input to type in, a long draft, a send in flight, or a refusal. */
-export type AgentInputState = 'idle' | 'draft' | 'busy' | 'refused';
-const STATES: readonly AgentInputState[] = ['idle', 'draft', 'busy', 'refused'];
+/** What the frame shows: an empty input to type in, a long draft, a held send, a refusal, or the @ list. */
+export type AgentInputState = 'idle' | 'draft' | 'busy' | 'refused' | 'list';
+const STATES: readonly AgentInputState[] = ['idle', 'draft', 'busy', 'refused', 'list'];
 
 const DRAFT = [
   'Please check the release notes before Friday.',
@@ -129,9 +129,11 @@ export function mount(root: HTMLElement, params: URLSearchParams = new URLSearch
   setInitialEdit(
     state === 'idle'
       ? addressed('')
-      : state === 'draft'
-        ? addressed(`\n${DRAFT}`)
-        : { value: QUESTION, edited: true },
+      : state === 'list'
+        ? addressed(' Who else should review this? @')
+        : state === 'draft'
+          ? addressed(`\n${DRAFT}`)
+          : { value: QUESTION, edited: true },
   );
   if (state === 'busy') holdWrite();
   if (state === 'refused') setWriteFailure('unavailable');
@@ -148,4 +150,18 @@ export function mount(root: HTMLElement, params: URLSearchParams = new URLSearch
   );
   setHost(body);
   mountFixture(state === 'refused' ? 'write-failure' : 'held');
+  if (state === 'list') activateFirstAgent();
+}
+
+/** The @ list frame: once the list is open, the first agent is made keyboard-active (an ArrowDown). */
+function activateFirstAgent() {
+  const started = Date.now();
+  const timer = setInterval(() => {
+    const input = document.querySelector('[role="combobox"]');
+    const open = document.querySelector('[role="listbox"]:not([hidden])');
+    if (input && open?.querySelector('[role="option"]')) {
+      clearInterval(timer);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    } else if (Date.now() - started > 8000) clearInterval(timer);
+  }, 100);
 }

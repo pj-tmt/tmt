@@ -17,6 +17,14 @@ export function AgentInputSection() {
         params={{ state: 'idle' }}
       />
       <FramePair
+        title="The @ list open, first agent keyboard-active"
+        note="What typing @ shows: the list under the field, the active agent drawn with the focus frame."
+        frame="agent-input"
+        width={440}
+        height={520}
+        params={{ state: 'list' }}
+      />
+      <FramePair
         title="Multi-line draft"
         note="A long message with line breaks keeps the chip, the attachments and the send row in view."
         frame="agent-input"

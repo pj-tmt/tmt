@@ -92,3 +92,13 @@ test('phone: the same input fills a 390 px screen', async ({ page }) => {
   await expect(page.getByRole('listbox')).toBeVisible();
   await capture(page, 'phone-popup');
 });
+
+test('list: the frame opens with the @ list and the first agent keyboard-active', async ({
+  page,
+}) => {
+  await frame(page, 'list');
+  const list = page.getByRole('listbox');
+  await expect(list).toBeVisible();
+  await expect(list.locator('[role=option][data-active="true"]')).toHaveCount(1);
+  await capture(page, 'list');
+});
