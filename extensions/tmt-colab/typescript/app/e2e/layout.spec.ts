@@ -59,10 +59,15 @@ for (const width of [1440, 390])
       expect(rect?.y).toBe(header.y + header.height + lead);
       expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
       // The frame ends the document: a page taller than the room grows it (window scroll mode), so
-      // the bottom is the frame's, not a fixed 900 that depends on the runner's fonts.
-      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(
-        Math.max(900, Math.round(rect!.y + rect!.height)),
-      );
+      // the bottom is the frame's, not a fixed 900 that depends on the runner's fonts. The frame
+      // reports its height asynchronously, so both sides are measured again until they settle.
+      await expect
+        .poll(async () => {
+          const box = (await frame.boundingBox())!;
+          const bottom = Math.max(900, Math.round(box.y + box.height));
+          return (await page.evaluate(() => document.documentElement.scrollHeight)) - bottom;
+        })
+        .toBe(0);
       await expect(frame).toHaveAttribute('scrolling', 'no');
       await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
