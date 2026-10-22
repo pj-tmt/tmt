@@ -416,7 +416,8 @@ own module/drawing boundaries and verification.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   `board::selected_conversation` gathers one bounded refresh on the selected worker lane,
   reusing full request documents and publishing once to the existing Session; source,
-  revision and generation fences remain with admission. The [acquisition guide](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker) owns its lifecycle.
+  revision and generation fences remain with admission. The selected lane owns its
+  cancellation; base preemption invalidates both lanes. The [acquisition guide](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker) owns its lifecycle.
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
   The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.

@@ -734,8 +734,15 @@ fn session(
                 snapshot,
             }) => {
                 if !cancellation.cancelled() {
-                    revision += 1;
-                    app.selected_request = refresh::SelectedRequest::Ready(None);
+                    // Keep the selected batch until the next paint restores
+                    // viewport admission. The existing post-paint full-plan
+                    // comparison preserves it only if the demand is unchanged;
+                    // a source/selection/sender change starts a new revision.
+                    // Explicit refresh already cleared Ready before requesting.
+                    if app.selected_request.conversation().is_none() {
+                        revision += 1;
+                        app.selected_request = refresh::SelectedRequest::Ready(None);
+                    }
                     let previous_window = app.digest_window();
                     app.apply(*snapshot);
                     if app.digest_window() != previous_window {
@@ -1221,8 +1228,12 @@ fn session(
         }
         // A snapshot may change the interval, including turning reload off.
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
-            revision += 1;
-            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+            // Keep the in-flight batch admitted until a snapshot proves its
+            // source plan changed. Base acquisition continues at its interval.
+            if app.selected_request.conversation().is_none() {
+                revision += 1;
+                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
+            }
             request(
                 app.current.clone(),
                 false,
@@ -1699,6 +1710,12 @@ mod tests {
                     let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
                     snapshot.tabs.push(ALL.into());
                     snapshot.view = Ok(fresh.view.take().unwrap());
+                    events
+                        .send(BoardEvent::Input(Event::Key(KeyEvent::new(
+                            KeyCode::Char('r'),
+                            KeyModifiers::CONTROL,
+                        ))))
+                        .unwrap();
                     events.send(snapshot_event(snapshot)).unwrap();
                     events
                         .send(result(plan, revision, "BEFORE REFRESH"))
@@ -1818,6 +1835,12 @@ mod tests {
                     let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
                     snapshot.tabs.push(ALL.into());
                     snapshot.view = Ok(fresh.view.take().unwrap());
+                    events
+                        .send(BoardEvent::Input(Event::Key(KeyEvent::new(
+                            KeyCode::Char('r'),
+                            KeyModifiers::CONTROL,
+                        ))))
+                        .unwrap();
                     events.send(snapshot_event(snapshot)).unwrap();
                     events.send(result(plan, revision, "OLD REFRESH")).unwrap();
                 } else {

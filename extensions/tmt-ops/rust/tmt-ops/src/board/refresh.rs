@@ -80,12 +80,22 @@ pub(super) enum SelectedRequest {
     Ready(Option<SelectedRead>),
 }
 
+impl SelectedRequest {
+    pub(super) fn conversation(&self) -> Option<&super::selected_conversation::Plan> {
+        match self {
+            Self::Ready(Some(SelectedRead::Conversation(plan))) => Some(plan),
+            _ => None,
+        }
+    }
+}
+
 pub struct Worker {
     requests: Sender<Work>,
     /// The selected member's reads run on their own lane, so the background
     /// refresh (HOME exchanges, cron, history) never queues in front of them.
     selected: Sender<SelectedWork>,
     generation: Arc<Generation>,
+    selected_generation: Arc<Generation>,
     thread: Option<std::thread::JoinHandle<()>>,
     selected_thread: Option<std::thread::JoinHandle<()>>,
     checklist_stop: crate::runner::Cancellation,
@@ -101,6 +111,7 @@ impl Worker {
     ) -> Self {
         let (requests, pending) = mpsc::channel();
         let generation = Arc::new(Generation::default());
+        let selected_generation = Arc::new(Generation::default());
         let read_generation = Arc::clone(&generation);
         let checklist_stop = crate::runner::Cancellation::default();
         let checklist_reader = core.cancellable(checklist_stop.clone());
@@ -108,7 +119,7 @@ impl Worker {
         let selected_thread = {
             let core = core.clone();
             let events = events.clone();
-            let read_generation = Arc::clone(&generation);
+            let read_generation = Arc::clone(&selected_generation);
             std::thread::spawn(move || {
                 // A prepared prompt never changes: full texts survive agent switches.
                 let mut sent_texts = super::home_leads::SentTexts::default();
@@ -314,6 +325,7 @@ impl Worker {
             requests,
             selected,
             generation,
+            selected_generation,
             thread: Some(thread),
             selected_thread: Some(selected_thread),
             checklist_stop,
@@ -329,6 +341,7 @@ impl Worker {
         demand: Option<super::rate::history::Demand>,
     ) {
         let generation = if preempt {
+            self.selected_generation.advance();
             self.generation.advance()
         } else {
             self.generation.number.load(Ordering::Acquire)
@@ -344,7 +357,8 @@ impl Worker {
         let _ = self.requests.send(Work::Checklist(task));
     }
     pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
-        let generation = self.generation.number.load(Ordering::Acquire);
+        // Replace the selected lane without interrupting base/background reads.
+        let generation = self.selected_generation.advance();
         let _ = self.selected.send(SelectedWork {
             read,
             revision,
@@ -356,6 +370,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.generation.advance();
+        self.selected_generation.advance();
         self.checklist_stop.cancel();
         // Disconnect before joining: the worker exits its bounded cancelled
         // child read, and an idle worker exits recv immediately.
@@ -1628,6 +1643,51 @@ printf '%s\n' '{{}}'
             request: request.into(),
             kind: super::super::home_leads::Kind::Reply,
         })
+    }
+
+    #[test]
+    fn replacing_a_selection_keeps_base_work_live_and_never_restarts_it() {
+        let (requests, pending) = mpsc::channel();
+        let (selected, selected_pending) = mpsc::channel();
+        let worker = Worker {
+            requests,
+            selected,
+            generation: Arc::new(Generation::default()),
+            selected_generation: Arc::new(Generation::default()),
+            thread: None,
+            selected_thread: None,
+            checklist_stop: Default::default(),
+        };
+        worker.request(Some("base".into()), false, false, None);
+        let Work::Reload(base) = pending.recv().unwrap() else {
+            panic!("base read")
+        };
+        let base_live = worker.generation.cancellation(base.generation);
+        worker.selected(1, Some(selected_message("old")));
+        let first = selected_pending.recv().unwrap();
+        let old_selected = worker.selected_generation.cancellation(first.generation);
+        worker.selected(2, Some(selected_message("new")));
+        let second = selected_pending.recv().unwrap();
+        let new_selected = worker.selected_generation.cancellation(second.generation);
+        assert!(old_selected.cancelled());
+        assert!(!new_selected.cancelled());
+        assert!(
+            !base_live.cancelled(),
+            "the in-flight base read remains usable"
+        );
+        assert!(
+            matches!(pending.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "selection never enqueues another base read"
+        );
+        worker.request(Some("replacement".into()), true, false, None);
+        assert!(
+            base_live.cancelled(),
+            "explicit base preemption still cancels base work"
+        );
+        assert!(
+            new_selected.cancelled(),
+            "explicit base preemption also cancels selected work"
+        );
     }
 
     #[test]
