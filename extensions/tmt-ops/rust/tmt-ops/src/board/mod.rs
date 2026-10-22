@@ -411,17 +411,21 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 },
             )));
         }
-        Request::DirectTalk {
+        Request::Chat {
             sender,
             recipient,
+            name,
             text,
+            fallback,
         } => {
             return Ok(ActionOutcome::Send(Box::new(
                 conversation::outgoing::Completed {
                     ticket: None,
-                    outcome: send::talk_direct(core, &sender, &recipient, &text),
+                    outcome: Config::load(core).and_then(|config| {
+                        send::chat(core, &config, &sender, &recipient, &text, &fallback)
+                    }),
                     what: "Message".into(),
-                    to: recipient,
+                    to: name,
                 },
             )));
         }
@@ -1876,6 +1880,7 @@ mod tests {
                     revision,
                     observation: recent_responses::Observation::Observed(vec![
                         recent_responses::Item {
+                            provider: "codex".into(),
                             text: text.into(),
                             ended_ms: 10,
                             truncated: false,
@@ -2258,9 +2263,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).unwrap();
         let fake = directory.join("tmt");
+        let driver = fake.with_extension("py");
+        std::fs::write(&driver, r#"import json, sys, pathlib, time
+root=pathlib.Path(__file__).parent
+if sys.argv[1]=='config': out={'paths':{'global':str(root/'config.toml')}}
+elif sys.argv[1]=='identity': out={'identityId':sys.argv[sys.argv.index('--identity')+1],'metadata':{'user':'true'}}
+else:
+ q=json.load(sys.stdin); op=q['operation']; i=q['input']
+ if op=='storage.root': out={'dataRoot':str(root)}
+ elif op=='identities.status': out={'identities':[{'id':id,'found':True,'canPassthrough':{'available':True}} for id in i['identityIds']]}
+ elif op=='dispatch.create':
+  time.sleep(0.5)
+  out={'operationId':i['operationId'],'items':[{'recipientId':i['recipientIds'][0],'requestId':'req_1','acceptance':'queued'}],'wake':{'status':'sent'}}
+ else: raise AssertionError(op)
+print(json.dumps(out))
+"#).unwrap();
         crate::test_support::write_ready_executable(
             &fake,
-            "#!/bin/sh\nsleep 0.5\necho '{\"requestId\":\"req_1\",\"status\":\"sent\"}'\n",
+            &format!(
+                "#!/bin/sh\nexec /usr/bin/python3 '{}' \"$@\"\n",
+                driver.display()
+            ),
         );
         let mut app = app::workspace::tests::board();
         let (events, input) = channel();

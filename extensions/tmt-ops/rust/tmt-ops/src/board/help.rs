@@ -262,6 +262,11 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ("coverage", "— means unavailable; known zero is 0. (N of M) counts included members. All time starts when each member's Digest began recording."),
         ("unit", "Click the estimate, choose Savings unit in the Actions menu, or press a key bound to savings-unit, to cycle tokens, percent of input and cost; the choice is shared by every view. Percent is not available for all time. Cost is an estimate at list price for uncached input, never money saved or a bill; Digest Details lists the price table behind it."),
     ]));
+    sections.push(section("chat-delivery", "chat delivery", &[
+        ("direct message", "A person's eligible message goes straight to the agent's pane. Core settles the oldest open request after delivery; capture hooks do not decide eligibility."),
+        ("request fallback", "If Core cannot offer direct input, the composer explains that it sent a request instead. A refusal keeps the draft; uncertain acceptance never resends."),
+        ("turn output", "Captured output appears under its message, marked truncated when needed. working… follows Core's pending or bound capture; no_answer says no turn output was captured, never a reply."),
+    ]));
     sections.push(section("editor", "message editor", &[
         ("Enter", "while typing, send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
         ("Shift+Enter / Ctrl+N", "Ctrl+N always inserts a new line; Alt+Enter and Ctrl+J do too; Shift+Enter needs enhanced key reporting (in tmux: extended-keys on and extended-keys-format csi-u)"),

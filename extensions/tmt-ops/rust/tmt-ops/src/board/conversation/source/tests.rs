@@ -858,6 +858,7 @@ fn deliver_output(app: &mut App, text: &str) {
     app.apply_pane_output(
         key,
         Observation::Observed(vec![Item {
+            provider: "codex".into(),
             text: text.into(),
             ended_ms: 1_000,
             truncated: false,

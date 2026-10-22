@@ -5,13 +5,19 @@ use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
 use crate::look::Look;
 use unicode_width::UnicodeWidthStr;
 
-pub(in crate::board) const SCENES: [&str; 6] = [
+pub(in crate::board) const SCENES: [&str; 12] = [
     "sent-sending",
     "sent-working",
     "sent-earlier",
     "sent-replied",
     "sent-finished",
     "sent-unknown",
+    "chat-pending",
+    "chat-bound",
+    "chat-answered",
+    "chat-no-answer",
+    "chat-truncated",
+    "chat-fallback",
 ];
 const QUESTION: &str = "Can you rerun the picker tests on main?";
 const REPLY: &str = "Yes. All 14 picker tests pass on main 6899a9f2.";
@@ -19,6 +25,9 @@ const REQUEST: &str = "req_55555555-5555-4555-8555-555555555555";
 
 pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
     assert!(SCENES.contains(&scene));
+    if scene.starts_with("chat-") {
+        return chat_fixture(scene, look, now_ms);
+    }
     let mut app = crate::board::app::workspace::tests::board();
     let target = app.workspace.selected.clone().unwrap();
     let name = if scene == "sent-unknown" {
@@ -47,6 +56,9 @@ pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
                 outcome: Ok(Accepted {
                     request: REQUEST.into(),
                     disposition: Disposition::Sent,
+                    passthrough: false,
+                    fallback: None,
+                    warning: None,
                 }),
                 what: "Message".into(),
                 to: name.into(),
@@ -93,6 +105,65 @@ pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
     app
 }
 
+fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    let target = app.workspace.selected.clone().unwrap();
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.me = Some("you".into());
+    let home = view.home.as_mut().unwrap();
+    home.workspace.squad_looks.clear();
+    home.workspace.rows.get_mut(&target).unwrap()["name"] = json!("night-2");
+    home.workspace.roster.members.get_mut(MEMBER).unwrap().name = "night-2".into();
+    let at = now_ms
+        - if scene == "chat-bound" {
+            3_600_000
+        } else {
+            42_000
+        };
+    let (ticket, _) = crate::status::with_now_ms(at, || begin(&mut app, QUESTION));
+    let sender = ticket.key.0.clone();
+    let fallback = scene == "chat-fallback";
+    finish(
+        &mut app,
+        Completed {
+            ticket: Some(ticket),
+            outcome: Ok(Accepted {
+                request: REQUEST.into(),
+                disposition: if fallback {
+                    Disposition::Queued
+                } else {
+                    Disposition::Sent
+                },
+                passthrough: !fallback,
+                fallback: fallback.then(|| "There is no live pane.".into()),
+                warning: None,
+            }),
+            what: "Message".into(),
+            to: "night-2".into(),
+        },
+    );
+    // Selected-read admission follows the same visible-pane lease as production.
+    crate::status::with_now_ms(now_ms, || board_frame(&app, 148, 51));
+    if !fallback {
+        assert!(app.conversation_finals().is_some(), "visible capture owner");
+        let state = match scene {
+            "chat-pending" => "pending",
+            "chat-bound" => "bound",
+            "chat-no-answer" => "no_answer",
+            _ => "answered",
+        };
+        app.apply_sent(crate::board::home_leads::SentKey { sender, agent: MEMBER.into() }, Ok(vec![json!({
+            "requestId":REQUEST,"preparedAtMs":at,"text":QUESTION,"truncated":false,"mode":"passthrough",
+            "passthrough":{"state":state,"boundAtMs":at+1,"answer":{"text":REPLY,"truncated":scene=="chat-truncated","provider":"codex","endedMs":now_ms-1000}}
+        })]));
+    }
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.notice = None;
+    app.focus = 1;
+    app
+}
+
 fn expected(scene: &str) -> &'static str {
     match scene {
         "sent-sending" => "sending…",
@@ -101,6 +172,11 @@ fn expected(scene: &str) -> &'static str {
         "sent-replied" => REPLY,
         "sent-finished" => "✓ night-2 finished without replying · 2m ago",
         "sent-unknown" => "✓ sent · mkt-gemini's activity is not reported",
+        "chat-pending" | "chat-bound" => "working…",
+        "chat-answered" => "turn output",
+        "chat-truncated" => "turn output · truncated",
+        "chat-no-answer" => "No turn output was captured for this message.",
+        "chat-fallback" => "Sent as a request:",
         _ => unreachable!(),
     }
 }
@@ -168,7 +244,16 @@ fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
                         .unwrap_or_else(|| {
                             panic!("{look_name}/{scene}/{width}: missing {needle}\n{text}")
                         });
-                    if scene != "sent-replied" {
+                    if scene.starts_with("chat-") {
+                        assert!(
+                            !text.contains("is working")
+                                && !text.contains("finished without replying"),
+                            "Core capture, not provider feedback: {text}"
+                        );
+                        if scene == "chat-answered" || scene == "chat-truncated" {
+                            assert!(text.contains(REPLY));
+                        }
+                    } else if scene != "sent-replied" {
                         let x = lines[y][..start].width();
                         let working_at = needle
                             .find("is working")
@@ -253,7 +338,7 @@ fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
             }
         }
         if let Some(path) = std::env::var_os("TMT_OUTGOING_FEEDBACK_CAPTURE") {
-            std::fs::write(path,serde_json::to_vec(&json!({"source":"Approved Colab739017fe exchange colours; Colab6e70ab55 activity states; accepted-send composer explicitly closed to show idle input; real context prefix retained; literal fixture reply", "frames":frames})).unwrap()).unwrap();
+            std::fs::write(path,serde_json::to_vec(&json!({"source":"Approved Colab739017fe exchange colours; Colab6e70ab55 activity states; accepted-send composer explicitly closed to show idle input; ordinary request feedback and Core capture states; literal fixture answer", "frames":frames})).unwrap()).unwrap();
         }
     });
 }

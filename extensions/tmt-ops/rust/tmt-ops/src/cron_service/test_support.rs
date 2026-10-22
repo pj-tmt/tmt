@@ -77,6 +77,8 @@ if a[0]=='api':
   user=next((x for x in m['members'] if x['id']==m.get('user') and x['id'] not in m['retired']),None)
   if user is None: save(m); fail('USER_NAME_UNAVAILABLE')
   out={'identityId':user['id'],'name':user['name'],'created':False}
+ elif op=='identities.status':
+  out={'identities':[{'id':id,'found':True,'canPassthrough':m.get('canPassthrough',{})} for id in i['identityIds']]}
  elif op=='references.resolve':
   out={'identities':[dict(next((x for x in m['members'] if x['id']==id),{'id':id}),found=any(x['id']==id for x in m['members']),retired=id in m['retired']) for id in i.get('identityIds',[])]}
   if m.get('malformedReferences'): out={'identities':[]}
@@ -112,6 +114,7 @@ if a[0]=='api':
   m['hooks']=[h for h in m['hooks'] if h!=i]; out={'acknowledged':True}
  elif op=='dispatch.create':
   assert not locked, 'dispatch ran under jobs lock'
+  if m.get('dispatchRefusal'): save(m); fail(m['dispatchRefusal'])
   if m.get('rejectOrigin') and 'origin' in i: save(m); fail('API_INPUT_INVALID')
   if i['kind']=='announcement' and m['noticeFailure']:
    save(m); fail('DISPATCH_FAILURE')
@@ -124,6 +127,9 @@ if a[0]=='api':
    dispatches[i['operationId']]={'intent':intent,'receipt':out}
    if i['kind']=='announcement': m['notices'].append(q)
    else: m.setdefault('wakes',[]).append(i['operationId'])
+  if m.get('dispatchWake'): out=dict(out,wake={'status':m['dispatchWake']})
+  if m.get('dispatchCleanupFailure'):
+   journal=p/'board-dispatches'/f"{i['operationId']}.json"; journal.unlink(); journal.mkdir()
   response_key='loseAnnouncementResponse' if i['kind']=='announcement' else 'loseResponse'
   if m.get(response_key):
    structured=m[response_key]=='storage'; m[response_key]=False; save(m)
@@ -174,7 +180,7 @@ elif a[0]=='identity' and a[1]=='meta':
  x=next((x for x in m['members'] if x['id']==id and id not in m['retired']),None)
  if x is None: fail('NAME_NOT_FOUND')
  m['calls'].append({'command':a})
- if a[2]=='list': out={'metadata':x['metadata']}
+ if a[2] in ['list','ls']: out={'identityId':id,'metadata':x['metadata']}
  elif a[2]=='rm':
   if m.get('metaRemoveFailure'): save(m); fail(m['metaRemoveFailure'])
   x['metadata'].pop(a[3],None); out={}

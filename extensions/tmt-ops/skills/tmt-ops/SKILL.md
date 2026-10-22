@@ -699,8 +699,8 @@ opens a note to its observed squad lead with the member named, even when a reque
 is pending. Both actions follow the selection while the conversation is focused.
 A missing lead or Common pool membership shows a notice instead of opening a
 composer to another recipient. Authored bindings retain precedence.
-`reply` focuses the same member message composer; open requests are resolved at
-submission as described below. Notes retain the actual lead or explicit member
+`reply` focuses the same member message composer; Core settles questions after
+direct delivery as described below. Notes retain the actual lead or explicit member
 recipient, with the recipient and source rechecked at submission. Esc returns to
 the list with the message draft kept; empty input sends nothing.
 Every workspace message input completes acquired agent and squad references with
@@ -731,14 +731,21 @@ failed** offers **Retry notification only** when acceptance has not settled; sel
 that action and press Enter. The
 retry retains the same operation and message and never repeats the metadata update.
 
-**Message member** opens the member's message composer. Enter resolves the newest
-currently observed open request from that member and answers it; older requests
-remain open. If none is open, Enter sends a new message to the same member.
-A request settling while you type does not block sending. A definite settled
-refusal permits one fallback new message with the same text; uncertain acceptance
+**Message member** opens the member's message composer. A person's message goes
+directly to the agent's pane when Core reports that it can take direct input;
+there is no Ops preamble. Core settles the oldest open request from that agent
+only after delivery. Missing capture hooks do not prevent a direct send.
+An unavailable capability or sender uses a request instead; the composer names
+that fallback and its reason. A refusal retains the draft. Uncertain acceptance
 never triggers a resend. Status changes remain separate and acknowledge nothing. Open **Update status**
 from the row's Actions menu (or an authored `update-status` binding); the form
 reuses the existing preview, permission and conflict checks.
+
+Captured answers appear under their message as `turn output`, never a reply.
+`working…` means Core has a pending or bound capture; a bound turn may run beyond
+ten minutes. `No turn output was captured for this message.` reports Core's
+`no_answer` outcome, without sending again. Truncated output is marked. These
+messages and captures survive restart through Core request history.
 
 Inside the active message editor, Enter sends and Esc returns to the list with
 text kept. The member composer never copies the lead or cycles modes with Tab;

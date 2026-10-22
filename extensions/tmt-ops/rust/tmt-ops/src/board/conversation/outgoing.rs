@@ -104,6 +104,11 @@ impl Completed {
             .map_or_else(|error| error.request.is_some(), |_| true)
     }
     pub(in crate::board) fn notice(&self) -> String {
+        if let Ok(accepted) = &self.outcome
+            && let Some(warning) = &accepted.warning
+        {
+            return warning.clone();
+        }
         if self.ticket.is_none() {
             return self.outcome.as_ref().map_or_else(
                 |error| error.message.clone(),
@@ -147,6 +152,7 @@ pub(super) struct Entry {
     /// earlier sends; the first group's question is `Session::before_send`.
     pub(super) lead_in: Option<Reply>,
     pub(super) reply: Option<Reply>,
+    capture: Option<crate::board::row_detail::Capture>,
     feedback: String,
     feedback_clock: Option<FeedbackClock>,
     /// The first frame time at which `sending…` was painted.
@@ -171,6 +177,10 @@ impl Entry {
         self.ticket.text.len()
             + self.reply.as_ref().map_or(0, |reply| reply.body.len())
             + self.lead_in.as_ref().map_or(0, |reply| reply.body.len())
+            + self.capture.as_ref().map_or(0, |capture| match capture {
+                crate::board::row_detail::Capture::Answered { text, .. } => text.len(),
+                _ => 0,
+            })
     }
     /// Time-driven only: advances the R1 sending row; returns whether it changed.
     fn observe_sending(&mut self, now_ms: u64) -> bool {
@@ -202,6 +212,18 @@ impl Entry {
         match &self.outcome {
             None if self.sending_shown_ms.is_some() => "sending…".into(),
             None => String::new(),
+            Some(Outcome::Send(Ok(accepted)))
+                if accepted.passthrough
+                    && (self.capture.is_some() || accepted.disposition == Disposition::Sent) =>
+            {
+                match self.capture.as_ref() {
+                    Some(
+                        crate::board::row_detail::Capture::Pending
+                        | crate::board::row_detail::Capture::Bound,
+                    ) => "⠹ working…".into(),
+                    _ => "✓ delivered".into(),
+                }
+            }
             Some(Outcome::Send(Ok(accepted))) => match accepted.disposition {
                 Disposition::Sent => self.feedback.clone(),
                 Disposition::Queued => "◌ queued · inbox".into(),
@@ -263,6 +285,10 @@ impl Session {
         let pending = &self.pending_replies;
         for entry in &mut self.outgoing {
             changed |= entry.observe_sending(now_ms);
+            if matches!(&entry.outcome, Some(Outcome::Send(Ok(accepted))) if accepted.passthrough) {
+                entry.feedback_clock = None;
+                continue;
+            }
             // The reply exists and is being read: keep the line as painted.
             if entry
                 .request()
@@ -525,6 +551,37 @@ impl Session {
             self.refresh_outgoing();
         }
     }
+    /// The same admitted provider final may also appear in responses.recent.
+    /// Suppress only the exact observation already paired with a request; this
+    /// comparison grants no request/source authority to recent output.
+    pub(super) fn captures_output(&self, item: &crate::board::recent_responses::Item) -> bool {
+        self.sent.iter().filter_map(|send| send.capture.as_ref())
+            .chain(self.outgoing.iter().filter_map(|entry| entry.capture.as_ref()))
+            .any(|capture| matches!(capture, crate::board::row_detail::Capture::Answered { text, provider, ended_ms, truncated }
+                if text == &item.text && provider == &item.provider && ended_ms == &item.ended_ms && truncated == &item.truncated))
+    }
+
+    pub(super) fn observe_captures(&mut self) {
+        let mut changed = false;
+        for entry in &mut self.outgoing {
+            if let Some(send) = self
+                .sent
+                .iter()
+                .find(|send| Some(send.request.as_str()) == entry.request())
+            {
+                if entry.capture != send.capture {
+                    entry.capture = send.capture.clone();
+                    entry.feedback_clock = None;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.trim_outgoing();
+            self.refresh_outgoing();
+        }
+    }
+
     pub(super) fn refresh_outgoing(&mut self) {
         let mut text = self.before_send.as_ref().map_or_else(String::new, |reply| {
             crate::board::notes::sanitize(&reply.body)
@@ -579,6 +636,16 @@ impl Session {
                 );
                 text.push_str("\n\n");
                 push_literal(&mut text, &entry.status());
+            }
+            if let Some(capture) = &entry.capture {
+                if !matches!(
+                    capture,
+                    crate::board::row_detail::Capture::Pending
+                        | crate::board::row_detail::Capture::Bound
+                ) {
+                    text.push_str("\n\n");
+                    text.push_str(&capture.markdown());
+                }
             }
             if let Some(reply) = &entry.reply {
                 text.push_str("\n\n");
@@ -673,6 +740,28 @@ impl App {
             .as_str()
     }
 
+    pub(in crate::board) fn chat_fallback(
+        &self,
+        key: &(String, String),
+        name: &str,
+    ) -> Option<String> {
+        let state = self.conversation.borrow();
+        let entry = state
+            .sessions
+            .get(&(Some(key.0.clone()), key.1.clone()))?
+            .outgoing
+            .back()?;
+        let Some(Outcome::Send(Ok(accepted))) = &entry.outcome else {
+            return None;
+        };
+        let reason = accepted.fallback.as_ref()?;
+        Some(format!(
+            "Sent as a request: {} can't take a direct message right now. {}",
+            crate::board::notes::single_line(name),
+            reason
+        ))
+    }
+
     pub(in crate::board) fn begin_outgoing(&mut self, input: &Input, text: &str) {
         if !matches!(
             input.compose,
@@ -730,6 +819,7 @@ impl App {
             },
             lead_in,
             reply: None,
+            capture: None,
             feedback: String::new(),
             feedback_clock: None,
             sending_shown_ms: None,
@@ -750,7 +840,7 @@ impl App {
         };
         let text = match request {
             Request::Talk { text, .. }
-            | Request::DirectTalk { text, .. }
+            | Request::Chat { text, .. }
             | Request::Reply { text, .. }
             | Request::Annotate { text, .. } => text.clone(),
             _ => return None,
@@ -848,6 +938,7 @@ impl App {
         };
         entry.feedback = progress::Progress::Sent.text(&completed.to, crate::status::now_ms(), "⠹");
         entry.outcome = Some(Outcome::Send(completed.outcome));
+        session.observe_captures();
         session.refresh_outgoing();
     }
 }

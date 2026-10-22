@@ -382,6 +382,9 @@ impl Session {
         };
         let mut first = true;
         for source in crate::board::recent_responses::merge(&times, items) {
+            if matches!(source, Source::Pane(index) if self.captures_output(&items[index])) {
+                continue;
+            }
             if !first {
                 append(Line::default(), vec![], None);
             }
@@ -411,6 +414,17 @@ impl Session {
                         );
                         for line in body.lines {
                             append(super::super::exchange_view::body(line, look), vec![], None);
+                        }
+                        if let Some(capture) = &send.capture {
+                            let content = markdown::render_conversation_with_members(
+                                &capture.markdown(),
+                                width.saturating_sub(3).max(1),
+                                look,
+                                None,
+                            );
+                            for line in content.lines {
+                                append(super::super::exchange_view::body(line, look), vec![], None);
+                            }
                         }
                         if send.truncated {
                             append(

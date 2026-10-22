@@ -105,7 +105,7 @@ fn bracketed_paste_is_exact_folded_and_never_submits() {
     open(&mut app, "auth-fix");
     assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
     assert!(
-        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Talk { text: sent, to, .. }) if sent == format!("[product · auth-fix] {text}") && to == "auth-fix")
+        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Chat { text: sent, name: to, .. }) if sent == text && to == "auth-fix")
     );
 }
 
@@ -327,8 +327,8 @@ fn clicking_idle_composer_focuses_and_send_keeps_an_empty_editor_ready() {
         app.paste("a real outgoing message");
         assert!(
             matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-            crate::board::app::Effect::Act(crate::board::app::Request::Talk { text, to, .. })
-                if text == "[product · worker] a real outgoing message" && to == "worker")
+            crate::board::app::Effect::Act(crate::board::app::Request::Chat { text, name: to, .. })
+                if text == "a real outgoing message" && to == "worker")
         );
         assert!(app.input.as_ref().unwrap().text.is_empty());
         draw(&mut app, width, 18);
@@ -366,7 +366,7 @@ fn boxed_send_is_clickable_only_on_its_current_whole_uuid_fenced_button() {
             modifiers: KeyModifiers::NONE,
         };
         assert!(
-            matches!(app.mouse(click, std::time::Instant::now()), crate::board::app::Effect::Act(crate::board::app::Request::Talk { text, .. }) if text == "[product · worker] explicit button text")
+            matches!(app.mouse(click, std::time::Instant::now()), crate::board::app::Effect::Act(crate::board::app::Request::Chat { text, .. }) if text == "explicit button text")
         );
         app.in_flight = 1;
         draw(&mut app, width, 18);
@@ -453,7 +453,7 @@ fn first_enter_focuses_retained_uuid_draft_and_only_a_new_active_press_submits()
             );
         }
         assert!(
-            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Talk { to, text, .. }) if to == "worker" && text == "[product · worker] retained 漢字 e\u{301}")
+            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Chat { name: to, text, .. }) if to == "worker" && text == "retained 漢字 e\u{301}")
         );
         app.in_flight = 1;
         for _ in 0..3 {
@@ -489,7 +489,7 @@ fn enter_shift_enter_and_paste_keep_open_edit_and_submit_distinct() {
         "t\n漢字 e\u{301}\ncommitted IME"
     );
     assert!(
-        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Talk { text, .. }) if text == "[product · worker] t\n漢字 e\u{301}\ncommitted IME")
+        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Chat { text, .. }) if text == "t\n漢字 e\u{301}\ncommitted IME")
     );
 }
 
@@ -883,7 +883,7 @@ fn paste_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts() {
         assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
         app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("auth-fix");
         assert!(
-            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Talk { to, text, .. }) if to == "auth-fix" && text == format!("[product · auth-fix] {exact}"))
+            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Chat { name: to, text, .. }) if to == "auth-fix" && text == format!("{exact}"))
         );
         open(&mut app, "docs");
         assert_eq!(
@@ -1264,8 +1264,8 @@ fn literal_chat_chips_keep_text_and_survive_failed_send_without_source_identity(
     assert!(app.input.as_ref().unwrap().exact_quotes().next().is_none());
     let submitted = app.input.as_ref().unwrap().clone();
     let sent = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(sent, Effect::Act(Request::Talk { text, to, .. })
-        if to == "auth-fix" && text == "[product · auth-fix] my comment\n> \"first second\"\n"));
+    assert!(matches!(sent, Effect::Act(Request::Chat { text, name, .. })
+        if name == "auth-fix" && text == "my comment\n> \"first second\"\n"));
     app.sending_draft(&submitted);
     app.input.as_mut().unwrap().text.clear();
     app.input.as_mut().unwrap().inline_quotes.clear();

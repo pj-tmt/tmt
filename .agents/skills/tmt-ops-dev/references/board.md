@@ -204,9 +204,13 @@ state only, no squad data or durable preference policy.
   selection and chat quote chips have no source authority; reading alone sends
   and acknowledges nothing.
 - Row composer and footer: member messages have one recipient and no Tab mode
-  cycle. App resolves the newest current open request only at submission; no open
-  request means plain Talk. The send worker permits one plain Talk fallback only
-  after a definite settled-request refusal, never after uncertain acceptance.
+  cycle. `send::chat` consumes Core's `canPassthrough` on the ordered worker;
+  a person's eligible chat uses `dispatch.create` passthrough without a room or
+  Ops preamble. Missing/unavailable capability or a non-person sender uses a
+  request with the existing framing and a composer explanation. Capture is not
+  eligibility. The same dispatch intent owns frozen mode, UUIDs and recovery;
+  a send-time refusal retains the draft, and uncertainty never starts a second
+  send. Core alone settles the oldest open question after direct delivery.
   Notes and Status are explicit independent actions; `update-status` in Actions
   opens the existing form through `start_status`, with no new default key.
   `attach_row` retains the

@@ -32,6 +32,12 @@ pub enum Disposition {
 pub struct Accepted {
     pub request: String,
     pub disposition: Disposition,
+    /// Core accepted this as typed pane input, not a request notice.
+    pub passthrough: bool,
+    /// A capability-based request fallback, rendered beside its composer.
+    pub fallback: Option<String>,
+    /// An accepted operation whose private journal could not be removed.
+    pub warning: Option<String>,
 }
 
 impl Accepted {
@@ -55,6 +61,9 @@ impl Accepted {
         Ok(Self {
             request: request.to_owned(),
             disposition,
+            passthrough: false,
+            fallback: None,
+            warning: None,
         })
     }
 
@@ -206,7 +215,9 @@ pub struct LeadRecipient {
     pub name: String,
 }
 
+mod chat;
 mod dispatch;
+pub(crate) use chat::chat;
 
 pub(crate) use dispatch::Intent;
 
