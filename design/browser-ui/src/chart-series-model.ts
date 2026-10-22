@@ -32,8 +32,11 @@ export interface SeriesChartOptions {
   empty?: string;
 }
 
-/** Palette steps a chart cycles through; the painter folds anything beyond into `other`. */
-export const PALETTE = 8;
+/** Hue steps a chart uses, in order; the neutral step after them is the folded `other` layer. */
+export const PALETTE = 7;
+const OTHER_STYLE = PALETTE;
+const styleOf = (layer: { key: string }, i: number) =>
+  layer.key === 'other' ? OTHER_STYLE : i % PALETTE;
 const MARGIN = { left: 46, right: 10, top: 12, bottom: 22 };
 
 export interface SeriesMark {
@@ -63,6 +66,8 @@ export interface SeriesModel {
   values: (at: number) => string[];
   readout: (at: number) => string;
   legend: { label: string; style: number }[];
+  /** What the hover tip shows at a column: the x label and one row per series. */
+  tip: (at: number) => { title: string; rows: { label: string; value: string; style: number }[] };
   table: { columns: string[]; rows: string[][] };
 }
 
@@ -97,7 +102,7 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
     stack.layers.forEach((layer, i) =>
       marks.push({
         kind: 'area',
-        style: i % PALETTE,
+        style: styleOf(layer, i),
         d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt)),
       }),
     );
@@ -116,7 +121,7 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
     options.series.forEach((layer, i) => {
       let run: [number, number][] = [];
       const flush = () => {
-        if (run.length) marks.push({ kind: 'line', style: i % PALETTE, d: linePath(run) });
+        if (run.length) marks.push({ kind: 'line', style: styleOf(layer, i), d: linePath(run) });
         run = [];
       };
       layer.values.forEach((v, at) => {
@@ -173,7 +178,15 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
     values: (at) => options.series.map((layer) => cell(layer, at)),
     readout: (at) =>
       `${options.x[at]}: ${options.series.map((layer) => `${layer.label} ${cell(layer, at)}`).join(', ')}`,
-    legend: options.series.map((layer, i) => ({ label: layer.label, style: i % PALETTE })),
+    legend: options.series.map((layer, i) => ({ label: layer.label, style: styleOf(layer, i) })),
+    tip: (at) => ({
+      title: options.x[at] ?? '',
+      rows: options.series.map((layer, i) => ({
+        label: layer.label,
+        value: cell(layer, at),
+        style: styleOf(layer, i),
+      })),
+    }),
     table: {
       columns: [...options.x],
       rows: options.series.map((layer) => [

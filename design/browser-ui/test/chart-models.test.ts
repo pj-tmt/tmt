@@ -33,6 +33,33 @@ it('maps a stacked chart to areas, a grid and column labels inside its plot', ()
   expect(model.table.rows[0]).toEqual(['seat-a', '10', '20', '—', '40', '50']);
 });
 
+it('the folded other layer takes the neutral step and the tip names each series at a column', () => {
+  const model = seriesModel(
+    {
+      title: 't',
+      kind: 'stack',
+      x,
+      series: [series[0]!, { key: 'other', label: 'Other', values: [1, 1, 1, 1, 1] }],
+    },
+    640,
+  );
+  // Hues are tokens in order; the folded layer is the step after them, never a hue.
+  expect(model.marks.map((mark) => mark.style)).toEqual([0, 7]);
+  expect(model.legend.map((entry) => entry.style)).toEqual([0, 7]);
+  expect(model.tip(2)).toEqual({
+    title: '02:00',
+    rows: [
+      { label: 'seat-a', value: '—', style: 0 },
+      { label: 'Other', value: '1', style: 7 },
+    ],
+  });
+  for (let n = 1; n <= 7; n += 1) {
+    const role = tokens.browser.color[`series-${n}`];
+    expect(role.light).toMatch(/^#[0-9A-F]{6}$/);
+    expect(css).toContain(`--tmt-ui-color-series-${n}: ${role.light.toLowerCase()}`);
+  }
+});
+
 it('share mode labels the axis in percent and keeps every band below the top', () => {
   const model = seriesModel({ title: 't', kind: 'share', x, series }, 480);
   expect(model.grid.map((line) => line.label)).toEqual(['0%', '25%', '50%', '75%', '100%']);
