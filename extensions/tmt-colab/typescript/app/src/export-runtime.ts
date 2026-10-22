@@ -1,4 +1,4 @@
-import { entryMount, publicEntry } from './entry.js';
+import { rendererBase } from './entry.js';
 import { loadRuntime, wantsRuntime } from './page-runtime.js';
 import type { StandaloneRequest } from './standalone.js';
 
@@ -11,7 +11,7 @@ export async function standaloneRequest(page: {
 }): Promise<StandaloneRequest | undefined> {
   if (page.pageType === 'shell' || !wantsRuntime(page.source)) return undefined;
   try {
-    return { runtime: await loadRuntime(publicEntry() ? entryMount().href : document.baseURI) };
+    return { runtime: await loadRuntime(rendererBase()) };
   } catch {
     return { reason: 'runtime-unavailable' };
   }
