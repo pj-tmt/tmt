@@ -82,13 +82,13 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   draws on that thread, restores nested/unwound scopes and leaves worker/production
   clocks unchanged. These buffers are deterministic renderer evidence, not a
   frozen live-terminal clock or permission to regenerate parity.
-- Frame cost: from `rust/`, run `CARGO_BUILD_JOBS=2 cargo test --release --locked
+- Frame cost: from `rust/`, run `CARGO_BUILD_JOBS=2 cargo +1.98.1 test --release --locked
 -p tmt-ops conversation_frame_timing -- --ignored --nocapture --test-threads=2` for
   steady, scoped update, response append, Reader scroll, real backend resize,
   1/10/100 KiB paste and typing after paste (36 squads, 150/1,000/10,000 agents,
   2,000 response lines, 160×36 cells). To separate event/paint/diff-and-ANSI phases,
   run `TMT_WORKSPACE_ANSI_SAMPLES=/absolute/task-owned/samples.json
-CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase_timing
+CARGO_BUILD_JOBS=2 cargo +1.98.1 test --release --locked -p tmt-ops workspace_ansi_phase_timing
 -- --ignored --nocapture --test-threads=2`. Run its resulting test executable
   directly under `/usr/bin/time -lp` with the same environment and filter to
   measure process CPU/peak footprint separately. Peak footprint is its whole-process
