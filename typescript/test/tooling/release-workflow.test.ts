@@ -246,8 +246,18 @@ describe('compiled CLI schema preparation order', () => {
     );
     expect(candidate).toContain('            pnpm install --frozen-lockfile --ignore-scripts');
     const activation = read('.github/actions/setup-tooling/action.yml');
-    expect(activation).toContain('default: 22.23.2');
+    expect(activation).toContain('default: 26.12.1');
     expect(activation).toContain('default: 10.33.0');
+    const provision = activation.indexOf(
+      '"$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 5 npm install --global --ignore-scripts corepack@0.36.0'
+    );
+    const enable = activation.indexOf('        corepack enable');
+    const prepare = activation.indexOf(
+      '"$GITHUB_WORKSPACE/scripts/retry-command.sh" 3 5 corepack prepare "pnpm@$PNPM_VERSION" --activate'
+    );
+    expect(provision).toBeGreaterThanOrEqual(0);
+    expect(enable).toBeGreaterThan(provision);
+    expect(prepare).toBeGreaterThan(enable);
   }
   function requireSchemaOrder(source: string) {
     const { build, assemble, verify } = blocks(source);
@@ -519,7 +529,7 @@ describe('release version gate workflow boundaries', () => {
       'native-release-upgrade-prove.yml:prove',
       'release-version-injection.yml:injection',
     ]);
-    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 22.23.2');
+    expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 26.12.1');
   });
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
@@ -1893,7 +1903,7 @@ describe('owner-authorized release index bootstrap', () => {
     expect(backfill).toContain('environment: release');
     expect(backfill).toContain('timeout-minutes: 15');
     expect(backfill).toContain('persist-credentials: false');
-    expect(backfill).toContain('node-version: 22.23.2');
+    expect(backfill).toContain('node-version: 26.12.1');
     expect(backfill).not.toMatch(/^\s+(if|ref):|continue-on-error|--force|git push/m);
     for (const [ref, status] of [
       ['refs/heads/main', 0],

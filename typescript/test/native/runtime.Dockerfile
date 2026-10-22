@@ -1,5 +1,5 @@
 # Verification tooling only. The product receives a separate empty PATH.
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+FROM node:26.12.1-alpine@sha256:ae8e1c19d56886270987e99b3cfcef13a919f0655b376ae322bc64ada76f88cd
 RUN apk add --no-cache binutils
 WORKDIR /verification
 COPY typescript/scripts/native-runtime-proof.mjs typescript/scripts/native-database-layout.mjs typescript/scripts/verify-native-runtime.mjs typescript/scripts/packed-command.mjs typescript/scripts/

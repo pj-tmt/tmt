@@ -48,7 +48,7 @@ RUN if [ "$TMT_E2E_ADAPTER_TESTS" = 0 ]; then \
         -exec cp {} /native-artifacts/adapter-tests ';'; \
   fi
 
-FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+FROM node:26.12.1-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe
 ARG TMUX_VERSION=3.3a-3
 ARG PROCPS_VERSION=2:4.0.2-3
 RUN apt-get update \

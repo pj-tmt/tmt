@@ -520,7 +520,7 @@ describe('workflow wiring', () => {
     expect(workflow).not.toMatch(/(?:contents|pull-requests): write/);
     expect(workflow).toContain('persist-credentials: false');
     expect(workflow).toContain('fetch-depth: 0');
-    expect(workflow).toContain('node-version: 22.23.2');
+    expect(workflow).toContain('node-version: 26.12.1');
     expect(workflow).toContain('timeout-minutes: 5');
     expect(workflow).toContain('GITHUB_TOKEN: ${{ github.token }}');
     expect(workflow).toContain('run: node typescript/scripts/pr-title-check.mjs');

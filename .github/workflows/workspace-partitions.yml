@@ -42,11 +42,11 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Record the pinned Node version
         run: |
           node --version
-          test "$(node --version)" = v22.23.2
+          test "$(node --version)" = v26.12.1
       - name: Admit scope and partition count
         id: plan
         env:
@@ -154,7 +154,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Install pinned Rust toolchains for native metadata tests
         run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - uses: ./.github/actions/setup-nextest
@@ -211,7 +211,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: inputs.scope == 'full' && needs.producer.result == 'success' && needs.consumers.result == 'success'
         with:
-          node-version: 22.23.2
+          node-version: 26.12.1
       - name: Reject a failed or unexpectedly skipped worker
         id: selection
         env:

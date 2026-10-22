@@ -137,7 +137,7 @@ normalized or reserialized. Fingerprint indexes point into the pinned BIP-39
 English list at `../../rust/tmt-remote/assets/bip39-english.txt`; callers map
 indexes to words.
 
-From the repository's `typescript` directory with Node 22.12.0 or later, pinned pnpm and Python 3:
+From the repository's `typescript` directory with Node 26.12.1, pinned pnpm and Python 3:
 
 ```sh
 pnpm --filter @tmt/remote-client install --frozen-lockfile --ignore-scripts
@@ -150,7 +150,7 @@ workspace-pinned Vite+ test runner with explicit `vitest.config.ts`. Oracle fail
 assertion failures and missing tests also fail the command. Type checking remains
 in the separate `check` command.
 The existing unconditional Code quality CI job runs these commands using the
-repository default Node 22.23.2, including for changes confined to this directory.
+repository default Node 26.12.1, including for changes confined to this directory.
 Run the same test command with Node 24 for the contract conformance target. No
 release or distribution entry is added.
 

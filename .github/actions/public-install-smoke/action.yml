@@ -21,7 +21,7 @@ runs:
         path: release-source
     - uses: actions/setup-node@v4
       with:
-        node-version: 22.23.2
+        node-version: 26.12.1
         architecture: ${{ inputs.target == 'x86_64-apple-darwin' && 'x64' || '' }}
     - name: Set up driver archive verification tooling
       if: inputs.product == 'driver-herdr'
