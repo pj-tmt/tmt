@@ -258,7 +258,18 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
         endpoint::ProcessIncarnation,
     };
     for saved in [false, true] {
-        for case in ["move", "preferences", "binding", "occupied", "partial"] {
+        for case in [
+            "move",
+            "settled",
+            "settled-key",
+            "settled-owner",
+            "settled-unknown",
+            "settled-transition",
+            "preferences",
+            "binding",
+            "occupied",
+            "partial",
+        ] {
             let fixture = Fixture::new();
             let mut storage = fixture.open();
             let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
@@ -268,6 +279,7 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
             seed_state(storage.connection().unwrap(), &identity.id);
             let counts = state_counts(storage.connection().unwrap(), &identity.id);
             let process = ProcessIncarnation::new(200, "runtime").unwrap();
+            let owner = ProcessIncarnation::new(201, "wrapper").unwrap();
             let mut preferences = SessionPreferences {
                 channel: Some(false),
                 preferred_harness: Some(HarnessId::new("claude").unwrap()),
@@ -283,12 +295,14 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
                     let binding = bound.binding.as_ref().unwrap();
                     let next = binding
                         .session
-                        .admit(
+                        .admit_launched(
                             ObservedSessionKey {
                                 incarnation: process.clone(),
                                 provider_session: Some(ProviderSessionId::new("s-1").unwrap()),
                             },
+                            owner.clone(),
                             SessionTransition::Started,
+                            RuntimeLiveness::Alive,
                             RuntimeLiveness::Alive,
                         )
                         .unwrap();
@@ -307,6 +321,41 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
                 pane_incarnation: None,
                 discovery: None,
             };
+            // Deterministically schedule the old wrapper's exit transaction
+            // after the move's post-stop snapshot and before its final CAS.
+            let captured = expected.entry.binding.as_ref().unwrap();
+            let ended = captured
+                .session
+                .record_launched_exit(captured.session.key.clone().unwrap(), owner.clone())
+                .unwrap();
+            if case.starts_with("settled") {
+                let mut next = ended.clone();
+                match case {
+                    "settled-key" => {
+                        next.key.as_mut().unwrap().provider_session =
+                            Some(ProviderSessionId::new("other-session").unwrap())
+                    }
+                    "settled-owner" => {
+                        next.launch_owner =
+                            Some(ProcessIncarnation::new(202, "other-wrapper").unwrap())
+                    }
+                    "settled-unknown" => {
+                        next.state = tmt_core::binding::session::RuntimeState::Unknown
+                    }
+                    "settled-transition" => next.last_transition = Some(SessionTransition::Started),
+                    _ => (),
+                }
+                storage
+                    .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
+                        assert!(records.set_session_state(
+                            &captured.id,
+                            &captured.session,
+                            &next
+                        )?);
+                        Ok(())
+                    })
+                    .unwrap();
+            }
             match case {
                 "preferences" => {
                     storage
@@ -348,7 +397,8 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
                 &process,
                 &target,
             );
-            assert_eq!(result.is_ok(), case == "move", "{saved}/{case}: {result:?}");
+            let succeeds = matches!(case, "move" | "settled");
+            assert_eq!(result.is_ok(), succeeds, "{saved}/{case}: {result:?}");
             let after =
                 crate::storage::Storage::context_by_identity(&fixture.database, &identity.id, 0)
                     .unwrap()
@@ -360,10 +410,30 @@ fn moving_an_identity_preserves_its_state_and_fences_the_captured_records() {
                 counts,
                 "{case}"
             );
-            if case == "move" {
-                let binding = after.entry.binding.unwrap();
+            if succeeds {
+                let binding = after.entry.binding.as_ref().unwrap();
                 assert_eq!(binding.pane_id, "%2");
-                assert_ne!(binding.id, expected.entry.binding.unwrap().id);
+                assert_ne!(binding.id, captured.id);
+                // A still-later exit settlement cannot touch the new binding.
+                storage
+                    .with_binding_transaction::<_, crate::storage::StorageError>(|records| {
+                        assert!(!records.set_session_state(
+                            &captured.id,
+                            &captured.session,
+                            &ended
+                        )?);
+                        Ok(())
+                    })
+                    .unwrap();
+                let settled = crate::storage::Storage::context_by_identity(
+                    &fixture.database,
+                    &identity.id,
+                    0,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(settled.entry, after.entry);
+                assert_eq!(settled.preferences, after.preferences);
                 assert!(endpoint.pane_mut("%1").marker.is_none());
                 assert_eq!(
                     endpoint.pane_mut("%2").marker.as_ref().unwrap().identity_id,
