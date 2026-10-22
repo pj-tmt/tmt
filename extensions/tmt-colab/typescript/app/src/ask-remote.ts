@@ -1,4 +1,5 @@
 import { agentActivity, type AgentActivity } from './agent-activity.js';
+import { parseMessageState, type MessageState } from './message-state.js';
 import { coreId, decimal, exactKeys, generatedId, requireValue, time } from '@tmt/colab-client';
 import { requestId } from './ask-records.js';
 import { remoteSdk, jsonResponse } from './registration.js';
@@ -127,7 +128,7 @@ export class ReadRefusedError extends Error {
   }
 }
 export type ResultState =
-  | { state: 'pending'; requestId: string }
+  | { state: 'pending'; requestId: string; messageState?: MessageState }
   | { state: 'replied'; requestId: string; message: string }
   | { state: 'unavailable'; requestId: string; reason?: string };
 export interface RemoteContext {
@@ -157,7 +158,7 @@ export interface OperationsSdk {
     result(
       requestId: string,
     ): Promise<
-      | { state: 'pending'; requestId?: string }
+      | { state: 'pending'; requestId?: string; messageState?: unknown }
       | { state: 'replied'; requestId?: string; message: string }
       | { state: 'unavailable'; requestId?: string; reason?: string }
     >;
@@ -380,8 +381,20 @@ export async function createRemoteClient(
         (result.requestId === undefined || result.requestId === id) &&
           ['pending', 'replied', 'unavailable'].includes(result.state),
       );
-      if (result.state === 'replied') requireValue(typeof result.message === 'string');
-      return { ...structuredClone(result), requestId: id } as ResultState;
+      if (result.state === 'replied') {
+        requireValue(typeof result.message === 'string');
+        return { state: 'replied', requestId: id, message: result.message };
+      }
+      if (result.state === 'unavailable')
+        return {
+          state: 'unavailable',
+          requestId: id,
+          ...(result.reason === undefined ? {} : { reason: result.reason }),
+        };
+      // Core's message state rides a pending result only (#4317). It is display only, so one that
+      // does not parse is no state: the ask shows what it showed without it.
+      const messageState = parseMessageState(result.messageState);
+      return { state: 'pending', requestId: id, ...(messageState ? { messageState } : {}) };
     },
   };
 }

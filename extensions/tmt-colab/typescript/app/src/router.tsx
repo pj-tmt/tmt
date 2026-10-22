@@ -2253,6 +2253,7 @@ function OpenPage({
         <AgentPresentation value={agents}>
           <AgentActivityProvider
             observation={liveError || archived ? undefined : view.agentActivity}
+            messages={liveError || archived ? undefined : view.messageStates}
           >
             {view.pageType === 'shell' ? (
               <section className="page">

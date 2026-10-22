@@ -410,6 +410,8 @@ export const text = {
   askNoReply: 'No reply yet from {agent}',
   agentSent: 'Sent',
   agentActivityWorking: (elapsed: string) => `is working · ${elapsed}`,
+  /** The countdown to a batched message's latest delivery, after Core's wording (#4317). */
+  messageStateIn: (clock: string) => `in ${clock}`,
   agentQueued: (elapsed: string) => `is finishing an earlier turn · ${elapsed}`,
   agentFinished: (elapsed: string) => `finished without replying · ${elapsed} ago`,
   agentActivityUnknown: "'s activity is not reported",
