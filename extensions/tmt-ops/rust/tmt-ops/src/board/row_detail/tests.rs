@@ -710,7 +710,6 @@ fn own_final(request: &str, recipient: &str, at: u64) -> Value {
 #[test]
 fn an_agents_older_finals_come_from_its_own_read_once_and_join_the_windows() {
     use crate::board::app::workspace::tests::{MEMBER, board};
-    use crate::board::refresh::SelectedRead;
     let mut app = board();
     let now = crate::status::now_ms();
     app.home_leads.test_results(
@@ -718,7 +717,7 @@ fn an_agents_older_finals_come_from_its_own_read_once_and_join_the_windows() {
         json!({"items":[final_item("new", MEMBER, now - 60_000)],"nextBefore":null}),
     );
     draw(&app, 148, 51);
-    let Some(SelectedRead::Finals(key)) = app.selected_read() else {
+    let Some(key) = app.finals_read() else {
         panic!("the agent's own finals are read before any body");
     };
     assert_eq!((key.sender.as_str(), key.agent.as_str()), (ACTOR, MEMBER));
@@ -734,7 +733,7 @@ fn an_agents_older_finals_come_from_its_own_read_once_and_join_the_windows() {
     assert!(app.finals_read().is_none(), "read once per activation");
     assert!(matches!(
         app.selected_read(),
-        Some(SelectedRead::Message(_))
+        Some(crate::board::refresh::SelectedRead::Conversation(_))
     ));
     let order = read_all(&mut app, |request| format!("body {request}"));
     assert_eq!(order, ["new", "old2", "old1"], "newest first, each once");
@@ -767,7 +766,6 @@ fn an_agents_older_finals_come_from_its_own_read_once_and_join_the_windows() {
 fn a_failed_or_stale_finals_read_is_not_retried_and_never_hides_the_windows() {
     use crate::board::app::workspace::tests::{MEMBER, board};
     use crate::board::home_leads::FinalsKey;
-    use crate::board::refresh::SelectedRead;
     let mut app = board();
     let now = crate::status::now_ms();
     app.home_leads.test_results(
@@ -775,7 +773,7 @@ fn a_failed_or_stale_finals_read_is_not_retried_and_never_hides_the_windows() {
         json!({"items":[final_item("new", MEMBER, now - 60_000)],"nextBefore":null}),
     );
     draw(&app, 148, 51);
-    let Some(SelectedRead::Finals(key)) = app.selected_read() else {
+    let Some(key) = app.finals_read() else {
         panic!("finals read first");
     };
     // An answer for an agent that is not on screen is dropped.
@@ -793,7 +791,7 @@ fn a_failed_or_stale_finals_read_is_not_retried_and_never_hides_the_windows() {
     assert!(app.finals_read().is_none());
     assert!(matches!(
         app.selected_read(),
-        Some(SelectedRead::Message(_))
+        Some(crate::board::refresh::SelectedRead::Conversation(_))
     ));
     read_all(&mut app, |request| request.to_owned());
     let detail = app
@@ -852,7 +850,7 @@ fn the_agents_own_read_asks_core_for_that_originators_finals_to_that_recipient_o
 /// The agent's own sends, found empty: the lane after finals and before bodies.
 fn answer_sent(app: &mut App) {
     draw(app, 148, 51);
-    if let Some(crate::board::refresh::SelectedRead::Sent(key)) = app.selected_read() {
+    if let Some(key) = app.sent_read() {
         app.apply_sent(key, Ok(vec![]));
     }
     draw(app, 148, 51);
@@ -868,7 +866,6 @@ fn own_send(request: &str, at: u64, text: &str, truncated: bool) -> Value {
 #[test]
 fn a_restart_restores_the_users_own_sends_between_the_agents_finals() {
     use crate::board::app::workspace::tests::{MEMBER, board};
-    use crate::board::refresh::SelectedRead;
     let mut app = board();
     let now = crate::status::now_ms();
     app.home_leads.test_results(
@@ -876,13 +873,13 @@ fn a_restart_restores_the_users_own_sends_between_the_agents_finals() {
         json!({"items":[final_item("answer", MEMBER, now - 60_000)],"nextBefore":null}),
     );
     draw(&app, 148, 51);
-    let Some(SelectedRead::Finals(finals)) = app.selected_read() else {
+    let Some(finals) = app.finals_read() else {
         panic!("finals are read first");
     };
     assert!(app.sent_read().is_none(), "sends wait for the finals");
     app.apply_finals(finals, Ok(vec![]));
     draw(&app, 148, 51);
-    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+    let Some(key) = app.sent_read() else {
         panic!("the user's own sends are read before any body");
     };
     assert_eq!((key.sender.as_str(), key.agent.as_str()), (ACTOR, MEMBER));
@@ -896,7 +893,7 @@ fn a_restart_restores_the_users_own_sends_between_the_agents_finals() {
     assert!(app.sent_read().is_none(), "read once per activation");
     assert!(matches!(
         app.selected_read(),
-        Some(SelectedRead::Message(_))
+        Some(crate::board::refresh::SelectedRead::Conversation(_))
     ));
     read_all(&mut app, |request| format!("body {request}"));
     let screen = text(&draw(&app, 148, 51));
@@ -916,14 +913,13 @@ fn a_restart_restores_the_users_own_sends_between_the_agents_finals() {
 #[test]
 fn a_restored_send_whose_record_is_gone_says_it_is_truncated_and_how_to_open_it() {
     use crate::board::app::workspace::tests::board;
-    use crate::board::refresh::SelectedRead;
     let mut app = board();
     draw(&app, 148, 51);
-    if let Some(SelectedRead::Finals(finals)) = app.selected_read() {
+    if let Some(finals) = app.finals_read() {
         app.apply_finals(finals, Ok(vec![]));
         draw(&app, 148, 51);
     }
-    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+    let Some(key) = app.sent_read() else {
         panic!("sends are read");
     };
     let now = crate::status::now_ms();
@@ -948,14 +944,13 @@ fn a_restored_send_whose_record_is_gone_says_it_is_truncated_and_how_to_open_it(
 fn a_failed_or_stale_sent_read_is_not_retried_and_hides_nothing() {
     use crate::board::app::workspace::tests::board;
     use crate::board::home_leads::SentKey;
-    use crate::board::refresh::SelectedRead;
     let mut app = board();
     draw(&app, 148, 51);
-    if let Some(SelectedRead::Finals(finals)) = app.selected_read() {
+    if let Some(finals) = app.finals_read() {
         app.apply_finals(finals, Ok(vec![]));
         draw(&app, 148, 51);
     }
-    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+    let Some(key) = app.sent_read() else {
         panic!("sends are read");
     };
     // An answer for an agent that is not on screen is dropped.
@@ -966,7 +961,10 @@ fn a_failed_or_stale_sent_read_is_not_retried_and_hides_nothing() {
         },
         Ok(vec![own_send("other", 1, "elsewhere", false)]),
     );
-    assert!(matches!(app.selected_read(), Some(SelectedRead::Sent(_))));
+    assert!(matches!(
+        app.selected_read(),
+        Some(crate::board::refresh::SelectedRead::Conversation(_))
+    ));
     app.apply_sent(key, Err("storage unavailable".into()));
     assert!(app.sent_read().is_none(), "a failed read is kept as empty");
     assert!(!text(&draw(&app, 148, 51)).contains("elsewhere"));
@@ -997,14 +995,14 @@ fn capture_states_are_core_owned_and_never_regular_replies() {
 }
 // Public history records drive these scenes; no pane text or local timer decides capture.
 fn captured_history_app(state: &str) -> App {
-    use crate::board::{app::workspace::tests::board, refresh::SelectedRead};
+    use crate::board::app::workspace::tests::board;
     let mut app = board();
     draw(&app, 148, 51);
-    if let Some(SelectedRead::Finals(key)) = app.selected_read() {
+    if let Some(key) = app.finals_read() {
         app.apply_finals(key, Ok(vec![]));
         draw(&app, 148, 51);
     }
-    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+    let Some(key) = app.sent_read() else {
         panic!("history read");
     };
     let now = crate::status::now_ms();

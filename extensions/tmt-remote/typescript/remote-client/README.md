@@ -74,7 +74,7 @@ device but the owner's own browser sees `false`. `sendNow` asks, for a request t
 that it be typed now; only the owner's own browser may call it (`RefusalError`
 `REMOTE_SCOPE_DENIED` otherwise). `SendNowState` is `sent` (Core typed it), `already`, `refused`,
 `unconfirmed` (it may have been typed: read `result` before offering it again) or `unavailable`
-(nothing typed), with the `requestId`, an optional `reason` and a fresh `messageState`. A state this
+(nothing typed), with the `requestId`, an optional `reason` (Core's code) with its `reasonText` (Core's own sentence for it: show it as it is, keep no table) and a fresh `messageState`. A state this
 SDK does not know decodes as `unconfirmed`, never `sent`; a thrown `ClientError` also means unknown.
 See [Send now](../../../../contracts/remote-channel-v1.md#send-now).
 `RemoteAgent` contains `id`, `name`, `presence`, optional core-owned `delivery` and optional

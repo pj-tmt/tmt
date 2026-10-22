@@ -63,15 +63,30 @@ impl Generation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SelectedRead {
+    Conversation(super::selected_conversation::Plan),
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
     PaneOutput(super::conversation::ConversationKey),
     /// The shown live screen of one agent, and which read of it this is.
     PaneScreen(super::conversation::ConversationKey, u64),
-    /// One agent's own newest finals, for finals the shared windows scrolled past.
-    Finals(super::home_leads::FinalsKey),
-    /// The user's own durable sends to one agent, read after its finals.
-    Sent(super::home_leads::SentKey),
+}
+
+/// The UI's selected-lane demand. Static projections have no live worker.
+#[derive(Default)]
+pub(super) enum SelectedRequest {
+    #[default]
+    Unmanaged,
+    AwaitingSnapshot,
+    Ready(Option<SelectedRead>),
+}
+
+impl SelectedRequest {
+    pub(super) fn conversation(&self) -> Option<&super::selected_conversation::Plan> {
+        match self {
+            Self::Ready(Some(SelectedRead::Conversation(plan))) => Some(plan),
+            _ => None,
+        }
+    }
 }
 
 pub struct Worker {
@@ -80,6 +95,7 @@ pub struct Worker {
     /// refresh (HOME exchanges, cron, history) never queues in front of them.
     selected: Sender<SelectedWork>,
     generation: Arc<Generation>,
+    selected_generation: Arc<Generation>,
     thread: Option<std::thread::JoinHandle<()>>,
     selected_thread: Option<std::thread::JoinHandle<()>>,
     checklist_stop: crate::runner::Cancellation,
@@ -95,6 +111,7 @@ impl Worker {
     ) -> Self {
         let (requests, pending) = mpsc::channel();
         let generation = Arc::new(Generation::default());
+        let selected_generation = Arc::new(Generation::default());
         let read_generation = Arc::clone(&generation);
         let checklist_stop = crate::runner::Cancellation::default();
         let checklist_reader = core.cancellable(checklist_stop.clone());
@@ -102,7 +119,7 @@ impl Worker {
         let selected_thread = {
             let core = core.clone();
             let events = events.clone();
-            let read_generation = Arc::clone(&generation);
+            let read_generation = Arc::clone(&selected_generation);
             std::thread::spawn(move || {
                 // A prepared prompt never changes: full texts survive agent switches.
                 let mut sent_texts = super::home_leads::SentTexts::default();
@@ -113,6 +130,12 @@ impl Worker {
                         let cancellation = read_generation.cancellation(generation);
                         let reader = core.cancellable(cancellation.clone());
                         let event = match read {
+                            SelectedRead::Conversation(plan) => super::BoardEvent::Conversation {
+                                projection: plan.read(&reader, &mut sent_texts, &cancellation),
+                                plan,
+                                revision,
+                                cancellation: cancellation.clone(),
+                            },
                             SelectedRead::Status(target) => super::BoardEvent::Status {
                                 result: crate::membership::status_update::read(&reader, &target)
                                     .map_err(|error| error.message),
@@ -130,20 +153,6 @@ impl Worker {
                                 observation: super::screen_view::read(&reader, &key.1),
                                 key,
                                 round,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                            SelectedRead::Finals(key) => super::BoardEvent::Finals {
-                                result: key.read(&reader).map_err(|error| error.to_string()),
-                                key,
-                                revision,
-                                cancellation: cancellation.clone(),
-                            },
-                            SelectedRead::Sent(key) => super::BoardEvent::Sent {
-                                result: key
-                                    .read(&reader, &mut sent_texts)
-                                    .map_err(|error| error.to_string()),
-                                key,
                                 revision,
                                 cancellation: cancellation.clone(),
                             },
@@ -316,6 +325,7 @@ impl Worker {
             requests,
             selected,
             generation,
+            selected_generation,
             thread: Some(thread),
             selected_thread: Some(selected_thread),
             checklist_stop,
@@ -331,6 +341,7 @@ impl Worker {
         demand: Option<super::rate::history::Demand>,
     ) {
         let generation = if preempt {
+            self.selected_generation.advance();
             self.generation.advance()
         } else {
             self.generation.number.load(Ordering::Acquire)
@@ -346,7 +357,8 @@ impl Worker {
         let _ = self.requests.send(Work::Checklist(task));
     }
     pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
-        let generation = self.generation.number.load(Ordering::Acquire);
+        // Replace the selected lane without interrupting base/background reads.
+        let generation = self.selected_generation.advance();
         let _ = self.selected.send(SelectedWork {
             read,
             revision,
@@ -358,6 +370,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.generation.advance();
+        self.selected_generation.advance();
         self.checklist_stop.cancel();
         // Disconnect before joining: the worker exits its bounded cancelled
         // child read, and an idle worker exits recv immediately.
@@ -1630,6 +1643,51 @@ printf '%s\n' '{{}}'
             request: request.into(),
             kind: super::super::home_leads::Kind::Reply,
         })
+    }
+
+    #[test]
+    fn replacing_a_selection_keeps_base_work_live_and_never_restarts_it() {
+        let (requests, pending) = mpsc::channel();
+        let (selected, selected_pending) = mpsc::channel();
+        let worker = Worker {
+            requests,
+            selected,
+            generation: Arc::new(Generation::default()),
+            selected_generation: Arc::new(Generation::default()),
+            thread: None,
+            selected_thread: None,
+            checklist_stop: Default::default(),
+        };
+        worker.request(Some("base".into()), false, false, None);
+        let Work::Reload(base) = pending.recv().unwrap() else {
+            panic!("base read")
+        };
+        let base_live = worker.generation.cancellation(base.generation);
+        worker.selected(1, Some(selected_message("old")));
+        let first = selected_pending.recv().unwrap();
+        let old_selected = worker.selected_generation.cancellation(first.generation);
+        worker.selected(2, Some(selected_message("new")));
+        let second = selected_pending.recv().unwrap();
+        let new_selected = worker.selected_generation.cancellation(second.generation);
+        assert!(old_selected.cancelled());
+        assert!(!new_selected.cancelled());
+        assert!(
+            !base_live.cancelled(),
+            "the in-flight base read remains usable"
+        );
+        assert!(
+            matches!(pending.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "selection never enqueues another base read"
+        );
+        worker.request(Some("replacement".into()), true, false, None);
+        assert!(
+            base_live.cancelled(),
+            "explicit base preemption still cancels base work"
+        );
+        assert!(
+            new_selected.cancelled(),
+            "explicit base preemption also cancels selected work"
+        );
     }
 
     #[test]
@@ -3559,19 +3617,10 @@ printf '%s\n' '{{}}'
             sender: "owner".into(),
             agent: "agent".into(),
         };
-        let (events, input) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(22, Some(SelectedRead::Sent(key.clone())));
-        let super::super::BoardEvent::Sent {
-            key: delivered,
-            revision,
-            result,
-            cancellation,
-        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
-        else {
-            panic!("sent event")
-        };
-        assert_eq!((delivered, revision), (key, 22));
+        let result = key.read(
+            &Core::at(fake),
+            &mut super::super::home_leads::SentTexts::default(),
+        );
         assert_eq!(
             result.unwrap(),
             [
@@ -3579,7 +3628,6 @@ printf '%s\n' '{{}}'
                 json!({"requestId":"req-new","preparedAtMs":30,"truncated":false,"text":"the whole new message","messageState":{"state":"working","reason":{"text":"Core changes this exact sentence."}}}),
             ]
         );
-        assert!(!cancellation.cancelled());
         let logged: Vec<Value> = std::fs::read_to_string(calls)
             .unwrap()
             .lines()
@@ -3598,7 +3646,6 @@ printf '%s\n' '{{}}'
             json!({"recipientId":"agent","limit":50}),
             "core's largest page, with no originator filter"
         );
-        drop(worker);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3704,7 +3751,7 @@ printf '%s\n' '{{}}'
     }
 
     /// The selected agent's own finals are one `requests.list` call with that
-    /// originator and recipient, delivered as a `Finals` event for the revision.
+    /// originator and recipient, ready for the coherent conversation projection.
     #[test]
     fn a_selected_finals_read_lists_one_agents_finals_for_the_user() {
         let dir = std::env::temp_dir().join(format!(
@@ -3733,26 +3780,13 @@ printf '%s\n' '{{}}'
             sender: "owner".into(),
             agent: "agent".into(),
         };
-        let (events, input) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(fake), false, events, None);
-        worker.selected(21, Some(SelectedRead::Finals(key.clone())));
-        let super::super::BoardEvent::Finals {
-            key: delivered,
-            revision,
-            result,
-            cancellation,
-        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
-        else {
-            panic!("finals event")
-        };
-        assert_eq!((delivered, revision), (key, 21));
+        let result = key.read(&Core::at(fake));
         assert_eq!(
             result.unwrap(),
             [
                 json!({"requestId":"req-old","recipientId":"agent","submittedAtMs":7,"status":"retained"})
             ]
         );
-        assert!(!cancellation.cancelled());
         let calls: Vec<Value> = std::fs::read_to_string(calls)
             .unwrap()
             .lines()
@@ -3764,7 +3798,6 @@ printf '%s\n' '{{}}'
                 "originatorId":"owner","recipientId":"agent","view":"results",
                 "limit":super::super::row_detail::FINALS}})]
         );
-        drop(worker);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -66,7 +66,8 @@ elif wire['operation']=='requests.sendNow':
     if kind=='raw':
         print(value);sys.exit(0)
     if kind=='err':
-        print(json.dumps({'error':{'code':value,'message':'refused by the fixture'}}));sys.exit(1)
+        code,_,text=value.partition('|')
+        print(json.dumps({'error':{'code':code,'message':text or 'refused by the fixture'}}));sys.exit(1)
     print(json.dumps({'status':value,'requestId':wire['input']['requestId'],'state':'delivered'}))
 else: raise RuntimeError('unexpected operation')
 "#).unwrap();
@@ -112,7 +113,7 @@ else: raise RuntimeError('unexpected operation')
     pub fn message_state(&self, state: &Value) {
         fs::write(self.root.join("message-state"), state.to_string()).unwrap();
     }
-    /// What `requests.sendNow` answers: `ok|sent`, `ok|already`, `err|<CODE>` or `raw|<unreadable text>`.
+    /// What `requests.sendNow` answers: `ok|sent`, `ok|already`, `err|<CODE>[|<message>]` or `raw|<unreadable text>`.
     pub fn send_now_answers(&self, answer: &str) {
         fs::write(self.root.join("send-now"), answer).unwrap();
     }

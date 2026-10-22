@@ -1526,7 +1526,11 @@ this device sent; anything else is `REMOTE_SCOPE_DENIED` and Core is never asked
 ask: it resolves the person through `user.identity`, calls Core's `requests.sendNow` as that identity
 and reads `requests.show` back. Core alone decides whether it may be sent and does the typing.
 
-The reply is `{state, requestId, reason?, messageState?}` with `state`:
+The reply is `{state, requestId, reason?, reasonText?, messageState?}`. `reasonText` is Core's own
+sentence for `reason` (the table in [Send now](request-response-v1.md#send-now)),
+forwarded as it is when it is one plain line of at most 256 bytes and left out otherwise, so no client
+keeps a table of codes. It travels with Core's codes only (a refusal, or `DELIVERY_UNCERTAIN`), never
+with a failure on this side, and `REMOTE_SCOPE_DENIED` has none. `state` is:
 
 - `sent`: Core typed it. `already`: it had reached the agent, and nothing was typed again.
 - `refused`: nothing was typed; `reason` is Core's code (`SEND_NOW_*`, `DELIVERY_AWAITING_APPROVAL`,

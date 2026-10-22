@@ -47,11 +47,14 @@ export type ResultState =
   | { state: 'unavailable'; requestId: string; reason?: string };
 /** What asking to send a message now came to. `sent` only when Core typed it; `unconfirmed` means
  * it may have been typed, so do not offer it again before reading `result`; `unavailable` and
- * `refused` typed nothing. An unrecognized state decodes as `unconfirmed`, never `sent`. */
+ * `refused` typed nothing. An unrecognized state decodes as `unconfirmed`, never `sent`.
+ * `reasonText` is Core's own sentence for `reason`: show it as it is, keep no table of codes. It is
+ * absent when the failure was this side's, not Core's. */
 export type SendNowState = {
   state: 'sent' | 'already' | 'refused' | 'unconfirmed' | 'unavailable';
   requestId: string;
   reason?: string;
+  reasonText?: string;
   messageState?: MessageState;
 };
 export interface RemoteAgent {
@@ -180,6 +183,19 @@ function reason(value: Record<string, unknown>): { reason?: string } {
   valid(typeof value.reason === 'string' && utf8.encode(value.reason).length <= 256);
   return { reason: value.reason };
 }
+/** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
+function reasonText(value: Record<string, unknown>): { reasonText?: string } {
+  if (value.reasonText === undefined) return {};
+  const text = value.reasonText;
+  valid(
+    typeof text === 'string' &&
+      value.reason !== undefined &&
+      text.length > 0 &&
+      utf8.encode(text).length <= 256 &&
+      !/\p{Cc}/u.test(text),
+  );
+  return { reasonText: text };
+}
 const MESSAGE_STATES = ['sent', 'batched', 'delivered', 'working', 'unconfirmed', 'not_sent'];
 const timestamp = (value: unknown): value is number | null =>
   value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
@@ -291,6 +307,7 @@ function sendNowState(value: unknown, id: string): SendNowState {
     state: known ? (state.state as SendNowState['state']) : 'unconfirmed',
     requestId: id,
     ...reason(state),
+    ...reasonText(state),
     ...messageState(state),
   };
 }

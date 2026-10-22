@@ -836,6 +836,21 @@ The extension API's `requests.sendNow` ([extension-api](extension-api.md)) runs 
 and delivery for the envelope's `identity`; an anonymous envelope is `SEND_NOW_NOT_ALLOWED`. It
 replies `{status, requestId, state}` and carries each refusal above as its fault code.
 
+Each code has one sentence, owned by Core: the CLI, the API's fault `message` and the Remote door's
+`reasonText` show it as it is, and a client writes none of its own.
+
+| Code                           | Sentence                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------- |
+| `SEND_NOW_NOT_ALLOWED`         | Could not send now: only its sender or the owner can send it early         |
+| `SEND_NOW_NOT_APPLICABLE`      | Could not send now: it is not an ordinary message to an agent              |
+| `SEND_NOW_CLOSED`              | Could not send now: it already has an answer, or was withdrawn or expired  |
+| `SEND_NOW_UNCONFIRMED`         | Could not send now: an earlier delivery is unconfirmed, do not resend      |
+| `SEND_NOW_NOT_AVAILABLE`       | Could not send now: the state's `reason.text`                              |
+| `SEND_NOW_UNREACHABLE`         | Could not send now: the agent could not be reached                         |
+| `DELIVERY_AWAITING_APPROVAL`   | Could not send now: the agent is waiting for approval on its machine       |
+| `DELIVERY_CHANNEL_UNAVAILABLE` | Could not send now: the agent's channel is not available                   |
+| `DELIVERY_UNCERTAIN`           | It may have been sent. Delivery is not confirmed, so do not send it again. |
+
 ## Verification ownership
 
 Exact body, retained retry, revision races and expiry belong to the request

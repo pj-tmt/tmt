@@ -665,6 +665,7 @@ pub(super) struct WorkspaceStartup {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) selected_request: super::refresh::SelectedRequest,
     pub(super) buttons: super::buttons::State,
     pub(super) pane_resize: super::pane_resize::State,
     /// Injected by the renderer, never inferred from NO_COLOR or stored preferences.
@@ -926,6 +927,7 @@ impl App {
 
     pub fn new(squad: Option<String>) -> Self {
         Self {
+            selected_request: Default::default(),
             cron_glyphs: super::overview::cron_counts::GlyphSet::from_ascii(false),
             current: squad,
             local_zone: Some(jiff::tz::TimeZone::system()),
@@ -4460,12 +4462,8 @@ impl App {
                 .pane_screen_read()
                 .map(|(key, round)| super::refresh::SelectedRead::PaneScreen(key, round));
         }
-        // Before bodies: a final found here is read like any other.
-        if let Some(key) = self.finals_read() {
-            return Some(super::refresh::SelectedRead::Finals(key));
-        }
-        if let Some(key) = self.sent_read() {
-            return Some(super::refresh::SelectedRead::Sent(key));
+        if let Some(plan) = self.conversation_read() {
+            return Some(super::refresh::SelectedRead::Conversation(plan));
         }
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));

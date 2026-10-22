@@ -172,6 +172,33 @@ for (const [reply, expected] of [
     { state: 'unconfirmed', reason: 'DELIVERY_UNCERTAIN' },
     { state: 'unconfirmed', reason: 'DELIVERY_UNCERTAIN' },
   ],
+  // Core's own sentence for its code travels as it is.
+  [
+    {
+      state: 'refused',
+      reason: 'SEND_NOW_UNREACHABLE',
+      reasonText: 'Could not send now: the agent could not be reached',
+      messageState: heldState,
+    },
+    {
+      state: 'refused',
+      reason: 'SEND_NOW_UNREACHABLE',
+      reasonText: 'Could not send now: the agent could not be reached',
+      messageState: heldState,
+    },
+  ],
+  [
+    {
+      state: 'unconfirmed',
+      reason: 'DELIVERY_UNCERTAIN',
+      reasonText: 'It may have been sent. Delivery is not confirmed, so do not send it again.',
+    },
+    {
+      state: 'unconfirmed',
+      reason: 'DELIVERY_UNCERTAIN',
+      reasonText: 'It may have been sent. Delivery is not confirmed, so do not send it again.',
+    },
+  ],
   [
     { state: 'unavailable', reason: 'USER_NAME_INVALID' },
     { state: 'unavailable', reason: 'USER_NAME_INVALID' },
@@ -201,6 +228,12 @@ test('sendNow rejects a foreign request ID or a malformed state as an unverifiab
     { requestId: request() },
     { state: 'sent', reason: 5 },
     { state: 'sent', messageState: { ...heldState, canSendNow: 'yes' } },
+    // A sentence needs its code, one plain line, within the bound.
+    { state: 'refused', reasonText: 'Could not send now: it was closed' },
+    { state: 'refused', reason: 'SEND_NOW_CLOSED', reasonText: 5 },
+    { state: 'refused', reason: 'SEND_NOW_CLOSED', reasonText: '' },
+    { state: 'refused', reason: 'SEND_NOW_CLOSED', reasonText: 'two\nlines' },
+    { state: 'refused', reason: 'SEND_NOW_CLOSED', reasonText: 'x'.repeat(257) },
   ]) {
     const { door, client } = await ready();
     door.sendNowReply = reply;
