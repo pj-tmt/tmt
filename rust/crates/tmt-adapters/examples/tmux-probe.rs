@@ -6,15 +6,15 @@ use std::{
     io::{self, Write},
     process::ExitCode,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tmt_adapters::{
     host::DeliveryError,
-    process::{CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner},
+    process::{CommandFailure, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner},
     tmux::{CallerEnvironment, OperationOptions, Tmux, TmuxError},
 };
 use tmt_core::endpoint::{
@@ -68,6 +68,7 @@ impl From<DeliveryError> for ProbeError {
 struct CountingRunner<R> {
     inner: R,
     count: Arc<AtomicUsize>,
+    diagnostic: Option<Arc<Mutex<Option<serde_json::Value>>>>,
 }
 
 impl<R: CommandRunner> CommandRunner for CountingRunner<R> {
@@ -76,8 +77,71 @@ impl<R: CommandRunner> CommandRunner for CountingRunner<R> {
         request: CommandRequest<'_>,
     ) -> Result<CommandOutput, tmt_adapters::process::CommandError> {
         self.count.fetch_add(1, Ordering::Relaxed);
-        self.inner.execute(request)
+        let Some(diagnostic) = &self.diagnostic else {
+            return self.inner.execute(request);
+        };
+        let (program, args, deadline, limit) = (
+            request.program,
+            request.args,
+            request.deadline,
+            request.max_output_bytes,
+        );
+        let began = Instant::now();
+        let budget = deadline.saturating_duration_since(began);
+        let result = self.inner.execute(request);
+        {
+            // Keep only the last bounded command, and publish it only if caller
+            // observation fails. Never record stdin or add another observation.
+            let elapsed = began.elapsed();
+            let (failure, code, signal, raw_os_error, cleanup_failed, output) = match &result {
+                Ok(output) => (None, None, None, None, false, Some(output)),
+                Err(error) => {
+                    let (kind, code, signal) = match error.kind {
+                        CommandFailure::Spawn => ("spawn", None, None),
+                        CommandFailure::Timeout => ("timeout", None, None),
+                        CommandFailure::OutputLimit => ("output_limit", None, None),
+                        CommandFailure::Io => ("io", None, None),
+                        CommandFailure::Exit { code, signal } => ("exit", code, signal),
+                    };
+                    (
+                        Some(kind),
+                        code,
+                        signal,
+                        error.raw_os_error(),
+                        error.cleanup_failed(),
+                        error.output.as_ref(),
+                    )
+                }
+            };
+            let (stdout, stderr) = output.map_or((&[][..], &[][..]), |output| {
+                (output.stdout.as_slice(), output.stderr.as_slice())
+            });
+            *diagnostic.lock().unwrap() = Some(serde_json::json!({
+                "program": bounded_text(program.as_encoded_bytes(), 256),
+                "args": args.iter().take(16).map(|arg| bounded_text(arg.as_encoded_bytes(), 256)).collect::<Vec<_>>(),
+                "argsTruncated": args.len() > 16 || args.iter().any(|arg| arg.as_encoded_bytes().len() > 256),
+                "budgetMs": budget.as_secs_f64() * 1000.0,
+                "elapsedMs": elapsed.as_secs_f64() * 1000.0,
+                "outputLimitBytes": limit,
+                "commandFailure": failure,
+                "exitCode": code,
+                "signal": signal,
+                "rawOsError": raw_os_error,
+                "cleanupFailed": cleanup_failed,
+                "outputAvailable": output.is_some(),
+                "stdout": bounded_text(stdout, 4096),
+                "stderr": bounded_text(stderr, 4096),
+                "stdoutBytes": stdout.len(),
+                "stderrBytes": stderr.len(),
+                "outputTruncated": stdout.len() > 4096 || stderr.len() > 4096,
+            }));
+        }
+        result
     }
+}
+
+fn bounded_text(bytes: &[u8], limit: usize) -> String {
+    String::from_utf8_lossy(&bytes[..bytes.len().min(limit)]).into_owned()
 }
 
 fn caller_document<R: CommandRunner>(
@@ -243,6 +307,40 @@ fn run<R: CommandRunner>(
     }
 }
 
+fn result_document(
+    result: Result<serde_json::Value, ProbeError>,
+    count: usize,
+    diagnostic: Option<&Mutex<Option<serde_json::Value>>>,
+) -> serde_json::Value {
+    let mut document = match result {
+        Ok(result) => {
+            let mut object = match result {
+                serde_json::Value::Object(object) => object,
+                _ => {
+                    let error = ProbeError::Usage("Probe result must be a JSON object.");
+                    serde_json::Map::from_iter([(
+                        "error".into(),
+                        serde_json::json!({"code": error.code(), "message": error.message()}),
+                    )])
+                }
+            };
+            object.insert("commandCount".into(), serde_json::json!(count));
+            serde_json::Value::Object(object)
+        }
+        Err(error) => serde_json::json!({
+            "error": {"code": error.code(), "message": error.message()},
+            "commandCount": count,
+        }),
+    };
+    if (document.get("pane").is_some_and(serde_json::Value::is_null)
+        || document.get("error").is_some())
+        && let Some(last) = diagnostic.and_then(|last| last.lock().unwrap().take())
+    {
+        document["diagnostic"] = last;
+    }
+    document
+}
+
 fn main() -> ExitCode {
     if !matches!(std::env::var_os("TMT_E2E_SOCKET"), Some(value) if !value.is_empty()) {
         let document = serde_json::json!({
@@ -271,33 +369,18 @@ fn main() -> ExitCode {
     }
 
     let count = Arc::new(AtomicUsize::new(0));
+    let diagnostic =
+        (args.first().is_some_and(|arg| arg == "caller")).then(|| Arc::new(Mutex::new(None)));
     let tmux = Tmux::new(CountingRunner {
         inner: UnixCommandRunner,
         count: Arc::clone(&count),
+        diagnostic: diagnostic.clone(),
     });
-    let document = match run(&args, &tmux) {
-        Ok(result) => {
-            let mut object = match result {
-                serde_json::Value::Object(object) => object,
-                _ => {
-                    let error = ProbeError::Usage("Probe result must be a JSON object.");
-                    serde_json::Map::from_iter([(
-                        "error".into(),
-                        serde_json::json!({"code": error.code(), "message": error.message()}),
-                    )])
-                }
-            };
-            object.insert(
-                "commandCount".into(),
-                serde_json::json!(count.load(Ordering::Relaxed)),
-            );
-            serde_json::Value::Object(object)
-        }
-        Err(error) => serde_json::json!({
-            "error": {"code": error.code(), "message": error.message()},
-            "commandCount": count.load(Ordering::Relaxed),
-        }),
-    };
+    let document = result_document(
+        run(&args, &tmux),
+        count.load(Ordering::Relaxed),
+        diagnostic.as_deref(),
+    );
     if writeln!(io::stdout().lock(), "{document}").is_err() {
         return ExitCode::FAILURE;
     }
@@ -316,6 +399,7 @@ mod tests {
     enum Reply {
         Text(&'static str),
         Timeout,
+        CleanupFailure,
     }
 
     impl CommandRunner for Reply {
@@ -330,19 +414,29 @@ mod tests {
                 }),
                 // The existing process owner refuses an expired deadline before spawn.
                 // This constructs its real typed timeout without invoking any tmux.
-                Self::Timeout => UnixCommandRunner.execute(CommandRequest {
-                    deadline: Instant::now(),
-                    ..request
-                }),
+                Self::Timeout | Self::CleanupFailure => {
+                    let mut error = UnixCommandRunner
+                        .execute(CommandRequest {
+                            deadline: Instant::now(),
+                            ..request
+                        })
+                        .unwrap_err();
+                    if matches!(self, Self::CleanupFailure) {
+                        error.cleanup_error = Some(io::Error::other("owned cleanup refused"));
+                    }
+                    Err(error)
+                }
             }
         }
     }
 
     fn caller(reply: Reply) -> serde_json::Value {
         let count = Arc::new(AtomicUsize::new(0));
+        let diagnostic = Arc::new(Mutex::new(None));
         let tmux = Tmux::new(CountingRunner {
             inner: reply,
             count: Arc::clone(&count),
+            diagnostic: Some(Arc::clone(&diagnostic)),
         });
         let document = caller_document(
             &tmux,
@@ -352,10 +446,9 @@ mod tests {
                 process_id: 900,
                 driver_env: Default::default(),
             },
-        )
-        .unwrap();
+        );
         assert_eq!(count.load(Ordering::Relaxed), 1);
-        document
+        result_document(document, count.load(Ordering::Relaxed), Some(&diagnostic))
     }
 
     #[test]
@@ -364,7 +457,7 @@ mod tests {
             caller(Reply::Text(
                 "%9__TMT_CALLER_PANE_4f1c__/tmp/private.sock__TMT_CALLER_PANE_4f1c__321\n"
             )),
-            serde_json::json!({"pane": "%9"})
+            serde_json::json!({"pane": "%9", "commandCount": 1})
         );
     }
 
@@ -374,6 +467,15 @@ mod tests {
         assert!(document["pane"].is_null());
         assert_eq!(document["diagnostic"]["commandFailure"], "timeout");
         assert_eq!(document["diagnostic"]["cleanupFailed"], false);
+        assert_eq!(document["diagnostic"]["outputAvailable"], false);
+    }
+
+    #[test]
+    fn cleanup_failure_remains_an_error_and_preserves_its_diagnostic() {
+        let document = caller(Reply::CleanupFailure);
+        assert_eq!(document["error"]["code"], "TMUX_ERROR");
+        assert_eq!(document["diagnostic"]["commandFailure"], "timeout");
+        assert_eq!(document["diagnostic"]["cleanupFailed"], true);
     }
 
     #[test]
@@ -385,6 +487,7 @@ mod tests {
             let document = caller(Reply::Text(output));
             assert!(document["pane"].is_null());
             assert_eq!(document["diagnostic"]["stdout"], output);
+            assert_eq!(document["diagnostic"]["outputAvailable"], true);
             assert!(document["diagnostic"]["commandFailure"].is_null());
         }
     }
