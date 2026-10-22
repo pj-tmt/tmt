@@ -603,6 +603,12 @@ fn input_price_qualification_is_shown_once_by_the_visible_amount() {
         if width < 100 {
             assert!(shown.contains("Input list-price estimate: —"));
         }
+        // The columns a narrow pane drops are named once; a pane that has them says nothing.
+        assert_eq!(
+            shown.matches(super::super::table::NARROW_HINT).count(),
+            usize::from(!super::super::table::price_column_shown(&app)),
+            "width={width}: {shown}"
+        );
     }
 }
 

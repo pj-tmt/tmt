@@ -26,6 +26,9 @@ pub enum OwnerFault {
     StaleHead,
     WrongOwner,
     Invalid,
+    /// The page is archived: a display-only pin names it (contract: Pins), so the refusal says why
+    /// instead of reading as a device that may not write.
+    PageArchived,
     Capacity,
     /// One page's state is past a read limit; names the page, what was measured and the limit.
     PageCapacity(PageCapacity),

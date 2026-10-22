@@ -68,7 +68,7 @@ impl TransitionError {
                 OwnerFault::Conflict => Code::Conflict,
                 OwnerFault::StaleHead => Code::StaleHead,
                 OwnerFault::WrongOwner => Code::Denied,
-                OwnerFault::Invalid => Code::Invalid,
+                OwnerFault::Invalid | OwnerFault::PageArchived => Code::Invalid,
                 OwnerFault::Capacity | OwnerFault::PageCapacity(_) | OwnerFault::FoldList => {
                     Code::Capacity
                 }
@@ -195,8 +195,11 @@ impl Engine {
                 let log = tx.log()?;
                 let (states, _) = crate::fold::verify_log(&log, key, page)?;
                 let policy = &states.last().ok_or(OwnerFault::Invalid)?.policy;
-                if policy.archived || policy.deleted {
-                    return Err(OwnerFault::WrongOwner.into());
+                if policy.archived {
+                    return Err(OwnerFault::PageArchived.into());
+                }
+                if policy.deleted {
+                    return Err(OwnerFault::Invalid.into());
                 }
             }
             tx.set_pinned(page, pinned).map(|_| ())

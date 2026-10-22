@@ -755,13 +755,16 @@ activation and its archive/install proofs remain owned by infra's #1418.
 
 The app also builds the bundled page runtime (#1693) as one flat asset, `assets/colab-runtime.js`: React,
 ReactDOM and htm in one script that sets `window.tmt`, followed by the unmodified Tailwind browser
-script. It is an ordinary inventory file, and `/assets/colab-runtime.js` is on the anonymous list above
+script. `window.tmt.icons` is a frozen set of curated Lucide icons: `src/runtime/icons.ts` is the one list
+(a single line per icon; the build keeps only those). Each icon draws square caps, miter joins, `currentColor`,
+stroke 1.75 and size 16 unless the page passes its own prop, is `aria-hidden` unless the page gives it
+`aria-label` or `title` (then `role="img"`, and `title` becomes the SVG `<title>`). It is an ordinary inventory file, and `/assets/colab-runtime.js` is on the anonymous list above
 so a reader can load it. No page loads it until the opt-in slice ships, and the renderer CSP is
 unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
-ReactDOM, htm and `@tailwindcss/browser` and the asset's SHA-256 and length, and `scripts/verify-runtime.mjs`
+ReactDOM, htm, `@tailwindcss/browser` and `lucide-react` and the asset's SHA-256 and length, and `scripts/verify-runtime.mjs`
 fails the app build when the bytes or versions differ, when the script exceeds 1.5 MiB, ends a script
 tag, reads `process.env`, references a source map or uses `eval`/`new Function`, or when the notices lack
-any of those four packages. `scripts/runtime-notices.mjs` appends htm's and the Tailwind browser
+any of those five packages. `scripts/runtime-notices.mjs` appends htm's and the Tailwind browser
 script's licenses to `THIRD-PARTY-NOTICES.txt`, since the default build bundles neither. A changed
 dependency or output is therefore a reviewed `runtime-pin.json` diff.
 

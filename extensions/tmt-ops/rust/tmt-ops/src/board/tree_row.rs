@@ -37,6 +37,8 @@ pub(in crate::board) struct Painted {
     pub task: Option<Rect>,
     pub timers: Option<Rect>,
     pub model: Option<Rect>,
+    /// The TOK figure, whichever unit it shows: a click switches the unit.
+    pub tokens: Option<Rect>,
 }
 
 fn style(look: Look, row: &Row<'_>, value: Style) -> Style {
@@ -135,14 +137,17 @@ pub(in crate::board) fn paint(
                 }
                 state
             }
-            AgentsField::Tokens => Line::styled(
-                fit(&row.tokens, Align::Right),
-                look.role(if row.tokens == "—" {
-                    Role::Dim
-                } else {
-                    Role::Text
-                }),
-            ),
+            AgentsField::Tokens => {
+                painted.tokens = Some(cell);
+                Line::styled(
+                    fit(&row.tokens, Align::Right),
+                    look.role(if row.tokens == "—" {
+                        Role::Dim
+                    } else {
+                        Role::Text
+                    }),
+                )
+            }
             AgentsField::Cron => {
                 if row.timers.is_some() {
                     painted.timers = Some(cell);

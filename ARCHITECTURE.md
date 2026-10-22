@@ -424,7 +424,7 @@ own module/drawing boundaries and verification.
   The quiet cache lane publishes per-name view hints (default keeps its original path): destination/UUID anchors, expansion, committed filters/sort/search, chart controls, pane ratios and pane scroll. Shared Config preferences stay separate; exec carries the layer and session-only visibility. [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.
   `labels::Reader` acquires Config-selected windows; `labels::digest` sums [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings) with cost and share valuations, not provider history. `board::savings` formats them; the price table is display-only.
-  `usage_report::Reader` acquires public Core usage/traffic off-thread;
+  `usage_report::Reader` acquires public Core usage/traffic off-thread; `usage_report::valuation` is the one reader of its TOK and input price, for the Digest table and the Agents TOK figures alike;
   [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns its range and lifecycle.
   Member references resolve through the acquired global identity inventory; Markdown carries UUID tags into clipped frame hits. Existing menu/actions own navigation, while copy/annotation retain raw source. No text grants new delivery authority or paint/input I/O. [Reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md).
   Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config and cron namespaces under owned locks; partial results

@@ -310,6 +310,8 @@ pub enum Choice {
     },
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
+    /// A click on a painted TOK figure of the Agents list: tokens or list-price money.
+    TokMoney,
     ClearSearch,
     Panels,
     Checklist,
@@ -2907,6 +2909,7 @@ impl App {
                 self.open_exchange_pair(&sender, &recipient)
             }
             Choice::SavingsUnit => self.cycle_savings_unit(),
+            Choice::TokMoney => self.toggle_tok_money(),
             Choice::ClearSearch => {
                 super::search_field::clear(&mut self.search, &mut self.searching);
                 self.clamp();
@@ -4291,7 +4294,10 @@ impl App {
                 // Scope, range and savings controls work on every tab that paints them.
                 let visibility = matches!(
                     choice,
-                    Choice::SavingsUnit | Choice::ClearSearch | Choice::TokRange(_)
+                    Choice::SavingsUnit
+                        | Choice::TokMoney
+                        | Choice::ClearSearch
+                        | Choice::TokRange(_)
                 ) || matches!(&choice, Choice::Action(action) if matches!(action.verb,
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
