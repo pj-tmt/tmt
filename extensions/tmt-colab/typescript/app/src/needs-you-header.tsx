@@ -125,7 +125,6 @@ export function NeedsYouHeader({
           <DropdownMenuContent
             className="needs-you-header-menu"
             align="end"
-            collisionPadding={8}
             onFocusCapture={() => {
               menuFocus.current = true;
             }}
