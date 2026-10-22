@@ -1,57 +1,227 @@
-/** The Digest web view: one range picker and the per-agent table (tokens, share, turns). */
+/**
+ * The Digest web view: the usage report as sections of charts and tables (allowance, tokens by
+ * seat, who talks to whom, activity, a ranking and the method). It depends only on
+ * `DigestSource`; the product source says "not in the browser yet" until Core serves the read
+ * (#4325), and a sample source is only ever passed in by tests, the gallery and dev.
+ */
+import {
+  compactCount,
+  createMatrix,
+  createSeriesChart,
+  createStrips,
+  topLayers,
+} from '@tmt/browser-ui/chart';
 import { pageLoading } from './page-loading.js';
 import {
   digestSource,
   USAGE_RANGES,
   type DigestSource,
+  type UsageDocument,
   type UsageRange,
-  type UsageReport,
 } from './digest-source.js';
+import {
+  activity,
+  allowance,
+  exchange,
+  historyCharts,
+  rankRows,
+  resetsIn,
+  tokenSeries,
+} from './digest-view.js';
 import { notAvailable } from './not-available.js';
 
-/** 1.9B, 48.2M, 310K, 940: compact token counts in the table. */
-export function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`;
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`;
-  return String(tokens);
-}
+export { compactCount as formatTokens };
 
-/** Each agent's share of the range's tokens, in whole percent, largest first. */
-export function usageRows(report: UsageReport) {
-  const total = report.agents.reduce((sum, row) => sum + row.tokens, 0);
-  return [...report.agents]
-    .sort((a, b) => b.tokens - a.tokens || a.agent.localeCompare(b.agent))
-    .map((row) => ({
-      ...row,
-      share: total ? Math.round((row.tokens / total) * 100) : 0,
-    }));
-}
+const SERIES_KEPT = 7;
 
-function cell(tag: 'td' | 'th', text: string): HTMLTableCellElement {
-  const node = document.createElement(tag);
-  node.textContent = text;
+function el<K extends keyof HTMLElementTagNameMap>(
+  name: K,
+  className?: string,
+  text?: string,
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(name);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
   return node;
+}
+
+function section(title: string, id: string, ...body: Node[]): HTMLElement {
+  const node = el('section', 'digest-section');
+  node.id = id;
+  node.setAttribute('aria-labelledby', `${id}-title`);
+  const heading = el('h2', 'home-heading', title);
+  heading.id = `${id}-title`;
+  node.append(heading, ...body);
+  return node;
+}
+
+function table(head: readonly string[], rows: readonly (readonly string[])[]): HTMLTableElement {
+  const node = el('table', 'usage-table');
+  const header = el('tr');
+  for (const text of head) {
+    const cell = el('th', undefined, text);
+    cell.scope = 'col';
+    header.append(cell);
+  }
+  const thead = el('thead');
+  thead.append(header);
+  node.append(thead);
+  const body = el('tbody');
+  for (const [first, ...rest] of rows) {
+    const line = el('tr');
+    const name = el('th', undefined, first);
+    name.scope = 'row';
+    line.append(name, ...rest.map((text) => el('td', undefined, text)));
+    body.append(line);
+  }
+  node.append(body);
+  return node;
+}
+
+function allowanceSection(doc: UsageDocument): HTMLElement {
+  const rows = allowance(doc);
+  const body: Node[] = [];
+  if (!rows.length) {
+    body.push(el('p', 'usage-note', 'No weekly window has been observed yet.'));
+  } else {
+    body.push(
+      table(
+        ['Provider', 'Left', 'Elapsed', 'Pace', 'Resets in'],
+        rows.map((row) => [
+          row.provider,
+          `${row.leftPercent}%`,
+          row.elapsedPercent === null ? '—' : `${Math.round(row.elapsedPercent)}%`,
+          row.paceDeltaPoints === null
+            ? '—'
+            : `${row.paceDeltaPoints > 0 ? '+' : ''}${row.paceDeltaPoints.toFixed(1)} pts`,
+          row.stale ? 'stale' : resetsIn(row.resetsAtMs, doc.observedAtMs),
+        ]),
+      ),
+    );
+  }
+  const charts = historyCharts(doc);
+  for (const chart of charts) body.push(createSeriesChart(chart));
+  if (rows.length && !charts.length) {
+    body.push(
+      el('p', 'usage-note', 'The weekly history is not served yet; this shows the latest window.'),
+    );
+  }
+  return section('Allowance', 'digest-allowance', ...body);
+}
+
+function tokensSection(doc: UsageDocument): HTMLElement {
+  const data = tokenSeries(doc);
+  const host = el('div');
+  const toggle = el('button', 'tmt-ui-toggle');
+  toggle.type = 'button';
+  const mark = el('span', 'tmt-ui-toggle-indicator');
+  mark.setAttribute('aria-hidden', 'true');
+  toggle.append(mark, el('span', undefined, 'Share of total (100%)'));
+  let share = false;
+  const draw = () => {
+    toggle.setAttribute('aria-pressed', String(share));
+    mark.textContent = share ? '✓' : '';
+    host.replaceChildren(
+      createSeriesChart({
+        title: share ? 'Share of tokens by seat' : 'Tokens by seat',
+        kind: share ? 'share' : 'stack',
+        x: data.x,
+        series: topLayers(data.layers, SERIES_KEPT),
+        empty: 'No token observations in this range.',
+      }),
+    );
+  };
+  toggle.addEventListener('click', () => {
+    share = !share;
+    draw();
+  });
+  draw();
+  const note = data.partial
+    ? [el('p', 'usage-note', 'Some buckets are incomplete: they are lower bounds, not errors.')]
+    : [];
+  return section('Tokens over time', 'digest-tokens', toggle, host, ...note);
+}
+
+function exchangeSection(doc: UsageDocument): HTMLElement {
+  const flow = exchange(doc);
+  return section(
+    'Who talks to whom',
+    'digest-exchange',
+    flow
+      ? createMatrix({
+          title: `Messages, last ${doc.since}`,
+          participants: flow.participants,
+          value: flow.value,
+          sum: true,
+        })
+      : el('p', 'usage-note', 'Message traffic is not available in this read.'),
+  );
+}
+
+function activitySection(doc: UsageDocument): HTMLElement | undefined {
+  const view = activity(doc);
+  if (!view) return undefined;
+  const label = (at: number) =>
+    new Date(view.starts[at]!).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return section(
+    'Activity by seat',
+    'digest-activity',
+    createStrips({
+      title: 'Tokens per hour, oldest on the left',
+      rows: view.rows,
+      slotCount: 24,
+      slotLabel: label,
+      ends: ['24 h ago', 'now'],
+    }),
+  );
+}
+
+function rankingSection(doc: UsageDocument): HTMLElement {
+  const rows = rankRows(doc);
+  return section(
+    `Last ${doc.since} by seat`,
+    'digest-ranking',
+    rows.length
+      ? table(
+          ['Seat', 'Tokens', 'Share'],
+          rows.map((row) => [
+            row.partial ? `${row.name} (partial)` : row.name,
+            compactCount(row.tokens),
+            `${row.share}%`,
+          ]),
+        )
+      : el('p', 'usage-note', 'No seat has token observations in this range.'),
+  );
+}
+
+function methodSection(): HTMLElement {
+  const lines = [
+    'Tokens are input plus output as Core reports them; cached input is part of input and is not counted again.',
+    'An incomplete bucket is a lower bound. A seat with no evidence for part of the range is marked partial, never shown as zero.',
+    'Allowance windows are the account percent as the provider reports it, in whole percent; usage on other machines is not seen.',
+    'Message counts include talk and reply only.',
+  ];
+  return section(
+    'Method and caveats',
+    'digest-method',
+    ...lines.map((text) => el('p', 'usage-note', text)),
+  );
 }
 
 export function digestPage(source: DigestSource = digestSource): void {
   const tabs = document.getElementById('usage-ranges');
-  const body = document.getElementById('usage-rows');
+  const panel = document.getElementById('digest-sections');
   const note = document.getElementById('usage-note');
-  if (!tabs || !body || !note) return;
-  let current: UsageRange = '7d';
+  if (!tabs || !panel || !note) return;
+  let current: UsageRange = USAGE_RANGES[0];
   let generation = 0;
   const buttons = USAGE_RANGES.map((range) => {
-    const button = document.createElement('button');
+    const button = el('button', 'tmt-ui-tab');
     button.type = 'button';
-    button.className = 'tmt-ui-tab';
     button.setAttribute('role', 'tab');
     button.setAttribute('aria-controls', 'usage-panel');
     button.dataset.range = range;
-    const label = document.createElement('span');
-    label.className = 'tmt-ui-tab-label';
-    label.textContent = range;
-    button.append(label);
+    button.append(el('span', 'tmt-ui-tab-label', range));
     button.addEventListener('click', () => void show(range));
     button.addEventListener('keydown', (event) => {
       const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
@@ -72,34 +242,33 @@ export function digestPage(source: DigestSource = digestSource): void {
       button.setAttribute('aria-selected', String(selected));
       button.tabIndex = selected ? 0 : -1;
     }
-    const wait = document.createElement('tr');
-    const waitCell = document.createElement('td');
-    waitCell.colSpan = 4;
-    waitCell.append(pageLoading());
-    wait.append(waitCell);
-    body!.replaceChildren(wait);
-    const report = await source.usage(range);
+    panel!.replaceChildren(pageLoading());
+    const report = await source.report(range);
     if (mine !== generation) return;
-    body!.replaceChildren(
-      ...usageRows(report).map((row) => {
-        const line = document.createElement('tr');
-        line.append(
-          cell('th', row.agent),
-          cell('td', formatTokens(row.tokens)),
-          cell('td', `${row.share}%`),
-          cell('td', row.turns === undefined ? '—' : String(row.turns)),
-        );
-        line.firstElementChild!.setAttribute('scope', 'row');
-        return line;
-      }),
+    if (report.unavailable || !report.document) {
+      panel!.replaceChildren();
+      return notAvailable(note!, report.unavailable ?? 'Usage is not available.');
+    }
+    const doc = report.document;
+    panel!.replaceChildren(
+      ...[
+        allowanceSection(doc),
+        tokensSection(doc),
+        exchangeSection(doc),
+        activitySection(doc),
+        rankingSection(doc),
+        methodSection(),
+      ].filter((node): node is HTMLElement => node !== undefined),
     );
-    if (report.unavailable) return notAvailable(note!, report.unavailable);
-    note!.textContent = report.sample
-      ? 'Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers.'
-      : report.agents.some((row) => row.turns === undefined)
-        ? 'Turns show — where Digest does not count them yet.'
-        : '';
-    note!.hidden = !note!.textContent;
+    if (report.sample) {
+      notAvailable(
+        note!,
+        'Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers.',
+      );
+    } else {
+      note!.replaceChildren();
+      note!.hidden = true;
+    }
   }
   void show(current);
 }
