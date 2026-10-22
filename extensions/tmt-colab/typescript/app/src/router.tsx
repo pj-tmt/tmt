@@ -108,10 +108,9 @@ import { CreatorDefaultProvider } from './creator-default.js';
 import { DraftSession } from './draft-store.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
-import { SaveConflict, SaveOutcomeUnknown, SaveRefused, saveMessage } from './save.js';
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
-import { compactOffered } from './page-usage.js';
-import { SaveNotice, type SaveProblem } from './save-notice.js';
+import { usePageEditor } from './use-page-editor.js';
+import { SaveNotice } from './save-notice.js';
 import { toolbarInset } from './toolbar-inset.js';
 
 /** In-page cards whose controls the floating actions move above, never over. */
@@ -1142,21 +1141,24 @@ function Page() {
   useEffect(() => {
     void noteOpened(space, snapshot.id);
   }, [space, snapshot.id]);
-  const latest = useRef(view),
-    dirty = useRef(false),
-    base = useRef(snapshot.source),
-    draftPage = useRef(snapshot.id);
-  const [draft, setDraft] = useState(snapshot.source),
-    [saving, setSaving] = useState(false);
-  const [editError, setEditError] = useState<SaveProblem | null>(null);
-  /** The last Save merged the edit into a page that had changed; true until the next edit. */
-  const [merged, setMerged] = useState(false);
-  /** How the last Copy draft ended. */
-  const [copied, setCopied] = useState<'copied' | 'failed' | null>(null);
-  const sourceArea = useRef<HTMLTextAreaElement>(null);
-  /** Where the caret and scroll were when a merged Save replaced the text, to put them back. */
-  const placement = useRef<{ start: number; end: number; top: number } | null>(null);
+  const latest = useRef(view);
   const size = usePageSize(snapshot.binding);
+  const {
+    draft,
+    changed: draftChanged,
+    saving,
+    error: editError,
+    merged,
+    copied,
+    sourceArea,
+    saveSettled,
+    adoptSnapshot,
+    adoptUpdate,
+    save,
+    copyDraft,
+    compactFromRefusal,
+    type: typeSource,
+  } = usePageEditor({ snapshot, latest, size });
   const { state: connection, controller: connectionOwner } = useConnection({
     loaded,
     binding: () => snapshot.binding,
@@ -1188,14 +1190,7 @@ function Page() {
     wasArchived.current = archived;
   }, [archived]);
   useEffect(() => {
-    // A replacement of the same page keeps a dirty Source draft with its frozen base and caret,
-    // never saving or retargeting it; a clean draft, or another page, adopts the snapshot.
-    if (!dirty.current || draftPage.current !== snapshot.id) {
-      dirty.current = false;
-      base.current = snapshot.source;
-      setDraft(snapshot.source);
-    }
-    draftPage.current = snapshot.id;
+    adoptSnapshot(snapshot);
     setView({
       discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
@@ -1214,7 +1209,6 @@ function Page() {
       threads: snapshot.threads,
     });
     connectionOwner.reset();
-    setEditError(null);
     let firstView = true;
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
@@ -1231,100 +1225,14 @@ function Page() {
         }
         latest.current = next;
         setView(next);
-        if (!dirty.current) {
-          base.current = value.source;
-          setDraft(value.source);
-        }
+        adoptUpdate(value.source);
       },
       (error) => connectionOwner.report(error),
     );
     return () => {
       unsubscribe?.();
     };
-  }, [snapshot, loaded, transport, connectionOwner, replyObserver]);
-  // Settles when the Save in flight has landed (true) or failed (false); true when none is.
-  const saveSettled = useRef<Promise<boolean> | null>(null);
-  async function save() {
-    if (!snapshot.binding || saving) return;
-    let landed = false;
-    let settle!: (landed: boolean) => void;
-    saveSettled.current = new Promise<boolean>((resolve) => (settle = resolve));
-    setSaving(true);
-    setEditError(null);
-    setMerged(false);
-    setCopied(null);
-    const area = sourceArea.current;
-    try {
-      const outcome = await snapshot.binding.edit(draft, base.current);
-      dirty.current = false;
-      base.current = latest.current.source;
-      if (outcome.merged && area && document.activeElement === area)
-        placement.current = {
-          start: area.selectionStart,
-          end: area.selectionEnd,
-          top: area.scrollTop,
-        };
-      setDraft(latest.current.source);
-      setMerged(outcome.merged);
-      void size.refresh();
-      landed = true;
-    } catch (error) {
-      const problem: SaveProblem = {
-        message: saveMessage(error),
-        unconfirmed: error instanceof SaveOutcomeUnknown,
-        ...(error instanceof SaveConflict ? { conflict: true as const } : {}),
-      };
-      // A full page names the way out that can help, decided by what the serve says is limiting
-      // it now: combining changes frees room only when the changes are the limit.
-      if (error instanceof SaveRefused && error.code === 'COLAB_CAPACITY') {
-        const usage = await size.refresh();
-        // A device that cannot ask the serve to combine is told who can.
-        if (!snapshot.binding.compact) problem.message = text.pageSize.saveFullReader;
-        else if (usage) {
-          problem.full = compactOffered(usage) ? 'compact' : 'export';
-          problem.message = compactOffered(usage)
-            ? text.pageSize.saveFullTail
-            : text.pageSize.saveFullBudget;
-        }
-      }
-      setEditError(problem);
-    } finally {
-      setSaving(false);
-      saveSettled.current = null;
-      settle(landed);
-    }
-  }
-  // A merged Save replaces the text with the merged page; the caret and scroll stay where the new
-  // text allows, and nothing takes focus.
-  useLayoutEffect(() => {
-    const area = sourceArea.current,
-      kept = placement.current;
-    placement.current = null;
-    if (!area || !kept || document.activeElement !== area) return;
-    area.setSelectionRange(Math.min(kept.start, draft.length), Math.min(kept.end, draft.length));
-    area.scrollTop = kept.top;
-  }, [draft]);
-  /** Copy the unsaved draft from a conflict, since a reload loses it. */
-  function copyDraft() {
-    void navigator.clipboard.writeText(draft).then(
-      () => setCopied('copied'),
-      () => setCopied('failed'),
-    );
-  }
-  /** Compact from the save refusal: the draft stays, nothing is saved or resent; the person
-   * presses Save again. */
-  async function compactFromRefusal() {
-    const outcome = await size.compact();
-    setEditError(
-      outcome.kind === 'failed'
-        ? { message: text.pageSize.failed, unconfirmed: false, full: 'compact' }
-        : outcome.kind === 'nothing'
-          ? { message: text.pageSize.nothingToCombine, unconfirmed: false, full: 'export' }
-          : outcome.kind === 'still-high'
-            ? { message: text.pageSize.saveFullBudget, unconfirmed: false, full: 'export' }
-            : { message: text.pageSize.compactedSaveAgain, unconfirmed: false, full: 'compacted' },
-    );
-  }
+  }, [snapshot, loaded, transport, connectionOwner, replyObserver, adoptSnapshot, adoptUpdate]);
   const refreshSize = size.refresh;
   useEffect(() => {
     if (panel === 'about' || panel === 'source') void refreshSize();
@@ -2306,7 +2214,7 @@ function Page() {
                 label={text.save}
                 busy={saving}
                 busyMark={<BusyMark />}
-                disabled={!!liveError || draft === base.current}
+                disabled={!!liveError || !draftChanged}
                 onActivate={() => void save()}
               />
             )}
@@ -2364,11 +2272,7 @@ function Page() {
             readOnly={archived || !snapshot.binding || saving || !!liveError}
             spellCheck={false}
             value={draft}
-            onChange={(event) => {
-              dirty.current = true;
-              setMerged(false);
-              setDraft(event.target.value);
-            }}
+            onChange={(event) => typeSource(event.target.value)}
           />
         </div>
       </BrowserDrawer>
