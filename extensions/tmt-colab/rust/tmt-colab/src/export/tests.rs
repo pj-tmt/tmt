@@ -46,6 +46,7 @@ fn bundle() -> Bundle {
         contents,
         files,
         disclosure: DISCLOSURE,
+        standalone: None,
     }
 }
 #[test]
@@ -371,6 +372,38 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         hex(&crypto::digest(&manifest)),
         fixture["manifestWorkSha256"]
     );
+    // A page that asks for the runtime (#1693) lists its derived standalone copy right after the
+    // HTML, and the copy is the frame's document around the exact source.
+    let case = &fixture["standalone"];
+    let opted = case["source"].as_str().unwrap();
+    assert_eq!(standalone::wants_runtime(opted), Ok(true));
+    assert_eq!(standalone::meta_policy(), case["policy"].as_str().unwrap());
+    assert_eq!(
+        standalone::THEME_SWITCH,
+        case["themeSwitch"].as_str().unwrap()
+    );
+    let copy = standalone::document(
+        opted,
+        &standalone::Runtime {
+            script: case["runtime"]["script"].as_str().unwrap(),
+            style: case["runtime"]["style"].as_str().unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(copy, case["fileUtf8"].as_str().unwrap().as_bytes());
+    assert_eq!(hex(&crypto::digest(&copy)), case["fileSha256"]);
+    let derived = vec![
+        FileInfo::new("page.html", opted.as_bytes()),
+        FileInfo {
+            derived_from: Some(standalone::DERIVED_FROM),
+            ..FileInfo::new(standalone::FILE, &copy)
+        },
+        files[1].clone(),
+        files[2].clone(),
+    ];
+    let manifest = manifest_of(&derived);
+    assert_eq!(manifest, case["manifestUtf8"].as_str().unwrap().as_bytes());
+    assert_eq!(hex(&crypto::digest(&manifest)), case["manifestSha256"]);
 }
 
 #[test]
@@ -644,6 +677,7 @@ fn nested_bundle() -> Bundle {
         contents,
         files,
         disclosure: DISCLOSURE,
+        standalone: None,
     }
 }
 #[test]

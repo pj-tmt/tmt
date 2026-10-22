@@ -511,6 +511,24 @@ it('keeps an append whose outcome is unknown and retries exactly those bytes fir
   }
 });
 
+it('a write pending when the connection is reopened for the object channel lands once on the replacement (#4297)', async () => {
+  // An attachment that finds no object channel reopens the connection through the connection-loss
+  // path (RESYNC_REQUIRED). A write in flight then is kept with its exact bytes, offered again on
+  // the replacement and not a third time; the write after it follows.
+  const w = await writerOver([new Error('RESYNC_REQUIRED'), undefined, undefined]);
+  try {
+    await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
+    const kept = (await w.saved())?.pending;
+    expect(kept?.entry.seq).toBe('5');
+    await w.save();
+    expect(w.appended[1]).toEqual(kept!.entry);
+    expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5', '6']);
+    expect((await w.saved())?.pending).toBeNull();
+  } finally {
+    w.writer.close();
+  }
+});
+
 it('offers a kept append sealed before the membership head moved first, and drops it only when the serve refuses it (#4088, #4103)', async () => {
   // A change that touches the page or its writers moves the head under an open session; the write that
   // met it fails, and the serve will refuse its exact bytes for ever (the revision is in the signed

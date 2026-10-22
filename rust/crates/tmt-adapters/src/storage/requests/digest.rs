@@ -6,14 +6,14 @@ use tmt_core::request::digest::{
 };
 
 pub(super) fn policy(db: &Connection, id: &str) -> Result<Option<DigestPolicy>, StorageError> {
-    db.query_row("SELECT revision,until_ms,owner_identity_id,setter_identity_id FROM focus_policies WHERE identity_id=?", [id], |r| {
-        Ok(DigestPolicy {identity_id:id.into(),revision:rows::u64_at(r,0)?,until_ms:rows::u64_at(r,1)?,owner_identity_id:r.get(2)?,setter_identity_id:r.get(3)?})
+    db.query_row("SELECT revision,until_ms,owner_identity_id,setter_identity_id,max_hold_ms FROM focus_policies WHERE identity_id=?", [id], |r| {
+        Ok(DigestPolicy {identity_id:id.into(),revision:rows::u64_at(r,0)?,until_ms:rows::u64_at(r,1)?,owner_identity_id:r.get(2)?,setter_identity_id:r.get(3)?,max_hold_ms:r.get::<_,Option<i64>>(4)?.map(|hold|u64::try_from(hold).map_err(|_|rusqlite::Error::InvalidQuery)).transpose()?})
     }).optional().map_err(|e| classify(e,"Read digest policy"))
 }
 pub(super) fn write_policy(db: &Connection, p: &DigestPolicy) -> Result<(), StorageError> {
-    db.execute("INSERT INTO focus_policies(identity_id,revision,until_ms,owner_identity_id,setter_identity_id) VALUES(?1,?2,?3,?4,?5)
-        ON CONFLICT(identity_id) DO UPDATE SET revision=excluded.revision,until_ms=excluded.until_ms,owner_identity_id=excluded.owner_identity_id,setter_identity_id=excluded.setter_identity_id",
-        params![p.identity_id,checked_i64(p.revision,"Digest revision")?,checked_i64(p.until_ms,"Digest expiry")?,p.owner_identity_id,p.setter_identity_id])
+    db.execute("INSERT INTO focus_policies(identity_id,revision,until_ms,owner_identity_id,setter_identity_id,max_hold_ms) VALUES(?1,?2,?3,?4,?5,?6)
+        ON CONFLICT(identity_id) DO UPDATE SET revision=excluded.revision,until_ms=excluded.until_ms,owner_identity_id=excluded.owner_identity_id,setter_identity_id=excluded.setter_identity_id,max_hold_ms=excluded.max_hold_ms",
+        params![p.identity_id,checked_i64(p.revision,"Digest revision")?,checked_i64(p.until_ms,"Digest expiry")?,p.owner_identity_id,p.setter_identity_id,p.max_hold_ms.map(|hold|checked_i64(hold,"Digest hold")).transpose()?])
         .map_err(|e|classify(e,"Write digest policy"))?;
     Ok(())
 }

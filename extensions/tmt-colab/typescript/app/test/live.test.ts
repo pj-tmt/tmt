@@ -50,6 +50,8 @@ const connectionPlans = vi.hoisted(
       closed(error?: Error): void;
     }[],
 );
+/** Connections the serve upgraded without an object channel; later ones start so too when set. */
+const objectChannel = vi.hoisted(() => ({ missing: new Set<object>(), startMissing: false }));
 const unseen = vi.hoisted(() => ({ cuts: new Set<object>(), startUnseen: false }));
 const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn(), work: vi.fn() }));
 const mutations = vi.hoisted(() => ({
@@ -105,6 +107,18 @@ vi.mock('../src/connection.js', () => ({
     attachmentSnapshot = async () => {
       throw new Error('reached the snapshot');
     };
+    attachmentObjects = {
+      config: vi.fn(async () =>
+        objectChannel.missing.has(this)
+          ? { error: { code: 'no-object-channel' } }
+          : {
+              ok: {
+                capabilities: { immutableCreate: true, recoverByOriginalId: true },
+                limits: { payloadBytes: 4096 },
+              },
+            },
+      ),
+    };
     ready = Promise.resolve({ source: 'verified', title: 'Page' });
     constructor(
       readonly admission: (typeof connections)[number]['admission'],
@@ -115,6 +129,7 @@ vi.mock('../src/connection.js', () => ({
     ) {
       connections.push(this);
       if (unseen.startUnseen) unseen.cuts.add(this);
+      if (objectChannel.startMissing) objectChannel.missing.add(this);
       const plan = connectionPlans.shift();
       if (plan) {
         this.ready = plan.ready;
@@ -413,6 +428,97 @@ it('export and a message attachment read leave a connection alone unless a docum
     expect(first.close).toHaveBeenCalledOnce();
   } finally {
     unseen.cuts.clear();
+    live.close();
+  }
+});
+async function liveWithoutObjectChannel(startMissing = false) {
+  objectChannel.missing.clear();
+  objectChannel.startMissing = false;
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000003', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  await live.snapshot();
+  const first = connections.at(-1)!;
+  objectChannel.missing.add(first);
+  objectChannel.startMissing = startMissing;
+  return { live, first };
+}
+it('an attachment on a connection with no object channel reopens it once through the connection-loss path (#4297)', async () => {
+  vi.useFakeTimers();
+  const { live, first } = await liveWithoutObjectChannel();
+  try {
+    const before = connections.length;
+    const writer = writers.length;
+    mutations.submitOwn.mockClear();
+    mutations.submitOwnRecords.mockClear();
+    const limits = live.discussion.attachments.limits();
+    // Nothing reconnects before the cool-down: the page stays up and syncing until then.
+    await vi.advanceTimersByTimeAsync(999);
+    expect(connections).toHaveLength(before);
+    expect(first.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await limits).toEqual({ payloadBytes: 4096 });
+    expect(connections).toHaveLength(before + 1);
+    expect(first.close).toHaveBeenCalledOnce();
+    // The writer is the same one, so its pending appends and drafts are untouched, and the
+    // reopen itself wrote nothing.
+    expect(writers).toHaveLength(writer);
+    expect(mutations.submitOwn).not.toHaveBeenCalled();
+    expect(mutations.submitOwnRecords).not.toHaveBeenCalled();
+    // The next attachment finds a replacement that has its channel: nothing reopens again.
+    expect(await live.discussion.attachments.limits()).toEqual({ payloadBytes: 4096 });
+    expect(connections).toHaveLength(before + 1);
+  } finally {
+    vi.useRealTimers();
+    objectChannel.missing.clear();
+    live.close();
+  }
+});
+it('a replacement still without an object channel is a typed refusal, with one reopen per attempt and no loop', async () => {
+  vi.useFakeTimers();
+  const { live } = await liveWithoutObjectChannel(true);
+  try {
+    const before = connections.length;
+    const attempt = live.discussion.attachments.limits();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await attempt).toEqual({ reason: 'no-object-channel' });
+    expect(connections).toHaveLength(before + 1);
+    // Nothing reopens on a timer afterwards; only the next attachment attempt does, once.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(connections).toHaveLength(before + 1);
+    const again = live.discussion.attachments.limits();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await again).toEqual({ reason: 'no-object-channel' });
+    expect(connections).toHaveLength(before + 2);
+  } finally {
+    vi.useRealTimers();
+    objectChannel.missing.clear();
+    objectChannel.startMissing = false;
+    live.close();
+  }
+});
+it('a page that never attaches never reconnects for a missing object channel', async () => {
+  vi.useFakeTimers();
+  const { live, first } = await liveWithoutObjectChannel();
+  try {
+    const before = connections.length;
+    await vi.advanceTimersByTimeAsync(120_000);
+    await live.snapshot();
+    expect(connections).toHaveLength(before);
+    expect(first.close).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    objectChannel.missing.clear();
     live.close();
   }
 });

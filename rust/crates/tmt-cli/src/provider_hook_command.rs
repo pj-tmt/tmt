@@ -241,6 +241,15 @@ fn observe_turn(
     } else {
         None
     };
+    // An admitted turn end settles the passthrough that turn was bound to, with its final
+    // message when one was read and without an answer otherwise (an interrupted turn too).
+    let boundary = transition
+        .is_some()
+        .then(|| tmt_adapters::storage::TurnBoundary::Ended {
+            turn: activity
+                .and_then(|activity| activity.event.turn.as_ref())
+                .map(ProviderSessionId::as_str),
+        });
     let next = transition.or(usage);
     if Instant::now() >= deadline {
         return Err(());
@@ -251,6 +260,7 @@ fn observe_turn(
         next,
         (!activity_only).then_some(reading),
         response,
+        boundary,
         deadline,
     )? {
         return Ok(Observation {
@@ -669,6 +679,7 @@ fn observe(
                 sampled: false,
                 consumption: None,
                 response: None,
+                boundary: None,
                 family: None,
                 now_ms: 0,
                 deadline,
@@ -992,6 +1003,22 @@ fn observe_main_event(
             )
         })
         .or_else(|| reading.as_ref().and_then(|(state, _)| state.clone()));
+    // An admitted turn start carries the prompt the provider is about to run; a passthrough
+    // typed with that text is bound to this turn.
+    let prompt = activity
+        .filter(|activity| {
+            activity.event.kind == tmt_core::binding::session::activity::EventKind::TurnStarted
+        })
+        .and(payload)
+        .and_then(tmt_adapters::runtime::hook_protocol::decode_prompt_text);
+    let boundary = prompt
+        .as_deref()
+        .map(|prompt| tmt_adapters::storage::TurnBoundary::Started {
+            turn: activity
+                .and_then(|activity| activity.event.turn.as_ref())
+                .map(ProviderSessionId::as_str),
+            prompt,
+        });
     if (next.is_some() || reading.is_some())
         && !commit_observation(
             &paths,
@@ -999,6 +1026,7 @@ fn observe_main_event(
             next,
             reading.map(|(_, reading)| reading),
             None,
+            boundary,
             deadline,
         )?
     {
@@ -1029,6 +1057,7 @@ fn commit_observation(
     next: Option<tmt_core::binding::session::DriverState>,
     reading: Option<ConsumptionReading>,
     response: Option<tmt_adapters::storage::ResponseCapture>,
+    boundary: Option<tmt_adapters::storage::TurnBoundary<'_>>,
     deadline: Instant,
 ) -> Result<bool, ()> {
     if Instant::now() + Duration::from_millis(100) >= deadline {
@@ -1050,6 +1079,7 @@ fn commit_observation(
         consumption: reading.as_ref().and_then(|r| r.consumption.clone()),
         family: None,
         response,
+        boundary,
         now_ms: reading.as_ref().map_or(0, |r| r.now_ms),
         deadline,
     });

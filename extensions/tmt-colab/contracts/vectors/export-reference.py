@@ -487,6 +487,28 @@ def attachment_entries():
     return entries, {k: b64(v) for k, v in bytes_by_file.items()}
 
 
+# The standalone copy of a page that opts in to the bundled runtime (#1693): the renderer frame's
+# own document with the runtime written into its head. The policy is the frame's, minus the
+# `sandbox` directive a <meta> cannot carry.
+STANDALONE_POLICY = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                     "img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; "
+                     "object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; "
+                     "worker-src 'none'; manifest-src 'none'")
+STANDALONE_THEME_SWITCH = ("(()=>{const q=matchMedia('(prefers-color-scheme: dark)'),r=document.documentElement,"
+                           "s=()=>{r.dataset.theme=q.matches?'dark':'light'};s();"
+                           "q.addEventListener('change',s)})()")
+
+
+def standalone_document(source, script, style):
+    return ('<!doctype html><html><head>'
+            f'<meta http-equiv="Content-Security-Policy" content="{STANDALONE_POLICY}">'
+            '<meta charset="utf-8">'
+            f'<style type="text/tailwindcss">{style}</style>'
+            f'<script>{STANDALONE_THEME_SWITCH}</script>'
+            f'<script>{script}</script>'
+            f'</head><body>{source}</body></html>')
+
+
 def vector():
     source = ("﻿<!doctype html>\r\n<p>λ 😀\u0000 & exact</p>\r\n"
               "<script>parent.postMessage({type:\"export\"},\"*\")</script>")
@@ -543,6 +565,25 @@ def vector():
     work_json = json.dumps(work, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     manifest_work = manifest_of([info("page.html", html), info("work.json", work_json.encode("utf-8"))]
                                 + conversation_files)
+    # A page whose source asks for the runtime also exports `page.standalone.html`, listed right
+    # after the HTML with `derivedFrom`; the runtime here is a tiny stand-in for the real bundle.
+    opted_source = ('<meta name="tmt-colab-runtime" content="react tailwind">\r\n'
+                    "<p>λ 😀\u0000 & exact</p>")
+    runtime = {"script": "window.tmt={};", "style": "@theme inline{}"}
+    copy = standalone_document(opted_source, runtime["script"], runtime["style"])
+    copy_info = dict(info("page.standalone.html", copy.encode("utf-8")), derivedFrom="page.html")
+    manifest_standalone = manifest_of([info("page.html", opted_source.encode("utf-8")), copy_info]
+                                      + conversation_files)
+    standalone = {
+        "source": opted_source,
+        "runtime": runtime,
+        "policy": STANDALONE_POLICY,
+        "themeSwitch": STANDALONE_THEME_SWITCH,
+        "fileUtf8": copy,
+        "fileSha256": hashlib.sha256(copy.encode("utf-8")).hexdigest(),
+        "manifestUtf8": manifest_standalone,
+        "manifestSha256": hashlib.sha256(manifest_standalone.encode("utf-8")).hexdigest(),
+    }
     return {
         "provenance": "Independent Python stdlib (UTF-8, hashlib SHA-256, compact JSON) with cryptography Ed25519 "
                       "over public RFC 8032 fixture seeds; export-reference.py. Unicode, control and bidi characters "
@@ -560,6 +601,7 @@ def vector():
         "workJson": work_json,
         "manifestWorkUtf8": manifest_work,
         "manifestWorkSha256": hashlib.sha256(manifest_work.encode("utf-8")).hexdigest(),
+        "standalone": standalone,
     }
 
 

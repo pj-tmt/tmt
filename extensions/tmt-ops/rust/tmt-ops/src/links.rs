@@ -19,7 +19,7 @@ pub fn styled_target(target: &str) -> bool {
     if target.is_empty() || target.len() > 4096 || target.chars().any(char::is_control) {
         return false;
     }
-    if crate::effects::web_link(target).is_ok() {
+    if crate::effects::openable(target).is_ok() {
         return true;
     }
     if target.starts_with('/') {

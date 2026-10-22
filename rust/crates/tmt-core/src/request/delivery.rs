@@ -1,0 +1,221 @@
+//! One delivery state per sent message, derived from stored facts so every client
+//! paints the same state, reason and countdown and keeps no copy of the rules.
+
+use super::{AttemptStatus, WakeState};
+use crate::binding::session::activity::ActivityPhase;
+
+/// What a person sees about one sent message, in the order it normally advances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryState {
+    Sent,
+    Batched,
+    Delivered,
+    Working,
+    Unconfirmed,
+    NotSent,
+}
+
+impl DeliveryState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Sent => "sent",
+            Self::Batched => "batched",
+            Self::Delivered => "delivered",
+            Self::Working => "working",
+            Self::Unconfirmed => "unconfirmed",
+            Self::NotSent => "not_sent",
+        }
+    }
+}
+
+/// Why a message is in its state. Clients show `text` and never write their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryReason {
+    WaitingForDelivery,
+    AwaitingApproval,
+    HeldToSaveUsage,
+    ReachedTheAgent,
+    AgentWorking,
+    HandedOver,
+    Unreachable,
+    Refused,
+}
+
+impl DeliveryReason {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::WaitingForDelivery => "waiting_for_delivery",
+            Self::AwaitingApproval => "awaiting_approval",
+            Self::HeldToSaveUsage => "held_to_save_usage",
+            Self::ReachedTheAgent => "reached_the_agent",
+            Self::AgentWorking => "agent_working",
+            Self::HandedOver => "handed_over",
+            Self::Unreachable => "unreachable",
+            Self::Refused => "refused",
+        }
+    }
+
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::WaitingForDelivery => "waiting for delivery",
+            Self::AwaitingApproval => "waiting for the agent's approval prompt to clear",
+            Self::HeldToSaveUsage => {
+                "batched to save usage, sends when the agent finishes this turn"
+            }
+            Self::ReachedTheAgent => "delivered",
+            Self::AgentWorking => "the agent has started on it",
+            Self::HandedOver => "handed to the agent, delivery unconfirmed, do not resend",
+            Self::Unreachable => "not sent, the agent could not be reached",
+            Self::Refused => "not sent, nothing reached the agent",
+        }
+    }
+}
+
+/// How far a Digest checklist that holds this message has got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DigestHold {
+    /// Still waiting for the checklist, since this time.
+    Open {
+        since_ms: u64,
+    },
+    Claimed,
+    Delivered,
+    Uncertain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecipientActivity {
+    pub phase: ActivityPhase,
+    pub since_ms: u64,
+}
+
+/// Stored facts only; a message's state never comes from pane text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeliveryFacts {
+    pub status: AttemptStatus,
+    /// An identified recipient's request stays `Queued`; its paste into the pane is
+    /// the wake. A pane-routed request has no wake and settles its own status.
+    pub inbox: bool,
+    pub wake: WakeState,
+    pub prepared_at_ms: u64,
+    pub settled_at_ms: Option<u64>,
+    pub hold: Option<DigestHold>,
+    /// How long the recipient's Digest rule keeps its oldest held message, as the
+    /// rule's owner recorded it with the policy.
+    pub max_hold_ms: Option<u64>,
+    /// The oldest message held for the recipient: every held message goes out together.
+    pub oldest_held_at_ms: Option<u64>,
+    /// The driver's activity for the exact live session, when there is one.
+    pub recipient: Option<RecipientActivity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeliveryView {
+    pub state: DeliveryState,
+    pub reason: DeliveryReason,
+    /// The latest moment a batched message goes out, when the rule's owner recorded one.
+    pub latest_ms: Option<u64>,
+    /// `latest_ms` less the read time, so a client counts down without its own clock.
+    pub remaining_ms: Option<u64>,
+    /// Whether sending it now applies. Who may ask is the operation's check.
+    pub can_send_now: bool,
+}
+
+impl DeliveryView {
+    fn of(state: DeliveryState, reason: DeliveryReason) -> Self {
+        Self {
+            state,
+            reason,
+            latest_ms: None,
+            remaining_ms: None,
+            can_send_now: false,
+        }
+    }
+}
+
+/// How far the message itself has got, whichever route carried it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Handover {
+    Waiting,
+    InFlight,
+    Reached,
+    Unreachable,
+    Uncertain,
+    Refused,
+}
+
+fn handover(facts: &DeliveryFacts) -> Handover {
+    if facts.inbox {
+        return match facts.wake {
+            WakeState::NotAttempted => Handover::Waiting,
+            WakeState::Claimed => Handover::InFlight,
+            WakeState::Sent => Handover::Reached,
+            WakeState::Unavailable => Handover::Unreachable,
+            WakeState::Uncertain => Handover::Uncertain,
+        };
+    }
+    match facts.status {
+        AttemptStatus::Prepared | AttemptStatus::Sending | AttemptStatus::Queued => {
+            Handover::Waiting
+        }
+        AttemptStatus::Sent => Handover::Reached,
+        AttemptStatus::Uncertain => Handover::Uncertain,
+        AttemptStatus::DefinitelyFailed => Handover::Refused,
+    }
+}
+
+pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
+    use DeliveryReason as Why;
+    use DeliveryState as State;
+    let waiting_approval = facts
+        .recipient
+        .is_some_and(|activity| activity.phase == ActivityPhase::Waiting);
+    // A turn counts as the message's own only when it began after the message left
+    // its sender (or was handed over, for a pane): a turn already running then is
+    // still the one the message waits behind.
+    let since = facts.settled_at_ms.unwrap_or(facts.prepared_at_ms);
+    let started = facts.recipient.is_some_and(|activity| {
+        activity.phase != ActivityPhase::Idle && activity.since_ms >= since
+    });
+    match (handover(facts), facts.hold) {
+        (Handover::Uncertain, _) | (_, Some(DigestHold::Uncertain)) => {
+            DeliveryView::of(State::Unconfirmed, Why::HandedOver)
+        }
+        (Handover::Refused, _) => DeliveryView::of(State::NotSent, Why::Refused),
+        (Handover::Unreachable, _) => DeliveryView {
+            can_send_now: true,
+            ..DeliveryView::of(State::NotSent, Why::Unreachable)
+        },
+        (Handover::Reached, _) if started => DeliveryView::of(State::Working, Why::AgentWorking),
+        (Handover::Reached, _) | (_, Some(DigestHold::Delivered)) => {
+            DeliveryView::of(State::Delivered, Why::ReachedTheAgent)
+        }
+        (Handover::InFlight, _) | (_, Some(DigestHold::Claimed)) => {
+            DeliveryView::of(State::Sent, Why::WaitingForDelivery)
+        }
+        (Handover::Waiting, Some(DigestHold::Open { since_ms })) => {
+            let latest_ms = facts.max_hold_ms.map(|hold| {
+                facts
+                    .oldest_held_at_ms
+                    .unwrap_or(since_ms)
+                    .saturating_add(hold)
+            });
+            DeliveryView {
+                latest_ms,
+                remaining_ms: latest_ms.map(|latest| latest.saturating_sub(now_ms)),
+                can_send_now: !waiting_approval,
+                ..DeliveryView::of(State::Batched, Why::HeldToSaveUsage)
+            }
+        }
+        (Handover::Waiting, None) if waiting_approval => {
+            DeliveryView::of(State::Sent, Why::AwaitingApproval)
+        }
+        (Handover::Waiting, None) => DeliveryView {
+            can_send_now: true,
+            ..DeliveryView::of(State::Sent, Why::WaitingForDelivery)
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests;

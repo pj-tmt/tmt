@@ -15,12 +15,19 @@ import {
   type ExportAttachmentReason,
   type ExportAttachmentState,
 } from './export-attachments.js';
+import {
+  DERIVED_FROM,
+  STANDALONE_FILE,
+  deriveStandalone,
+  type StandaloneOutcome,
+  type StandaloneRequest,
+} from './standalone.js';
 
 export const DISCLOSURE =
   'This creates an unencrypted copy of the page. Anyone with these files can read it.';
 /** A published file name: one of the four page files, or `attachments/<attachmentId>`. */
 export type ExportFile = string;
-/** The four page files every export publishes, in order; a page's `work.json` follows its HTML when it has work, and attachments sit between the conversations and the manifest. */
+/** The four page files every export publishes, in order; a page's `work.json` follows its HTML when it has work, a page that opts in to the runtime adds `page.standalone.html` (#1693), and attachments sit between the conversations and the manifest. */
 export const PAGE_FILES: readonly ExportFile[] = [
   'page.html',
   'conversations.json',
@@ -52,11 +59,16 @@ export interface ExportView {
   /** Every attachment of the page, already read under current authority. (Not `attachments`:
    * that name is the projection's own descriptor list, which `validateProjection` checks.) */
   attachmentEntries: readonly ExportAttachment[];
+  /** Set by the caller for an ordinary page whose source opts in to the bundled runtime: the
+   * runtime it loaded, or that it could not. Absent for any other page. */
+  standalone?: StandaloneRequest;
 }
 export interface FileInfo {
   readonly name: ExportFile;
   readonly sizeBytes: number;
   readonly sha256: string;
+  /** The file this one is derived from (`page.standalone.html` from `page.html`). */
+  readonly derivedFrom?: ExportFile;
 }
 export function hex(bytes: Uint8Array): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -115,9 +127,22 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   if (json.length + markdown.length > CONVERSATIONS_BYTES) throw new Error('EXPORT_TOO_LARGE');
   const describe = async (name: ExportFile, bytes: Uint8Array): Promise<FileInfo> =>
     Object.freeze({ name, sizeBytes: bytes.length, sha256: hex(await digest(bytes)) });
+  const derived =
+    view.pageType === 'shell' || view.standalone === undefined
+      ? undefined
+      : deriveStandalone(view.source, view.standalone);
+  const standalone = derived?.document === undefined ? undefined : text(derived.document);
   const files = [
     await describe(contentName, content),
     ...(work === undefined ? [] : [await describe('work.json', work)]),
+    ...(standalone === undefined
+      ? []
+      : [
+          Object.freeze({
+            ...(await describe(STANDALONE_FILE, standalone)),
+            derivedFrom: DERIVED_FROM,
+          }),
+        ]),
     await describe('conversations.json', json),
     await describe('conversations.md', markdown),
   ];
@@ -157,6 +182,9 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     new Map<ExportFile, Uint8Array>([
       [contentName, content],
       ...(work === undefined ? [] : [['work.json', work] as [ExportFile, Uint8Array]]),
+      ...(standalone === undefined
+        ? []
+        : [[STANDALONE_FILE, standalone] as [ExportFile, Uint8Array]]),
       ['conversations.json', json],
       ['conversations.md', markdown],
       ...included.map((item): [ExportFile, Uint8Array] => [item.row.file!, item.bytes!]),
@@ -175,6 +203,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
       ...(row.reason === undefined ? {} : { reason: row.reason }),
       ...(row.file === undefined ? {} : { file: row.file }),
     })),
+    derived?.outcome,
   );
 }
 
@@ -271,12 +300,16 @@ export interface ListedAttachment {
 export class ExportBundle {
   readonly files: readonly FileInfo[];
   readonly attachments: readonly ListedAttachment[];
+  /** What became of the standalone copy; absent for a page that does not opt in. */
+  readonly standalone?: StandaloneOutcome;
   #bytes: Map<ExportFile, Uint8Array>;
   constructor(
     bytes: Map<ExportFile, Uint8Array>,
     files: readonly FileInfo[],
     attachments: readonly ListedAttachment[] = [],
+    standalone?: StandaloneOutcome,
   ) {
+    if (standalone !== undefined) this.standalone = Object.freeze({ ...standalone });
     this.#bytes = new Map([...bytes].map(([name, value]) => [name, value.slice()]));
     this.files = Object.freeze(files.map((file) => Object.freeze({ ...file })));
     this.attachments = Object.freeze(attachments.map((item) => Object.freeze({ ...item })));

@@ -1,4 +1,4 @@
-import { expect, it } from 'vite-plus/test';
+import { expect, it, vi } from 'vite-plus/test';
 import { attachment } from '@tmt/colab-client';
 import {
   AttachmentObjectChannel,
@@ -21,21 +21,53 @@ type Script = (request: AttachmentObjectRequest, calls: AttachmentObjectRequest[
 const hex = (n: number) => 'ab'.repeat(32).slice(0, n);
 
 async function fixture(
-  options: { script?: Script; revision?: () => string; payloadBytes?: number } = {},
+  options: {
+    script?: Script;
+    revision?: () => string;
+    payloadBytes?: number;
+    /** What a connection reopened for the object channel answers; none offers no reopen. */
+    replacement?: Script;
+  } = {},
 ) {
-  const calls: AttachmentObjectRequest[] = [];
-  /** The deadline each request carried, in order. */
-  const deadlines: [AttachmentObjectRequest['method'], number][] = [];
   const signer = (await crypto.subtle.generateKey('Ed25519', false, [
     'sign',
     'verify',
   ])) as CryptoKeyPair;
+  const first = connect(signer, options, options.script);
+  const reopened: Connection[] = [];
+  const replacement = options.replacement
+    ? connect(signer, options, options.replacement)
+    : undefined;
+  // As in the live page, the connection asked for after a reopen is the replacement.
+  let current = first.connection;
+  const service = new AttachmentService({
+    connection: async () => current,
+    available: () => true,
+    sharing: 'private',
+    ...(replacement && {
+      reopen: async (from: Connection) => {
+        reopened.push(from);
+        return (current = replacement.connection);
+      },
+    }),
+  });
+  const { calls, admission, deadlines } = first;
+  return { service, calls, admission, deadlines, reopened, replacement };
+}
+function connect(
+  signer: CryptoKeyPair,
+  options: { revision?: () => string; payloadBytes?: number },
+  script: Script | undefined,
+) {
+  const calls: AttachmentObjectRequest[] = [];
+  /** The deadline each request carried, in order. */
+  const deadlines: [AttachmentObjectRequest['method'], number][] = [];
   let received = 0;
   const channel = new AttachmentObjectChannel(
     async (request, deadline): Promise<AttachmentObjectOutcome> => {
       calls.push(structuredClone(request));
       deadlines.push([request.method, deadline]);
-      const scripted = options.script?.(request, calls);
+      const scripted = script?.(request, calls);
       if (scripted !== undefined) {
         if (scripted instanceof Error) throw scripted;
         return scripted as AttachmentObjectOutcome;
@@ -99,12 +131,7 @@ async function fixture(
       revision: options.revision?.() ?? `v1:${hex(64)}`,
     }),
   } as unknown as Connection;
-  const service = new AttachmentService({
-    connection: async () => connection,
-    available: () => true,
-    sharing: 'private',
-  });
-  return { service, calls, admission, deadlines };
+  return { connection, calls, admission, deadlines };
 }
 const input = (size = 100 * 1024) => ({
   filename: 'notes.bin',
@@ -324,4 +351,114 @@ it('document publication refuses a file bound to a source other than the one bei
   const failure = await service.publication([stored], 'two').catch((e) => e);
   expect(failure).toBeInstanceOf(AttachmentStaleError);
   expect(failure.attachmentIds).toEqual([stored.original.descriptor.attachmentId]);
+});
+
+// A connection upgraded without an origin has no object channel: Remote's setup missed its budget
+// (#4297). The serve says so, and an attachment reconnects once for it.
+const noChannel = { error: { code: 'no-object-channel' } };
+const COOLDOWN = 1_000;
+
+it('reopens once, no earlier than the cool-down, when the connection has no object channel', async () => {
+  vi.useFakeTimers();
+  try {
+    const { service, reopened, replacement } = await fixture({
+      script: () => noChannel,
+      replacement: () => undefined,
+    });
+    let settled = false;
+    const stored = service
+      .upload(input(10), { kind: 'message', messageId }, () => {})
+      .finally(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(COOLDOWN - 1);
+    expect(reopened).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(reopened).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await stored;
+    // The replacement connection carried the whole upload, and nothing reopened twice.
+    expect(replacement!.calls.map((call) => call.method)).toEqual([
+      'config',
+      'begin',
+      'part',
+      'commit',
+    ]);
+    expect(settled).toBe(true);
+    expect(reopened).toHaveLength(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('a repeat of no object channel is a typed refusal after exactly one reopen', async () => {
+  vi.useFakeTimers();
+  try {
+    const { service, reopened, replacement } = await fixture({
+      script: () => noChannel,
+      replacement: () => noChannel,
+    });
+    const failure = service
+      .upload(input(10), { kind: 'message', messageId }, () => {})
+      .catch((e) => e.failure);
+    await vi.advanceTimersByTimeAsync(COOLDOWN * 5);
+    expect(await failure).toEqual({ kind: 'refused', reason: 'no-object-channel' });
+    expect(reopened).toHaveLength(1);
+    expect(replacement!.calls).toHaveLength(1);
+    // A later attempt is its own attempt: it may reopen once more.
+    const again = service
+      .upload(input(10), { kind: 'message', messageId }, () => {})
+      .catch((e) => e.failure);
+    await vi.advanceTimersByTimeAsync(COOLDOWN * 5);
+    expect(await again).toEqual({ kind: 'refused', reason: 'no-object-channel' });
+    expect(reopened).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('without a way to reopen, no object channel is the same typed refusal and nothing waits', async () => {
+  const { service } = await fixture({ script: () => noChannel });
+  const failure = await service
+    .upload(input(10), { kind: 'message', messageId }, () => {})
+    .catch((e) => e.failure);
+  expect(failure).toEqual({ kind: 'refused', reason: 'no-object-channel' });
+});
+
+it('only no object channel reopens: every other refusal stays what it was', async () => {
+  for (const code of ['unavailable', 'denied', 'capacity', 'invalid']) {
+    const { service, reopened } = await fixture({
+      script: () => ({ error: { code, ...(code === 'capacity' ? { limit: 'x' } : {}) } }),
+      replacement: () => undefined,
+    });
+    const failure = await service
+      .upload(input(10), { kind: 'message', messageId }, () => {})
+      .catch((e) => e.failure);
+    expect(failure).toMatchObject({ kind: 'refused', reason: code });
+    expect(reopened).toHaveLength(0);
+  }
+});
+
+it('a status question on a connection with no object channel reopens once too', async () => {
+  vi.useFakeTimers();
+  try {
+    const uploaded = await fixture();
+    const stored = await uploaded.service.upload(
+      input(10),
+      { kind: 'message', messageId },
+      () => {},
+    );
+    const { service, reopened, replacement } = await fixture({
+      script: () => noChannel,
+      replacement: (request) =>
+        request.method === 'status'
+          ? { ok: { result: 'pending', nextIndex: 0, received: 0 } }
+          : undefined,
+    });
+    const resumed = service.resume(stored.original, { filename: 'notes.bin', size: 10 }, () => {});
+    await vi.advanceTimersByTimeAsync(COOLDOWN);
+    await resumed;
+    expect(reopened).toHaveLength(1);
+    expect(replacement!.calls[0]!.method).toBe('status');
+  } finally {
+    vi.useRealTimers();
+  }
 });

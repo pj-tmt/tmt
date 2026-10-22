@@ -251,6 +251,7 @@ export const text = {
   attachRefused: {
     'too-large': 'Too large to store.',
     unavailable: 'Storage is unavailable.',
+    'no-object-channel': 'Storage is not ready yet. Try again.',
     denied: 'Not allowed on this page.',
     capacity: 'Storage is full.',
     invalid: 'Could not be stored.',
@@ -507,6 +508,13 @@ export const text = {
   exportPartial: 'Some files requested. Download the others to complete this copy.',
   exportRequested: 'All downloads requested. Check your browser downloads for the saved files.',
   exportDownload: (name: string) => `Download ${name}`,
+  exportStandaloneNote:
+    'page.standalone.html opens offline in any browser. page.html stays exactly as published.',
+  exportStandaloneMissing: {
+    'runtime-unavailable':
+      'No standalone copy: the page runtime could not be loaded. Export again to retry.',
+    'runtime-unusable': 'No standalone copy: the page runtime cannot be written into an HTML file.',
+  },
   exportAttachments: 'Attachments',
   exportAttachmentRequested: 'Download requested',
   exportAttachmentState: {

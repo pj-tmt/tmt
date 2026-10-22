@@ -50,7 +50,8 @@ native mounted distributions retain their relative base. Both distributions also
 page runtime (`assets/colab-runtime.js`, build mode `runtime`): the `build`, `build:bundles` and
 `build:hosted` scripts run it and fail when it differs from `typescript/app/runtime-pin.json`. After a
 deliberate change of React, htm, `@tailwindcss/browser`, `lucide-react` or the icon list in
-`typescript/app/src/runtime/icons.ts` (including a dependency bump), run
+`typescript/app/src/runtime/icons.ts` (including a dependency bump, and a Vite or
+rolldown bump, which changes the output bytes), run
 `node ../../scripts/verify-runtime.mjs dist --update` in the app directory and review the pin diff. The runtime
 also carries `assets/colab-runtime.css`, the Tailwind theme generated from `design/tokens/tokens.json`: after a
 token change run `node ../../scripts/generate-runtime-theme.mjs --write` (the build and `check` run `--check`),
@@ -171,7 +172,7 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 | Decoder (real child)                                | `--test decoder -- --nocapture`, `--test decoder baseline_`, `--test checkpoint_vectors`, `--test own_vectors --test discussion`                                                  |
 | Page source CLI                                     | `--test page`                                                                                                                                                                     |
 | Page usage and compaction (churn: release, minutes) | `--test page -- usage_counts requested_compaction writes_racing`, `--test cli page_compact`, `--test socket a_requested_compaction`, `--test page churn -- --ignored --nocapture` |
-| Export and attachment read                          | `--test export`, `export::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                                                                        |
+| Export and attachment read                          | `--test export`, `export::tests`, `export::standalone::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                                           |
 | Object channel and admitted attachments             | `--lib object_channel::tests`, `--test attachments`                                                                                                                               |
 | Native attach                                       | `--lib attachments::slots`, `--lib object_channel::attach`, `--lib object_channel::tests::attach`, `--test cli attachment_attach`, `--test socket root_local_attach`              |
 | Cloud-sync worker (publication and inbound)         | `--lib object_channel::cloud_sync`, `--test sync the_page_a_peer_opens`, `--test sync a_page_is_touched`, `--test socket the_serve_runs_cloud_sync`                               |
@@ -274,7 +275,8 @@ tmt colab export <page-uuid> --json          # or --dir /existing/export-parent
 Use the exact revision from `read`; a stale base returns `COLAB_STALE_BASE` (exit 1)
 and is never retried. A failed or uncertain serving IPC returns `COLAB_UNAVAILABLE`
 without an offline fallback. Export needs an existing parent, creates a new UUID
-directory with `page.html`, `conversations.json`, `conversations.md`, `manifest.json` and an
+directory with `page.html` (plus `page.standalone.html` for a page that opts in to the runtime, or
+the reason there is none), `conversations.json`, `conversations.md`, `manifest.json` and an
 `attachments/` directory of the files it could read (never replacing output), and reports
 `error.partialDirectory` on a failed publication. Attachments are read through the running serve,
 so `tmt colab attachment read <page-uuid> --reference <manifest-row-reference.json> [--output <dir>]`

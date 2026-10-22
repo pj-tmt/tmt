@@ -137,3 +137,50 @@ fn invalid_or_concurrent_edits_keep_the_file_and_in_memory_binding() {
     assert_eq!(config.configured_bindings().unwrap()["j"].text, "jump");
     assert!(f.text().starts_with("# external edit"));
 }
+
+#[test]
+fn the_opener_is_a_global_argv_with_url_as_one_word() {
+    let f = Fixture::new("# kept\n");
+    let mut config = f.config();
+    assert!(config.can_edit_setting("opener", None));
+    assert!(!config.can_edit_setting("opener", Some("product")));
+    config
+        .set_setting(
+            None,
+            "opener",
+            r#"["firefox","--new-tab={url}","my profile"]"#,
+        )
+        .unwrap();
+    assert_eq!(
+        f.config().program("opener").unwrap().unwrap(),
+        ["firefox", "--new-tab={url}", "my profile"]
+    );
+    assert!(f.text().contains("# kept"), "{}", f.text());
+    let shown = f.config().settings(None, false, None).unwrap();
+    let entry = shown.entries.iter().find(|e| e.key == "opener").unwrap();
+    assert_eq!(
+        entry.value,
+        json!(["firefox", "--new-tab={url}", "my profile"])
+    );
+    assert!(entry.editable);
+}
+
+#[test]
+fn bad_openers_are_refused_before_anything_is_written() {
+    let f = Fixture::new("");
+    let mut config = f.config();
+    for text in [
+        "",
+        "[]",
+        r#"["bin/open","{url}"]"#,
+        r#"["open", 1]"#,
+        r#"[""]"#,
+        "open {url}",
+    ] {
+        assert!(
+            config.set_setting(None, "opener", text).is_err(),
+            "{text:?}"
+        );
+    }
+    assert_eq!(f.text(), "");
+}
