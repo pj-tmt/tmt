@@ -665,6 +665,7 @@ pub(super) struct WorkspaceStartup {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) selected_request: super::refresh::SelectedRequest,
     pub(super) buttons: super::buttons::State,
     pub(super) pane_resize: super::pane_resize::State,
     /// Injected by the renderer, never inferred from NO_COLOR or stored preferences.
@@ -926,6 +927,7 @@ impl App {
 
     pub fn new(squad: Option<String>) -> Self {
         Self {
+            selected_request: Default::default(),
             cron_glyphs: super::overview::cron_counts::GlyphSet::from_ascii(false),
             current: squad,
             local_zone: Some(jiff::tz::TimeZone::system()),

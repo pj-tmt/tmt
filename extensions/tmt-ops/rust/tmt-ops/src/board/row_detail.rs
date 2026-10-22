@@ -630,6 +630,29 @@ impl App {
         self.detail(&Target::Row(self.conversation_target()?))?
             .agent
     }
+    /// Source demand for an admitted conversation painter. Unlike acquisition,
+    /// this does not consult Scrolls: the current frame is still registering it.
+    pub(super) fn conversation_sources_pending(&self, target: &RowTarget) -> bool {
+        let Some(detail) = self.detail(&Target::Row(target.clone())) else {
+            return false;
+        };
+        let Some(owner) = detail.agent.as_ref() else {
+            return false;
+        };
+        !self
+            .row_details
+            .agent_finals
+            .iter()
+            .any(|(key, _)| key == owner)
+            || self.row_details.sent_stale
+            || !self
+                .row_details
+                .agent_sent
+                .iter()
+                .any(|(key, _)| key == &sent_key(owner))
+            || detail.messages().iter().any(|message| !message.acquired)
+    }
+
     /// The conversation's agent, until its own finals have been read once.
     pub(super) fn finals_read(&self) -> Option<FinalsKey> {
         self.conversation_finals().filter(|key| {

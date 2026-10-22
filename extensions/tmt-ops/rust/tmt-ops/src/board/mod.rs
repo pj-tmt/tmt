@@ -528,8 +528,8 @@ fn session(
     // Nothing below may start a command: jobs go to the lane, reads to the worker.
     let _no_commands = crate::runner::forbid_commands();
     let mut revision = 0;
-    // None defers selection work until a pending reload publishes its snapshot.
-    let mut requested = Some(None);
+    // A pending reload defers selection work until its snapshot publishes.
+    app.selected_request = refresh::SelectedRequest::Ready(None);
     let mut refreshed = Instant::now();
     let mut dirty = true;
     let mut marks = view::time_marks(app, crate::status::now_ms());
@@ -645,7 +645,7 @@ fn session(
         if demand != history_demand {
             history_demand = demand;
             revision += 1;
-            requested = None;
+            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
             request(app.current.clone(), true, app.settings.is_some(), history);
             refreshed = Instant::now();
             dirty = true;
@@ -666,10 +666,12 @@ fn session(
             dirty = false;
         }
         let identity = app.selected_read();
-        if requested.is_some() && requested.as_ref() != Some(&identity) {
+        if let refresh::SelectedRequest::Ready(requested) = &app.selected_request
+            && requested != &identity
+        {
             revision += 1;
             selected_read(revision, identity.clone());
-            requested = Some(identity);
+            app.selected_request = refresh::SelectedRequest::Ready(identity);
         }
         // Timers still wake for stop signals and interval reloads, but a
         // silent wake never rebuilds an unchanged view.
@@ -733,7 +735,7 @@ fn session(
             }) => {
                 if !cancellation.cancelled() {
                     revision += 1;
-                    requested = Some(None);
+                    app.selected_request = refresh::SelectedRequest::Ready(None);
                     let previous_window = app.digest_window();
                     app.apply(*snapshot);
                     if app.digest_window() != previous_window {
@@ -951,7 +953,7 @@ fn session(
                 }
                 if sends {
                     revision += 1;
-                    requested = None;
+                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                     request(
                         app.current.clone(),
                         false,
@@ -999,7 +1001,7 @@ fn session(
                     Ok(reload) => {
                         if reload {
                             revision += 1;
-                            requested = None;
+                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                             request(
                                 app.current.clone(),
                                 true,
@@ -1021,7 +1023,7 @@ fn session(
                         let notice = app.apply_token_window(&config);
                         app.set_notice(Some(notice), false);
                         revision += 1;
-                        requested = None;
+                        app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                         request(
                             app.current.clone(),
                             true,
@@ -1086,13 +1088,13 @@ fn session(
             Effect::Quit => return Ok(None),
             Effect::Load(squad) => {
                 revision += 1;
-                requested = None;
+                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                 request(Some(squad), true, false, app.history_demand());
                 refreshed = Instant::now();
             }
             Effect::Refresh => {
                 revision += 1;
-                requested = None;
+                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                 let history = app.history_demand();
                 request(
                     app.current.clone(),
@@ -1122,7 +1124,7 @@ fn session(
                 if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {
                     app.settings_preview();
                     revision += 1;
-                    requested = None;
+                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                     request(app.current.clone(), true, true, app.history_demand());
                     refreshed = Instant::now();
                 }
@@ -1139,7 +1141,7 @@ fn session(
                         app.apply_token_window(&config);
                     }
                     revision += 1;
-                    requested = None;
+                    app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                     request(app.current.clone(), true, true, app.history_demand());
                     refreshed = Instant::now();
                 }
@@ -1153,7 +1155,7 @@ fn session(
                             let notice = app.apply_token_window(&config);
                             app.set_notice(Some(notice), false);
                             revision += 1;
-                            requested = None;
+                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                             request(app.current.clone(), true, true, app.history_demand());
                             refreshed = Instant::now();
                         }
@@ -1164,7 +1166,7 @@ fn session(
             }
             Effect::CancelSettings => {
                 revision += 1;
-                requested = None;
+                app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                 request(app.current.clone(), true, false, app.history_demand());
                 refreshed = Instant::now();
             }
@@ -1191,7 +1193,7 @@ fn session(
                             app.theme_picker = None;
                             app.finished(Ok(message));
                             revision += 1;
-                            requested = None;
+                            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
                             request(
                                 app.current.clone(),
                                 false,
@@ -1220,7 +1222,7 @@ fn session(
         // A snapshot may change the interval, including turning reload off.
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
             revision += 1;
-            requested = None;
+            app.selected_request = refresh::SelectedRequest::AwaitingSnapshot;
             request(
                 app.current.clone(),
                 false,

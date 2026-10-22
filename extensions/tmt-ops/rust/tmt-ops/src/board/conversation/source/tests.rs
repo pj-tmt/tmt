@@ -1306,3 +1306,35 @@ fn selection_private_terminal_evidence() {
     assert_eq!(quit, [b'q']);
     screen.restore().unwrap();
 }
+
+#[test]
+fn selected_text_survives_a_retained_frame_and_the_single_refresh_swap() {
+    let mut app = fixture("literal passage kept through refresh");
+    let (x, y) = select_words(&mut app, "literal passage");
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 15, y);
+    app.selected_request = crate::board::refresh::SelectedRequest::Ready(None);
+    app.refresh_sent();
+    app.conversation.borrow_mut().refresh_pane_output();
+    draw(&mut app, 100, 36);
+    assert!(app.conversation.borrow().selection.is_some());
+    let plan = app.conversation_read().expect("one selected refresh");
+    app.apply_conversation(
+        plan.clone(),
+        plan.test_projection("not a replacement", None),
+    );
+    draw(&mut app, 100, 36);
+    assert!(app.conversation.borrow().selection.is_some());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        Effect::None
+    );
+    let input = app
+        .input
+        .as_ref()
+        .expect("selection still opens the same draft");
+    assert_eq!(input.literal_quotes()[0].text, "literal passage");
+    assert!(
+        input.exact_quotes().next().is_none(),
+        "cached display grants no new authority"
+    );
+}

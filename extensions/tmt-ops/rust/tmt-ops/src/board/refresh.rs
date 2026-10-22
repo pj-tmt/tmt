@@ -71,6 +71,15 @@ pub(super) enum SelectedRead {
     PaneScreen(super::conversation::ConversationKey, u64),
 }
 
+/// The UI's selected-lane demand. Static projections have no live worker.
+#[derive(Default)]
+pub(super) enum SelectedRequest {
+    #[default]
+    Unmanaged,
+    AwaitingSnapshot,
+    Ready(Option<SelectedRead>),
+}
+
 pub struct Worker {
     requests: Sender<Work>,
     /// The selected member's reads run on their own lane, so the background
