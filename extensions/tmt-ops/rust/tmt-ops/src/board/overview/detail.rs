@@ -273,8 +273,7 @@ mod tests {
         app.input
             .as_mut()
             .unwrap()
-            .response_quotes
-            .push(crate::board::response::Quote {
+            .seed_quote(crate::board::response::Quote {
                 key: crate::board::home_leads::MessageKey {
                     sender: "owner".into(),
                     lead: id.into(),
@@ -285,19 +284,35 @@ mod tests {
                 range: 0..5,
                 text: "quote".into(),
             });
-        let before = app.input.as_ref().unwrap().response_quotes.clone();
+        let before = app
+            .input
+            .as_ref()
+            .unwrap()
+            .exact_quotes()
+            .collect::<Vec<_>>();
         let selected = app.workspace.selected.clone();
         let focus = app.focus;
         assert_eq!(app.overview_details(), Effect::None);
-        assert_eq!(app.input.as_ref().unwrap().response_quotes, before);
-        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "kept draft");
+        assert_eq!(
+            app.input
+                .as_ref()
+                .unwrap()
+                .exact_quotes()
+                .collect::<Vec<_>>(),
+            before
+        );
+        assert_eq!(
+            app.input.as_ref().unwrap().text.as_str(),
+            "kept draft\nquote\n"
+        );
         assert_eq!(app.workspace.selected, selected);
         assert_eq!(app.focus, focus);
         let frozen = app.monitor_details.as_ref().unwrap().lines.clone();
         assert!(frozen.iter().any(|line| line.contains("req-frozen-quote")
             && line.contains(id)
             && line.contains("bytes 0..5")));
-        app.input.as_mut().unwrap().response_quotes.clear();
+        app.input.as_mut().unwrap().text.clear();
+        app.input.as_mut().unwrap().inline_quotes.clear();
         assert_eq!(app.monitor_details.as_ref().unwrap().lines, frozen);
     }
     #[test]
@@ -423,8 +438,7 @@ mod tests {
         app.input
             .as_mut()
             .unwrap()
-            .response_quotes
-            .push(crate::board::response::Quote {
+            .seed_quote(crate::board::response::Quote {
                 key: crate::board::home_leads::MessageKey {
                     sender,
                     lead: id.into(),
@@ -453,7 +467,7 @@ mod tests {
         );
         assert_eq!(
             app.composer_projection().unwrap().text.unwrap().as_str(),
-            "retained draft"
+            "retained draft\nsource\n"
         );
     }
 }

@@ -207,20 +207,29 @@ at the edge does not keep scrolling. The selection ends on Esc, an outside press
 new drag, a conversation switch, or when it can no longer be shown: its lines are
 gone, an end's text changed before its end, or a resize re-wrapped the transcript. Quoting never
 depends on the agent's state. The
-`+ Quote` control or Enter adds a literal author/excerpt chip above the input,
-without replacing the draft text or granting request authority. Up from the first
-input line enters that chip row; Left/Right move between chips, `x` or Delete
-removes one, and Down/Esc returns to the input. Sending projects each chip as one
-compact Markdown quote above the comment. Quotes retain the UUID-keyed draft's
-success/failure lifecycle and need no source-identity revalidation.
+`+ Quote` control or Enter inserts a literal quote fold after the logical line
+containing the composer caret. The whole current line and later text remain;
+the fold occupies its own line and the caret lands on the following empty answer
+line. An empty draft starts with the fold and answer line. Repeating the gesture
+keeps quotes and answers in draft order. Before admission, quote CRLF and lone CR
+breaks become LF and one terminal break is removed; additional empty lines remain.
+Editor owns those admitted bytes and fold ranges; `composer::chat_quotes` retains
+only typed provenance by fold ID. The
+shared paste/file fold painter, current-hit fences, atomic × removal and full-source
+preview also serve quotes. Caret motion skips collapsed folds; there is no undo
+facility. Literal quotes grant no request authority and need no source revalidation.
 
 `board::response` separately owns exact raw source, the full-response Reader and
-request-bound row-note attachments. The configured note action may attach an
-admitted response selection as exact multiline Markdown blockquotes following
-`[squad · row]`; without one it keeps the existing inline tag. Task selections do
-not attach automatically to notes. These exact attachments retain request,
-passage and recipient revalidation; literal chat chips do not replace that owner.
-Details freezes exact-note provenance only when recipient and source UUID match.
+request-bound row-note admission. Its selections insert through the same inline
+fold owner, retaining request, passage and recipient revalidation. Sending replaces
+each quote fold in place: rendered literal selections use the existing flattened
+200-character Markdown excerpt, while exact selections use full multiline
+blockquotes. Preview shows the complete admitted text. Exact quotes keep their original source
+key and byte range; send admission compares the current source with its normalized
+admitted form. Plain text and other
+folds remain in order. Details freezes exact-note provenance only when recipient
+and source UUID match. Quote metadata does not retain a second payload or choose
+a new recipient. UUID draft and submitted-revision fences also cover quote folds.
 Alt-Backspace deletes the previous word in the draft.
 Native terminal selection remains available with the
 terminal's mouse-reporting override. Colab URLs use existing link effects;

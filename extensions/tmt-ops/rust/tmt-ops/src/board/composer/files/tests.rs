@@ -307,6 +307,20 @@ fn popup_of(info: &Info) -> String {
 
 fn open_composer() -> App {
     let mut app = crate::board::app::workspace::tests::board();
+    // These assertions pin Unicode chip labels independently of the host terminal.
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
         app.input.is_some(),
@@ -620,4 +634,34 @@ pub(in crate::board) fn capture_metadata(app: &App) -> serde_json::Value {
         })
         .collect::<Vec<_>>();
     serde_json::json!({ "chips": chips })
+}
+
+#[test]
+fn file_probe_cannot_relabel_a_quote_of_the_same_path_in_any_draft() {
+    let dir = Scratch::new("quote-path-probe");
+    let path = dir.file("same.png", &png(640, 480));
+    let mut app = open_composer();
+    app.paste(&path);
+    app.add_chat_quote("worker".into(), path.clone());
+    let label = app.input.as_ref().unwrap().text.folds()[1].label.clone();
+    assert!(app.apply_file_info(Delivery {
+        path: path.clone(),
+        head: head_of(&png(640, 480))
+    }));
+    assert_eq!(app.input.as_ref().unwrap().text.folds()[1].label, label);
+    assert!(
+        app.input.as_ref().unwrap().text.folds()[0]
+            .label
+            .contains("640×480")
+    );
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.apply_file_info(Delivery {
+        path,
+        head: head_of(&png(800, 600)),
+    });
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let input = app.input.as_ref().unwrap();
+    assert_eq!(input.text.folds()[1].label, label);
+    assert!(input.text.folds()[0].label.contains("800×600"));
+    assert_eq!(input.literal_quotes().len(), 1);
 }
