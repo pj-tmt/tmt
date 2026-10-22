@@ -1806,7 +1806,7 @@
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
           const runtime = value.runtime
-            ? `<style>${value.runtime.style}</style><script>${value.runtime.script}<\/script>`
+            ? `<style type="text/tailwindcss">${value.runtime.style}</style><script>${value.runtime.script}<\/script>`
             : '';
           document.open();
           document.write(

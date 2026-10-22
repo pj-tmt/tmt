@@ -599,6 +599,9 @@ test('only an opting-in page fetches the runtime, and its frame gets it before t
   page,
 }) => {
   let fetches = 0;
+  await page.route('**/assets/colab-runtime.css', (route) =>
+    route.fulfill({ contentType: 'text/css', body: '@theme { --color-stub: #123456; }' }),
+  );
   await page.route('**/assets/colab-runtime.js', (route) => {
     fetches += 1;
     return route.fulfill({
@@ -632,6 +635,9 @@ test('only an opting-in page fetches the runtime, and its frame gets it before t
 test('an opting-in page whose runtime cannot load fails visibly instead of rendering half-working', async ({
   page,
 }) => {
+  await page.route('**/assets/colab-runtime.css', (route) =>
+    route.fulfill({ contentType: 'text/css', body: '' }),
+  );
   await page.route('**/assets/colab-runtime.js', (route) => route.fulfill({ status: 500 }));
   await page.goto('/');
   await mount(page, '<meta name="tmt-colab-runtime" content="react"><p>Needs React</p>');

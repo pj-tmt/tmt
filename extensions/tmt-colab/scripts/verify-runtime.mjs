@@ -64,7 +64,8 @@ expect(!/\beval\s*\(/.test(text) && !text.includes('new Function('), 'uses eval 
 const theme = themeBytes.toString('utf8');
 expect(themeBytes.length <= MAX_THEME_BYTES, `theme is ${themeBytes.length} bytes, over ${MAX_THEME_BYTES}`);
 expect(!theme.includes('@import'), 'theme contains @import');
-expect(!theme.includes('</style'), 'theme contains a style end tag');
+expect(!theme.toLowerCase().includes('</style'), 'theme contains a style end tag');
+expect(!theme.includes('<' + '!--'), 'theme contains an HTML comment opener');
 const notices = read(join(directory, 'THIRD-PARTY-NOTICES.txt'));
 for (const name of Object.keys(packages))
   expect(notices.includes(`\n## ${name} - ${packages[name]} (`), `notices lack ${name} ${packages[name]}`);

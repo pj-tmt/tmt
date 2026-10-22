@@ -366,6 +366,7 @@ for (let run = 1; run <= 2; run++) {
       await page.goto(server.origin + '/');
       await page.evaluate(async (base) => {
         const script = await (await fetch(base + 'assets/colab-runtime.js')).text();
+        const style = await (await fetch(base + 'assets/colab-runtime.css')).text();
         const probe = document.createElement('iframe');
         probe.id = 'runtime-probe';
         probe.setAttribute('sandbox', 'allow-scripts');
@@ -381,10 +382,10 @@ for (let run = 1; run <= 2; run++) {
             renderId: `00000000-0000-4000-8000-000000000004:${digest}`,
             sourceDigest: digest,
             source:
-              '<meta name="tmt-colab-runtime" content="react tailwind"><div id="t" class="p-4"></div>' +
+              '<meta name="tmt-colab-runtime" content="react tailwind"><div id="t" class="p-4 bg-paper"></div>' +
               '<script>document.getElementById("t").dataset.react = window.tmt.React.version</script>',
             theme: 'light',
-            runtime: { script, style: '' },
+            runtime: { script, style },
           },
           '*',
           [new MessageChannel().port2],
@@ -395,6 +396,10 @@ for (let run = 1; run <= 2; run++) {
       await expect
         .poll(() => probed.evaluate((element) => getComputedStyle(element).paddingTop))
         .toBe('16px');
+      // The theme's colour names resolve too (`bg-paper` is the page colour, never transparent).
+      expect(
+        await probed.evaluate((element) => getComputedStyle(element).backgroundColor),
+      ).not.toBe('rgba(0, 0, 0, 0)');
 
       // The same served build at the test door's root selects its sample adapter,
       // exercising the opaque renderer beneath the production response CSP.

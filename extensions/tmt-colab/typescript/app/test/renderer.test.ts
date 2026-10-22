@@ -158,7 +158,7 @@ test('a bind may carry the bundled runtime, written into the trusted head before
     bound(frame, extra);
     expect(frame.writes).toEqual([
       '<!doctype html><html><head><script>window.__colabRenderStart();delete window.__colabRenderStart;</script>' +
-        '<style></style><script>window.tmt = Object.freeze({});</script></head><body><p>Captured source</p></body></html>',
+        '<style type="text/tailwindcss"></style><script>window.tmt = Object.freeze({});</script></head><body><p>Captured source</p></body></html>',
     ]);
   }
 });

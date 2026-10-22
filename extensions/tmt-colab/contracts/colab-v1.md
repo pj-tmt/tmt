@@ -2354,16 +2354,18 @@ any token is `react` or `tailwind`. The runtime is one bundle, so either loads a
 tokens are ignored, and no marker means nothing extra loads and the bind message is exactly as above.
 This rule is stated here once: the app's parent detection and the native standalone export both
 test against the shared cases in
-[`vectors/runtime-marker-v1.json`](vectors/runtime-marker-v1.json), so the two parsers cannot drift. The parent then fetches `assets/colab-runtime.js` once per
-path, next to the renderer on the mount or at the root of the hosted origin, and sends it as the
-optional `runtime` field: exactly `{script,style}`, two strings of at most 1.5 MiB and 256 KiB UTF-8
-(`style` is empty until the theme ships). The bootstrap refuses the whole bind when `runtime` has
-other keys or types, exceeds a cap, or either string contains an HTML comment opener or the closing
-tag of its own element. It writes `<style>` and `<script>` into the trusted head after the
-acknowledgement and before the author's document, so `window.tmt` exists before any page script. If
-the asset cannot be fetched, the render ends `failed` rather than running a page that needs it. The
-same `mountRenderer` serves the owner view and the reader; no capability, message type or CSP
-allowance is added.
+[`vectors/runtime-marker-v1.json`](vectors/runtime-marker-v1.json), so the two parsers cannot drift.
+
+The parent then fetches `assets/colab-runtime.js` and the theme `assets/colab-runtime.css` once per
+path, next to the renderer on the mount or at the root of the hosted origin, and sends them as the
+optional `runtime` field: exactly `{script,style}`, two strings of at most 1.5 MiB and 256 KiB UTF-8.
+The bootstrap refuses the whole bind when `runtime` has other keys or types, exceeds a cap, or either
+string contains an HTML comment opener or the closing tag of its own element. It writes
+`<style type="text/tailwindcss">` (the theme, as Tailwind source) and then `<script>` into the trusted
+head after the acknowledgement and before the author's document, so `window.tmt` and the theme exist
+before any page script. If either asset cannot be fetched, the render ends `failed` rather than running
+a page that needs them. The same `mountRenderer` serves the owner view and the reader; no capability,
+message type or CSP allowance is added.
 The parent sets no deadline on the `colab.render.bound` acknowledgement, which follows the author
 document's own `load`: a very large page binds late and shows its loading state meanwhile, and only
 navigation or the page being left ends the frame (#3982).
