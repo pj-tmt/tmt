@@ -61,8 +61,13 @@
 }
 .project-filter-button:focus-visible,
 .page-project:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  /* It rests on the edge colour, which the light focus colour equals: focus recolours the border
+     and doubles it, with 1px less padding, so the one frame shows in both themes and nothing moves
+     (#3998). No ring. */
+  padding: 0 5px;
+  border: calc(2 * var(--tmt-ui-focus-width)) solid var(--tmt-ui-color-focus);
+  outline: 0;
+  box-shadow: none;
 }
 .project-count {
   color: var(--tmt-ui-color-secondary);
@@ -98,7 +103,7 @@
 }
 .page-empty-link:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .pages .tmt-ui-list-title > a {
   display: block;

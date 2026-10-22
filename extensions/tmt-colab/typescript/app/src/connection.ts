@@ -48,6 +48,7 @@ import type { SaveHunk } from './save-hunks.js';
 import { text as strings } from './strings.js';
 import {
   OwnAppendRefused,
+  OwnCheckpointRefused,
   OwnPublicationTimeout,
   type OwnPublicationReceipt,
 } from './own-publication.js';
@@ -378,6 +379,18 @@ export class Connection {
         typeof frame.code === 'string' &&
           (SYNC_ERROR_CODES as readonly string[]).includes(frame.code),
       );
+      // A `CONFLICT` while the only append waiting for its receipt is this device's own
+      // checkpoint is the serve's answer to it: it holds another checkpoint at that position. It
+      // is refused alone; the connection and every other write go on.
+      if (frame.code === 'CONFLICT' && this.#receipts.size === 1) {
+        const [[seq, pending]] = [...this.#receipts];
+        if (pending.checkpoint) {
+          this.#receipts.delete(seq!);
+          clearTimeout(pending.timer);
+          pending.reject(new OwnCheckpointRefused());
+          return;
+        }
+      }
       // A link session sends nothing but appends, so while one is waiting for its receipt the
       // serve's `CONFLICT` is its answer: the sequence is taken, and the original was not stored.
       throw frame.code === 'CONFLICT' && this.admission.reader && this.#receipts.size > 0

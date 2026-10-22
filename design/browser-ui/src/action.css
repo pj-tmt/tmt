@@ -39,9 +39,15 @@
   background: var(--tmt-ui-surface-hover);
   box-shadow: none;
 }
+/* One focus frame (#3998): a bordered action recolours its own border; the borderless text
+   action draws one inset outline. */
 .tmt-ui-action:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+.tmt-ui-action[data-variant='text']:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .tmt-ui-action:disabled,
 .tmt-ui-action:disabled .tmt-ui-action-label {

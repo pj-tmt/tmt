@@ -40,6 +40,7 @@ fn app(usage_enabled: bool) -> App {
 
 fn standings() -> Vec<Standing> {
     vec![Standing {
+        rates: Default::default(),
         provider: Provider::named("codex"),
         latest: Some(Reading {
             observed_at_ms: NOW - 60_000,

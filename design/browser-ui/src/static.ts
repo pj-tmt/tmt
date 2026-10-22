@@ -57,7 +57,7 @@ export const browserUiClasses = Object.freeze({
   actionLabel: 'tmt-ui-action-label',
   actionMark: 'tmt-ui-action-mark',
   busyMark: 'tmt-ui-busy-mark',
-  busyFrames: 'tmt-ui-busy-frames',
+  busyDot: 'tmt-ui-busy-dot',
   checkbox: 'tmt-ui-checkbox',
   checkboxLabel: 'tmt-ui-checkbox-label',
   iconAction: 'tmt-ui-icon-action',
@@ -123,29 +123,57 @@ export interface BrowserChipOption {
   disabled?: boolean;
 }
 
-/** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
-export const busyFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+/**
+ * The busy mark (Ben's pick a2) as text: a 2x3 braille cell whose three lit dots go round its
+ * six-dot ring, clockwise from the top left. The browser mark draws the same snake as SVG dots
+ * (`busyDots`); these frames are its text and TUI parity and the fallback where no SVG is drawn.
+ */
+export const busyFrames = ['⠙', '⠸', '⠴', '⠦', '⠇', '⠋'] as const;
 
 /**
- * The reserved busy-mark slot of a static Action: a leading span holding the leaf busy mark (the
- * braille cycle `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
- * to `true` from `createBusyMarkGate`. Non-React pages use this instead of copying the markup.
+ * The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
+ * left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
  */
+export const busyDots: readonly (readonly [cx: number, cy: number])[] = [
+  [5, 3],
+  [11, 3],
+  [11, 8],
+  [11, 13],
+  [5, 13],
+  [5, 8],
+];
+/** The radius of each busy-mark dot on the 16x16 viewBox. */
+export const busyDotRadius = 1.6;
+const SVG = 'http://www.w3.org/2000/svg';
+
+/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
+function busySvg(doc: Document): SVGSVGElement {
+  const svg = doc.createElementNS(SVG, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  for (const [cx, cy] of busyDots) {
+    const dot = doc.createElementNS(SVG, 'circle');
+    dot.setAttribute('class', browserUiClasses.busyDot);
+    dot.setAttribute('cx', String(cx));
+    dot.setAttribute('cy', String(cy));
+    dot.setAttribute('r', String(busyDotRadius));
+    svg.append(dot);
+  }
+  return svg;
+}
+
+/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
+export function createBusyMark(doc: Document = document): HTMLElement {
+  const busy = doc.createElement('span');
+  busy.className = browserUiClasses.busyMark;
+  busy.append(busySvg(doc));
+  return busy;
+}
+
 export function createActionMark(doc: Document = document): HTMLElement {
   const mark = doc.createElement('span');
   mark.className = browserUiClasses.actionMark;
   mark.setAttribute('aria-hidden', 'true');
   mark.dataset.busy = 'false';
-  const busy = doc.createElement('span');
-  busy.className = browserUiClasses.busyMark;
-  const frames = doc.createElement('span');
-  frames.className = browserUiClasses.busyFrames;
-  for (const value of busyFrames) {
-    const frame = doc.createElement('span');
-    frame.dataset.frame = value;
-    frames.append(frame);
-  }
-  busy.append(frames);
-  mark.append(busy);
+  mark.append(createBusyMark(doc));
   return mark;
 }

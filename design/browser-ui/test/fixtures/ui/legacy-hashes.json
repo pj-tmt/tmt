@@ -1,12 +1,12 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "0d183ad1eb46bf3aa19f4f1258e5afa0db0ef99a85239a57975845025f88a62d",
-    "src/action.css": "5cacc5b10aadb6148dd28eba1e8c06ce3da05857d4fdd757b8af7f391dcf63c2",
+    "generated/static.css": "d3d4121faa4e3c9e359369206dbcddcc2c6bf7a354b3f6f76969618f6a4665b4",
+    "src/action.css": "d05343ca6a2523375358b5742f329a6e9027a332f48530b60708734c0c65a078",
     "src/action.tsx": "bb28278e920aabe3afd1179681ac90549a4a9dfe351076e4c80514c139182682",
-    "src/chips.css": "105bc5c3d98459473b9472d4d91905c7a900f2b6da1c1059b4c62c762bbc976d",
+    "src/chips.css": "6ddcc7b38134d4dede0da80a4bff3c37d1ee02dfda1a599585197e264050c2c9",
     "src/chips.tsx": "4bbffacef8e48f380ffc39fdda5055cd490bdd7cae59ae13e8c7003a9f3ef63c",
-    "src/command.css": "2fa1e303e636d63a9b5001ad462ea06345d1fe506f01468185a5c42398d4692e",
+    "src/command.css": "8607421643e1319463dc0fa342ff17c1772b27bfe1b5b6704a7b43cc63e9619b",
     "src/command.tsx": "dcf4b1e0c6be2135aaff832eddb307a8519242240797d005a16a7f179f1d4b2b",
     "src/dialog.css": "4c8ed9ecdc411c3b5be0aa169e4c01fc8db6db7e1f15f3855bef057a9b99efc6",
     "src/dialog.tsx": "79c5b95809f03b9312567fc7b0d9e2fc3a34756b3e0fc3bf83d38516dcf8ff86",
@@ -14,7 +14,7 @@
     "src/drawer.tsx": "c573d322b91faf00f1073f5ac3e883c632822d728d8f346c2ed9b1a33815fcfa",
     "src/field.css": "826c3498ced0861f550bdd76a74ebbc25f6cbda04dacc9a95d0bf439f81ca207",
     "src/field.tsx": "c930047bc2f9070af9619fd9d1654336e2c4ecf4494dcb7900c695320e31c76c",
-    "src/header.css": "40fdb78e8286aeb93e5ff8800f4db2d9e401d5c88e0099a5439a9479a0e8105a",
+    "src/header.css": "81015ff818eaacc06e8c36a7386f430d1c5c9046f266bf34fbf7e9155331f03e",
     "src/header.tsx": "8755f84d237c1318e7658a616990c4bd0897cbb31d7e6f2c4529556692198c0d",
     "src/icon-action-tooltip.ts": "9a48f4293d6006dc1e8e30875f68a8e0d17b87c135dbd1dbdf73c557d1d382b7",
     "src/icon-action.css": "78405fdcc3e42e3e29eb44788731d4d1356e92ab162083a98adc7dc147c831f9",
@@ -22,7 +22,7 @@
     "src/list.css": "34c7be650d20bbcce965f724b1cb5960dbbe544eccacce131726ccbec138bf3b",
     "src/list.tsx": "2c4a434cdcb33144998ff7b45b108011d679367c324904e1f009824199929c8b",
     "src/menu-position.ts": "0d107000343afa7e087fbbc1ce2a6ebc62fd7a42fed823d1b8f7176b62fcc6a1",
-    "src/menu.css": "68d4c572812ea48c0ea91bfce0fb901d5495609eeae767a474f4d8202353b09d",
+    "src/menu.css": "910fcb6e792ad729b7d30ca608421c8741e599714427f17f145e688b71d0675c",
     "src/menu.tsx": "dc8ca4cce1b816e6f2911339754148e790bd0a4077a68434228c980cd0ea8ff9",
     "src/modal-dialog.ts": "7f98471272a0886870aed486c2d878c6ad5574c0669e3be92f45c9d5e9b6e9bb",
     "src/notice.css": "02052147418975ab4131522417c315939f685c72004f0a1e6af71b49cb57212b",
@@ -33,10 +33,10 @@
     "src/overlay.ts": "37c0a2bbd673dc15c1ca1efe5b4fe09bce7087b6bf73c70a377b5f513d129325",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
     "src/react.ts": "dfd925c8457037987ced89c907e74aea001abd39eb9cdafc1c44bac7081d7321",
-    "src/static.ts": "8a4ae8f58b88f68148e73f9f344cc2cafba7a77723473a874a383a484457b929",
+    "src/static.ts": "003b4b73ddb9b7c0d3d391ebe6692892b1c8f18fb663a9ffbd214871bdc42176",
     "src/tabs.css": "6fe53a807e34e41192b9dc2697de26bfd649e1899d565bb032da4dd1abc3104e",
     "src/tabs.tsx": "7c8bf39073e629410ca607b2a94bf2c65a0d8a88fed936e3f62a636a11d8adcf",
-    "src/toggle.css": "1934443962889b5493457194b856b24ea96f649ea7fedafab3b8c030c29178a8",
+    "src/toggle.css": "2f008460aa3563b8df853af711030333948abf26df201eec675eb4d11192a8d3",
     "src/toggle.tsx": "edbed0378bcc502fca5c666665cd9bb64b594715336ea6f225b6d8001c90aac3"
   },
   "tokenProjection": {
@@ -223,6 +223,7 @@
         "rail-width": "220px",
         "rail-collapsed-width": "56px",
         "module-menu-width": "230px",
+        "rail-motion": "160ms ease-out",
         "spin-duration": "0.9s"
       }
     }

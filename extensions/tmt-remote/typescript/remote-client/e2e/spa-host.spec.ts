@@ -332,6 +332,70 @@ test.describe('the app in a browser', () => {
     }
   });
 
+  test('every focusable on every route shows one inset frame (#3998 tab walk)', async () => {
+    const { page } = await openApp('/');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const problems: string[] = [];
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      for (const path of ['/', '/remote/', '/remote/settings', '/settings', '/ops', '/digest']) {
+        await page.goto(`${origin}${path}`);
+        await expect(page.locator('.tmt-ui-shell-main')).not.toBeEmpty();
+        const seen = new Set<string>();
+        for (let step = 0; step < 60; step++) {
+          await page.keyboard.press('Tab');
+          const focus = await page.evaluate(() => {
+            const element = document.activeElement as HTMLElement | null;
+            if (!element || element === document.body) return undefined;
+            const style = getComputedStyle(element);
+            const width = Number.parseFloat(style.outlineWidth);
+            const outline = style.outlineStyle !== 'none' && width > 0;
+            const wrong: string[] = [];
+            if (style.outlineStyle === 'auto') wrong.push('a browser default ring');
+            if (outline && Number.parseFloat(style.outlineOffset) > -width)
+              wrong.push(`an outline outside its border (offset ${style.outlineOffset})`);
+            if (
+              style.boxShadow !== 'none' &&
+              style.boxShadow.split(/,(?![^(]*\))/).some((shadow) => !/inset/.test(shadow))
+            )
+              wrong.push('an outer glow');
+            const name =
+              element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 24) ?? '';
+            const key = `${element.tagName.toLowerCase()}.${element.className} ${name}`;
+            return { key, wrong };
+          });
+          if (!focus || seen.has(focus.key)) break;
+          seen.add(focus.key);
+          if (focus.wrong.length)
+            problems.push(`${scheme} ${path} ${focus.key}: ${focus.wrong.join(', ')}`);
+        }
+        expect(seen.size, `${scheme} ${path} reached focusables`).toBeGreaterThan(3);
+      }
+    }
+    expect(problems).toEqual([]);
+    await page.close();
+  });
+
+  test('the Remote menu highlights the row that is showing', async () => {
+    const { page } = await openApp('/remote/settings');
+    const menu = page.locator('nav.tmt-ui-module-menu');
+    const lit = () =>
+      menu
+        .locator('[aria-current="page"]')
+        .evaluateAll((items) => items.map((item) => item.getAttribute('data-id')));
+    await expect.poll(lit).toEqual(['settings']);
+    // A section of the settings page lights its own row, not Remote settings.
+    for (const id of ['devices', 'machine']) {
+      await menu.locator(`a[data-id="${id}"]`).click();
+      await expect.poll(lit, id).toEqual([id]);
+    }
+    await menu.locator('a[data-id="settings"]').click();
+    await expect.poll(lit).toEqual(['settings']);
+    // The menu has no Remotes heading; This machine's group keeps its own.
+    await expect(menu.locator('.tmt-ui-module-menu-group')).not.toContainText(['Remotes']);
+    await page.close();
+  });
+
   test("loads a page's own stylesheet with its route and drops it on leaving", async () => {
     const { page } = await openApp('/remote/settings');
     const sheet = page.locator('head link[rel="stylesheet"][href="/sdk/settings.css"]');
@@ -373,7 +437,6 @@ test.describe('the app in a browser', () => {
       'remote',
       'ops',
       'digest',
-      'search',
       'settings',
     ]);
     const stable = (items: typeof first) => items.map(({ current: _current, ...item }) => item);
@@ -396,6 +459,62 @@ test.describe('the app in a browser', () => {
     // One document for all of it: the marker survived, and only the first request navigated.
     expect(await page.evaluate(() => (window as unknown as { __spa: number }).__spa)).toBe(1);
     expect(requests.filter((request) => request.isNavigationRequest()).length).toBe(1);
+    await page.close();
+  });
+
+  test('joins the TMT mark and the bar in one header row; the rail toggle has its own row', async () => {
+    const { page } = await openApp('/ops');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const brand = page.locator('.tmt-ui-shell-brand');
+    const header = page.locator('.tmt-ui-shell-bar > .tmt-ui-header');
+    // One breadcrumb, TMT · Ops / Agents: the host's header starts where the mark ends, on the
+    // same row, in one type.
+    await expect(brand).toHaveText('TMT·');
+    await expect(header).toContainText('Ops');
+    const [b, h] = [(await brand.boundingBox())!, (await header.boundingBox())!];
+    expect(Math.round(b.x + b.width)).toBe(Math.round(h.x));
+    expect(Math.round(b.y)).toBe(Math.round(h.y));
+    for (const part of [
+      brand.locator('.tmt-ui-shell-brand-word'),
+      header.locator('.tmt-ui-wordmark'),
+      header.locator('.tmt-ui-title'),
+    ])
+      await expect(part).toHaveCSS('font-size', '16px');
+    // Ops is the module: the header names no second TMT.
+    await expect(header.locator('.tmt-ui-wordmark')).toHaveText('Ops');
+    await expect(page.locator('.tmt-ui-module-menu-title')).toHaveCount(0);
+    // The toggle is the rail's first row, ruled off above Home.
+    const toggle = page.locator('nav.tmt-ui-rail > .tmt-ui-rail-top > .tmt-ui-rail-toggle');
+    await expect(toggle).toHaveAttribute('aria-label', 'Collapse sidebar');
+    const home = page.locator('nav.tmt-ui-rail a[data-id="home"]');
+    expect((await toggle.boundingBox())!.y).toBeLessThan((await home.boundingBox())!.y);
+    await expect(page.locator('.tmt-ui-rail-top')).toHaveCSS('border-bottom-style', 'solid');
+    // Expanded, a label needs no tooltip.
+    await home.hover();
+    await expect(page.locator('.tmt-ui-rail-tip')).toBeHidden();
+    const icon = await home.locator('svg').boundingBox();
+    // Collapsing slides the rail (a width transition) and keeps each icon where it was.
+    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('transition-property', 'width');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-label', 'Expand sidebar');
+    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '56px');
+    // The breadcrumb does not move with the rail.
+    expect((await brand.boundingBox())!.width).toBe(b.width);
+    expect((await home.locator('svg').boundingBox())!.x).toBe(icon!.x);
+    await expect(home.locator('.tmt-ui-rail-label')).toBeHidden();
+    // Collapsed, hovering or focusing an item shows its label beside the rail.
+    await home.hover();
+    const tip = page.locator('.tmt-ui-rail-tip');
+    await expect(tip).toBeVisible();
+    await expect(tip).toHaveText('Home');
+    const tipBox = (await tip.boundingBox())!;
+    expect(tipBox.x).toBeGreaterThanOrEqual(56);
+    await page.mouse.move(800, 600);
+    await expect(tip).toBeHidden();
+    await page.locator('nav.tmt-ui-rail a[data-id="digest"]').focus();
+    await expect(tip).toHaveText('Digest');
+    await toggle.click();
+    await expect(page.locator('nav.tmt-ui-rail')).toHaveCSS('width', '220px');
     await page.close();
   });
 });
@@ -474,6 +593,44 @@ test.describe('a module entry', () => {
       await expect(page.locator('.tmt-ui-shell-main')).not.toContainText('colab stub mounted');
       await page.close();
     });
+
+  test('shows the busy mark while the module loads, then the module in its place', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const { page } = await openApp('/colab/', async (page) => {
+      await page.route('**/sdk/mount', (route) =>
+        route.fulfill({ json: { address: `${origin}${PREFIX}` } }),
+      );
+      await page.route(`**${PREFIX}/x/-/shell`, (route) =>
+        route.fulfill({ json: composed(MOUNT) }),
+      );
+      await page.route(/\.js$/, async (route) => {
+        if (new URL(route.request().url()).pathname.startsWith('/sdk/')) return route.fallback();
+        await held;
+        return route.fulfill({
+          // Like Colab: it clears the main area for an empty root, filled a moment later.
+          body: `export function mount(slot) {
+            const root = document.createElement('div');
+            slot.main.replaceChildren(root);
+            window.fillStub = () => (root.innerHTML = '<p>colab stub mounted</p>');
+          }`,
+          contentType: 'text/javascript',
+        });
+      });
+    });
+    const loading = page.locator('.tmt-ui-shell-main + .tmt-ui-shell-loading');
+    await expect(loading).toBeVisible();
+    await expect(loading).toHaveAttribute('role', 'status');
+    await expect(loading.locator('.tmt-ui-busy-mark svg')).toBeVisible();
+    release();
+    await page.waitForFunction(() => 'fillStub' in window);
+    // Mounted but still empty: the mark stays until the module paints.
+    await expect(loading).toBeVisible();
+    await page.evaluate(() => (window as unknown as { fillStub: () => void }).fillStub());
+    await expect(page.locator('.tmt-ui-shell-main')).toContainText('colab stub mounted');
+    await expect(loading).toBeHidden();
+    await page.close();
+  });
 
   test('refuses a sibling that only shares the mount name as a prefix', async () => {
     const { page, requests } = await openColab(

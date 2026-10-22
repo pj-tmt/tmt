@@ -60,7 +60,7 @@ export function CommandInput({ className, ...props }: ComponentProps<typeof Prim
       <Primitive.Input
         data-slot="command-input"
         className={cn(
-          'tmt:appearance-none tmt:box-border tmt:m-0 tmt:h-10 tmt:w-full tmt:min-w-0 tmt:border-0 tmt:bg-transparent tmt:text-foreground tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:outline-none tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:placeholder:text-muted-foreground',
+          'tmt:appearance-none tmt:box-border tmt:m-0 tmt:h-10 tmt:w-full tmt:min-w-0 tmt:border-0 tmt:bg-transparent tmt:text-foreground tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:outline-none tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:focus-visible:-outline-offset-(length:--tmt-foundation-focus-width) tmt:placeholder:text-muted-foreground',
           className,
         )}
         {...props}

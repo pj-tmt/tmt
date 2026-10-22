@@ -1467,7 +1467,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                   };
                 };
                 return {
-                  width: box.width,
+                  width: Math.round(box.width),
                   height: box.height,
                   top: box.top,
                   position: getComputedStyle(header).position,
@@ -1529,12 +1529,13 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           if (state !== 'landing')
             await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
           // Colab's header, from the same tokens: mark, product, then the page title. Inside the
-          // shell it is the bar beside the rail (and Remote's module menu on the landing page);
-          // the refusal page keeps the fixed full-width header.
+          // shell it follows the TMT mark in the one header row (TMT · Remote / …); the refusal
+          // page keeps the fixed full-width header.
           const header = look.header;
-          const beside = width <= 900 ? 0 : state === 'landing' ? 220 + 230 : 220;
+          const brand = page.locator('.tmt-ui-shell-brand');
+          const beside = width <= 900 || state === 'error' ? 0 : (await brand.boundingBox())!.width;
           expect(header).toMatchObject({
-            width: state === 'error' ? width : width - beside,
+            width: state === 'error' ? width : Math.round(width - beside),
             height: parseFloat(headerTokens[width < 480 ? 'compact-height' : 'height']!),
             top: 0,
             position: state === 'error' ? 'fixed' : 'static',
@@ -1550,8 +1551,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             size: headerTokens['mark-size'],
             weight: headerTokens['mark-weight'],
           });
+          // In the shell the breadcrumb's segments share the title's size (TMT · Remote / …).
           expect(header.wordmark).toMatchObject({
-            size: headerTokens['wordmark-size'],
+            size: headerTokens[state === 'error' ? 'wordmark-size' : 'title-size'],
             weight: headerTokens['wordmark-weight'],
           });
           expect(header.title).toMatchObject({
@@ -4832,7 +4834,7 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     // the current one.
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('General');
     const sections = page.locator('.tmt-ui-module-menu');
-    await expect(sections).toContainText('TMT settings');
+    await expect(sections).toHaveAttribute('aria-label', 'TMT settings');
     for (const label of ['General', 'Identities', 'Modules', 'Drivers & hooks'])
       await expect(sections.getByRole('link', { name: label, exact: true })).toBeVisible();
     await expect(sections.getByRole('link', { name: 'General', exact: true })).toHaveAttribute(
@@ -4885,11 +4887,11 @@ test('the rail shows the same items in the same order on every page', async () =
     for (const path of ['/', '/remote/', '/remote/settings', '/ops/', '/digest/', '/settings/']) {
       await page.goto(`${origin}${path}`);
       const items = page.locator('.tmt-ui-rail .tmt-ui-rail-item');
-      await expect(items).toHaveCount(7);
+      await expect(items).toHaveCount(6);
       rails.push(await items.evaluateAll((nodes) => nodes.map((node) => node.dataset.id!)));
     }
     for (const rail of rails)
-      expect(rail).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'search', 'settings']);
+      expect(rail).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
   } finally {
     await page.close();
   }

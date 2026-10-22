@@ -148,8 +148,15 @@ function HostedFrame() {
   const root = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<ShellSlot>();
   useLayoutEffect(() => {
+    // The frame is a page of this gallery (`/design/?frame=hosted`), so its one route is that page:
+    // a route the host does not know would reload the frame and then rewrite its address.
     const host = startShellHost(root.current!, [
-      { id: 'colab', paths: ['/'], rail: 'colab', load: async () => ({ mount: setSlot }) },
+      {
+        id: 'colab',
+        paths: [window.location.pathname],
+        rail: 'colab',
+        load: async () => ({ mount: setSlot }),
+      },
     ]);
     return () => host.dispose();
   }, []);

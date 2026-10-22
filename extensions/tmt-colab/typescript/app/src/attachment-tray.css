@@ -157,7 +157,7 @@
 }
 .attachment-thumbnail:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 2px;
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .attachment-more {
   font-size: 20px;

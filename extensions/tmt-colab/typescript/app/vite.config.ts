@@ -78,9 +78,11 @@ export default defineConfig(({ mode }) => ({
       : mode === 'module'
         ? {
             // Colab as a route of the one TMT app: a fixed-name module the app imports from the
-            // owner's mount (`assets/colab-module.js`), with its own stylesheet.
+            // owner's mount (`assets/colab-module.js`), with its own stylesheet. Minified like the
+            // app's own bundle (a library build is not by default): it is the route's first wait.
             emptyOutDir: false,
             copyPublicDir: false,
+            minify: true,
             lib: {
               entry: new URL('./src/colab-module.tsx', import.meta.url).pathname,
               formats: ['es'],

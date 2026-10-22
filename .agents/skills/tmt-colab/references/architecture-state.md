@@ -468,7 +468,11 @@ is added.
   row may exist, until their removal completes). 11 and 12 cache cloud rows and edit decisions; 13 `projects` and `page_projects`, which replace `page_labels`. Migration leaves legacy times null and legacy
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
-- `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
+- `Store::open` creates and migrates, first copying an existing store (`schema::backup`:
+  `space.db.pre-v<N>.bak`, 0600, partial file synced and renamed, the two newest schemas kept; a failed copy
+  refuses to migrate with `COLAB_STORE_BACKUP_FAILED`) and, for a newer store, naming the newest copy this
+  build can open in the `COLAB_STORE_NEWER` message (`schema::copies`; contract: Copy before a migration).
+  `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
   `write_existing` requires the serve lifecycle lock and exactly the current schema.
   Both existing-state paths check the version derived from `MIGRATIONS`; a future
@@ -598,7 +602,9 @@ is added.
   own transaction and `delete_page_data` drops it with the page. The serve calls
   `Registration::start_summaries` once at start (the same single-flight `summary::drain` a list read
   schedules), so a store upgraded to schema 16 fills without the list being opened; no backfill state.
-  Nothing serves it yet.
+  `Registration::pages` reads the current rows in the catalog's own transaction (`CatalogRead`) and
+  `attach_to_catalog` adds them as `title` newest page first while the reply stays within
+  `DISCOVERY_BYTES`; mounted `spaceHome` shows that title instead of the browser's hint.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.

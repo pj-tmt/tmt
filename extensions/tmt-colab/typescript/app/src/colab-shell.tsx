@@ -22,7 +22,6 @@ import {
 import { knownScope, scopeRows, writeScope } from './project-scope.js';
 import { ProjectMenuActionsSlot, type ProjectMenuActions } from './project-menu-actions.js';
 import { onRememberedPages, rememberedPages, rememberedProjects } from './quick-switcher-source.js';
-import { useQuickSwitcher } from './quick-switcher-context.js';
 import { text } from './strings.js';
 import type { PageSummary, PageTransport } from './transport.js';
 
@@ -35,8 +34,7 @@ const NO_PROJECTS: readonly string[] = [];
 /**
  * Colab inside the one TMT web shell. The rail comes from Remote's composed descriptions; the
  * module menu is Colab's own: All pages, then each project with its page and needs-you counts,
- * replacing the header's project dropdown, the shell pages, and Colab settings. Search opens the
- * quick switcher.
+ * replacing the header's project dropdown, the shell pages, and Colab settings.
  */
 export function ColabShell({
   transport,
@@ -50,7 +48,6 @@ export function ColabShell({
   const router = useRouter();
   const hostSlot = useContext(ShellHostSlot);
   const location = useRouterState({ select: (state) => state.location });
-  const switcher = useQuickSwitcher();
   // The rail this browser read last paints first, so it matches every other TMT page.
   const [answer, setAnswer] = useState<ShellAnswer | undefined>(rememberedShellAnswer);
   const [actions, setActions] = useState<ProjectMenuActions>();
@@ -165,7 +162,6 @@ export function ColabShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answer, listed, named, actions, location.pathname, scope]);
   const select = (id: string) => {
-    if (id === 'search') return switcher?.activate() ?? false;
     if (id === 'new-project' && actions) return (actions.newProject(), true);
     if (id === 'manage-projects' && actions) return (actions.manage(), true);
     if (id === 'colab-settings') return (void router.navigate({ to: '/settings' }), true);

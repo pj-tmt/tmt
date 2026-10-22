@@ -137,7 +137,7 @@ function message(
 ): void {
   // The shell's main area is the one main landmark; a message is a section inside it.
   const main = document.createElement('section');
-  main.className = 'page';
+  main.className = 'tmt-page';
   const heading = document.createElement('h2');
   heading.textContent = title;
   const body = document.createElement('p');

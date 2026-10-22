@@ -132,17 +132,18 @@ test('the spinner turns unless the reader prefers reduced motion', async ({ page
   await openAlpha(page);
   await page.clock.runFor(200);
   await expect(spinner(page)).toBeVisible();
+  // The a2 mark: each of its six dots runs the one shared rule.
   const names = await spinner(page).evaluate((mark) =>
-    mark
-      .querySelector('.tmt-ui-busy-frames')!
-      .getAnimations()
-      .map((animation) => (animation as CSSAnimation).animationName),
+    [...mark.querySelectorAll('.tmt-ui-busy-dot')].flatMap((dot) =>
+      dot.getAnimations().map((animation) => (animation as CSSAnimation).animationName),
+    ),
   );
-  expect(names).toEqual(['tmt-ui-busy']);
+  expect(names).toEqual(Array(6).fill('tmt-ui-busy'));
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(
     await spinner(page).evaluate(
-      (mark) => mark.querySelector('.tmt-ui-busy-frames')!.getAnimations().length,
+      (mark) =>
+        [...mark.querySelectorAll('.tmt-ui-busy-dot')].flatMap((dot) => dot.getAnimations()).length,
     ),
   ).toBe(0);
 });

@@ -282,6 +282,7 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
     app.apply(snapshot);
     app.set_limits(vec![
         Standing {
+            rates: Default::default(),
             provider: Provider::named("claude"),
             latest: Some(Reading {
                 observed_at_ms: NOW - 60_000,
@@ -298,6 +299,7 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
             trend: Some(Trend::Up),
         },
         Standing {
+            rates: Default::default(),
             provider: Provider::named("codex"),
             latest: Some(Reading {
                 observed_at_ms: NOW - 60_000,
@@ -357,6 +359,7 @@ fn captures() -> Value {
                 "agents-state-sorted",
                 "agents-header-hover",
                 "digest",
+                "digest-allowance",
                 "empty",
                 "pool",
                 "dense",
@@ -542,6 +545,35 @@ fn captures() -> Value {
                             json!(format!("{:?}", app.workspace_strip_hits.borrow()));
                         frames.push(captured);
                     }
+                }
+            }
+        }
+        // Measure's `Exchanges · <range>` section with one, a few and many agents: additive scenes.
+        for (look_name, look) in looks() {
+            for (scene, extra, flows) in [
+                ("measure-exchanges-one", 0, &[][..]),
+                (
+                    "measure-exchanges-three",
+                    2,
+                    &[(1, 2, 7), (2, 0, 3), (0, 1, 12)][..],
+                ),
+                (
+                    "measure-exchanges-many",
+                    8,
+                    &[(8, 7, 90), (7, 8, 80), (1, 2, 1), (0, 3, 4000), (3, 0, 2)][..],
+                ),
+            ] {
+                for width in [200, 160, 140] {
+                    let mut app = capture_case("agents", look);
+                    crate::board::app::workspace::tests::measure_exchanges(&mut app, extra, flows);
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        51,
+                        &mut styles,
+                    ));
                 }
             }
         }

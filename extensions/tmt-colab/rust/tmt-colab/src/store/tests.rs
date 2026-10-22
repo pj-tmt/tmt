@@ -537,6 +537,11 @@ mod page_titles {
         fn rows(&self) -> i64 {
             self.fixture.rows("page_titles")
         }
+        /// The store file as committed: a write of any kind changes it (its change counter).
+        fn bytes(&self) -> Vec<u8> {
+            let layout = Layout::open(&self.fixture.root).unwrap();
+            std::fs::read(layout.directory.join("space.db")).unwrap()
+        }
     }
 
     #[test]
@@ -550,6 +555,10 @@ mod page_titles {
         assert!(t.record(&fingerprint, "Renamed"));
         assert_eq!(t.titles(), [(TITLED.into(), "Renamed".into())]);
         assert_eq!(t.rows(), 1);
+        // Folding the same page to the same title again changes nothing in the store.
+        let before = t.bytes();
+        assert!(t.record(&fingerprint, "Renamed"));
+        assert_eq!(t.bytes(), before);
     }
 
     #[test]

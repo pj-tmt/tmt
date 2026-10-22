@@ -3,6 +3,7 @@
  * then read-only values), Identities, Modules and Drivers & hooks. Everything but the theme is
  * read-only; rows are the shared list rows and every state is a mark and a word.
  */
+import { pageLoading } from './page-loading.js';
 import { notAvailable } from './not-available.js';
 import { browserUiClasses } from '../../../../../design/browser-ui/src/static.js';
 import type { ShellAnswer } from '../../../../../design/browser-ui/src/shell.js';
@@ -275,7 +276,9 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
       ],
     });
     if (title) title.textContent = SECTIONS.find((item) => item.id === section)!.label;
-    if (settings) main.replaceChildren(...settingsSection(section, settings, links));
+    main.replaceChildren(
+      ...(settings ? settingsSection(section, settings, links) : [pageLoading()]),
+    );
   };
   window.addEventListener('hashchange', paint, { signal: shell.signal });
   shell.described((answer) => {
@@ -296,6 +299,7 @@ export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = set
     },
     () => {
       if (!live()) return;
+      main.replaceChildren();
       note.textContent = 'Settings could not be read.';
       note.hidden = false;
     },

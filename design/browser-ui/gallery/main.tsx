@@ -2,37 +2,14 @@
 import '../generated/static.css';
 import '../generated/ui.css';
 import './gallery.css';
+import './gallery-page.css';
 import favicon from '../generated/favicon.svg?url';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { sections } from './covered.js';
 import { refreshForcedStates } from './force-states.js';
-import { TokensSection } from './tokens.js';
-import {
-  ActionsSection,
-  BrandSection,
-  BusySection,
-  ChipsSection,
-  CommandSection,
-  FieldsSection,
-  HeaderSection,
-  IconActionsSection,
-  ListSection,
-  MenusSection,
-  NoticeSection,
-  TabsSection,
-  ToggleSection,
-  CheckboxSection,
-} from './components.js';
-import {
-  DisclosureSection,
-  PageSectionsSection,
-  TablesSection,
-  VisuallyHiddenSection,
-} from './layout.js';
-import { NotificationsSection, OverlaysSection, ShellSection, frameFor } from './frames.js';
-import { UiLayerSection } from './ui-layer.js';
-import { SpinnerCandidates } from './spinner-candidates.js';
+import { GallerySections } from './sections.js';
+import { frameFor } from './frames.js';
 
 document.querySelector<HTMLLinkElement>('#favicon')!.href = favicon;
 const params = new URLSearchParams(location.search);
@@ -52,30 +29,7 @@ function Gallery() {
         ))}
       </nav>
       <main className="gallery-main">
-        <TokensSection />
-        <BrandSection />
-        <ShellSection />
-        <HeaderSection />
-        <ActionsSection />
-        <IconActionsSection />
-        <BusySection />
-        <SpinnerCandidates />
-        <FieldsSection />
-        <ToggleSection />
-        <CheckboxSection />
-        <ChipsSection />
-        <MenusSection />
-        <TabsSection />
-        <ListSection />
-        <PageSectionsSection />
-        <TablesSection />
-        <DisclosureSection />
-        <VisuallyHiddenSection />
-        <CommandSection />
-        <NoticeSection />
-        <OverlaysSection />
-        <NotificationsSection />
-        <UiLayerSection />
+        <GallerySections />
       </main>
     </div>
   );

@@ -32,7 +32,20 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
       (a, b) => Number(a.kind === 'firestore') - Number(b.kind === 'firestore'),
     );
     const remotes: ShellMenuItem[] = [];
-    const onLanding = page !== 'settings';
+    // The highlighted row is the part of the page that is showing: a settings section by its
+    // anchor, else the page itself.
+    const onSettings = page === 'settings';
+    const at = (href: string) => {
+      const url = new URL(href);
+      return url.pathname === location.pathname && url.hash === location.hash;
+    };
+    const parts = [
+      `${settings}#devices-title`,
+      `${settings}#opening-title`,
+      `${settings}#add-remote`,
+      `${landing}#heading`,
+    ];
+    const onLanding = !onSettings && !parts.some(at);
     if (!selected)
       remotes.push({
         id: 'current',
@@ -71,7 +84,7 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
       {
         title: 'Remote',
         groups: [
-          { label: 'Remotes', items: remotes },
+          { items: remotes },
           // Managing the machine this page runs on, under its own heading (c5ccd17a: management
           // sits under that remote); each item opens its part of the shared settings page.
           {
@@ -81,21 +94,36 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
                 id: 'devices',
                 label: 'Devices',
                 href: `${settings}#devices-title`,
-                current: false,
+                current: at(`${settings}#devices-title`),
               },
-              { id: 'pair', label: 'Connect a device', href: `${landing}#heading`, current: false },
+              {
+                id: 'pair',
+                label: 'Connect a device',
+                href: `${landing}#heading`,
+                current: at(`${landing}#heading`),
+              },
               {
                 id: 'machine',
                 label: 'This machine’s settings',
                 href: `${settings}#opening-title`,
-                current: false,
+                current: at(`${settings}#opening-title`),
               },
             ],
           },
           {
             items: [
-              { id: 'add', label: 'Add remote…', href: `${settings}#add-remote`, current: false },
-              { id: 'settings', label: 'Remote settings', href: settings, current: !onLanding },
+              {
+                id: 'add',
+                label: 'Add remote…',
+                href: `${settings}#add-remote`,
+                current: at(`${settings}#add-remote`),
+              },
+              {
+                id: 'settings',
+                label: 'Remote settings',
+                href: settings,
+                current: onSettings && !parts.some(at),
+              },
             ],
           },
         ],
@@ -125,6 +153,10 @@ export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = re
   };
   document.addEventListener('pointerover', entered, { signal: shell.signal });
   document.addEventListener('focusin', entered, { signal: shell.signal });
+  // A section link changes only the hash, and the page's own link drops it (the app reports that
+  // as popstate): the highlight follows both.
+  window.addEventListener('hashchange', paint, { signal: shell.signal });
+  window.addEventListener('popstate', paint, { signal: shell.signal });
   // The rail fills from the owner's composed shell only once this page may send work: settings
   // always talks to the door; the native entry waits until its own check connects, so an
   // unpaired entry sends nothing.

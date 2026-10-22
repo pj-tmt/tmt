@@ -97,29 +97,40 @@ status remains visible as mark plus word.
 
 ### Shell
 
-The one TMT web UI frame (#3937): a global rail, an optional module menu, then the
-host's one header over its content. Every Colab and Remote page except the refusal
+The one TMT web UI frame (#3937): one header row, then a global rail, an optional
+module menu and the host's content. Every Colab and Remote page except the refusal
 page renders in it.
 
-- **Rail:** one fixed list, identical on every page: the TMT mark, then Home,
+- **Rail:** one fixed list, identical on every page: the collapse toggle in its own
+  row, ruled off above Home, then Home,
   Colab, Remote, Ops, Digest, any other module Remote's
   [composed shell](../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell)
-  describes (in its order), Search (Colab's quick switcher), and TMT settings at the
-  bottom. A module the composed shell does not describe keeps its place, dimmed in
+  describes (in its order), and TMT settings at the bottom. A module the composed shell does not describe keeps its place, dimmed in
   the disabled text colour with its reason as the tooltip (not paired, or not
   installed); it is never removed. Every page paints the answer this browser read
   last (session storage), then refreshes it once.
   Each item is a Lucide icon plus its label; the current item has the selected
   surface and a 3 px leading bar. Needs-you counts show `◆ n` in the waiting colour,
   `99+` above 99; Home sums them only when every module reports one.
-- **Collapse:** the toggle beside the mark collapses the rail to 56 px of icons; the
-  mark expands it again. The choice is remembered on the device. Collapsed counts
-  become corner badges; labels stay as tooltips and accessible names.
+- **Collapse:** the toggle collapses the rail to 56 px of icons and expands it again,
+  in one short slide (`--tmt-ui-rail-motion`, none under reduced motion); icons keep
+  their place. The choice is remembered on the device. Collapsed counts become
+  corner badges; hovering or focusing an item shows its label as a tooltip beside
+  the rail, and labels stay accessible names.
 - **Module menu:** the active module's own menu (Colab: All pages, then each project
   with its page count and `◆` count, then New project and Manage projects; Remote:
   each saved remote, Add remote, Remote settings). It replaces header dropdowns.
-- **Header:** the host's header moves into the shell's bar, the one sticky row; the
-  rail carries the mark, so the header shows the product word and title only.
+- **Header:** one continuous sticky row: the TMT mark and word above the rail, then
+  the host's header (moved into the shell's bar) as `<module> / <page>`, with one
+  bottom rule and no divider between them: `TMT · <module> / <page>`, every segment
+  in the header title's face and size, separators lighter. The bar paints the
+  module's name at once and keeps its height and rule while a route loads. The
+  module menu has no title of its own and shares the rail's surface, rows and
+  selection bar.
+- **Module content:** the shell adds no padding or width to a module's main area;
+  each module keeps its own layout. Shell page styles stay scoped to their own
+  pages (Remote: `.tmt-page`), since every module shares the one document. While a
+  route loads, its place shows the busy mark.
 - **Phone (≤ 900 px):** the rail becomes a top-left menu button that opens it as a
   drawer; the module menu becomes tabs under the title bar.
 - Primitive: `mountShell` in `design/browser-ui/src/shell.ts` (static hosts) and
@@ -302,7 +313,8 @@ centered one-line label and an explicit remove control. Wrap the list at narrow
 widths; keep the full accessible name when a long label ellipsizes. A trailing
 `＋` opens a search combobox/listbox. Arrow keys move, Enter adds, Escape returns
 focus, Tab closes, and Backspace in an empty non-composing field removes the last
-chip, when enabled. Recipients use `Remove @name` and `Add recipient`; selected agents are not
+chip, when enabled. A host that lists recipients with it (the leaf fixture does; Colab's composer binds
+mention chips from its text instead) uses `Remove @name` and `Add recipient`; selected agents are not
 offered again. The host owns values, filtering, limits, status and trusted effects.
 At its cap Add is disabled with a visible reason; empty/loading/error copy stays
 host-owned. Page-list label tokens use the same item inside their existing editor.
@@ -419,18 +431,25 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   remains a borderless mark-and-label toggle beside it. Resolved windows start collapsed with counts,
   state/Reopen and an explicit Show conversation action; expansion retains drafts.
 
-- The recipient is independent of the message. An admitted stable prior
-  reply can supply the default; creation defaults require a reliable canonical binding.
-  Unknown creation and ambiguity require explicit selection, never a name or sole-agent guess.
-  Choose/Change recipient selects without mutating message text. There is no mandatory
-  `@` prefix. Optional mention completion preserves the surrounding
-  text and caret; changing or removing the token does not change the selected recipient.
+- The text decides the recipients. There is no separate recipient control: bound
+  mention chips and exactly typed `@name` tokens that match one current directory entry
+  are the recipients, and removing or replacing a token or chip removes its binding.
+  Prior replies and display names never choose a recipient. The one default is the
+  page's admitted creator, seeded as a chip in each fresh message while the device-local
+  creator toggle is on; removing that chip suppresses it for that message only. Unknown
+  names stay plain text, ambiguous names block Send until chosen or removed, fuzzy
+  matches never select, and mention completion preserves the surrounding text and caret.
+  The [browser discussion contract](../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
+  owns binding, the eight-recipient fan-out, offline handling and failure rules.
 - Enter submits the parent's current message action; Shift+Enter adds a line, Esc
   closes the innermost candidate list before the composer. Typed text and the selected
   recipient are kept on close and restored on the same anchor with `Draft kept`.
-- Plain comments have an explicit Post action and remain available under current
-  content-write admission when agent discovery fails. Asking an agent is an explicit
-  action; choosing a recipient alone never prepares or sends a message.
+- There is one Send. With no bound or exact mention it records a plain comment and
+  asks no one (`Posts as a comment.`; with a resolved creator and typed text the hint
+  adds `No agent will be asked.` and an `Ask @name` action that only inserts a chip);
+  with mentions its name says who gets it (`Send · to <names>`). A plain comment stays
+  available under current content-write admission when agent discovery fails. Choosing
+  or removing a recipient never prepares or sends a message.
 - Outside press closes it, but a page click never hides a typed draft; nothing
   closes it while a send is in flight.
 - `components/message-composer.tsx` is the shared plaintext editing boundary for

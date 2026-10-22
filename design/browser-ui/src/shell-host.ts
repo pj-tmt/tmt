@@ -10,6 +10,7 @@ import {
   type ShellMenu,
   type ShellModule,
 } from './shell.js';
+import { createBusyMark } from './static.js';
 
 /**
  * The one TMT web app (#3937, spec c5ccd17a): one document, one `mountShell` instance and one
@@ -148,6 +149,15 @@ export function startShellHost(
   const main = root.querySelector<HTMLElement>(
     ':scope > .tmt-ui-shell-content > .tmt-ui-shell-main',
   )!;
+  // While the main area has no content of its own (a route loading, or a module that mounts an
+  // empty root and fills it later), the busy mark holds its place, centred (shell.css). It sits
+  // beside the main area, so a module that clears the main area keeps it.
+  const loading = document.createElement('div');
+  loading.className = 'tmt-ui-shell-loading';
+  loading.setAttribute('role', 'status');
+  loading.setAttribute('aria-label', 'Loading');
+  loading.append(createBusyMark(document));
+  main.after(loading);
   let answer: ShellAnswer | undefined = rememberedShellAnswer();
   let current: { route: ShellRoute; release?: () => void; generation: number } | undefined;
   let menu: ShellMenu | undefined;
@@ -242,7 +252,22 @@ export function startShellHost(
     current = { route, generation: mine };
     menu = undefined;
     select = undefined;
-    bar.replaceChildren();
+    // The breadcrumb names the module at once (TMT · Colab); the module's own header replaces it
+    // when it arrives (shell.css), so the header row never waits for a module to load.
+    const label = [...view().rail.main, ...view().rail.bottom].find((item) => item.current)?.label;
+    const crumb = document.createElement('header');
+    crumb.className = 'tmt-ui-header';
+    crumb.dataset.shellCrumb = '';
+    if (label && route.rail !== 'home') {
+      const word = document.createElement('span');
+      word.className = 'tmt-ui-wordmark';
+      word.textContent = label;
+      const brand = document.createElement('div');
+      brand.className = 'tmt-ui-brand';
+      brand.append(word);
+      crumb.append(brand);
+    }
+    bar.replaceChildren(crumb);
     main.replaceChildren();
     main.dataset.route = route.id;
     paint();
@@ -317,6 +342,7 @@ export function startShellHost(
       }),
     route: (pathname) => matchRoute(routes, pathname),
     dispose() {
+      loading.remove();
       document.removeEventListener('click', click);
       window.removeEventListener('popstate', popstate);
       current?.release?.();

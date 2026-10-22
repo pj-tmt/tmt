@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { showAllPages } from '../test/home-list.js';
 import { createPage, freePort, openPage, run, selectInRenderer } from './harness/ask.js';
 import {
   openReaderLink,
@@ -52,6 +53,7 @@ test('real Colab keeps public short entries across admission, reload and history
     await page.goto(shown.link);
     await expect(proof()).toHaveText('Short route content');
     await page.getByRole('link', { name: /^Colab · local/ }).click();
+    await showAllPages(page);
     await expect(
       page.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
     ).toBeVisible();
@@ -74,10 +76,14 @@ test('real Colab keeps public short entries across admission, reload and history
     expect(page.url()).toBe(shown.link);
     for (const route of ['/colab', '/colab/']) {
       await page.goto(new URL(route, door.origin).href);
+      // Choosing a tab rewrites the address to `/colab/`, so check it once the list is up and
+      // before asking for All.
+      await expect(page.getByRole('tab', { name: 'All', exact: true })).toBeVisible();
+      expect(new URL(page.url()).pathname).toBe(route);
+      await showAllPages(page);
       await expect(
         page.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
       ).toBeVisible();
-      expect(new URL(page.url()).pathname).toBe(route);
     }
     // A fresh public response supplies the current private mount after either process restarts.
     for (const restart of [restartColab, restartRemote]) {

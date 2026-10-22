@@ -376,7 +376,16 @@ on explicit message focus; Escape returns to rows and retains the draft.
 Retired Digest status/usage/report switches and ordering are reported without
 rewriting authored config.
 
-Digest has a range summary, Agents by TOK, Exchanges and selection details.
+Digest has a range summary, an Allowance block, Agents by TOK, Exchanges and selection details.
+Allowance shows one row per provider whose weekly window the board has sampled: LEFT, NEED %/h (the
+even burn, in percent per hour, that lasts exactly until the reset; shown as `>99` above 99 and as `—`
+in the last hour before the reset), what each of four rates leaves
+at the reset if it holds (the last 3h, 6h and 1d, and the average since the window last reset, SINCE RESET)
+and RESETS. A rate the history does not cover is `—`; a line that empties the window first shows
+`✗ <weekday hh:mm>` in the attention colour. At 80 columns a row is one line with the worst
+projection. It is hidden when no provider has been sampled or the table would be left too short.
+A reading older than two hours is not quoted; the percent is whole-number sampling, an unsampled
+reset is assumed, and usage on other machines is not seen.
 The shared `workspace.tok_range` is `1h` (default), `3h`, `6h`, `1d` or `7d`;
 Workspace settings selects it, and clicking the window word of an Agents `TOK 1h`
 heading, clicking the Digest Range control or an explicit `cycle-tok-range`
@@ -389,7 +398,7 @@ Activity shows 24 hourly cells, scaled to each row's busiest hour; unknown is `?
 known zero is `·`. Whole optional columns yield on narrow terminals; details carry
 the hourly strip at 60 columns. Tab exposes Exchanges in the lower pane.
 Exchanges counts only talk and reply messages, with sender rows and recipient
-columns; `─` is self, `·` observed none and `—` unavailable.
+columns; self is blank, `·` observed none and `—` unavailable.
 Enter opens the selected member's Agents conversation. D uses the existing
 Digest chooser; e toggles details, u opens usage controls and w stays Snapshots.
 Hints follow configured bindings. The `≈ $ in` column requires full input-model
@@ -399,6 +408,13 @@ from the selected TOK range. Source windows and prices remain in details.
 Usage and traffic come from bounded background Core reads, even without Digest;
 held and avoided values then show unavailable, with `tmt extension install digest`.
 Missing, partial and failed/stale observations never become measured zeros.
+
+The Measure view shows `Exchanges · <range>` under the tiles: the same matrix as Digest
+over the shared range, for the selected squad (or every visible agent), the busiest
+six first, with a `sum` column of what each row sent to others (`—` without traffic).
+Enter or a click on a cell selects that row's agent and opens Talk; a pair between two
+agents has no view of its own, so the status line says so. The section paints whole or
+not at all, and Measure requests the same background usage report at every range.
 
 The Measure view shows up to three soonest timers, with a more
 control and the effective all-room shortcut, beside Digest key/value observations.

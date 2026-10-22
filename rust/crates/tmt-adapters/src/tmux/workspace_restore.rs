@@ -757,35 +757,8 @@ impl<R: CommandRunner> Restore<'_, R> {
 /// Only a kernel refusal proves that a remaining socket has no listener.
 /// A nonblocking probe never removes the inode or waits for a healthy peer.
 fn stale_socket(path: &str, deadline: Instant) -> bool {
-    use nix::{
-        errno::Errno,
-        fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
-        sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket},
-    };
-    use std::os::fd::AsRawFd;
-    if Instant::now() >= deadline {
-        return false;
-    }
-    let Ok(address) = UnixAddr::new(path) else {
-        return false;
-    };
-    let Ok(fd) = socket(
-        AddressFamily::Unix,
-        SockType::Stream,
-        SockFlag::empty(),
-        None,
-    ) else {
-        return false;
-    };
-    // Darwin lacks atomic socket flags; use the same bounded native operation
-    // on both platforms and close the owned descriptor on every return.
-    if fcntl(&fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).is_err()
-        || fcntl(&fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).is_err()
-        || Instant::now() >= deadline
-    {
-        return false;
-    }
-    matches!(connect(fd.as_raw_fd(), &address), Err(Errno::ECONNREFUSED))
+    super::socket_connect_error(std::path::Path::new(path), Some(deadline))
+        == Some(nix::errno::Errno::ECONNREFUSED)
         && Instant::now() < deadline
 }
 

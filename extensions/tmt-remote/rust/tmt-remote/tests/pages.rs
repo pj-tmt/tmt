@@ -806,23 +806,25 @@ fn remote_static_headers_carry_the_shared_static_mark() {
         include_str!("../assets/pair.html"),
         include_str!("../assets/error.html"),
         include_str!("../assets/settings.html"),
-        include_str!("../assets/home.html"),
-        include_str!("../assets/tmt-settings.html"),
     ] {
         let normalized = normalize(page);
         assert!(normalized.contains(&expected));
         assert_eq!(page.matches("class=\"header-mark ").count(), 1);
-        let brand = if page.contains("data-tmt-page=\"home\"")
-            || page.contains("data-tmt-page=\"tmt-settings\"")
-        {
-            "TMT"
-        } else {
-            "Remote"
-        };
-        assert!(page.contains(&format!(
-            "class=\"header-wordmark tmt-ui-wordmark\">{brand}</span>"
-        )));
+        assert!(page.contains("class=\"header-wordmark tmt-ui-wordmark\">Remote</span>"));
     }
+    // TMT's own pages render only inside the web shell, whose breadcrumb starts with the TMT mark
+    // ("TMT · Home"): their headers carry the title alone, never a second TMT.
+    for page in [
+        include_str!("../assets/home.html"),
+        include_str!("../assets/tmt-settings.html"),
+        include_str!("../assets/digest.html"),
+    ] {
+        assert!(!page.contains("header-mark"));
+        assert!(!page.contains("header-wordmark"));
+        assert!(page.contains("class=\"header-title tmt-ui-title\">"));
+    }
+    assert!(include_str!("../assets/ops.html")
+        .contains("class=\"header-wordmark tmt-ui-wordmark\">Ops</span>"));
 }
 
 #[test]

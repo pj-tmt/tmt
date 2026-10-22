@@ -267,9 +267,8 @@ fn value(
         Field::Activity => unreachable!(),
         Field::Tokens => metrics::token_text(reading),
         Field::Share => metrics::share(reading, total),
-        Field::Cost => {
-            metrics::input_price(app, report, ids).map_or("—".into(), super::model::usd_text)
-        }
+        Field::Cost => metrics::input_price(app, report, ids)
+            .map_or("—".into(), crate::board::savings::usd_text),
         Field::Digest if metrics::id(row).is_none() => {
             metrics::held(app, ids).map_or("—".into(), |count| format!("{count} held"))
         }

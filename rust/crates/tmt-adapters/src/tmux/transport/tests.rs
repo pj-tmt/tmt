@@ -390,6 +390,41 @@ fn capture_accepts_maximum_lines_and_a_complete_four_mib_body() {
 }
 
 #[test]
+fn screen_reads_only_the_visible_pane_with_attributes_under_a_one_mebibyte_cap() {
+    let runner = ScriptedRunner::default();
+    runner.push_output(b"\x1b[31mred\x1b[0m\n".to_vec(), Vec::new());
+    let tmux = Tmux::new(runner);
+    let started = Instant::now();
+
+    let output = tmux.screen_on(SOCKET, PANE).unwrap();
+    assert_eq!(output, "\x1b[31mred\x1b[0m\n");
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        &calls[0].args[..],
+        ["-u", "-S", SOCKET, "capture-pane", "-t", PANE, "-p", "-e"]
+    );
+    drop(calls);
+    assert_deadlines_and_cap(&tmux.runner, 1024 * 1024, started);
+}
+
+#[test]
+fn screen_refuses_an_invalid_endpoint_and_never_returns_a_partial_screen() {
+    for (socket, pane) in [("", PANE), (SOCKET, "main:1.0")] {
+        let tmux = Tmux::new(ScriptedRunner::default());
+        let error = tmux.screen_on(socket, pane).unwrap_err();
+        assert_eq!(error.kind, TmuxFailure::Evidence);
+        assert!(tmux.runner.calls.borrow().is_empty());
+    }
+    for kind in [CommandFailure::OutputLimit, CommandFailure::Timeout] {
+        let tmux = Tmux::new(ScriptedRunner::new([Err(failure_with_kind(kind, false))]));
+        let error = tmux.screen_on(SOCKET, PANE).unwrap_err();
+        assert_eq!(error.kind, TmuxFailure::Command);
+        assert_eq!(error.cause.as_ref().unwrap().kind, kind);
+    }
+}
+
+#[test]
 fn an_unconfirmed_socket_diagnostic_preserves_prepare_failure() {
     let directory = crate::test_support::TestDirectory::new();
     let missing = directory.path.join("missing.sock");

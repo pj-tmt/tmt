@@ -34,7 +34,7 @@ const remote: ShellModule = {
 };
 const answer: ShellAnswer = { version: 1, modules: [colab, remote] };
 
-it('orders Home, the described modules, Ops, Digest, Search, then TMT settings at the bottom', () => {
+it('orders Home, the described modules, Ops, Digest, then TMT settings at the bottom', () => {
   const rail = shellRail(answer, { origin, href: `${origin}/` });
   expect(rail.main.map((item) => [item.id, item.href, item.current])).toEqual([
     ['home', `${origin}/`, true],
@@ -42,7 +42,6 @@ it('orders Home, the described modules, Ops, Digest, Search, then TMT settings a
     ['remote', `${origin}/remote/`, false],
     ['ops', `${origin}/ops/`, false],
     ['digest', `${origin}/digest/`, false],
-    ['search', `${origin}/r/abc/x/colab/`, false],
   ]);
   expect(
     shellRail(answer, { origin, href: `${origin}/ops/` })
@@ -50,6 +49,9 @@ it('orders Home, the described modules, Ops, Digest, Search, then TMT settings a
       .map((item) => item.id),
   ).toEqual(['ops']);
   expect(rail.main[0]!.count).toEqual({ text: '3', needsYou: true });
+  // The design gallery is a dev-preview item only (.poc); the product rail has no Design or Search.
+  expect([...rail.main, ...rail.bottom].map((item) => item.id)).not.toContain('design');
+  expect([...rail.main, ...rail.bottom].map((item) => item.id)).not.toContain('search');
   expect(rail.bottom.map((item) => [item.id, item.label, item.href])).toEqual([
     ['settings', 'TMT settings', `${origin}/settings/`],
   ]);
@@ -86,7 +88,6 @@ it('shows the same rail items on every route, with or without an answer, whateve
     ['remote', 'Remote', 'monitor-smartphone'],
     ['ops', 'Ops', 'users'],
     ['digest', 'Digest', 'chart-column'],
-    ['search', 'Search', 'search'],
     ['settings', 'TMT settings', 'settings'],
   ];
   for (const known of [answer, undefined])
@@ -97,11 +98,10 @@ it('shows the same rail items on every route, with or without an answer, whateve
         );
 });
 
-it('dims Colab and Search with the reason until the answer describes Colab', () => {
+it('dims Colab with the reason until the answer describes Colab', () => {
   const unpaired = shellRail(undefined, { origin, href: `${origin}/` }).main;
   expect(unpaired.filter((item) => item.disabled).map((item) => [item.id, item.note])).toEqual([
     ['colab', 'Pair this browser with Remote to open it'],
-    ['search', 'Search opens Colab. Pair this browser with Remote to open it'],
   ]);
   expect(unpaired[0]!.count).toBeUndefined();
   const hosted = shellRail(undefined, { origin, href: `${origin}/colab/` }, colab).main;

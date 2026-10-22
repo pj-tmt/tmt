@@ -759,8 +759,10 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await page.keyboard.press('Tab');
   const close = dialog.getByRole('button', { name: 'Close', exact: true });
   await expect(close).toBeFocused();
+  // An edge-bordered Colab button: one 2px frame of the focus colour drawn over its border.
   await expect(close).toHaveCSS('outline-style', 'solid');
-  await expect(close).toHaveCSS('outline-width', '1px');
+  await expect(close).toHaveCSS('outline-width', '2px');
+  await expect(close).toHaveCSS('outline-offset', '-2px');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(row(pageId).getByRole('button', { name: /^Actions for/ })).toBeFocused();
@@ -1034,17 +1036,24 @@ for (const status of [403, 503])
     await page.route(`**${mount}api/pages`, (route) =>
       reads++ === 0 ? route.fulfill({ status, json: { code: 'DENIED' } }) : route.fallback(),
     );
+    let registrations = 0;
+    page.on('request', (request) => {
+      if (request.url().endsWith(`${mount}api/devices/register`)) registrations++;
+    });
     const registers = page.waitForRequest(`**${mount}api/devices/register`);
     await page.goBack();
     await registers;
-    // The list is back on the tab it was left on: count the reads as soon as it is shown (a page
-    // with no task makes it read again every 2 s).
+    // The list is back on the tab it was left on. The refreshed read is issued after the tab shows,
+    // so the read count is polled, not sampled. Other readers of the catalog (a re-read for a page
+    // with no summary yet) may add reads on a slow machine, so `once` is the device refresh: one
+    // registration, however many reads follow it.
     await expect(page.getByRole('tab', { name: 'All', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',
     );
-    expect(reads).toBe(2);
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
     await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
+    expect(registrations).toBe(1);
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page).toHaveURL(/\/colab\/$/);
   });

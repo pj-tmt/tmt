@@ -36,11 +36,27 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         Rect::new(area.x, area.y.saturating_add(1), area.width, chart_height),
         now,
     );
-    let body = Rect::new(
-        area.x,
-        area.y.saturating_add(1 + chart_height),
+    let allowance_height = super::allowance::height(
+        app,
         area.width,
         area.height.saturating_sub(1 + chart_height),
+    );
+    super::allowance::paint(
+        frame,
+        app,
+        Rect::new(
+            area.x,
+            area.y.saturating_add(1 + chart_height),
+            area.width,
+            allowance_height,
+        ),
+    );
+    let top = 1 + chart_height + allowance_height;
+    let body = Rect::new(
+        area.x,
+        area.y.saturating_add(top),
+        area.width,
+        area.height.saturating_sub(top),
     );
     app.conversation.borrow_mut().area = body;
     let placement = app.digest_placement(body);
@@ -135,7 +151,7 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
     }
     let savings = metrics::savings(app, &ids);
     let savings_available = savings.as_ref().is_some_and(|summary| {
-        model::savings_value(
+        crate::board::savings::savings_value(
             summary,
             if app.tok_range() == TokRange::Day {
                 crate::config::DigestWindow::Day
@@ -153,7 +169,7 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             crate::config::DigestWindow::Week
         };
-        parts.push(model::savings_caption(
+        parts.push(crate::board::savings::savings_caption(
             &savings,
             window,
             app.savings_unit(),
@@ -324,7 +340,7 @@ fn detail_lines(
     if let Some(cost) = metrics::input_price(app, report, &ids) {
         text.push(format!(
             "Input list-price estimate: {}",
-            model::usd_text(cost)
+            crate::board::savings::usd_text(cost)
         ));
     } else if !price_column_shown {
         text.push("Input list-price estimate: —".into());

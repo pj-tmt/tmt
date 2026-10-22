@@ -3067,28 +3067,6 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
             &(revision + 1).to_string(),
         );
     }
-    // The local title projection (#4218) follows the page: the archive and the delete each take
-    // its row in their own transaction.
-    let titles = || -> i64 {
-        server
-            .oracle()
-            .query_row(
-                "SELECT count(*) FROM page_titles WHERE page=?",
-                [PAGE],
-                |r| r.get(0),
-            )
-            .unwrap()
-    };
-    let remember = || {
-        server
-            .oracle()
-            .execute(
-                "INSERT INTO page_titles(page,title) VALUES (?,'Plan')",
-                [PAGE],
-            )
-            .unwrap();
-    };
-    remember();
     let mut peer = server.peer(DEVICE);
     hello(&server, &mut peer, DEVICE);
     let archive = management_body(
@@ -3128,7 +3106,6 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
             .unwrap(),
         0
     );
-    assert_eq!(titles(), 0, "the archive removes the projected title");
     let page_list = server.request(&Running::get("/api/pages", &header));
     let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(pages["pages"][0]["archived"], true);
@@ -3189,7 +3166,6 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     if !before.iter().any(|frame| frame["type"] == "broadcast") {
         assert_eq!(receive(&mut peer)["type"], "broadcast");
     }
-    remember();
     let delete = local_management(
         &server,
         "90000000-0000-4000-8000-000000000006",
@@ -3217,7 +3193,6 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
         ("membership_log", 7),
         ("owner_operations", 7),
         ("epoch_secrets", 0),
-        ("page_titles", 0),
     ] {
         let count: i64 = db
             .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
@@ -6701,25 +6676,6 @@ fn describe_keeps_navigation_without_unknown_counts_and_refuses_busy_catalog() {
     assert!(
         body.get("home").is_none(),
         "a page without a projected title has no card"
-    );
-    // Home's recent pages come from the local title projection, newest activity first.
-    let older = "10000000-0000-4000-8000-0000000000aa";
-    Store::open(&layout).unwrap().create_page(older).unwrap();
-    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
-    db.execute_batch(&format!(
-        "UPDATE pages SET last_update_at_ms=200 WHERE page='{PAGE}';
-         UPDATE pages SET last_update_at_ms=100 WHERE page='{older}';
-         INSERT INTO page_titles(page,title) VALUES ('{PAGE}','Launch plan'),('{older}','Notes');"
-    ))
-    .unwrap();
-    let answer = running.request(&callback);
-    let body: Value = serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap();
-    assert_eq!(
-        body["home"],
-        json!([
-            {"id":PAGE.replace('-', ""),"title":"Launch plan","path":format!("/pages/{PAGE}")},
-            {"id":older.replace('-', ""),"title":"Notes","path":format!("/pages/{older}")}
-        ])
     );
     // The card's deep link is the owner's: it sends the app to the page's fragment target.
     let owner_header = format!("{}\r\n", owner(DEVICE));

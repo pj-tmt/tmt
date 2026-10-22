@@ -126,7 +126,10 @@ One `OPS / UI` shell contains `1 Agents` and `2 Digest`. The same acquired roste
 feeds both sections. Agents owns usage and provider limits (a full-width band), the
 squad workspace and the selected target as Talk (conversation) or Measure (summary
 cells, soonest timers, Digest table, who talks to whom);
-Digest keeps the same exact identity context and Core policy controls. A section
+Digest keeps the same exact identity context and Core policy controls, and shows an Allowance
+block under its summary: each sampled provider's weekly window with the even burn that lasts to the
+reset and what the last 3h, 6h, 1d and since-reset rates leave there, `✗ <weekday hh:mm>` where
+a rate empties the window first. A section
 label never creates membership or a send audience. Both use the selected
 squad's appearance.
 The shared top bar projects held provider limits (`5h`/`7d`) and the selected
@@ -219,7 +222,12 @@ list-price quote rows retain their source coverage independently of the saved
 unit preference. The modules stack when their minimum widths cannot fit. Wide
 screens place the selected waiting exchange and a filled three-row input above
 Timers and the direct Digest matrix. The joined divider separates that column
-from the Squads / Agents list. The matrix uses fixed ten-cell all/member columns,
+from the Squads / Agents list. Below the tiles the Measure column paints
+`Exchanges · <range>`: the shared exchange matrix for the selected squad (or every
+visible agent) over the shared range, busiest six agents first by messages sent plus
+received, with a trailing `sum` of what each row sent to others. A cell opens Talk
+with its sender selected and the status line names the pair, which has no view of its
+own. The section paints whole or not at all. The matrix uses fixed ten-cell all/member columns,
 ranked by observed HOUR tokens, and honest fixed-24h supplier estimates. Shared
 shell paint colours only nonzero waiting/blocked glyphs; tabs and other values
 remain neutral. The Talk matrix stays absent until its data is shipped.

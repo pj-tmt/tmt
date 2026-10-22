@@ -1,6 +1,12 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { deriveSpaceId, encodeBinary } from '@tmt/colab-client';
-import { AUTHOR_BYTES, DISCOVERY_BYTES, ROW_WORKING, discover } from '../src/bootstrap.js';
+import {
+  AUTHOR_BYTES,
+  DISCOVERY_BYTES,
+  PAGE_TITLE_BYTES,
+  ROW_WORKING,
+  discover,
+} from '../src/bootstrap.js';
 import { record } from '../src/storage.js';
 const storage = vi.hoisted(() => ({ pin: undefined as unknown }));
 vi.mock('../src/storage.js', () => ({
@@ -145,6 +151,70 @@ it('keeps 1000 worst-sized work rows and parents inside the bounded response', a
   const boot = await discover(mount);
   expect(boot.pages[999].summary?.work).toEqual(work);
   expect(boot.pages[999].summary?.parent?.task).toBe('T-9999999');
+});
+it("accepts the owner's local page title and refuses one it never serves", async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const longest = 'é'.repeat(PAGE_TITLE_BYTES / 2);
+  await response([
+    { ...metadata, pageId: id(1), title: 'Launch plan 🐈' },
+    { ...metadata, pageId: id(2), title: longest },
+    { ...metadata, pageId: id(3) },
+  ]);
+  const { pages } = await discover(mount);
+  expect(pages.map((page) => page.title)).toEqual(['Launch plan 🐈', longest, undefined]);
+  for (const title of ['', `${longest}x`, 'two\nlines', 'tab\there', 'nul\u0000', null, 7, ['x']]) {
+    await response([{ ...metadata, pageId: id(1), title }]);
+    await expect(discover(mount), JSON.stringify(title)).rejects.toThrow();
+  }
+});
+it('keeps a reply the owner filled to its budget with titles inside the bounded response', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  // The owner spends what the worst-case reply leaves on titles, newest page first (limits.rs).
+  const rockets = '\u{1F680}'.repeat(29);
+  const author = '"'.repeat(AUTHOR_BYTES);
+  const who = { kind: 'person', name: '"'.repeat(128) };
+  const work = {
+    stage: 'in-progress',
+    done: 100,
+    total: 256,
+    signoff: 100,
+    working: [who, who, who],
+    more: 100,
+  };
+  const page = (index: number, title?: string) => ({
+    ...metadata,
+    pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    projects: [`${String(index).padStart(3, '0')}${rockets}`],
+    summary: {
+      comments: 4_294_967_295,
+      waiting: true,
+      needsYou: 350,
+      author,
+      work,
+      parent: { page: '10000000-0000-4000-8000-000000000001', task: 'T-9999999' },
+    },
+    ...(title === undefined ? {} : { title }),
+  });
+  const bare = new TextEncoder().encode(
+    await response(Array.from({ length: 1000 }, (_, index) => page(index))),
+  ).length;
+  // Each longest title costs `,"title":"` + text + `"`; fewer than the 1,000 pages fit.
+  const fit = Math.floor((DISCOVERY_BYTES - bare) / (10 + PAGE_TITLE_BYTES + 1));
+  expect(fit).toBeGreaterThan(0);
+  expect(fit).toBeLessThan(1000);
+  const body = await response(
+    Array.from({ length: 1000 }, (_, index) =>
+      page(index, index >= 1000 - fit ? 't'.repeat(PAGE_TITLE_BYTES) : undefined),
+    ),
+  );
+  expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(DISCOVERY_BYTES);
+  const boot = await discover(mount);
+  expect(boot.pages.filter((p) => p.title !== undefined)).toHaveLength(fit);
 });
 it('accepts a work row and the task that follows the page, each on its own', async () => {
   vi.stubGlobal('navigator', {

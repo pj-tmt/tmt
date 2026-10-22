@@ -1,4 +1,5 @@
 import { brandMarkSvg } from './brand-mark-svg.js';
+import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
 
 /**
@@ -157,9 +158,9 @@ const HOST_SERVED = new Set(['remote', 'ops', 'digest']);
 
 /**
  * Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
- * order, Search, then TMT settings at the bottom. Colab is available when the answer describes it
- * or it hosts the page; without an answer (not paired) it is dimmed, as is Search, which is
- * Colab's quick switcher. The current item is the host's module, else the longest matching path.
+ * order, then TMT settings at the bottom. Colab is available
+ * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
+ * The current item is the host's module, else the longest matching path.
  */
 export function shellRail(
   answer: ShellAnswer | undefined,
@@ -211,7 +212,6 @@ export function shellRail(
     answer && counts.every((count) => count !== undefined)
       ? counts.reduce<number>((sum, count) => sum + count!, 0)
       : undefined;
-  const colab = modules[0]!;
   const main: ShellItem[] = [
     {
       id: 'home',
@@ -230,15 +230,6 @@ export function shellRail(
       current: !settings && module.id === matched,
       ...(module.available ? {} : { disabled: true, note: unavailable }),
     })),
-    {
-      id: 'search',
-      label: 'Search',
-      icon: 'search',
-      // Colab's quick switcher is the search; from another module this opens Colab.
-      href: colab.href,
-      current: false,
-      ...(colab.available ? {} : { disabled: true, note: 'Search opens Colab. ' + unavailable }),
-    },
   ];
   const bottom: ShellItem[] = [
     {
@@ -330,8 +321,9 @@ export interface ShellControls {
 /**
  * Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
  * `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
- * `.tmt-ui-shell-main`. The module menu goes between the bar and the main area: a column beside
- * them on wide screens, tabs under the title bar on phones. `select` may take over a plain click
+ * `.tmt-ui-shell-main`. On wide screens the TMT mark and the bar form one header row
+ * (TMT, then the host's `<module> / <page>`), over the rail, the module menu column and the main
+ * area; on phones the module menu becomes tabs under the title bar. `select` may take over a plain click
  * on an item (an SPA route or Colab's search); it returns true when it handled the click.
  */
 export function mountShell(
@@ -347,12 +339,37 @@ export function mountShell(
   open.setAttribute('aria-label', 'Open navigation');
   open.setAttribute('aria-expanded', 'false');
   open.append(icon(document, 'menu'));
+  const brand = document.createElement('span');
+  brand.className = 'tmt-ui-shell-brand';
+  brand.innerHTML = brandMarkSvg({ size: 24, id: 'tmt-rail' });
+  const word = document.createElement('span');
+  word.className = 'tmt-ui-shell-brand-word';
+  word.textContent = 'TMT';
+  // One breadcrumb: TMT ・ <module> / <page>.
+  const dot = document.createElement('span');
+  dot.className = 'tmt-ui-shell-brand-separator';
+  dot.setAttribute('aria-hidden', 'true');
+  dot.textContent = '·';
+  brand.append(word, dot);
+  // The host's header starts where the mark ends, so the two read as one breadcrumb. The width
+  // goes into an adopted sheet, not a style attribute: pages keep no inline styles.
+  const sheet =
+    typeof ResizeObserver === 'function' && 'adoptedStyleSheets' in document
+      ? new CSSStyleSheet()
+      : undefined;
+  if (sheet) document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  const measure = sheet
+    ? new ResizeObserver(() =>
+        sheet.replaceSync(`.tmt-ui-shell { --tmt-ui-shell-brand-width: ${brand.offsetWidth}px; }`),
+      )
+    : undefined;
+  measure?.observe(brand);
   const rail = document.createElement('nav');
   rail.className = 'tmt-ui-rail';
   rail.setAttribute('aria-label', 'TMT');
   const menu = document.createElement('nav');
   menu.className = 'tmt-ui-module-menu';
-  root.prepend(open, rail);
+  root.prepend(open, brand, rail);
   root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!.after(menu);
 
   let collapsed = railCollapsed();
@@ -360,21 +377,59 @@ export function mountShell(
     root.dataset.drawer = shown ? 'open' : 'closed';
     open.setAttribute('aria-expanded', String(shown));
   };
+  // Labels on the collapsed rail (and an unavailable item's reason) show as one tooltip beside
+  // the hovered or focused item, in the top layer.
+  const tip = document.createElement('div');
+  tip.className = 'tmt-ui-rail-tip';
+  tip.setAttribute('role', 'tooltip');
+  tip.popover = 'manual';
+  root.append(tip);
+  let release = () => {};
+  const hideTip = () => {
+    release();
+    if (tip.matches(':popover-open')) tip.hidePopover();
+  };
+  const showTip = (anchor: HTMLElement) => {
+    const text = collapsed ? anchor.dataset.tip : anchor.dataset.note;
+    if (!text || root.dataset.drawer === 'open') return hideTip();
+    release();
+    release = claimIconActionTooltip(document, hideTip);
+    tip.textContent = text;
+    if (!tip.matches(':popover-open')) tip.showPopover();
+    const box = anchor.getBoundingClientRect();
+    tip.style.left = `${box.right}px`;
+    tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
+  };
+  const tipFor = (anchor: HTMLElement, text: string, note?: string) => {
+    anchor.dataset.tip = text;
+    if (note) anchor.dataset.note = text;
+    anchor.addEventListener('pointerenter', () => showTip(anchor));
+    anchor.addEventListener('focus', () => showTip(anchor));
+    anchor.addEventListener('pointerleave', hideTip);
+    anchor.addEventListener('blur', hideTip);
+  };
   const paint = () => {
     root.dataset.rail = collapsed ? 'collapsed' : 'expanded';
-    toggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    toggle.setAttribute('aria-label', label);
     toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.title = toggle.getAttribute('aria-label')!;
+    toggle.dataset.tip = label;
+    toggle.replaceChildren(icon(document, collapsed ? 'panel-left-open' : 'panel-left-close'));
   };
+  // The toggle has its own row above the rail's items.
   const toggle = document.createElement('button');
   toggle.type = 'button';
   toggle.className = 'tmt-ui-rail-toggle';
-  toggle.append(icon(document, 'panel-left-close'));
+  tipFor(toggle, '');
   toggle.onclick = () => {
     collapsed = !collapsed;
     rememberRail(collapsed);
     paint();
+    hideTip();
   };
+  const top = document.createElement('div');
+  top.className = 'tmt-ui-rail-top';
+  top.append(toggle);
   open.onclick = () => setDrawer(root.dataset.drawer !== 'open');
   const close = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && root.dataset.drawer === 'open') {
@@ -399,7 +454,6 @@ export function mountShell(
     if (item.current) anchor.setAttribute('aria-current', 'page');
     const disabled = 'disabled' in item && item.disabled;
     if (disabled) anchor.setAttribute('aria-disabled', 'true');
-    if ('note' in item && item.note) anchor.title = item.note;
     anchor.onclick = (event) => {
       if (disabled) return event.preventDefault();
       if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -413,7 +467,7 @@ export function mountShell(
     list.className = extra ? `tmt-ui-rail-items ${extra}` : 'tmt-ui-rail-items';
     for (const item of items) {
       const anchor = link('tmt-ui-rail-item', item);
-      anchor.title = item.note ? `${item.label}: ${item.note}` : item.label;
+      tipFor(anchor, item.note ? `${item.label}: ${item.note}` : item.label, item.note);
       const label = document.createElement('span');
       label.className = 'tmt-ui-rail-label';
       label.textContent = item.label;
@@ -433,16 +487,7 @@ export function mountShell(
     const key = JSON.stringify(next);
     if (key === shown) return;
     shown = key;
-    const top = document.createElement('div');
-    top.className = 'tmt-ui-rail-top';
-    const brand = document.createElement('span');
-    brand.className = 'tmt-ui-rail-brand';
-    brand.innerHTML = brandMarkSvg({ size: 24, id: 'tmt-rail' });
-    const word = document.createElement('span');
-    word.className = 'tmt-ui-rail-label';
-    word.textContent = 'TMT';
-    brand.append(word);
-    top.append(brand, toggle);
+    hideTip();
     rail.replaceChildren(
       top,
       railList(next.rail.main),
@@ -457,12 +502,9 @@ export function mountShell(
     menu.setAttribute('aria-label', next.menu.title);
     // A phone's tab strip keeps its scroll across a rebuild, then shows the current tab.
     const left = menu.scrollLeft;
-    const title = document.createElement('div');
-    title.className = 'tmt-ui-module-menu-title';
-    title.textContent = next.menu.title;
-    menu.replaceChildren(title);
+    menu.replaceChildren();
     for (const group of next.menu.groups) {
-      if (group.label !== undefined || menu.childElementCount > 1) {
+      if (group.label !== undefined || menu.childElementCount > 0) {
         const heading = document.createElement('div');
         heading.className = 'tmt-ui-module-menu-group';
         heading.textContent = group.label ?? '';
@@ -472,6 +514,7 @@ export function mountShell(
       list.className = 'tmt-ui-module-menu-items';
       for (const item of group.items) {
         const anchor = link('tmt-ui-module-menu-item', item);
+        if (item.note) anchor.title = item.note;
         const label = document.createElement('span');
         label.className = 'tmt-ui-module-menu-label';
         label.textContent = item.label;
@@ -508,7 +551,13 @@ export function mountShell(
     dispose() {
       document.removeEventListener('keydown', close);
       document.removeEventListener('pointerdown', outside);
+      hideTip();
+      measure?.disconnect();
+      if (sheet)
+        document.adoptedStyleSheets = document.adoptedStyleSheets.filter((item) => item !== sheet);
       open.remove();
+      brand.remove();
+      tip.remove();
       rail.remove();
       menu.remove();
     },

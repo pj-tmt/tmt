@@ -116,10 +116,13 @@
 .tmt-ui-menu-item:focus-visible {
   background: var(--tmt-ui-surface-hover);
 }
-.tmt-ui-menu-item:focus-visible,
-.tmt-ui-menu-trigger:focus-visible {
+.tmt-ui-menu-item:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-2 * var(--tmt-ui-focus-width));
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.tmt-ui-menu-trigger:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-menu-item:disabled {
   color: var(--tmt-ui-color-secondary);

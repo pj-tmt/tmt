@@ -97,6 +97,7 @@ mod tests {
     fn only_live_windows_paint_and_weekly_parts_yield_together() {
         let now = 10_000_000;
         let limit = Standing {
+            rates: Default::default(),
             provider: Provider::named("claude"),
             latest: Some(Reading {
                 observed_at_ms: now,

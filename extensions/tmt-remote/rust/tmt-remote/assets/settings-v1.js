@@ -179,7 +179,18 @@ function remoteMenu(actions, shell = void 0) {
 		const selected = catalog.entries.find((entry) => currentRemote(entry, address, location.href));
 		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
 		const remotes = [];
-		const onLanding = page !== "settings";
+		const onSettings = page === "settings";
+		const at = (href) => {
+			const url = new URL(href);
+			return url.pathname === location.pathname && url.hash === location.hash;
+		};
+		const parts = [
+			`${settings}#devices-title`,
+			`${settings}#opening-title`,
+			`${settings}#add-remote`,
+			`${landing}#heading`
+		];
+		const onLanding = !onSettings && !parts.some(at);
 		if (!selected) remotes.push({
 			id: "current",
 			label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(" "),
@@ -214,10 +225,7 @@ function remoteMenu(actions, shell = void 0) {
 		shell.setMenu({
 			title: "Remote",
 			groups: [
-				{
-					label: "Remotes",
-					items: remotes
-				},
+				{ items: remotes },
 				{
 					label: "This machine",
 					items: [
@@ -225,19 +233,19 @@ function remoteMenu(actions, shell = void 0) {
 							id: "devices",
 							label: "Devices",
 							href: `${settings}#devices-title`,
-							current: false
+							current: at(`${settings}#devices-title`)
 						},
 						{
 							id: "pair",
 							label: "Connect a device",
 							href: `${landing}#heading`,
-							current: false
+							current: at(`${landing}#heading`)
 						},
 						{
 							id: "machine",
 							label: "This machine’s settings",
 							href: `${settings}#opening-title`,
-							current: false
+							current: at(`${settings}#opening-title`)
 						}
 					]
 				},
@@ -245,12 +253,12 @@ function remoteMenu(actions, shell = void 0) {
 					id: "add",
 					label: "Add remote…",
 					href: `${settings}#add-remote`,
-					current: false
+					current: at(`${settings}#add-remote`)
 				}, {
 					id: "settings",
 					label: "Remote settings",
 					href: settings,
-					current: !onLanding
+					current: onSettings && !parts.some(at)
 				}] }
 			]
 		}, (id) => {
@@ -272,6 +280,8 @@ function remoteMenu(actions, shell = void 0) {
 	};
 	document.addEventListener("pointerover", entered, { signal: shell.signal });
 	document.addEventListener("focusin", entered, { signal: shell.signal });
+	window.addEventListener("hashchange", paint, { signal: shell.signal });
+	window.addEventListener("popstate", paint, { signal: shell.signal });
 	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;
@@ -341,7 +351,7 @@ var browserUiClasses = Object.freeze({
 	actionLabel: "tmt-ui-action-label",
 	actionMark: "tmt-ui-action-mark",
 	busyMark: "tmt-ui-busy-mark",
-	busyFrames: "tmt-ui-busy-frames",
+	busyDot: "tmt-ui-busy-dot",
 	checkbox: "tmt-ui-checkbox",
 	checkboxLabel: "tmt-ui-checkbox-label",
 	iconAction: "tmt-ui-icon-action",
@@ -375,40 +385,48 @@ var browserUiClasses = Object.freeze({
 	disclosure: "tmt-ui-disclosure",
 	visuallyHidden: "tmt-ui-visually-hidden"
 });
-/** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
-var busyFrames = [
-	"⠋",
-	"⠙",
-	"⠹",
-	"⠸",
-	"⠼",
-	"⠴",
-	"⠦",
-	"⠧",
-	"⠇",
-	"⠏"
-];
 /**
-* The reserved busy-mark slot of a static Action: a leading span holding the leaf busy mark (the
-* braille cycle `BusyMark` draws in React), hidden while `data-busy` is `false`. Set `data-busy`
-* to `true` from `createBusyMarkGate`. Non-React pages use this instead of copying the markup.
+* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
+* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
 */
+var busyDots = [
+	[5, 3],
+	[11, 3],
+	[11, 8],
+	[11, 13],
+	[5, 13],
+	[5, 8]
+];
+/** The radius of each busy-mark dot on the 16x16 viewBox. */
+var busyDotRadius = 1.6;
+var SVG = "http://www.w3.org/2000/svg";
+/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
+function busySvg(doc) {
+	const svg = doc.createElementNS(SVG, "svg");
+	svg.setAttribute("viewBox", "0 0 16 16");
+	for (const [cx, cy] of busyDots) {
+		const dot = doc.createElementNS(SVG, "circle");
+		dot.setAttribute("class", browserUiClasses.busyDot);
+		dot.setAttribute("cx", String(cx));
+		dot.setAttribute("cy", String(cy));
+		dot.setAttribute("r", String(busyDotRadius));
+		svg.append(dot);
+	}
+	return svg;
+}
+/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
+function createBusyMark(doc = document) {
+	const busy = doc.createElement("span");
+	busy.className = browserUiClasses.busyMark;
+	busy.append(busySvg(doc));
+	return busy;
+}
 function createActionMark(doc = document) {
 	const mark = doc.createElement("span");
 	mark.className = browserUiClasses.actionMark;
 	mark.setAttribute("aria-hidden", "true");
 	mark.dataset.busy = "false";
-	const busy = doc.createElement("span");
-	busy.className = browserUiClasses.busyMark;
-	const frames = doc.createElement("span");
-	frames.className = browserUiClasses.busyFrames;
-	for (const value of busyFrames) {
-		const frame = doc.createElement("span");
-		frame.dataset.frame = value;
-		frames.append(frame);
-	}
-	busy.append(frames);
-	mark.append(busy);
+	mark.append(createBusyMark(doc));
 	return mark;
 }
 new TextEncoder();

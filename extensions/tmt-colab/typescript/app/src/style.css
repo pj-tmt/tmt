@@ -45,9 +45,20 @@ button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
   border-color: var(--c-accent);
   background: var(--c-accent-soft);
 }
+/* One focus frame (#3998): one inset outline; a control with its own border recolours that border
+   instead, in its own rule. */
 :focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 3px;
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+/* Colab's own buttons rest on the edge colour, which the light focus colour equals: focus turns the
+   edge into one 2px frame of the focus colour, drawn over the border itself (the border recolours
+   too), so nothing moves whatever padding a button has and no second layer shows. A button with
+   its own focus rule keeps it. */
+:where(button:not([class*='tmt-ui-'])):focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: calc(2 * var(--tmt-ui-focus-width)) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-2 * var(--tmt-ui-focus-width));
 }
 .local,
 .eyebrow,
@@ -1810,6 +1821,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 .annotation-compose .creator-toggle > .tmt-ui-toggle:not(:disabled):hover {
   color: var(--tmt-ui-color-text);
+}
+/* Unboxed, it has no border to recolour, so focus is one inset outline (#3998). */
+.annotation-compose .creator-toggle > .tmt-ui-toggle:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 
 .creator-toggle > button {
