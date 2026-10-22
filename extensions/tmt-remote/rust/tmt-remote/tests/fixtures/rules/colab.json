@@ -18,7 +18,7 @@
       "name": "page-checkpoints",
       "kind": "checkpoint",
       "path": "checkpoints",
-      "limits": { "maxObjectBytes": 4194304, "maxNamespaceBytes": 33554432, "maxEntries": 64 },
+      "limits": { "maxObjectBytes": 524288, "maxNamespaceBytes": 33554432, "maxEntries": 64 },
       "ttlField": "expiresAt",
       "indexes": [{ "field": "epoch", "direction": "desc" }]
     },

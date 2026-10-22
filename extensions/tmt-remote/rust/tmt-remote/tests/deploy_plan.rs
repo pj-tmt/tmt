@@ -8,7 +8,7 @@ use std::{fs, path::PathBuf};
 use tmt_remote::{
     declaration::{self, Reason},
     deploy_plan::{CloudBackend, Enabled, Plan, PlanError, PlanReason, Supplied, Target, compose},
-    limits, routes,
+    firestore_limits, limits, routes,
 };
 
 fn path(name: &str) -> PathBuf {
@@ -586,42 +586,183 @@ fn plan_level_refusals_fail_the_whole_plan_and_name_the_extension() {
     );
 }
 
-#[test]
-fn backend_limits_and_overlaps_are_unsupported_requirements() {
+/// Applies one limits change to the first resource of the Colab stand-in and composes it for
+/// `target`, as a Firestore or a Cloudflare declaration.
+fn limit_case(target: Target, change: impl FnOnce(&mut Value)) -> Result<Plan, PlanError> {
     let artifact = colab_artifact();
-    for (label, change) in [
+    let declaration = edit("colab-firestore.json", |v| {
+        if target.backend == CloudBackend::Cloudflare {
+            v["backend"] = json!("cloudflare");
+        }
+        change(&mut v["resources"][0]["limits"]);
+    });
+    compose(target, &[colab(&declaration, &artifact)])
+}
+const CLOUDFLARE: Target = Target {
+    backend: CloudBackend::Cloudflare,
+    physical_ttl: false,
+};
+
+#[test]
+fn each_backend_states_its_own_ceilings_per_field() {
+    // Independent derivation (#2522): a 1 MiB Firestore document less its 6,144 B name,
+    // 64 field names of 64 B plus 1 B each and 32 B, as base64's three bytes per four.
+    let document = (1_048_576 - (6_144 + 64 * 65 + 32)) / 4 * 3;
+    assert_eq!(document, 778_680);
+    assert_eq!(firestore_limits::DOCUMENT_PAYLOAD_BYTES, document);
+    const GIB: u64 = 1 << 30;
+    let local = (
+        limits::OBJECT_PAYLOAD_BYTES,
+        limits::OBJECT_NAMESPACE_BYTES,
+        u64::from(limits::OBJECT_NAMESPACE_ENTRIES),
+    );
+    // Each case: label, change to the control, whether Firestore and Cloudflare accept it.
+    type Case = (&'static str, Box<dyn Fn(&mut Value)>, bool, bool);
+    let cases: Vec<Case> = vec![
+        // A single-document resource: its whole object is one document on Firestore.
         (
-            "object",
-            Box::new(|v: &mut Value| {
-                v["resources"][0]["limits"]["maxObjectBytes"] = json!(12582913)
-            }) as Box<dyn Fn(&mut Value)>,
-        ),
-        (
-            "namespace",
-            Box::new(|v: &mut Value| {
-                v["resources"][0]["limits"]["maxNamespaceBytes"] = json!(67108865)
+            "object at the document ceiling",
+            Box::new(move |l| {
+                l["maxObjectBytes"] = json!(document);
+                l["maxNamespaceBytes"] = json!(local.1);
             }),
+            true,
+            true,
         ),
         (
-            "entries",
-            Box::new(|v: &mut Value| v["resources"][0]["limits"]["maxEntries"] = json!(1025)),
+            "object one past the document ceiling",
+            Box::new(move |l| l["maxObjectBytes"] = json!(document + 1)),
+            false,
+            true,
         ),
-    ] {
-        let declaration = edit("colab-firestore.json", |v| change(v));
-        let error = refused(FIRESTORE, &[colab(&declaration, &artifact)]);
-        assert_eq!(
-            (error.reason, error.resource),
-            (PlanReason::LimitAboveBackend, Some(0)),
-            "{label}"
+        (
+            "object at the Local ceiling",
+            Box::new(move |l| {
+                l["maxObjectBytes"] = json!(local.0);
+                l["maxNamespaceBytes"] = json!(local.1);
+            }),
+            false,
+            true,
+        ),
+        (
+            "object one past the Local ceiling",
+            Box::new(move |l| {
+                l["maxObjectBytes"] = json!(local.0 + 1);
+                l["maxNamespaceBytes"] = json!(local.1);
+            }),
+            false,
+            false,
+        ),
+        // A chunked resource: chunkBytes is the document, the whole object is advisory.
+        (
+            "chunk at the document ceiling, object at the Local ceiling",
+            Box::new(move |l| {
+                l["chunkBytes"] = json!(document);
+                l["maxObjectBytes"] = json!(local.0);
+                l["maxNamespaceBytes"] = json!(local.1);
+            }),
+            true,
+            true,
+        ),
+        (
+            "chunk one past the document ceiling",
+            Box::new(move |l| {
+                l["chunkBytes"] = json!(document + 1);
+                l["maxObjectBytes"] = json!(local.0);
+                l["maxNamespaceBytes"] = json!(local.1);
+            }),
+            false,
+            true,
+        ),
+        (
+            "chunked object one past the Local ceiling",
+            Box::new(move |l| {
+                l["chunkBytes"] = json!(32_768);
+                l["maxObjectBytes"] = json!(local.0 + 1);
+                l["maxNamespaceBytes"] = json!(GIB);
+            }),
+            false,
+            false,
+        ),
+        // Namespace and entries: advisory sanity ceilings on Firestore.
+        (
+            "namespace at the Firestore sanity ceiling",
+            Box::new(move |l| l["maxNamespaceBytes"] = json!(GIB)),
+            true,
+            false,
+        ),
+        (
+            "namespace one past the Firestore sanity ceiling",
+            Box::new(move |l| l["maxNamespaceBytes"] = json!(GIB + 1)),
+            false,
+            false,
+        ),
+        (
+            "namespace one past the Local ceiling",
+            Box::new(move |l| l["maxNamespaceBytes"] = json!(local.1 + 1)),
+            true,
+            false,
+        ),
+        (
+            "entries at the Firestore sanity ceiling",
+            Box::new(|l| l["maxEntries"] = json!(1_048_576)),
+            true,
+            false,
+        ),
+        (
+            "entries one past the Firestore sanity ceiling",
+            Box::new(|l| l["maxEntries"] = json!(1_048_577)),
+            false,
+            false,
+        ),
+        (
+            "entries one past the Local ceiling",
+            Box::new(move |l| l["maxEntries"] = json!(local.2 + 1)),
+            true,
+            false,
+        ),
+        (
+            "entries at the Local ceiling",
+            Box::new(move |l| l["maxEntries"] = json!(local.2)),
+            true,
+            true,
+        ),
+    ];
+    for (label, change, firestore, cloudflare) in cases {
+        for (target, accepted) in [(FIRESTORE, firestore), (CLOUDFLARE, cloudflare)] {
+            let outcome = limit_case(target, &change);
+            let name = format!("{label} on {:?}", target.backend);
+            if accepted {
+                outcome.unwrap_or_else(|error| panic!("{name}: {:?}", error.reason));
+            } else {
+                let error = outcome.expect_err(&name);
+                assert_eq!(
+                    (error.reason, error.resource),
+                    (PlanReason::LimitAboveBackend, Some(0)),
+                    "{name}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_real_colab_declaration_fits_the_firestore_ceilings() {
+    let declaration = include_bytes!("../../../../tmt-colab/firestore/declaration.json");
+    let artifact = include_bytes!("../../../../tmt-colab/firestore/admission.rules");
+    let plan = compose(FIRESTORE, &[colab(declaration, artifact)]).unwrap();
+    for resource in &plan.view().extensions[0].resources {
+        assert!(
+            resource.limits.max_object_bytes <= limits::OBJECT_PAYLOAD_BYTES,
+            "{}",
+            resource.name
         );
     }
-    // Exactly the backend bounds are allowed.
-    let at_bounds = edit("colab-firestore.json", |v| {
-        v["resources"][0]["limits"] =
-            json!({"maxObjectBytes": 12582912, "maxNamespaceBytes": 67108864, "maxEntries": 1024});
-    });
-    compose(FIRESTORE, &[colab(&at_bounds, &artifact)]).unwrap();
+}
 
+#[test]
+fn backend_overlaps_are_unsupported_requirements() {
+    let artifact = colab_artifact();
     for (label, first, second) in [
         ("equal", "log", "log"),
         ("nested", "pages", "pages/a/log"),

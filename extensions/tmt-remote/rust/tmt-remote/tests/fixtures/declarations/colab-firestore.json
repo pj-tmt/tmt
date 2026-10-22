@@ -18,7 +18,7 @@
       "name": "page-checkpoint",
       "kind": "checkpoint",
       "path": "checkpoints",
-      "limits": { "maxObjectBytes": 4194304, "maxNamespaceBytes": 33554432, "maxEntries": 64 },
+      "limits": { "maxObjectBytes": 524288, "maxNamespaceBytes": 33554432, "maxEntries": 64 },
       "ttlField": "expiresAt",
       "indexes": [{ "field": "epoch", "direction": "desc" }]
     },
@@ -26,7 +26,7 @@
       "name": "page-blob",
       "kind": "blob",
       "path": "attachments/default/blobs",
-      "limits": { "maxObjectBytes": 12582912, "maxNamespaceBytes": 67108864, "maxEntries": 256 },
+      "limits": { "maxObjectBytes": 655360, "maxNamespaceBytes": 67108864, "maxEntries": 256 },
       "ttlField": null,
       "indexes": []
     },
