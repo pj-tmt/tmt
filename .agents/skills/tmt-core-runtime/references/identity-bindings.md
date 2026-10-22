@@ -223,7 +223,11 @@ delivery. They install and launch nothing.
   a superseded wrapper cannot clear or stale a newer launch. Within that fence the session
   goes stale only if still pending, the exit was non-zero and not 128+n, and the TMT
   SessionStart hook was installed at launch; otherwise only the mark clears. `resume` never
-  falls back to a fresh start.
+  falls back to a fresh start. Ordinary resume checks the original recorded agent before
+  binding reconciliation: live or stopped evidence names the old pane and explicit
+  `--move` command; unknown evidence refuses with a check-the-old-pane next step.
+  Only conclusive exit or a different native process incarnation permits continuing.
+  Fresh launches keep their existing degraded-evidence policy.
 - Explicit `resume <name> --move` preflights the exact session and caller destination before
   stopping anything. The lifecycle driver proves the captured process is its private main
   agent under the old pane; a pane process, nested agent or shared Codex server refuses.

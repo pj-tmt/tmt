@@ -17,6 +17,61 @@ use tmt_core::{
     endpoint::ProcessIncarnation,
 };
 
+/// Check the original attachment before binding reconciliation can discard its
+/// process key. The native read and captured row share the existing writer lock;
+/// binding and final launch admission still recheck their own current evidence.
+pub(super) fn preflight_attached(storage: &mut Storage, identity_id: &str) -> Result<(), Failure> {
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            let Some(entry) = records.entry_by_id(identity_id)? else {
+                return Ok(Err(Failure::new(
+                    "RUNTIME_CONFLICT",
+                    "The identity changed before resume. No new agent was launched; check the old pane and retry.",
+                    5,
+                )));
+            };
+            let preferences = records.session_preferences(identity_id)?;
+            let Some(binding) = entry.binding else { return Ok(Ok(())); };
+            let Some(session) = preferences.remembered else { return Ok(Ok(())); };
+            let Some(key) = binding.session.key.as_ref().filter(|key| {
+                key.provider_session.as_ref() == Some(&session.provider_session)
+            }) else { return Ok(Ok(())); };
+            let observation = tmt_adapters::process::runtime::observe_runtime_process(
+                &tmt_adapters::process::UnixCommandRunner,
+                key.incarnation.pid(),
+                std::time::Instant::now() + std::time::Duration::from_secs(3),
+            ).unwrap_or(tmt_adapters::process::runtime::ProcessObservation::Unknown);
+            Ok(check_process(&entry.identity.name, &binding.pane_id, &key.incarnation, &observation))
+        })
+        .map_err(storage_failure)?
+}
+
+pub(super) fn check_process(
+    name: &str,
+    pane: &str,
+    expected: &ProcessIncarnation,
+    observation: &tmt_adapters::process::runtime::ProcessObservation,
+) -> Result<(), Failure> {
+    use tmt_adapters::process::runtime::ProcessObservation;
+    if observation.matches(expected) == tmt_core::binding::session::RuntimeLiveness::Gone {
+        return Ok(());
+    }
+    let reason = match observation {
+        ProcessObservation::Live(_) | ProcessObservation::Stopped(_) => {
+            format!("The recorded agent is still attached to pane {pane} (possibly suspended).")
+        }
+        _ => format!("TMT cannot confirm that the recorded agent in pane {pane} has ended."),
+    };
+    Err(Failure::new(
+        "RUNTIME_CONFLICT",
+        format!(
+            "{reason} No new agent was launched. Check the old pane and exit the agent, or move it with: tmt resume --move -- {}",
+            crate::output::shell_word(name)
+        ),
+        5,
+    ))
+}
+
 fn resume_failure(code: &'static str, message: String, name: &str) -> Failure {
     Failure::new(
         code,
@@ -206,6 +261,11 @@ pub(super) fn settle_resume(
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
+        "{reason} No new agent was launched. Check the old pane and exit the agent, or move it with: tmt resume --move -- {}",
+        &[""],
+        &[("{}", "worker")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         "Specify a command, e.g. tmt run opus claude; no usable harness is remembered.",
         &[";"],
         &[],
@@ -238,6 +298,36 @@ mod exit_tests {
         endpoint::{PaneObservation, ServerEvidence},
         identity::{Lifetime, create_or_resolve},
     };
+
+    #[test]
+    fn exact_resume_requires_conclusive_process_exit() {
+        use tmt_adapters::process::runtime::ProcessObservation;
+        let expected = ProcessIncarnation::new(20, "old-start").unwrap();
+        let reused = ProcessIncarnation::new(20, "new-start").unwrap();
+        for observation in [
+            ProcessObservation::Live(expected.clone()),
+            ProcessObservation::Stopped(expected.clone()),
+            ProcessObservation::Unknown,
+        ] {
+            let error = check_process("worker's seat", "%12", &expected, &observation).unwrap_err();
+            assert_eq!(error.code, "RUNTIME_CONFLICT");
+            assert_eq!(error.status, 5);
+            assert!(error.message.contains("%12"));
+            assert!(error.message.contains("Check the old pane"));
+            assert!(error.message.contains("No new agent was launched"));
+            assert!(error.message.contains(&format!(
+                "tmt resume --move -- {}",
+                crate::output::shell_word("worker's seat")
+            )));
+        }
+        for observation in [
+            ProcessObservation::Gone,
+            ProcessObservation::Live(reused.clone()),
+            ProcessObservation::Stopped(reused),
+        ] {
+            assert!(check_process("worker", "%12", &expected, &observation).is_ok());
+        }
+    }
 
     #[test]
     fn late_resume_exit_cannot_settle_a_replaced_binding_or_launch() {

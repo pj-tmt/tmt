@@ -64,6 +64,15 @@ pub(super) fn run_bound(
     } = request;
     let moving = resume.is_some_and(|resume| resume.move_running);
     let mut registry = RuntimeRegistry::first_party();
+    let existing = storage
+        .find_identity(&normalize_name(name))
+        .map_err(storage_failure)?;
+    if resume.is_some()
+        && !moving
+        && let Some(identity) = &existing
+    {
+        super::resume::preflight_attached(storage, &identity.id)?;
+    }
     // Only the resume path purges or reconciles, and it reports each change once.
     if resume.is_some() && !moving {
         let registered = registry.harnesses().collect::<Vec<_>>();
@@ -77,9 +86,6 @@ pub(super) fn run_bound(
             ));
         }
     }
-    let existing = storage
-        .find_identity(&normalize_name(name))
-        .map_err(storage_failure)?;
     // A bare registered executable is a convenient fresh launch only when no
     // identity holds that token. Explicit name + command keeps its old meaning.
     let auto_harness = if resume.is_none()
@@ -279,6 +285,9 @@ pub(super) fn run_bound(
                 "An agent is still attached to this pane (possibly suspended). Resume it with fg or exit it first.",
                 5,
             ));
+        }
+        if launch.resumed.is_some() {
+            super::resume::check_process(name, &binding.pane_id, &key.incarnation, &observation)?;
         }
         if observation.matches(&key.incarnation) == RuntimeLiveness::Unknown {
             let fenced = storage
