@@ -204,8 +204,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             // The figure answers a click with the other unit, so it never selects the row.
             app.workspace_strip_hits.borrow_mut().push((
                 Rect::new(
-                    slot.x
-                        .saturating_add(AGENT_STATE_X as u16 + state_width(slot.width, widest) + 1),
+                    slot.x.saturating_add(
+                        AGENT_STATE_X as u16
+                            + state_width(slot.width, widest)
+                            + session_width(slot.width, state_width(slot.width, widest))
+                            + 1,
+                    ),
                     slot.y,
                     7,
                     1,

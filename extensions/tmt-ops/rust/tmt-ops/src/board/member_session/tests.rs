@@ -448,3 +448,84 @@ fn copied_shell_metacharacters_remain_one_literal_word_per_argument() {
     );
     assert_eq!(command.args, ["resume", "--move", "--", MEMBER]);
 }
+
+#[test]
+fn flat_token_click_follows_the_painted_cell_when_session_is_admitted_or_dropped() {
+    use crate::board::{app::Choice, shell::OpsTab, workspace::AgentsFilter};
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use std::time::Instant;
+    for (width, has_session) in [(110, true), (82, false)] {
+        let mut app = remembered();
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = AgentsFilter::Agents;
+        let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let lines: Vec<String> = (0..36)
+            .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect();
+        let header = lines
+            .iter()
+            .find(|line| line.contains("STATE") && line.contains("TOK 1h"))
+            .unwrap();
+        assert_eq!(header.contains("HOST / SESSION"), has_session);
+        let unit_at = header.find("TOK 1h").unwrap();
+        // The last heading cell and the right-aligned figure share this column.
+        let figure_x = unicode_width::UnicodeWidthStr::width(&header[..unit_at]) as u16 + 5;
+        let row_y = lines
+            .iter()
+            .position(|line| line.contains("worker") && line.contains("product"))
+            .unwrap() as u16;
+        assert_eq!(buffer[(figure_x, row_y)].symbol(), "—");
+        let hit = app
+            .workspace_strip_hits
+            .borrow()
+            .iter()
+            .find_map(|(area, choice)| {
+                (*choice == Choice::TokMoney && area.y == row_y).then_some(*area)
+            })
+            .unwrap();
+        assert_eq!(
+            hit.x + hit.width - 1,
+            figure_x,
+            "{width}: row hit must end at its painted figure"
+        );
+        let click = |app: &mut App, x| {
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: x,
+                    row: row_y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                Instant::now(),
+            )
+        };
+        if has_session {
+            let row = &lines[usize::from(row_y)];
+            let at = row.find("tmux · remembered").unwrap();
+            let session_x = unicode_width::UnicodeWidthStr::width(&row[..at]) as u16;
+            assert!(
+                !matches!(
+                    click(&mut app, session_x),
+                    Effect::Act(Request::WorkspacePreferences { .. })
+                ),
+                "Session is not a token-unit control"
+            );
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+        }
+        let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
+            click(&mut app, figure_x)
+        else {
+            panic!("{width}: clicking the painted token figure must switch its unit");
+        };
+        assert_ne!(expected.savings_unit, next.savings_unit);
+        let mut rest = next;
+        rest.savings_unit = expected.savings_unit;
+        assert_eq!(rest, expected, "only the unit changes");
+    }
+}
