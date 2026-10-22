@@ -225,3 +225,172 @@ fn a_passthrough_takes_no_reply_and_requires_no_final() {
     ));
     f.storage.close().unwrap();
 }
+
+/// A passthrough prepared as the CLI does and claimed for its one delivery attempt.
+fn claimed_passthrough(f: &mut Fixture, agent: &str, person: &str, id: &str, text: &str) {
+    let mut typed = request(agent, person, id);
+    typed.message = text.into();
+    let policy = DeliveryPolicy {
+        automatic: true,
+        ..policy(DeliveryMode::Passthrough)
+    };
+    service(f)
+        .enqueue_delivery(typed, format!("attempt-{id}"), 7, policy)
+        .unwrap();
+    assert!(service(f).claim_wake(id).unwrap().claimed);
+}
+
+/// A detached question from `agent` to `person`: nobody waits, so its final may notify.
+fn ask(f: &mut Fixture, person: &str, agent: &str, id: &str) {
+    let mut question = request(person, agent, id);
+    question.wait = false;
+    service(f)
+        .enqueue_delivery(
+            question,
+            format!("attempt-{id}"),
+            7,
+            policy(DeliveryMode::Request),
+        )
+        .unwrap();
+}
+
+fn open_ids(f: &mut Fixture, person: &str) -> Vec<String> {
+    service(f)
+        .open_requests(person, None, None)
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|item| item.request_id)
+        .collect()
+}
+
+fn answer_of(f: &mut Fixture, id: &str) -> Option<String> {
+    match service(f).get_response(id).unwrap() {
+        tmt_core::request::ResponseLookup::Available(response) => Some(response.body),
+        _ => None,
+    }
+}
+
+#[test]
+fn typed_text_answers_only_the_oldest_request_the_agent_has_open_to_the_person() {
+    use tmt_core::request::{
+        ResponseProof, SubmitResponse, WakeState, correlation, notification::NotificationPolicy,
+    };
+    let mut f = Fixture::new();
+    let agent = f.identity_id.clone();
+    let other = identity(&mut f, "Other");
+    let person = identity(&mut f, "Ben");
+    mark_user(&f, &person);
+    // Two questions from the agent, oldest first, and one from another agent.
+    for (at, sender, id) in [
+        (0, &agent, "q-old"),
+        (1, &other, "q-other"),
+        (2, &agent, "q-new"),
+    ] {
+        f.set_now(NOW_MS + at * 1000);
+        ask(&mut f, &person, sender, id);
+    }
+    for question in ["q-old", "q-new"] {
+        service(&mut f)
+            .enable_notifications(
+                question,
+                NotificationPolicy {
+                    deadline_ms: NOW_MS + 600_000,
+                    timeout_ms: 1000,
+                    waiter: None,
+                },
+            )
+            .unwrap();
+    }
+    f.set_now(NOW_MS + 3000);
+    claimed_passthrough(&mut f, &agent, &person, "typed", "Yes, go ahead!");
+    assert_eq!(open_ids(&mut f, &person), ["q-old", "q-other", "q-new"]);
+
+    service(&mut f)
+        .settle_request_delivery("typed", WakeState::Sent)
+        .unwrap();
+
+    // The text as written, not as typed, is the final of the oldest question from this agent.
+    assert_eq!(
+        answer_of(&mut f, "q-old").as_deref(),
+        Some("Yes, go ahead!")
+    );
+    assert_eq!(open_ids(&mut f, &person), ["q-other", "q-new"]);
+    assert_eq!(answer_of(&mut f, "q-new"), None);
+    assert_eq!(answer_of(&mut f, "q-other"), None);
+    // The passthrough itself still takes no final.
+    assert!(matches!(
+        service(&mut f).get_response("typed").unwrap(),
+        tmt_core::request::ResponseLookup::NotRequired
+    ));
+    // The agent was handed the text in its pane, so no notice about the answer is claimed...
+    assert_eq!(
+        service(&mut f)
+            .notification("q-old")
+            .unwrap()
+            .unwrap()
+            .reply,
+        WakeState::NotAttempted
+    );
+    // ...unlike an ordinary reply to a question that asked for one.
+    let proof = ResponseProof::Compact(correlation::response_token(
+        "q-new",
+        "attempt-q-new",
+        &RequestRoute::Inbox {
+            recipient_identity_id: person.clone(),
+        },
+    ));
+    let (_, hint) = service(&mut f)
+        .submit_response_with_hint(
+            SubmitResponse {
+                request_id: "q-new".into(),
+                proof,
+                body: "a reply".into(),
+            },
+            None,
+        )
+        .unwrap();
+    assert!(
+        hint.is_some(),
+        "an ordinary reply claims the originator's notice"
+    );
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn typed_text_with_nothing_open_records_no_answer() {
+    use tmt_core::request::WakeState;
+    let mut f = Fixture::new();
+    let agent = f.identity_id.clone();
+    let person = identity(&mut f, "Ben");
+    mark_user(&f, &person);
+    claimed_passthrough(&mut f, &agent, &person, "typed", "Hello");
+    service(&mut f)
+        .settle_request_delivery("typed", WakeState::Sent)
+        .unwrap();
+    assert!(open_ids(&mut f, &person).is_empty());
+    assert_eq!(answer_of(&mut f, "typed"), None);
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn a_delivery_that_did_not_reach_the_pane_leaves_the_question_open() {
+    use tmt_core::request::WakeState;
+    let mut f = Fixture::new();
+    let agent = f.identity_id.clone();
+    let person = identity(&mut f, "Ben");
+    mark_user(&f, &person);
+    for (state, question, typed) in [
+        (WakeState::Unavailable, "q-refused", "typed-refused"),
+        (WakeState::Uncertain, "q-unsure", "typed-unsure"),
+    ] {
+        enqueue(&mut f, &person, &agent, question, DeliveryMode::Request).unwrap();
+        claimed_passthrough(&mut f, &agent, &person, typed, "Not delivered");
+        service(&mut f)
+            .settle_request_delivery(typed, state)
+            .unwrap();
+        assert_eq!(answer_of(&mut f, question), None, "{state:?}");
+    }
+    assert_eq!(open_ids(&mut f, &person), ["q-refused", "q-unsure"]);
+    f.storage.close().unwrap();
+}

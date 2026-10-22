@@ -165,7 +165,9 @@ Pre-send delay accepts zero or a positive finite value, up to 2,147,483,647 ms.
 `--passthrough` is for a person's own typed messages (a chat surface sends them for the
 user), not for agents: it types the text into the recipient's live pane exactly as written,
 with no reply command, and returns at once. An agent sender is refused
-(`PASSTHROUGH_NOT_ALLOWED`); never use it to make a message look like the user's.
+(`PASSTHROUGH_NOT_ALLOWED`); never use it to make a message look like the user's. If the
+agent has open requests to that person, the typed text also answers the oldest one once it
+is in the pane: the agent's waiting `talk` or `tmt result` returns it as the final.
 
 Without hook/runtime evidence, a verified pane retains plain delivery but agent
 readiness is unverified. Tmux cannot identify provider approval prompts. Never
