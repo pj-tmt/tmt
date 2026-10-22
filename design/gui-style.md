@@ -123,7 +123,9 @@ page renders in it.
 - **Header:** one continuous sticky row: the TMT mark and word above the rail, then
   the host's header (moved into the shell's bar) as `<module> / <page>`, with one
   bottom rule and no divider between them: `TMT · <module> / <page>`, every segment
-  in the header title's face and size, separators lighter. The bar paints the
+  in the header title's face and size, separators lighter. Under 480 px the module
+  crumb steps aside (its link stays for assistive technology) so the page title
+  keeps the row. The bar paints the
   module's name at once and keeps its height and rule while a route loads. The
   module menu has no title of its own and shares the rail's surface, rows and
   selection bar.

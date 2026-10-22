@@ -138,7 +138,10 @@ for (const width of [1440, 390, 320])
       await page.addInitScript((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      let reference: Awaited<ReturnType<typeof metrics>> | undefined;
+      // Router screens render in the TMT shell (the header sits in its sticky bar, as one
+      // breadcrumb); reader, mounted and native screens keep the standalone fixed header. Each
+      // kind shares one chrome.
+      const references = new Map<boolean, Awaited<ReturnType<typeof metrics>>>();
       let cardReference: unknown;
       for (const screen of [...screens, 'rust-private', 'rust-owner'] as const) {
         await test.step(screen, async () => {
@@ -169,14 +172,22 @@ for (const width of [1440, 390, 320])
             }
           }
           const current = await metrics(page);
-          reference ??= current;
-          expect(current, screen).toEqual({ ...reference, gap: tokens.header.gap });
+          const shelled =
+            (await page.locator('.tmt-ui-shell-bar > .tmt-ui-header:visible').count()) > 0;
+          if (!references.has(shelled)) references.set(shelled, current);
+          expect(current, screen).toEqual({ ...references.get(shelled)!, gap: tokens.header.gap });
           expect(current.height).toBe(
             parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
           );
           expect(current.title.size).toBe(tokens.header['title-size']);
-          expect(current.wordmark.size).toBe(tokens.header['wordmark-size']);
-          await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('position', 'fixed');
+          // In the shell every breadcrumb segment takes the title's size.
+          expect(current.wordmark.size).toBe(
+            tokens.header[shelled ? 'title-size' : 'wordmark-size'],
+          );
+          await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS(
+            'position',
+            shelled ? 'static' : 'fixed',
+          );
           await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('flex-wrap', 'nowrap');
           await containment(page);
           const card = page.locator('.tmt-ui-notice:visible');
@@ -212,7 +223,10 @@ for (const width of [1440, 390, 320])
               probe.remove();
               return value;
             }, role);
-            await expect(card.locator('svg.lucide')).toHaveCSS('color', color);
+            // An opening card shows the busy mark; the others their state icon.
+            await expect(
+              card.locator(screen.includes('opening') ? '.tmt-ui-busy-mark' : 'svg.lucide').first(),
+            ).toHaveCSS('color', color);
             await expect(card).toHaveCSS('box-shadow', 'none');
             await expect(card).toHaveCSS('border-top-width', '1px');
             await expect(card).toHaveCSS('border-radius', '0px');
@@ -258,7 +272,10 @@ for (const width of [1440, 390, 320])
               probe.setAttribute('aria-hidden', 'true');
               probe.dataset.chromeScrollProbe = 'true';
               probe.style.height = '1800px';
-              document.body.append(probe);
+              // Inside the shell the probe joins the main area: the sticky bar's block is the shell.
+              (
+                document.querySelector('#chrome-fixture .tmt-ui-shell-main') ?? document.body
+              ).append(probe);
             }
             scrollTo(0, (document.documentElement.scrollHeight - innerHeight) / 2);
           });
@@ -350,7 +367,16 @@ for (const width of [1440, 390, 320])
       await expect(
         header.getByRole('link', { name: 'Colab · local · Studio Mac' }),
       ).toHaveAttribute('title', 'Colab · local · Studio Mac');
-      await expect(header.locator('.tmt-ui-mark')).toBeVisible();
+      // In the shell the TMT mark leads the row (a phone's menu button stands in for it); the
+      // header names the module, and a narrow phone gives the whole row to the page title.
+      await expect(
+        page.locator(width > 900 ? '.tmt-ui-shell-brand .tmt-brand-mark' : '.tmt-ui-shell-open'),
+      ).toBeVisible();
+      // (its link stays for assistive technology: it is visually clipped to one pixel).
+      const crumb = await header
+        .locator('.tmt-ui-brand')
+        .evaluate((node) => node.getBoundingClientRect().width);
+      expect(crumb > 1).toBe(width >= 480);
       await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
       const heading = header.getByRole('heading', { name: 'Release notes', exact: true });
       expect(await header.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
@@ -411,18 +437,21 @@ for (const width of [1440, 390, 320])
         const painted = await page.evaluate((className) => {
           const header = document.querySelector('#chrome-fixture .tmt-ui-header')!;
           const box = header.getBoundingClientRect();
+          // The header's own content starts after its padding (on a phone in the shell, the
+          // padding leaves room for the shell's menu button).
+          const left = box.left + parseFloat(getComputedStyle(header).paddingLeft);
           const overlay = document.createElement('div');
           overlay.className = className;
           overlay.textContent = 'Overlapping control';
           // Stress the actual host classes in the header band without changing their z-index.
           Object.assign(overlay.style, {
-            left: `${box.left + 8}px`,
+            left: `${left + 8}px`,
             top: `${box.top + 8}px`,
             width: '80px',
             height: '32px',
           });
           document.body.append(overlay);
-          const hit = document.elementFromPoint(box.left + 16, box.top + 16);
+          const hit = document.elementFromPoint(left + 16, box.top + 16);
           const result = {
             headerOnTop: !!hit?.closest('.tmt-ui-header'),
             position: getComputedStyle(overlay).position,

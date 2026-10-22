@@ -116,6 +116,13 @@ export function appRail(
   return rail;
 }
 
+/** `href` as a link in this document resolves it: origin, path, query and fragment, as on a click. */
+function linkTo(href: string): HTMLAnchorElement {
+  const link = document.createElement('a');
+  link.href = href;
+  return link;
+}
+
 /**
  * Where this app opens `href`: a path under a module's mount opens the same path under that
  * module's route (`…/x/colab/pages/<id>` is `/colab/pages/<id>`), and a rail item `id` the app
@@ -123,7 +130,7 @@ export function appRail(
  */
 export function appHref(routes: readonly ShellRoute[], href: string, id?: string): string {
   // A described path may be relative to this page.
-  const url = new URL(href, globalThis.location?.href);
+  const url = linkTo(href);
   const mounted = underModuleMount(url.pathname);
   const owner = routes.find((route) => route.rail === (mounted?.module ?? id));
   const base = owner?.paths.at(-1);
@@ -290,11 +297,11 @@ export function startShellHost(
 
   /** Same-origin URL this app owns: change the history entry and show its route. */
   function go(href: string, { replace = false } = {}): boolean {
-    const url = new URL(href, window.location.href);
+    const url = linkTo(href);
     if (url.origin !== window.location.origin || !matchRoute(routes, url.pathname)) return false;
     // A fragment on the same page is the page's own (a module section): the browser moves it and
     // fires hashchange, as for any in-page link.
-    const here = new URL(window.location.href);
+    const here = window.location;
     if (url.hash && url.pathname === here.pathname && url.search === here.search) {
       if (url.hash !== here.hash) window.location.hash = url.hash;
       return true;
@@ -320,7 +327,7 @@ export function startShellHost(
       anchor.hasAttribute('download')
     )
       return;
-    const url = new URL(anchor.href);
+    const url = anchor;
     const route = matchRoute(routes, url.pathname);
     if (url.origin !== window.location.origin || !route) return;
     if (route === current?.route) return;

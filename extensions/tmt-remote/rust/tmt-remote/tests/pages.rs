@@ -823,8 +823,10 @@ fn remote_static_headers_carry_the_shared_static_mark() {
         assert!(!page.contains("header-wordmark"));
         assert!(page.contains("class=\"header-title tmt-ui-title\">"));
     }
-    assert!(include_str!("../assets/ops.html")
-        .contains("class=\"header-wordmark tmt-ui-wordmark\">Ops</span>"));
+    assert!(
+        include_str!("../assets/ops.html")
+            .contains("class=\"header-wordmark tmt-ui-wordmark\">Ops</span>")
+    );
 }
 
 #[test]
