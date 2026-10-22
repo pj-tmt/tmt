@@ -136,7 +136,7 @@ pub(in crate::board) fn input_lines(
         );
     }
     let Some(input) = &app.input else { return 0 };
-    let demand = match input.compose {
+    match input.compose {
         crate::board::app::Compose::Status => {
             super::super::status_update::lines(app, area.width.saturating_sub(4))
                 .len()
@@ -151,8 +151,7 @@ pub(in crate::board) fn input_lines(
                 .len()
                 .clamp(1, 6)
         }
-    };
-    demand
+    }
 }
 
 /// Paint the reserved conversation editor band with opaque chrome and remove

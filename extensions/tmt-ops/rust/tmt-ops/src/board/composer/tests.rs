@@ -679,7 +679,7 @@ fn quote_excerpts_and_details_are_bounded_and_inert_with_many_unicode_quotes() {
             .as_ref()
             .unwrap()
             .exact_quotes()
-            .nth(0)
+            .next()
             .unwrap()
             .text,
         raw,
@@ -1026,7 +1026,7 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
         input.text.as_str(),
         format!("Literal Colab reference {url}\n{url}\n")
     );
-    let quote = &input.exact_quotes().nth(0).unwrap();
+    let quote = &input.exact_quotes().next().unwrap();
     assert_eq!(quote.key.request, request);
     assert_eq!(quote.key.lead, id);
     assert_eq!(quote.range, 0..url.len());
@@ -1054,7 +1054,7 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
             .as_ref()
             .unwrap()
             .exact_quotes()
-            .nth(0)
+            .next()
             .unwrap()
             .text,
         url

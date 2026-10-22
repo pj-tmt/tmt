@@ -211,7 +211,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
     );
     assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
     assert!(app.row_details.reader.is_none());
-    let quote = &app.input.as_ref().unwrap().exact_quotes().nth(0).unwrap();
+    let quote = &app.input.as_ref().unwrap().exact_quotes().next().unwrap();
     assert_eq!(quote.key.request, "r1");
     assert_eq!(quote.key.lead, crate::board::app::workspace::tests::MEMBER);
     assert_eq!(quote.range, 0..source.len());
@@ -224,7 +224,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
             .as_ref()
             .unwrap()
             .exact_quotes()
-            .nth(0)
+            .next()
             .unwrap()
             .text,
         source
@@ -240,7 +240,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
             .as_ref()
             .unwrap()
             .exact_quotes()
-            .nth(0)
+            .next()
             .unwrap()
             .text,
         source
@@ -323,7 +323,7 @@ fn scrolled_wrapped_source_drag_preserves_unicode_bytes_across_resize() {
         Effect::Act(app::Request::Copy { text, .. }) if text == selected));
     assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
     assert_eq!(
-        app.input.as_ref().unwrap().exact_quotes().nth(0).unwrap(),
+        app.input.as_ref().unwrap().exact_quotes().next().unwrap(),
         quote
     );
 }
@@ -356,7 +356,7 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
     let input = app.input.as_ref().unwrap();
     assert!(matches!(&input.compose, app::Compose::Talk { to } if to == "worker"));
     assert!(input.squad.is_empty());
-    let quote = &input.exact_quotes().nth(0).unwrap();
+    let quote = &input.exact_quotes().next().unwrap();
     assert_eq!(quote.key.lead, MEMBER);
     assert_eq!(quote.range, 0..source.len());
     assert_eq!(quote.text, source);
