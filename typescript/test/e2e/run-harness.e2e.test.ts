@@ -207,9 +207,35 @@ exec /opt/tmt-tests/claude "$@"
       expect(Number(original.runtime_pid)).toBeGreaterThan(0);
       writeFileSync(oldRecord, JSON.stringify({ pid: Number(original.runtime_pid) }));
       submit(fixture, target, ['resume', '--move', '--no-channel', 'Mover'], newStatus);
-      await waitForFileContent(newReady, {
-        description: 'moved provider admitted the same session',
-      });
+      try {
+        await waitForFileContent(newReady, {
+          description: 'moved provider admitted the same session',
+        });
+      } catch (error) {
+        // Failure-only evidence: a missing readiness file must not hide a
+        // concrete CLI refusal behind the wait's timeout.
+        const observed = (read: () => unknown): unknown => {
+          try {
+            return read();
+          } catch (failure) {
+            return String(failure);
+          }
+        };
+        throw new Error(
+          JSON.stringify({
+            error: String(error),
+            oldStatus: observed(() => readFileSync(oldStatus, 'utf8')),
+            newStatus: observed(() => readFileSync(newStatus, 'utf8')),
+            source: observed(() => fixture.capture(100, source)),
+            target: observed(() => fixture.capture(100, target)),
+            state: observed(() => durableState(fixture)),
+            preferences: observed(() => preferences(fixture)),
+            launchProof: observed(() => readFileSync(launchProof, 'utf8')),
+            argv: observed(() => readFileSync(argsFile, 'utf8')),
+          }),
+          { cause: error }
+        );
+      }
       expect(JSON.parse(readFileSync(launchProof, 'utf8'))).toEqual({
         oldPid: Number(original.runtime_pid),
         oldLive: false,

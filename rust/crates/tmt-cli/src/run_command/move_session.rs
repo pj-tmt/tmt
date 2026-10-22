@@ -18,8 +18,8 @@ use tmt_adapters::{
 };
 use tmt_core::{
     binding::{
-        self, BindingEvidence, BindingRepository, BindingTargetEvidence, BoundIdentity,
-        evaluate_binding,
+        self, BindingEndpoint, BindingEvidence, BindingRepository, BindingTargetEvidence,
+        BoundIdentity, GuardedBindingEndpoint, evaluate_binding,
         session::{RuntimeLiveness, SessionPreferences},
     },
     identity::Identity,
@@ -129,7 +129,7 @@ pub(super) fn move_binding(
             "The destination pane has an ownership marker.",
         ));
     }
-    let target = BindingTargetEvidence {
+    let mut target = BindingTargetEvidence {
         server: snapshot.server.clone(),
         pane_id: pane.into(),
         pane_pid: destination.pane_pid,
@@ -145,6 +145,36 @@ pub(super) fn move_binding(
         ),
         discovery: None,
     };
+    if target.server.host == tmt_core::host::HostKind::Tmux {
+        // Ordinary tmux read snapshots intentionally omit pane starts. Reuse the
+        // guarded binding session to retain and re-observe the native fence;
+        // never weaken target_pane to accept a missing incarnation.
+        let mut endpoint = host.session();
+        endpoint.begin_coordination();
+        let fence = endpoint
+            .discovery_target(pane)
+            .map_err(endpoint_failure)?
+            .filter(|fence| {
+                fence.host == target.server.host
+                    && fence.socket == target.server.socket_path
+                    && fence.server.pid() == target.server.server_pid
+                    && fence.server_start_time == target.server.server_start_time
+                    && fence
+                        .server_id
+                        .as_ref()
+                        .is_none_or(|id| id == &target.server.server_id)
+                    && fence.process.pid() == target.pane_pid
+                    && Some(fence.process.start_identity()) == target.pane_incarnation.as_deref()
+                    && fence.marker.is_none()
+            })
+            .ok_or_else(|| {
+                refusal(
+                    "RUNTIME_CONFLICT",
+                    "The destination's native ownership could not be pinned.",
+                )
+            })?;
+        target.discovery = Some(fence);
+    }
     let probe = host
         .probe(
             &old.server,
@@ -322,9 +352,13 @@ pub(super) fn move_binding(
             "The old binding or remembered session changed after the stop.",
         ));
     }
+    let mut endpoint = host.session();
+    if let Some(fence) = &target.discovery {
+        endpoint = endpoint.with_discovery_target(fence.clone());
+    }
     binding::move_identity(
         storage,
-        &mut host.session(),
+        &mut endpoint,
         &refreshed.entry,
         &refreshed.preferences,
         &key.incarnation,
