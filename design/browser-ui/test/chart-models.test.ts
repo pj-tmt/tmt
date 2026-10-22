@@ -60,6 +60,13 @@ it('the folded other layer takes the neutral step and the tip names each series 
   }
 });
 
+it('a single-series chart can keep a provider hue through the style option', () => {
+  const line = { title: 't', kind: 'line' as const, x, series: [series[1]!] };
+  expect(seriesModel({ ...line, style: 2 }, 640).marks.map((mark) => mark.style)).toEqual([2]);
+  expect(seriesModel({ ...line, style: 2 }, 640).legend.map((entry) => entry.style)).toEqual([2]);
+  expect(seriesModel(line, 640).marks.map((mark) => mark.style)).toEqual([0]);
+});
+
 it('share mode labels the axis in percent and keeps every band below the top', () => {
   const model = seriesModel({ title: 't', kind: 'share', x, series }, 480);
   expect(model.grid.map((line) => line.label)).toEqual(['0%', '25%', '50%', '75%', '100%']);
