@@ -65,12 +65,12 @@ impl From<DeliveryError> for ProbeError {
     }
 }
 
-struct CountingRunner {
-    inner: UnixCommandRunner,
+struct CountingRunner<R> {
+    inner: R,
     count: Arc<AtomicUsize>,
 }
 
-impl CommandRunner for CountingRunner {
+impl<R: CommandRunner> CommandRunner for CountingRunner<R> {
     fn execute(
         &self,
         request: CommandRequest<'_>,
@@ -78,6 +78,13 @@ impl CommandRunner for CountingRunner {
         self.count.fetch_add(1, Ordering::Relaxed);
         self.inner.execute(request)
     }
+}
+
+fn caller_document<R: CommandRunner>(
+    tmux: &Tmux<CountingRunner<R>>,
+    environment: &CallerEnvironment,
+) -> Result<serde_json::Value, ProbeError> {
+    Ok(serde_json::json!({"pane": tmux.caller_pane(environment)?}))
 }
 
 fn marker_json(marker: Option<&BindingMarker>) -> serde_json::Value {
@@ -149,7 +156,10 @@ fn options<'a>(pane_ids: &'a [String]) -> OperationOptions<'a> {
     }
 }
 
-fn run(args: &[String], tmux: &Tmux<CountingRunner>) -> Result<serde_json::Value, ProbeError> {
+fn run<R: CommandRunner>(
+    args: &[String],
+    tmux: &Tmux<CountingRunner<R>>,
+) -> Result<serde_json::Value, ProbeError> {
     let Some(mode) = args.first().map(String::as_str) else {
         return Err(ProbeError::Usage(USAGE));
     };
@@ -166,9 +176,7 @@ fn run(args: &[String], tmux: &Tmux<CountingRunner>) -> Result<serde_json::Value
                 .map_err(|_| ProbeError::Usage("Capture lines must be an unsigned integer."))?;
             Ok(serde_json::json!({"output": tmux.capture_on(&args[1], &args[2], lines)?}))
         }
-        "caller" if args.len() == 1 => Ok(serde_json::json!({
-            "pane": tmux.caller_pane(&CallerEnvironment::current())?,
-        })),
+        "caller" if args.len() == 1 => caller_document(tmux, &CallerEnvironment::current()),
         "snapshot" => {
             let pane_ids = args[1..].to_vec();
             let snapshot = tmux.snapshot(options(&pane_ids))?;
@@ -297,5 +305,87 @@ fn main() -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    enum Reply {
+        Text(&'static str),
+        Timeout,
+    }
+
+    impl CommandRunner for Reply {
+        fn execute(
+            &self,
+            request: CommandRequest<'_>,
+        ) -> Result<CommandOutput, tmt_adapters::process::CommandError> {
+            match self {
+                Self::Text(text) => Ok(CommandOutput {
+                    stdout: text.as_bytes().to_vec(),
+                    stderr: Vec::new(),
+                }),
+                // The existing process owner refuses an expired deadline before spawn.
+                // This constructs its real typed timeout without invoking any tmux.
+                Self::Timeout => UnixCommandRunner.execute(CommandRequest {
+                    deadline: Instant::now(),
+                    ..request
+                }),
+            }
+        }
+    }
+
+    fn caller(reply: Reply) -> serde_json::Value {
+        let count = Arc::new(AtomicUsize::new(0));
+        let tmux = Tmux::new(CountingRunner {
+            inner: reply,
+            count: Arc::clone(&count),
+        });
+        let document = caller_document(
+            &tmux,
+            &CallerEnvironment {
+                tmux: Some("/tmp/private.sock,321,0".into()),
+                pane: Some("%9".into()),
+                process_id: 900,
+                driver_env: Default::default(),
+            },
+        )
+        .unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        document
+    }
+
+    #[test]
+    fn verified_caller_keeps_its_existing_result_without_diagnostics() {
+        assert_eq!(
+            caller(Reply::Text(
+                "%9__TMT_CALLER_PANE_4f1c__/tmp/private.sock__TMT_CALLER_PANE_4f1c__321\n"
+            )),
+            serde_json::json!({"pane": "%9"})
+        );
+    }
+
+    #[test]
+    fn absent_caller_preserves_the_same_commands_typed_timeout() {
+        let document = caller(Reply::Timeout);
+        assert!(document["pane"].is_null());
+        assert_eq!(document["diagnostic"]["commandFailure"], "timeout");
+        assert_eq!(document["diagnostic"]["cleanupFailed"], false);
+    }
+
+    #[test]
+    fn rejected_caller_output_is_preserved_without_claiming_a_command_failure() {
+        for output in [
+            "malformed\n",
+            "%9__TMT_CALLER_PANE_4f1c__/tmp/other.sock__TMT_CALLER_PANE_4f1c__321\n",
+        ] {
+            let document = caller(Reply::Text(output));
+            assert!(document["pane"].is_null());
+            assert_eq!(document["diagnostic"]["stdout"], output);
+            assert!(document["diagnostic"]["commandFailure"].is_null());
+        }
     }
 }
