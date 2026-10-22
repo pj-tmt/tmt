@@ -1482,8 +1482,8 @@ renameSync(output+'.tmp',output);
       const row = colored()
         .split('\n')
         .find((line) => line.includes('red words'))!;
-      expect(row, row).toMatch(/\u001b\[(?:[0-9;]*;)?(?:31|38;5;1)m[^\u001b]*red words/);
-      expect(row).not.toMatch(/(?:31|38;5;1)m[^\u001b]*plain/);
+      expect(row, row).toMatch(/\u001b\[(?:[0-9;]*;)?(?:31|38;5;1)m(?:\u001b\[[0-9;]*m)*red words/);
+      expect(row).not.toMatch(/(?:31|38;5;1)m(?:\u001b\[[0-9;]*m)*[^\u001b]*plain/);
 
       // It follows the pane: the counter moves within a few polls.
       const tick = () => [...screen().matchAll(/tick (\d+)/g)].at(-1)?.[1];
