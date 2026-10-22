@@ -99,6 +99,8 @@ for (const width of [1440, 390])
       const markers = frame.locator('.annotation-number');
       await expect(markers).toHaveCount(1);
       await expect(markers).toHaveText('+12');
+      // The marker is placed in a later frame than its text: wait until it has a box to measure.
+      await expect(markers).toBeVisible();
       const box = await markers.evaluate((node) => node.getBoundingClientRect().toJSON());
       // The `+12` pill: 24 px tall, wider than it is tall.
       expect(box.height).toBe(24);
