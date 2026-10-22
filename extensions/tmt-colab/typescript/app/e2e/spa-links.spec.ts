@@ -397,18 +397,20 @@ test.describe('the door serving the TMT app', () => {
       ).not.toHaveAttribute('aria-disabled', 'true');
     });
 
-    test('a tab left open across a Colab upgrade shows the update row in the shell bar', async ({
+    test('a tab whose Colab was upgraded before it mounted still shows the update row in the shell bar', async ({
       page,
     }) => {
       const id = await door!.createPage('Upgrade page', '<h1>Upgrade content</h1>');
       await door!.pair(page);
-      // The first read of the mount's entry (when Colab mounts) names this build; later reads
-      // name an upgraded one. Only fetches are rewritten, never a navigation.
+      // The upgrade landed after the Colab module loaded and before anything read the mount's
+      // entry, so every read of it names an upgraded build and only the module can say which
+      // build it is. Only fetches are rewritten, never a navigation.
       let reads = 0;
       await page.route(
         (url) => url.pathname === new URL(door!.mount).pathname,
         async (route) => {
-          if (route.request().isNavigationRequest() || reads++ === 0) return route.continue();
+          if (route.request().isNavigationRequest()) return route.continue();
+          reads++;
           const response = await route.fetch();
           const html = (await response.text()).replace(
             /index-[A-Za-z0-9_-]{8}\.js/,
@@ -422,7 +424,28 @@ test.describe('the door serving the TMT app', () => {
       const row = page.locator('.tmt-ui-shell-bar > [data-update-notice]');
       await expect(row).toBeVisible();
       await expect(row).toHaveAttribute('role', 'status');
-      expect(reads).toBeGreaterThanOrEqual(2);
+      expect(reads).toBeGreaterThanOrEqual(1);
+    });
+
+    test('a tab that runs the build the door serves shows no update row', async ({ page }) => {
+      const id = await door!.createPage('Current page', '<h1>Current content</h1>');
+      await door!.pair(page);
+      const mount = new URL(door!.mount).pathname;
+      const read = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === mount && !response.request().isNavigationRequest(),
+      );
+      await page.goto(`${door!.origin}/colab/pages/${id}`);
+      await expect(page.locator('.colab-route')).toBeVisible();
+      // The check has read the served build; give its result two frames to reach the shell.
+      await (await read).finished();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      await expect(page.locator('[data-update-notice]')).toHaveCount(0);
     });
 
     test('the list tab survives reload, Back and Forward in the TMT app', async ({ page }) => {
