@@ -46,8 +46,10 @@ svg.tmt-ui-mark {
   flex: 1;
   min-width: 0;
 }
-/* A suffix turns the heading into one row: the title shrinks first, the suffix after it. */
-.tmt-ui-heading:has(> .tmt-ui-heading-suffix) {
+/* A suffix, or a leading breadcrumb separator (`<module> / <page>`), turns the heading into one
+   row: the title shrinks first, the suffix after it. */
+.tmt-ui-heading:has(> .tmt-ui-heading-suffix),
+.tmt-ui-heading:has(> [aria-hidden='true']:first-child) {
   display: flex;
   align-items: center;
   gap: var(--tmt-ui-header-gap);
