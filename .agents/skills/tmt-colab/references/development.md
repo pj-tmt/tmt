@@ -48,7 +48,10 @@ short routes resolve the same assets. Build a hosted distribution with Vite's `-
 option (`vp build --base / --outDir dist-hosted` in `extensions/tmt-colab/typescript/app`);
 native mounted distributions retain their relative base. Both distributions also carry the bundled
 page runtime (`assets/colab-runtime.js`, build mode `runtime`): the `build`, `build:bundles` and
-`build:hosted` scripts run it and fail when it differs from `typescript/app/runtime-pin.json`. After a
+`build:hosted` scripts run it and fail when it differs from `typescript/app/runtime-pin.json`. The
+Colab module (`assets/colab-module.js`, build mode `module`, in `build` and `build:bundles` only)
+must be built after the app in the same `dist`: it carries that build's entry for the update row,
+and `node ../../scripts/verify-module-build.mjs dist` fails when it carries another. After a
 deliberate change of React, htm, `@tailwindcss/browser`, `lucide-react` or the icon list in
 `typescript/app/src/runtime/icons.ts` (including a dependency bump, and a Vite or
 rolldown bump, which changes the output bytes), run

@@ -88,8 +88,9 @@ production build. Chromium tests
 use stable `ask-*` test IDs and `data-operation-id` on each preview and Ask entry.
 
 Inside the TMT web app Colab is the route module `src/colab-module.tsx` at `/colab/…` (built by
-`vp build --mode module`); `/p/<id>` redirects to `/colab/p/<id>`. The reader entry retains
-`/read/<linkId>` in the address bar.
+`vp build --mode module`, which must run after `vp build` in the same `dist`: it carries that
+build's hashed entry as its own stamp, and `scripts/verify-module-build.mjs` checks it);
+`/p/<id>` redirects to `/colab/p/<id>`. The reader entry retains `/read/<linkId>` in the address bar.
 Native bootstrap carries only Remote's validated internal mount. Owner recovery uses
 SDK admission before loading protected app assets in place; APIs, sync and assets remain
 under that mount. Reader authority stays in the fragment, which is cleared before any

@@ -401,9 +401,15 @@ uncached and shows the non-blocking `Colab has been updated.` row with a Reload 
 the same bundle name has a different hash. The row sits directly under the fixed header and
 `--colab-update-height` (set by `data-colab-update` on the root) extends the header metric, so
 the page moves down instead of being covered. Inside the TMT web app the document is the shell's:
-the running build is the paired mount's entry, read once when Colab mounts, and later checks read
-that same mount; the row joins the shell's sticky bar under the header. The local preview, being
-unpaired, has no running build and shows no row. An offline read, an unreadable page, or a page of
+the running build is the one the Colab module was made with: `vp build --mode module` (always after
+`vp build`, in the same `dist`) writes that app build's hashed entry into `assets/colab-module.js`
+as `__COLAB_MODULE_BUILD__`, so nothing read after the module loaded (an upgrade can land between
+the import and `mount()`) can rename it, and the checks read the paired mount against it. The build
+fails without that entry, and `scripts/verify-module-build.mjs` (in `build` and `build:bundles`)
+fails when the shipped module carries anything but the entry `dist/index.html` loads; `build-stamp.ts`
+holds the one rule that names a build, shared with `vite.config.ts`. The row joins the shell's sticky
+bar under the header. The local preview, being unpaired, has no running build and shows no row, and
+the dev server, which defines no stamp, shows none either. An offline read, an unreadable page, or a page of
 another kind (pairing guidance, the reader) never counts. There is no polling and no
 automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
 rules (device-stored per page, so a reload restores them when storage works; see

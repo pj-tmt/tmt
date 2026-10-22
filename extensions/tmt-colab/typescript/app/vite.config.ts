@@ -4,6 +4,22 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
+import { entryOf, isBuild } from './src/build-stamp.ts';
+
+/**
+ * The app build the Colab module is made beside (#4282): the hashed entry of the `dist/index.html`
+ * the build before it wrote. The module carries it as its own build, so nothing read after it
+ * loaded can rename it. A module without one would never show the update row, so it is refused.
+ */
+function moduleBuild(): string {
+  const index = new URL('./dist/index.html', import.meta.url);
+  const entry = entryOf(readFileSync(index, 'utf8'), new URL('http://app.invalid/'));
+  if (!entry || !isBuild(entry))
+    throw new Error(
+      `${index.pathname} names no hashed app entry; run \`vp build\` before the module.`,
+    );
+  return entry;
+}
 
 export default defineConfig(({ mode }) => ({
   lint: lintConfig,
@@ -96,7 +112,15 @@ export default defineConfig(({ mode }) => ({
   // `reader` is the public read-only entry: one fixed-name script, stylesheet and decoder worker,
   // so the native server can allowlist exactly these files for unpaired browsers.
   define:
-    mode === 'reader' || mode === 'module' ? { 'process.env.NODE_ENV': '"production"' } : undefined,
+    mode === 'module'
+      ? {
+          'process.env.NODE_ENV': '"production"',
+          // The build this module belongs to, read by src/app-build.ts.
+          __COLAB_MODULE_BUILD__: JSON.stringify(moduleBuild()),
+        }
+      : mode === 'reader'
+        ? { 'process.env.NODE_ENV': '"production"' }
+        : undefined,
   worker:
     mode === 'reader' || mode === 'module'
       ? {
