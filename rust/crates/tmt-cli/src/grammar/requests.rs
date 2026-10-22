@@ -188,6 +188,22 @@ pub(in crate::grammar) fn answer() -> Command {
         .arg(operand("content", false))
 }
 
+pub(in crate::grammar) fn send_now() -> Command {
+    with_options(
+        storage(spec!(
+            "send-now",
+            "Send a held or waiting message to its recipient now",
+            details = "Only the request's originator, or a person, may send it now. It skips only the Digest hold: the recipient's readiness, approval and channel guards still apply, a message that already reached the agent is reported and never typed again, and one whose delivery is unconfirmed is refused.",
+            [
+                "Send a held message now" => "tmt send-now req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30",
+                "As a named identity outside its pane" => "tmt send-now req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30 --identity ben",
+            ]
+        )),
+        &["identity"],
+    )
+    .arg(operand("request-id", true))
+}
+
 pub(in crate::grammar) fn request_observer() -> Command {
     internal(
         "__request-observer",

@@ -405,6 +405,15 @@ pub trait RequestRecords {
         identity_id: &str,
         now_ms: u64,
     ) -> Result<Option<u64>, Self::Error>;
+    /// Drop a message's unsealed Digest reference so the ordinary wake can type it.
+    fn release_digest_item(
+        &mut self,
+        identity_id: &str,
+        request_id: &str,
+        source: digest::DigestSource,
+    ) -> Result<bool, Self::Error>;
+    /// Allow one more wake for a request whose last wake typed nothing (`unavailable`).
+    fn reopen_wake(&mut self, request_id: &str) -> Result<bool, Self::Error>;
     /// The stored facts that decide one message's delivery state; reads rows only.
     fn delivery_facts(
         &self,
@@ -687,6 +696,7 @@ pub enum RequestError<E> {
     Answer(inbox::AnswerRejection),
     ResultSelection(ResultSelectionRejection),
     Digest(digest::DigestRejection),
+    SendNow(delivery::SendNowRejection),
     Repository(E),
 }
 
@@ -734,6 +744,7 @@ impl<E> fmt::Display for RequestError<E> {
                 f.write_str("Request-ID prefix matches several retained requests.")
             }
             Self::Digest(reason) => f.write_str(reason.code()),
+            Self::SendNow(reason) => f.write_str(reason.code()),
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

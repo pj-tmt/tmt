@@ -9,6 +9,7 @@ mod history;
 mod lifecycle;
 mod notification;
 mod responses;
+mod send_now;
 mod wake;
 mod withdrawal;
 

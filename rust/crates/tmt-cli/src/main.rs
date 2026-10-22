@@ -52,6 +52,7 @@ mod request_observer_command;
 mod response_command;
 mod room_command;
 mod run_command;
+mod send_now_command;
 mod setup_command;
 mod skill_refresh_command;
 mod skill_reminder;
@@ -401,6 +402,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         request @ (Invocation::Inbox { .. } | Invocation::Answer { .. }) => {
             return answer_command::execute(request, parsed.mode);
+        }
+        request @ Invocation::SendNow { .. } => {
+            return send_now_command::execute(request, parsed.mode);
         }
         Invocation::WhoamiContext => {
             return context_command::execute(parsed.mode);

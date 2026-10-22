@@ -799,6 +799,27 @@ the recipient is bound to now; it is not liveness evidence. `canSendNow` says wh
 applies to the message; who may ask is that operation's own check. A refusal's cause is not
 retained, so `not_sent` carries one of the two generic reasons.
 
+### Send now
+
+`tmt send-now <request-id> [--identity <name>]` takes one message out of the recipient's Digest
+hold and types it now. Core decides, in one transaction, from the message's `messageState`:
+
+- Only the request's originator, or a person (the reserved `user` mark), may ask
+  (`SEND_NOW_NOT_ALLOWED`). Only an ordinary request to an identified recipient qualifies: not a
+  passthrough, announcement or pane-routed request (`SEND_NOW_NOT_APPLICABLE`), and not one that
+  has a final, was withdrawn or expired (`SEND_NOW_CLOSED`).
+- A `delivered` or `working` message is reported (`status: "already"`) and never typed again. An
+  `unconfirmed` one is refused (`SEND_NOW_UNCONFIRMED`), and a state without `canSendNow` (a
+  checklist in flight, an approval prompt) is refused with its reason (`SEND_NOW_NOT_AVAILABLE`).
+- Otherwise Core drops the message's unsealed Digest reference, marks the request urgent so the
+  ordinary wake applies, and for an `unreachable` message reopens the wake that typed nothing.
+  The other held messages keep their hold. The command then runs that wake exactly as `talk`
+  would: one claim, the recipient's readiness, approval and channel guards, and the request frame
+  as a live delivery reads it, with its own reply command. `status: "sent"` means it was typed.
+  A recipient waiting on its user (`DELIVERY_AWAITING_APPROVAL`), one that cannot be reached
+  (`SEND_NOW_UNREACHABLE`) or a session that cannot carry it types nothing and leaves the
+  message sendable; an uncertain paste (`DELIVERY_UNCERTAIN`) is never retried.
+
 ## Verification ownership
 
 Exact body, retained retry, revision races and expiry belong to the request
