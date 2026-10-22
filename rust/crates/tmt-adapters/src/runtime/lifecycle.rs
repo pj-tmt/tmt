@@ -414,6 +414,18 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// An exact independently verified foreground that this binding may stop
+    /// to move its session. Shared servers and unsupported modes refuse.
+    fn movable_process(
+        &self,
+        _runner: &dyn crate::process::CommandRunner,
+        _binding: &tmt_core::binding::Binding,
+        _preferences: &SessionPreferences,
+        _deadline: Instant,
+    ) -> Option<ProcessIncarnation> {
+        None
+    }
+
     fn mode(&self, _host: HostEvidence) -> Option<RuntimeMode> {
         None
     }

@@ -357,6 +357,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
             "room_command/dispatch.rs",
             crate::room_command::DISPATCH_HINTS,
         ),
+        (
+            "run_command/move_session.rs",
+            crate::run_command::MOVE_HINTS,
+        ),
         ("run_command/resume.rs", crate::run_command::RESUME_HINTS),
         ("run_command/run.rs", crate::run_command::RUN_HINTS),
         ("setup_command.rs", crate::setup_command::PRINTED_HINTS),

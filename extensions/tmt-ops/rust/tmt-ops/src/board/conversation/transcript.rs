@@ -277,11 +277,13 @@ impl Session {
                         || self.reply.is_some()
                         || !self.outgoing.is_empty()))
         {
+            let copy = self.copy_of_text(&mapped);
             return RenderedTranscript {
                 mapped,
                 anchor_text: self.text.clone(),
                 response_sources: None,
                 final_spans: Vec::new(),
+                copy,
             };
         }
         let mut starts = vec![0];
@@ -360,6 +362,10 @@ impl Session {
         let mut original = Vec::new();
         let mut anchor_text = String::new();
         let mut final_spans = Vec::new();
+        let mut copy_messages = vec![self.text.clone()];
+        let mut copy_lines: Vec<Option<super::copy::At>> = Vec::new();
+        let mut copy_rows: Vec<String> = Vec::new();
+        let next_at = std::cell::Cell::new(None);
         let mut header_anchors = std::collections::BTreeMap::new();
         let mut next_mention = mapped
             .mentions
@@ -373,10 +379,13 @@ impl Session {
             if index > 0 {
                 anchor_text.push('\n');
             }
-            anchor_text.push_str(&line.to_string());
+            let shown = line.to_string();
+            anchor_text.push_str(&shown);
+            copy_rows.push(shown);
             sources.push(index);
             mentions.push(links);
             original.push(source);
+            copy_lines.push(next_at.take());
             lines.push(line);
             index
         };
@@ -412,7 +421,13 @@ impl Session {
                             look,
                             None,
                         );
-                        for line in body.lines {
+                        let message = copy_messages.len();
+                        copy_messages.push(sanitize(&send.text));
+                        for (line, source) in body.lines.into_iter().zip(body.sources) {
+                            next_at.set((line.width() > 0).then_some(super::copy::At {
+                                message,
+                                line: source,
+                            }));
                             append(super::super::exchange_view::body(line, look), vec![], None);
                         }
                         if let Some(text) = &send.message_state_label {
@@ -499,7 +514,16 @@ impl Session {
                         }
                         next_mention += count;
                         let mut end = header + 1;
-                        for (line, links) in body.lines.into_iter().zip(body.mentions) {
+                        let message = copy_messages.len();
+                        copy_messages.push(sanitize(&reply.body));
+                        let body_sources = std::mem::take(&mut body.sources);
+                        for ((line, links), source) in
+                            body.lines.into_iter().zip(body.mentions).zip(body_sources)
+                        {
+                            next_at.set((line.width() > 0).then_some(super::copy::At {
+                                message,
+                                line: source,
+                            }));
                             end = append(line, links, None) + 1;
                         }
                         final_spans.push((header + 1..end, index));
@@ -518,6 +542,14 @@ impl Session {
                         .rposition(|index| mapped.lines[*index].width() > 0)
                         .map_or(first, |index| index + 1);
                     for &index in &rows[first..end] {
+                        next_at.set(
+                            (mapped.lines[index].width() > 0
+                                && !self.authored_lines.contains_key(&mapped.sources[index]))
+                            .then_some(super::copy::At {
+                                message: 0,
+                                line: mapped.sources[index],
+                            }),
+                        );
                         append(
                             mapped.lines[index].clone(),
                             mapped.mentions[index].clone(),
@@ -597,6 +629,32 @@ impl Session {
             anchor_text,
             response_sources: Some(original),
             final_spans,
+            copy: super::copy::Map {
+                messages: copy_messages,
+                lines: copy_lines,
+                rows: copy_rows,
+            },
+        }
+    }
+
+    /// The source of the unmerged transcript: the session text, but for its authored lines.
+    fn copy_of_text(&self, mapped: &Mapped) -> super::copy::Map {
+        super::copy::Map {
+            rows: mapped.lines.iter().map(ToString::to_string).collect(),
+            messages: vec![self.text.clone()],
+            lines: mapped
+                .lines
+                .iter()
+                .zip(&mapped.sources)
+                .map(|(line, source)| {
+                    (line.width() > 0 && !self.authored_lines.contains_key(source)).then_some(
+                        super::copy::At {
+                            message: 0,
+                            line: *source,
+                        },
+                    )
+                })
+                .collect(),
         }
     }
 }
@@ -606,4 +664,5 @@ pub(super) struct RenderedTranscript {
     pub anchor_text: String,
     pub response_sources: Option<Vec<Option<usize>>>,
     pub final_spans: Vec<(std::ops::Range<usize>, usize)>,
+    pub copy: super::copy::Map,
 }
