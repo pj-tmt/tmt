@@ -4906,7 +4906,7 @@ test('Digest and Ops say which read they wait for and show no invented numbers',
     await expect(usage).toHaveText('Usage is not in the browser yet. Open Digest in tmt ops ui.');
     await expect(usage.locator('code')).toHaveText('tmt ops ui');
     await expect(usage.locator('a')).toHaveCount(0);
-    await expect(page.getByRole('tab')).toHaveText(['5m', '1h', '6h', '1d', '7d', '30d']);
+    await expect(page.getByRole('tab')).toHaveText(['24h', '7d', '30d']);
     await expect(page.locator('#usage-rows tr')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Sample data');
     await captureState(

@@ -10,6 +10,8 @@ let harness = '';
 let page_html = '';
 let css = '';
 let root = '';
+let shell_harness = '';
+let shell_html = '';
 
 test.beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'digest-page-'));
@@ -28,6 +30,41 @@ test.beforeAll(async () => {
     },
   });
   harness = await readFile(path.join(root, 'harness.js'), 'utf8');
+  // The whole web app with the sample source swapped in for the product one.
+  const sample = new URL('./digest-sample-source.ts', import.meta.url).pathname;
+  await build({
+    root: new URL('..', import.meta.url).pathname,
+    logLevel: 'silent',
+    plugins: [
+      {
+        name: 'digest-sample-source',
+        enforce: 'pre',
+        resolveId(source, importer) {
+          if (
+            source === './digest-source.js' &&
+            /\/src\/(digest-page|shell-app)\.ts$/.test(importer ?? '')
+          )
+            return sample;
+        },
+      },
+    ],
+    build: {
+      outDir: root,
+      emptyOutDir: false,
+      minify: false,
+      lib: {
+        entry: new URL('./shell-harness.ts', import.meta.url).pathname,
+        formats: ['es'],
+        fileName: () => 'shell-harness.js',
+      },
+      rollupOptions: { output: { inlineDynamicImports: true } },
+    },
+  });
+  shell_harness = await readFile(path.join(root, 'shell-harness.js'), 'utf8');
+  shell_html = (await readFile(new URL('shell.html', assets), 'utf8')).replace(
+    '<script type="module" src="/sdk/shell.js"></script>',
+    '<script type="module" src="/shell-harness.js"></script>',
+  );
   // The door serves the leaf's static CSS then the pages' own, as one sheet.
   css =
     (await readFile(
@@ -47,6 +84,8 @@ async function open(page: Page, query = '', size = { width: 1280, height: 900 })
     const url = new URL(route.request().url());
     if (url.pathname === '/harness.js')
       return route.fulfill({ contentType: 'text/javascript', body: harness });
+    if (url.pathname === '/shell-harness.js')
+      return route.fulfill({ contentType: 'text/javascript', body: shell_harness });
     if (url.pathname === '/sdk/pages.css')
       return route.fulfill({ contentType: 'text/css', body: css });
     return route.fulfill({ contentType: 'text/html', body: page_html });
@@ -57,31 +96,106 @@ async function open(page: Page, query = '', size = { width: 1280, height: 900 })
   return errors;
 }
 
+async function openShell(page: Page, size: { width: number; height: number }) {
+  await page.setViewportSize(size);
+  await page.route(`${origin}/**`, (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/shell-harness.js')
+      return route.fulfill({ contentType: 'text/javascript', body: shell_harness });
+    if (url.pathname === '/sdk/pages.css')
+      return route.fulfill({ contentType: 'text/css', body: css });
+    if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))
+      return route.fulfill({ status: 404, body: '' });
+    return route.fulfill({ contentType: 'text/html', body: shell_html });
+  });
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(String(error)));
+  await page.goto(`${origin}/digest/`);
+  await expect(page.locator('#digest-sections .digest-section')).toHaveCount(6);
+  return errors;
+}
+
+for (const [name, size] of [
+  ['1440', { width: 1440, height: 900 }],
+  ['390', { width: 390, height: 844 }],
+] as const) {
+  test(`in the app shell at ${name}px the page has the rail, the header and the shell's width`, async ({
+    page,
+  }) => {
+    const errors = await openShell(page, size);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Digest');
+    // The rail is a drawer on a phone; it is part of the page from tablet width up.
+    if (name === '1440')
+      await expect(page.getByRole('navigation', { name: 'TMT', exact: true })).toBeVisible();
+    const width = await page.locator('#digest-sections').evaluate((node) => node.clientWidth);
+    if (name === '1440') {
+      expect(width).toBeGreaterThan(1000);
+      // Runway table beside its charts; the token chart beside the ranking.
+      const table = await page.locator('#digest-allowance .usage-table').boundingBox();
+      const chart = await page.locator('#digest-allowance .tmt-ui-chart').first().boundingBox();
+      expect(chart!.x).toBeGreaterThan(table!.x + table!.width - 1);
+      const burn = await page.locator('#digest-tokens').boundingBox();
+      const rank = await page.locator('#digest-ranking').boundingBox();
+      expect(rank!.x).toBeGreaterThan(burn!.x + burn!.width - 1);
+    }
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
+    const dir = process.env.DIGEST_CAPTURE_DIR;
+    if (dir) {
+      await page.waitForTimeout(300);
+      await page.screenshot({
+        path: path.join(dir, `digest-shell-${name}-light.png`),
+        fullPage: true,
+      });
+    }
+    expect(errors).toEqual([]);
+  });
+}
+
+test('hovering the plot shows a tip with every series, five hues and a neutral Other', async ({
+  page,
+}) => {
+  await open(page);
+  const plot = page.locator('#digest-tokens .tmt-ui-chart-plot');
+  const tip = page.locator('#digest-tokens .tmt-ui-chart-tip');
+  await expect(tip).toBeHidden();
+  const box = (await plot.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(tip).toBeVisible();
+  await expect(tip.locator('.tmt-ui-chart-tip-row')).toHaveCount(6);
+  await expect(tip).toContainText('Other');
+  const fills = await tip
+    .locator('.tmt-ui-chart-swatch')
+    .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor));
+  expect(new Set(fills).size).toBe(6);
+  await page.mouse.move(box.x - 40, box.y - 40);
+  await expect(tip).toBeHidden();
+});
+
 test('the sample report paints every section once, in order, with the sample note', async ({
   page,
 }) => {
   const errors = await open(page);
-  await expect(page.locator('#digest-sections .digest-section')).toHaveCount(10);
+  await expect(page.locator('#digest-sections .digest-section')).toHaveCount(6);
   const headings = await page.locator('#digest-sections h2').allTextContents();
   expect(headings).toEqual([
     'Runway',
-    'Who burns: tokens over time',
-    'Who burns: last 24h by seat',
+    'Who burns',
     'Idle, stalled or gate-bound',
+    'Interaction volume: who talks to whom',
+    'Not in the usage read yet',
+    'Method and caveats',
+  ]);
+  // Questions the usage read cannot answer say so in one block, never a zero or an empty chart.
+  await expect(page.locator('#digest-missing dt')).toHaveText([
     'Throughput',
     'Gates and queue',
     'Cost per merged PR',
-    'Interaction volume: who talks to whom',
     'Machine',
-    'Method and caveats',
   ]);
-  // A question the usage read cannot answer says what is missing instead of drawing a zero.
-  for (const id of ['throughput', 'gates', 'cost', 'machine']) {
-    await expect(page.locator(`#digest-${id} .usage-note`)).toContainText(
-      'Not in the usage read yet:',
-    );
-    await expect(page.locator(`#digest-${id} .tmt-ui-chart`)).toHaveCount(0);
-  }
+  await expect(page.locator('#digest-missing .tmt-ui-chart')).toHaveCount(0);
   await expect(page.locator('#usage-note')).toContainText('Sample data');
   expect(errors).toEqual([]);
 });
@@ -143,7 +257,7 @@ test('only the 24 hour report has an activity view; 7d and 30d say nothing about
   await page.getByRole('tab', { name: '7d' }).click();
   await expect(page.locator('#digest-tokens')).toBeVisible();
   await expect(page.locator('#digest-activity')).toHaveCount(0);
-  await expect(page.locator('#digest-ranking h2')).toHaveText('Who burns: last 7d by seat');
+  await expect(page.locator('#digest-ranking h3')).toHaveText('Last 7d by seat');
 });
 
 test('the allowance shows the latest weekly window and the history chart when it is served', async ({
@@ -159,7 +273,7 @@ test('the allowance shows the latest weekly window and the history chart when it
 for (const width of [390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
     await open(page, '', { width, height: 900 });
-    await expect(page.locator('#digest-sections .digest-section')).toHaveCount(10);
+    await expect(page.locator('#digest-sections .digest-section')).toHaveCount(6);
     await page.waitForTimeout(200);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

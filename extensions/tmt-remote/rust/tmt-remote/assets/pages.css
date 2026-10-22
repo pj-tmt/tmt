@@ -361,10 +361,53 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-section > .usage-note {
   margin: 0;
 }
-.digest-section > .usage-table {
+.digest-section .usage-table {
   display: block;
   max-width: 100%;
   overflow-x: auto;
+}
+/* Digest uses the shell's content width; its blocks sit side by side where there is room. */
+.tmt-page.digest {
+  width: min(100% - 32px, 1440px);
+}
+.digest-split {
+  display: grid;
+  gap: var(--tmt-ui-space-xl);
+  min-width: 0;
+}
+.digest-block,
+.digest-charts {
+  display: grid;
+  align-content: start;
+  gap: var(--tmt-ui-space-m);
+  min-width: 0;
+}
+.digest-charts {
+  gap: var(--tmt-ui-space-xl);
+}
+@media (min-width: 900px) {
+  .digest-split-runway {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+  .digest-split-runway .digest-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .digest-split-burn {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+.digest-gaps {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--tmt-ui-space-s) var(--tmt-ui-space-l);
+  margin: 0;
+}
+.digest-gaps dt {
+  font-weight: 600;
+}
+.digest-gaps dd {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
 }
 .ops-section {
   display: grid;

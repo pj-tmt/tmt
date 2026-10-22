@@ -3137,7 +3137,7 @@ var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"t
 var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <span class=\"header-brand tmt-ui-brand\">\n        <!-- Static-host copy of design/browser-ui/generated/brand-mark-static.svg. -->\n        <svg class=\"header-mark tmt-brand-mark tmt-ui-mark\" data-form=\"small\" viewBox=\"0 0 96 96\" aria-hidden=\"true\" width=\"24\" height=\"24\"><defs><linearGradient id=\"tmt-brand-aurora\" x1=\"0.2\" y1=\"0.05\" x2=\"0.85\" y2=\"1\"><stop class=\"tmt-brand-mark-cyan\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-green\" offset=\"0.5\"></stop><stop class=\"tmt-brand-mark-gold\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-far\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop class=\"tmt-brand-mark-far\" offset=\"0.45\" stop-opacity=\"0\"></stop><stop class=\"tmt-brand-mark-far\" offset=\"1\" stop-opacity=\"0.15\"></stop></linearGradient><linearGradient id=\"tmt-brand-panel\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\"><stop class=\"tmt-brand-mark-panel-top\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-panel-bottom\" offset=\"1\"></stop></linearGradient><linearGradient id=\"tmt-brand-mono\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0.35\"><stop class=\"tmt-brand-mark-mono-start\" offset=\"0\"></stop><stop class=\"tmt-brand-mark-mono-end\" offset=\"1\"></stop></linearGradient></defs><g class=\"tmt-brand-mark-beam\"><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-aurora)\"></path><path d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-far)\"></path></g><path class=\"tmt-brand-mark-print\" d=\"M6.00 14.00Q6 14 6.00 14.00L77.07 22.88Q86 24 89.00 26.50L89.00 26.50Q92 29 92.00 38.00L92.00 72.00Q92 81 89.00 83.50L89.00 83.50Q86 86 77.37 83.46L52.00 76.00Q52 76 52.00 76.00L6.00 70.00Q6 70 6.00 70.00Z\" fill=\"url(#tmt-brand-mono)\"></path><path class=\"tmt-brand-mark-panel\" d=\"M5.00 21.00Q5 14 11.85 15.46L45.15 22.54Q52 24 52.00 31.00L52.00 69.00Q52 76 45.15 77.46L11.85 84.54Q5 86 5.00 79.00Z\" fill=\"url(#tmt-brand-panel)\"></path><path class=\"tmt-brand-mark-prompt\" d=\"M15 37 L28 50 L15 63\"></path></svg><span class=\"header-wordmark tmt-ui-wordmark\">Ops</span>\n      </span>\n      <span class=\"header-divider\" aria-hidden=\"true\">/</span>\n      <h1 class=\"header-title tmt-ui-title\">Ops</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/digest.html?raw
-var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page usage\">\n      <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <div class=\"tmt-ui-tabs\">\n        <div class=\"tmt-ui-tabs-header\">\n          <div id=\"usage-ranges\" class=\"tmt-ui-tab-list\" role=\"tablist\" aria-label=\"Range\"></div>\n        </div>\n        <div id=\"usage-panel\" class=\"tmt-ui-tab-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n          <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n        </div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page usage digest\">\n      <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <div class=\"tmt-ui-tabs\">\n        <div class=\"tmt-ui-tabs-header\">\n          <div id=\"usage-ranges\" class=\"tmt-ui-tab-list\" role=\"tablist\" aria-label=\"Range\"></div>\n        </div>\n        <div id=\"usage-panel\" class=\"tmt-ui-tab-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n          <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n        </div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-math.ts
 /**
@@ -3391,6 +3391,8 @@ function createMatrix(options) {
 	figure.append(scroll);
 	return figure;
 }
+var OTHER_STYLE = 7;
+var styleOf = (layer, i) => layer.key === "other" ? OTHER_STYLE : i % 7;
 var MARGIN = {
 	left: 46,
 	right: 10,
@@ -3419,7 +3421,7 @@ function seriesModel(options, width) {
 	const marks = [];
 	if (stack) stack.layers.forEach((layer, i) => marks.push({
 		kind: "area",
-		style: i % 8,
+		style: styleOf(layer, i),
 		d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt))
 	}));
 	else if (options.kind === "bars") {
@@ -3443,7 +3445,7 @@ function seriesModel(options, width) {
 		const flush = () => {
 			if (run.length) marks.push({
 				kind: "line",
-				style: i % 8,
+				style: styleOf(layer, i),
 				d: linePath(run)
 			});
 			run = [];
@@ -3501,8 +3503,16 @@ function seriesModel(options, width) {
 		readout: (at) => `${options.x[at]}: ${options.series.map((layer) => `${layer.label} ${cell(layer, at)}`).join(", ")}`,
 		legend: options.series.map((layer, i) => ({
 			label: layer.label,
-			style: i % 8
+			style: styleOf(layer, i)
 		})),
+		tip: (at) => ({
+			title: options.x[at] ?? "",
+			rows: options.series.map((layer, i) => ({
+				label: layer.label,
+				value: cell(layer, at),
+				style: styleOf(layer, i)
+			}))
+		}),
 		table: {
 			columns: [...options.x],
 			rows: options.series.map((layer) => [layer.label, ...options.x.map((_, at) => cell(layer, at))])
@@ -3527,6 +3537,10 @@ function createSeriesChart(options) {
 	plot.setAttribute("aria-label", `${options.title}. Arrow keys read each position.`);
 	const readout = htmlEl("p", "tmt-ui-chart-readout");
 	readout.setAttribute("aria-live", "polite");
+	const frame = htmlEl("div", "tmt-ui-chart-frame");
+	const tip = htmlEl("div", "tmt-ui-chart-tip");
+	tip.hidden = true;
+	tip.setAttribute("aria-hidden", "true");
 	const legend = htmlEl("ul", "tmt-ui-chart-legend");
 	const first = seriesModel(options, 640);
 	const valueNodes = first.legend.map(({ label, style }) => {
@@ -3547,6 +3561,23 @@ function createSeriesChart(options) {
 	}
 	let model = first;
 	let active = options.x.length - 1;
+	/** The hover tip beside the column, flipped to the left half's other side near the right edge. */
+	function showTip(at) {
+		const data = model.tip(at);
+		const title = htmlEl("div", "tmt-ui-chart-tip-title", data.title);
+		const rows = data.rows.map((row) => {
+			const line = htmlEl("div", "tmt-ui-chart-tip-row");
+			const swatch = htmlEl("span", `tmt-ui-chart-swatch tmt-ui-chart-s${row.style}`);
+			line.append(swatch, htmlEl("span", "tmt-ui-chart-tip-label", row.label), htmlEl("span", "tmt-ui-chart-legend-value", row.value));
+			return line;
+		});
+		tip.replaceChildren(title, ...rows);
+		tip.hidden = false;
+		const x = model.xs[at] ?? 0;
+		const flip = x > model.width / 2;
+		tip.classList.toggle("tmt-ui-chart-tip-left", flip);
+		tip.style.left = `${flip ? x - 12 : x + 12}px`;
+	}
 	function select(at) {
 		active = Math.max(0, Math.min(options.x.length - 1, at));
 		model.values(active).forEach((text, i) => valueNodes[i].textContent = text);
@@ -3555,6 +3586,7 @@ function createSeriesChart(options) {
 		const x = String(model.xs[active] ?? 0);
 		cursor?.setAttribute("x1", x);
 		cursor?.setAttribute("x2", x);
+		if (!tip.hidden) showTip(active);
 	}
 	function paint(width) {
 		model = seriesModel(options, width);
@@ -3611,9 +3643,17 @@ function createSeriesChart(options) {
 		if (!model.step) return;
 		select(Math.round((event.clientX - plot.getBoundingClientRect().left - model.left) / model.step));
 	};
-	plot.addEventListener("pointermove", pointer);
-	plot.addEventListener("pointerdown", pointer);
-	figure.append(plot, readout, legend, dataTable(options.title, first.table.columns, first.table.rows));
+	const point = (event) => {
+		pointer(event);
+		showTip(active);
+	};
+	plot.addEventListener("pointermove", point);
+	plot.addEventListener("pointerdown", point);
+	plot.addEventListener("pointerleave", () => tip.hidden = true);
+	plot.addEventListener("focus", () => showTip(active));
+	plot.addEventListener("blur", () => tip.hidden = true);
+	frame.append(plot, tip);
+	figure.append(frame, readout, legend, dataTable(options.title, first.table.columns, first.table.rows));
 	paintAtWidth(figure, 640, paint);
 	return figure;
 }
@@ -3892,13 +3932,14 @@ function notAvailable(note, text) {
 //#region src/digest-page.ts
 /**
 * The Digest web view: the usage report as sections of charts and tables, ordered by the questions
-* the PM reads it for (runway, who burns, idle or gate-bound, throughput, gates, cost per merged
-* PR), then who talks to whom and the method. A question the usage read cannot answer yet renders
-* its empty state and names the missing source. It depends only on
+* the PM reads it for (runway, who burns, idle or gate-bound), then who talks to whom, one block
+* naming the questions the usage read cannot answer yet (throughput, gates, cost per merged PR,
+* machine) and the method. It depends only on
 * `DigestSource`; the product source says "not in the browser yet" until Core serves the read
 * (#4325), and a sample source is only ever passed in by tests, the gallery and dev.
 */
-var SERIES_KEPT = 7;
+/** Distinct series a chart draws; the rest fold into one neutral `Other`. */
+var SERIES_KEPT = 5;
 function el(name, className, text) {
 	const node = document.createElement(name);
 	if (className) node.className = className;
@@ -3912,6 +3953,12 @@ function section(title, id, ...body) {
 	const heading = el("h2", "home-heading", title);
 	heading.id = `${id}-title`;
 	node.append(heading, ...body);
+	return node;
+}
+/** Two blocks side by side where the shell is wide, stacked where it is not. */
+function split(className, ...blocks) {
+	const node = el("div", `digest-split ${className}`);
+	node.append(...blocks);
 	return node;
 }
 function table(head, rows) {
@@ -3936,15 +3983,11 @@ function table(head, rows) {
 	node.append(body);
 	return node;
 }
-/** A section whose data the usage read does not carry yet: say what is missing, never a zero. */
-function missingSection(title, id, missing) {
-	return section(title, id, el("p", "usage-note", `Not in the usage read yet: ${missing}.`));
-}
 function allowanceSection(doc) {
 	const rows = allowance(doc);
-	const body = [];
-	if (!rows.length) body.push(el("p", "usage-note", "No weekly window has been observed yet."));
-	else body.push(table([
+	const charts = historyCharts(doc);
+	if (!rows.length) return section("Runway", "digest-allowance", el("p", "usage-note", "No weekly window has been observed yet."));
+	const summary = table([
 		"Provider",
 		"Left",
 		"Elapsed",
@@ -3956,14 +3999,16 @@ function allowanceSection(doc) {
 		row.elapsedPercent === null ? "—" : `${Math.round(row.elapsedPercent)}%`,
 		row.paceDeltaPoints === null ? "—" : `${row.paceDeltaPoints > 0 ? "+" : ""}${row.paceDeltaPoints.toFixed(1)} pts`,
 		row.stale ? "stale" : resetsIn(row.resetsAtMs, doc.observedAtMs)
-	])));
-	const charts = historyCharts(doc);
-	for (const chart of charts) body.push(createSeriesChart(chart));
-	if (rows.length && !charts.length) body.push(el("p", "usage-note", "The weekly history is not served yet; this shows the latest window."));
-	return section("Runway", "digest-allowance", ...body);
+	]));
+	if (!charts.length) return section("Runway", "digest-allowance", summary, el("p", "usage-note", "The weekly history is not served yet; this shows the latest window."));
+	const history = el("div", "digest-charts");
+	history.append(...charts.map((chart) => createSeriesChart(chart)));
+	return section("Runway", "digest-allowance", split("digest-split-runway", summary, history));
 }
-function tokensSection(doc) {
+function tokensBlock(doc) {
 	const data = tokenSeries(doc);
+	const block = el("div", "digest-block");
+	block.id = "digest-tokens";
 	const host = el("div");
 	const toggle = el("button", "tmt-ui-toggle");
 	toggle.type = "button";
@@ -3987,7 +4032,27 @@ function tokensSection(doc) {
 		draw();
 	});
 	draw();
-	return section("Who burns: tokens over time", "digest-tokens", toggle, host, ...data.partial ? [el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors.")] : []);
+	block.append(toggle, host);
+	if (data.partial) block.append(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
+	return block;
+}
+function rankingBlock(doc) {
+	const rows = rankRows(doc);
+	const block = el("div", "digest-block");
+	block.id = "digest-ranking";
+	block.append(el("h3", "tmt-ui-chart-title", `Last ${doc.since} by seat`), rows.length ? table([
+		"Seat",
+		"Tokens",
+		"Share"
+	], rows.map((row) => [
+		row.partial ? `${row.name} (partial)` : row.name,
+		compactCount(row.tokens),
+		`${row.share}%`
+	])) : el("p", "usage-note", "No seat has token observations in this range."));
+	return block;
+}
+function burnSection(doc) {
+	return section("Who burns", "digest-burn", split("digest-split-burn", tokensBlock(doc), rankingBlock(doc)));
 }
 function exchangeSection(doc) {
 	const flow = exchange(doc);
@@ -4013,17 +4078,17 @@ function activitySection(doc) {
 		ends: ["24 h ago", "now"]
 	}), el("p", "usage-note", "Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet."));
 }
-function rankingSection(doc) {
-	const rows = rankRows(doc);
-	return section(`Who burns: last ${doc.since} by seat`, "digest-ranking", rows.length ? table([
-		"Seat",
-		"Tokens",
-		"Share"
-	], rows.map((row) => [
-		row.partial ? `${row.name} (partial)` : row.name,
-		compactCount(row.tokens),
-		`${row.share}%`
-	])) : el("p", "usage-note", "No seat has token observations in this range."));
+/** The questions the usage read cannot answer yet: one line each, never a zero or an empty chart. */
+function missingSection() {
+	const lines = [
+		["Throughput", "merged pull requests per provider and publishes in flight (GitHub, from the PR Agent lines)"],
+		["Gates and queue", "green-not-armed and review waits, merge-queue entries and merge-group failures (GitHub)"],
+		["Cost per merged PR", "merged pull requests joined to the allowance points burned in the same window"],
+		["Machine", "load, free disk and the biggest worktrees with their owners"]
+	];
+	const list = el("dl", "digest-gaps");
+	for (const [term, source] of lines) list.append(el("dt", void 0, term), el("dd", void 0, source));
+	return section("Not in the usage read yet", "digest-missing", list);
 }
 function methodSection() {
 	return section("Method and caveats", "digest-method", ...[
@@ -4076,14 +4141,10 @@ function digestPage(source = digestSource) {
 		const doc = report.document;
 		panel.replaceChildren(...[
 			allowanceSection(doc),
-			tokensSection(doc),
-			rankingSection(doc),
+			burnSection(doc),
 			activitySection(doc),
-			missingSection("Throughput", "digest-throughput", "merged pull requests per provider and publishes in flight (GitHub, from the PR Agent lines)"),
-			missingSection("Gates and queue", "digest-gates", "green-not-armed and review waits, merge-queue entries and merge-group failures (GitHub)"),
-			missingSection("Cost per merged PR", "digest-cost", "merged pull requests joined to the allowance points burned in the same window"),
 			exchangeSection(doc),
-			missingSection("Machine", "digest-machine", "load, free disk and the biggest worktrees with their owners"),
+			missingSection(),
 			methodSection()
 		].filter((node) => node !== void 0));
 		if (report.sample) notAvailable(note, "Sample data: Digest has no web read of your usage yet. `tmt digest usage report` shows the real numbers.");
