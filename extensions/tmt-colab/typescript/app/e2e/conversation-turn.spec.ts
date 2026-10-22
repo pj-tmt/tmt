@@ -1307,6 +1307,42 @@ for (const surface of ['chat', 'thread'] as const)
         }
       });
 
+// A wrapped action starts flush with the status text; the gap applies only on the same line.
+for (const surface of ['chat', 'thread'] as const)
+  test(`a wrapped Send now or Try again starts flush with the status text: ${surface}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mount(page, surface);
+    const window =
+      surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+    const status = window.getByTestId('ask-state');
+    let wrapped = 0;
+    for (const width of [1440, 390, 320])
+      for (const sendNow of [
+        undefined,
+        { phase: 'outcome', outcome: 'refused', reason: 'SEND_NOW_UNREACHABLE' },
+        { phase: 'outcome', outcome: 'unavailable' },
+      ] as const) {
+        await page.setViewportSize({ width, height: 900 });
+        await run(page, 'conversationMessageState', { state: asked('sendable'), sendNow });
+        const action = sendNowButton(window);
+        await expect(action).toHaveCount(1);
+        const [text, box] = await Promise.all([status.boundingBox(), action.boundingBox()]);
+        const below = box!.y + box!.height / 2 > text!.y + text!.height;
+        if (below) {
+          wrapped++;
+          // On a line of its own: the action's label starts where the text does.
+          expect(Math.abs(box!.x - text!.x)).toBeLessThanOrEqual(1);
+        } else {
+          // On the text's last line: after it, with the gap.
+          expect(box!.x).toBeGreaterThan(text!.x);
+        }
+      }
+    // The check is not vacuous: at least one of these did wrap.
+    expect(wrapped).toBeGreaterThan(0);
+  });
+
 // The countdown and the elapsed time tick every second; only a change of state is announced.
 test('the ticking clocks of a state line are hidden from the live region', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

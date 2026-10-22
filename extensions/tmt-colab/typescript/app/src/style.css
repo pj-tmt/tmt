@@ -1188,14 +1188,21 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .conversation-status[data-message-state] .ask-state {
   display: inline;
 }
+/* The gap sits after what it follows, never before the action: when an action wraps, the gap stays
+   at the end of the line above and the action starts flush with the status text. */
+.conversation-status[data-message-state] > [role='status'] {
+  margin-right: 8px;
+}
 .conversation-status[data-message-state] > .tmt-ui-action,
 .conversation-status[data-message-state] .tmt-ui-icon-action {
   /* Sideways gap only: the box is taller than a line and must not open up the lines of the text. */
-  margin-left: 8px;
+  margin-right: 8px;
   vertical-align: middle;
 }
 .conversation-status[data-message-state] > .tmt-ui-action {
   margin-block: calc((1lh - var(--tmt-ui-host-action-min-height)) / 2);
+  /* The label itself starts where the status text starts when the action wraps. */
+  padding-inline: 0;
 }
 .conversation-status[data-message-state] .tmt-ui-icon-action {
   margin-block: calc((1lh - var(--tmt-ui-host-icon-action-size)) / 2);
