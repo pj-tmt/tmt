@@ -16,7 +16,10 @@ fn frame(body: &str, width: u16) -> String {
 fn a_table_wider_than_the_pane_paints_as_a_grid_not_raw_pipes() {
     for width in [80, 120] {
         let screen = frame(WIDE, width);
-        assert!(screen.contains('┌') && screen.contains('└'), "{width}: {screen}");
+        assert!(
+            screen.contains('┌') && screen.contains('└'),
+            "{width}: {screen}"
+        );
         assert!(!screen.contains("|---"), "{width}: {screen}");
         assert!(!screen.contains("| Name |"), "{width}: {screen}");
         for cell in ["Name", "Role", "Notes", "ux-2", "core", "arch", "edge"] {
@@ -34,7 +37,10 @@ fn a_table_in_a_quote_keeps_its_bar_and_its_grid() {
         .join("\n");
     for width in [80, 120] {
         let screen = frame(&quoted, width);
-        assert!(screen.contains('┌') && screen.contains('└'), "{width}: {screen}");
+        assert!(
+            screen.contains('┌') && screen.contains('└'),
+            "{width}: {screen}"
+        );
         assert!(!screen.contains("|---"), "{width}: {screen}");
     }
 }

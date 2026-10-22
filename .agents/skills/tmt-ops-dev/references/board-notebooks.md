@@ -22,8 +22,9 @@ located migration notices without rewriting authored values.
 `board::notes::sanitize` removes escapes, controls and hidden bidi/format
 characters, preserves newlines and script/emoji joiners, and expands tabs to four
 spaces. Shared Markdown renders headings, lists, underlined links,
-filled code and quote gutters; fitted tables use a boxed grid and fall back to
-source when they cannot fit. Unsupported HTML, images and footnotes remain
+filled code and quote gutters; tables use a boxed grid that shrinks the widest
+columns and wraps their cells to fit the pane (inside quotes and lists too), and
+fall back to source only when even two-cell columns cannot fit. Unsupported HTML, images and footnotes remain
 literal. Code lines clip without wrapping, and inline code adds no padding. The retained `NotesCursor` anchors response source lines and wrapped
 continuations; it reconciles nearest duplicates and clamps deleted lines.
 Conversation Scrolls owns the viewport, independently of that source anchor.
