@@ -59,6 +59,7 @@ describe(
           expect(result.code).toBe(0);
           expect(result.stderr).toBe('');
           expect(result.stdout.pane).toBe(real.pane);
+          expect(result.stdout).not.toHaveProperty('diagnostic');
           expect(result.stdout.commandCount).toBeGreaterThan(0);
           if (context.name === 'complete') expect(result.stdout.commandCount).toBe(1);
           expect(fixture.paneMetadata(real.pane)).toBe('');
@@ -82,7 +83,17 @@ describe(
             caller: { tmux: `/unrelated/socket,${fixture.serverPid},0` },
           })
         );
-        expect(conflict).toEqual({ pane: null, commandCount: 1 });
+        expect(conflict).toMatchObject({
+          pane: null,
+          commandCount: 1,
+          diagnostic: {
+            commandFailure: null,
+            cleanupFailed: false,
+            outputAvailable: true,
+            stdout: expect.stringContaining(fixture.pane),
+            outputTruncated: false,
+          },
+        });
         const outside = expectJsonResult(
           await fixture.runJsonCli<Counted & { pane: null }>(['caller'], { outsideTmux: true })
         );

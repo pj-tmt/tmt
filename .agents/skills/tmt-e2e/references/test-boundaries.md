@@ -157,3 +157,10 @@ Public-command scenarios select through `test/support/cli-executable.mjs` and
 the harness, including explicit descriptors and nested replies. Adapter scenarios
 deliberately select the tmux probe, so their results never stand in for public
 command acceptance.
+
+The development-only `tmux-probe caller` adds a bounded `diagnostic` only when
+caller observation is absent or fails. It records the same command's typed
+failure, deadline budget, elapsed time and retained output without another query
+or a changed timeout. `outputAvailable: false` means output was not retained,
+not that the command produced none. A later probe never explains an earlier
+CLI naming failure by itself; keep their evidence separate.
