@@ -68,15 +68,18 @@ def read_output(timeout):
 
 def wait_for(predicate, label):
     deadline = time.monotonic() + 25
-    while not predicate():
+    # A PTY read can stop mid-paint. Never admit a key from a mixture of
+    # the previous modal and its replacement; Crossterm ends each paint here.
+    while not (output.endswith((b"\x1b[?25l", b"\x1b[?25h")) and predicate()):
         if board_status is not None or time.monotonic() >= deadline:
             raise AssertionError(label + f" (exit={board_status})\n" + bytes(output[-12000:]).decode("utf8", "replace"))
         read_output(min(0.1, max(0, deadline - time.monotonic())))
 
 
 def open_review():
+    before = len(output)
     os.write(master, b"R")
-    wait_for(lambda: screen.contains("Launch preset:"), "session public read completed")
+    wait_for(lambda: len(output) > before and screen.contains("Launch preset:"), "session public read completed")
     os.write(master, b"\x1b[H" + (b"\x1b[B" if spec["move"] else b"") + b"\r")
     wait_for(lambda: screen.contains("The board closes here") and screen.contains("c copy command"), "review before foreground handoff")
 
@@ -104,8 +107,13 @@ os.read(release,1)
     open_review()
     os.write(master, b"c")
     copied = root / "copied"
-    wait_for(copied.exists, "copy without leaving the board")
     expected_argv = ["resume"] + (["--move"] if spec["move"] else []) + ["--", spec["recipient"]]
+    def copy_ready():
+        try:
+            return shlex.split(copied.read_text()) == [spec["proxy"]] + expected_argv
+        except (FileNotFoundError, ValueError):
+            return False
+    wait_for(copy_ready, "complete exact command copied without leaving the board")
     assert shlex.split(copied.read_text()) == [spec["proxy"]] + expected_argv
     assert board_status is None and not (root / "handoff.json").exists()
     os.write(master, b"\x1b")
@@ -140,8 +148,24 @@ os.read(release,1)
         "foreground":True,"copyAndCancelWithoutExec":True,"activeReads":0,"coreExit":board_status,"argv":proof["argv"]}))
 finally:
     if child is not None:
+        # Let the real board stop its read lane even when an assertion fails.
+        # SIGKILL would skip cleanup and race the sandbox's directory removal.
+        if board_pid is not None and board_status is None:
+            read_output(0)
+            if board_status is None:
+                try:
+                    os.kill(board_pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                deadline = time.monotonic() + 10
+                while board_status is None and time.monotonic() < deadline:
+                    read_output(0.1)
         if child.poll() is None:
-            os.killpg(child.pid, signal.SIGKILL)
+            os.write(release_write, b"x")
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
         child.wait(timeout=5)
     for fd in (master, slave, status_read, status_write, release_read, release_write):
         os.close(fd)

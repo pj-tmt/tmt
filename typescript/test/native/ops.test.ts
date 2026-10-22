@@ -4868,6 +4868,12 @@ describe('member session foreground handoff', () => {
         const recipient = await identity(sandbox, 'worker');
         expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
         expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        // Pin the appearance, as in the composer PTY fixture: this peer tests
+        // handoff rather than terminal background discovery.
+        expect(
+          (await runCli(sandbox, ['config', 'set', '--global', 'theme.base', 'tmt', '--json']))
+            .status
+        ).toBe(0);
         const root = path.join(sandbox.root, 'session-proof');
         mkdirSync(root);
         const copied = path.join(root, 'copied');
