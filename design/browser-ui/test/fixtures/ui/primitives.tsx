@@ -282,7 +282,16 @@ export function PrimitiveFixtures() {
           />{' '}
           External-form switch
         </label>
+        <label>
+          <Checkbox
+            aria-label="Other-form checkbox"
+            name="other-check"
+            form="primitive-other-form"
+          />{' '}
+          Other-form checkbox
+        </label>
       </div>
+      <form id="primitive-other-form" aria-label="Other reset form" />
       <Separator decorative={false} />
       <div className="tmt:flex tmt:flex-wrap tmt:gap-2">
         {(['default', 'secondary', 'destructive', 'outline', 'ghost', 'link'] as const).map(

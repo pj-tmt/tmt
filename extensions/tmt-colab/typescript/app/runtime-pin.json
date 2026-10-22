@@ -12,6 +12,11 @@
       "path": "assets/colab-runtime.js",
       "sha256": "1fa72f198e9fd60fd1fa640d563377b89c242ead0f77d245c79748795022a037",
       "length": 504804
+    },
+    {
+      "path": "assets/colab-runtime.css",
+      "sha256": "8896e10d56fe25533d43ab80c25ca5748b104a0c78f75866b6ee8faf19b73804",
+      "length": 3224
     }
   ]
 }

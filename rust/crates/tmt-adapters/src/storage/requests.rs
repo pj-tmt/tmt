@@ -9,6 +9,7 @@ mod digest;
 mod flow;
 mod history;
 mod notification;
+pub(super) mod passthrough;
 mod reply_batch;
 mod rows;
 
@@ -208,6 +209,15 @@ impl RequestRecords for RequestRows<'_> {
         p: &tmt_core::request::digest::DeliveryPolicy,
     ) -> Result<(), Self::Error> {
         digest::write_delivery_policy(self.0, id, p)
+    }
+    fn passthrough_capture(
+        &self,
+        id: &str,
+    ) -> Result<Option<tmt_core::request::passthrough::PassthroughCapture>, Self::Error> {
+        passthrough::capture(self.0, id)
+    }
+    fn create_passthrough_capture(&mut self, id: &str, at: u64) -> Result<(), Self::Error> {
+        passthrough::start_capture(self.0, id, at)
     }
     fn hold_digest_item(
         &mut self,

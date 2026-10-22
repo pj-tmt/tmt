@@ -92,6 +92,19 @@ fn buffer_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
 fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = workspace_board();
+    app.view.as_mut().unwrap().look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let request = "req_1a2b3c4d-1234-4567-89ab-0123456789ab";
     let key = app
@@ -105,8 +118,7 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
     app.input
         .as_mut()
         .unwrap()
-        .response_quotes
-        .push(crate::board::response::Quote {
+        .seed_quote(crate::board::response::Quote {
             key: crate::board::home_leads::MessageKey {
                 sender: key.0,
                 lead: key.1,
@@ -129,7 +141,7 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
     assert!(
         lines
             .iter()
-            .any(|line| line.contains("Quote · worker: \"source\"")),
+            .any(|line| line.contains("Quote · response: source")),
         "{lines:?}"
     );
     assert!(
@@ -141,22 +153,38 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
     let editor = app.input_viewport.get().unwrap().0;
     assert!(lines[usize::from(editor.bottom())].contains("Alt+⏎"));
     assert!(
-        lines[0].contains("Quote"),
-        "the quote stays above the editor"
+        lines
+            .iter()
+            .enumerate()
+            .any(|(row, line)| row >= usize::from(editor.y)
+                && row < usize::from(editor.bottom())
+                && line.contains("Quote")),
+        "the quote is inside the editor"
     );
     assert!(!lines.iter().any(|line| line.contains(request)));
     let hit = app
         .composer
-        .quote_hit
+        .paste_hits
         .borrow()
-        .clone()
+        .last()
+        .cloned()
         .expect("whole painted removal control");
-    assert_eq!(hit.area.width, 1);
-    let control: String = (hit.area.x..hit.area.right())
-        .map(|x| buffer[(x, hit.area.y)].symbol())
+    assert_eq!(hit.remove.width, 1);
+    let control: String = (hit.remove.x..hit.remove.right())
+        .map(|x| buffer[(x, hit.remove.y)].symbol())
         .collect();
-    assert_eq!(control, "✕");
-    assert_eq!(hit.source.request, request);
+    assert_eq!(control, "×");
+    assert_eq!(
+        app.input
+            .as_ref()
+            .unwrap()
+            .exact_quotes()
+            .next()
+            .unwrap()
+            .key
+            .request,
+        request
+    );
 }
 
 #[test]

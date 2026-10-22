@@ -58,7 +58,12 @@ configuration. The owner map is in
   mode joins the row's change-cursor comparison. `settle_request_delivery(Sent)` of a passthrough
   runs `answer_oldest_open` in the same transaction: the retained original text becomes the first
   final (`store_final`, shared with `submit_response`, no originator hint) of the oldest open
-  request from that agent to the sender; any other settlement stores nothing.
+  request from that agent to the sender; any other settlement stores nothing. The same send creates a
+  pending `request_passthrough` row (one per passthrough, cascading with the request). The hook's
+  runtime-observation transaction binds it at an admitted turn start (`TurnBoundary::Started`: the
+  prompt matches the typed text, first in first out) and settles it at the admitted turn end
+  (`Ended`: the captured final, else `no_answer`); `Capture::state_at` reads an unbound row past its
+  window as `no_answer`, so no sweeper exists.
 - Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
   metadata stays on the attempt, separate from delivery and the final-submission marker;
   same-reason retries retain the first timestamp. It releases waiters without a recipient

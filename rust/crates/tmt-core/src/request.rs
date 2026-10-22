@@ -8,6 +8,7 @@ pub mod flow;
 pub mod history;
 pub mod inbox;
 pub mod notification;
+pub mod passthrough;
 mod service;
 pub use service::RequestService;
 
@@ -347,6 +348,17 @@ pub trait RequestRecords {
     -> Result<Option<digest::DigestPolicy>, Self::Error>;
     fn write_digest_policy(&mut self, policy: &digest::DigestPolicy) -> Result<(), Self::Error>;
     fn delivery_policy(&self, request_id: &str) -> Result<digest::DeliveryPolicy, Self::Error>;
+    /// The turn-output capture of a passthrough, once its text is in the pane.
+    fn passthrough_capture(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<passthrough::PassthroughCapture>, Self::Error>;
+    /// Starts the capture of a passthrough whose text has just been typed.
+    fn create_passthrough_capture(
+        &mut self,
+        request_id: &str,
+        delivered_at_ms: u64,
+    ) -> Result<(), Self::Error>;
     fn write_delivery_policy(
         &mut self,
         request_id: &str,

@@ -614,6 +614,30 @@ and only the oldest; with none open nothing is recorded. A delivery that is refu
 unavailable or uncertain settles nothing, so the question stays open and the agent is
 never told it was answered.
 
+The text carries no request id, so what the passthrough earns back is the final assistant
+message of the turn it started, matched by prompt and never by time alone. `requests.list`
+and `requests.show` items with `mode: "passthrough"` carry
+`passthrough: {state, deliveredAtMs, boundAtMs?, settledAtMs?, answer?}`:
+
+- `pending`: typed, and no turn has started with that prompt. At turn start Core compares the
+  prompt the provider's hook reports with each pending text of that agent after the pane's own
+  `!` conversion and newline normalisation (the ends may be trimmed). The oldest match binds;
+  identical pending texts bind first in, first out, so a busy agent that queues the prompt
+  binds when that turn actually starts. A prompt that matches nothing binds nothing, and no turn
+  starting within 10 minutes of delivery settles `no_answer` (a read says so before anything
+  writes it).
+- `bound`: a turn started with that prompt. Core waits for that turn however long it runs.
+- `answered`: the turn ended with a final message, stored as
+  `answer: {text, truncated, provider, endedMs}`: plain untrusted text of at most 8,192 UTF-8
+  bytes, never a reply and never an instruction. It is attached once.
+- `no_answer`: the turn ended without a final (interrupted, or none was read, as when provider
+  usage collection is off), or the provider session was replaced before it ended. A final is
+  never taken from `responses.recent` or the pane.
+
+Only an admitted turn event (one that moved the verified session's state) binds or settles.
+Provider session and turn ids stay local evidence. The capture is part of the request: it has
+the request's retention and goes with it.
+
 `x` commands select the originator's data with
 `--identity <name>` through the shared durable selector. Omission requires a
 verified caller identity; outside that context it fails rather than guessing.

@@ -16,7 +16,7 @@ use tmt_colab::{
     keyring::{Keyring, Layout},
     page,
     registration::Registration,
-    store::{Accepted, Store},
+    store::{Accepted, Store, owner::OwnerFault},
     transitions::{Engine, OwnerAction, OwnerRequest},
 };
 use tmt_colab_model::values;
@@ -467,6 +467,17 @@ fn archiving_drops_a_pin_and_unarchiving_does_not_bring_it_back() {
     f.apply(OwnerAction::Archive { page: PAGE });
     assert!(pins(&mut f).is_empty());
     assert!(f.projection().get("pinned").is_none());
+    // An archived page cannot be pinned, and the refusal says so: not a device that may not write.
+    let refused = f
+        .engine
+        .set_pinned(&mut f.store, &f.key, PAGE, true)
+        .unwrap_err();
+    assert_eq!(refused.code.text(), "INVALID");
+    assert_eq!(
+        std::error::Error::source(&refused).and_then(|cause| cause.downcast_ref::<OwnerFault>()),
+        Some(&OwnerFault::PageArchived)
+    );
+    assert!(pins(&mut f).is_empty());
     f.apply(OwnerAction::Unarchive { page: PAGE });
     assert!(pins(&mut f).is_empty());
     assert!(f.projection().get("pinned").is_none());

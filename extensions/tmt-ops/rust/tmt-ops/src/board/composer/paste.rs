@@ -80,6 +80,7 @@ pub(in crate::board) struct Preview {
     source: String,
     /// A dropped file: the popup is built from the file's facts, not from the source.
     file: bool,
+    quote: bool,
     scroll: RefCell<ScrollState>,
 }
 
@@ -211,7 +212,10 @@ impl App {
                 let file = text
                     .as_str()
                     .get(fold.source.clone())
-                    .filter(|_| !fold.label.starts_with('⧉'))
+                    .filter(|_| {
+                        !projection.inline_quotes.contains_key(&fold.id)
+                            && !fold.label.starts_with('⧉')
+                    })
                     .and_then(super::files::path_of)
                     .and_then(|path| {
                         let table = self.composer.files.borrow();
@@ -285,7 +289,9 @@ impl App {
         let Some(source) = input.text.as_str().get(source) else {
             return Effect::None;
         };
-        let file = !source.contains('\n')
+        let quote = input.inline_quotes.contains_key(&id);
+        let file = !quote
+            && !source.contains('\n')
             && super::files::path_of(source)
                 .is_some_and(|path| self.composer.files.borrow().get(&path).is_some());
         *self.composer.paste_preview.get_mut() = Some(Preview {
@@ -294,6 +300,7 @@ impl App {
             text: source.into(),
             source: source.to_owned(),
             file,
+            quote,
             scroll: RefCell::default(),
         });
         Effect::None
@@ -434,12 +441,30 @@ impl App {
                 format!("File · {}", super::files::name(&path)),
             ),
             None => {
-                let (chars, lines) = counts(preview.text.as_str());
+                let text = preview.text.as_str();
+                let (chars, lines) = if preview.quote {
+                    // Admission already removed the terminal break. Any final
+                    // empty line here is meaningful quoted content.
+                    (text.chars().count(), text.split('\n').count())
+                } else {
+                    counts(text)
+                };
                 let line_unit = if lines == 1 { "line" } else { "lines" };
+                // A terminal break ends the last content line; further blank
+                // lines remain visible. Retained source and send bytes stay exact.
+                let shown = if preview.quote {
+                    text
+                } else {
+                    text.strip_suffix("\r\n")
+                        .or_else(|| text.strip_suffix('\n'))
+                        .or_else(|| text.strip_suffix('\r'))
+                        .unwrap_or(text)
+                };
                 (
-                    preview.text.clone(),
+                    shown.into(),
                     format!(
-                        "Pasted · {} chars · {} {line_unit}",
+                        "{} · {} chars · {} {line_unit}",
+                        if preview.quote { "Quote" } else { "Pasted" },
                         number(chars),
                         number(lines)
                     ),
@@ -500,13 +525,19 @@ impl App {
 }
 
 /// Gives every collapsed file chip over `path` the label its facts now call for.
-pub(super) fn relabel(editor: &mut Editor, path: &str, label: &str) -> bool {
+pub(super) fn relabel(
+    editor: &mut Editor,
+    quotes: &std::collections::BTreeMap<u64, super::QuoteSource>,
+    path: &str,
+    label: &str,
+) -> bool {
     let sent = super::files::send_text(path);
     let ranges: Vec<_> = editor
         .folds()
         .iter()
         .filter(|fold| {
-            !fold.label.starts_with('⧉')
+            !quotes.contains_key(&fold.id)
+                && !fold.label.starts_with('⧉')
                 && editor.as_str().get(fold.source.clone()) == Some(sent.as_str())
         })
         .map(|fold| fold.source.clone())
@@ -607,7 +638,7 @@ impl App {
         let label = super::files::label(&path, &info);
         let mut changed = self.composer.relabel_drafts(&path, &label);
         if let Some(input) = self.input.as_mut() {
-            changed |= relabel(&mut input.text, &path, &label);
+            changed |= relabel(&mut input.text, &input.inline_quotes, &path, &label);
         }
         self.composer.invalidate();
         self.invalidate_frame_geometry();

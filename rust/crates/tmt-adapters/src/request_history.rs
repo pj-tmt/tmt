@@ -151,10 +151,22 @@ fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Va
             json!({"status":"unavailable","submittedAtMs":submitted_at_ms,"expiresAtMs":expires_at_ms})
         }
     };
-    json!({"requestId":item.request_id,"roomId":item.room_id,"recipientId":item.recipient_identity_id,
+    let mut value = json!({"requestId":item.request_id,"roomId":item.room_id,"recipientId":item.recipient_identity_id,
         "sender":{"kind":item.originator.as_str(),"identityId":item.originator.identity_id()},
         "kind":item.kind.as_str(),"origin":item.origin.as_str(),"urgent":item.delivery_policy.urgent,"digestKind":item.delivery_policy.kind.as_str(),"mode":item.delivery_policy.mode.as_str(),"preparedAtMs":item.prepared_at_ms,"delivery":item.delivery.as_str(),
-        "recipientAcknowledged":item.recipient_acknowledged,"final":final_state})
+        "recipientAcknowledged":item.recipient_acknowledged,"final":final_state});
+    // Only a passthrough has one: the turn output its typed text earned (#4336).
+    if let Some(capture) = &item.capture {
+        value["passthrough"] = json!({
+            "state":capture.state.as_str(),"deliveredAtMs":capture.delivered_at_ms,
+            "boundAtMs":capture.bound_at_ms,"settledAtMs":capture.settled_at_ms,
+            "answer":capture.answer.as_ref().map(|answer| json!({
+                "text":answer.text,"truncated":answer.truncated,
+                "provider":answer.provider,"endedMs":answer.ended_ms
+            }))
+        });
+    }
+    value
 }
 
 pub fn encode_history_page(page: &HistoryPage, results: bool) -> Vec<u8> {
