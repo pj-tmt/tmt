@@ -107,7 +107,12 @@ fn base_style() -> String {
         .and_then(|block| block.split("```").next())
         .expect("the page-style reference holds its generated starter");
     assert!(starter.contains(FRAME), "the starter's body rule changed");
-    starter.replacen(FRAME, "", 1)
+    // The starter ends with an inert comment of copyable question and reading examples for a page
+    // started from the bare starter; a template carries blocks of its own.
+    let examples = starter
+        .find("<!-- Examples to copy")
+        .expect("the starter holds its copyable examples");
+    starter[..examples].replacen(FRAME, "", 1)
 }
 
 pub fn find(name: &str) -> Option<&'static Template> {
