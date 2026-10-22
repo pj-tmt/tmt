@@ -22,6 +22,9 @@ for (const theme of ['light', 'dark'] as const)
       // The composer focuses itself on mount; inspect resting frames after leaving it.
       await fixture.getByRole('button', { name: 'Action', exact: true }).focus();
       await expect(composer).not.toBeFocused();
+      // A focused control recolours its own border (#3998), so the resting frames are read with
+      // nothing focused.
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       const color = (token: string) =>
         fixture.evaluate((node, token) => {
           const probe = document.createElement('span');
@@ -68,8 +71,10 @@ for (const theme of ['light', 'dark'] as const)
       await field.press('Tab');
       await page.keyboard.press('Shift+Tab');
       await expect(field).toHaveCSS('border-top-color', focus);
-      await expect(field).toHaveCSS('outline-color', focus);
-      await expect(field).toHaveCSS('outline-width', '1px');
+      // Focus recolours the field's own edge; it draws no second outline (one frame).
+      await expect(field).toHaveCSS('border-top-width', '1px');
+      await expect(field).toHaveCSS('outline-style', 'none');
+      await expect(field).toHaveCSS('outline-width', '0px');
       expect(await field.boundingBox()).toEqual(before);
       await page.screenshot({
         path: capturePath(`3299-focus-${width}-${theme}.png`),

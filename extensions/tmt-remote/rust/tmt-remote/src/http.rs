@@ -302,16 +302,36 @@ fn response(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
     }
     Ok(())
 }
-/// Origin-form target: only the transport session query or a discarded legacy `/pair` query.
-/// Paths have no fragments, escapes, dot segments or empty inner segments; only the last
-/// segment may be empty (a directory such as
-/// `<prefix>/x/colab/`). Isolation between the operation routes and the mount
+/// Origin-form target: only the transport session query, a discarded legacy `/pair` query or the
+/// plain query of an owner's short page link (`/p/<id>?key=value`). Paths have no fragments,
+/// escapes, dot segments or empty inner segments; only the last segment may be empty (a directory
+/// such as `<prefix>/x/colab/`). Isolation between the operation routes and the mount
 /// space relies on it.
 fn target(path: &str) -> bool {
     // Only this fixed legacy redirect discards a query. Other route grammars stay strict.
     if let Some(query) = path.strip_prefix("/pair?") {
         return query.bytes().all(|b| b.is_ascii_graphic() && b != b'#');
     }
+    // A short page link keeps its query in the redirect to the app, and the app writes its own
+    // keys (`?open=`, `?read=`, `?anchor=`) onto its routes, so either query is plain name=value
+    // text: no escapes, separators of other grammars or anything but unreserved bytes.
+    let path = match path.split_once('?') {
+        Some((short, query))
+            if (short.starts_with("/p/") || crate::pages::app_route(short))
+                && !query.is_empty()
+                // A session hand-off has its own grammar below; it never rides on an app query.
+                && !query
+                    .split('&')
+                    .any(|pair| pair.split('=').next() == Some("tmt-session"))
+                && query.bytes().all(|b| {
+                    b.is_ascii_alphanumeric()
+                        || matches!(b, b'-' | b'_' | b'.' | b'~' | b'=' | b'&')
+                }) =>
+        {
+            short
+        }
+        _ => path,
+    };
     let path = if let Some((path, id)) = path.split_once("?tmt-session=") {
         if !crate::canonical::is_core_id(id)
             || id.as_bytes()[14] != b'4'

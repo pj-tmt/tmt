@@ -95,6 +95,34 @@ it('opens same-space page links and keeps outside links inert', () => {
   expect(html.match(/<a /g)).toHaveLength(1);
 });
 
+it('opens a page link at the app route inside the one TMT web app', () => {
+  const shell = true;
+  expect(classifyHref('/p/deadbeef', origin, shell)).toEqual({
+    kind: 'page',
+    href: '/colab/p/deadbeef',
+  });
+  expect(classifyHref('/p/DEADBEEF#section-1', origin, shell)).toEqual({
+    kind: 'page',
+    href: '/colab/p/deadbeef#section-1',
+  });
+  expect(classifyHref('/colab/p/deadbeef#a', origin, shell)).toEqual({
+    kind: 'page',
+    href: '/colab/p/deadbeef#a',
+  });
+  expect(classifyHref(`${origin}/colab/p/deadbeef#a`, origin, shell)).toEqual({
+    kind: 'page',
+    href: '/colab/p/deadbeef#a',
+  });
+  expect(classifyHref(`${origin}/p/deadbeef`, origin, shell)).toEqual({
+    kind: 'page',
+    href: '/colab/p/deadbeef',
+  });
+  // The app route is no page link on a page's own origin, and a bad prefix is never one.
+  expect(classifyHref('/colab/p/deadbeef', origin)).toEqual({ kind: 'none' });
+  for (const raw of ['/colab/p/short', '/colabp/deadbeef', '//colab/p/deadbeef'])
+    expect(classifyHref(raw, origin, shell)).toEqual({ kind: 'none' });
+});
+
 it('never turns an unsafe link target into a link', () => {
   const unsafe = [
     'javascript:alert(1)',

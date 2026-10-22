@@ -63,6 +63,9 @@ export async function mountReader(
 ) {
   await import('../src/reader-style.css');
   root?.unmount();
+  // The shipped reader has no TMT shell: drop the app's hidden one, which would still match
+  // `body:has(.tmt-ui-shell)` and take away the body's inset for the fixed header.
+  document.getElementById('root')!.replaceChildren();
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('layout-fixture');
   if (!host) {

@@ -26,19 +26,40 @@ export function rememberedPages(
 ): readonly PageSummary[] | undefined {
   return cache.get(transport)?.get(space)?.pages;
 }
+/** The projects the last list read named, beside its pages. */
+const projectCache = new WeakMap<PageTransport, Map<string | undefined, readonly string[]>>();
+export function rememberedProjects(
+  transport: PageTransport,
+  space: string | undefined,
+): readonly string[] | undefined {
+  return projectCache.get(transport)?.get(space);
+}
+/** Readers of the remembered list that never read it themselves (the shell's module menu). */
+const rememberedListeners = new Set<() => void>();
+export function onRememberedPages(listener: () => void): () => void {
+  rememberedListeners.add(listener);
+  return () => void rememberedListeners.delete(listener);
+}
 /**
  * A list this transport and space already loaded elsewhere (the space home), so a switcher opened
  * before it ever read one still shows it at once. The opened pages stay what a switcher last read,
- * or none yet.
+ * or none yet. Projects, when the read named them, are kept beside the pages.
  */
 export function rememberPages(
   transport: PageTransport,
   space: string | undefined,
   pages: readonly PageSummary[],
+  projects?: readonly string[],
 ) {
   let spaces = cache.get(transport);
   if (!spaces) cache.set(transport, (spaces = new Map()));
   spaces.set(space, { state: 'ready', pages, opened: spaces.get(space)?.opened ?? NO_OPENED });
+  if (projects) {
+    let named = projectCache.get(transport);
+    if (!named) projectCache.set(transport, (named = new Map()));
+    named.set(space, projects);
+  }
+  for (const listener of rememberedListeners) listener();
   watchers
     .get(transport)
     ?.get(space)
@@ -106,7 +127,7 @@ export class SwitcherSourceStore {
       ]);
       if (generation !== this.#generation) return;
       if (list.status === 'fulfilled') {
-        rememberPages(this.transport, this.space, list.value.pages);
+        rememberPages(this.transport, this.space, list.value.pages, list.value.projects);
         const ready: Cached = {
           state: 'ready',
           pages: list.value.pages,

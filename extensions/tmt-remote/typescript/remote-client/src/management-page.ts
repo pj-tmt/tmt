@@ -231,8 +231,8 @@ export class ManagementPage {
         this.intent?.kind === 'revoke' || this.intent?.kind === 'remove-others'
           ? 'Could not confirm the removal. Check its result before trying again.'
           : this.freshAttempted
-            ? 'The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices.'
-            : 'This change could not be confirmed. Check its original result before making another change.';
+            ? 'The saved value is still unconfirmed. Check with tmt remote settings or tmt remote devices.'
+            : 'This change could not be confirmed. Check the saved value before making another change.';
     else if (this.outcome?.state === 'refused')
       this.notice =
         this.outcome.reason === 'REMOTE_DEVICE_LIST_CHANGED'

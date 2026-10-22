@@ -122,7 +122,7 @@ export function DialogContent({
         {showCloseButton && (
           <DialogClose
             aria-label="Close"
-            className="tmt:absolute tmt:top-4 tmt:right-4 tmt:flex tmt:size-6 tmt:items-center tmt:justify-center tmt:bg-transparent tmt:text-foreground tmt:border-0 tmt:outline-ring tmt:focus-visible:outline-solid tmt:focus-visible:outline-(length:--tmt-foundation-focus-width)"
+            className="tmt:absolute tmt:top-4 tmt:right-4 tmt:flex tmt:size-6 tmt:items-center tmt:justify-center tmt:bg-transparent tmt:text-foreground tmt:border-0 tmt:outline-ring tmt:focus-visible:outline-solid tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:focus-visible:-outline-offset-(length:--tmt-foundation-focus-width)"
           >
             <XIcon aria-hidden="true" className="tmt:size-4" />
           </DialogClose>

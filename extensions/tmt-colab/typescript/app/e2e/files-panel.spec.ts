@@ -228,7 +228,7 @@ test('a slow Preview keeps its label, fences the row without greying it and show
   const preview = row.getByRole('button', { name: text.attachmentPreview, exact: true });
   const download = row.getByRole('button', { name: text.attachmentDownload, exact: true });
   const remove = row.getByRole('button', { name: text.attachRemove, exact: true });
-  const marks = row.locator('.tmt-ui-action-mark[data-busy="true"] svg');
+  const marks = row.locator('.tmt-ui-action-mark[data-busy="true"] .tmt-ui-busy-mark');
   await preview.click();
   await expect
     .poll(async () => (await actions(page)).includes('attach:open:slow.png:document'))
@@ -242,7 +242,7 @@ test('a slow Preview keeps its label, fences the row without greying it and show
   await expect(marks).toHaveCount(0);
   await page.clock.runFor(1);
   await expect(marks).toHaveCount(1);
-  await expect(preview.locator('.tmt-ui-action-mark svg')).toHaveCount(1);
+  await expect(preview.locator('.tmt-ui-action-mark .tmt-ui-busy-mark')).toHaveCount(1);
   await page.evaluate(async (path) => (await import(path)).releaseOpen(), fixture);
   await expect(page.getByTestId('file-preview').locator('img')).toBeVisible();
   await page.clock.runFor(1000);

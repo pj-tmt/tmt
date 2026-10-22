@@ -247,7 +247,7 @@ for (const state of ['unknown', 'committed'] as const) {
         assert.equal(
           f.page.notice,
           state === 'unknown'
-            ? 'This change could not be confirmed. Check its original result before making another change.'
+            ? 'This change could not be confirmed. Check the saved value before making another change.'
             : 'Session limit saved. Applies to new sessions. This session ended. Use the local CLI to continue.',
         );
         assert.deepEqual(f.counts(), {
@@ -498,7 +498,7 @@ for (const [kind, enabled] of [
       f.page.notice,
       kind === 'revoke'
         ? 'Could not confirm the removal. Check its result before trying again.'
-        : 'This change could not be confirmed. Check its original result before making another change.',
+        : 'This change could not be confirmed. Check the saved value before making another change.',
     );
   });
 }
@@ -520,7 +520,7 @@ test('refused recovery keeps the unknown original and its write lock', async () 
     assert.equal(f.page.canRecover, false);
     assert.equal(
       f.page.notice,
-      'The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices.',
+      'The saved value is still unconfirmed. Check with tmt remote settings or tmt remote devices.',
     );
     assert.deepEqual(f.counts(), {
       effectCalls: 1,

@@ -4,9 +4,11 @@ import type { PageSummary } from './transport.js';
 export type PageStage = 'in-progress' | 'discussion' | 'done';
 /** What the page list's tabs show: a stage, or every active page. */
 export type HomeStage = PageStage | 'all';
-export const HOME_STAGES: readonly HomeStage[] = ['in-progress', 'discussion', 'done', 'all'];
-/** The tab a bare list URL opens on; the route search keeps any other. */
-export const DEFAULT_VIEW: HomeStage = 'in-progress';
+export const HOME_STAGES: readonly HomeStage[] = ['all', 'discussion', 'in-progress', 'done'];
+/** The tab a bare list URL opens on (every active page); the route search keeps any other. */
+export const DEFAULT_VIEW: HomeStage = 'all';
+/** A tab of the owner's list: a stage, the pages that need you, or the archived ones. */
+export type HomeView = HomeStage | 'needs' | 'archived';
 
 /**
  * The stage a page's summary says. A fresh summary without work is a page with no task, so it is in

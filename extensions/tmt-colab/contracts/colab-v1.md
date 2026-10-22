@@ -707,15 +707,28 @@ revocation and certificate expiry.
 
 The reserved owner-socket `GET /.tmt/remote/describe` implements Remote's
 [module-description contract](../../../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell).
-It reads only the existing bounded owner catalog/fingerprint projection and fresh page-summary
-cache; it starts no refresh, fold, subscription or new state. Both counts exclude archived
+It reads only the existing bounded owner catalog/fingerprint projection, the fresh page-summary
+cache and the local title projection (`page_titles`, schema 16); it starts no refresh, fold,
+subscription or write, and only selects from that projection.
+Both counts exclude archived
 pages: Pages counts the remaining pages, and `needsYou` counts waiting pages, matching the
-in-app Needs-you chip (two waiting items on one page count once). An empty catalog has known
+in-app Needs you tab (two waiting items on one page count once). An empty catalog has known
 zero counts. The Pages count comes from the catalog alone and stays known when summaries
 are unavailable. If any non-archived summary is missing or stale, the answer keeps its rail
 and menu but omits `needsYou`, never inventing zero. An unavailable catalog
-projection or a count above the descriptor bound returns a typed refusal. The reply is
-display-only and does not change page admission. Browser mount traffic cannot call it.
+projection or a count above the descriptor bound returns a typed refusal. Optional `home`
+lists up to five recent pages, newest activity first (the later of last activity and last
+update), each a non-archived page with a projected title: `id` is the page ID without
+hyphens, `title` the projected title as opaque display text cut to 40 Unicode scalars (an
+ellipsis ends a cut title), and `path` `/pages/<pageId>`. A page without a current projected
+title gets no card, never a placeholder. Titles go only to the owner:
+this socket answers only the owner's Remote, which composes it only for a live owner-device
+session. The reply is display-only and does not change page admission. Browser mount traffic
+cannot call it.
+
+An owner `GET <mount>/pages/<pageId>` for a generated page ID is the card's deep link: static
+markup that sends the browser to the mounted app with `#path=/pages/<pageId>`, the fragment
+target the app already accepts. Any other viewer, or a malformed ID, gets the plain not-found.
 
 The exact reserved socket `POST /.tmt/remote/device-events` consumes remote's
 [local device events](../../../contracts/remote-channel-v1.md#extension-channel-api)
@@ -2944,7 +2957,7 @@ one. The page markup check owns complete admission rules and ID-holder ordering.
 
 All question forms render compact lines without tabs. Each line is a trusted
 button with the admitted plain-text title, state word and chevron: waiting uses
-`◆` and `Waiting for you`; answered uses `✓` and `Answered: <short answer>` with
+`◆` and `Needs you`; answered uses `✓` and `Answered: <short answer>` with
 one-line ellipsis. Only the mark carries the state colour; title, state text and
 chevron remain neutral. Two or more adjacent questions have one muted
 `Questions from <agent> · N of M waiting` header; a question placed alone has none.
@@ -3476,7 +3489,7 @@ the storage transaction completed. Source-editor text is outside this record.
 
 ### Owner page and space-home header
 
-Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row that starts with the TMT mark and Colab (below 480px the mark only, the wordmark kept in the brand link's name), an original-author caption next to the title, and compact actions in More. The display-only Remote identity (`local · <device>`) names and titles the brand link; it never supplies connection state or authority, and the connection chip retains its existing owner (below 480px its words lead the More menu as a non-interactive line instead of a visible header chip).
+Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row that starts with the TMT mark and Colab (below 480px the mark only, the wordmark kept in the brand link's name; inside the TMT web shell the row sits in the shell's header slot and the rail carries the mark), an original-author caption next to the title, and compact actions in More. The display-only Remote identity (`local · <device>`) names and titles the brand link; it never supplies connection state or authority, and the connection chip retains its existing owner (below 480px its words lead the More menu as a non-interactive line instead of a visible header chip).
 
 ### Transient reply notifications (#2726, #2727)
 
@@ -4143,17 +4156,18 @@ permission copy. No Ask identity, record shape or retry rule changes.
 Every command that names a page tells a person where to open it, from one door and pairing
 lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
 runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
-print the **short owner link**, `<origin>/p/<shortId>`, while a door runs. Remote owns that
-in-place public forwarding; it does not bypass pairing or grant admission.
-Colab retains the short location and uses validated Remote `tmt-mount` only for its internal
-transport, as defined below. Without a door they print root-relative `/p/<shortId>` and the
+print the **short owner link**, `<origin>/colab/p/<shortId>`, while a door runs: a route of the
+[one TMT web app](#colab-in-the-tmt-web-app-3937), which does not bypass pairing or grant
+admission. The older `<origin>/p/<shortId>` keeps working: the door redirects it there.
+Colab uses validated Remote `tmt-mount` only for its internal transport, as defined below.
+Without a door they print root-relative `/colab/p/<shortId>` and the
 reason: the install line when Remote gave no answer; Remote's own message for an error envelope,
 with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
 this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the `serve` row then only says `(Remote serve is outdated; see warning)`; else `run tmt colab
 serve to get a full link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
 as `serve` follows (`pair for page access: tmt remote pair`, or `if this browser is new, pair for page access: ...`).
 
-`--json` results that name a page carry `path` (root-relative `/p/<prefix>`), `link`
+`--json` results that name a page carry `path` (root-relative `/colab/p/<prefix>`), `link`
 and `shortLink` (the same short owner URL, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
 `path`, `link` and `shortLink` on each page and `paired`/`next` once; its human rows lead with
 the title (`Untitled page` when empty), then its shortest unique catalog prefix (at least eight characters) and the
@@ -4175,9 +4189,33 @@ retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` 
 `opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab
 adds `tmt colab serve` to `next`. Browser navigation still undergoes existing admission.
 
+### Colab in the TMT web app (#3937)
+
+The door serves one TMT web app document for its routes
+([remote-channel-v1](../../../contracts/remote-channel-v1.md#public-browser-routes)); Colab is
+the route `/colab/…`. Colab describes its module script as `entry`
+(`/assets/colab-module.js` under its mount); the app loads it only from an owner's composed
+shell, mounts it into the shared shell and unmounts it, closing its Remote session, page bindings
+and timers, when another route opens. Without an owner session the route says, in plain words,
+to pair the browser and loads no Colab code; a module that cannot load says Colab could not start.
+The renderer stays its own sandboxed frame under the mount, with its own policy. The reader
+(`/read/<id>`) and the hosted bundle stay outside the app.
+
+Inside the app Colab's locations are paths: `/colab/` (home), `/colab/pages/<pageId>`,
+`/colab/settings` and `/colab/p/<shortId>` (the printed short link, resolved like `/p/<shortId>`
+below). Every older link form keeps working and lands on the same route, its display hint carried
+as a search key, before anything else reads the location:
+
+- `/p/<shortId>[?query][#fragment]`: the door answers 308 to `/colab/p/<shortId>` with the query;
+  the browser keeps the fragment.
+- The mount root `<mount>` with an owner fragment (`#space=…&path=/pages/<id>&read=<id>` or
+  `anchor=`/`open=`) or a preview fragment (`#/pages/<id>`): the mounted document moves to
+  `/colab/` with its fragment, which becomes `/colab/pages/<id>?read=<id>` (or `anchor`, `open`).
+- `#t=<threadId>` stays a fragment.
+
 ### Short owner-page aliases (#1688)
 
-Remote forwards `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` without device context.
+Remote forwards `/read/<id>` without device context.
 Colab validates Remote's absolute `tmt-mount` and returns catalog-independent bootstrap
 bytes, never a redirect or existence-dependent response. Missing/invalid mount refuses.
 Page and link identifiers use the Remote entry grammar; actual page-prefix resolution
@@ -4231,7 +4269,7 @@ failing opener warns once and keeps the printed link without undoing creation.
 still emits exactly one JSON document with the short-link fallback.
 
 When Colab decides to open, it calls Remote's hidden `tmt remote launch <short-target> --open`
-once through the invoking core (target `/colab/` or `/p/<id>`; 15-second deadline), and
+once through the invoking core (target `/colab/` or `/colab/p/<id>`; 15-second deadline), and
 Remote opens the browser and connects an unpaired one. The launch URL and its code never reach
 Colab, its output or its logs. The answer `{version:1,link,opened,state}` with `state` one of
 `opened`, `skipped`, `no-opener` or `failed` sets `opened` and the row; `failed` warns once.
@@ -5417,8 +5455,8 @@ signing; revoked devices receive nothing. These wraps confer no new Remote right
 
 JSON success is `{spaceId,pageId,title,path,operationId,membershipHead,warnings}` with
 `membershipHead:{revision,statementHash}` (decimal text and canonical base64url
-hash32), and `warnings` the [page markup check](#page-markup-check-2753) findings of the source (`[]` when clean). `path` is the root-relative short alias
-`/p/<shortId>`; it carries no space and pins nothing. The CLI learns the door only through
+hash32), and `warnings` the [page markup check](#page-markup-check-2753) findings of the source (`[]` when clean). `path` is the root-relative short link
+`/colab/p/<shortId>`; it carries no space and pins nothing. The CLI learns the door only through
 Remote's public `tmt remote status --json` (`{running,origin,path}`, one call with a
 three-second cap, run through the invoking core executable), never Remote's files. See
 [page links](#page-links-and-opening-the-browser-1614) for what is printed with and without a door.
@@ -6345,9 +6383,10 @@ no download and follows the create-only rules above.
 
 The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
-the same dialog; local samples remain read-only. Home offers the tabs In progress, Discussion
-and Done (the stage of each row's `summary.work`, a fresh summary without work being in
-discussion), Archived and All, and opens on In progress (a link with `stage=all` opens on All; a mounted address is the list and no more, so a reload,
+the same dialog; local samples remain read-only. Home offers the tabs All, Needs you (the
+active pages waiting on the viewer, `needs=true`), Discussion, In progress and Done (the stage of
+each row's `summary.work`, a fresh summary without work being in discussion) and Archived, and
+opens on All (a link with `stage=in-progress` opens on In progress; a mounted address is the list and no more, so a reload,
 Back and Forward return to the tab the entry was left on); an
 archived page counts only under Archived, and a page whose summary has not arrived is in no stage
 tab. An empty In progress says so and points to Discussion and All, and never opens another tab by

@@ -1,0 +1,99 @@
+/* 04D-1 mark: one aurora mark on every surface; the mark-only brand roles tune it per theme and
+   print shows the mono beam. */
+.tmt-brand-mark {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+.tmt-brand-mark-cyan {
+  stop-color: var(--tmt-ui-brand-mark-aurora-cyan);
+}
+.tmt-brand-mark-green {
+  stop-color: var(--tmt-ui-brand-mark-aurora-green);
+}
+.tmt-brand-mark-gold {
+  stop-color: var(--tmt-ui-brand-mark-aurora-gold);
+}
+.tmt-brand-mark-far {
+  stop-color: var(--tmt-ui-brand-mark-far);
+}
+.tmt-brand-mark-glow {
+  stop-color: var(--tmt-ui-brand-mark-glow);
+}
+.tmt-brand-mark-panel-top {
+  stop-color: var(--tmt-ui-brand-mark-panel-top);
+}
+.tmt-brand-mark-panel-bottom {
+  stop-color: var(--tmt-ui-brand-mark-panel-bottom);
+}
+.tmt-brand-mark-mono-start {
+  stop-color: var(--tmt-ui-brand-mark-mono-start);
+}
+.tmt-brand-mark-mono-end {
+  stop-color: var(--tmt-ui-brand-mark-mono-end);
+}
+/* On dark surfaces the panel's edge role is a faint line so the window still reads. */
+.tmt-brand-mark-panel {
+  stroke: var(--tmt-ui-brand-mark-panel-edge);
+  stroke-width: 1.2;
+}
+.tmt-brand-mark-rim {
+  fill: none;
+  stroke-width: 1.1;
+  stroke-linecap: round;
+}
+.tmt-brand-mark-prompt {
+  fill: none;
+  stroke: var(--tmt-ui-brand-mark-prompt);
+  stroke-width: 3.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* The small form keeps the prompt and the edge about the same device width at 16-24 px. */
+.tmt-brand-mark[data-form='small'] .tmt-brand-mark-prompt {
+  stroke-width: 9;
+}
+.tmt-brand-mark[data-form='small'] .tmt-brand-mark-panel {
+  stroke-width: 2.5;
+}
+.tmt-brand-mark-tile {
+  fill: var(--tmt-ui-brand-mark-tile);
+  stroke: var(--tmt-ui-brand-mark-tile-edge);
+}
+.tmt-brand-mark-print {
+  display: none;
+}
+@media print {
+  .tmt-brand-mark-beam {
+    display: none;
+  }
+  .tmt-brand-mark-print {
+    display: inline;
+  }
+}
+.tmt-brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--tmt-brand-size) * 0.3);
+  color: var(--tmt-ui-color-text, currentColor);
+}
+.tmt-brand-lockup > .tmt-brand-mark {
+  width: var(--tmt-brand-size);
+  height: var(--tmt-brand-size);
+}
+.tmt-brand-lockup-words {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+.tmt-brand-lockup-name {
+  font: 800 calc(var(--tmt-brand-size) * 0.72) / 0.9
+    var(--tmt-ui-font-display, system-ui, sans-serif);
+  letter-spacing: -0.04em;
+}
+.tmt-brand-lockup-tag {
+  margin-top: calc(var(--tmt-brand-size) * 0.08);
+  font: 500 calc(var(--tmt-brand-size) * 0.2) / 1 var(--tmt-ui-font-body, system-ui, sans-serif);
+  letter-spacing: 0.01em;
+  color: var(--tmt-ui-color-secondary, currentColor);
+}

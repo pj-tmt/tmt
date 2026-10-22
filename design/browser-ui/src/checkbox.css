@@ -1,0 +1,58 @@
+/* One checkbox drawing: the real control (a native checkbox, or the UI layer's Radix checkbox
+   button) stays underneath with its keyboard, label and form behaviour; only its look is ours. A
+   flat 1em square on the sheet with a rule edge, a currentColor tick when checked and a short bar
+   when mixed. */
+.tmt-ui-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+  font-size: inherit;
+  color: var(--tmt-ui-color-selected-text);
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  box-shadow: none;
+  cursor: pointer;
+}
+.tmt-ui-checkbox::before {
+  content: '';
+  display: block;
+  width: 0.7em;
+  height: 0.7em;
+  background: currentColor;
+  /* A square-cornered tick. */
+  clip-path: polygon(0 52%, 14% 38%, 38% 62%, 86% 14%, 100% 28%, 38% 90%);
+  visibility: hidden;
+}
+.tmt-ui-checkbox:checked::before,
+.tmt-ui-checkbox[data-state='checked']::before {
+  visibility: visible;
+}
+.tmt-ui-checkbox:indeterminate::before,
+.tmt-ui-checkbox[data-state='indeterminate']::before {
+  height: max(var(--tmt-ui-rule-width), 0.14em);
+  width: 0.55em;
+  clip-path: none;
+  visibility: visible;
+}
+.tmt-ui-checkbox:not(:disabled):hover {
+  border-color: var(--tmt-ui-color-edge);
+}
+.tmt-ui-checkbox:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+.tmt-ui-checkbox:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  background: var(--tmt-ui-surface-disabled);
+  border-color: var(--tmt-ui-surface-rule);
+  cursor: default;
+}

@@ -44,8 +44,8 @@ export function checkFieldFocus(controls: readonly HTMLElement[]): number {
       `${name}: focus has no visible edge change`,
     );
     check(
-      ready.edge === 1 && focused.edge === 2,
-      `${name}: edge did not strengthen from 1px to 2px`,
+      ready.edge === 1 && focused.edge === 1,
+      `${name}: focus edge is not the one 1px field edge`,
     );
     check(
       focused.outline === 0 || focused.outline + focused.offset === -focused.border,

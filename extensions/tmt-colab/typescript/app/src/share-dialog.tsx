@@ -1,3 +1,4 @@
+import { BrowserCheckbox } from '@tmt/browser-ui/react';
 import { readerUrl } from './reader-link.js';
 import { BearerArtifact } from './bearer-artifact.js';
 import { localTime } from './expiry.js';
@@ -30,8 +31,8 @@ const errors: Record<string, string> = {
   STALE_HEAD: 'Sharing changed while you were reviewing. Refresh and review, then try again.',
   CONFLICT:
     'This change conflicts with one already saved. Refresh and review; the saved one is not changed.',
-  CAPACITY: 'The owner is at a size limit. The change was not confirmed.',
-  UNAVAILABLE: 'The owner is unavailable right now. The change was not confirmed.',
+  CAPACITY: 'Your machine is at a size limit. The change was not confirmed.',
+  UNAVAILABLE: 'Your machine is unavailable right now. The change was not confirmed.',
   UNKNOWN:
     'Result unknown: the change may have gone through. Retry this same request before it expires.',
 };
@@ -162,7 +163,7 @@ export function ShareDialog({
     } catch {
       if (lifetime.current?.signal.aborted) return;
       setError(
-        `The owner accepted the ${p.operation === 'page.delete' ? 'deletion' : 'change'}, but it is not confirmed yet. Check again before relying on it.`,
+        `Your machine accepted the ${p.operation === 'page.delete' ? 'deletion' : 'change'}, but it is not confirmed yet. Check again before relying on it.`,
       );
       setPhase('verify');
     }
@@ -332,8 +333,7 @@ export function ShareDialog({
                 }}
               >
                 <label className="checkbox-label">
-                  <input
-                    type="checkbox"
+                  <BrowserCheckbox
                     checked={forever}
                     onChange={(e) => setForever(e.target.checked)}
                   />

@@ -6,7 +6,7 @@ import { Slot } from 'radix-ui';
 import { cn } from './utils.js';
 
 const badgeVariants = cva(
-  'tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:inline-flex tmt:w-fit tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-1 tmt:overflow-hidden tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:px-2 tmt:py-0.5 tmt:text-(length:--tmt-foundation-caption-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-solid tmt:focus-visible:outline-ring tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:aria-invalid:border-destructive tmt:[&>svg]:pointer-events-none tmt:[&>svg]:size-3',
+  'tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:inline-flex tmt:w-fit tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-1 tmt:overflow-hidden tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:px-2 tmt:py-0.5 tmt:text-(length:--tmt-foundation-caption-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:aria-invalid:border-destructive tmt:[&>svg]:pointer-events-none tmt:[&>svg]:size-3',
   {
     variants: {
       variant: {

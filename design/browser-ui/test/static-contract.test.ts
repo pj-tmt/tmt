@@ -15,7 +15,12 @@ it('exports frozen static names and an exact non-writing generated stylesheet', 
   ]);
   expect(readFileSync(file, 'utf8')).toBe(before);
   for (const name of Object.values(browserUiClasses)) expect(before).toContain(`.${name}`);
-  expect(before).not.toMatch(/rgba?\(|hsla?\(|opacity:\s*0/);
+  // Flat, opaque surfaces. The one exception is the busy mark (Ben's a2): its dots fade in turn,
+  // so its dot rules and keyframes are the only place opacity below 1 may appear.
+  const busy =
+    /\.tmt-ui-busy-dot[^{]*\{[^}]*\}|@keyframes tmt-ui-busy\s*\{(?:[^{}]*\{[^}]*\})*\s*\}/g;
+  expect(before.match(busy)?.length).toBeGreaterThan(1);
+  expect(before.replace(busy, '')).not.toMatch(/rgba?\(|hsla?\(|opacity:\s*0/);
   expect(
     [...before.matchAll(/box-shadow:\s*([^;]+);/g)].every((match) => match[1] === 'none'),
   ).toBe(true);

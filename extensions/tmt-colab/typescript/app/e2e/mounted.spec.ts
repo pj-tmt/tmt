@@ -759,8 +759,10 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await page.keyboard.press('Tab');
   const close = dialog.getByRole('button', { name: 'Close', exact: true });
   await expect(close).toBeFocused();
+  // An edge-bordered Colab button: one 2px frame of the focus colour drawn over its border.
   await expect(close).toHaveCSS('outline-style', 'solid');
   await expect(close).toHaveCSS('outline-width', '2px');
+  await expect(close).toHaveCSS('outline-offset', '-2px');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(row(pageId).getByRole('button', { name: /^Actions for/ })).toBeFocused();
@@ -837,7 +839,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'The owner accepted the deletion, but it is not confirmed yet',
+    'Your machine accepted the deletion, but it is not confirmed yet',
   );
   await expect(dialog).not.toContainText('This device is not allowed to manage this page');
   expect(contexts.at(-1)).toBe(other);
@@ -849,7 +851,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog.getByRole('button', { name: 'Manage another change' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'All', exact: true }).click();
+  await page.getByRole('tab', { name: /^All \d+$/ }).click();
   await row(other)
     .getByRole('button', { name: /^Actions for/ })
     .click();
@@ -857,12 +859,12 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'The owner accepted the deletion, but it is not confirmed yet',
+    'Your machine accepted the deletion, but it is not confirmed yet',
   );
   const sockets = contexts.length;
   await dialog.getByRole('button', { name: 'Check again' }).click();
   await expect(dialog.getByRole('alert')).toContainText(
-    'The owner accepted the deletion, but it is not confirmed yet',
+    'Your machine accepted the deletion, but it is not confirmed yet',
   );
   expect(requests).toBe(5);
   expect(contexts).toHaveLength(sockets);
@@ -983,37 +985,46 @@ test.describe('relative retention evidence', () => {
     await row.getByRole('button', { name: /^Actions for/ }).click();
     await expect(hint).toHaveText('expires in 10 days');
     await expect(hint.locator('.retention-mark .lucide-clock')).toHaveCount(0);
+    // An ordinary hint is dim text: the muted colour, read from a probe in the list.
     await expect(hint).toHaveCSS(
       'color',
-      await page.locator('.intro').evaluate((node) => getComputedStyle(node).color),
+      await page.locator('section.home').evaluate((home) => {
+        const probe = home.appendChild(document.createElement('span'));
+        probe.style.color = 'var(--c-muted)';
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      }),
     );
   });
 });
 
 // A mounted address names the list as `/colab/` and no more, so the tab it was left on lives in its
-// history entry: a reload, Back and Forward return to it, and a fresh visit opens In progress.
-test('the list keeps its tab across a reload, Back and Forward, and a fresh visit opens In progress', async ({
+// history entry: a reload, Back and Forward return to it, and a fresh visit opens All.
+test('the list keeps its tab across a reload, Back and Forward, and a fresh visit opens All', async ({
   page,
 }) => {
   await fixture(page);
   await page.goto(mount);
   await showAllPages(page);
   const row = page.locator(`[data-page-id="${pageId}"] a`);
-  const all = page.getByRole('tab', { name: 'All', exact: true });
-  await expect(row).toBeVisible();
+  const href = await row.getAttribute('href');
+  // A tab other than the default. The page has not reported its tasks, so it is under no stage and
+  // the list leaves for it by its address.
+  const discussion = page.getByRole('tab', { name: /^Discussion/ });
+  await discussion.click();
+  await expect(discussion).toHaveAttribute('aria-selected', 'true');
   await page.reload();
-  await expect(all).toHaveAttribute('aria-selected', 'true');
-  await expect(row).toBeVisible();
-  await row.click();
+  await expect(discussion).toHaveAttribute('aria-selected', 'true');
+  await page.goto(new URL(href!, page.url()).href);
   await expect(page).toHaveURL(/\/p\//);
   await page.goBack();
   await expect(page).toHaveURL(/\/colab\/$/);
-  await expect(all).toHaveAttribute('aria-selected', 'true');
-  await expect(row).toBeVisible();
+  await expect(discussion).toHaveAttribute('aria-selected', 'true');
   await page.goForward();
   await expect(page).toHaveURL(/\/p\//);
   await page.goto(mount);
-  await expect(page.getByRole('tab', { name: /^In progress/ })).toHaveAttribute(
+  await expect(page.getByRole('tab', { name: /^All \d+$/ })).toHaveAttribute(
     'aria-selected',
     'true',
   );
@@ -1045,7 +1056,7 @@ for (const status of [403, 503])
     // so the read count is polled, not sampled. Other readers of the catalog (a re-read for a page
     // with no summary yet) may add reads on a slow machine, so `once` is the device refresh: one
     // registration, however many reads follow it.
-    await expect(page.getByRole('tab', { name: 'All', exact: true })).toHaveAttribute(
+    await expect(page.getByRole('tab', { name: /^All \d+$/ })).toHaveAttribute(
       'aria-selected',
       'true',
     );
@@ -1068,7 +1079,14 @@ test('Back to the list still ends in the error when a refreshed session is refus
     reads++;
     return route.fulfill({ status: 403, json: { code: 'DENIED' } });
   });
+  let registrations = 0;
+  page.on('request', (request) => {
+    if (request.url().endsWith(`${mount}api/devices/register`)) registrations++;
+  });
   await page.goBack();
   await expect(page.getByText('DENIED')).toBeVisible();
-  expect(reads).toBe(2);
+  // The read and its one refreshed retry. The list's re-read for a page with no summary yet may add
+  // a read on a loaded machine, so `once` is the device refresh: one registration.
+  expect(reads).toBeGreaterThanOrEqual(2);
+  expect(registrations).toBe(1);
 });

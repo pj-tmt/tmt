@@ -1,14 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
-/** The list opens on In progress; these specs are about rows, so a link that names no tab gets All. */
-const onAll = (hash: string) =>
-  /[?&](stage=(in-progress|discussion|done|all)|archived=true)(&|$)/.test(hash)
-    ? hash
-    : `${hash}${hash.includes('?') ? '&' : '?'}stage=all`;
 async function mount(
   page: Page,
-  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' = 'few',
+  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' | 'shells' = 'few',
   hash = '/',
   remembered?: string,
 ) {
@@ -24,7 +19,7 @@ async function mount(
       const path = '/test/page-list-browser.tsx';
       await (await import(path)).mountPageList(size, hash);
     },
-    { size, hash: onAll(hash) },
+    { size, hash },
   );
 }
 /** The fixture mounts beside the hidden app, which renders the same route; scope to the fixture. */
@@ -33,28 +28,59 @@ const rows = (page: Page) => app(page).locator('.pages > li');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
-/** The header's project crumb: it names its value, and its menu holds the project actions. */
+/** The shell's module menu: All pages, each project with its counts, then the project actions. */
+const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-module-menu');
+/** The menu's current scope row, named by its value. */
 const scopeTrigger = (page: Page, value = 'All pages') =>
-  app(page).getByRole('button', { name: `Project: ${value}` });
-/** The crumb whatever its value, to open the menu from any scope. */
-const anyScopeTrigger = (page: Page) => app(page).getByRole('button', { name: /^Project: / });
+  moduleMenu(page)
+    .locator('a[aria-current="page"]')
+    .filter({
+      has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${value}$`) }),
+    });
+const scopeRows = (page: Page) =>
+  moduleMenu(page).locator('a[data-id="all"], a[data-id^="project:"]');
 async function fromScopeMenu(page: Page, name: string) {
-  await anyScopeTrigger(page).click();
-  await page.getByRole('menuitem', { name }).click();
+  await moduleMenu(page).getByRole('link', { name, exact: true }).click();
 }
-/** Scope the list to a project (or All pages) from the header menu. */
+/** Scope the list to a project (or All pages) from the module menu. */
 async function scopeTo(page: Page, name: string) {
-  await anyScopeTrigger(page).click();
-  await page.getByRole('menuitemradio', { name: new RegExp(`^${name}`) }).click();
+  await moduleMenu(page)
+    .locator('a')
+    .filter({
+      has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${name}$`) }),
+    })
+    .click();
 }
+/**
+ * Filter by a project the way the list offers it: a `project:` token picked from the search's
+ * suggestions, then applied with Enter (the list has no project chip row; projects scope from the
+ * module menu).
+ */
+async function filterProject(page: Page, name: string) {
+  await search(page).click();
+  await page.keyboard.type(`project:${name.split(' ')[0]}`);
+  await page.getByRole('option', { name: new RegExp(`^${name} \\(\\d+\\)$`) }).click();
+  await page.keyboard.press('Enter');
+  await expect(app(page).locator(`[data-project-filter="${name}"]`)).toBeVisible();
+}
+/** A project's row in the module menu, with its count of active pages. */
+const menuProject = (page: Page, name: string) =>
+  scopeRows(page).filter({
+    has: page.locator('.tmt-ui-module-menu-label', { hasText: new RegExp(`^${name}$`) }),
+  });
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
-/** A page's project crumb links to the scoped list, which opens on In progress like any bare link. */
-const showAll = (page: Page) => app(page).getByRole('tab', { name: 'All', exact: true }).click();
+/** A page's project crumb links to the scoped list, which opens on All like any bare link. */
+const showAll = (page: Page) =>
+  app(page)
+    .getByRole('tab', { name: /^All \d+$/ })
+    .click();
 
-test('a project button filters the list, adds a token and removes it again', async ({ page }) => {
+test("a page's project button filters the list, adds a token and removes it again", async ({
+  page,
+}) => {
   await mount(page);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  const design = app(page).getByRole('button', { name: 'design, 2 pages' });
+  const design = rows(page).nth(1).getByRole('button', { name: 'design', exact: true });
   await expect(design).toHaveAttribute('aria-pressed', 'false');
   await design.click();
   await expect(design).toHaveAttribute('aria-pressed', 'true');
@@ -64,9 +90,20 @@ test('a project button filters the list, adds a token and removes it again', asy
   await app(page).getByRole('button', { name: 'Remove project filter design' }).click();
   await expect(titles(page)).toHaveCount(4);
   await expect(design).toHaveAttribute('aria-pressed', 'false');
-  // A page's own chip filters too.
+  // Each of a page's projects filters.
   await rows(page).first().getByRole('button', { name: 'q4 plan' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan']);
+});
+
+test('nothing takes focus on load, so the search field idles on its rule border', async ({
+  page,
+}) => {
+  await mount(page);
+  await expect(titles(page)).toHaveCount(4);
+  await expect(search(page)).not.toBeFocused();
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await page.keyboard.press('/');
+  await expect(search(page)).toBeFocused();
 });
 
 for (const query of [
@@ -90,7 +127,7 @@ test('keyboard removing a filter token keeps editor focus and applies the token 
   page,
 }) => {
   await mount(page);
-  await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
+  await filterProject(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   const remove = app(page).getByRole('button', { name: 'Remove project filter design' });
   await remove.focus();
@@ -98,7 +135,7 @@ test('keyboard removing a filter token keeps editor focus and applies the token 
   await expect(app(page).locator('[data-project-filter="design"]')).toHaveCount(0);
   await expect(titles(page)).toHaveCount(4);
   await expect(search(page)).toBeFocused();
-  await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
+  await filterProject(page, 'design');
   await remove.focus();
   await remove.press('Space');
   await expect(app(page).locator('[data-project-filter="design"]')).toHaveCount(0);
@@ -236,7 +273,7 @@ test('a row shows the creator, the comment count and a proposal waiting for you'
   // The mark is the word with the diamond; only the page with a proposal awaiting the owner has it.
   await expect(app(page).locator('[data-waiting]')).toHaveCount(1);
   await expect(rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]')).toHaveText(
-    '◆ Waiting for you · 1',
+    '◆ Needs you · 1',
   );
   // A page the owner has not summarized yet shows what the list already knows, with no placeholder.
   const gamma = metadata('Gamma notes');
@@ -260,7 +297,7 @@ test('typing by: suggests creators, a token filters by creator and free text mat
   await expect(titles(page)).toHaveText(['Alpha plan']);
   expect(new URL(page.url()).hash).toContain('by');
   // Creators combine with projects as an AND, and several creators as an OR.
-  await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
+  await filterProject(page, 'ops');
   await expect(titles(page)).toHaveCount(0);
   await app(page).getByRole('button', { name: 'Remove project filter ops' }).click();
   await app(page).getByRole('button', { name: 'Remove author filter Studio agent' }).click();
@@ -320,7 +357,7 @@ test('free text matches titles and projects, a miss says so and clears', async (
 
 test('the list keeps its filter in the address and restores it on reload', async ({ page }) => {
   await mount(page);
-  await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
+  await filterProject(page, 'design');
   await expect(titles(page)).toHaveCount(2);
   const hash = new URL(page.url()).hash;
   await page.evaluate((hash) => {
@@ -331,11 +368,12 @@ test('the list keeps its filter in the address and restores it on reload', async
   await expect(app(page).locator('[data-project-filter="design"]')).toBeVisible();
 });
 
-test('the home is the list: no Today or view tabs, and an old /all link lands on it with its search', async ({
+test('the home is the list: no hero, no Today or view tabs, and an old /all link lands on it with its search', async ({
   page,
 }) => {
   await mount(page);
-  await expect(app(page).locator('section.home h1')).toHaveText('Studio pages');
+  // The space's name is the header's; the list starts with its search.
+  await expect(app(page).locator('section.home').locator('h1, .eyebrow, .intro')).toHaveCount(0);
   await expect(app(page).getByRole('navigation', { name: 'Home views' })).toHaveCount(0);
   await expect(
     app(page).getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
@@ -348,32 +386,27 @@ test('the home is the list: no Today or view tabs, and an old /all link lands on
   // Search it cannot read is dropped and the address is the plain home.
   await mount(page, 'few', '/all?project=design&q=123');
   await expect(titles(page)).toHaveCount(4);
-  expect(new URL(page.url()).hash).toBe('#/?stage=all');
+  expect(new URL(page.url()).hash).toBe('#/');
 });
 
-test('the needs-you chip keeps the pages waiting on the viewer, combines with a project and survives reload', async ({
+test('the Needs you tab keeps the pages waiting on the viewer, combines with a project and survives reload', async ({
   page,
 }) => {
   await mount(page);
-  const needs = app(page).getByRole('button', { name: 'Needs you, 1 page' });
-  await expect(needs).toHaveAttribute('aria-pressed', 'false');
+  const needs = app(page).getByRole('tab', { name: /Needs you 1/ });
+  await expect(needs).toHaveAttribute('aria-selected', 'false');
   await needs.click();
-  await expect(needs).toHaveAttribute('aria-pressed', 'true');
+  await expect(needs).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Alpha plan']);
   expect(new URL(page.url()).hash).toContain('needs=true');
-  // Pressed is neutral, even under the pointer that just clicked it; colour stays on the diamond.
-  const look = await needs.evaluate((node) => {
-    const style = getComputedStyle(node);
-    return {
-      text: style.color,
-      border: style.borderTopColor,
-      mark: getComputedStyle(node.querySelector('.needs-filter-mark')!).color,
-    };
-  });
-  expect(look.border).toBe(look.text);
+  // Selected is neutral like every tab; colour stays on the diamond.
+  const look = await needs.evaluate((node) => ({
+    text: getComputedStyle(node).color,
+    mark: getComputedStyle(node.querySelector('.tmt-ui-tab-mark')!).color,
+  }));
   expect(look.mark).not.toBe(look.text);
   // It combines with the project filter: the waiting page is not in `ops`.
-  await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
+  await filterProject(page, 'ops');
   await expect(titles(page)).toHaveCount(0);
   await expect(app(page).getByText('No pages match.')).toBeVisible();
   await app(page).getByRole('button', { name: 'Remove project filter ops' }).click();
@@ -384,8 +417,11 @@ test('the needs-you chip keeps the pages waiting on the viewer, combines with a 
     location.hash = hash;
   }, hash);
   await expect(titles(page)).toHaveText(['Alpha plan']);
-  await expect(needs).toHaveAttribute('aria-pressed', 'true');
-  await needs.click();
+  await expect(needs).toHaveAttribute('aria-selected', 'true');
+  // Another tab leaves it.
+  await app(page)
+    .getByRole('tab', { name: /^All \d+$/ })
+    .click();
   await expect(titles(page)).toHaveCount(4);
   expect(new URL(page.url()).hash).not.toContain('needs');
 });
@@ -412,7 +448,7 @@ test('sort orders by title; the Archived tab shows archived pages and counts the
   await app(page).getByRole('button', { name: 'Sort: Title' }).click();
   await app(page).getByRole('menuitemradio', { name: 'Recently updated' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  const all = app(page).getByRole('tab', { name: 'All', exact: true });
+  const all = app(page).getByRole('tab', { name: /^All \d+$/ });
   const archived = app(page).getByRole('tab', { name: 'Archived 1' });
   await expect(all).toHaveAttribute('aria-selected', 'true');
   await expect(archived).toHaveAttribute('aria-selected', 'false');
@@ -420,9 +456,11 @@ test('sort orders by title; the Archived tab shows archived pages and counts the
   await expect(archived).toHaveAttribute('aria-selected', 'true');
   expect(new URL(page.url()).hash).toContain('archived=true');
   await expect(titles(page)).toHaveText(['Archived spec']);
-  // The project row counts only what the tab shows.
-  await expect(app(page).getByRole('button', { name: 'design, 1 page' })).toBeVisible();
-  await expect(app(page).getByRole('button', { name: 'ops, 1 page' })).toHaveCount(0);
+  // The project suggestions count only what the tab shows.
+  await search(page).click();
+  await page.keyboard.type('project:');
+  await expect(page.getByRole('option')).toHaveText(['design (1)']);
+  await page.keyboard.press('Escape');
   await all.click();
   await expect(titles(page)).toHaveCount(4);
   expect(new URL(page.url()).hash).not.toContain('archived');
@@ -437,17 +475,17 @@ test('a page waiting on the viewer shows the ◆ in the waiting colour with the 
 }) => {
   await mount(page);
   const waiting = rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]');
-  await expect(waiting).toHaveText('◆ Waiting for you · 1');
+  await expect(waiting).toHaveText('◆ Needs you · 1');
   const colours = await app(page).evaluate((root) => {
     const colour = (selector: string) => getComputedStyle(root.querySelector(selector)!).color;
     return {
       rowMark: colour('[data-waiting] .page-waiting-mark'),
       word: colour('[data-waiting]'),
-      chipMark: colour('.needs-filter-mark'),
+      tabMark: colour('.tmt-ui-tab-mark'),
     };
   });
-  // The row's mark is the chip's mark; the word beside it is plain text colour.
-  expect(colours.rowMark).toBe(colours.chipMark);
+  // The row's mark is the Needs you tab's mark; the word beside it is plain text colour.
+  expect(colours.rowMark).toBe(colours.tabMark);
   expect(colours.word).not.toBe(colours.rowMark);
   // A row that waits is not otherwise marked: no rule, nothing that reads as a selection.
   await expect(rows(page).filter({ hasText: 'Alpha plan' })).not.toHaveAttribute('data-needs-you');
@@ -556,7 +594,7 @@ test('an archived row offers Restore and Delete while keeping archive unavailabl
 
 for (const width of [1440, 390]) {
   for (const theme of ['light', 'dark'] as const) {
-    test(`a change the owner accepted but has not confirmed says so in plain words at ${width} ${theme}`, async ({
+    test(`a change your machine accepted but has not confirmed says so in plain words at ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -577,7 +615,7 @@ for (const width of [1440, 390]) {
         .getByRole('button', { name: 'Archive page' })
         .click();
       await expect(status(page)).toHaveText(
-        '“Gamma notes”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.',
+        '“Gamma notes”: your machine accepted the change, but it is not confirmed yet. Open Manage page to check again.',
       );
       expect(
         await page.evaluate(
@@ -617,7 +655,7 @@ test('a refused statement changes nothing and says why; an unverified one is not
     .getByRole('button', { name: 'Archive page' })
     .click();
   await expect(status(page)).toContainText(
-    'the owner accepted the change, but it is not confirmed yet',
+    'your machine accepted the change, but it is not confirmed yet',
   );
   await expect(status(page)).not.toHaveText(/^Archived/);
 });
@@ -777,8 +815,10 @@ test('list keys move, select, archive and open menus, and stay out of text field
 }) => {
   await mount(page);
   const link = (title: string) => rows(page).getByRole('link', { name: title, exact: true });
-  // The search starts focused: a key typed there writes to it, and Escape on an empty search
-  // hands the keys back to the list.
+  // Nothing takes focus on load; `/` focuses the search, a key typed there writes to it, and
+  // Escape on an empty search hands the keys back to the list.
+  await expect(search(page)).not.toBeFocused();
+  await page.keyboard.press('/');
   await expect(search(page)).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(search(page)).not.toBeFocused();
@@ -833,21 +873,19 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   await mount(page, 'unmanaged');
   await expect(app(page).getByRole('tab')).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
-  await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
+  await filterProject(page, 'ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
-  await scopeTrigger(page).click();
-  await expect(page.getByRole('menuitemradio')).toHaveCount(4);
-  await expect(page.getByRole('menuitem', { name: 'New project…' })).toHaveCount(0);
-  await expect(page.getByRole('menuitem', { name: 'Manage projects…' })).toHaveCount(0);
+  await expect(scopeRows(page)).toHaveCount(4);
+  await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toHaveCount(0);
+  await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toHaveCount(0);
 });
 
-test('the header scope lists All pages and each project with its counts and needs-you', async ({
+test('the module menu lists All pages and each project with its counts and needs-you', async ({
   page,
 }) => {
   await mount(page);
   await expect(scopeTrigger(page)).toBeVisible();
-  await scopeTrigger(page).click();
-  const rows = page.getByRole('menuitemradio');
+  const rows = scopeRows(page);
   await expect(rows).toHaveCount(4);
   // Active pages shown: All 4; design 2 (Alpha waits on the viewer); ops 1; q4 plan 1 (also waits).
   await expect(rows.nth(0)).toContainText('All pages');
@@ -856,9 +894,41 @@ test('the header scope lists All pages and each project with its counts and need
   await expect(rows.nth(1)).toHaveText(/design\s*2\s*◆ 1/);
   await expect(rows.nth(2)).toHaveText(/ops\s*1\s*$/);
   await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*◆ 1/);
-  await expect(rows.nth(0)).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByRole('menuitem', { name: 'New project…' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Manage projects…' })).toBeVisible();
+  await expect(rows.nth(0)).toHaveAttribute('aria-current', 'page');
+  await expect(moduleMenu(page).getByRole('link', { name: 'New project…' })).toBeVisible();
+  await expect(moduleMenu(page).getByRole('link', { name: 'Manage projects…' })).toBeVisible();
+});
+
+test('the module menu lists dashboards under Dashboards and opens Colab settings read-only', async ({
+  page,
+}) => {
+  await mount(page, 'shells');
+  // The one rail: the same items as on every other TMT page.
+  await expect(app(page).locator('.tmt-ui-rail .tmt-ui-rail-item')).toHaveCount(6);
+  expect(
+    await app(page)
+      .locator('.tmt-ui-rail .tmt-ui-rail-item')
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
+  ).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
+  const shells = moduleMenu(page).locator('a[data-id^="shell:"]');
+  await expect(moduleMenu(page)).toContainText('Dashboards');
+  await expect(moduleMenu(page)).not.toContainText('Shells');
+  await expect(shells).toHaveCount(1);
+  await expect(shells).toHaveText('Reading shell');
+  await expect(shells).toHaveAttribute('href', /#\/pages\/[0-9a-f-]+$/);
+  await moduleMenu(page).getByRole('link', { name: 'Colab settings', exact: true }).click();
+  await expect(page).toHaveURL(/#\/settings$/);
+  const settings = page.getByRole('region', { name: 'Colab settings' }).first();
+  // No browser read of these settings yet: the page names the terminal command, no values.
+  await expect(settings.getByRole('note')).toHaveText(
+    'Colab settings are not in the browser yet. Run tmt colab settings in a terminal.',
+  );
+  await expect(settings.getByRole('note').locator('code')).toHaveText('tmt colab settings');
+  await expect(settings.getByRole('note').locator('a')).toHaveCount(0);
+  await expect(settings.locator('.tmt-ui-list-state')).toHaveCount(0);
+  await expect(
+    moduleMenu(page).locator('a[data-id="colab-settings"][aria-current="page"]'),
+  ).toBeVisible();
 });
 
 for (const theme of ['light', 'dark'] as const) {
@@ -870,8 +940,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;
     }, theme);
-    await scopeTrigger(page).click();
-    const row = page.getByRole('menuitemradio').nth(1);
+    const row = scopeRows(page).nth(1);
     await expect(row).toHaveText(/design\s*2\s*◆ 1/);
     // A token no CSS defines leaves the declaration invalid, so the count would inherit the name's
     // colour; the count must instead be the colour the secondary token has in this theme.
@@ -883,8 +952,8 @@ for (const theme of ['light', 'dark'] as const) {
       const secondary = color(probe);
       probe.remove();
       return {
-        count: color(element.querySelector('.scope-count')!),
-        name: color(element.querySelector('.scope-name')!),
+        count: color(element.querySelector('.tmt-ui-shell-count')!),
+        name: color(element.querySelector('.tmt-ui-module-menu-label')!),
         secondary,
       };
     });
@@ -894,7 +963,7 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
-test('choosing a project scopes the list, the filter chips and the needs-you chip', async ({
+test('choosing a project scopes the list, the project suggestions and the Needs you count', async ({
   page,
 }) => {
   await mount(page);
@@ -902,15 +971,20 @@ test('choosing a project scopes the list, the filter chips and the needs-you chi
   await expect(scopeTrigger(page, 'ops')).toBeVisible();
   expect(new URL(page.url()).hash).toContain('scope=ops');
   await expect(titles(page)).toHaveText(['Delta ops']);
-  // Only the scope's pages feed the chips: no design chip, and nothing waits in ops.
-  await expect(app(page).getByRole('button', { name: /^design/ })).toHaveCount(0);
-  await expect(app(page).getByRole('button', { name: /^Needs you/ })).toHaveCount(0);
+  // Only the scope's pages feed the suggestions and the count: no design, and nothing waits in ops.
+  await search(page).click();
+  await page.keyboard.type('project:');
+  await expect(page.getByRole('option')).toHaveText(['ops (1)']);
+  // Escape closes the suggestions, then clears the draft.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(search(page)).toHaveText('');
+  await expect(app(page).getByRole('tab', { name: 'Needs you 0' })).toBeVisible();
   await scopeTo(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
-  await expect(app(page).getByRole('button', { name: 'Needs you, 1 page' })).toBeVisible();
-  await expect(app(page).getByRole('button', { name: 'q4 plan, 1 page' })).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: /Needs you 1/ })).toBeVisible();
   // A project: token filters inside the scope; a project outside it matches nothing.
-  await app(page).getByRole('button', { name: 'q4 plan, 1 page' }).click();
+  await filterProject(page, 'q4 plan');
   await expect(titles(page)).toHaveText(['Alpha plan']);
   await search(page).fill('ops');
   await search(page).press('Enter');
@@ -1059,7 +1133,7 @@ test('a new project needs only a name; ticked pages land in it in one request', 
     { pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['fresh start'] },
   ]);
   expect(await manageRequests(page)).toEqual([]);
-  await expect(app(page).getByRole('button', { name: 'fresh start, 2 pages' })).toBeVisible();
+  await expect(menuProject(page, 'fresh start')).toHaveText(/^fresh start\s*2$/);
 });
 
 test('a project with no page is one request, is listed everywhere, and takes pages later', async ({
@@ -1081,12 +1155,17 @@ test('a project with no page is one request, is listed everywhere, and takes pag
     { action: 'create', name: 'backlog' },
   ]);
   expect(await requests(page)).toEqual([]);
-  // No page is in it, so the filter row does not list it; the page menu and the manager do.
-  await expect(app(page).getByRole('button', { name: /^backlog/ })).toHaveCount(0);
+  // No page is in it, so the search does not suggest it; the module menu, the page menu and the
+  // manager list it.
+  await search(page).click();
+  await page.keyboard.type('project:back');
+  await expect(page.getByRole('option')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*0$/);
   const gamma = app(page).locator('[data-page-id="c0000003-1111-4111-8111-000000000001"]');
   await gamma.getByRole('button', { name: 'Projects for Gamma notes' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'backlog' }).click();
-  await expect(app(page).getByRole('button', { name: 'backlog, 1 page' })).toBeVisible();
+  await expect(menuProject(page, 'backlog')).toHaveText(/^backlog\s*1$/);
   expect((await requests(page)).at(-1)!.changes).toEqual([
     { pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['backlog'] },
   ]);
@@ -1145,7 +1224,8 @@ test('rename is one request for every page in the project, archived included, an
   ]);
   expect(await requests(page)).toEqual([]);
   await dialog.getByRole('button', { name: 'Done' }).click();
-  await expect(app(page).getByRole('button', { name: 'current, 130 pages' })).toBeVisible();
+  // The menu caps its count at 99+.
+  await expect(menuProject(page, 'current')).toHaveText(/^current\s*99\+$/);
 });
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
@@ -1162,8 +1242,8 @@ test('renaming onto an existing project says it merges', async ({ page }) => {
   await expect(dialog.getByRole('status')).toHaveText('Project updated.');
   expect(await manageRequests(page)).toEqual([{ action: 'rename', name: 'ops', to: 'design' }]);
   await dialog.getByRole('button', { name: 'Done' }).click();
-  await expect(app(page).getByRole('button', { name: 'design, 3 pages' })).toBeVisible();
-  await expect(app(page).getByRole('button', { name: /^ops/ })).toHaveCount(0);
+  await expect(menuProject(page, 'design')).toHaveText(/^design\s*3/);
+  await expect(menuProject(page, 'ops')).toHaveCount(0);
 });
 
 test('delete removes the project in one request and keeps the pages', async ({ page }) => {
@@ -1234,14 +1314,18 @@ for (const width of [1440, 390])
       } else await page.goBack();
       await scopeTo(page, 'All pages');
       await expect(titles(page)).toHaveCount(4);
-      await app(page).getByRole('button', { name: 'Needs you, 1 page' }).click();
+      await app(page)
+        .getByRole('tab', { name: /Needs you 1/ })
+        .click();
       await expect(titles(page)).toHaveCount(1);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3647-needs-${width}-${theme}.png`) });
-      await app(page).getByRole('button', { name: 'Needs you, 1 page' }).click();
+      await showAll(page);
       await expect(titles(page)).toHaveCount(4);
-      await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
-      await app(page).getByRole('combobox', { name: 'Search pages' }).click();
+      // The search keeps focus after Enter applies the token; a phone's field is narrow enough that
+      // a click on it would land on the token, so typing goes on from the caret.
+      await filterProject(page, 'design');
+      await expect(search(page)).toBeFocused();
       await page.keyboard.type('project:o');
       await expect(page.getByRole('option')).toHaveText(['ops (1)']);
       expect(await flat()).toBe(true);
@@ -1269,10 +1353,11 @@ for (const width of [1440, 390])
       await expect(titles(page)).toHaveText(['Archived spec']);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3746-archived-tab-${width}-${theme}.png`) });
-      await app(page).getByRole('tab', { name: 'All', exact: true }).click();
-      await scopeTrigger(page).click();
+      await app(page)
+        .getByRole('tab', { name: /^All \d+$/ })
+        .click();
       await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
-      await page.getByRole('menuitem', { name: 'Manage projects…' }).click();
+      await fromScopeMenu(page, 'Manage projects…');
       await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-manage-${width}-${theme}.png`) });
       // Renaming onto an existing project says the two merge.
@@ -1362,13 +1447,13 @@ async function insideViewport(page: Page) {
       .querySelector('#list-fixture .page-list-controls')!
       .getBoundingClientRect();
     const outside = [...document.querySelectorAll('#list-fixture *, [role="listbox"]')]
-      .filter((node) => !node.parentElement?.closest('.tmt-ui-tab-list'))
+      // Tab strips (the list's views, the phone module menu) scroll inside; their tabs may pass the
+      // edge.
+      .filter((node) => !node.parentElement?.closest('.tmt-ui-tab-list, .tmt-ui-module-menu'))
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);
-    const rows = [
-      ...document.querySelectorAll('#list-fixture .project-filters, #list-fixture .page-projects'),
-    ]
+    const rows = [...document.querySelectorAll('#list-fixture .page-projects')]
       .flatMap((row) => [...row.querySelectorAll('button')].map((b) => b.getBoundingClientRect()))
       .filter((box) => box.right > column.right + 0.5 || box.left < column.left - 0.5).length;
     return { outside, rows, scroll: document.documentElement.scrollWidth - width };
@@ -1378,7 +1463,7 @@ async function insideViewport(page: Page) {
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`the search field, its tokens and the project rows stay inside ${width}px ${theme} with the longest names`, async ({
+    test(`the search field, its tokens and the row projects stay inside ${width}px ${theme} with the longest names`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -1388,9 +1473,9 @@ for (const width of [1440, 390, 320])
         document.documentElement.dataset.theme = theme;
       }, theme);
       await expect(titles(page)).toHaveCount(5);
-      // The long projects are filter buttons and row chips before any filter is typed.
+      // The long projects are row buttons before any filter is typed.
       for (const name of ['W'.repeat(32), '漢'.repeat(32)])
-        await expect(app(page).getByRole('button', { name: `${name}, 1 page` })).toBeVisible();
+        await expect(rows(page).getByRole('button', { name, exact: true }).first()).toBeVisible();
       await insideViewport(page);
       await search(page).click();
       for (const [typed, option] of [
@@ -1424,7 +1509,7 @@ for (const width of [1440, 390, 320])
         page.evaluate(() => {
           const viewport = document.documentElement.clientWidth;
           const crumb = document
-            .querySelector('#list-fixture button[aria-haspopup="menu"][aria-label^="Project: "]')!
+            .querySelector('#list-fixture .tmt-ui-module-menu a[aria-current="page"]')!
             .getBoundingClientRect();
           return {
             scroll: document.documentElement.scrollWidth - viewport,
@@ -1432,13 +1517,16 @@ for (const width of [1440, 390, 320])
           };
         });
       for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
-        await anyScopeTrigger(page).click();
-        const row = page.getByRole('menuitemradio', { name: new RegExp(`^${long}`) });
+        const row = moduleMenu(page)
+          .locator('a')
+          .filter({ has: page.locator('.tmt-ui-module-menu-label', { hasText: long }) });
         await expect(row).toBeVisible();
         if (long.startsWith('W'))
           await page.screenshot({
             path: await capturePath(`3747-scope-long-${width}-${theme}.png`),
           });
+        // On a phone the module menu is a scrolling tab strip; a long tab ellipsizes within it.
+        await row.scrollIntoViewIfNeeded();
         const box = await row.boundingBox();
         expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
         await row.click();
@@ -1488,7 +1576,9 @@ test('restoring an Archived row confirms and returns it to the active list after
     { operation: 'page.unarchive', pageId: 'c0000005-1111-4111-8111-000000000001' },
   ]);
   await expect(titles(page)).toHaveCount(0);
-  await app(page).getByRole('tab', { name: 'All', exact: true }).click();
+  await app(page)
+    .getByRole('tab', { name: /^All \d+$/ })
+    .click();
   await expect(titles(page)).toHaveCount(5);
   await expect(titles(page).filter({ hasText: 'Archived spec' })).toBeVisible();
 });
@@ -1515,3 +1605,56 @@ for (const width of [1440, 390])
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       expect(await operations(page)).toEqual([]);
     });
+
+test('every focusable in the shell list shows one inset frame (#3998 tab walk)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const problems: string[] = [];
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await mount(page, 'few');
+    await expect(rows(page)).not.toHaveCount(0);
+    const seen = new Set<string>();
+    for (let step = 0; step < 80; step++) {
+      await page.keyboard.press('Tab');
+      const focus = await page.evaluate(() => {
+        // Focus moves nothing: the control that just lost focus has the size it had with it.
+        const store = window as unknown as { last?: { element: Element; size: string } };
+        const box = (element: Element) => {
+          const rect = element.getBoundingClientRect();
+          return `${rect.width}x${rect.height}`;
+        };
+        const last = store.last;
+        const moved =
+          last && last.element.isConnected && box(last.element) !== last.size
+            ? `${last.element.className} ${last.size} unfocused ${box(last.element)}`
+            : '';
+        const element = document.activeElement as HTMLElement | null;
+        if (!element || element === document.body) return undefined;
+        store.last = { element, size: box(element) };
+        const style = getComputedStyle(element);
+        const width = Number.parseFloat(style.outlineWidth);
+        const outline = style.outlineStyle !== 'none' && width > 0;
+        const wrong: string[] = moved ? [`a size change on focus (${moved})`] : [];
+        if (style.outlineStyle === 'auto') wrong.push('a browser default ring');
+        if (outline && Number.parseFloat(style.outlineOffset) > -width)
+          wrong.push(`an outline outside its border (offset ${style.outlineOffset})`);
+        if (
+          style.boxShadow !== 'none' &&
+          style.boxShadow.split(/,(?![^(]*\))/).some((shadow) => !/inset/.test(shadow))
+        )
+          wrong.push('an outer glow');
+        const name =
+          element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 24) ?? '';
+        return { key: `${element.tagName.toLowerCase()}.${element.className} ${name}`, wrong };
+      });
+      if (!focus || seen.has(focus.key)) break;
+      seen.add(focus.key);
+      if (focus.wrong.length) problems.push(`${scheme} ${focus.key}: ${focus.wrong.join(', ')}`);
+    }
+    // The rail, the module menu, the header, the controls and the rows all take focus.
+    expect(seen.size, scheme).toBeGreaterThan(15);
+  }
+  expect(problems).toEqual([]);
+});

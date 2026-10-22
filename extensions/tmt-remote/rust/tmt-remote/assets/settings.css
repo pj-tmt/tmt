@@ -93,8 +93,8 @@
   color: var(--tmt-ui-color-disabled-text);
 }
 .settings-page .settings-choice:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .settings-page #remotes {
   margin-top: 0;
@@ -194,7 +194,7 @@
 }
 .settings-page #firestore-budget summary:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .settings-page #firestore-budget table {
   width: 100%;

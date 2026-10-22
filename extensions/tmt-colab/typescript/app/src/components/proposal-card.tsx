@@ -1,5 +1,5 @@
-import { BrowserAction, useBusyMark } from '@tmt/browser-ui/react';
-import { Check, CircleCheck, CircleDot, LoaderCircle, X } from 'lucide-react';
+import { BrowserAction, BusyMark, useBusyMark } from '@tmt/browser-ui/react';
+import { Check, CircleCheck, CircleDot, X } from 'lucide-react';
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ThreadView } from '../thread-records.js';
 import type { ProposalOutcome } from '../proposal-actions.js';
@@ -204,7 +204,7 @@ export function ProposalCard({
                   disabled={disabled || !canDecide}
                   busy={deciding}
                   busyMark={
-                    <LoaderCircle
+                    <BusyMark
                       className={pressed === 'approved' ? undefined : 'proposal-unpressed'}
                     />
                   }
@@ -222,9 +222,7 @@ export function ProposalCard({
                 disabled={disabled || !canDecide}
                 busy={deciding}
                 busyMark={
-                  <LoaderCircle
-                    className={pressed === 'declined' ? undefined : 'proposal-unpressed'}
-                  />
+                  <BusyMark className={pressed === 'declined' ? undefined : 'proposal-unpressed'} />
                 }
                 onActivate={(e) => {
                   if (!e.isTrusted) return;

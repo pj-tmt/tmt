@@ -108,7 +108,8 @@ function settingsChoice(trigger, surface) {
 }
 //#endregion
 //#region src/remote-state.ts
-/** Current-origin observation only. A foreign entry has no mark or live-access claim. */
+/** Current-origin observation only. A foreign entry has no mark or live-access claim. A connection
+* state is words only, in the neutral tone: the shared agent marks mean agent states, not these. */
 function remoteState(state, current = true) {
 	if (!current) return {
 		text: "not checked",
@@ -117,48 +118,36 @@ function remoteState(state, current = true) {
 		tone: "muted",
 		action: ""
 	};
-	const [text, word, mark, tone, action] = state === "Connected" ? [
+	const [text, word, action] = state === "Connected" ? [
 		"Connected",
 		"connected",
-		"●",
-		"working",
 		""
 	] : state === "Checking" ? [
-		"Checking",
+		"Checking…",
 		"connecting",
-		"◌",
-		"waiting",
 		""
 	] : state === "Access ended" ? [
 		"Access ended",
 		"access ended",
-		"✗",
-		"blocked",
 		"Pair again"
 	] : state === "Different machine" ? [
 		"Different machine",
 		"different machine",
-		"△",
-		"waiting",
 		"Pair again"
 	] : state === "Not paired" || state === "Pairing unreadable" ? [
 		state,
 		"not paired",
-		"○",
-		"waiting",
 		"Pair again"
 	] : [
 		"Unconfirmed",
 		"unreachable",
-		"○",
-		"blocked",
 		"Retry"
 	];
 	return {
-		text: `${mark} ${text}`,
+		text,
 		word,
-		mark,
-		tone,
+		mark: "",
+		tone: "neutral",
 		action
 	};
 }
@@ -170,209 +159,186 @@ function currentRemote(entry, address, pageUrl) {
 }
 //#endregion
 //#region src/remote-menu.ts
-function remoteMenu(actions) {
-	const host = document.getElementById("remote-switcher");
-	if (!host) return () => {};
-	const trigger = document.createElement("button");
-	trigger.type = "button";
-	trigger.className = "tmt-ui-menu-trigger remote-chip";
-	trigger.setAttribute("aria-haspopup", "menu");
-	trigger.setAttribute("aria-controls", "remote-menu");
-	trigger.setAttribute("aria-expanded", "false");
-	const surface = document.createElement("div");
-	surface.id = "remote-menu";
-	surface.popover = "auto";
-	surface.className = "tmt-ui-menu-surface remote-menu";
-	surface.setAttribute("role", "menu");
-	surface.setAttribute("aria-label", "Remotes");
-	const status = document.createElement("p");
-	status.className = "tmt-ui-menu-reason";
-	host.append(trigger, surface);
+/**
+* The menu rows that open a part of a page. Remote's pages treat any URL fragment as untrusted
+* input and erase it, so a part is never addressed by `#id`: the menu remembers the chosen part
+* for this tab and scrolls to it, on this page or once the other page mounts.
+*/
+var PARTS = {
+	devices: {
+		page: "settings",
+		target: "devices-title"
+	},
+	machine: {
+		page: "settings",
+		target: "opening-title"
+	},
+	pair: {
+		page: "landing",
+		target: "heading"
+	}
+};
+var PART_KEY = "tmt.remote.menu.part";
+function chosenPart() {
+	try {
+		const value = sessionStorage.getItem(PART_KEY);
+		return value && value in PARTS ? value : void 0;
+	} catch {
+		return;
+	}
+}
+function choosePart(part) {
+	try {
+		if (part) sessionStorage.setItem(PART_KEY, part);
+		else sessionStorage.removeItem(PART_KEY);
+	} catch {}
+}
+/** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
+function showPart(part) {
+	document.getElementById(PARTS[part].target)?.scrollIntoView({ block: "start" });
+}
+function remoteMenu(actions, shell = void 0) {
+	if (!shell) return () => {};
+	const page = document.documentElement.dataset.tmtPage;
+	const landing = new URL("/remote/", location.href).href;
+	const settings = new URL("/remote/settings", location.href).href;
 	let catalog = {
 		version: 1,
 		entries: []
 	};
 	let state = "Checking";
 	let address = "";
-	let search = "";
-	let searchAt = 0;
-	const buttons = /* @__PURE__ */ new Map();
-	const selected = () => catalog.entries.find((entry) => currentRemote(entry, address, location.href));
-	const enabled = () => [...surface.querySelectorAll("button:not(:disabled)")];
-	function close(refocus = false) {
-		if (surface.matches(":popover-open")) surface.hidePopover();
-		if (refocus) trigger.focus({ preventScroll: true });
-	}
-	function item(key, label, run) {
-		let button = buttons.get(key);
-		if (!button) {
-			button = document.createElement("button");
-			button.type = "button";
-			button.className = "tmt-ui-menu-item";
-			button.tabIndex = -1;
-			button.dataset.key = key;
-			buttons.set(key, button);
-		}
-		button.onclick = () => {
-			close();
-			run();
-		};
-		button.dataset.search = label;
-		button.textContent = label;
-		return button;
-	}
+	const run = /* @__PURE__ */ new Map();
+	const chosen = chosenPart();
+	choosePart(void 0);
+	let shownPart = chosen && PARTS[chosen].page === page ? chosen : void 0;
 	function paint() {
+		run.clear();
 		const view = remoteState(state);
-		const alias = selected()?.name ?? "this machine";
-		trigger.textContent = `${view.mark} ${alias} ▾`;
-		trigger.title = `Remote: ${alias}, ${view.word}`;
-		trigger.setAttribute("aria-label", trigger.title);
-		trigger.dataset.tone = view.tone;
-		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
-		const keep = /* @__PURE__ */ new Set();
 		const reason = actions.blocked();
-		const append = (key, label, run, checked, disabled) => {
-			const button = item(key, label, run);
-			button.dataset.search = key.startsWith("remote:") ? key.slice(7) : "this machine";
-			button.setAttribute("role", "menuitemradio");
-			button.setAttribute("aria-checked", String(checked));
-			if (checked) {
-				const check = document.createElement("span");
-				check.textContent = "✓";
-				check.setAttribute("aria-hidden", "true");
-				button.append(check);
-			}
-			button.disabled = disabled;
-			button.dataset.tone = checked ? view.tone : "muted";
-			button.setAttribute("aria-describedby", "remote-menu-reason");
-			keep.add(key);
-			return button;
-		};
-		const rows = [];
-		if (!selected()) rows.push(append("current", `${view.mark} this machine · ${view.word}`, () => {}, true, !!view.action));
+		const selected = catalog.entries.find((entry) => currentRemote(entry, address, location.href));
+		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
+		const remotes = [];
+		const onSettings = page === "settings";
+		const here = shownPart;
+		const lit = (id) => here === id;
+		const onLanding = !onSettings && !here;
+		if (!selected) remotes.push({
+			id: "current",
+			label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(" "),
+			href: landing,
+			current: onLanding
+		});
 		for (const entry of entries) {
-			const here = currentRemote(entry, address, location.href), shown = remoteState(state, here);
-			rows.push(append(`remote:${entry.name}`, here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`, () => {
-				if (!here) actions.open(entry);
-			}, here, here ? !!shown.action : !!reason));
+			const here = currentRemote(entry, address, location.href);
+			const shown = remoteState(state, here);
+			const id = `remote:${entry.name}`;
+			if (!here) run.set(id, () => actions.open(entry));
+			remotes.push({
+				id,
+				label: here ? [shown.mark, `${entry.name} · ${shown.word}`].filter(Boolean).join(" ") : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`,
+				href: here ? landing : "#",
+				current: here && onLanding,
+				disabled: !here && !!reason,
+				note: !here && reason ? reason : void 0
+			});
 		}
 		if (view.action) {
-			const key = "recover";
-			keep.add(key);
-			const button = item(key, view.action, () => actions.recover(remoteState(state).action));
-			button.setAttribute("role", "menuitem");
-			rows.push(button);
+			run.set("recover", () => actions.recover(remoteState(state).action));
+			remotes.push({
+				id: "recover",
+				label: view.action,
+				href: "#",
+				current: false,
+				note: view.text
+			});
 		}
-		for (const [key, label, run] of [[
-			"add",
-			"Add remote…",
-			actions.add
-		], [
-			"manage",
-			"Manage remotes",
-			actions.manage
-		]]) {
-			keep.add(key);
-			const button = item(key, label, run);
-			button.setAttribute("role", "menuitem");
-			rows.push(button);
-		}
-		status.id = "remote-menu-reason";
-		status.textContent = reason || (view.action ? view.text : "");
-		status.hidden = !status.textContent;
-		for (const [key, button] of buttons) if (!keep.has(key)) {
-			button.remove();
-			buttons.delete(key);
-		}
-		rows.forEach((button, index) => {
-			if (surface.children[index] !== button) surface.insertBefore(button, surface.children[index] ?? null);
+		run.set("add", actions.add);
+		shell.setMenu({
+			title: "Remote",
+			groups: [
+				{ items: remotes },
+				{
+					label: "This machine",
+					items: [
+						{
+							id: "devices",
+							label: "Devices",
+							href: settings,
+							current: lit("devices")
+						},
+						{
+							id: "pair",
+							label: "Connect a device",
+							href: landing,
+							current: lit("pair")
+						},
+						{
+							id: "machine",
+							label: "This machine’s settings",
+							href: settings,
+							current: lit("machine")
+						}
+					]
+				},
+				{ items: [{
+					id: "add",
+					label: "Add remote…",
+					href: `${settings}#add-remote`,
+					current: false
+				}, {
+					id: "settings",
+					label: "Remote settings",
+					href: settings,
+					current: onSettings && !here
+				}] }
+			]
+		}, (id) => {
+			if (id in PARTS) {
+				const part = id;
+				if (PARTS[part].page !== page) return choosePart(part), false;
+				shownPart = part;
+				showPart(part);
+				paint();
+				return true;
+			}
+			if (id === "settings" || id === "current") {
+				if (id === "settings" === onSettings) {
+					shownPart = void 0;
+					window.scrollTo({ top: 0 });
+					paint();
+					return true;
+				}
+				return false;
+			}
+			const action = run.get(id);
+			if (!action) return false;
+			if (!id.startsWith("remote:") || !actions.blocked()) action();
+			else paint();
+			return true;
 		});
-		surface.append(status);
-		const focused = enabled().find((button) => button === document.activeElement) ?? enabled()[0];
-		for (const button of buttons.values()) button.tabIndex = button === focused ? 0 : -1;
 	}
-	function place() {
-		const anchor = trigger.getBoundingClientRect();
-		const box = surface.getBoundingClientRect();
-		const width = document.documentElement.clientWidth;
-		surface.style.left = `${Math.max(8, Math.min(anchor.left, width - box.width - 8))}px`;
-		const below = innerHeight - anchor.bottom - 8;
-		const above = anchor.top - 8;
-		const up = box.height > below && above > below;
-		surface.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
-		surface.style.top = `${up ? Math.max(8, anchor.top - Math.min(box.height, above)) : anchor.bottom}px`;
+	paint();
+	if (shownPart) {
+		const opening = shownPart;
+		requestAnimationFrame(() => showPart(opening));
 	}
-	async function open(end = false) {
-		await actions.refresh();
-		if (document.activeElement !== trigger) return;
+	const refresh = () => {
 		paint();
-		if (!surface.matches(":popover-open")) surface.showPopover();
-		place();
-		search = "";
-		(end ? enabled().at(-1) : enabled()[0])?.focus();
-	}
-	let openAtPointerdown = false;
-	trigger.addEventListener("pointerdown", () => {
-		openAtPointerdown = surface.matches(":popover-open");
-	});
-	trigger.addEventListener("click", (event) => {
-		const dismiss = event.detail > 0 && openAtPointerdown;
-		openAtPointerdown = false;
-		if (dismiss || surface.matches(":popover-open")) close();
-		else {
-			trigger.focus({ preventScroll: true });
-			open();
-		}
-	});
-	trigger.addEventListener("keydown", (event) => {
-		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-			event.preventDefault();
-			open(event.key === "ArrowUp");
-		}
-	});
-	surface.addEventListener("toggle", () => {
-		trigger.setAttribute("aria-expanded", String(surface.matches(":popover-open")));
-		if (surface.matches(":popover-open")) place();
-	});
-	surface.addEventListener("focusin", () => {
-		for (const button of buttons.values()) button.tabIndex = button === document.activeElement ? 0 : -1;
-	});
-	surface.addEventListener("keydown", (event) => {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			close(true);
-			return;
-		}
-		if (event.key === "Tab") {
-			close();
-			return;
-		}
-		if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
-		const items = enabled(), at = items.findIndex((item) => item === document.activeElement);
-		let next;
-		if (event.key === "ArrowDown") next = items[(at + 1) % items.length];
-		else if (event.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
-		else if (event.key === "Home") next = items[0];
-		else if (event.key === "End") next = items.at(-1);
-		else if (event.key.length === 1 && event.key !== " ") {
-			const now = performance.now();
-			search = (now - searchAt > 700 ? "" : search) + event.key.toLowerCase();
-			searchAt = now;
-			next = [...items.slice(at + 1), ...items.slice(0, at + 1)].find((item) => (item.dataset.search ?? "").toLowerCase().startsWith(search));
-		} else return;
-		event.preventDefault();
-		next?.focus();
-	});
-	window.addEventListener("resize", () => {
-		if (surface.matches(":popover-open")) place();
-	});
-	window.addEventListener("scroll", () => {
-		if (surface.matches(":popover-open")) place();
-	}, true);
+		actions.refresh();
+	};
+	const entered = (event) => {
+		const menu = event.target?.closest?.(".tmt-ui-module-menu");
+		if (menu && !menu.contains(event.relatedTarget)) refresh();
+	};
+	document.addEventListener("pointerover", entered, { signal: shell.signal });
+	document.addEventListener("focusin", entered, { signal: shell.signal });
+	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;
 		state = observed;
 		address = checkedAddress;
+		if (observed === "Connected" && checkedAddress) shell.describe(checkedAddress);
 		paint();
 	};
 }
@@ -800,7 +766,7 @@ function field(label, value) {
 function kindLabel(entry) {
 	return entry.kind === "local" ? "Local" : "Firebase";
 }
-function remoteRegistryPage(blocked = () => "") {
+function remoteRegistryPage(blocked = () => "", shell) {
 	const root = document.getElementById("remotes");
 	if (!root) return () => {};
 	const fragment = location.hash;
@@ -826,12 +792,6 @@ function remoteRegistryPage(blocked = () => "") {
 			if (document.documentElement.dataset.tmtPage === "settings") add.click();
 			else location.assign(`${settings.href}#add-remote`);
 		},
-		manage: () => {
-			if (document.documentElement.dataset.tmtPage === "settings") {
-				root.scrollIntoView();
-				add.focus({ preventScroll: true });
-			} else location.assign(`${settings.href}#remotes`);
-		},
 		recover: (action) => {
 			if (action === "Retry") {
 				const retry = document.getElementById("check") ?? document.getElementById("refresh");
@@ -850,7 +810,7 @@ function remoteRegistryPage(blocked = () => "") {
 			}
 		},
 		blocked
-	});
+	}, shell);
 	const showError = (error, slot) => {
 		slot.textContent = error instanceof RemoteRegistryError ? error.message : "The remotes could not be read";
 	};
@@ -1016,7 +976,7 @@ function remoteRegistryPage(blocked = () => "") {
 	add.addEventListener("click", () => {
 		const view = dialog("Add remote", add);
 		const alias = field("Remote name", "");
-		const url = field("Door address or remote link", "");
+		const url = field("Remote address or link", "");
 		view.body.append(alias.label, url.label);
 		view.buttons.append(action("Continue", () => {
 			reference(alias.input.value, url.input.value).then((entry) => {
@@ -1046,7 +1006,7 @@ function remoteRegistryPage(blocked = () => "") {
 		if (!value || ["#remotes", "#add-remote"].includes(value)) return;
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
-	});
+	}, { signal: (shell ?? void 0)?.signal });
 	return (state, checkedAddress) => {
 		observed = state;
 		if (checkedAddress) address = checkedAddress;
@@ -1437,7 +1397,7 @@ var ManagementPage = class {
 			const intent = this.intent;
 			this.notice = intent?.kind === "setting" ? intent.input.setting === "open" ? "Browser opening saved." : "Session limit saved. Applies to new sessions." : intent?.kind === "rename" ? "Device renamed." : intent?.kind === "talk" ? intent.input.enabled ? "Sending enabled for this device." : "Sending disabled for this device." : intent?.kind === "remove-others" ? "The other devices were removed. This browser stays connected." : "Device removed.";
 			if (this.outcome.sessionEnded) this.notice += " This session ended. Use the local CLI to continue.";
-		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check its original result before making another change.";
+		} else if (this.outcome?.state === "unknown") this.notice = this.intent?.kind === "revoke" || this.intent?.kind === "remove-others" ? "Could not confirm the removal. Check its result before trying again." : this.freshAttempted ? "The saved value is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check the saved value before making another change.";
 		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_DEVICE_LIST_CHANGED" ? "The device list changed. Review it, then confirm again." : this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI to make changes." : "Change refused. Check the current values or use the local CLI.";
 	}
 };
@@ -1503,7 +1463,9 @@ var browserUiClasses = Object.freeze({
 	action: "tmt-ui-action",
 	actionLabel: "tmt-ui-action-label",
 	actionMark: "tmt-ui-action-mark",
-	spin: "tmt-ui-spin",
+	busyMark: "tmt-ui-busy-mark",
+	busyDot: "tmt-ui-busy-dot",
+	checkbox: "tmt-ui-checkbox",
 	iconAction: "tmt-ui-icon-action",
 	iconActionControl: "tmt-ui-icon-action-control",
 	iconActionIcon: "tmt-ui-icon-action-icon",
@@ -1529,30 +1491,47 @@ var browserUiClasses = Object.freeze({
 	tabPanel: "tmt-ui-tab-panel"
 });
 /**
-* The reserved busy-mark slot of a static Action: a leading span holding the shared LoaderCircle
-* arc, hidden while `data-busy` is `false`. Set `data-busy` to `true` from `createBusyMarkGate`;
-* the shared spinner rule turns it. Non-React pages use this instead of copying the markup.
+* The browser busy mark's six dots on a 16x16 viewBox, in ring order (clockwise from the top
+* left of the 2x3 cell). Each dot's eased lap is offset by its place in the ring in CSS.
 */
+var busyDots = [
+	[5, 3],
+	[11, 3],
+	[11, 8],
+	[11, 13],
+	[5, 13],
+	[5, 8]
+];
+/** The radius of each busy-mark dot on the 16x16 viewBox. */
+var busyDotRadius = 1.6;
+var SVG = "http://www.w3.org/2000/svg";
+/** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
+function busySvg(doc) {
+	const svg = doc.createElementNS(SVG, "svg");
+	svg.setAttribute("viewBox", "0 0 16 16");
+	for (const [cx, cy] of busyDots) {
+		const dot = doc.createElementNS(SVG, "circle");
+		dot.setAttribute("class", browserUiClasses.busyDot);
+		dot.setAttribute("cx", String(cx));
+		dot.setAttribute("cy", String(cy));
+		dot.setAttribute("r", String(busyDotRadius));
+		svg.append(dot);
+	}
+	return svg;
+}
+/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
+function createBusyMark(doc = document) {
+	const busy = doc.createElement("span");
+	busy.className = browserUiClasses.busyMark;
+	busy.append(busySvg(doc));
+	return busy;
+}
 function createActionMark(doc = document) {
 	const mark = doc.createElement("span");
 	mark.className = browserUiClasses.actionMark;
 	mark.setAttribute("aria-hidden", "true");
 	mark.dataset.busy = "false";
-	const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-	for (const [name, value] of Object.entries({
-		width: "1em",
-		height: "1em",
-		viewBox: "0 0 24 24",
-		fill: "none",
-		stroke: "currentColor",
-		"stroke-width": "2",
-		"stroke-linecap": "round",
-		"stroke-linejoin": "round"
-	})) svg.setAttribute(name, value);
-	const arc = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-	arc.setAttribute("d", "M21 12a9 9 0 1 1-6.219-8.56");
-	svg.append(arc);
-	mark.append(svg);
+	mark.append(createBusyMark(doc));
 	return mark;
 }
 /**
@@ -1597,594 +1576,599 @@ function createBusyMarkGate(onChange) {
 }
 //#endregion
 //#region src/settings-page.ts
-function element(id) {
-	const found = document.getElementById(id);
-	if (!found) throw new Error(`Settings page lacks #${id}.`);
-	return found;
-}
-var opening = element("opening");
-var mode = element("limit-mode");
-var custom = element("limit-custom");
-var devices = element("devices");
-var refresh = element("refresh");
-var removeOthers = element("remove-others");
-var more = element("more");
-var first = element("first");
-var rows = /* @__PURE__ */ new Map();
-var initialized = false;
-var choices;
-var confirmation;
-function targetSignature(target) {
-	return JSON.stringify([
-		target.name,
-		target.revoked,
-		target.talkEnabled,
-		target.thisBrowser
-	]);
-}
-function cancelConfirmation(refocus = false) {
-	if (!confirmation) return;
-	const { button, clientId } = confirmation;
-	const panel = rows.get(clientId)?.querySelector("[data-confirmation]");
-	if (panel) panel.hidden = true;
-	button.removeAttribute("aria-describedby");
-	button.setAttribute("aria-expanded", "false");
-	confirmation = void 0;
-	if (refocus && button.isConnected && !button.disabled) button.focus({ preventScroll: true });
-}
-/** A second deliberate press confirms only the same currently admitted presentation. */
-function confirmDevice(button, target, kind) {
-	page.removalPreview = void 0;
-	const signature = targetSignature(target);
-	if (confirmation?.button === button && confirmation.signature === signature) {
+/** The Remote settings page (`/remote/settings`): run once per mount of its markup. This bundle
+* is loaded apart from the SDK, so the app hands it its part of the shell. */
+async function settingsPage(shell) {
+	function element(id) {
+		const found = document.getElementById(id);
+		if (!found) throw new Error(`Settings page lacks #${id}.`);
+		return found;
+	}
+	const opening = element("opening");
+	const mode = element("limit-mode");
+	const custom = element("limit-custom");
+	const devices = element("devices");
+	const refresh = element("refresh");
+	const removeOthers = element("remove-others");
+	const more = element("more");
+	const first = element("first");
+	const rows = /* @__PURE__ */ new Map();
+	let initialized = false;
+	let choices;
+	let confirmation;
+	function targetSignature(target) {
+		return JSON.stringify([
+			target.name,
+			target.revoked,
+			target.talkEnabled,
+			target.thisBrowser
+		]);
+	}
+	function cancelConfirmation(refocus = false) {
+		if (!confirmation) return;
+		const { button, clientId } = confirmation;
+		const panel = rows.get(clientId)?.querySelector("[data-confirmation]");
+		if (panel) panel.hidden = true;
+		button.removeAttribute("aria-describedby");
+		button.setAttribute("aria-expanded", "false");
+		confirmation = void 0;
+		if (refocus && button.isConnected && !button.disabled) button.focus({ preventScroll: true });
+	}
+	/** A second deliberate press confirms only the same currently admitted presentation. */
+	function confirmDevice(button, target, kind) {
+		page.removalPreview = void 0;
+		const signature = targetSignature(target);
+		if (confirmation?.button === button && confirmation.signature === signature) {
+			cancelConfirmation();
+			return true;
+		}
 		cancelConfirmation();
-		return true;
+		const panel = rows.get(target.clientId).querySelector("[data-confirmation]");
+		const consequence = panel.querySelector("p");
+		consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.` : target.thisBrowser ? `This ends Remote access for this browser (${target.name}). Press Remove again to confirm.` : `This ends Remote access for ${target.name}. Press Remove again to confirm.`;
+		panel.hidden = false;
+		button.setAttribute("aria-describedby", consequence.id);
+		button.setAttribute("aria-expanded", "true");
+		confirmation = {
+			button,
+			clientId: target.clientId,
+			signature
+		};
+		return false;
 	}
-	cancelConfirmation();
-	const panel = rows.get(target.clientId).querySelector("[data-confirmation]");
-	const consequence = panel.querySelector("p");
-	consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.` : target.thisBrowser ? `This ends Remote access for this browser (${target.name}). Press Remove again to confirm.` : `This ends Remote access for ${target.name}. Press Remove again to confirm.`;
-	panel.hidden = false;
-	button.setAttribute("aria-describedby", consequence.id);
-	button.setAttribute("aria-expanded", "true");
-	confirmation = {
-		button,
-		clientId: target.clientId,
-		signature
-	};
-	return false;
-}
-var page;
-var registryState = remoteRegistryPage(() => {
-	if (!page) return "";
-	if (page.busy) return "A request is in progress. Wait for its outcome.";
-	if (page.outcome?.state === "unknown") return "Another change is still unconfirmed. Check its original result first.";
-	for (const device of page.devices?.devices ?? []) {
-		const name = rows.get(device.clientId)?.querySelector("input");
-		if (name && name.value !== device.name) return "Save or restore the unsent device name before changing pages.";
+	let page;
+	const registryState = remoteRegistryPage(() => {
+		if (!page) return "";
+		if (page.busy) return "A request is in progress. Wait for its outcome.";
+		if (page.outcome?.state === "unknown") return "Another change is still unconfirmed. Check the saved value first.";
+		for (const device of page.devices?.devices ?? []) {
+			const name = rows.get(device.clientId)?.querySelector("input");
+			if (name && name.value !== device.name) return "Save or restore the unsent device name before changing pages.";
+		}
+		return "";
+	}, shell);
+	/** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
+	function commandNotice(target, text) {
+		target.replaceChildren();
+		for (const part of text.split(/(tmt remote (?:pair|devices|settings))/g)) if (/^tmt remote (?:pair|devices|settings)$/.test(part)) {
+			const code = document.createElement("code");
+			code.className = "tmt-ui-code";
+			code.textContent = part;
+			target.append(code);
+		} else target.append(document.createTextNode(part));
 	}
-	return "";
-});
-/** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
-function commandNotice(target, text) {
-	target.replaceChildren();
-	for (const part of text.split(/(tmt remote (?:pair|devices|settings))/g)) if (/^tmt remote (?:pair|devices|settings)$/.test(part)) {
-		const code = document.createElement("code");
-		code.className = "tmt-ui-code";
-		code.textContent = part;
-		target.append(code);
-	} else target.append(document.createTextNode(part));
-}
-function capacityCopy(refusal) {
-	return refusal?.code === "REMOTE_SESSION_LIMIT" ? "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged." : void 0;
-}
-function openingChanged() {
-	return !!page.settings && opening.value === "on" !== page.settings.settings.open;
-}
-function limitChanged() {
-	if (!page.settings || mode.value === "default") return false;
-	const admitted = page.settings.settings;
-	const value = mode.value === "off" ? null : custom.value;
-	return admitted.sessionsPerDeviceSource !== "settings.json" || value !== admitted.sessionsPerDevice;
-}
-/** Busy is not disabled: only an unavailable control is disabled. A busy one keeps its look and
-* focus and is fenced by aria-disabled; every activation handler already refuses while busy. */
-function fence(button, unavailable) {
-	button.disabled = unavailable;
-	if (page.busy && !unavailable) button.setAttribute("aria-disabled", "true");
-	else button.removeAttribute("aria-disabled");
-}
-/** The action that carries the busy mark: the one the current write started from. */
-var markOwner;
-function markSlot(button) {
-	let slot = button.querySelector(":scope > .tmt-ui-action-mark");
-	if (!slot) {
-		slot = createActionMark();
-		button.prepend(slot);
+	function capacityCopy(refusal) {
+		return refusal?.code === "REMOTE_SESSION_LIMIT" ? "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged." : void 0;
 	}
-	return slot;
-}
-/** The shared delay and hold: nothing shows for the first 400 ms, then the mark stays 400 ms. */
-var busyMark = createBusyMarkGate((shown) => {
-	if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
-});
-function syncBusyMark() {
-	for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-switcher")) markSlot(button);
-	busyMark.set(page.busy);
-}
-function saveState(form, hint, changed, valid) {
-	const button = element(form).querySelector("button[type=submit]");
-	fence(button, !page.writableWhenIdle || !changed || !valid);
-	element(hint).hidden = !page.writable || changed;
-	const described = button.getAttribute("aria-describedby");
-	if (!element(hint).hidden) button.setAttribute("aria-describedby", [described, hint].filter(Boolean).join(" "));
-}
-function recoverOriginal(event) {
-	if (page.busy) return;
-	run(async () => {
-		await page.recover();
-		if (page.access === "live") await refreshView();
-	}, event.currentTarget);
-}
-/** Mount an empty live region before a device can originate a change. Never move it. */
-function deviceFeedback(clientId) {
-	const feedback = document.createElement("div");
-	feedback.className = "change-feedback";
-	feedback.dataset.feedback = clientId;
-	const status = document.createElement("p");
-	status.dataset.outcomeSlot = "";
-	status.setAttribute("role", "status");
-	status.setAttribute("aria-live", "polite");
-	status.setAttribute("aria-atomic", "true");
-	const original = document.createElement("p");
-	original.dataset.original = "";
-	original.hidden = true;
-	const recover = document.createElement("button");
-	recover.type = "button";
-	recover.className = "tmt-ui-action";
-	recover.dataset.recover = "";
-	recover.hidden = true;
-	const label = document.createElement("span");
-	label.className = "tmt-ui-action-label";
-	label.textContent = "Check original result";
-	recover.append(label);
-	recover.addEventListener("click", recoverOriginal);
-	feedback.append(status, original, recover);
-	return feedback;
-}
-function renderOutcome() {
-	const origin = page.intent?.kind === "setting" ? page.intent.input.setting : page.intent?.kind === "remove-others" ? void 0 : page.intent?.input.clientId;
-	const active = origin && [...document.querySelectorAll("[data-feedback]")].find((slot) => slot.dataset.feedback === origin) || document.querySelector("[data-feedback=\"shared\"]");
-	for (const slot of document.querySelectorAll("[data-feedback]")) if (slot !== active) {
-		const status = slot.querySelector("[data-outcome-slot]");
-		if (status.textContent) commandNotice(status, "");
+	function openingChanged() {
+		return !!page.settings && opening.value === "on" !== page.settings.settings.open;
 	}
-	for (const slot of document.querySelectorAll("[data-feedback]")) {
-		const status = slot.querySelector("[data-outcome-slot]");
-		const original = slot.querySelector("[data-original]");
-		const recover = slot.querySelector("[data-recover]");
-		const selected = slot === active;
-		status.id = selected ? "outcome" : "";
-		original.id = selected ? "original" : "";
-		recover.id = selected ? "recover" : "";
-		const text = selected ? page.notice : "";
-		if (status.textContent !== text) commandNotice(status, text);
-		status.dataset.state = selected ? page.outcome?.state ?? "pending" : "";
-		slot.dataset.tone = page.busy ? "waiting" : page.outcome?.state === "committed" ? "working" : "blocked";
-		original.textContent = selected && page.intent && (page.outcome?.state === "unknown" || page.outcome?.state === "refused") ? `Original operation ${page.intent.input.operationId}` : "";
-		original.hidden = !original.textContent;
-		recover.hidden = !selected || !page.canRecover;
-		fence(recover, false);
-		recover.setAttribute("aria-busy", String(page.busy));
+	function limitChanged() {
+		if (!page.settings || mode.value === "default") return false;
+		const admitted = page.settings.settings;
+		const value = mode.value === "off" ? null : custom.value;
+		return admitted.sessionsPerDeviceSource !== "settings.json" || value !== admitted.sessionsPerDevice;
 	}
-}
-function render() {
-	registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed");
-	if (confirmation) {
-		const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
-		if (!page.writable || !target || targetSignature(target) !== confirmation.signature) cancelConfirmation();
+	/** Busy is not disabled: only an unavailable control is disabled. A busy one keeps its look and
+	* focus and is fenced by aria-disabled; every activation handler already refuses while busy. */
+	function fence(button, unavailable) {
+		button.disabled = unavailable;
+		if (page.busy && !unavailable) button.setAttribute("aria-disabled", "true");
+		else button.removeAttribute("aria-disabled");
 	}
-	renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
-	const capacity = capacityCopy(page.accessRefusal);
-	const access = capacity ?? {
-		checking: "Checking current access…",
-		live: "Current browser access confirmed.",
-		lost: "Current browser access refused.",
-		unconfirmed: "Current browser access unconfirmed."
-	}[page.access];
-	if (element("access").textContent !== access) element("access").textContent = access;
-	const announcement = capacity ?? {
-		checking: "",
-		live: "Browser access confirmed",
-		lost: "Access ended",
-		unconfirmed: "Access unconfirmed"
-	}[page.access];
-	if (announcement && element("access-announcement").textContent !== announcement) element("access-announcement").textContent = announcement;
-	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
-	element("read-only").hidden = editable || page.access !== "live";
-	const designation = element("designation-command");
-	designation.hidden = editable || page.access !== "live";
-	if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
-	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
-	const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
-	element("controls-reason").textContent = reason;
-	element("controls-reason").hidden = !reason;
-	for (const button of document.querySelectorAll("button")) {
-		if (button.closest("#remotes, #remote-switcher")) continue;
-		if (reason) button.setAttribute("aria-describedby", "controls-reason");
-		else button.removeAttribute("aria-describedby");
-		button.setAttribute("aria-busy", String(page.busy));
+	/** The action that carries the busy mark: the one the current write started from. */
+	let markOwner;
+	function markSlot(button) {
+		let slot = button.querySelector(":scope > .tmt-ui-action-mark");
+		if (!slot) {
+			slot = createActionMark();
+			button.prepend(slot);
+		}
+		return slot;
 	}
-	const openingForm = element("opening-form");
-	if (editable) openingForm.removeAttribute("aria-describedby");
-	else openingForm.setAttribute("aria-describedby", "read-only");
-	element("limit-form").setAttribute("aria-describedby", editable ? "limit-help" : "limit-help read-only");
-	if (page.settings) {
-		const value = page.settings.settings;
-		element("opening-value").textContent = `${value.open ? "On" : "Off"} · ${value.source}`;
-		element("limit-value").textContent = `${value.sessionsPerDevice ?? "Off (unlimited)"} · ${value.sessionsPerDeviceSource}`;
-		const warning = element("warning");
-		warning.textContent = value.warning ?? "";
-		warning.hidden = value.warning === null;
-		if (!initialized) {
-			opening.value = value.open ? "on" : "off";
-			mode.value = value.sessionsPerDeviceSource === "default" ? "default" : value.sessionsPerDevice === null ? "off" : "custom";
-			custom.value = value.sessionsPerDevice ?? "";
-			initialized = true;
+	/** The shared delay and hold: nothing shows for the first 400 ms, then the mark stays 400 ms. */
+	const busyMark = createBusyMarkGate((shown) => {
+		if (markOwner) markSlot(markOwner).dataset.busy = String(shown);
+	});
+	function syncBusyMark() {
+		for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-switcher")) markSlot(button);
+		busyMark.set(page.busy);
+	}
+	function saveState(form, hint, changed, valid) {
+		const button = element(form).querySelector("button[type=submit]");
+		fence(button, !page.writableWhenIdle || !changed || !valid);
+		element(hint).hidden = !page.writable || changed;
+		const described = button.getAttribute("aria-describedby");
+		if (!element(hint).hidden) button.setAttribute("aria-describedby", [described, hint].filter(Boolean).join(" "));
+	}
+	function recoverOriginal(event) {
+		if (page.busy) return;
+		run(async () => {
+			await page.recover();
+			if (page.access === "live") await refreshView();
+		}, event.currentTarget);
+	}
+	/** Mount an empty live region before a device can originate a change. Never move it. */
+	function deviceFeedback(clientId) {
+		const feedback = document.createElement("div");
+		feedback.className = "change-feedback";
+		feedback.dataset.feedback = clientId;
+		const status = document.createElement("p");
+		status.dataset.outcomeSlot = "";
+		status.setAttribute("role", "status");
+		status.setAttribute("aria-live", "polite");
+		status.setAttribute("aria-atomic", "true");
+		const original = document.createElement("p");
+		original.dataset.original = "";
+		original.hidden = true;
+		const recover = document.createElement("button");
+		recover.type = "button";
+		recover.className = "tmt-ui-action";
+		recover.dataset.recover = "";
+		recover.hidden = true;
+		const label = document.createElement("span");
+		label.className = "tmt-ui-action-label";
+		label.textContent = "Check the saved value";
+		recover.append(label);
+		recover.addEventListener("click", recoverOriginal);
+		feedback.append(status, original, recover);
+		return feedback;
+	}
+	function renderOutcome() {
+		const origin = page.intent?.kind === "setting" ? page.intent.input.setting : page.intent?.kind === "remove-others" ? void 0 : page.intent?.input.clientId;
+		const active = origin && [...document.querySelectorAll("[data-feedback]")].find((slot) => slot.dataset.feedback === origin) || document.querySelector("[data-feedback=\"shared\"]");
+		for (const slot of document.querySelectorAll("[data-feedback]")) if (slot !== active) {
+			const status = slot.querySelector("[data-outcome-slot]");
+			if (status.textContent) commandNotice(status, "");
+		}
+		for (const slot of document.querySelectorAll("[data-feedback]")) {
+			const status = slot.querySelector("[data-outcome-slot]");
+			const original = slot.querySelector("[data-original]");
+			const recover = slot.querySelector("[data-recover]");
+			const selected = slot === active;
+			status.id = selected ? "outcome" : "";
+			original.id = selected ? "original" : "";
+			recover.id = selected ? "recover" : "";
+			const text = selected ? page.notice : "";
+			if (status.textContent !== text) commandNotice(status, text);
+			status.dataset.state = selected ? page.outcome?.state ?? "pending" : "";
+			slot.dataset.tone = page.busy ? "waiting" : page.outcome?.state === "committed" ? "working" : "blocked";
+			original.textContent = selected && page.intent && (page.outcome?.state === "unknown" || page.outcome?.state === "refused") ? `Original change ${page.intent.input.operationId}` : "";
+			original.hidden = !original.textContent;
+			recover.hidden = !selected || !page.canRecover;
+			fence(recover, false);
+			recover.setAttribute("aria-busy", String(page.busy));
 		}
 	}
-	custom.required = mode.value === "custom";
+	function render() {
+		registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed");
+		if (confirmation) {
+			const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
+			if (!page.writable || !target || targetSignature(target) !== confirmation.signature) cancelConfirmation();
+		}
+		renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
+		const capacity = capacityCopy(page.accessRefusal);
+		const access = capacity ?? {
+			checking: "Checking current access…",
+			live: "Current browser access confirmed.",
+			lost: "Current browser access refused.",
+			unconfirmed: "Current browser access unconfirmed."
+		}[page.access];
+		if (element("access").textContent !== access) element("access").textContent = access;
+		const announcement = capacity ?? {
+			checking: "",
+			live: "Browser access confirmed",
+			lost: "Access ended",
+			unconfirmed: "Access unconfirmed"
+		}[page.access];
+		if (announcement && element("access-announcement").textContent !== announcement) element("access-announcement").textContent = announcement;
+		const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
+		element("read-only").hidden = editable || page.access !== "live";
+		const designation = element("designation-command");
+		designation.hidden = editable || page.access !== "live";
+		if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
+		element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
+		const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check the saved value first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
+		element("controls-reason").textContent = reason;
+		element("controls-reason").hidden = !reason;
+		for (const button of document.querySelectorAll("button")) {
+			if (button.closest("#remotes, #remote-switcher")) continue;
+			if (reason) button.setAttribute("aria-describedby", "controls-reason");
+			else button.removeAttribute("aria-describedby");
+			button.setAttribute("aria-busy", String(page.busy));
+		}
+		const openingForm = element("opening-form");
+		if (editable) openingForm.removeAttribute("aria-describedby");
+		else openingForm.setAttribute("aria-describedby", "read-only");
+		element("limit-form").setAttribute("aria-describedby", editable ? "limit-help" : "limit-help read-only");
+		if (page.settings) {
+			const value = page.settings.settings;
+			element("opening-value").textContent = `${value.open ? "On" : "Off"} · ${value.source}`;
+			element("limit-value").textContent = `${value.sessionsPerDevice ?? "Off (unlimited)"} · ${value.sessionsPerDeviceSource}`;
+			const warning = element("warning");
+			warning.textContent = value.warning ?? "";
+			warning.hidden = value.warning === null;
+			if (!initialized) {
+				opening.value = value.open ? "on" : "off";
+				mode.value = value.sessionsPerDeviceSource === "default" ? "default" : value.sessionsPerDevice === null ? "off" : "custom";
+				custom.value = value.sessionsPerDevice ?? "";
+				initialized = true;
+			}
+		}
+		custom.required = mode.value === "custom";
+		for (const field of [
+			opening,
+			mode,
+			custom
+		]) field.disabled = !editable || field === custom && mode.value !== "custom";
+		for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
+		if (page.settings) {
+			choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
+			for (const update of choices) update();
+		}
+		saveState("opening-form", "opening-unchanged", openingChanged(), opening.checkValidity());
+		saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
+		removeOthers.hidden = page.removalPreview?.count === 0 || page.onFirstPage && page.devices?.nextCursor === null && page.devices.devices.every((device) => device.clientId === page.clientId);
+		fence(removeOthers, !page.writableWhenIdle || page.removalPreview?.count === 0);
+		const preview = page.removalPreview;
+		const panel = element("remove-others-confirmation");
+		panel.hidden = !preview || preview.count === 0 || !page.writable;
+		removeOthers.setAttribute("aria-expanded", String(!panel.hidden));
+		if (!panel.hidden && preview) {
+			element("remove-others-consequence").textContent = `This ends Remote access for ${preview.count} other ${preview.count === 1 ? "device" : "devices"}. This browser stays connected. Press Remove the others again to confirm.`;
+			removeOthers.setAttribute("aria-describedby", "remove-others-consequence");
+		}
+		fence(refresh, false);
+		more.hidden = !page.devices?.nextCursor;
+		fence(more, false);
+		first.hidden = page.onFirstPage;
+		fence(first, false);
+		if (page.devices) {
+			const current = new Set(page.devices.devices.map((device) => device.clientId));
+			for (const [id, row] of rows) if (!current.has(id)) {
+				row.remove();
+				rows.delete(id);
+			}
+			for (const device of page.devices.devices) {
+				let row = rows.get(device.clientId);
+				if (!row) {
+					row = document.createElement("div");
+					row.className = "device";
+					const summary = document.createElement("p");
+					summary.className = "device-summary";
+					const form = document.createElement("form");
+					const label = document.createElement("label");
+					const name = document.createElement("input");
+					name.id = `name-${device.clientId}`;
+					name.className = "tmt-ui-field-control";
+					label.id = `${name.id}-label`;
+					label.className = "tmt-ui-field-label";
+					name.setAttribute("aria-labelledby", label.id);
+					name.value = device.name;
+					name.required = true;
+					name.maxLength = 64;
+					label.htmlFor = name.id;
+					label.textContent = "Device name";
+					const save = document.createElement("button");
+					save.type = "submit";
+					save.className = "tmt-ui-action";
+					const saveLabel = document.createElement("span");
+					saveLabel.className = "tmt-ui-action-label";
+					saveLabel.textContent = "Rename";
+					save.append(saveLabel);
+					const revoke = document.createElement("button");
+					revoke.type = "button";
+					revoke.dataset.action = "revoke";
+					revoke.className = "tmt-ui-action";
+					revoke.dataset.variant = "destructive";
+					const revokeLabel = document.createElement("span");
+					revokeLabel.className = "tmt-ui-action-label";
+					revokeLabel.textContent = "Remove";
+					revoke.append(revokeLabel);
+					revoke.addEventListener("click", (event) => {
+						if (event.detail > 1 || !page.writable) return;
+						const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
+						if (!target || target.revoked) return;
+						if (!confirmDevice(revoke, target, "revoke")) return;
+						change({
+							kind: "revoke",
+							input: {
+								operationId: crypto.randomUUID(),
+								clientId: device.clientId
+							}
+						}, revoke);
+					});
+					form.addEventListener("submit", (event) => {
+						event.preventDefault();
+						if (!page.writable) return;
+						change({
+							kind: "rename",
+							input: {
+								operationId: crypto.randomUUID(),
+								clientId: device.clientId,
+								name: name.value
+							}
+						}, save);
+					});
+					const field = document.createElement("div");
+					field.className = "tmt-ui-field";
+					field.append(label, name);
+					const talk = document.createElement("button");
+					talk.type = "button";
+					talk.className = "tmt-ui-action";
+					talk.dataset.action = "talk";
+					const talkLabel = document.createElement("span");
+					talkLabel.className = "tmt-ui-action-label";
+					talk.append(talkLabel);
+					talk.addEventListener("click", (event) => {
+						if (event.detail > 1 || !page.writable) return;
+						const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
+						if (!target || target.revoked) return;
+						if (!target.talkEnabled && !confirmDevice(talk, target, "talk")) return;
+						change({
+							kind: "talk",
+							input: {
+								operationId: crypto.randomUUID(),
+								clientId: target.clientId,
+								enabled: !target.talkEnabled
+							}
+						}, talk);
+					});
+					form.append(field, save, talk, revoke);
+					const panel = document.createElement("div");
+					panel.className = "device-confirmation";
+					panel.dataset.confirmation = "";
+					panel.id = `confirm-${device.clientId}`;
+					panel.hidden = true;
+					const consequence = document.createElement("p");
+					consequence.id = `${panel.id}-consequence`;
+					consequence.setAttribute("role", "status");
+					const cancel = document.createElement("button");
+					cancel.type = "button";
+					cancel.className = "tmt-ui-action";
+					const cancelLabel = document.createElement("span");
+					cancelLabel.className = "tmt-ui-action-label";
+					cancelLabel.textContent = "Cancel";
+					cancel.append(cancelLabel);
+					cancel.addEventListener("click", () => cancelConfirmation(true));
+					panel.append(consequence, cancel);
+					for (const button of [talk, revoke]) {
+						button.setAttribute("aria-controls", panel.id);
+						button.setAttribute("aria-expanded", "false");
+						button.addEventListener("keydown", (event) => {
+							if ((event.repeat || event.isComposing) && ["Enter", " "].includes(event.key)) event.preventDefault();
+						});
+					}
+					row.addEventListener("keydown", (event) => {
+						if (event.key === "Escape" && confirmation?.clientId === device.clientId) {
+							event.preventDefault();
+							cancelConfirmation(true);
+						}
+					});
+					const disabledReason = document.createElement("p");
+					disabledReason.id = `device-reason-${device.clientId}`;
+					disabledReason.className = "tmt-ui-field-description";
+					row.append(summary, form, panel, deviceFeedback(device.clientId), disabledReason);
+					rows.set(device.clientId, row);
+					devices.append(row);
+				}
+				row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last used ${device.lastUsedAtMs === null ? "Not recorded" : new Date(device.lastUsedAtMs).toLocaleString()}`;
+				row.querySelector("[data-action=\"talk\"] .tmt-ui-action-label").textContent = device.talkEnabled ? "Disable sending" : "Enable sending";
+				row.querySelector("form").setAttribute("aria-label", `Device ${device.name}`);
+				const name = row.querySelector("input");
+				name.removeAttribute("aria-labelledby");
+				name.setAttribute("aria-label", `Device name for ${device.name}`);
+				row.querySelector("button[type=submit]").setAttribute("aria-label", device.thisBrowser ? `Rename this device (${device.name})` : `Rename ${device.name}`);
+				row.querySelector("[data-action=\"talk\"]").setAttribute("aria-label", `${device.talkEnabled ? "Disable" : "Enable"} sending for ${device.name}`);
+				row.querySelector("button[data-action=\"revoke\"]").setAttribute("aria-label", `Remove ${device.name}`);
+				name.disabled = !editable || device.revoked;
+				if (editable) name.removeAttribute("aria-describedby");
+				else name.setAttribute("aria-describedby", "read-only");
+				const disabledReason = element(`device-reason-${device.clientId}`);
+				disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.kind !== "remove-others" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
+				disabledReason.hidden = !disabledReason.textContent;
+				for (const button of row.querySelectorAll("form button")) {
+					fence(button, !page.writableWhenIdle || device.revoked);
+					if (disabledReason.textContent) button.setAttribute("aria-describedby", disabledReason.id);
+					else if (confirmation?.button === button) button.setAttribute("aria-describedby", `confirm-${device.clientId}-consequence`);
+					else button.removeAttribute("aria-describedby");
+					button.setAttribute("aria-busy", String(page.busy));
+				}
+			}
+		}
+		renderOutcome();
+		syncBusyMark();
+	}
+	async function run(action, owner = refresh) {
+		cancelConfirmation();
+		if (!busyMark.shown()) markOwner = owner;
+		const pending = action();
+		render();
+		try {
+			await pending;
+		} catch (error) {
+			page.notice = error instanceof Error ? error.message : "Action unavailable.";
+		}
+		render();
+	}
+	/** Paint management first; only the optional section changes when its read completes. */
+	async function refreshView(cursor) {
+		await page.refresh(cursor);
+		render();
+		if (page.access === "live") page.observeFirestore().then(() => renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore));
+	}
+	async function change(intent, owner) {
+		await run(() => page.submit(intent), owner);
+		if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => refreshView(), owner);
+	}
+	function submitButton(form) {
+		return form.querySelector("button[type=submit]");
+	}
+	element("opening-form").addEventListener("submit", (event) => {
+		event.preventDefault();
+		if (!page.writable) return;
+		if (!openingChanged()) {
+			render();
+			return;
+		}
+		change({
+			kind: "setting",
+			input: {
+				operationId: crypto.randomUUID(),
+				setting: "open",
+				value: opening.value === "on"
+			}
+		}, submitButton(element("opening-form")));
+	});
+	element("limit-form").addEventListener("submit", (event) => {
+		event.preventDefault();
+		if (!page.writable) return;
+		if (!limitChanged()) {
+			render();
+			return;
+		}
+		if (mode.value === "custom" && !custom.checkValidity()) return;
+		const value = mode.value === "off" ? null : custom.value;
+		change({
+			kind: "setting",
+			input: {
+				operationId: crypto.randomUUID(),
+				setting: "sessions-per-device",
+				value
+			}
+		}, submitButton(element("limit-form")));
+	});
 	for (const field of [
 		opening,
 		mode,
 		custom
-	]) field.disabled = !editable || field === custom && mode.value !== "custom";
-	for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
-	if (page.settings) {
-		choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
-		for (const update of choices) update();
+	]) {
+		field.addEventListener("input", render);
+		field.addEventListener("change", render);
 	}
-	saveState("opening-form", "opening-unchanged", openingChanged(), opening.checkValidity());
-	saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
-	removeOthers.hidden = page.removalPreview?.count === 0 || page.onFirstPage && page.devices?.nextCursor === null && page.devices.devices.every((device) => device.clientId === page.clientId);
-	fence(removeOthers, !page.writableWhenIdle || page.removalPreview?.count === 0);
-	const preview = page.removalPreview;
-	const panel = element("remove-others-confirmation");
-	panel.hidden = !preview || preview.count === 0 || !page.writable;
-	removeOthers.setAttribute("aria-expanded", String(!panel.hidden));
-	if (!panel.hidden && preview) {
-		element("remove-others-consequence").textContent = `This ends Remote access for ${preview.count} other ${preview.count === 1 ? "device" : "devices"}. This browser stays connected. Press Remove the others again to confirm.`;
-		removeOthers.setAttribute("aria-describedby", "remove-others-consequence");
-	}
-	fence(refresh, false);
-	more.hidden = !page.devices?.nextCursor;
-	fence(more, false);
-	first.hidden = page.onFirstPage;
-	fence(first, false);
-	if (page.devices) {
-		const current = new Set(page.devices.devices.map((device) => device.clientId));
-		for (const [id, row] of rows) if (!current.has(id)) {
-			row.remove();
-			rows.delete(id);
+	refresh.addEventListener("click", () => {
+		if (page.busy) return;
+		const ownedFocus = document.activeElement === refresh;
+		let moved = false;
+		const trackFocus = (event) => {
+			if (event.target !== refresh && event.target !== document.body) moved = true;
+		};
+		const trackPointer = (event) => {
+			if (!refresh.contains(event.target)) moved = true;
+		};
+		document.addEventListener("focusin", trackFocus);
+		document.addEventListener("pointerdown", trackPointer);
+		run(() => refreshView()).finally(() => {
+			document.removeEventListener("focusin", trackFocus);
+			document.removeEventListener("pointerdown", trackPointer);
+			if (ownedFocus && !moved && refresh.isConnected && !refresh.disabled && (document.activeElement === document.body || document.activeElement === refresh)) refresh.focus({ preventScroll: true });
+		});
+	});
+	function navigate(cursor, owner) {
+		if (page.busy) return;
+		for (const device of page.devices?.devices ?? []) {
+			const name = rows.get(device.clientId)?.querySelector("input");
+			if (name && name.value !== device.name) {
+				page.notice = "Save or restore the unsent device name before changing pages.";
+				render();
+				name.focus();
+				return;
+			}
 		}
-		for (const device of page.devices.devices) {
-			let row = rows.get(device.clientId);
-			if (!row) {
-				row = document.createElement("div");
-				row.className = "device";
-				const summary = document.createElement("p");
-				summary.className = "device-summary";
-				const form = document.createElement("form");
-				const label = document.createElement("label");
-				const name = document.createElement("input");
-				name.id = `name-${device.clientId}`;
-				name.className = "tmt-ui-field-control";
-				label.id = `${name.id}-label`;
-				label.className = "tmt-ui-field-label";
-				name.setAttribute("aria-labelledby", label.id);
-				name.value = device.name;
-				name.required = true;
-				name.maxLength = 64;
-				label.htmlFor = name.id;
-				label.textContent = "Device name";
-				const save = document.createElement("button");
-				save.type = "submit";
-				save.className = "tmt-ui-action";
-				const saveLabel = document.createElement("span");
-				saveLabel.className = "tmt-ui-action-label";
-				saveLabel.textContent = "Rename";
-				save.append(saveLabel);
-				const revoke = document.createElement("button");
-				revoke.type = "button";
-				revoke.dataset.action = "revoke";
-				revoke.className = "tmt-ui-action";
-				revoke.dataset.variant = "destructive";
-				const revokeLabel = document.createElement("span");
-				revokeLabel.className = "tmt-ui-action-label";
-				revokeLabel.textContent = "Remove";
-				revoke.append(revokeLabel);
-				revoke.addEventListener("click", (event) => {
-					if (event.detail > 1 || !page.writable) return;
-					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
-					if (!target || target.revoked) return;
-					if (!confirmDevice(revoke, target, "revoke")) return;
-					change({
-						kind: "revoke",
-						input: {
-							operationId: crypto.randomUUID(),
-							clientId: device.clientId
-						}
-					}, revoke);
-				});
-				form.addEventListener("submit", (event) => {
-					event.preventDefault();
-					if (!page.writable) return;
-					change({
-						kind: "rename",
-						input: {
-							operationId: crypto.randomUUID(),
-							clientId: device.clientId,
-							name: name.value
-						}
-					}, save);
-				});
-				const field = document.createElement("div");
-				field.className = "tmt-ui-field";
-				field.append(label, name);
-				const talk = document.createElement("button");
-				talk.type = "button";
-				talk.className = "tmt-ui-action";
-				talk.dataset.action = "talk";
-				const talkLabel = document.createElement("span");
-				talkLabel.className = "tmt-ui-action-label";
-				talk.append(talkLabel);
-				talk.addEventListener("click", (event) => {
-					if (event.detail > 1 || !page.writable) return;
-					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
-					if (!target || target.revoked) return;
-					if (!target.talkEnabled && !confirmDevice(talk, target, "talk")) return;
-					change({
-						kind: "talk",
-						input: {
-							operationId: crypto.randomUUID(),
-							clientId: target.clientId,
-							enabled: !target.talkEnabled
-						}
-					}, talk);
-				});
-				form.append(field, save, talk, revoke);
-				const panel = document.createElement("div");
-				panel.className = "device-confirmation";
-				panel.dataset.confirmation = "";
-				panel.id = `confirm-${device.clientId}`;
-				panel.hidden = true;
-				const consequence = document.createElement("p");
-				consequence.id = `${panel.id}-consequence`;
-				consequence.setAttribute("role", "status");
-				const cancel = document.createElement("button");
-				cancel.type = "button";
-				cancel.className = "tmt-ui-action";
-				const cancelLabel = document.createElement("span");
-				cancelLabel.className = "tmt-ui-action-label";
-				cancelLabel.textContent = "Cancel";
-				cancel.append(cancelLabel);
-				cancel.addEventListener("click", () => cancelConfirmation(true));
-				panel.append(consequence, cancel);
-				for (const button of [talk, revoke]) {
-					button.setAttribute("aria-controls", panel.id);
-					button.setAttribute("aria-expanded", "false");
-					button.addEventListener("keydown", (event) => {
-						if ((event.repeat || event.isComposing) && ["Enter", " "].includes(event.key)) event.preventDefault();
-					});
+		run(() => refreshView(cursor), owner);
+	}
+	element("copy-designation").addEventListener("click", () => {
+		if (page.access !== "live") return;
+		navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(() => {
+			element("designation-copy-feedback").textContent = "Copied.";
+		}, () => {
+			element("designation-copy-feedback").textContent = "Copy failed. Select the command and copy it manually.";
+		});
+	});
+	element("remove-others").addEventListener("click", (event) => {
+		if (event.detail > 1 || !page.writable) return;
+		for (const device of page.devices?.devices ?? []) {
+			const draft = rows.get(device.clientId)?.querySelector("input");
+			if (draft && draft.value !== device.name) {
+				page.notice = "Save or restore the unsent device name before changing pages.";
+				render();
+				draft.focus();
+				return;
+			}
+		}
+		if (page.removalPreview && page.removalPreview.count > 0) {
+			const fingerprint = page.removalPreview.fingerprint;
+			page.removalPreview = void 0;
+			change({
+				kind: "remove-others",
+				input: {
+					operationId: crypto.randomUUID(),
+					fingerprint
 				}
-				row.addEventListener("keydown", (event) => {
-					if (event.key === "Escape" && confirmation?.clientId === device.clientId) {
-						event.preventDefault();
-						cancelConfirmation(true);
-					}
-				});
-				const disabledReason = document.createElement("p");
-				disabledReason.id = `device-reason-${device.clientId}`;
-				disabledReason.className = "tmt-ui-field-description";
-				row.append(summary, form, panel, deviceFeedback(device.clientId), disabledReason);
-				rows.set(device.clientId, row);
-				devices.append(row);
-			}
-			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last used ${device.lastUsedAtMs === null ? "Not recorded" : new Date(device.lastUsedAtMs).toLocaleString()}`;
-			row.querySelector("[data-action=\"talk\"] .tmt-ui-action-label").textContent = device.talkEnabled ? "Disable sending" : "Enable sending";
-			row.querySelector("form").setAttribute("aria-label", `Device ${device.name}`);
-			const name = row.querySelector("input");
-			name.removeAttribute("aria-labelledby");
-			name.setAttribute("aria-label", `Device name for ${device.name}`);
-			row.querySelector("button[type=submit]").setAttribute("aria-label", device.thisBrowser ? `Rename this device (${device.name})` : `Rename ${device.name}`);
-			row.querySelector("[data-action=\"talk\"]").setAttribute("aria-label", `${device.talkEnabled ? "Disable" : "Enable"} sending for ${device.name}`);
-			row.querySelector("button[data-action=\"revoke\"]").setAttribute("aria-label", `Remove ${device.name}`);
-			name.disabled = !editable || device.revoked;
-			if (editable) name.removeAttribute("aria-describedby");
-			else name.setAttribute("aria-describedby", "read-only");
-			const disabledReason = element(`device-reason-${device.clientId}`);
-			disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.kind !== "remove-others" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
-			disabledReason.hidden = !disabledReason.textContent;
-			for (const button of row.querySelectorAll("form button")) {
-				fence(button, !page.writableWhenIdle || device.revoked);
-				if (disabledReason.textContent) button.setAttribute("aria-describedby", disabledReason.id);
-				else if (confirmation?.button === button) button.setAttribute("aria-describedby", `confirm-${device.clientId}-consequence`);
-				else button.removeAttribute("aria-describedby");
-				button.setAttribute("aria-busy", String(page.busy));
-			}
+			}, removeOthers);
+		} else {
+			cancelConfirmation();
+			run(() => page.previewRemoval(), removeOthers);
 		}
-	}
-	renderOutcome();
-	syncBusyMark();
-}
-async function run(action, owner = refresh) {
-	cancelConfirmation();
-	if (!busyMark.shown()) markOwner = owner;
-	const pending = action();
-	render();
+	});
+	element("cancel-remove-others").addEventListener("click", () => {
+		page.removalPreview = void 0;
+		render();
+		element("remove-others").focus();
+	});
+	element("remove-others").addEventListener("keydown", (event) => {
+		const key = event;
+		if ((key.repeat || key.isComposing) && ["Enter", " "].includes(key.key)) event.preventDefault();
+		if (key.key === "Escape") {
+			page.removalPreview = void 0;
+			render();
+		}
+	});
+	more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null, more));
+	first.addEventListener("click", () => navigate(null, first));
+	for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
 	try {
-		await pending;
+		let session = await reopenSession();
+		page = new ManagementPage(management(session), async () => {
+			session = await reopenSession(session, { retry: "bounded" });
+			return management(session);
+		});
+		await run(() => refreshView());
 	} catch (error) {
-		page.notice = error instanceof Error ? error.message : "Action unavailable.";
+		const capacity = capacityCopy(error instanceof RefusalError ? error : void 0);
+		const ended = error instanceof RefusalError && [
+			"REMOTE_DEVICE_REVOKED",
+			"REMOTE_GRANT_EXPIRED",
+			"REMOTE_SESSION_ENDED",
+			"REMOTE_SESSION_EVICTED"
+		].includes(error.code);
+		commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."));
+		element("access-announcement").textContent = capacity ?? (ended ? "Access ended" : "Access unconfirmed");
+		registryState(error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code) ? "Access ended" : "Unconfirmed");
+		refresh.disabled = true;
+		element("access-notice").dataset.tone = "blocked";
+		element("controls-reason").textContent = capacity ?? "Current access is unavailable. Use the local CLI.";
 	}
-	render();
-}
-/** Paint management first; only the optional section changes when its read completes. */
-async function refreshView(cursor) {
-	await page.refresh(cursor);
-	render();
-	if (page.access === "live") page.observeFirestore().then(() => renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore));
-}
-async function change(intent, owner) {
-	await run(() => page.submit(intent), owner);
-	if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => refreshView(), owner);
-}
-function submitButton(form) {
-	return form.querySelector("button[type=submit]");
-}
-element("opening-form").addEventListener("submit", (event) => {
-	event.preventDefault();
-	if (!page.writable) return;
-	if (!openingChanged()) {
-		render();
-		return;
-	}
-	change({
-		kind: "setting",
-		input: {
-			operationId: crypto.randomUUID(),
-			setting: "open",
-			value: opening.value === "on"
-		}
-	}, submitButton(element("opening-form")));
-});
-element("limit-form").addEventListener("submit", (event) => {
-	event.preventDefault();
-	if (!page.writable) return;
-	if (!limitChanged()) {
-		render();
-		return;
-	}
-	if (mode.value === "custom" && !custom.checkValidity()) return;
-	const value = mode.value === "off" ? null : custom.value;
-	change({
-		kind: "setting",
-		input: {
-			operationId: crypto.randomUUID(),
-			setting: "sessions-per-device",
-			value
-		}
-	}, submitButton(element("limit-form")));
-});
-for (const field of [
-	opening,
-	mode,
-	custom
-]) {
-	field.addEventListener("input", render);
-	field.addEventListener("change", render);
-}
-refresh.addEventListener("click", () => {
-	if (page.busy) return;
-	const ownedFocus = document.activeElement === refresh;
-	let moved = false;
-	const trackFocus = (event) => {
-		if (event.target !== refresh && event.target !== document.body) moved = true;
-	};
-	const trackPointer = (event) => {
-		if (!refresh.contains(event.target)) moved = true;
-	};
-	document.addEventListener("focusin", trackFocus);
-	document.addEventListener("pointerdown", trackPointer);
-	run(() => refreshView()).finally(() => {
-		document.removeEventListener("focusin", trackFocus);
-		document.removeEventListener("pointerdown", trackPointer);
-		if (ownedFocus && !moved && refresh.isConnected && !refresh.disabled && (document.activeElement === document.body || document.activeElement === refresh)) refresh.focus({ preventScroll: true });
-	});
-});
-function navigate(cursor, owner) {
-	if (page.busy) return;
-	for (const device of page.devices?.devices ?? []) {
-		const name = rows.get(device.clientId)?.querySelector("input");
-		if (name && name.value !== device.name) {
-			page.notice = "Save or restore the unsent device name before changing pages.";
-			render();
-			name.focus();
-			return;
-		}
-	}
-	run(() => refreshView(cursor), owner);
-}
-element("copy-designation").addEventListener("click", () => {
-	if (page.access !== "live") return;
-	navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(() => {
-		element("designation-copy-feedback").textContent = "Copied.";
-	}, () => {
-		element("designation-copy-feedback").textContent = "Copy failed. Select the command and copy it manually.";
-	});
-});
-element("remove-others").addEventListener("click", (event) => {
-	if (event.detail > 1 || !page.writable) return;
-	for (const device of page.devices?.devices ?? []) {
-		const draft = rows.get(device.clientId)?.querySelector("input");
-		if (draft && draft.value !== device.name) {
-			page.notice = "Save or restore the unsent device name before changing pages.";
-			render();
-			draft.focus();
-			return;
-		}
-	}
-	if (page.removalPreview && page.removalPreview.count > 0) {
-		const fingerprint = page.removalPreview.fingerprint;
-		page.removalPreview = void 0;
-		change({
-			kind: "remove-others",
-			input: {
-				operationId: crypto.randomUUID(),
-				fingerprint
-			}
-		}, removeOthers);
-	} else {
-		cancelConfirmation();
-		run(() => page.previewRemoval(), removeOthers);
-	}
-});
-element("cancel-remove-others").addEventListener("click", () => {
-	page.removalPreview = void 0;
-	render();
-	element("remove-others").focus();
-});
-element("remove-others").addEventListener("keydown", (event) => {
-	const key = event;
-	if ((key.repeat || key.isComposing) && ["Enter", " "].includes(key.key)) event.preventDefault();
-	if (key.key === "Escape") {
-		page.removalPreview = void 0;
-		render();
-	}
-});
-more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null, more));
-first.addEventListener("click", () => navigate(null, first));
-for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
-try {
-	let session = await reopenSession();
-	page = new ManagementPage(management(session), async () => {
-		session = await reopenSession(session, { retry: "bounded" });
-		return management(session);
-	});
-	await run(() => refreshView());
-} catch (error) {
-	const capacity = capacityCopy(error instanceof RefusalError ? error : void 0);
-	const ended = error instanceof RefusalError && [
-		"REMOTE_DEVICE_REVOKED",
-		"REMOTE_GRANT_EXPIRED",
-		"REMOTE_SESSION_ENDED",
-		"REMOTE_SESSION_EVICTED"
-	].includes(error.code);
-	commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."));
-	element("access-announcement").textContent = capacity ?? (ended ? "Access ended" : "Access unconfirmed");
-	registryState(error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code) ? "Access ended" : "Unconfirmed");
-	refresh.disabled = true;
-	element("access-notice").dataset.tone = "blocked";
-	element("controls-reason").textContent = capacity ?? "Current access is unavailable. Use the local CLI.";
 }
 //#endregion
+export { settingsPage };

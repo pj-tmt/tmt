@@ -37,7 +37,11 @@ async function mount(page: Page, source: string) {
     async ({ source }) => {
       const path = '/src/renderer.ts';
       const { mountRenderer } = await import(path);
-      // The app behind a probe is the space home, taller than the viewport: the probe leads.
+      // The app behind a probe is the space home, taller than the viewport: the probe leads. The
+      // standalone page keeps the header's inset as body padding; the app behind the probe now
+      // sits in the TMT shell, which drops that rule, so the probe states it itself.
+      document.body.style.paddingTop =
+        'calc(var(--colab-header-height) + env(safe-area-inset-top, 0px))';
       const host = document.createElement('div');
       host.id = 'probe';
       document.body.prepend(host);

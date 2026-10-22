@@ -1,5 +1,6 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useEffect } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useServeOlder, useStaleBuild } from './app-build.js';
 import { text } from './strings.js';
 import './update-notice.css';
@@ -18,17 +19,34 @@ export function UpdateNotice() {
     document.documentElement.setAttribute('data-colab-update', serve?.installed ? 'serve' : '');
     return () => document.documentElement.removeAttribute('data-colab-update');
   }, [stale, serve]);
+  // Inside the TMT web shell the row joins the shell's sticky bar under the header, so it spans
+  // Colab's column and moves the page down with the bar.
+  const [bar, setBar] = useState<Element | null>(null);
+  useEffect(() => {
+    if (!stale) return;
+    // The shell may commit its bar after the check that found the tab stale.
+    const find = () => {
+      const found = document.querySelector('.tmt-ui-shell-bar');
+      if (found) setBar(found);
+      return !!found;
+    };
+    if (find()) return;
+    const watch = new MutationObserver(() => find() && watch.disconnect());
+    watch.observe(document.body, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  }, [stale]);
   if (!stale) return null;
+  const place = (row: ReactNode) => (bar ? createPortal(row, bar) : row);
   if (serve?.installed)
-    return (
+    return place(
       <div className="update-notice" role="status" data-update-notice data-serve-older>
         <span>
           {text.serveOlder.lead(serve.installed, serve.running)} {text.serveOlder.restart}{' '}
           <code className="tmt-ui-code">{text.serveOlder.command}</code> {text.serveOlder.tail}
         </span>
-      </div>
+      </div>,
     );
-  return (
+  return place(
     <div className="update-notice" role="status" data-update-notice>
       <span>{text.updated}</span>
       <BrowserAction
@@ -37,6 +55,6 @@ export function UpdateNotice() {
         label={text.reload}
         onActivate={() => location.reload()}
       />
-    </div>
+    </div>,
   );
 }

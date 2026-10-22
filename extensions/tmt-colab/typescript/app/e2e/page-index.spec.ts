@@ -88,7 +88,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`2168-archived-${width}-${theme}.png`) });
     });
 
-    test(`200 rows keep one window scroll with only the header fixed: ${width}px ${theme}`, async ({
+    test(`200 rows draw 50 at a time inside the list while the search stays put: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -103,22 +103,33 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       const rows = page.locator('#index-fixture .pages > li');
-      await expect(rows).toHaveCount(200);
+      const count = page.locator('#index-fixture [data-page-list-count]');
+      const list = page.locator('#index-fixture .page-list-scroll');
+      const search = page.locator('#index-fixture .page-list-search');
+      await expect(rows).toHaveCount(50);
+      await expect(count).toHaveText('Showing 50 of 200');
       await expect(rows.first().getByRole('link')).toHaveText('Page 001');
-      await expect(rows.last().getByRole('link')).toHaveText('Page 200');
       await expect(rows.first()).toHaveCSS('box-shadow', 'none');
       await expect(rows.first()).toHaveCSS('border-bottom-width', '1px');
       await page.screenshot({ path: await capturePath(`2168-many-${width}-${theme}.png`) });
-      await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
-      await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
-      await expect(page.locator('.tmt-ui-header:visible')).toHaveCount(1);
+      const searchTop = (await search.boundingBox())!.y;
+      // Each time the list's end comes near, it draws the next 50, until every row is drawn.
+      for (const drawn of [100, 150, 200]) {
+        await list.evaluate((node) => (node.scrollTop = node.scrollHeight));
+        await expect(rows).toHaveCount(drawn);
+      }
+      await expect(count).toHaveText('200 pages');
+      await list.evaluate((node) => (node.scrollTop = node.scrollHeight));
+      await expect(rows.last().getByRole('link')).toBeInViewport();
+      await expect(rows.last().getByRole('link')).toHaveText('Page 200');
+      expect((await search.boundingBox())!.y).toBe(searchTop);
       expect((await page.locator('.tmt-ui-header:visible').boundingBox())!.y).toBe(0);
       const scroll = await page.evaluate(() => {
         const visible = Array.from(document.querySelectorAll<HTMLElement>('body *')).filter(
           (node) => node.getClientRects().length,
         );
         return {
-          window: document.scrollingElement === document.documentElement,
+          window: document.documentElement.scrollHeight > innerHeight,
           horizontal: document.documentElement.scrollWidth > innerWidth,
           nested: visible
             .filter(
@@ -132,11 +143,17 @@ for (const width of [1440, 390])
             .map((node) => node.className),
         };
       });
+      // The list is one screen: only its rows scroll, so the window has nothing to scroll. Only
+      // the shell's own chrome is positioned: the TMT mark and the bar (one header row) with the
+      // rail and module menu (a phone's menu button instead of the mark and rail).
       expect(scroll).toEqual({
-        window: true,
+        window: false,
         horizontal: false,
-        nested: [],
-        fixed: ['tmt-ui-header'],
+        nested: ['page-list-scroll'],
+        fixed:
+          width < 480
+            ? ['tmt-ui-shell-open', 'tmt-ui-shell-bar']
+            : ['tmt-ui-shell-brand', 'tmt-ui-rail', 'tmt-ui-shell-bar', 'tmt-ui-module-menu'],
       });
     });
   }

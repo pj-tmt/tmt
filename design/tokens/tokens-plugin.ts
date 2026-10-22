@@ -25,10 +25,27 @@ export function designTokens(): {
   const header = Object.entries(tokens.header)
     .map(([name, value]) => `--colab-header-${name}:${value};`)
     .join("");
+  // The legacy roles listed in `unified` take their browser values: one palette everywhere.
+  const lookup = (path: string, mode: "dark" | "light"): string => {
+    const [where, fixed] = path.split("@");
+    const value = where.split(".").reduce((node: any, key) => node[key], tokens) as Rendering;
+    return value[(fixed as "dark" | undefined) ?? mode];
+  };
+  const unified = (mode: "dark" | "light") =>
+    Object.entries(tokens.unified as Record<string, string>)
+      .filter(([name]) => !name.startsWith("$"))
+      .map(([name, path]) => `--c-${name}:${lookup(path, mode)};`)
+      .join("");
+  // The mark-only logo roles, under the same names the browser leaf's static CSS uses.
+  const brand = (mode: "dark" | "light") =>
+    Object.entries(tokens.brand.mark as Record<string, Rendering | string>)
+      .filter(([name]) => !name.startsWith("$"))
+      .map(([name, value]) => `--tmt-ui-brand-mark-${name}:${(value as Rendering)[mode]};`)
+      .join("");
   const css =
-    `:root{color-scheme:light;${vars("light")}${terminal}${fonts}${header}}` +
-    `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;${vars("dark")}}}` +
-    `:root[data-theme="dark"]{color-scheme:dark;${vars("dark")}}` +
+    `:root{color-scheme:light;${vars("light")}${unified("light")}${brand("light")}${terminal}${fonts}${header}}` +
+    `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;${vars("dark")}${unified("dark")}${brand("dark")}}}` +
+    `:root[data-theme="dark"]{color-scheme:dark;${vars("dark")}${unified("dark")}${brand("dark")}}` +
     `@media (max-width:${tokens.header["compact-max-width"]}){:root{--colab-header-height:${tokens.header["compact-height"]};}}`;
   return {
     name: "tmt-design-tokens",

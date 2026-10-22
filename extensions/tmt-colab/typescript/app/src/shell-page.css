@@ -94,8 +94,8 @@
   text-underline-offset: 4px;
 }
 .shell-counts button:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .shell-count-number {
   display: block;
@@ -190,13 +190,8 @@ button.shell-open {
 }
 .shell-chapter a:focus-visible,
 .shell-earlier a:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
-}
-/* The title's line box is tight, so its ring sits further out and clears the eyebrow above and the
- * meta line below. */
-.shell-chapter-title a:focus-visible {
-  outline-offset: 6px;
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 
 /* The passage on the right of a chapter. */

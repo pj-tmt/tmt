@@ -22,3 +22,13 @@
   white-space: normal;
   line-height: 1.35;
 }
+/* Inside the TMT web shell the row is the bar's last line: in flow under the header, as wide as
+   Colab's column, sticky with the bar. The bar's own growth moves the page down. */
+.tmt-ui-shell-bar:has(> .update-notice) {
+  display: flex;
+  flex-direction: column;
+}
+.tmt-ui-shell-bar > .update-notice {
+  position: static;
+  order: 1;
+}

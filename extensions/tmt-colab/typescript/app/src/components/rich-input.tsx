@@ -16,7 +16,7 @@ import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext
 import { PlainTextExtension } from '@lexical/plain-text';
 import { HistoryExtension } from '@lexical/history';
 import { CLEAR_HISTORY_COMMAND, defineExtension, SKIP_DOM_SELECTION_TAG } from 'lexical';
-import { $richInputText, $replaceRichInput } from './rich-input-document.js';
+import { $emptyRichInput, $richInputText, $replaceRichInput } from './rich-input-document.js';
 import './rich-input.css';
 
 export const RICH_INPUT_RESET_TAG = 'parent-rich-input-reset';
@@ -62,7 +62,7 @@ export const richInputExtension = defineExtension({
   name: 'Colab/RichInput',
   namespace: 'ColabRichInput',
   dependencies: [PlainTextExtension, HistoryExtension, ReactExtension],
-  $initialEditorState: () => $replaceRichInput(''),
+  $initialEditorState: $emptyRichInput,
   onError: (error: Error) => {
     throw error;
   },

@@ -518,7 +518,7 @@ export const text = {
     unavailable: 'This file is unavailable',
   },
   product: 'Colab',
-  shellPageNotice: 'This is a shell page. Open it from the terminal:',
+  shellPageNotice: 'This is a dashboard. Open it from the terminal:',
   anchorMissing: 'That passage is not on this page.',
   workBand: {
     label: 'Work on this page',
@@ -586,19 +586,19 @@ export const text = {
     loading: 'Loading pages…',
     pagesUnavailable: 'The page list is unavailable, so titles are not shown.',
     empty: 'Nothing is here yet.',
-    notShown: 'This shell page has no content that can be shown.',
+    notShown: 'This dashboard has no content that can be shown.',
     /** The greeting names the local time of day and the number waiting, with one to nine spelled out. */
     greeting: (part: 'morning' | 'afternoon' | 'evening', waiting: number, spelled: string) =>
       `Good ${part}. ${
         waiting === 0
-          ? 'Nothing is waiting for you.'
+          ? 'Nothing needs you.'
           : waiting === 1
-            ? 'One thing is waiting for you.'
-            : `${spelled[0].toUpperCase()}${spelled.slice(1)} things are waiting for you.`
+            ? 'One thing needs you.'
+            : `${spelled[0].toUpperCase()}${spelled.slice(1)} things need you.`
       }`,
     noSummary: 'Nothing has changed since the last update.',
     counts: 'Overview',
-    waitingCount: 'Waiting for you',
+    waitingCount: 'Needs you',
     progressCount: 'In progress',
     todayCount: 'Updated today',
     chapters: 'Pages',
@@ -719,7 +719,17 @@ export const text = {
     tabInProgress: (count: number) => `In progress ${count}`,
     tabDiscussion: (count: number) => `Discussion ${count}`,
     tabDone: (count: number) => `Done ${count}`,
-    tabAll: 'All',
+    tabAllCount: (count: number) => `All ${count}`,
+    tabNeedsYou: (count: number) => `Needs you ${count}`,
+    tabNeedsYouWaiting: 'waiting',
+    newPage: 'New page',
+    newPageVisible: '+ New page',
+    newPageTitle: 'New page',
+    newPageBody: 'Pages are created on your machine. Run this in a terminal there:',
+    newPageCommand: 'tmt colab page create --title "Notes" --layout column',
+    /** The list's count line: how many rows are drawn of how many match. */
+    showing: (shown: number, total: number) =>
+      shown < total ? `Showing ${shown} of ${total}` : `${total} ${total === 1 ? 'page' : 'pages'}`,
     tabArchived: (count: number) => `Archived ${count}`,
     /** The stage names the `stage:` search token takes, with their tab labels. */
     stageNames: {
@@ -757,14 +767,12 @@ export const text = {
     filters: 'Filters',
     needsYou: 'Needs you',
     needsYouFilter: (count: number) => `Needs you, ${count} ${count === 1 ? 'page' : 'pages'}`,
-    projectFilter: (name: string, count: number) =>
-      `${name}, ${count} ${count === 1 ? 'page' : 'pages'}`,
     removeFilter: (name: string) => `Remove project filter ${name}`,
     removeAuthorFilter: (name: string) => `Remove author filter ${name}`,
     byAuthor: (name: string) => `by ${name}`,
     commentCount: (count: number) => `${count} ${count === 1 ? 'comment' : 'comments'}`,
     /** The mark means a shared pending item awaits the owner; the word is part of the mark. */
-    waitingForYou: 'Waiting for you',
+    waitingForYou: 'Needs you',
     projectsFor: (title: string) => `Projects for ${title}`,
     newProjectItem: 'New project…',
     noMatch: 'No pages match.',
@@ -827,7 +835,7 @@ export const text = {
     restoredMany: (count: number) => `Restored ${count} pages.`,
     deletedMany: (count: number) => `Deleted ${count} pages.`,
     awaitingMany: (count: number) =>
-      `The owner accepted ${count} of the changes, but ${count === 1 ? 'it is' : 'they are'} not confirmed yet. Open Manage page to check ${count === 1 ? 'it' : 'them'} again.`,
+      `Your machine accepted ${count} of the changes, but ${count === 1 ? 'it is' : 'they are'} not confirmed yet. Open Manage page to check ${count === 1 ? 'it' : 'them'} again.`,
     partial: (done: number, total: number, title: string, reason: string) =>
       `Updated ${done} of ${total} pages. “${title}” was not changed: ${reason}`,
     addedToProject: (name: string, count: number) =>
@@ -876,16 +884,16 @@ export const text = {
     restored: (title: string) => `Restored “${title}”.`,
     deleted: (title: string) => `Deleted “${title}”.`,
     awaiting: (title: string) =>
-      `“${title}”: the owner accepted the change, but it is not confirmed yet. Open Manage page to check again.`,
+      `“${title}”: your machine accepted the change, but it is not confirmed yet. Open Manage page to check again.`,
     operationFailures: {
-      INVALID: 'The owner refused the change.',
+      INVALID: 'Your machine refused the change.',
       DENIED: 'This device is not allowed to manage pages. Reopen your paired session.',
       EXPIRED: 'The request expired. Try again.',
       STALE_HEAD: 'The space changed. Try again.',
       CONFLICT:
-        'The change conflicts with what the owner stores. Try again after the list reloads.',
-      CAPACITY: 'The owner reached a capacity limit. Nothing was changed.',
-      UNAVAILABLE: 'The owner cannot do this now. Nothing was changed.',
+        'The change conflicts with what your machine stores. Try again after the list reloads.',
+      CAPACITY: 'Your machine reached a capacity limit. Nothing was changed.',
+      UNAVAILABLE: 'Your machine cannot do this now. Nothing was changed.',
       UNKNOWN: 'The result is unknown: the change may have been made. Reload the list to see.',
     },
     progress: (updated: number, total: number) => `Updated ${updated} of ${total} pages.`,
@@ -903,7 +911,7 @@ export const text = {
       CAPACITY: 'A page or this space reached its project limit.',
       DENIED: 'This device is not allowed to change projects.',
       EXPIRED: 'The request expired. Try again.',
-      INVALID: 'Projects were not saved: the owner refused the change.',
+      INVALID: 'Projects were not saved: your machine refused the change.',
       UNKNOWN: 'Projects were not saved. Check the connection and try again.',
     },
   },
@@ -919,6 +927,32 @@ export const text = {
   managePage: 'Manage page',
   aboutPage: 'About this page',
   /** The About panel's Layout row (#3926): how Colab frames the page, never a prompt or a badge. */
+  /** A question line's state word: Needs you until answered. */
+  questionLine: {
+    waiting: 'Needs you',
+    answered: (answer: string) => `Answered: ${answer}`,
+  },
+  colabSettings: {
+    title: 'Colab settings',
+    shells: 'Dashboards',
+    readOnly: 'Read-only here. Change these with `tmt colab settings`.',
+    sample:
+      'Sample values: this browser cannot read Colab settings yet. `tmt colab settings` shows and changes them.',
+    open: 'Open in browser',
+    openHelp: '`serve` and `page create` open the page in your browser',
+    wip: 'Work in progress',
+    wipHelp: 'Assigned to-do and in-progress tasks an agent may hold across all pages',
+    wipAgent: (agent: string, limit: number) => `${agent} ${limit}`,
+    github: 'GitHub repository',
+    githubHelp: 'Where `tmt colab task github` pushes tasks',
+    expiry: 'Page expiry',
+    expiryHelp: 'Days without an edit, comment or reply before a page is archived',
+    on: 'On',
+    off: 'Off',
+    notSet: 'Not set',
+    never: 'Never',
+    days: (days: number) => `${days} days`,
+  },
   pageLayout: {
     heading: 'Layout',
     column: 'Column · max 1280 px',
@@ -974,7 +1008,7 @@ export const text = {
   failureTooLarge: 'This change is too large to sync. Reopen the page and make a smaller change.',
   failureGeneric: 'This page stopped syncing. Reopen it to try again.',
   failureSessionLimit:
-    "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.",
+    "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged.",
   failureCodeLabel: 'Code:',
   failureReference: {
     access: 'Access denied',

@@ -1,11 +1,11 @@
-import { BrowserAction, BrowserDrawer, BrowserNotice } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserDrawer, BrowserNotice, BusyMark } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './source-editor.css';
 import type { EditOutcome } from './link-edit.js';
 import { saveMessage } from './save.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
 import { text } from './strings.js';
-import { Diamond, LoaderCircle, X } from 'lucide-react';
+import { Diamond, X } from 'lucide-react';
 
 /** What a hosted request can end as before the page answers it. A request that was sent is
  * answered by the page like a native one (`EditOutcome`), so it has no state here. Provider
@@ -144,7 +144,7 @@ export function ReaderSource({
             variant="text"
             label={text.save}
             busy={saving}
-            busyMark={problem ? <span /> : <LoaderCircle />}
+            busyMark={problem ? <span /> : <BusyMark />}
             disabled={draft === base.current}
             onActivate={() => void save()}
           />

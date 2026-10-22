@@ -87,7 +87,9 @@ the default remains 4179. The deterministic Page/Remote doubles live only in
 production build. Chromium tests
 use stable `ask-*` test IDs and `data-operation-id` on each preview and Ask entry.
 
-Short public entries retain `/colab/`, `/p/<id>` or `/read/<linkId>` in the address bar.
+Inside the TMT web app Colab is the route module `src/colab-module.tsx` at `/colab/…` (built by
+`vp build --mode module`); `/p/<id>` redirects to `/colab/p/<id>`. The reader entry retains
+`/read/<linkId>` in the address bar.
 Native bootstrap carries only Remote's validated internal mount. Owner recovery uses
 SDK admission before loading protected app assets in place; APIs, sync and assets remain
 under that mount. Reader authority stays in the fragment, which is cleared before any

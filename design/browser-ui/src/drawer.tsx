@@ -14,6 +14,8 @@ export interface BrowserDrawerProps extends Omit<
   /** Host-owned status and recovery actions directly below the header. */
   notice?: ReactNode;
   children: ReactNode;
+  /** The actions row under the body (for example Move and Cancel), spaced by a token gap. */
+  actions?: ReactNode;
   /** Host presentation over the complete surface, including the shared header. */
   overlay?: ReactNode;
   panel?: string;
@@ -31,6 +33,7 @@ export function BrowserDrawer({
   caption,
   notice,
   children,
+  actions,
   overlay,
   panel,
   width = 'regular',
@@ -71,6 +74,7 @@ export function BrowserDrawer({
       </header>
       {notice && <div className="tmt-ui-drawer-notice">{notice}</div>}
       <div className="tmt-ui-drawer-body">{children}</div>
+      {actions !== undefined && <footer className="tmt-ui-drawer-actions">{actions}</footer>}
       {overlay}
     </dialog>
   );

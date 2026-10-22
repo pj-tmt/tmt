@@ -4,11 +4,11 @@
 .tmt-ui-menu-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--tmt-ui-space-s);
   color: var(--tmt-ui-color-text);
   background: transparent;
-  border: 1px solid var(--tmt-ui-surface-rule);
-  padding: 8px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  padding: var(--tmt-ui-space-s);
   font: inherit;
   cursor: pointer;
 }
@@ -18,7 +18,7 @@
 /* A crumb trigger is text in the surrounding font: no border or padding, the value truncates and
    the chevron stays. */
 .tmt-ui-menu-trigger[data-variant='crumb'] {
-  gap: 4px;
+  gap: var(--tmt-ui-space-xs);
   min-width: 0;
   max-width: 100%;
   padding: 0;
@@ -46,7 +46,7 @@
   overscroll-behavior: contain;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-paper);
-  border: 1px solid var(--tmt-ui-surface-rule);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   box-shadow: none;
 }
 .tmt-ui-menu-surface::backdrop {
@@ -56,9 +56,10 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: var(--tmt-ui-space-l);
   width: 100%;
-  padding: 10px 12px;
+  /* 10px block padding keeps the existing row height; the inline side is a token. */
+  padding: 10px var(--tmt-ui-space-m);
   border: 0;
   background: transparent;
   color: inherit;
@@ -67,33 +68,39 @@
   cursor: pointer;
 }
 .tmt-ui-menu-item[data-separated] {
-  border-top: 1px solid var(--tmt-ui-surface-rule);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-menu-item:hover:not(:disabled),
 .tmt-ui-menu-item:focus-visible {
-  background: var(--tmt-ui-surface-selection);
+  background: var(--tmt-ui-surface-hover);
 }
-.tmt-ui-menu-item:focus-visible,
+.tmt-ui-menu-item:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
 .tmt-ui-menu-trigger:focus-visible {
-  outline: 1px solid var(--tmt-ui-color-text);
-  outline-offset: -2px;
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-menu-item:disabled {
   color: var(--tmt-ui-color-secondary);
   cursor: default;
 }
 .tmt-ui-menu-description {
-  padding: 12px;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-xs);
+  padding: var(--tmt-ui-space-m);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   color: var(--tmt-ui-color-secondary);
   font-size: 12px;
 }
 .tmt-ui-menu-description p {
-  margin: 0 0 4px;
+  margin: 0;
 }
 .tmt-ui-menu-reason {
   display: block;
-  padding: 0 12px 8px;
+  padding: 0 var(--tmt-ui-space-m) var(--tmt-ui-space-s);
   color: var(--tmt-ui-color-secondary);
   font-size: 12px;
 }

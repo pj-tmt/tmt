@@ -15,6 +15,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { themeAtom } from "../state/theme";
+import { BrandMark } from "../components/BrandMark";
 import "./colab-landing.css";
 
 const features = [
@@ -383,7 +384,7 @@ export function ColabLanding() {
       <header className="cl-header">
         <div className="cl-brand" aria-label="TMT Colab">
           <a href={import.meta.env.BASE_URL} className="cl-brand-parent" aria-label="TMT home">
-            <span className="cl-logo" aria-hidden="true" />
+            <BrandMark className="cl-logo" size={24} />
             <span>TMT</span>
           </a>
           <span className="cl-brand-divider" aria-hidden="true" />
@@ -613,7 +614,7 @@ export function ColabLanding() {
       </main>
       <footer className="cl-footer">
         <a href={import.meta.env.BASE_URL} className="cl-footer-brand">
-          <span className="cl-logo" aria-hidden="true" /> Colab
+          <BrandMark className="cl-logo" size={24} /> Colab
         </a>
         <span>Pages for people and agents.</span>
         <a href="https://github.com/pj-tmt/tmt">

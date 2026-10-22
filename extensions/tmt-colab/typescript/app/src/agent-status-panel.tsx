@@ -1,5 +1,5 @@
-import { BrowserAction } from '@tmt/browser-ui/react';
-import { Circle, CircleDot, CircleHelp, LoaderCircle } from 'lucide-react';
+import { BrowserAction, BusyMark } from '@tmt/browser-ui/react';
+import { Circle, CircleDot, CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentChip } from './components/agent-chip.js';
 import type { AskBinding } from './ask-panel.js';
@@ -148,7 +148,7 @@ export function AgentStatusPanel({
         variant="text"
         label={text.agentStatusRecheck}
         busy={loading}
-        busyMark={<LoaderCircle />}
+        busyMark={<BusyMark />}
         disabled={!admitted || !binding?.observeDestinations}
         onActivate={(event) => {
           if (event.isTrusted) read();

@@ -5,7 +5,7 @@
   --tmt-foundation-z-tooltip: 60;
   --tmt-foundation-radius: 0;
   --tmt-foundation-rule-width: 1px;
-  --tmt-foundation-focus-width: 2px;
+  --tmt-foundation-focus-width: 1px;
   --tmt-foundation-command-size: 14px;
   --tmt-foundation-caption-size: 11px;
   --tmt-foundation-eyebrow-weight: 600;
@@ -26,7 +26,7 @@
   --tmt-foundation-muted-foreground: #626262;
   --tmt-foundation-accent: #e2e2e2;
   --tmt-foundation-accent-foreground: #202020;
-  --tmt-foundation-destructive: #b62c3b;
+  --tmt-foundation-destructive: #9c4242;
   --tmt-foundation-layer-boundary: #d0d0d0;
   --tmt-foundation-border: #d0d0d0;
   --tmt-foundation-input: #d0d0d0;
@@ -76,7 +76,7 @@
   --tmt-foundation-muted-foreground: #626262;
   --tmt-foundation-accent: #e2e2e2;
   --tmt-foundation-accent-foreground: #202020;
-  --tmt-foundation-destructive: #b62c3b;
+  --tmt-foundation-destructive: #9c4242;
   --tmt-foundation-layer-boundary: #d0d0d0;
   --tmt-foundation-border: #d0d0d0;
   --tmt-foundation-input: #d0d0d0;
@@ -250,10 +250,6 @@
     width: calc(var(--tmt-foundation-spacing-unit) * 2);
     height: calc(var(--tmt-foundation-spacing-unit) * 2);
   }
-  .tmt\:size-3\.5 {
-    width: calc(var(--tmt-foundation-spacing-unit) * 3.5);
-    height: calc(var(--tmt-foundation-spacing-unit) * 3.5);
-  }
   .tmt\:size-4 {
     width: calc(var(--tmt-foundation-spacing-unit) * 4);
     height: calc(var(--tmt-foundation-spacing-unit) * 4);
@@ -295,6 +291,9 @@
   .tmt\:h-\[calc\(100\%-var\(--tmt-foundation-rule-width\)\)\] {
     height: calc(100% - var(--tmt-foundation-rule-width));
   }
+  .tmt\:h-auto {
+    height: auto;
+  }
   .tmt\:max-h-\(--tmt-layer-available-height\) {
     max-height: var(--tmt-layer-available-height);
   }
@@ -315,6 +314,9 @@
   }
   .tmt\:min-h-4 {
     min-height: calc(var(--tmt-foundation-spacing-unit) * 4);
+  }
+  .tmt\:min-h-8 {
+    min-height: calc(var(--tmt-foundation-spacing-unit) * 8);
   }
   .tmt\:min-h-16 {
     min-height: calc(var(--tmt-foundation-spacing-unit) * 16);
@@ -392,14 +394,14 @@
   .tmt\:flex-wrap {
     flex-wrap: wrap;
   }
-  .tmt\:place-content-center {
-    place-content: center;
-  }
   .tmt\:items-center {
     align-items: center;
   }
   .tmt\:items-start {
     align-items: flex-start;
+  }
+  .tmt\:items-stretch {
+    align-items: stretch;
   }
   .tmt\:justify-center {
     justify-content: center;
@@ -409,6 +411,9 @@
   }
   .tmt\:justify-items-start {
     justify-items: start;
+  }
+  .tmt\:gap-0 {
+    gap: 0px;
   }
   .tmt\:gap-1 {
     gap: var(--tmt-foundation-spacing-unit);
@@ -427,6 +432,9 @@
   }
   .tmt\:gap-y-0\.5 {
     row-gap: calc(var(--tmt-foundation-spacing-unit) * 0.5);
+  }
+  .tmt\:self-center {
+    align-self: center;
   }
   .tmt\:overflow-hidden {
     overflow: hidden;
@@ -462,9 +470,6 @@
   .tmt\:border-border {
     border-color: var(--tmt-foundation-border);
   }
-  .tmt\:border-indicator {
-    border-color: var(--tmt-foundation-indicator);
-  }
   .tmt\:border-input {
     border-color: var(--tmt-foundation-input);
   }
@@ -473,6 +478,9 @@
   }
   .tmt\:border-transparent {
     border-color: transparent;
+  }
+  .tmt\:border-l-border {
+    border-left-color: var(--tmt-foundation-border);
   }
   .tmt\:bg-\(--tmt-foundation-scrim\) {
     background-color: var(--tmt-foundation-scrim);
@@ -561,6 +569,9 @@
   .tmt\:py-6 {
     padding-block: calc(var(--tmt-foundation-spacing-unit) * 6);
   }
+  .tmt\:pe-2 {
+    padding-inline-end: calc(var(--tmt-foundation-spacing-unit) * 2);
+  }
   .tmt\:pl-8 {
     padding-left: calc(var(--tmt-foundation-spacing-unit) * 8);
   }
@@ -600,9 +611,6 @@
   }
   .tmt\:text-card-foreground {
     color: var(--tmt-foundation-card-foreground);
-  }
-  .tmt\:text-current {
-    color: currentcolor;
   }
   .tmt\:text-destructive {
     color: var(--tmt-foundation-destructive);
@@ -806,8 +814,15 @@
     outline-style: var(--tmt-foundation-tw-outline-style);
     outline-width: var(--tmt-foundation-focus-width);
   }
+  .tmt\:focus-visible\:-outline-offset-\(length\:--tmt-foundation-focus-width\):focus-visible {
+    outline-offset: calc(var(--tmt-foundation-focus-width) * -1);
+  }
   .tmt\:focus-visible\:outline-ring:focus-visible {
     outline-color: var(--tmt-foundation-ring);
+  }
+  .tmt\:focus-visible\:outline-none:focus-visible {
+    --tmt-foundation-tw-outline-style: none;
+    outline-style: none;
   }
   .tmt\:focus-visible\:outline-solid:focus-visible {
     --tmt-foundation-tw-outline-style: solid;
@@ -913,14 +928,8 @@
     --tmt-foundation-tw-translate-x: calc(100% - var(--tmt-foundation-rule-width) * 2);
     translate: var(--tmt-foundation-tw-translate-x) var(--tmt-foundation-tw-translate-y);
   }
-  .tmt\:data-\[state\=checked\]\:border-primary[data-state='checked'] {
-    border-color: var(--tmt-foundation-primary);
-  }
   .tmt\:data-\[state\=checked\]\:bg-primary[data-state='checked'] {
     background-color: var(--tmt-foundation-primary);
-  }
-  .tmt\:data-\[state\=checked\]\:text-primary-foreground[data-state='checked'] {
-    color: var(--tmt-foundation-primary-foreground);
   }
   .tmt\:data-\[state\=open\]\:bg-accent[data-state='open'] {
     background-color: var(--tmt-foundation-accent);

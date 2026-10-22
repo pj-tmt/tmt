@@ -84,7 +84,8 @@ for (const width of [1440, 390])
         const bounds = await submenu.boundingBox();
         expect(bounds).not.toBeNull();
         expect(bounds!.x).toBeGreaterThanOrEqual(0);
-        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        // The menu's position rounds to whole pixels while its width keeps the font's fraction.
+        expect(bounds!.x + bounds!.width).toBeLessThan(width + 0.5);
         expect(
           await submenu
             .locator('.remote-details')

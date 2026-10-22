@@ -10,6 +10,6 @@ test("the site tab icon is exactly the shared light/dark SVG", () => {
   assert.ok(href.startsWith("data:image/svg+xml,"));
   assert.deepEqual(
     Buffer.from(decodeURIComponent(href.slice("data:image/svg+xml,".length))),
-    readFileSync(new URL("../../design/browser-ui/src/favicon.svg", import.meta.url)),
+    readFileSync(new URL("../../design/browser-ui/generated/favicon.svg", import.meta.url)),
   );
 });

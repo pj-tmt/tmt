@@ -23,6 +23,12 @@ static CSS; [Colab native chrome](../extensions/tmt-colab/rust/tmt-colab/src/chr
 and [Remote served pages](../extensions/tmt-remote/rust/tmt-remote/src/pages.rs)
 embed the same checked static asset without requiring a React runtime.
 
+Both render inside the leaf's [Shell](gui-style.md#shell): Colab through `BrowserShell`, whose
+header slot its `ColabHeader` portals into, and Remote's served pages through the static
+`mountShell` renderer, which `remote-client` imports from the leaf by path and bundles. The
+shell reads only Remote's composed module descriptions; each product supplies its own module
+menu and keeps its routing.
+
 Colab uses `BrowserMenu` for choice/action menus and `BrowserDrawer` for shared
 page drawers. The leaf's [Drawer and Menu contract](browser-ui/README.md#drawer-and-menu)
 owns their presentation, placement and dismissal. Colab retains commands,

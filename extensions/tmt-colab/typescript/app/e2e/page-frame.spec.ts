@@ -132,16 +132,19 @@ test('the spinner turns unless the reader prefers reduced motion', async ({ page
   await openAlpha(page);
   await page.clock.runFor(200);
   await expect(spinner(page)).toBeVisible();
+  // The a2 mark: each of its six dots runs the one shared rule.
   const names = await spinner(page).evaluate((mark) =>
-    mark
-      .querySelector('svg')!
-      .getAnimations()
-      .map((animation) => (animation as CSSAnimation).animationName),
+    [...mark.querySelectorAll('.tmt-ui-busy-dot')].flatMap((dot) =>
+      dot.getAnimations().map((animation) => (animation as CSSAnimation).animationName),
+    ),
   );
-  expect(names).toEqual(['tmt-ui-spin']);
+  expect(names).toEqual(Array(6).fill('tmt-ui-busy'));
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(
-    await spinner(page).evaluate((mark) => mark.querySelector('svg')!.getAnimations().length),
+    await spinner(page).evaluate(
+      (mark) =>
+        [...mark.querySelectorAll('.tmt-ui-busy-dot')].flatMap((dot) => dot.getAnimations()).length,
+    ),
   ).toBe(0);
 });
 
@@ -213,7 +216,9 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(area!.y + area!.height).toBeCloseTo(900, 0);
       expect(mark!.width).toBeCloseTo(24, 0);
       expect(mark!.height).toBeCloseTo(24, 0);
-      expect(mark!.x + mark!.width / 2).toBeCloseTo(width / 2, 0);
+      // The page's column is the shell's main column, beside the rail and module menu.
+      const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!;
+      expect(mark!.x + mark!.width / 2).toBeCloseTo(column.x + column.width / 2, 0);
       expect(mark!.y + mark!.height / 2).toBeCloseTo(area!.y + area!.height / 2, 0);
 
       // The secondary colour, with no words beside it.

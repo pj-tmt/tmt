@@ -1056,12 +1056,9 @@ fn short_public_entries_forward_exact_paths_without_authority_or_redirect() {
     let sessions = Arc::new(PublicEntrySessionCalls::default());
     let door = Mounted::new(Arc::clone(&sessions) as Arc<dyn Sessions>);
     let extension = door.extension(replying(PAGE));
-    for (path, target) in [
-        ("/colab", "/"),
-        ("/colab/", "/"),
-        ("/p/aB_0", "/p/aB_0"),
-        ("/read/Z9_-", "/read/Z9_-"),
-    ] {
+    // `/colab` and `/p/<id>` are routes of the one TMT app now (pages.rs, #3937); the reader is
+    // the remaining extension-forwarded public entry.
+    for (path, target) in [("/read/Z9_-", "/read/Z9_-"), ("/read/aB_0", "/read/aB_0")] {
         let reply = door.send(door.get(path, &format!("Cookie: {OWNER}\r\nTMT-Device-Context: forged\r\nTMT-Origin: forged\r\nTMT-Mount: /evil/\r\nTMT-Device-Event: 1\r\nAccept: text/html\r\n")).as_bytes());
         let (head, body) = reply.split_once("\r\n\r\n").unwrap();
         assert!(head.starts_with("HTTP/1.1 200"), "{path}: {head}");
@@ -1092,7 +1089,7 @@ fn short_public_entries_forward_exact_paths_without_authority_or_redirect() {
         .collect();
     assert_eq!(
         paths,
-        ["/", "/p/aB_0", "/read/Z9_-"]
+        ["/read/Z9_-", "/read/aB_0"]
             .into_iter()
             .map(str::to_owned)
             .collect()
@@ -1102,7 +1099,7 @@ fn short_public_entries_forward_exact_paths_without_authority_or_redirect() {
 fn generic_public_refusal(reply: &str, status: u16) {
     let (head, body) = reply.split_once("\r\n\r\n").unwrap();
     assert!(head.starts_with(&format!("HTTP/1.1 {status} ")), "{head}");
-    assert_eq!(body, include_str!("../assets/error.html"));
+    assert_eq!(body, include_str!("../assets/error.html"), "{head}");
     assert!(!head.contains("location:"));
     assert!(!head.contains("set-cookie:"));
 }
@@ -1112,20 +1109,14 @@ fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect
     let door = Mounted::new(Arc::new(NoPublicSessionLookup));
     let extension = door.extension(replying(PAGE));
     for path in [
-        "/p",
-        "/p/",
-        "/p/abc",
-        "/p/abcd/",
-        "/p/abcd/other",
-        "/p/a.b_",
         "/read",
         "/read/",
         "/read/abc",
         "/read/abcd/",
-        "/p/.tmt",
+        "/read/abcd/other",
+        "/read/a.b_",
         "/read/.tmt",
-        "/p/abcd?tmt-session=00000000-0000-4000-8000-000000000004",
-        "/colab?tmt-session=00000000-0000-4000-8000-000000000004",
+        "/read/abcd?tmt-session=00000000-0000-4000-8000-000000000004",
     ] {
         generic_public_refusal(&door.send(door.get(path, "").as_bytes()), 404);
     }
@@ -1141,16 +1132,12 @@ fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect
     ] {
         assert_eq!(door.status(&door.get(path, "")), 400, "{path}");
     }
-    for path in [
-        "/colab/other",
-        "/.tmt/colab",
-        "/x/colab/",
-        "/r/abcd",
-        "/other/abcd",
-    ] {
+    // `/colab/<segments>` is an app route now (pages.rs): it serves the one shell document.
+    assert_eq!(door.status(&door.get("/colab/other", "")), 200);
+    for path in ["/.tmt/colab", "/x/colab/", "/r/abcd", "/other/abcd"] {
         assert_eq!(door.status(&door.get(path, "")), 404, "{path}");
     }
-    for path in ["/p/abcd", "/read/abcd", "/colab", "/colab/"] {
+    for path in ["/read/abcd"] {
         for method in ["POST", "HEAD", "PUT", "PATCH", "DELETE", "OPTIONS"] {
             generic_public_refusal(
                 &door.send(
@@ -1203,8 +1190,9 @@ fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect
         extension.seen.all().is_empty(),
         "a refused entry reached Colab"
     );
-    // Boundary positives reach exactly the public entry, not arbitrary root paths.
-    for family in ["p", "read"] {
+    // Boundary positives: the reader reaches exactly the public entry; `/p/<id>` redirects into
+    // the app (pages.rs) and never reaches the extension.
+    for (family, status) in [("p", 308), ("read", 200)] {
         for id in ["aB_0".to_owned(), "Z9_-".repeat(16)] {
             for site in ["none", "same-origin"] {
                 assert_eq!(
@@ -1212,17 +1200,17 @@ fn short_public_entries_refuse_non_entries_and_admission_failures_before_connect
                         &format!("/{family}/{id}"),
                         &format!("Origin: {}\r\nSec-Fetch-Site: {site}\r\n", door.origin)
                     )),
-                    200
+                    status
                 );
             }
         }
     }
-    assert_eq!(extension.seen.all().len(), 8);
+    assert_eq!(extension.seen.all().len(), 4);
 }
 
 #[test]
 fn short_public_unavailable_statuses_are_generic_and_id_independent() {
-    for path in ["/p/known000", "/p/unknown0", "/read/known000", "/colab/"] {
+    for path in ["/read/known000", "/read/unknown0"] {
         let door = Mounted::new(Arc::new(NoPublicSessionLookup));
         generic_public_refusal(&door.send(door.get(path, "").as_bytes()), 404);
         let door = Mounted::with(Arc::new(NoPublicSessionLookup), &[]);
@@ -1239,16 +1227,16 @@ fn short_public_unavailable_statuses_are_generic_and_id_independent() {
     let door = Mounted::new(Arc::new(NoPublicSessionLookup));
     let extension = door.extension(replying(PAGE));
     fs::set_permissions(door.root.join("colab"), fs::Permissions::from_mode(0o755)).unwrap();
-    generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 404);
+    generic_public_refusal(&door.send(door.get("/read/abcd", "").as_bytes()), 404);
     fs::set_permissions(door.root.join("colab"), fs::Permissions::from_mode(0o700)).unwrap();
     fs::set_permissions(door.socket(), fs::Permissions::from_mode(0o666)).unwrap();
-    generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 404);
+    generic_public_refusal(&door.send(door.get("/read/abcd", "").as_bytes()), 404);
     assert!(extension.seen.all().is_empty());
     fs::set_permissions(door.socket(), fs::Permissions::from_mode(0o600)).unwrap();
     let actual = door.root.join("colab/actual.sock");
     fs::rename(door.socket(), &actual).unwrap();
     std::os::unix::fs::symlink(&actual, door.socket()).unwrap();
-    generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 404);
+    generic_public_refusal(&door.send(door.get("/read/abcd", "").as_bytes()), 404);
     assert!(extension.seen.all().is_empty());
     fs::remove_file(door.socket()).unwrap();
     fs::rename(actual, door.socket()).unwrap();
@@ -1288,13 +1276,13 @@ fn short_public_replies_keep_extension_policy_but_cannot_cache_or_upgrade() {
     ] {
         let door = Mounted::new(Arc::new(NoPublicSessionLookup));
         let _extension = door.extension(replying(reply));
-        generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 502);
+        generic_public_refusal(&door.send(door.get("/read/abcd", "").as_bytes()), 502);
     }
     let door = Mounted::new(Arc::new(NoPublicSessionLookup));
     let _extension = door.extension(replying(
         b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nshort",
     ));
-    let reply = door.send(door.get("/p/abcd", "").as_bytes());
+    let reply = door.send(door.get("/read/abcd", "").as_bytes());
     assert!(reply.contains("content-length: 9\r\n"));
     assert!(reply.ends_with("\r\n\r\nshort"));
 }
@@ -1315,7 +1303,7 @@ fn short_public_reply_deadline_closes_the_owned_extension_connection() {
         );
         closed.send(()).unwrap();
     }));
-    generic_public_refusal(&door.send(door.get("/p/abcd", "").as_bytes()), 502);
+    generic_public_refusal(&door.send(door.get("/read/abcd", "").as_bytes()), 502);
     observed
         .recv_timeout(Duration::from_secs(5))
         .expect("extension connection leaked");

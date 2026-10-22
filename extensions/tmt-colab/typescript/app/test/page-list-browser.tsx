@@ -78,8 +78,12 @@ export async function mountPageList(
     | 'stages'
     /** Every page is in discussion: nothing in progress, nothing done. */
     | 'quiet'
+    /** A working space: 75 active pages over the stages and projects, one that needs you, one archived. */
+    | 'work'
     /** No page has reported its tasks yet, as after a cold start. */
-    | 'cold' = 'few',
+    | 'cold'
+    /** A dashboard (shell page), which the module menu lists under Dashboards. */
+    | 'shells' = 'few',
   hash = '/',
 ) {
   document.getElementById('root')!.style.display = 'none';
@@ -144,60 +148,94 @@ export async function mountPageList(
               summary: { ...idle, work: work('in-progress', 0, 2) },
             }),
           ]
-        : size === 'quiet'
+        : size === 'work'
           ? [
-              page(1, 'Gamma notes', ['design'], { summary: idle }),
-              page(2, 'Zeta notes', [], { summary: idle }),
+              ...Array.from({ length: 75 }, (_, n) => {
+                const stage = (['discussion', 'in-progress', 'done'] as const)[n % 3];
+                return page(
+                  n + 1,
+                  `${['Spec', 'Review', 'Plan', 'Notes', 'Report'][n % 5]} ${n + 1}`,
+                  n % 4 ? [['spec', 'blog', 'pm'][n % 3]] : [],
+                  {
+                    summary: {
+                      comments: n % 6,
+                      waiting: n === 1,
+                      needsYou: n === 1 ? 1 : 0,
+                      author: n % 2 ? 'Ada' : 'feat-1',
+                      work: work(
+                        stage,
+                        stage === 'done' ? 4 : n % 4,
+                        4,
+                        n % 3 === 1 ? [{ kind: 'agent', name: 'feat-1' }] : [],
+                      ),
+                    },
+                  },
+                );
+              }),
+              page(76, 'Archived spec', ['spec'], { archived: true, summary: idle }),
             ]
-          : size === 'cold'
-            ? [page(1, 'Gamma notes', ['design']), page(2, 'Zeta notes', [])]
-            : size === 'bulk'
-              ? [
-                  ...Array.from({ length: 130 }, (_, n) =>
-                    page(n + 1, `Bulk ${String(n + 1).padStart(3, '0')}`, ['old']),
-                  ),
-                  page(131, 'Bulk archived', ['old', 'z'], { archived: true }),
-                ]
-              : size === 'none'
-                ? []
-                : [
-                    // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
-                    ...(size === 'long'
-                      ? [
-                          page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
-                            summary: {
-                              comments: 0,
-                              waiting: false,
-                              needsYou: 0,
-                              author: 'W'.repeat(120),
-                            },
-                          }),
-                        ]
-                      : []),
-                    // A page already in the most projects it can be, and one project it is not in.
-                    ...(size === 'full'
-                      ? [
-                          page(
-                            7,
-                            'Full page',
-                            Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
-                          ),
-                          page(8, 'Extra page', ['extra']),
-                        ]
-                      : []),
-                    page(1, 'Alpha plan', ['design', 'q4 plan'], {
-                      summary: { comments: 3, waiting: true, needsYou: 1, author: 'Studio agent' },
-                    }),
-                    page(2, 'Beta review', ['design'], {
-                      summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
-                    }),
-                    // No summary yet: the row shows only what the list already knows.
-                    page(3, 'Gamma notes', []),
-                    page(4, 'Delta ops', ['ops'], {
-                      summary: { comments: 0, waiting: false, needsYou: 0 },
-                    }),
-                    page(5, 'Archived spec', ['design'], { archived: true }),
-                  ],
+          : size === 'quiet'
+            ? [
+                page(1, 'Gamma notes', ['design'], { summary: idle }),
+                page(2, 'Zeta notes', [], { summary: idle }),
+              ]
+            : size === 'cold'
+              ? [page(1, 'Gamma notes', ['design']), page(2, 'Zeta notes', [])]
+              : size === 'bulk'
+                ? [
+                    ...Array.from({ length: 130 }, (_, n) =>
+                      page(n + 1, `Bulk ${String(n + 1).padStart(3, '0')}`, ['old']),
+                    ),
+                    page(131, 'Bulk archived', ['old', 'z'], { archived: true }),
+                  ]
+                : size === 'none'
+                  ? []
+                  : [
+                      // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
+                      ...(size === 'long'
+                        ? [
+                            page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
+                              summary: {
+                                comments: 0,
+                                waiting: false,
+                                needsYou: 0,
+                                author: 'W'.repeat(120),
+                              },
+                            }),
+                          ]
+                        : []),
+                      // A page already in the most projects it can be, and one project it is not in.
+                      ...(size === 'full'
+                        ? [
+                            page(
+                              7,
+                              'Full page',
+                              Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
+                            ),
+                            page(8, 'Extra page', ['extra']),
+                          ]
+                        : []),
+                      ...(size === 'shells'
+                        ? [page(9, 'Reading shell', [], { pageType: 'shell' })]
+                        : []),
+                      page(1, 'Alpha plan', ['design', 'q4 plan'], {
+                        summary: {
+                          comments: 3,
+                          waiting: true,
+                          needsYou: 1,
+                          author: 'Studio agent',
+                        },
+                      }),
+                      page(2, 'Beta review', ['design'], {
+                        summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
+                      }),
+                      // No summary yet: the row shows only what the list already knows.
+                      page(3, 'Gamma notes', []),
+                      page(4, 'Delta ops', ['ops'], {
+                        summary: { comments: 0, waiting: false, needsYou: 0 },
+                      }),
+                      page(5, 'Archived spec', ['design'], { archived: true }),
+                    ],
   };
   window.__reportTasks = () => {
     state.pages = state.pages.map((p, index) =>

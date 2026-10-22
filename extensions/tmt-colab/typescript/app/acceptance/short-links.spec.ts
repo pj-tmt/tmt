@@ -78,7 +78,7 @@ test('real Colab keeps public short entries across admission, reload and history
       await page.goto(new URL(route, door.origin).href);
       // Choosing a tab rewrites the address to `/colab/`, so check it once the list is up and
       // before asking for All.
-      await expect(page.getByRole('tab', { name: 'All', exact: true })).toBeVisible();
+      await expect(page.getByRole('tab', { name: /^All \d+$/ })).toBeVisible();
       expect(new URL(page.url()).pathname).toBe(route);
       await showAllPages(page);
       await expect(

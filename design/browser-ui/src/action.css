@@ -36,13 +36,18 @@
 }
 .tmt-ui-action:not(:disabled):hover,
 .tmt-ui-action:not(:disabled):focus-visible {
-  color: var(--tmt-ui-color-selected-text);
-  background: var(--tmt-ui-surface-selection);
+  background: var(--tmt-ui-surface-hover);
   box-shadow: none;
 }
+/* One focus frame (#3998): a bordered action recolours its own border; the borderless text
+   action draws one inset outline. */
 .tmt-ui-action:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
+}
+.tmt-ui-action[data-variant='text']:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: var(--tmt-ui-host-focus-offset);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 .tmt-ui-action:disabled,
 .tmt-ui-action:disabled .tmt-ui-action-label {
@@ -56,14 +61,28 @@
 .tmt-ui-action[data-variant='text']:disabled {
   background: transparent;
 }
+/* The mark is a 1em square centred on the label's line box; its svg fills it as a block, so no
+   baseline or line-height offset moves it off the label centre. */
 .tmt-ui-action-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 1em;
+  height: 1em;
   color: inherit;
+}
+.tmt-ui-action-mark > svg {
+  display: block;
+  width: 1em;
+  height: 1em;
 }
 
 .tmt-ui-action:has(> .tmt-ui-action-mark + .tmt-ui-action-label) {
   display: inline-grid;
   /* Equal side tracks reserve the mark's width without offsetting the label. */
   grid-template-columns: 1fr auto 1fr;
+  align-items: center;
 }
 .tmt-ui-action:has(> .tmt-ui-action-mark + .tmt-ui-action-label) > .tmt-ui-action-mark {
   grid-column: 1;

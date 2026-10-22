@@ -159,55 +159,12 @@ h3:lang(ja) {
   word-break: auto-phrase;
 }
 
-/* Handbook-only presentation. Shared semantic signals and font families still
-   come from the canonical tokens; later package adoption is separate. */
+/* Terminal mockups are dark in both themes. The --c-* roles come from the canonical tokens. */
 :root {
-  --c-paper: #fafafa;
-  --c-sheet: #f1f1f1;
-  --c-text: #202020;
-  --c-muted: #555555;
-  --c-dim: #626262;
-  --c-rule: #d0d0d0;
-  --c-accent: #202020;
-  --c-accent-soft: #eaeaea;
-  --c-selection: #e2e2e2;
-  --c-term: #101010;
-  --c-term-bar: #171717;
-  --c-term-edge: #484848;
   --t-text: #d8d8d8;
   --t-muted: #b0b0b0;
   --t-dim: #b0b0b0;
   --t-selection: #2b2b2b;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --c-paper: #080808;
-    --c-term: #101010;
-    --c-term-bar: #171717;
-    --c-term-edge: #484848;
-    --c-sheet: #171717;
-    --c-text: #ededed;
-    --c-muted: #b0b0b0;
-    --c-dim: #b0b0b0;
-    --c-rule: #353535;
-    --c-accent: #ededed;
-    --c-accent-soft: #2b2b2b;
-    --c-selection: #2b2b2b;
-  }
-}
-:root[data-theme="dark"] {
-  --c-paper: #080808;
-  --c-term: #101010;
-  --c-term-bar: #171717;
-  --c-term-edge: #484848;
-  --c-sheet: #171717;
-  --c-text: #ededed;
-  --c-muted: #b0b0b0;
-  --c-dim: #b0b0b0;
-  --c-rule: #353535;
-  --c-accent: #ededed;
-  --c-accent-soft: #2b2b2b;
-  --c-selection: #2b2b2b;
 }
 .handbook-header {
   border-bottom: 1px solid var(--c-rule);

@@ -62,13 +62,12 @@
 }
 .tmt-ui-command-copy:not(:disabled):hover,
 .tmt-ui-command-copy:not(:disabled):focus-visible {
-  color: var(--tmt-ui-color-selected-text);
-  background: var(--tmt-ui-surface-selection);
+  background: var(--tmt-ui-surface-hover);
   box-shadow: none;
 }
 .tmt-ui-command-copy:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 2px;
+  border-color: var(--tmt-ui-color-focus);
+  outline: 0;
 }
 .tmt-ui-command-copy:disabled {
   color: var(--tmt-ui-color-disabled-text);

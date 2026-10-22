@@ -1,11 +1,12 @@
 .tmt-ui-drawer {
-  --tmt-ui-drawer-gutter: 8px;
+  --tmt-ui-drawer-gutter: var(--tmt-ui-space-s);
   position: fixed;
   inset: calc(
       var(--tmt-ui-header-height) + env(safe-area-inset-top, 0px) + var(--tmt-ui-drawer-gutter)
     )
     calc(var(--tmt-ui-drawer-gutter) + env(safe-area-inset-right, 0px))
     calc(var(--tmt-ui-drawer-gutter) + env(safe-area-inset-bottom, 0px)) auto;
+  /* 440px and 660px (wide): the drawer's reading widths; no token names a surface width. */
   width: min(
     440px,
     calc(100vw - 2 * var(--tmt-ui-drawer-gutter) - env(safe-area-inset-right, 0px))
@@ -20,7 +21,7 @@
   padding: 0;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-paper);
-  border: 1px solid var(--tmt-ui-surface-rule);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   box-shadow: none;
   overflow: hidden;
 }
@@ -42,19 +43,20 @@
   align-items: center;
   justify-content: space-between;
   flex: none;
-  gap: 16px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  gap: var(--tmt-ui-space-l);
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-xl);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-drawer-heading {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--tmt-ui-space-s);
   min-width: 0;
 }
 .tmt-ui-drawer-heading h2 {
   margin: 0;
   flex: none;
+  /* 18px: the overlay title size, as in the dialog. */
   font-size: 18px;
 }
 .tmt-ui-drawer-caption {
@@ -63,19 +65,41 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--tmt-ui-color-secondary);
+  /* 12px: the caption size used by menu descriptions. */
   font-size: 12px;
 }
 .tmt-ui-drawer-notice {
   flex: none;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-xl);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+/* The body stacks its children with one token gap; fields fill the width, a bare action keeps
+   its own. */
 .tmt-ui-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tmt-ui-space-l);
   min-height: 0;
   flex: 1;
-  padding: 20px;
+  padding: var(--tmt-ui-space-xl);
   overflow: auto;
   overscroll-behavior: contain;
+}
+.tmt-ui-drawer-body > .tmt-ui-action,
+.tmt-ui-drawer-body > .tmt-ui-icon-action,
+.tmt-ui-drawer-body > .tmt-ui-menu {
+  align-self: flex-start;
+}
+/* The actions row: pinned under the body, end-aligned, spaced by its own token gap. */
+.tmt-ui-drawer-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-xl);
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 @media (max-width: 640px) {
   .tmt-ui-drawer,
@@ -85,6 +109,6 @@
 }
 @media (max-width: 480px) {
   .tmt-ui-drawer {
-    --tmt-ui-drawer-gutter: 4px;
+    --tmt-ui-drawer-gutter: var(--tmt-ui-space-xs);
   }
 }

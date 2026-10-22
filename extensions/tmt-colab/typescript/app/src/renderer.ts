@@ -1,4 +1,4 @@
-import { entryMount, publicEntry } from './entry.js';
+import { entryMount, inShell, publicEntry } from './entry.js';
 import { loadRuntime, wantsRuntime, type PageRuntime } from './page-runtime.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
 import { isHostedOrigin } from './hosted-location.js';
@@ -1052,7 +1052,13 @@ export async function mountRenderer(
   window.addEventListener('resize', resize);
   options.signal.addEventListener('abort', destroy, { once: true });
   // A page that opts in gets the bundled runtime; any other page is bound exactly as before.
-  const rendererBase = publicEntry() ? entryMount().href : document.baseURI;
+  // Inside the TMT app the document sits at /colab/<route>; the renderer and the runtime it loads
+  // are beside /colab/.
+  const rendererBase = publicEntry()
+    ? entryMount().href
+    : inShell()
+      ? new URL('/colab/', location.href).href
+      : document.baseURI;
   const runtime = wantsRuntime(source) ? loadRuntime(rendererBase) : undefined;
   frame.onload = async () => {
     if (stopped) return;
