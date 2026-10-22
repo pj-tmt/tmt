@@ -22,6 +22,8 @@ export interface StripsOptions {
   /** The words under the strip's two ends. */
   ends: readonly [string, string];
   empty?: string;
+  /** False when the caller places `stripsLegend()` itself (a card header); default true. */
+  legend?: boolean;
 }
 
 export interface StripSlot {

@@ -28,6 +28,8 @@ export interface SeriesChartOptions {
   max?: number;
   /** Plot height in px. */
   height?: number;
+  /** The hue step of the first series (0 to 6), so a provider keeps its colour across views. */
+  style?: number;
   /** Shown instead of the plot when no series has an observation. */
   empty?: string;
 }
@@ -35,8 +37,8 @@ export interface SeriesChartOptions {
 /** Hue steps a chart uses, in order; the neutral step after them is the folded `other` layer. */
 export const PALETTE = 7;
 const OTHER_STYLE = PALETTE;
-const styleOf = (layer: { key: string }, i: number) =>
-  layer.key === 'other' ? OTHER_STYLE : i % PALETTE;
+const styleOf = (layer: { key: string }, i: number, first = 0) =>
+  layer.key === 'other' ? OTHER_STYLE : (first + i) % PALETTE;
 const MARGIN = { left: 46, right: 10, top: 12, bottom: 22 };
 
 export interface SeriesMark {
@@ -102,7 +104,7 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
     stack.layers.forEach((layer, i) =>
       marks.push({
         kind: 'area',
-        style: styleOf(layer, i),
+        style: styleOf(layer, i, options.style),
         d: areaPath(xs, layer.upper.map(yAt), layer.lower.map(yAt)),
       }),
     );
@@ -121,7 +123,8 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
     options.series.forEach((layer, i) => {
       let run: [number, number][] = [];
       const flush = () => {
-        if (run.length) marks.push({ kind: 'line', style: styleOf(layer, i), d: linePath(run) });
+        if (run.length)
+          marks.push({ kind: 'line', style: styleOf(layer, i, options.style), d: linePath(run) });
         run = [];
       };
       layer.values.forEach((v, at) => {
@@ -178,13 +181,16 @@ export function seriesModel(options: SeriesChartOptions, width: number): SeriesM
     values: (at) => options.series.map((layer) => cell(layer, at)),
     readout: (at) =>
       `${options.x[at]}: ${options.series.map((layer) => `${layer.label} ${cell(layer, at)}`).join(', ')}`,
-    legend: options.series.map((layer, i) => ({ label: layer.label, style: styleOf(layer, i) })),
+    legend: options.series.map((layer, i) => ({
+      label: layer.label,
+      style: styleOf(layer, i, options.style),
+    })),
     tip: (at) => ({
       title: options.x[at] ?? '',
       rows: options.series.map((layer, i) => ({
         label: layer.label,
         value: cell(layer, at),
-        style: styleOf(layer, i),
+        style: styleOf(layer, i, options.style),
       })),
     }),
     table: {

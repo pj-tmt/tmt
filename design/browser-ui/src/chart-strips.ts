@@ -3,6 +3,17 @@ import { type StripsOptions, STRIP_STEPS, stripsModel } from './chart-strips-mod
 
 export type { StripRow, StripsOptions } from './chart-strips-model.js';
 
+/** `Less ▢▢▢▢▢ More`: the swatches of the intensity steps, for a strip's caption or card header. */
+export function stripsLegend(): HTMLElement {
+  const legend = htmlEl('div', 'tmt-ui-chart-strip-legend');
+  legend.setAttribute('aria-hidden', 'true');
+  legend.append(htmlEl('span', undefined, 'Less'));
+  for (let step = 0; step <= STRIP_STEPS; step += 1)
+    legend.append(htmlEl('span', `tmt-ui-chart-slot tmt-ui-chart-slot-${step}`));
+  legend.append(htmlEl('span', undefined, 'More'));
+  return legend;
+}
+
 /**
  * Rows of fixed square slots, like a contribution graph: when each seat was active, scaled to
  * that row's busiest slot. The row is as long as its slot count; a slot's tip (hover or focus)
@@ -116,12 +127,7 @@ export function createStrips(options: StripsOptions): HTMLElement {
   });
   frame.append(list, tip);
 
-  const legend = htmlEl('div', 'tmt-ui-chart-strip-legend');
-  legend.setAttribute('aria-hidden', 'true');
-  legend.append(htmlEl('span', undefined, 'Less'));
-  for (let step = 0; step <= STRIP_STEPS; step += 1)
-    legend.append(htmlEl('span', `tmt-ui-chart-slot tmt-ui-chart-slot-${step}`));
-  legend.append(htmlEl('span', undefined, 'More'));
-  figure.append(frame, legend);
+  figure.append(frame);
+  if (options.legend !== false) figure.append(stripsLegend());
   return figure;
 }
