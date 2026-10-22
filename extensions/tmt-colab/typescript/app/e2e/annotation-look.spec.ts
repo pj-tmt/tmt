@@ -56,7 +56,10 @@ for (const width of [1440, 390])
       await expect(markers).toHaveCount(3);
       await expect(markers).toHaveText(['1', '2', '+2']);
       for (const marker of await markers.all()) {
-        await expect(marker).toHaveCSS('border-top-width', '0px');
+        // A number has no border; the `+2` pill's target is a transparent one.
+        const pill = (await marker.getAttribute('data-colab-group')) !== null;
+        await expect(marker).toHaveCSS('border-top-width', pill ? '4px' : '0px');
+        await expect(marker).toHaveCSS('border-top-color', pill ? 'rgba(0, 0, 0, 0)' : /.*/);
         await expect(marker).toHaveCSS('box-shadow', 'none');
         await expect(marker).toHaveCSS(
           'color',

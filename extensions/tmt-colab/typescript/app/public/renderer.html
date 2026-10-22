@@ -296,7 +296,7 @@
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread], .annotation-number[data-colab-group] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; }';
+            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: 12px; background-clip: padding-box; font-size: 10px; }';
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
@@ -662,6 +662,17 @@
             markers = undefined;
             anchorRanges.clear();
           }
+          // The column a framed page's top-level blocks stand on, in the box they sit in (the frame
+          // stylesheet: centred, min(column, box - 2 gutters)); the column and the gutter are its own
+          // properties.
+          const framedColumn = (box) => {
+            const frame = getComputedStyle(document.documentElement);
+            const width = Math.min(
+              parseFloat(frame.getPropertyValue('--colab-column')),
+              box.width - 2 * parseFloat(frame.getPropertyValue('--colab-gutter')),
+            );
+            return { left: box.left + (box.width - width) / 2, width };
+          };
           function resolveSlots() {
             if (stopped || !slotRequestId) return;
             const positions = [];
@@ -752,17 +763,15 @@
                   // which the body's own box does not show and the hidden target cannot be measured
                   // for (#4011). The column, the gutter and the marker lane are the frame stylesheet's own
                   // properties; a full block runs over the lane.
-                  const frame = getComputedStyle(document.documentElement);
                   if (target.getAttribute('data-width') === 'full') {
                     left = column.left;
                     width =
-                      column.width + (parseFloat(frame.getPropertyValue('--colab-lane')) || 0);
+                      column.width +
+                      (parseFloat(
+                        getComputedStyle(document.documentElement).getPropertyValue('--colab-lane'),
+                      ) || 0);
                   } else {
-                    width = Math.min(
-                      parseFloat(frame.getPropertyValue('--colab-column')),
-                      column.width - 2 * parseFloat(frame.getPropertyValue('--colab-gutter')),
-                    );
-                    left = column.left + (column.width - width) / 2;
+                    ({ left, width } = framedColumn(column));
                   }
                 }
                 const top = panel.getBoundingClientRect().top + scrollY;
@@ -1157,17 +1166,24 @@
                   'position:absolute;top:0;left:0;width:100%;pointer-events:none;z-index:2147483647';
                 document.body.append(markers);
                 const origin = markers.getBoundingClientRect();
-                // The marker lane is a fixed column at the right edge of the frame, which page-frame.css
-                // reserves on every page from its first paint: a marker never stands on text, and the
-                // first thread moves none. A marker sits in the lane at its passage's last line, centred
-                // on it. Threads whose lines are closer than one marker share a `+n` marker that opens
-                // the thread list.
+                // The marker lane is a column at the right edge of the frame, which page-frame.css reserves
+                // on every page from its first paint: a marker never stands on text, and the first thread
+                // moves none. A marker sits in the lane at its passage's last line, centred on it. On a
+                // framed page it stands right after the end of the reading column, so the reader can tell
+                // which passage it belongs to; a page that is not framed spans the frame, so its lane is
+                // the frame's edge. Threads whose lines are closer than one marker share a `+n` pill that
+                // opens the thread list.
                 const size = 24;
                 const lane =
                   parseFloat(
                     getComputedStyle(document.documentElement).getPropertyValue('--colab-lane'),
                   ) || 28;
-                const left = document.documentElement.clientWidth - lane + (lane - size) / 2;
+                const viewport = document.documentElement.clientWidth;
+                let left = viewport - lane + (lane - size) / 2;
+                if (document.documentElement.dataset.colabLayout) {
+                  const column = framedColumn(document.body.getBoundingClientRect());
+                  left = column.left + column.width + 4;
+                }
                 const lines = batch
                   .filter((item) => item.id && anchorRanges.has(item.id))
                   .map((item) => {
@@ -1204,7 +1220,7 @@
                       items.length + ' threads: ' + items.map((i) => i.ordinal).join(', ');
                     marker.setAttribute('aria-label', 'Open the thread list: ' + marker.title);
                   }
-                  marker.style.cssText = `position:absolute;left:${left - origin.left}px;top:${top - origin.top}px;pointer-events:auto;cursor:pointer${label.length > 2 ? ';font-size:8px' : ''}`;
+                  marker.style.cssText = `position:absolute;top:${top - origin.top}px;pointer-events:auto;cursor:pointer`;
                   marker.addEventListener('click', (event) => {
                     if (event.isTrusted)
                       port.postMessage(
@@ -1214,6 +1230,8 @@
                       );
                   });
                   markers.append(marker);
+                  // A pill is as wide as its label: it never runs past the frame's right edge.
+                  marker.style.left = `${Math.min(left, viewport - 2 - marker.offsetWidth) - origin.left}px`;
                 }
               }
             } catch {

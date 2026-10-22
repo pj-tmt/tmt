@@ -100,7 +100,9 @@ for (const width of [1440, 390])
       await expect(markers).toHaveCount(1);
       await expect(markers).toHaveText('+12');
       const box = await markers.evaluate((node) => node.getBoundingClientRect().toJSON());
-      expect(box.width).toBe(box.height);
+      // The `+12` pill: 24 px tall, wider than it is tall.
+      expect(box.height).toBe(24);
+      expect(box.width).toBeGreaterThan(24);
       await markers.click();
       await expect(host).toHaveAttribute('data-list-opened', '1');
       await expect(host).not.toHaveAttribute('data-opened');

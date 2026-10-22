@@ -194,7 +194,8 @@ so it adds no blank line between blocks. `PageSnapshot.layout` and `PageView.lay
 `meta.layout` (and `layoutReason` for a canvas); `freeform`, `canvas` and absent bind no column. Every
 page, framed or not, gets the frame's 28 px right marker lane (`--colab-lane`) from its first paint:
 the renderer stands a comment's number there, centred on its line, so it never covers text and the
-first thread moves none; threads on lines closer than one marker share a `+n` marker that posts
+first thread moves none (on a framed page 4 px after the column's end, beside its text; otherwise at
+the frame's edge); threads on lines closer than one marker share a `+n` pill that posts
 `colab.render.open-list`, and the parent opens the Comments list.
 `router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
 frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. An inline `style`

@@ -458,8 +458,10 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   2px underline, with no outline box. Round number markers stand in the page's right
   marker lane (28px, reserved on every page from its first paint, so the first thread
   moves no text), centred on the passage's last line: a 16px circle inside a 24px hit
-  area that covers no text. Markers on lines closer than one hit area share one `+n`
-  marker that opens the thread list.
+  area that covers no text. On a column page the marker stands 4px after the column's
+  end, beside its passage; on a page that spans the frame, at the frame's edge. Markers
+  on lines closer than one hit area share one `+n` pill (16px tall, at least 16px wide,
+  4px inside each end, same 24px hit area) that opens the thread list.
   Creation-order numbering includes every non-deleted thread before view filters.
   Deletion renumbers; resolved threads retain list numbers without page markers.
 - Annotation and thread windows are borderless, square grey panels with an uppercase

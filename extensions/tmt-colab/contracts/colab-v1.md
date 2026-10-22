@@ -2632,7 +2632,10 @@ CSS Highlights, or pointer-inert range overlays when unavailable, leave author t
 nodes intact. Resolved ranges keep a mint tint and a 1 px underline (a 2 px underline and a
 stronger tint under the pointer) and a number marker, a 16 px circle in a 24 px target, in
 the frame's right marker lane, centred on the line the passage ends on, so it covers no text
-and moves none. Markers whose lines are closer than one target share one `+n` marker. Hover
+and moves none. On a `column` or `full` page the marker stands 4 px after the end of the
+column, beside the text it belongs to; on any other page, whose content spans the frame, at the
+frame's edge. Markers whose lines are closer than one target share one `+n` marker, a pill 16 px
+tall and at least 16 px wide with 4 px inside each end, in the same 24 px target. Hover
 shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
 its current highlight request and opens that thread's anchored parent window. A `+n` marker
