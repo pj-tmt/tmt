@@ -2064,6 +2064,7 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
           line: rule.style.getPropertyValue('text-decoration-line'),
           color: rule.style.getPropertyValue('text-decoration-color'),
           thickness: rule.style.getPropertyValue('text-decoration-thickness'),
+          offset: rule.style.getPropertyValue('text-underline-offset'),
           background: rule.style.getPropertyValue('background'),
         }));
     const root = getComputedStyle(document.documentElement);
@@ -2083,6 +2084,7 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
       line: 'underline',
       color: 'var(--tmt-ui-color-annotation-rule)',
       thickness: '1px',
+      offset: '0.2em',
       background: 'var(--tmt-ui-surface-annotation-highlight)',
     },
   ]);
@@ -2091,6 +2093,7 @@ test('the rest highlight underlines the passage in the annotation rule colour', 
       line: 'underline',
       color: 'var(--tmt-ui-color-annotation-rule)',
       thickness: '2px',
+      offset: '0.2em',
       background: 'var(--tmt-ui-surface-annotation-highlight-hover)',
     },
   ]);
@@ -2357,6 +2360,7 @@ test('the selected highlight is a stronger tint and a solid rule thicker than th
         line: rule?.style.getPropertyValue('text-decoration-line'),
         color: rule?.style.getPropertyValue('text-decoration-color'),
         thickness: rule?.style.getPropertyValue('text-decoration-thickness'),
+        offset: rule?.style.getPropertyValue('text-underline-offset'),
         background: rule?.style.getPropertyValue('background'),
       };
     };
@@ -2372,6 +2376,7 @@ test('the selected highlight is a stronger tint and a solid rule thicker than th
     line: 'underline',
     color: 'var(--tmt-ui-color-annotation-rule-selected)',
     thickness: '3px',
+    offset: '0.2em',
     background: 'var(--tmt-ui-surface-annotation-highlight-selected)',
   });
   // The rule steps up from hover's, so the two do not read alike.
@@ -2398,6 +2403,98 @@ test('the selected tint steps clearly from the rest tint and keeps text as reada
         Math.min(7, contrast(text, hover)),
       );
   }
+});
+
+/** The most of any one pixel row of the clip that is painted in the given colour, as a fraction of its width. */
+async function widestRun(
+  page: Page,
+  clip: { x: number; y: number; width: number; height: number },
+  hex: string,
+) {
+  const png = (await page.screenshot({ clip })).toString('base64');
+  return page.evaluate(
+    async ({ png, hex }) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${png}`;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(image, 0, 0);
+      const { data, width, height } = context.getImageData(0, 0, image.width, image.height);
+      const target = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+      let best = 0;
+      for (let y = 0; y < height; y++) {
+        let hit = 0;
+        for (let x = 0; x < width; x++) {
+          const at = (y * width + x) * 4;
+          if (target.every((channel, index) => Math.abs(data[at + index]! - channel) <= 12)) hit++;
+        }
+        best = Math.max(best, hit / width);
+      }
+      return best;
+    },
+    { png, hex },
+  );
+}
+
+test('the hover and selected rules run unbroken under descenders', async ({ page }) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:24px;font:28px/2 system-ui;background:#fff;color:#343434}</style><p id="quote">typography, jumping quickly</p><p id="other">Another paragraph</p>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+    ).probe.handle.highlight([
+      { id: 'one', selector: { exact: 'typography, jumping quickly', prefix: '', suffix: '' } },
+    ]),
+  );
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-comments')))
+    .toBe(true);
+  // The passage's box on the page, where the rule runs along the foot of the tint.
+  const passage = async () => {
+    const frameBox = (await page.locator('#probe iframe').boundingBox())!;
+    const text = await frame.locator('#quote').evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const { left, top, width, height } = range.getBoundingClientRect();
+      return { left, top, width, height };
+    });
+    return {
+      x: frameBox.x + text.left,
+      y: frameBox.y + text.top,
+      width: text.width,
+      height: text.height + 8,
+    };
+  };
+  const clip = await passage();
+  // Hover: the 2 px rule in the annotation rule colour, in one run across the passage.
+  await page.mouse.move(clip.x + 20, clip.y + 10);
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-hover')))
+    .toBe(true);
+  expect(
+    await widestRun(page, clip, tokens.browser.color['annotation-rule'].light),
+  ).toBeGreaterThan(0.97);
+  // Selected: the 3 px rule in the selected colour, with the pointer away.
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { select(id: string | null): void } } }
+    ).probe.handle.select('one'),
+  );
+  await page.mouse.move(clip.x + 20, clip.y + clip.height + 120);
+  await expect
+    .poll(() => frame.locator('html').evaluate(() => CSS.highlights.has('colab-selected')))
+    .toBe(true);
+  expect(
+    await widestRun(page, clip, tokens.browser.color['annotation-rule-selected'].light),
+  ).toBeGreaterThan(0.97);
 });
 
 test('without the Highlight API the selected passage keeps the same look on its overlay marks', async ({

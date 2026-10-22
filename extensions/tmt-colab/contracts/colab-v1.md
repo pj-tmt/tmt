@@ -2630,7 +2630,8 @@ resolution; replacement/navigation/disposal closes ports, observers and highligh
 
 CSS Highlights, or pointer-inert range overlays when unavailable, leave author text
 nodes intact. Resolved ranges keep a mint tint and a 1 px underline (a 2 px underline and a
-stronger tint under the pointer) and a number marker, a 16 px circle in a 24 px target, in
+stronger tint under the pointer), each drawn 0.2em under the baseline, flush with the foot of the
+tint and clear of descenders so it runs unbroken, and a number marker, a 16 px circle in a 24 px target, in
 the frame's right marker lane, centred on the line the passage ends on, so it covers no text
 and moves none. On a `column` or `full` page the marker stands 4 px after the end of the
 column, beside the text it belongs to; on any other page, whose content spans the frame, at the

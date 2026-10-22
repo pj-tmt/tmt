@@ -310,10 +310,14 @@
             annotationTokens +
             pageFrame +
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
+            // Each rule sits 0.2em under the baseline, flush with the foot of the tint and clear of the
+            // descenders, so it runs unbroken: browsers skip ink where an underline meets a glyph, a
+            // highlight cannot turn that off, and the rule's offset is the same in every state so it
+            // does not move between rest, hover and selected.
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
-            '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px}' +
-            '::highlight(colab-selected){background:var(--tmt-ui-surface-annotation-highlight-selected);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule-selected);text-decoration-thickness:3px}' +
-            '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:2px}' +
+            '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px;text-underline-offset:0.2em}' +
+            '::highlight(colab-selected){background:var(--tmt-ui-surface-annotation-highlight-selected);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule-selected);text-decoration-thickness:3px;text-underline-offset:0.2em}' +
+            '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:2px;text-underline-offset:0.2em}' +
             `
             [data-colab-question-group]:not([hidden]){display:block!important}
             [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
