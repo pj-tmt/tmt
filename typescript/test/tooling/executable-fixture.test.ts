@@ -1,8 +1,9 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 
@@ -109,6 +110,83 @@ fs.fsyncSync = () => { throw new Error('fixture fsync failed'); };
     expect(execFileSync(file, { encoding: 'utf8' })).toBe('retained');
     expect(fs.readdirSync(root).sort()).toEqual(['fail-sync.mjs', 'retained']);
   });
+
+  it('hands the bytes over as files and leaves nothing behind', () => {
+    const root = temporaryRoot();
+    const file = path.join(root, 'tool');
+    const bytes = Buffer.alloc(5 * 1024 * 1024, 7);
+    writeExecutable(file, bytes, 0o755);
+    expect(fs.readFileSync(file).equals(bytes)).toBe(true);
+    writeExecutable(file, '');
+    expect(fs.readFileSync(file)).toHaveLength(0);
+    expect(fs.readdirSync(root)).toEqual(['tool']);
+  });
+
+  it('reports a writer that cannot start and still removes its working files', () => {
+    const root = temporaryRoot();
+    expect(() => writeExecutable(path.join(root, 'tool'), 'x', 0o7777 + 1)).toThrow(
+      /Usage: executable-fixture\.mjs --write FILE MODE/
+    );
+    expect(fs.readdirSync(root)).toEqual([]);
+  });
+
+  it('kills a writer that does not finish and says what it was holding', () => {
+    const root = temporaryRoot();
+    const stuck = path.join(root, 'stuck.mjs');
+    // Reports its pid, then waits for ever like a writer that never sees EOF.
+    fs.writeFileSync(stuck, `setInterval(() => {}, 1000);\n`);
+    const file = path.join(root, 'never-written');
+    let error: Error | undefined;
+    try {
+      writeExecutable(file, 'twelve bytes', 0o755, { timeoutMs: 400, writer: stuck });
+    } catch (caught) {
+      error = caught as Error;
+    }
+    expect(error?.message).toMatch(/could not publish .*never-written \(12 bytes, mode 755\)/);
+    expect(error?.message).toMatch(/did not finish within 400 ms and was killed/);
+    const pid = /pid (\d+)\)/.exec(error?.message ?? '')?.[1];
+    expect(pid).toBeDefined();
+    // The report was taken while the writer was alive: its ps line names it, and lsof lists its files.
+    expect(error?.message).toMatch(new RegExp(`ps:\\n[^\\n]*\\n\\s*${pid}\\s`));
+    expect(error?.message).toMatch(/lsof \(first 60 lines\):/);
+    expect(() => process.kill(Number(pid), 0)).toThrow(/ESRCH/);
+    expect(fs.existsSync(file)).toBe(false);
+    expect(fs.readdirSync(root).sort()).toEqual(['stuck.mjs']);
+  });
+
+  it('does not stall when sibling threads spawn long-lived children at the same time', async () => {
+    const root = temporaryRoot();
+    const worker = `
+      const { workerData, parentPort } = require('node:worker_threads');
+      const { spawn } = require('node:child_process');
+      const path = require('node:path');
+      (async () => {
+        const { writeExecutable } = await import(workerData.module);
+        for (let n = 0; n < workerData.loops; n++) {
+          spawn('/bin/sleep', ['2'], { stdio: 'ignore' }).unref();
+          writeExecutable(path.join(workerData.dir, 'f' + n), Buffer.alloc(65536, n), 0o755, { timeoutMs: 20000 });
+        }
+        parentPort.postMessage('done');
+      })();`;
+    const threads = Array.from({ length: 4 }, (_, i) => {
+      const dir = path.join(root, `t${i}`);
+      fs.mkdirSync(dir);
+      return new Promise<void>((resolve, reject) => {
+        const thread = new Worker(worker, {
+          eval: true,
+          workerData: {
+            dir,
+            loops: 25,
+            module: new URL('../support/executable-fixture.mjs', import.meta.url).href,
+          },
+        });
+        thread.once('message', () => resolve());
+        thread.once('error', reject);
+      });
+    });
+    await Promise.all(threads);
+    for (let i = 0; i < 4; i++) expect(fs.readdirSync(path.join(root, `t${i}`))).toHaveLength(25);
+  }, 60_000);
 
   it('propagates publication failure without leaving a staging directory', () => {
     const root = temporaryRoot();

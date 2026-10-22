@@ -48,9 +48,12 @@ or release archives.
 
 `test/support/executable-fixture.mjs` publishes executable and interpreted fixture
 bytes for all TypeScript suites. A short-lived Node writer stages, fsyncs and
-closes before chmod and atomic rename; the parent waits for writer exit. Synthetic
-installers use its `--write FILE MODE` entry. Preserve caller-supplied bytes and
-explicit executable or deliberately non-executable modes.
+closes before chmod and atomic rename. The parent hands it the bytes as a file on
+stdin and takes its output from files, never a pipe, and waits under a bound
+(default 60 s): a writer that overruns is killed and the error carries its pid,
+`ps` line and `lsof` listing. Synthetic installers use its `--write FILE MODE`
+entry. Preserve caller-supplied bytes and explicit executable or deliberately
+non-executable modes.
 
 Rust's private `tmt-test-support` library owns only `write_executable`: a bounded
 short-lived shell writer through `tmt-invoke`, with exact bytes/mode and no retries
