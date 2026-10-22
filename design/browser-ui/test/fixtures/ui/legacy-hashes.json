@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "589f282db82e4bd740336a9bce5c3e215e76539321e5290451db75841edd01b5",
+    "generated/static.css": "3e697d08a85a4784f27b0b840c1c4e2c8f2a14a42dfca4f1afd3b744e34bee75",
     "src/action.css": "d05343ca6a2523375358b5742f329a6e9027a332f48530b60708734c0c65a078",
     "src/action.tsx": "bb28278e920aabe3afd1179681ac90549a4a9dfe351076e4c80514c139182682",
     "src/chips.css": "6ddcc7b38134d4dede0da80a4bff3c37d1ee02dfda1a599585197e264050c2c9",

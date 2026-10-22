@@ -340,8 +340,12 @@ test.describe('the app in a browser', () => {
       await page.emulateMedia({ colorScheme: scheme });
       for (const path of ['/', '/remote/', '/remote/settings', '/settings', '/ops', '/digest']) {
         await page.goto(`${origin}${path}`);
-        await expect(page.locator('.tmt-ui-shell-main')).not.toBeEmpty();
+        // The route's own markup is in place and no first read is still painting.
+        await expect(page.locator('.tmt-ui-shell-main > *').first()).toBeVisible();
+        await expect(page.locator('.tmt-page-loading')).toHaveCount(0);
+        await page.locator('body').focus();
         const seen = new Set<string>();
+        let first = '';
         for (let step = 0; step < 60; step++) {
           await page.keyboard.press('Tab');
           const focus = await page.evaluate(() => {
@@ -364,7 +368,11 @@ test.describe('the app in a browser', () => {
             const key = `${element.tagName.toLowerCase()}.${element.className} ${name}`;
             return { key, wrong };
           });
-          if (!focus || seen.has(focus.key)) break;
+          if (!focus) continue;
+          // One lap: stop when focus comes back to the first control.
+          if (focus.key === first) break;
+          first ||= focus.key;
+          if (seen.has(focus.key)) continue;
           seen.add(focus.key);
           if (focus.wrong.length)
             problems.push(`${scheme} ${path} ${focus.key}: ${focus.wrong.join(', ')}`);

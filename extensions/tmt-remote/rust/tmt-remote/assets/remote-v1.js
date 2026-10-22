@@ -2914,13 +2914,19 @@ function appRail(answer, routes, place, route) {
 	for (const item of [...rail.main, ...rail.bottom]) if (item.id !== "home") item.href = appHref(routes, item.href, item.id);
 	return rail;
 }
+/** `href` as a link in this document resolves it: origin, path, query and fragment, as on a click. */
+function linkTo(href) {
+	const link = document.createElement("a");
+	link.href = href;
+	return link;
+}
 /**
 * Where this app opens `href`: a path under a module's mount opens the same path under that
 * module's route (`…/x/colab/pages/<id>` is `/colab/pages/<id>`), and a rail item `id` the app
 * has a route for opens that route. Anything else is left as it is.
 */
 function appHref(routes, href, id) {
-	const url = new URL(href, globalThis.location?.href);
+	const url = linkTo(href);
 	const mounted = underModuleMount(url.pathname);
 	const base = routes.find((route) => route.rail === (mounted?.module ?? id))?.paths.at(-1);
 	if (!base) return href;
@@ -3068,9 +3074,9 @@ function startShellHost(root, routes, options = {}) {
 	}
 	/** Same-origin URL this app owns: change the history entry and show its route. */
 	function go(href, { replace = false } = {}) {
-		const url = new URL(href, window.location.href);
+		const url = linkTo(href);
 		if (url.origin !== window.location.origin || !matchRoute(routes, url.pathname)) return false;
-		const here = new URL(window.location.href);
+		const here = window.location;
 		if (url.hash && url.pathname === here.pathname && url.search === here.search) {
 			if (url.hash !== here.hash) window.location.hash = url.hash;
 			return true;
@@ -3085,7 +3091,7 @@ function startShellHost(root, routes, options = {}) {
 		if (event.shiftKey || event.altKey) return;
 		const anchor = event.target?.closest?.("a[href]");
 		if (!(anchor instanceof window.HTMLAnchorElement) || anchor.target || anchor.hasAttribute("download")) return;
-		const url = new URL(anchor.href);
+		const url = anchor;
 		const route = matchRoute(routes, url.pathname);
 		if (url.origin !== window.location.origin || !route) return;
 		if (route === current?.route) return;
