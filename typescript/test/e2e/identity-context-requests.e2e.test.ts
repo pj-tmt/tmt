@@ -27,17 +27,18 @@ describe('identity context request summaries', { concurrent: false }, () => {
   it('counts unacknowledged X items without consuming attention or exposing message content', async () => {
     await withE2EFixture(
       async (fixture) => {
-        const reader = expectJsonResult<{ id: string }>(
-          await fixture.runJsonCli(['name', 'Reader', '-s'])
-        );
+        // A bound recipient is notified live and keeps no incoming attention, so Reader
+        // receives while it has no pane and the fixture pane takes the name afterwards.
+        const reader = expectJsonResult<{ identity: { id: string } }>(
+          await fixture.runJsonCli(['identity', 'create', 'Reader'], { withoutTmux: true })
+        ).identity;
         expectJsonResult(
           await fixture.runJsonCli(['identity', 'create', 'Peer'], { withoutTmux: true })
         );
-        // A bound recipient is notified through tmux; only an identity without a pane queues.
-        const queue = async (sender: string, recipient: string, body: string, bound = false) =>
+        const queue = async (sender: string, recipient: string, body: string) =>
           expectJsonResult<{ requestId: string }>(
             await fixture.runJsonCli(['talk', recipient, body, '--identity', sender, '--detach'], {
-              withoutTmux: !bound,
+              withoutTmux: true,
             })
           ).requestId;
         const pending = await queue('Reader', 'Peer', 'private pending body');
@@ -63,7 +64,8 @@ describe('identity context request summaries', { concurrent: false }, () => {
             { withoutTmux: true }
           )
         );
-        const incoming = await queue('Peer', 'Reader', 'private incoming body', true);
+        const incoming = await queue('Peer', 'Reader', 'private incoming body');
+        expectJsonResult(await fixture.runJsonCli(['name', 'Reader', '-s']));
         const before = {
           identities: durableState(fixture),
           attempts: requestAttempts(fixture),
@@ -125,6 +127,9 @@ it.each(['claude', 'codex'] as const)(
           hook('UserPromptSubmit'), // bound but unadmitted
           hook('SessionStart'),
           hook('UserPromptSubmit'), // admitted, zero attention and zero extensions
+          // A bound recipient is notified live and keeps no incoming attention, so the
+          // request is queued while the identity has no pane and the pane is admitted again.
+          { args: ['unbind', '--json'] },
           {
             args: [
               'talk',
@@ -136,6 +141,8 @@ it.each(['claude', 'codex'] as const)(
               '--json',
             ],
           },
+          { args: ['name', 'Prompt Inbox', '-s', '--json'] },
+          hook('SessionStart'),
           hook('UserPromptSubmit', '22222222-2222-4222-8222-222222222222'),
           { ...hook('UserPromptSubmit'), checkpoint: beforePrompt },
           { ...hook('UserPromptSubmit'), checkpoint: afterPrompt },
@@ -168,7 +175,7 @@ it.each(['claude', 'codex'] as const)(
         await fixture.waitFor(() => fs.existsSync(beforePrompt), 15000, 'before verified prompt');
         const before = state();
         const pending = before.attempts.find((row) => row.message_text === 'private queued body')!;
-        expect(pending).toMatchObject({ status: 'queued', wake_state: 'sent' });
+        expect(pending).toMatchObject({ status: 'queued', wake_state: 'not_attempted' });
         fs.writeFileSync(beforePrompt, 'continue');
         await fixture.waitFor(() => fs.existsSync(afterPrompt), 5000, 'after verified prompt');
         // Observe independently: no service read, retention cleanup or acknowledgement.
@@ -185,19 +192,19 @@ it.each(['claude', 'codex'] as const)(
           expect(item.code, `step ${index}: ${item.stderr}`).toBe(0);
           expect(item.stderr, `step ${index}`).toBe('');
         }
-        for (const index of [0, 2, 4, 6, 10, 11, 12]) expect(results[index].stdout).toBe('');
+        for (const index of [0, 2, 4, 9, 13, 14, 15]) expect(results[index].stdout).toBe('');
         const id = JSON.parse(results[1].stdout).id;
         const line = `Incoming X items: 1 unacknowledged; pull with tmt inbox --identity '${id}' --json\n`;
-        const context = JSON.parse(results[7].stdout);
+        const context = JSON.parse(results[10].stdout);
         expect(context).toEqual({
           hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: line },
         });
-        expect(results[8].stdout).toBe(results[7].stdout);
+        expect(results[11].stdout).toBe(results[10].stdout);
         expect(line.trimEnd().split('\n')).toHaveLength(1);
-        expect(results[7].stdout).not.toContain('private queued body');
-        expect(results[7].stdout).not.toContain(pending.request_id);
-        expect(results[7].stdout).not.toContain('receipt');
-        expect(results[7].stdout).not.toContain('TMT identity:');
+        expect(results[10].stdout).not.toContain('private queued body');
+        expect(results[10].stdout).not.toContain(pending.request_id);
+        expect(results[10].stdout).not.toContain('receipt');
+        expect(results[10].stdout).not.toContain('TMT identity:');
         // Attention is distinct from unanswered/unsent: ack removes the hint, not the request.
         const open = expectJsonResult<{ items: Array<{ requestId: string }> }>(
           await fixture.runJsonCli(['inbox', '--identity', id], { withoutTmux: true })

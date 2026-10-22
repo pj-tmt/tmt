@@ -213,7 +213,12 @@ describe(
             message_text: 'Explicit Alice from shared host',
           });
           expect(attempts.some((row) => row.originator_identity_id === host.id)).toBe(false);
-          expect(durableState(fixture)).toEqual(before);
+          // Sending as Alice re-verifies her binding to route the reply notice; nothing else changes.
+          const unverified = (state: ReturnType<typeof durableState>) => ({
+            ...state,
+            bindings: state.bindings.map((row) => ({ ...row, last_verified_at: null })),
+          });
+          expect(unverified(durableState(fixture))).toEqual(unverified(before));
           expect(fixture.events().filter((event) => event.event === 'request')).toEqual([]);
         },
         { mode: 'input-log', executableEnv: runtimeSelection('app-server') }
