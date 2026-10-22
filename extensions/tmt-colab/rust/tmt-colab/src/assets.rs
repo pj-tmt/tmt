@@ -36,6 +36,7 @@ pub fn anonymous_file(path: &str) -> Option<&'static str> {
         "/assets/reader-fold.js" => "/assets/reader-fold.js",
         "/assets/recovery.js" => "/assets/recovery.js",
         "/assets/colab-runtime.js" => "/assets/colab-runtime.js",
+        "/assets/colab-runtime.css" => "/assets/colab-runtime.css",
         "/assets/chrome.css" => "/assets/chrome.css",
         _ => return None,
     })

@@ -50,6 +50,13 @@ export default defineConfig(({ mode }) => ({
         );
         if (entry?.type !== 'chunk') throw new Error('Missing runtime entry chunk');
         entry.code = `${entry.code}\n${compiler}`;
+        // The theme is Tailwind source for a `<style type="text/tailwindcss">` block, not compiled
+        // CSS; scripts/generate-runtime-theme.mjs writes it from the design tokens.
+        this.emitFile({
+          type: 'asset',
+          fileName: 'assets/colab-runtime.css',
+          source: readFileSync(new URL('./src/runtime/theme.css', import.meta.url), 'utf8'),
+        });
       },
     },
     {

@@ -282,8 +282,25 @@ fn closed(socket: &mut UnixStream) -> bool {
         || matches!(socket.read(&mut [0; 1]), Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset)
 }
 
+/// The page runtime (#1693) is public library code, so a reader's page may load it; the names are
+/// exact, and nothing else under its prefix is public.
+#[test]
+fn the_page_runtime_assets_are_public_by_exact_name() {
+    for path in ["/assets/colab-runtime.js", "/assets/colab-runtime.css"] {
+        assert_eq!(tmt_colab::assets::anonymous_file(path), Some(path));
+    }
+    for path in [
+        "/assets/colab-runtime.js.map",
+        "/assets/colab-runtime.css.map",
+        "/assets/colab-runtime.html",
+        "/assets/colab-runtime",
+    ] {
+        assert_eq!(tmt_colab::assets::anonymous_file(path), None, "{path}");
+    }
+}
+
 /// The smallest valid app inventory; public-entry proofs need no SPA build.
-const APP_FIXTURE: [(&str, &str, &[u8]); 13] = [
+const APP_FIXTURE: [(&str, &str, &[u8]); 14] = [
     (
         "index.html",
         "text/html; charset=utf-8",
@@ -328,6 +345,11 @@ const APP_FIXTURE: [(&str, &str, &[u8]); 13] = [
         "assets/colab-runtime.js",
         "text/javascript; charset=utf-8",
         b"window.tmt = {};",
+    ),
+    (
+        "assets/colab-runtime.css",
+        "text/css; charset=utf-8",
+        b"@theme inline {}",
     ),
     (
         "assets/app.css",
