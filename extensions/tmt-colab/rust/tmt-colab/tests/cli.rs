@@ -9025,6 +9025,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             "work",
             include_bytes!("../../../skills/tmt-colab/references/work.md").as_slice(),
         ),
+        (
+            "runtime",
+            include_bytes!("../../../skills/tmt-colab/references/runtime.md").as_slice(),
+        ),
     ] {
         let reference = invoke(&["skill", name]);
         assert!(reference.status.success(), "{reference:?}");
