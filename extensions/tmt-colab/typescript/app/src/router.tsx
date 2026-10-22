@@ -15,6 +15,7 @@ import {
   BrowserIconAction,
   BrowserNotifications,
   BusyMark,
+  HostedShell,
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { carriesThreadFragment, shortPageId, validPagePrefix } from './short-links.js';
@@ -36,6 +37,7 @@ import { PageLayoutSection } from './page-layout-section.js';
 import { NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import {
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -65,7 +67,7 @@ import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
-import { ColabShell } from './colab-shell.js';
+import { ColabShell, ShellHostSlot } from './colab-shell.js';
 import { ColabSettings } from './colab-settings.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
@@ -679,7 +681,17 @@ const root = createRootRouteWithContext<AppContext>()({
         title.focus({ preventScroll: true });
       }
     }, []);
-    return (
+    const hostSlot = useContext(ShellHostSlot);
+    // Inside the TMT web app the error view keeps the host's header slot, like every other view (#4373).
+    const inHost = (view: ReactNode) =>
+      hostSlot ? (
+        <HostedShell slot={hostSlot} menu={undefined}>
+          {view}
+        </HostedShell>
+      ) : (
+        view
+      );
+    return inHost(
       <>
         <AppHeader
           title={failure && failure.kind !== 'refused' ? pageOpenFailureTitle(failure) : text.error}
@@ -707,7 +719,7 @@ const root = createRootRouteWithContext<AppContext>()({
             </NoticeCard>
           )}
         </main>
-      </>
+      </>,
     );
   },
   notFoundComponent: () => (

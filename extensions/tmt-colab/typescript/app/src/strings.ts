@@ -1007,6 +1007,10 @@ export const text = {
   openTooLargeAfter: ' and open the copy as a new page.',
   openTooLargeLabel: 'Page too large',
   blocked: 'Preview stopped',
+  /** Colab crashed inside the TMT web app: the rest of the app keeps working. */
+  crashTitle: 'Colab stopped',
+  crashBody: 'Colab hit an error and stopped. The rest of TMT is unaffected.',
+  crashRetry: 'Try again',
   failureAccessEnded: 'Your access to this page ended. Open it again to continue.',
   failurePairingRemoved: "This browser's pairing was removed.",
   failurePairingExpired: "This browser's pairing expired.",
