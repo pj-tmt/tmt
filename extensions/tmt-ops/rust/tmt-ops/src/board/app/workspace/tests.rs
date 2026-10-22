@@ -2512,6 +2512,75 @@ fn repeated_membership_selection_keeps_its_room_context_and_exact_row_data() {
     }
 }
 
+/// Puts the Measure column on `app` with `extra` more agents (`agent-1..`) in the first squad
+/// and a one-hour usage report whose exchange traffic is `flows` (sender index, recipient
+/// index, count); index 0 is `MEMBER`, the others follow in order.
+pub(in crate::board) fn measure_exchanges(
+    app: &mut App,
+    extra: usize,
+    flows: &[(usize, usize, u64)],
+) {
+    use crate::board::usage_report::{
+        Delivery, Report,
+        model::{Pair, Traffic, Who},
+    };
+    let id = |i: usize| format!("40000000-0000-4000-8000-{i:012}");
+    let who = |id: &str| Who {
+        id: Some(id.into()),
+        name: None,
+        retired: false,
+    };
+    app.shell.tab = OpsTab::Agents;
+    app.right_tab = crate::board::shell::RightTab::Measure;
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let template = snapshot.roster.members[MEMBER].clone();
+    let room = snapshot.roster.squads[0].room_id.clone();
+    for i in 1..=extra {
+        let mut member = template.clone();
+        member.id = id(i);
+        member.name = format!("agent-{i}");
+        snapshot.roster.members.insert(id(i), member);
+        snapshot.roster.squads[0].members.push(id(i));
+        snapshot.rows.insert(
+            OpsTarget::Member {
+                room_id: Some(room.clone()),
+                identity_id: id(i),
+            },
+            json!({"id":id(i),"name":format!("agent-{i}"),"state":"working"}),
+        );
+    }
+    snapshot.shell_counts = snapshot.roster.shell_counts();
+    let ids: Vec<String> = std::iter::once(MEMBER.to_owned())
+        .chain((1..=extra).map(id))
+        .collect();
+    let range = app.tok_range();
+    let traffic = Traffic::from_pairs(
+        100_000_000,
+        103_600_000,
+        flows.iter().map(|(from, to, count)| Pair {
+            sender: who(&ids[*from]),
+            recipient: who(&ids[*to]),
+            kind: "talk".into(),
+            count: *count,
+        }),
+    )
+    .unwrap();
+    app.usage_report.apply(Delivery {
+        since: range,
+        result: Ok(Report {
+            since: range,
+            observed_at_ms: 103_600_000,
+            window_from_ms: Some(100_000_000),
+            seats: vec![],
+            unavailable: vec![],
+            exchange: Some(traffic),
+            warnings: vec![],
+        }),
+    });
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
+}
+
 /// One literal fixture owner for private capture packets and the frozen HOME oracle.
 /// It configures only an isolated test model; rendering stays on the actual App path.
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
