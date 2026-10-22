@@ -7,6 +7,7 @@
 //! host server is a separate process the test owns, so its recorded
 //! incarnation can end while the run, provider and pane stay live.
 use super::*;
+use rusqlite::OptionalExtension;
 use std::{
     io::Write,
     os::unix::process::{CommandExt, ExitStatusExt},
@@ -255,26 +256,47 @@ impl Sampling {
             transcript,
             request: Value::Null,
         };
-        for file in ["start", "prompt"] {
-            let err = fs::read_to_string(sampling.fixture.root.join(format!("{file}.err")));
-            assert_eq!(err.unwrap(), "", "{file} hook");
-        }
-        sampling.request = sampling.sampler_request();
+        sampling.request = sampling.setup_request();
         sampling
+    }
+
+    fn setup_request(&self) -> Value {
+        for file in ["start", "prompt"] {
+            let err = fs::read_to_string(self.fixture.root.join(format!("{file}.err"))).unwrap();
+            // Both commands must exit zero before the provider writes `ready`.
+            // Context is best effort; this exact diagnostic is not admission.
+            assert!(
+                err.is_empty() || err == HOOK_UNAVAILABLE,
+                "{file} hook: {err:?}"
+            );
+            if !err.is_empty() {
+                eprintln!("{file} hook diagnostic: {err}");
+            }
+        }
+        let request = self.sampler_request();
+        assert_eq!(
+            self.consumption(),
+            Some([0, 0, 0]),
+            "initial consumption source"
+        );
+        request
     }
 
     /// The tick's request for this run, from the stored binding: its exact
     /// launch owner, while the provider's session is running.
     fn sampler_request(&self) -> Value {
         let database = self.fixture.state().join("tmt.db");
-        let identity: String = rusqlite::Connection::open(&database)
-            .unwrap()
-            .query_row(
-                "SELECT id FROM identities WHERE name = 'worker'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let identity: String = rusqlite::Connection::open_with_flags(
+            &database,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap()
+        .query_row(
+            "SELECT id FROM identities WHERE name = 'worker'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
         let now = u64::try_from(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -290,16 +312,26 @@ impl Sampling {
             binding.session.state,
             tmt_core::binding::session::RuntimeState::Running
         );
+        let key = binding.session.key.as_ref().unwrap();
+        assert_eq!(key.provider_session.as_ref().unwrap().as_str(), SESSION);
         assert_eq!(
-            binding
-                .session
-                .key
-                .unwrap()
-                .provider_session
-                .unwrap()
-                .as_str(),
-            SESSION
+            key.incarnation,
+            self.run.as_ref().unwrap().owned[0].incarnation
         );
+        let remembered = stored.preferences.remembered.unwrap();
+        assert_eq!(remembered.harness.as_str(), "claude");
+        assert_eq!(remembered.provider_session.as_str(), SESSION);
+        let activity = remembered
+            .state
+            .as_ref()
+            .and_then(tmt_adapters::runtime::driver_state::state_activity)
+            .expect("committed Working activity");
+        assert_eq!(
+            activity.phase,
+            tmt_core::binding::session::activity::ActivityPhase::Working,
+            "committed Working activity"
+        );
+        assert!(activity.matches(key.provider_session.as_ref().unwrap(), &key.incarnation));
         assert_eq!(binding.server.server_pid, u64::from(self.server.pid()));
         let owner = binding.session.launch_owner.unwrap();
         assert_eq!(owner.pid(), u64::from(self.run_pid()));
@@ -330,14 +362,17 @@ impl Sampling {
 
     /// The stored consumption counts: input, cached input and output.
     fn consumption(&self) -> Option<[u64; 3]> {
-        let latest: Option<String> =
-            rusqlite::Connection::open(self.fixture.state().join("tmt.db"))
-                .unwrap()
-                .query_row("SELECT latest FROM consumption_sources", [], |row| {
-                    row.get(0)
-                })
-                .unwrap();
-        let latest: Value = serde_json::from_str(&latest?).unwrap();
+        let latest: Option<Option<String>> = rusqlite::Connection::open_with_flags(
+            self.fixture.state().join("tmt.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap()
+        .query_row("SELECT latest FROM consumption_sources", [], |row| {
+            row.get(0)
+        })
+        .optional()
+        .unwrap();
+        let latest: Value = serde_json::from_str(&latest.flatten()?).unwrap();
         let counts = &latest["consumption"];
         Some(
             ["inputTokens", "cachedInputTokens", "outputTokens"]
@@ -672,4 +707,90 @@ fn a_missing_recorded_server_makes_no_consumption_observation() {
 
 fn worker_row(fixture: &Fixture) -> Value {
     worker(&fixture.json(&["ls", "--json"])).clone()
+}
+
+/// Optional context output is not the sampler's readiness signal. Reuse the
+/// actual setup check after injecting the precise diagnostic into a completed
+/// real hook's output; its committed session remains independently required.
+#[test]
+fn a_context_notice_does_not_refuse_committed_sampling_setup() {
+    let sampling = Sampling::start("sampling-context-notice");
+    for file in ["start", "prompt"] {
+        fs::write(
+            sampling.fixture.root.join(format!("{file}.err")),
+            HOOK_UNAVAILABLE,
+        )
+        .unwrap();
+    }
+    assert_eq!(sampling.setup_request(), sampling.request);
+    sampling.finish();
+}
+
+/// The setup check must still fail at the named prerequisite, rather than
+/// succeeding because a hook's exit was zero or its diagnostic was recognized.
+fn assert_setup_refused(sampling: &Sampling, reason: &str) {
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sampling.setup_request();
+    }))
+    .expect_err("incomplete sampling setup was accepted");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap();
+    assert!(message.contains(reason), "unexpected refusal: {message}");
+}
+
+#[test]
+fn unexpected_hook_stderr_still_refuses_sampling_setup() {
+    let sampling = Sampling::start("sampling-bad-context");
+    for file in ["start", "prompt"] {
+        let path = sampling.fixture.root.join(format!("{file}.err"));
+        for stderr in [
+            "unexpected warning\n".to_owned(),
+            HOOK_UNAVAILABLE.trim_end().to_owned(),
+            HOOK_UNAVAILABLE.repeat(2),
+        ] {
+            fs::write(&path, stderr).unwrap();
+            assert_setup_refused(&sampling, &format!("{file} hook"));
+        }
+        fs::write(path, "").unwrap();
+    }
+    assert_eq!(sampling.setup_request(), sampling.request);
+    sampling.finish();
+}
+
+#[test]
+fn a_context_notice_cannot_replace_committed_activity_or_consumption() {
+    let sampling = Sampling::start("sampling-missing-admission");
+    fs::write(sampling.fixture.root.join("start.err"), HOOK_UNAVAILABLE).unwrap();
+    let database = rusqlite::Connection::open(sampling.fixture.state().join("tmt.db")).unwrap();
+    let (version, state): (i64, String) = database
+        .query_row(
+            "SELECT driver_state_version, driver_state FROM identity_session_preferences",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(database.execute(
+        "UPDATE identity_session_preferences SET driver_state = NULL, driver_state_version = NULL",
+        []).unwrap(), 1);
+    assert_setup_refused(&sampling, "committed Working activity");
+    database
+        .execute(
+            "UPDATE identity_session_preferences SET driver_state_version = ?1, driver_state = ?2",
+            rusqlite::params![version, state],
+        )
+        .unwrap();
+    assert_eq!(sampling.setup_request(), sampling.request);
+
+    assert_eq!(
+        database
+            .execute("DELETE FROM consumption_sources", [])
+            .unwrap(),
+        1
+    );
+    assert_setup_refused(&sampling, "initial consumption source");
+    drop(database);
+    sampling.finish();
 }
