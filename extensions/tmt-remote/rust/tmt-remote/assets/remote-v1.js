@@ -3358,11 +3358,130 @@ function moduleLoad(rail, entry, here, fallback) {
 	} : { link };
 }
 //#endregion
+//#region src/owner-reads.ts
+/**
+* The owner browser reads (contracts/remote-channel-v1.md, Owner browser reads): read-only door GETs
+* under the owner session, siblings of the composed shell's `x/-/shell`. One client for every page
+* that shows them (Ops, Digest), and the refresh timer that runs only while the route is visible.
+*/
+/** The reasons the contract names; a client reads any other reason as `unknown`. */
+var OWNER_READ_REASONS = [
+	"not_installed",
+	"core_unavailable",
+	"timeout",
+	"read_failed",
+	"too_large",
+	"not_sampled"
+];
+var UNREACHABLE = { state: "unreachable" };
+/** One answer document checked against the contract's envelope; anything else is unreachable. */
+function ownerAnswer(document) {
+	if (typeof document !== "object" || document === null || Array.isArray(document)) return UNREACHABLE;
+	const { version, state, observedAtMs, reason, ...payload } = document;
+	if (version !== 1 || !Number.isSafeInteger(observedAtMs) || observedAtMs <= 0) return UNREACHABLE;
+	const at = observedAtMs;
+	if (state === "ok") return {
+		state,
+		observedAtMs: at,
+		payload
+	};
+	if (state !== "unavailable") return UNREACHABLE;
+	return {
+		state,
+		observedAtMs: at,
+		reason: OWNER_READ_REASONS.find((name) => name === reason) ?? "unknown"
+	};
+}
+var address;
+/** Without an owner session, a pairing kept in this browser opens one again (a door restart ends
+* them); `no-session` when there is no pairing to use, else `unreachable` (try again later). */
+async function reopen(signal) {
+	try {
+		const { reopenSession } = await import("./remote-v1.js");
+		await reopenSession(void 0, { signal });
+		return "reopened";
+	} catch (error) {
+		const reason = error?.reason;
+		return reason === "unpaired" || reason === "revoked" || reason === "expired" ? "no-session" : "unreachable";
+	}
+}
+async function readOnce(url, signal) {
+	try {
+		return await fetch(url, {
+			credentials: "same-origin",
+			cache: "no-store",
+			signal
+		});
+	} catch {
+		return;
+	}
+}
+/**
+* Read `<address>/x/-/<name>` once. The mount address is found once per page and found again
+* after a read that had none. The door answers a request without a live owner session with its
+* generic 404: the read then reopens the session from this browser's pairing and reads again, so
+* only a browser with no pairing to use is told it has no session (#4018).
+*/
+async function ownerRead(name, signal) {
+	address ??= shellAddress();
+	const base = await address;
+	if (base === void 0) {
+		address = void 0;
+		return { state: "no-session" };
+	}
+	const url = `${base}/x/-/${name}`;
+	let response = await readOnce(url, signal);
+	if (response?.status === 404) {
+		const reopened = await reopen(signal);
+		if (reopened !== "reopened") return { state: reopened };
+		response = await readOnce(url, signal);
+	}
+	if (response?.status !== 200) return UNREACHABLE;
+	try {
+		return ownerAnswer(await response.json());
+	} catch {
+		return UNREACHABLE;
+	}
+}
+/** The longest wait after failures: the cadence doubles per failed read up to this many times. */
+var BACKOFF_STEPS = 3;
+/**
+* Run `tick` now and every `intervalMs` while the page is visible, until `signal` aborts (the route
+* unmounts). A hidden page reads nothing; showing it again reads at once. A tick that returns false
+* (a failed read) doubles the wait, up to eight times the cadence, and the next success resets it.
+*/
+function whileVisible(intervalMs, signal, tick) {
+	let timer;
+	let failures = 0;
+	let running = false;
+	const schedule = () => {
+		clearTimeout(timer);
+		if (signal.aborted || document.visibilityState !== "visible") return;
+		timer = setTimeout(run, intervalMs * 2 ** Math.min(failures, BACKOFF_STEPS));
+	};
+	const run = async () => {
+		clearTimeout(timer);
+		if (running || signal.aborted || document.visibilityState !== "visible") return;
+		running = true;
+		try {
+			failures = await tick() ? 0 : failures + 1;
+		} catch {
+			failures += 1;
+		} finally {
+			running = false;
+		}
+		schedule();
+	};
+	document.addEventListener("visibilitychange", () => document.visibilityState === "visible" ? void run() : clearTimeout(timer), { signal });
+	signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+	run();
+}
+//#endregion
 //#region src/ops-source.ts
 /**
-* What the Ops web view (`/ops/`) reads: the squad board's agents, squads, schedules and settings,
-* read-only. The page depends only on `OpsSource`; the source below is a MOCK until Core exposes a
-* read API for the board (`tmt ops ui` reads the same facts in the terminal).
+* What the Ops web view (`/ops/`) reads: the owner's squad board through the owner browser read
+* `x/-/ops` (contracts/remote-channel-v1.md, Owner browser reads), read-only. The page depends only
+* on `OpsSource`; this module turns the read's allowlisted projection into the page's rows.
 */
 var AGENT_STATES = {
 	working: {
@@ -3401,21 +3520,86 @@ var AGENT_STATES = {
 		tone: "neutral"
 	}
 };
-/** The source the page reads by default. */
-var opsSource = { async board() {
+/** A row's mark: what it owes the person first, then the board's colour token, then activity. */
+function agentState(agent) {
+	if (agent.presence === "offline") return "offline";
+	if (agent.pending || agent.waitingOnYou > 0) return "needs-you";
+	if (agent.stateTone === "blocked") return "blocked";
+	if (agent.stateTone === "working") return "working";
+	if (agent.stateTone === "dim") return "idle";
+	const activity = agent.activity?.state;
+	return activity === "working" || activity === "idle" ? activity : "unknown";
+}
+/** One plain sentence per reason, each saying what the person can do. */
+var REASONS = {
+	not_installed: "Ops is not installed on your machine. Run `tmt extension install ops`, then reload this page.",
+	core_unavailable: "TMT on your machine did not answer. This page tries again shortly.",
+	timeout: "Your machine took too long to read the board. This page tries again shortly.",
+	read_failed: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
+	too_large: "The board is too large for the browser. Run `tmt ops ui` in a terminal to see it.",
+	not_sampled: "Your machine could not read the board. Run `tmt ops ui` in a terminal to see it.",
+	unknown: "The board is not available right now. Run `tmt ops ui` in a terminal to see it.",
+	"no-session": "This browser has no owner session for your machine. Pair it from Remote to see the board.",
+	unreachable: "Your machine did not answer. This page tries again shortly."
+};
+function unavailableBoard(reason) {
 	return {
 		agents: [],
 		squads: [],
 		schedules: [],
-		settings: [],
-		sample: false,
-		unavailable: notInBrowser("The Ops board", "tmt ops ui")
+		truncated: false,
+		unavailable: REASONS[reason]
 	};
+}
+/** The page's board from one `ok` payload; a payload off the contract is a failed read. */
+function opsBoard(payload) {
+	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents)) return unavailableBoard("read_failed");
+	return {
+		squads: payload.squads.map((squad) => ({
+			name: squad.name,
+			...squad.lead ? { lead: squad.lead.name } : {},
+			...squad.idleAlertMs ? { idleAlertMinutes: Math.round(squad.idleAlertMs / 6e4) } : {}
+		})),
+		agents: payload.agents.map((agent) => {
+			const state = agentState(agent);
+			return {
+				name: agent.name,
+				squad: agent.squad,
+				role: agent.role,
+				state,
+				...agent.state && agent.state.toLowerCase() !== AGENT_STATES[state].word.toLowerCase() ? { stateText: agent.state } : {},
+				...agent.task ? { task: agent.task } : {},
+				...agent.next ? { next: agent.next } : {},
+				...agent.pending ? { pending: agent.pending } : {},
+				...agent.model ? { model: agent.model } : {},
+				waitingOnYou: agent.waitingOnYou ?? 0
+			};
+		}),
+		schedules: Array.isArray(payload.timers) ? payload.timers.map((timer) => ({
+			id: timer.id,
+			squad: timer.squad,
+			when: timer.scheduleText,
+			what: timer.what ?? "",
+			...timer.owner ? { owner: timer.owner } : {}
+		})) : null,
+		truncated: payload.truncated === true
+	};
+}
+/** The board from an owner read's answer. */
+function boardFromAnswer(answer) {
+	if (answer.state === "ok") return opsBoard(answer.payload);
+	return unavailableBoard(answer.state === "unavailable" ? answer.reason : answer.state);
+}
+/** The source the page reads: the owner's board through `x/-/ops`. */
+var opsSource = { async board(signal) {
+	return boardFromAnswer(await ownerRead("ops", signal));
 } };
 //#endregion
 //#region src/ops-page.ts
 /** The Ops web view, read-only: Agents by squad, Squads, Timers and Ops settings, one section at a
 * time from the module menu. Rows are the shared list rows; every state is a mark and a word. */
+/** The board's own reload cadence (`tmt ops ui`). */
+var REFRESH_MS = 5e3;
 var SECTIONS$1 = [
 	{
 		id: "agents",
@@ -3465,6 +3649,13 @@ function list(rows) {
 	node.append(...rows);
 	return node;
 }
+/** A sentence in place of a list: why there is nothing to show, with any command as code. */
+function sentence(text) {
+	const node = document.createElement("p");
+	node.className = "ops-empty";
+	notAvailable(node, text);
+	return node;
+}
 function heading$1(text) {
 	const node = document.createElement("h2");
 	node.className = "home-heading";
@@ -3476,17 +3667,32 @@ function opsSection(board, section) {
 	if (section === "agents") return board.squads.flatMap((squad) => {
 		const agents = board.agents.filter((agent) => agent.squad === squad.name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
 		if (!agents.length) return [];
-		return [heading$1(`${squad.name} · lead ${squad.lead}`), list(agents.map((agent) => {
+		return [heading$1(squad.lead ? `${squad.name} · lead ${squad.lead}` : squad.name), list(agents.map((agent) => {
 			const state = AGENT_STATES[agent.state];
-			return row$1(state.mark, state.tone, agent.name, `${state.word}${agent.task ? ` · ${agent.task}` : ""}`, agent.model ?? "");
+			const detail = [
+				agent.stateText ?? state.word,
+				agent.pending ? `Waiting on you: ${agent.pending}` : "",
+				agent.waitingOnYou > 0 ? `${agent.waitingOnYou} waiting` : "",
+				agent.task ?? "",
+				agent.next ? `next ${agent.next}` : ""
+			].filter(Boolean);
+			return row$1(state.mark, state.tone, agent.name, detail.join(" · "), agent.model ?? "");
 		}))];
 	});
 	if (section === "squads") return [list(board.squads.map((squad) => {
 		const count = board.agents.filter((agent) => agent.squad === squad.name).length;
-		return row$1("●", "neutral", squad.name, `lead ${squad.lead} · ${count} agent${count === 1 ? "" : "s"}` + (squad.idleAlertMinutes ? ` · idle alert ${squad.idleAlertMinutes}m` : ""));
+		return row$1("●", "neutral", squad.name, `${squad.lead ? `lead ${squad.lead} · ` : ""}${count} agent${count === 1 ? "" : "s"}` + (squad.idleAlertMinutes ? ` · idle alert ${squad.idleAlertMinutes}m` : ""));
 	}))];
-	if (section === "schedules") return [list(board.schedules.map((schedule) => row$1("◷", "neutral", schedule.what, `${schedule.squad} · ${schedule.when}`, schedule.id)))];
-	return [list(board.settings.map((setting) => row$1("", "neutral", setting.name, setting.description, setting.value)))];
+	if (section === "schedules") {
+		if (board.schedules === null) return [sentence("Your machine could not read the timers. Run `tmt ops ui` to see them.")];
+		if (!board.schedules.length) return [sentence("No timers are set.")];
+		return [list(board.schedules.map((schedule) => row$1("◷", "neutral", schedule.what || schedule.id, [
+			schedule.squad,
+			schedule.when,
+			schedule.owner
+		].filter(Boolean).join(" · "), schedule.id)))];
+	}
+	return [sentence(notInBrowser("The Ops settings page", "tmt ops ui"))];
 }
 function opsPage(shell, source = opsSource) {
 	const main = document.getElementById("ops-section");
@@ -3517,15 +3723,28 @@ function opsPage(shell, source = opsSource) {
 	};
 	window.addEventListener("hashchange", paint, { signal: shell.signal });
 	paint();
-	source.board().then((next) => {
-		if (next.unavailable) {
-			main.replaceChildren();
-			return notAvailable(note, next.unavailable);
+	let last = "";
+	whileVisible(REFRESH_MS, shell.signal, async () => {
+		const next = await source.board(shell.signal);
+		if (shell.signal.aborted) return true;
+		const seen = JSON.stringify(next);
+		if (seen !== last) {
+			last = seen;
+			if (next.unavailable) {
+				board = void 0;
+				main.replaceChildren();
+				notAvailable(note, next.unavailable);
+			} else {
+				board = next;
+				if (next.truncated) notAvailable(note, "The board is larger than the browser shows. `tmt ops ui` shows all of it.");
+				else {
+					note.textContent = "";
+					note.hidden = true;
+				}
+				paint();
+			}
 		}
-		board = next;
-		note.textContent = next.sample ? "Sample data: Ops has no web read of your board yet. `tmt ops ui` shows the real board." : "";
-		note.hidden = !next.sample;
-		paint();
+		return next.unavailable === void 0;
 	});
 }
 //#endregion

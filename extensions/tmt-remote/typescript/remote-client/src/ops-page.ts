@@ -2,8 +2,12 @@
  * time from the module menu. Rows are the shared list rows; every state is a mark and a word. */
 import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
-import { notAvailable } from './not-available.js';
+import { notAvailable, notInBrowser } from './not-available.js';
 import { AGENT_STATES, opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
+import { whileVisible } from './owner-reads.js';
+
+/** The board's own reload cadence (`tmt ops ui`). */
+const REFRESH_MS = 5000;
 
 const SECTIONS = [
   { id: 'agents', label: 'Agents' },
@@ -46,6 +50,14 @@ function list(rows: HTMLLIElement[]): HTMLUListElement {
   return node;
 }
 
+/** A sentence in place of a list: why there is nothing to show, with any command as code. */
+function sentence(text: string): HTMLParagraphElement {
+  const node = document.createElement('p');
+  node.className = 'ops-empty';
+  notAvailable(node, text);
+  return node;
+}
+
 function heading(text: string): HTMLHeadingElement {
   const node = document.createElement('h2');
   node.className = 'home-heading';
@@ -62,17 +74,18 @@ export function opsSection(board: OpsBoard, section: Section): HTMLElement[] {
         .sort((a, b) => Number(b.role === 'lead') - Number(a.role === 'lead'));
       if (!agents.length) return [];
       return [
-        heading(`${squad.name} · lead ${squad.lead}`),
+        heading(squad.lead ? `${squad.name} · lead ${squad.lead}` : squad.name),
         list(
           agents.map((agent) => {
             const state = AGENT_STATES[agent.state];
-            return row(
-              state.mark,
-              state.tone,
-              agent.name,
-              `${state.word}${agent.task ? ` · ${agent.task}` : ''}`,
-              agent.model ?? '',
-            );
+            const detail = [
+              agent.stateText ?? state.word,
+              agent.pending ? `Waiting on you: ${agent.pending}` : '',
+              agent.waitingOnYou > 0 ? `${agent.waitingOnYou} waiting` : '',
+              agent.task ?? '',
+              agent.next ? `next ${agent.next}` : '',
+            ].filter(Boolean);
+            return row(state.mark, state.tone, agent.name, detail.join(' · '), agent.model ?? '');
           }),
         ),
       ];
@@ -86,27 +99,32 @@ export function opsSection(board: OpsBoard, section: Section): HTMLElement[] {
             '●',
             'neutral',
             squad.name,
-            `lead ${squad.lead} · ${count} agent${count === 1 ? '' : 's'}` +
+            `${squad.lead ? `lead ${squad.lead} · ` : ''}${count} agent${count === 1 ? '' : 's'}` +
               (squad.idleAlertMinutes ? ` · idle alert ${squad.idleAlertMinutes}m` : ''),
           );
         }),
       ),
     ];
-  if (section === 'schedules')
+  if (section === 'schedules') {
+    if (board.schedules === null)
+      return [sentence('Your machine could not read the timers. Run `tmt ops ui` to see them.')];
+    if (!board.schedules.length) return [sentence('No timers are set.')];
     return [
       list(
         board.schedules.map((schedule) =>
-          row('◷', 'neutral', schedule.what, `${schedule.squad} · ${schedule.when}`, schedule.id),
+          row(
+            '◷',
+            'neutral',
+            schedule.what || schedule.id,
+            [schedule.squad, schedule.when, schedule.owner].filter(Boolean).join(' · '),
+            schedule.id,
+          ),
         ),
       ),
     ];
-  return [
-    list(
-      board.settings.map((setting) =>
-        row('', 'neutral', setting.name, setting.description, setting.value),
-      ),
-    ),
-  ];
+  }
+  // The board's settings have no browser read: the page says where they are.
+  return [sentence(notInBrowser('The Ops settings page', 'tmt ops ui'))];
 }
 
 export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void {
@@ -148,16 +166,33 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
   };
   window.addEventListener('hashchange', paint, { signal: shell.signal });
   paint();
-  void source.board().then((next) => {
-    if (next.unavailable) {
-      main.replaceChildren();
-      return notAvailable(note, next.unavailable);
+  // The board while the route is visible, at the board's own cadence; a page repaints only when
+  // the board changed, so a reader's place and selection stay.
+  let last = '';
+  whileVisible(REFRESH_MS, shell.signal, async () => {
+    const next = await source.board(shell.signal);
+    if (shell.signal.aborted) return true;
+    const seen = JSON.stringify(next);
+    if (seen !== last) {
+      last = seen;
+      if (next.unavailable) {
+        board = undefined;
+        main.replaceChildren();
+        notAvailable(note, next.unavailable);
+      } else {
+        board = next;
+        if (next.truncated)
+          notAvailable(
+            note,
+            'The board is larger than the browser shows. `tmt ops ui` shows all of it.',
+          );
+        else {
+          note.textContent = '';
+          note.hidden = true;
+        }
+        paint();
+      }
     }
-    board = next;
-    note.textContent = next.sample
-      ? 'Sample data: Ops has no web read of your board yet. `tmt ops ui` shows the real board.'
-      : '';
-    note.hidden = !next.sample;
-    paint();
+    return next.unavailable === undefined;
   });
 }

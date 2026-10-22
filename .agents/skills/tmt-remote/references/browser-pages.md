@@ -98,6 +98,18 @@ header isolation, generic unavailable refusals and unchanged SDK mapping. Browse
 fixtures assert no Remote redirect, unchanged short URLs on reload and fragment secrecy;
 Colab's integrated app-routing acceptance remains Colab-owned.
 
+## Owner reads in the app
+
+`owner-reads.ts` is the one client for the [owner browser reads](../../../../contracts/remote-channel-v1.md#owner-browser-reads):
+`ownerRead(name, signal)` reads `<mount>/x/-/<name>` (the mount from the shell's `shellAddress`)
+and checks the versioned envelope, so a page gets `ok` with the payload, `unavailable` with a
+contract reason (an unknown one is `unknown`) or `unreachable` (no owner session, no read, no
+network). `whileVisible(intervalMs, signal, tick)` refreshes only while the route is mounted and
+the document visible, at once on showing again, doubling the wait after each failed read up to
+eight times. `/ops` reads `ops` every 5 s through `ops-source.ts`, repaints only when the board
+changed and gives each reason one sentence with what to do; Digest uses the same client.
+`test/owner-reads.test.ts` runs every vector of `owner-reads-v1.json` through it.
+
 ## Settings page
 
 `/remote/settings` uses the same embedded shared CSS, Header/Notice/Field/Action classes and
