@@ -1010,5 +1010,5 @@ export const text = {
   readerNote:
     'You are reading a shared page. You cannot edit it or ask agents. Anyone who holds this link and can reach this address can read the page.',
   readerNoteEditor:
-    "You are editing a shared page through a link. Saves change the owner's page for everyone who can read it. You cannot ask agents.",
+    'You are editing a shared page through a link. Saves send edit requests. The owner applies edits while Colab is running. Applied edits change the page for everyone who can read it. You cannot ask agents.',
 } as const;

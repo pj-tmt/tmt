@@ -99,7 +99,7 @@ for (const width of [1440, 390]) {
       await confirm(
         'Create a sharing link…',
         'Create a sharing link',
-        'Create a read-only link to this page. Anyone you give it to can open it and sees the page and recent history. You can copy the link once, right after it is created.',
+        'Create a link to this page. Can read this page. Anyone you give it to can open it and sees the page and recent history. You can copy the link once, right after it is created.',
       );
       await confirm(
         'Replace link…',
@@ -151,3 +151,75 @@ for (const width of [1440, 390]) {
     });
   }
 }
+
+const linkRoles = [
+  { role: 'viewer', option: 'Read', copy: 'Can read this page.' },
+  {
+    role: 'commenter',
+    option: 'Comment',
+    copy: 'Can read this page. Commenting from this link is not available yet.',
+  },
+  { role: 'editor', option: 'Edit', copy: 'Can read and send edit requests. You apply them.' },
+] as const;
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'])
+    for (const { role, option, copy } of linkRoles)
+      test(`Verified ${role} link copy at ${width}px ${theme}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/test/command-browser.html?share-copy&unconfirmed');
+        await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+        const dialog = page.getByRole('dialog', { name: 'Review notes', exact: true });
+        await dialog.getByRole('button', { name: /^Permission for this new recipient/ }).click();
+        await dialog
+          .getByRole('menu', { name: 'Permission for this new recipient' })
+          .getByRole('menuitemradio', { name: option, exact: true })
+          .click();
+        await dialog.getByRole('button', { name: 'Create a sharing link…', exact: true }).click();
+        const review = dialog.getByRole('region', { name: 'Confirm management change' });
+        await expect(review).toContainText(copy);
+        await expect(review).not.toContainText('read-only');
+        await shoot(page, dialog, `share-${role}-review-${width}-${theme}.png`);
+        await review.getByRole('button', { name: 'Create a sharing link', exact: true }).click();
+        await expect(dialog.getByRole('alert')).toContainText('not confirmed yet');
+        await expect(dialog.getByRole('status')).toHaveCount(0);
+        await expect(dialog.getByLabel('Share link', { exact: true })).toHaveCount(0);
+        await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
+        await expect(dialog.getByRole('status')).toHaveText('Done.');
+        await expect(dialog.locator('.bearer')).toContainText(copy);
+        await expect(dialog.locator('.bearer')).not.toContainText('read-only');
+        await expect(dialog.getByLabel('Share link', { exact: true })).toHaveValue(
+          new RegExp(`role=${role}(?:&|$)`),
+        );
+        await shoot(page, dialog, `share-${role}-done-${width}-${theme}.png`);
+        await dialog.getByRole('button', { name: 'Manage another change' }).click();
+        await expect(dialog.getByLabel('Share link', { exact: true })).toHaveCount(0);
+      });
+
+for (const replacement of [false, true])
+  test(`${replacement ? 'Replacement' : 'New'} link completion uses the verified artifact, not the picker`, async ({
+    page,
+  }) => {
+    await page.goto('/test/command-browser.html?share-copy&artifact-role=editor');
+    const dialog = page.getByRole('dialog', { name: 'Review notes', exact: true });
+    // The picker and the existing replacement link are both viewer; the fixture returns editor.
+    await dialog
+      .getByRole('button', {
+        name: replacement ? 'Replace link…' : 'Create a sharing link…',
+        exact: true,
+      })
+      .click();
+    await dialog
+      .getByRole('button', {
+        name: replacement ? 'Replace link' : 'Create a sharing link',
+        exact: true,
+      })
+      .click();
+    await expect(dialog.getByRole('status')).toHaveText('Done.');
+    await expect(dialog.locator('.bearer')).toContainText(
+      'Can read and send edit requests. You apply them.',
+    );
+    await expect(dialog.getByLabel('Share link', { exact: true })).toHaveValue(
+      /role=editor(?:&|$)/,
+    );
+  });

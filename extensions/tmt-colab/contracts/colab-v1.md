@@ -935,8 +935,9 @@ before `root` and `role` existed, or more than 512 bytes, is not a reader link (
 form is about 300 bytes; the entry names a well-formed pre-`root` link as out of date and says to
 ask the owner for a new one, without any request). `root` is the owner's root public key: every reader rejects a link
 whose `root` does not derive `space`. `role` is only a hint for the one self-admission create of
-a hosted reader; the capability comes from the signed link statements, and a hosted reader stays
-read-only whatever `role` says. `share link add --role viewer|commenter|editor` (default `viewer`)
+a hosted reader; the capability comes from the signed link statements. A verified, live editor
+may send edit requests through its own stream for the owner to apply while Colab is running;
+it never seals page content. Viewer and commenter hosted readers remain read-only. `share link add --role viewer|commenter|editor` (default `viewer`)
 chooses the role the link statement carries, and `share link reset` keeps the replaced link's role.
 A link whose `role` is `editor` makes the `/read` entry offer the owner page's Source drawer and mark itself
 "Can edit" instead of "Read-only": a save is an `edit-request` record that the link's device seals into its own
