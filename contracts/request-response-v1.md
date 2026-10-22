@@ -766,6 +766,34 @@ The following semantic scenarios are illustrative only, not final JSON schemas:
 | `talk` times out, then ack, then a late reply   | Timeout releases only the observer; ack covers the current revision; the late reply creates a newer revision and reopens attention. |
 | `result` after the retention boundary           | The result is unavailable/expired, not pending; opportunistic cleanup may later remove eligible physical rows.                      |
 
+### Message state
+
+Every history item and `requests.show` detail carries one `messageState` object for the sender's
+view of that message, derived at read time from stored facts only (never pane text), so every
+client paints the same words and keeps no copy of the rules:
+
+| `state`       | When                                                                                                                               | `canSendNow`                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                             | true unless in flight or the recipient waits on an approval prompt |
+| `batched`     | Held by the recipient's Digest for the next checklist                                                                              | true unless the recipient waits on an approval prompt              |
+| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                | false                                                              |
+| `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route)            | false                                                              |
+| `unconfirmed` | The hand-over may have reached the pane (`uncertain`); never resendable                                                            | false                                                              |
+| `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane) | true only for `unreachable`                                        |
+
+`messageState` is `{state, reason:{code, text}, latestMs, remainingMs, canSendNow}`. `reason.text`
+is the one wording for the state (for example `unreachable`: "not sent, the agent could not be
+reached"); a client may add the recipient's name or a countdown, and nothing else. `latestMs` is
+the latest moment a `batched` message goes out and `remainingMs` the time left at the read (zero
+once past, never negative); both are null when the recipient's Digest policy records no limit.
+Core states that deadline from the policy's `maxHoldMs` (the limit the Digest rule's owner keeps
+for the oldest held message, written with the policy) plus the oldest held message's arrival,
+because every held message goes out together. The count trigger of a rule can only make it
+earlier. `working` rests on the driver's last admitted event for the exact session and process
+the recipient is bound to now; it is not liveness evidence. `canSendNow` says whether a send-now
+applies to the message; who may ask is that operation's own check. A refusal's cause is not
+retained, so `not_sent` carries one of the two generic reasons.
+
 ## Verification ownership
 
 Exact body, retained retry, revision races and expiry belong to the request

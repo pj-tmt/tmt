@@ -86,6 +86,8 @@ pub struct HistoryItem<T = ()> {
     pub origin: super::RequestOrigin,
     pub prepared_at_ms: u64,
     pub delivery: AttemptStatus,
+    /// The one state a person sees for this message; clients paint it as given.
+    pub delivery_view: super::delivery::DeliveryView,
     /// Inbox acknowledgment only. Pane transport cannot prove agent read state.
     pub recipient_acknowledged: Option<bool>,
     pub final_state: FinalState<T>,

@@ -3,6 +3,7 @@
 
 pub mod attention;
 pub mod correlation;
+pub mod delivery;
 pub mod digest;
 pub mod flow;
 pub mod history;
@@ -404,6 +405,12 @@ pub trait RequestRecords {
         identity_id: &str,
         now_ms: u64,
     ) -> Result<Option<u64>, Self::Error>;
+    /// The stored facts that decide one message's delivery state; reads rows only.
+    fn delivery_facts(
+        &self,
+        attempt: &RequestAttempt,
+        now_ms: u64,
+    ) -> Result<delivery::DeliveryFacts, Self::Error>;
     fn digest_items(
         &self,
         identity_id: &str,

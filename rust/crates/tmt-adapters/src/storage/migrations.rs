@@ -12,6 +12,8 @@ mod board_scope_tests;
 #[cfg(test)]
 mod change_cursor_tests;
 #[cfg(test)]
+mod digest_hold_tests;
+#[cfg(test)]
 mod digest_tests;
 #[cfg(test)]
 mod dispatch_tests;
@@ -299,6 +301,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "keep the turn output a person's passthrough message earned",
         "schema/060.sql"
+    ),
+    migration!(
+        "record how long a digest rule keeps a member's oldest held message",
+        "schema/061.sql"
     ),
 ];
 
