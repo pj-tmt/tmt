@@ -38,17 +38,24 @@ The [discovery v1 contract](../../../../contracts/discovery-v1.md) owns the publ
 shape and bounds. `tmt-core::discovery` owns native/UUID expectation values and
 the observation shape; the fence starts with the pane's host, so one host's
 expectation never admits another host's pane, and guarded add and discovery
-storage look up bindings by that host. `tmux::discovery` reads escaped topology without initializing a server marker,
-with one batched native-start observation. `storage::discovery` reads only the
-existing schema/rows, without reconciliation, creation or migration. Unknown
-markers and conflicting rows supply no adoption authority. Explicit external inventory selections remain unsupported without executing
-their driver; implicit caller selection uses the existing verified host lookup.
+storage look up bindings by that host. `tmux::discovery` reads escaped topology
+without initializing a server marker, and `host::external::discovery` reads a
+driver's `server` and `snapshot`; each makes one batched native-start
+observation. `registry::admitted_read_only` reads the approvals once per
+discovery or guarded add, never adopting, probing or locking: an approval it
+cannot use is a gap, whose caller variables only make implicit selection
+refuse. `storage::discovery` reads only the existing schema/rows, without
+reconciliation, creation or migration, and an external host's server ID comes
+from the recorded `host_servers` row. Unknown markers and conflicting rows
+supply no adoption authority.
 
 `binding::bind_guarded` admits the frozen target inside the binding transaction
 before creation or promotion. It shares `bind_selected` with ordinary binding;
 the guard adds native-start and ownership checks, not a second publication path.
 Name mode is insert-only; existing linking takes an exact UUID. Refused admissions
-have no identity or host effects. Failures after admission are partial host attempts
+have no identity or host effects. On an external host, `Host::resolve_fenced_server`
+records the server UUID between the first admission and the transaction, and only
+for the incarnation the fence names, re-verified first. Failures after admission are partial host attempts
 with rolled-back SQL on an in-transaction refusal or uncertain commit/close;
 they never claim host rollback or automatic replay. Guarded
 add and discovery bypass optional caller learning, workspace capture and hook
