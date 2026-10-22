@@ -364,11 +364,7 @@ the board.
 A successful status document also contains additive root `tick: {lastAtMs}`, the
 start time of the last tick that was admitted ([liveness record](digest-tick-v1.md#tick-liveness)),
 or null when none is recorded or the record is unsafe. It is liveness evidence only:
-status never infers a hold, a delivery or an owner from it. The Ops Digest tab reads it
-while the global switch is not off and says `No tick yet` (null) or `No tick for N min`
-(`h`/`d` past an hour) once the document's `observedAtMs` is more than three minutes past
-`lastAtMs`; an older producer without `tick` shows nothing, and a `tick` that is not
-`{lastAtMs}` with a safe integer or null makes the whole status unavailable.
+status never infers a hold, a delivery or an owner from it.
 
 `percent` is null or `{basisPoints, estimatedInputTokensAvoided,
 observedInputTokens, fromMs, throughMs}`. It is available only for `24h` and `7d`;
