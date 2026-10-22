@@ -6010,16 +6010,33 @@ fn the_summary_worker_records_the_verified_title_it_folds_and_a_changed_page_rep
     let list = || {
         registration.pages(Some(&context)).unwrap();
     };
+    // The catalog entry the browser reads: its optional `title` is the projection's, only while fresh.
+    let listed = || -> Option<String> {
+        let list: Value =
+            serde_json::from_slice(&registration.pages(Some(&context)).unwrap()).unwrap();
+        let page = list["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|page| page["pageId"] == PAGE)
+            .unwrap()
+            .clone();
+        page["title"].as_str().map(str::to_owned)
+    };
     assert_eq!(stored_title(&f), None);
+    assert_eq!(listed(), None);
     let first = title_row_after(&f, None, list);
     assert_eq!(first.0, "Exact title 🐈");
+    assert_eq!(listed().as_deref(), Some("Exact title 🐈"));
     // A changed page keeps its old row until the worker folds the new state, and the replaced row
-    // carries the new progress key; a list read never serves the stale one (store unit tests).
+    // carries the new progress key; the catalog never serves the stale one.
     f.write("new 🐈\r\n");
     assert_eq!(stored_title(&f).as_ref(), Some(&first));
+    assert_eq!(listed(), None, "a changed page serves no stale title");
     let second = title_row_after(&f, Some(&first), list);
     assert_eq!(second.0, "Exact title 🐈");
     assert_ne!(second.1, first.1);
+    assert_eq!(listed().as_deref(), Some("Exact title 🐈"));
 }
 
 #[test]

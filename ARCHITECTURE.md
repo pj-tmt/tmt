@@ -403,12 +403,12 @@ use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
 [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
 own module/drawing boundaries and verification.
 
-- **Seam.** Ops uses public `tmt --json`/`tmt api` and starts `tmt digest tick`
-  through `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. Digest owns
-  locking, deadlines and delivery. No direct Core state, tmux or provider writes.
-  The guard rejects TMT-to-Ops and Ops-to-Core Cargo/source edges. Dependencies
-  are `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state` and dev-only
-  `tmt-test-support`. New API methods need tmt-lead review.
+- **Seam.** Ops calls public `tmt --json`/`tmt api` (minute `workspace.capture`) and
+  `tmt digest tick` via `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`.
+  Digest owns locks, deadlines and delivery. No direct Core state, tmux or
+  provider writes. The guard bans TMT-to-Ops and Ops-to-Core Cargo/source edges.
+  Uses `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state` and
+  dev-only `tmt-test-support`. tmt-lead reviews new APIs.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. The workspace
@@ -416,28 +416,18 @@ own module/drawing boundaries and verification.
   files remain. `ops.toml` is user-owned: agents never write it;
   Ops uses CAS; cron/checklists live in
   [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
-  `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice warns once on CLI stderr; the UI projects the same notice through App without out-of-band terminal writes.
-  No Ops
-  data enters `config.json` or Core's database.
+  `migration` owns locked byte-preserving legacy cutover; its notice warns once on CLI stderr and the UI projects it through App, with no out-of-band terminal writes.
+  No Ops data enters `config.json` or Core's database.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
-  The existing quiet cache lane publishes per-name view hints (default keeps its
-  original path): destination/UUID anchors, expansion, committed filters/sort/search,
-  chart controls, pane ratios and pane scroll. Shared Config preferences stay separate; exec carries the layer
-  and session-only visibility. [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
-  The shell replaces named-tab/factory/switcher navigation and HOME cursors; reload carries UUID anchors.
-  `labels::Reader` acquires Config-selected windows; `labels::digest` sums
-  [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings), never provider history.
+  The quiet cache lane publishes per-name view hints (default keeps its original path): destination/UUID anchors, expansion, committed filters/sort/search, chart controls, pane ratios and pane scroll. Shared Config preferences stay separate; exec carries the layer and session-only visibility. [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
+  The shell replaces tab/factory/switcher navigation and HOME cursors.
+  `labels::Reader` acquires Config-selected windows; `labels::digest` sums [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings) with cost and share valuations, not provider history. `board::savings` formats them; the price table is display-only.
   `usage_report::Reader` acquires public Core usage/traffic off-thread;
   [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns its range and lifecycle.
-  Member references resolve through the acquired global identity inventory;
-  Markdown carries UUID tags into clipped frame hits. Existing menu/actions own
-  navigation, while copy/annotation retain raw source. No text grants new delivery
-  authority or paint/input I/O. [Reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md).
-  Membership removal pauses jobs before leave;
-  only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves
-  Ops metadata/config and cron namespaces under owned locks; partial results
+  Member references resolve through the acquired global identity inventory; Markdown carries UUID tags into clipped frame hits. Existing menu/actions own navigation, while copy/annotation retain raw source. No text grants new delivery authority or paint/input I/O. [Reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md).
+  Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config and cron namespaces under owned locks; partial results
   offer repair without room rollback. [Surface ownership](.agents/skills/tmt-ops-dev/references/board-home.md).
 - **Board rendering.** The [Ops board guide](.agents/skills/tmt-ops-dev/references/board-home.md#shared-board-components) owns shared painter responsibilities and their host adapters.
 - **Discovery.** The board consumes [Core discovery
@@ -465,10 +455,8 @@ each other nor tooling. Scenarios retain assertions; helpers own fixture
 mechanics. Frozen inputs and independent SQL/schema oracles must not derive
 expected results from the implementation under test.
 
-Tests select a task-owned native executable or the checkout build; missing
-builds fail without host or retired-runtime fallback. State, provider roots,
-prefixes, sockets and processes remain fixture-owned. Adapters' default-off
-`test-isolation` feature admits private discovery paths in consumer test builds.
+State, provider roots, prefixes, sockets and processes remain fixture-owned.
+Adapters' default-off `test-isolation` feature admits private discovery paths in consumer test builds.
 `typescript/scripts/private-world.mjs` runs suite commands in a private HOME/XDG/TMPDIR world
 (under `/tmp` when the temporary directory is too long for sockets) and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
 Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
@@ -503,28 +491,16 @@ from the newest non-failed allocated ancestor cut, whether in flight or publishe
 Verification-failed drafts reserve numbers but allow replacement cuts, including
 at the same main commit; they stay unpublished and do not hold later cuts or merges.
 
-The release version is injected at build through the private `tmt-release-tool`:
-only the selected version declaration and implied Cargo lock entries may differ
-from the captured source. Build metadata and executable versions must agree;
-nothing is committed back to main. Main retains development versions. Workflow jobs
-own Node architecture selection; version injection preserves it.
+Build-time version injection belongs to the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#cut-and-source-tooling).
 
 Notes, migration comparison and breaking authorization share the newest published
 ancestor. Before own publication, a predecessor supplies history; both lines reserve versions.
 Retired identities stay historical. Drafts never advance published evidence. Tags become
 immutable after all gates pass; only the CLI converges latest to its highest publication.
 
-Automatic publication covers authorized existing alpha products only. Ben retains
-stable, breaking, version-line changes and manual publication authorization.
-Activating a new released product is a component-map change accepted by tmt-lead
-and the owning squad lead. Exact gates and owner recovery
-operations belong to the [release skill](.agents/skills/tmt-release/SKILL.md) and
-[main-cut reference](.agents/skills/tmt-release/references/main-cuts.md).
+The [release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns publication authorization and product activation; the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery) owns gates and recovery.
 
-Delivery and publication evidence are separate. Release reconciliation rules and
-procedures live in [tmt-release](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation);
-shared issue lifecycle definitions stay in
-[DEVELOPMENT](DEVELOPMENT.md#project-tracking).
+[Release reconciliation](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation) separates delivery from publication; [DEVELOPMENT](DEVELOPMENT.md#project-tracking) owns issue lifecycle.
 
 ## Maintenance contract
 
@@ -634,5 +610,5 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. `object_channel::cloud_sync` publishes rows, authority and originals once Remote activates; hosted folds verify log anchors before checkpoint pairs. Native bootstrap installs a verified checkpoint pair; other verified originals use serve append ([architecture-state](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
-  child decodes Yjs, no browser route serves plaintext, and the Worker is resource
+  child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`), and the Worker is resource
   containment, not a security sandbox. Pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent; native code atomically stores content or a `kind:"own"` status action with its scoped terminal outcome in the Store. Source/shell actions, thread status and proposals publish through it (offline or the local `page-publish` route), browser Save uses the owner sync socket, signed by the root-local writer.

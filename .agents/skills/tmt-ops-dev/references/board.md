@@ -150,6 +150,11 @@ state only, no squad data or durable preference policy.
   membership and timer totals remain distinct from observed zero. The
   [workspace surface](board-home.md#shell-geometry-and-input) owns its layout.
 
+- `digest_dashboard::allowance` paints the Allowance block under the range summary from
+  `limits::allowance` (pure: rates per span from the sampled weekly history, NEED %/h, the
+  outcome of each rate at the reset); `Standing::rates` is computed when sampled, projections
+  at paint from the clock, so no timer or read runs. It takes rows off the table only when the
+  table keeps its minimum height.
 - `digest_dashboard` owns a fixed range summary, TOK-ranked UUID table with a
   read-only `DigestAll` aggregate, and selection details. The same row projection
   owns paint and input order. Its session cache retains canonical admitted/ranked
@@ -158,9 +163,16 @@ state only, no squad data or durable preference policy.
   replace it. Explicit alternate memberships retain their scoped projection;
   supplier text, freshness and current-frame hits remain live. Whole optional tracks yield before numeric values
   truncate. Activity retains 24 one-hour cells; narrow details show that strip
-  when it cannot fit in the table. `exchange_matrix` is a reusable content-free
+  when it cannot fit in the table. The unit-aware savings caption and its
+  number/money formatters live in `board::savings`, shared by Agents, Conversation,
+  Overview and this tab; `digest_dashboard` keeps only its own details, and
+  `overview` imports it only in tests. `exchange_matrix` is a reusable content-free
   painter: top five ranked identities with the selection retained, sender rows,
   recipient columns, talk/reply counts only, self/known-none/unknown distinct.
+  `Options` sets the limit (Digest five, Measure six) and an optional `sum` column;
+  `by_traffic` ranks by sent plus received, then name, then id. Measure's `exchanges`
+  section registers `Choice::ExchangeCell` strip hits and `usage_report_want` asks for
+  the report while Measure shows, so the matrix has traffic at the default range.
   Hosts keep navigation and effects. Ops quantizes six levels; shared
   `screen::neutral_ramp` supplies neutral endpoint interpolation, contrasting ink,
   ANSI greys and no-fill NO_COLOR. No new role or theme setting is introduced.

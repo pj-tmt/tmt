@@ -1,3 +1,4 @@
+import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -198,7 +199,7 @@ test('a device revoked while the serve is being upgraded still ends with the acc
     ]);
 
     const card = page.locator('.tmt-ui-notice');
-    await expect(card).toContainText('Your access to this page ended.', { timeout: 90_000 });
+    await expect(card).toContainText(text.failurePairingRemoved, { timeout: 90_000 });
     await expect(card).toContainText('Pair again');
     upgrade.release();
   });

@@ -11,13 +11,18 @@ three binaries (default `rust/target/debug`):
 
 ```bash
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match build
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/remote-client... install --frozen-lockfile --ignore-scripts
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/remote-client exec vp build --config vite.firebase.config.ts
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match build:hosted
+TMT_COLAB_HOSTING_DIR="$PWD/extensions/tmt-colab/typescript/app/dist-hosted" \
 CARGO_BUILD_JOBS=2 TMT_COLAB_APP_DIR="$PWD/extensions/tmt-colab/typescript/app/dist" \
   cargo build --locked --manifest-path rust/Cargo.toml -p tmt-cli -p tmt-remote -p tmt-colab --bins
 cargo build --locked --manifest-path rust/Cargo.toml -p tmt-adapters --example provider-script-fixture
+cargo build --locked --manifest-path rust/Cargo.toml -p tmt-remote --example compose_hosting
 corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match test:acceptance
 ```
 
-The second build is Core's interpreted-provider fixture, its own invocation (an example selected
+The provider build is Core's interpreted-provider fixture, its own invocation (an example selected
 next to `tmt-cli` enables test-isolation features that make `tmt` refuse to run in a world).
 A recipient started as a `claude` or `codex` driver is that fixture copied under the provider
 basename, with `TMT_TEST_PROVIDER_INTERPRETER` set to the absolute Node: it accepts Core's managed
@@ -26,10 +31,14 @@ directory (so a dedicated execution directory carries `examples/provider-script-
 a missing one fails with the build command. The fixture reaps its child; the world keeps the
 process-group and tmux-server cleanup and the no-leftovers assertion.
 
+The hosted-bundle case also needs Remote's `examples/compose_hosting`, built separately,
+and the hosted inventory embedded by `TMT_COLAB_HOSTING_DIR`; the ordinary app distribution
+alone cannot qualify that case. Freeze both examples with the three executables.
+
 If also running [native Chromium fixtures](development.md#app-and-browser-client),
 compile those fixtures before the final binary build: their test configuration can
 replace the regular `tmt-colab` artifact in a shared target directory. Copy the final
-three binaries (and `examples/provider-script-fixture`) into a dedicated execution directory, select it with
+three binaries and both examples into a dedicated execution directory, select it with
 `TMT_ACCEPTANCE_BIN_DIR`, and record the tested head, binary and embedded asset hashes
 before execution. Keep that directory unchanged throughout both acceptance runs.
 
@@ -85,9 +94,12 @@ with two receipts and the hosted stream with five, none frozen. Selection and la
 Each scenario gets one world (`harness/world.ts`) under a short `/tmp` root, because Unix
 socket paths are limited to about 100 bytes:
 
-- private HOME and XDG roots, and a private tmux server reached only through a `-L` wrapper
-  on `PATH` (the tmux `TMUX` session value has no `$` prefix, or `tmt name` cannot find its
-  pane);
+- private HOME and XDG roots, and a fixed `<world>/tmux.sock` selected with `-S`.
+  The shared `privateTmux` helper asserts the socket private at construction and before
+  world commands; the native-child `PATH` wrapper uses `scripts/private-tmux.sh` for the
+  same check, accepting Core's explicit `-S` only when it matches the world socket.
+  Both remove inherited `TMUX` and `TMUX_PANE` before invoking tmux. The tmux
+  `TMUX` session value passed to agent callers has no `$` prefix;
 - an agent environment (`TMT_AGENT=1`, `BROWSER`) with stand-in `open`, `xdg-open` and `wslview`
   first on `PATH` that only append to `opener.log`; `dispose()` fails the run if that log
   exists, so no command in a world can reach the host browser;

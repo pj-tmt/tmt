@@ -5011,7 +5011,15 @@ verified fold. The serve starts one fold of every page without a fresh summary w
 list read schedules the same, so a store that gained the projection by an upgrade fills without
 anyone opening the list; there is no backfill state. The cloud row's `expiresAtMs` never removes it. The projection is rebuildable,
 so losing it loses no source or authority, and it never enters an owner statement, sync or cloud
-payload, share-link bootstrap or export. Nothing serves it yet.
+payload, share-link bootstrap or export.
+
+Each page in the owner-served `GET /api/pages` list may carry that row as `title`, a string of 1–512
+UTF-8 bytes without a control character: only while the row is current for the page, so a page
+changed since its last fold has none until the next fold, and never for an archived page. Titles
+are added most recently updated page first (equal times by page ID), each only if the whole reply
+stays within its 2 MiB bound; one that no longer fits is left out, never the catalog. Like the
+summary it appears only in this owner list, not in a reader link's or a member's views, and not in
+the CLI's `ls`/`show`; a client treats it as untrusted text.
 
 Retention defaults to 30 days; forever is null. The expiry shown is the cloud copy's and is
 never derived from local activity: `expiresAtMs` is the `expiresAt` of the page's owner row as
@@ -5061,7 +5069,7 @@ their codes. An older schema with a
 known migration path returns `COLAB_STORE_OUTDATED`: "The running Colab service is
 older than this CLI." Its next action is "Run tmt colab stop, then tmt colab serve --background."
 A schema newer than this binary returns `COLAB_STORE_NEWER`: "This space was
-saved by a newer Colab." Its next action is "Run tmt upgrade, then try again."
+saved by a newer Colab." (with a copy to go back to, see Copy before a migration) Its next action is "Run tmt upgrade, then try again."
 Human output uses a separate styled `hint:` line for those sentences. JSON uses
 ordered runnable commands in its top-level `next` array:
 `["tmt colab stop", "tmt colab serve --background"]` for an
@@ -5075,6 +5083,21 @@ The reserved management socket's unsuccessful response body is the exact textual
 management code with its corresponding HTTP status. The CLI maps that existing
 wire directly; malformed, mismatched or interrupted replies are unknown outcomes,
 with captured correlation and no offline fallback.
+
+**Copy before a migration (#4280).** `Store::open` copies an existing store before the first step of
+a migration that will run, once, while it holds the writer lock: `space.db.pre-v<N>.bak` beside the
+store, N the schema it is leaving, owner-only (0600), written as a `.partial` file that is synced and
+renamed, then the directory is synced. A second upgrade from the same schema replaces that copy; after a
+committed migration only the two copies at the newest schemas stay. A store with no schema yet and one
+already current make none, and `Store::read` and `Store::write_existing` never migrate, so never copy.
+If the copy cannot be written the migration does not run and the store is untouched:
+`COLAB_STORE_BACKUP_FAILED`, "Colab could not save a backup of this space before updating it.
+Nothing was changed.", with the hint "Free disk space or fix the permissions of the Colab data folder, then try again."
+A copy is store data (it holds epoch secrets) and stays in the private data root. Recovery is manual:
+when a store is newer than this build, the `COLAB_STORE_NEWER` refusal names the newest copy at a schema
+this build supports, "This space was saved by a newer Colab. Run tmt upgrade to open it. To stay on
+this version instead, stop Colab and replace space.db with the backup from before that update
+(<path>); changes made since then are lost.", and is unchanged when there is none. No command restores a copy.
 
 ### Projects (#3747)
 
@@ -6138,13 +6161,16 @@ change. Still available.`; the line is derived from the page and has no state of
 
 ### Browser page title hints (#1564)
 
-The paired owner browser uses accepted Live folds as its only title source. Home
+The paired owner browser takes a page's title from the owner's local title projection when
+`GET /api/pages` carries one (Schema 16), and otherwise from accepted Live folds. Home
 rows and the share/manage dialog show the last known title; the current page also
 updates the parent tab title. UUIDs remain routing identities and appear under
 Details. Without a usable title, chrome shows “Untitled page”. Opening the page replaces a stale or missing hint with its verified folded
-title. Home opens a page's content only to fill a missing title hint, bounded and
-cancellable; it never replaces a cached hint without opening the page. A title
-changed elsewhere can therefore remain stale in this browser until that page is opened.
+title. A projected title is current for the page and is shown instead of a browser hint
+without opening the page or writing the hint. Home opens a page's content only to fill a missing
+title hint for a page the owner has no title for, bounded and
+cancellable; it never replaces a cached hint without opening the page. For such a page a title
+changed elsewhere can remain stale in this browser until that page is opened.
 
 Home admits only visible uncached rows: one read at a time, at most 24 attempted
 pages and 16 MiB of admitted incoming sync frames per Home generation, including failed
@@ -6176,8 +6202,8 @@ IndexedDB store. Title records contain only a fresh 12-byte nonce and ciphertext
 AAD is the JSON array `["tmt-colab-title-cache-v1", space, device, page]`. Record
 lookup is likewise scoped to space/device/page. The title shares the existing
 fold projection bound. Cached title plaintext and this local key never enter discovery,
-routes, logs, the renderer, or the decoder Worker. No native schema, title endpoint,
-Remote certification or network protocol is added.
+routes, logs, the renderer, or the decoder Worker. The cache adds no native schema, title
+endpoint, Remote certification or network protocol.
 
 Cache absence, corruption, scope mismatch or storage failure falls back to the
 unopened label without denying page reading or management. Only an accepted foreground fold or an admitted missing-title Home fold may update

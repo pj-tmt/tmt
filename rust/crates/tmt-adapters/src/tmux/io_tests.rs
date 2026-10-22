@@ -27,6 +27,141 @@ fn socket_permission_requires_os_evidence_not_diagnostic_words() {
     }
 }
 
+#[test]
+fn a_failed_lookup_does_not_mistake_live_or_stale_sockets_for_denial() {
+    use std::{io::Read, os::unix::net::UnixListener};
+
+    let directory = crate::test_support::TestDirectory::new();
+    let socket = directory.path.join("listener.sock");
+    crate::test_support::assert_private_socket(&socket, &directory.path);
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let failure = || {
+        let mut cause = CommandError::new(CommandFailure::Exit {
+            code: Some(1),
+            signal: None,
+        });
+        cause.output = Some(CommandOutput {
+            stdout: Vec::new(),
+            stderr: format!(
+                "error connecting to {} (Permission refusée)\n",
+                socket.display()
+            )
+            .into_bytes(),
+        });
+        TmuxError::command(TmuxFailure::Command, cause)
+    };
+    assert!(!failure().socket_permission_denied());
+    let (mut peer, _) = listener.accept().unwrap();
+    peer.set_nonblocking(true).unwrap();
+    assert_eq!(peer.read(&mut [0; 1]).unwrap(), 0, "probe sends no bytes");
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    drop(listener);
+    assert!(
+        !failure().socket_permission_denied(),
+        "refused listener is not denial"
+    );
+}
+
+/// macOS sandbox rules can deny connect while stat and effective W_OK succeed.
+/// Re-exec only this test with a process-local sandbox against our own socket.
+#[cfg(target_os = "macos")]
+#[test]
+fn sandbox_connect_denial_is_a_socket_permission_error() {
+    use crate::test_support::{TestChild, TestDirectory, assert_private_socket};
+    use std::{
+        fs,
+        os::unix::{
+            fs::{FileTypeExt, PermissionsExt},
+            net::UnixListener,
+        },
+        process::{Command, Stdio},
+    };
+
+    const SOCKET_ENV: &str = "TMT_TEST_DENIED_SOCKET";
+    const TEST: &str = "tmux::io_tests::sandbox_connect_denial_is_a_socket_permission_error";
+    if let Some(socket) = std::env::var_os(SOCKET_ENV) {
+        let socket = std::path::Path::new(&socket);
+        assert!(fs::metadata(socket).unwrap().file_type().is_socket());
+        nix::unistd::faccessat(
+            nix::fcntl::AT_FDCWD,
+            socket,
+            nix::unistd::AccessFlags::W_OK,
+            nix::fcntl::AtFlags::AT_EACCESS,
+        )
+        .expect("filesystem access succeeds despite the connect restriction");
+        let denied = std::os::unix::net::UnixStream::connect(socket).unwrap_err();
+        assert!(matches!(
+            denied.raw_os_error(),
+            Some(nix::libc::EPERM | nix::libc::EACCES)
+        ));
+        let mut cause = CommandError::new(CommandFailure::Exit {
+            code: Some(1),
+            signal: None,
+        });
+        cause.output = Some(CommandOutput {
+            stdout: Vec::new(),
+            // Exact diagnostic shape recorded from the Codex seatbelt sandbox.
+            stderr: format!(
+                "error connecting to {} (Operation not permitted)\n",
+                socket.display()
+            )
+            .into_bytes(),
+        });
+        let tmux = Tmux::new(ScriptedRunner::new([Err(cause)]));
+        let error = tmux
+            .resolve_target("%9", OperationOptions::default())
+            .unwrap_err();
+        assert_eq!(error.kind, TmuxFailure::SocketPermission);
+        assert!(crate::host::HostError::from(error).socket_permission_denied());
+        let calls = tmux.runner.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].args,
+            ["-u", "display-message", "-p", "-t", "%9", "#{pane_id}"]
+        );
+        assert!(calls[0].input.is_empty(), "lookup sends no pane input");
+        return;
+    }
+
+    let directory = TestDirectory::new();
+    let socket = directory.path.join("denied.sock");
+    assert_private_socket(&socket, &directory.path);
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let output_path = directory.path.join("child.log");
+    let output = fs::File::create(&output_path).unwrap();
+    let mut child = TestChild::new(
+        Command::new("/usr/bin/sandbox-exec")
+            .args(["-p", "(version 1)(allow default)(deny network-outbound)"])
+            .arg(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .env(SOCKET_ENV, &socket)
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .stdin(Stdio::null())
+            .stdout(output.try_clone().unwrap())
+            .stderr(output)
+            .spawn()
+            .unwrap(),
+    );
+    let status = child.wait_for_exit(Duration::from_secs(10));
+    assert!(
+        status.success(),
+        "{}",
+        fs::read_to_string(output_path).unwrap()
+    );
+    // No connection was accepted, so no tmux protocol or pane bytes were sent.
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
 fn marked_row() -> String {
     [
         SERVER_ID,

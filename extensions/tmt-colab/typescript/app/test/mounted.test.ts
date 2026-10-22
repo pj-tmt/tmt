@@ -36,6 +36,8 @@ const setup = vi.hoisted(() => {
     owner: null as LiveSessionOwner | null,
     titleRemember: vi.fn(async () => {}),
     cachedTitles: new Map<string, string>(),
+    /** The pages the management snapshot lists for the Home read. */
+    snapshotPages: [] as { pageId: string; title?: string }[],
     titleRead: vi.fn(async () => ({ title: 'Verified title' })),
     titleJoin: vi.fn(async () => {}),
     titleConnections: [] as {
@@ -117,7 +119,7 @@ vi.mock('../src/management.js', () => ({
     send = setup.managementSend;
     verify = setup.managementVerify;
     async snapshot() {
-      return { boot: { pages: [], pageIds: [] }, log: [] };
+      return { boot: { pages: setup.snapshotPages, pageIds: [] }, log: [] };
     }
   },
 }));
@@ -600,6 +602,33 @@ it('a page refresh and concurrent Live reconnect share one verified replacement'
   expect(setup.register).toHaveBeenCalledTimes(2);
   expect(setup.registrations).toEqual([setup.first, setup.second]);
   mounted.close();
+});
+
+it("Home prefers the owner's own title to the browser's hint and reads only for a page with neither", async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  setup.snapshotPages = [
+    { pageId: 'owned', title: 'Owner title' },
+    { pageId: 'hinted' },
+    { pageId: 'neither' },
+  ];
+  setup.cachedTitles.clear();
+  setup.cachedTitles.set('owned', 'Stale hint');
+  setup.cachedTitles.set('hinted', 'Browser hint');
+  const mounted = await mountedTransport();
+  try {
+    const home = await mounted.transport.spaceHome(new AbortController().signal);
+    const row = (id: string) => home.pages.find((page) => page.id === id);
+    expect(row('owned')).toMatchObject({ title: 'Owner title', titleMissing: false });
+    expect(row('hinted')).toMatchObject({ title: 'Browser hint', titleMissing: false });
+    expect(row('neither')).toMatchObject({ title: 'Untitled page', titleMissing: true });
+    // The owner's title is never written to the browser cache: it is current without one.
+    expect(setup.cachedTitles.get('owned')).toBe('Stale hint');
+  } finally {
+    mounted.close();
+    setup.snapshotPages = [];
+    setup.cachedTitles.clear();
+  }
 });
 
 it('fills an uncached title with a joined read binding and never opens Live or Ask', async () => {

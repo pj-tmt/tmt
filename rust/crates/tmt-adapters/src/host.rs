@@ -166,6 +166,17 @@ pub enum NamedHost<'a> {
     Ambiguous,
 }
 
+/// The most a visible-screen read returns; larger output fails whole.
+pub const SCREEN_MAX_BYTES: usize = 1024 * 1024;
+
+/// How a host encodes a pane's visible screen: tmux keeps its SGR attributes,
+/// an external host's driver answers plain text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenFormat {
+    Ansi,
+    Plain,
+}
+
 #[derive(Debug)]
 pub enum HostError {
     Tmux(TmuxError),
@@ -834,6 +845,21 @@ impl<R: CommandRunner> Host<R> {
                 &endpoint.pane_id,
                 u32::try_from(lines).unwrap_or(u32::MAX),
             ),
+        }
+    }
+
+    /// The pane's visible screen as its host renders it, for a read-only view.
+    pub fn screen(&self, endpoint: &RequestEndpoint) -> Result<(ScreenFormat, String), HostError> {
+        match endpoint.server.host {
+            HostKind::Tmux => Ok((
+                ScreenFormat::Ansi,
+                self.tmux
+                    .screen_on(&endpoint.server.socket_path, &endpoint.pane_id)?,
+            )),
+            HostKind::External(host) => self
+                .external
+                .capture(host, &endpoint.server.socket_path, &endpoint.pane_id, 0)
+                .map(|text| (ScreenFormat::Plain, text)),
         }
     }
 

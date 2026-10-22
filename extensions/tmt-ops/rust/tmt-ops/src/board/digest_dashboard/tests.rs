@@ -251,6 +251,7 @@ fn quota_details_open_from_current_cells_and_menu_without_retargeting_or_replayi
     let mut app = quota_board();
     app.shell.tab = crate::board::shell::OpsTab::Agents;
     app.limits = Some(vec![crate::board::limits::Standing {
+        rates: Default::default(),
         provider: crate::board::limits::Provider::named("claude"),
         latest: None,
         burn: None,
@@ -330,6 +331,7 @@ fn quota_detail_scroll_uses_current_modal_viewport_and_resize_revokes_it() {
     app.limits = Some(
         (0..12)
             .map(|i| crate::board::limits::Standing {
+                rates: Default::default(),
                 provider: crate::board::limits::Provider::named(&format!("provider{i}")),
                 latest: None,
                 burn: None,
@@ -411,6 +413,7 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
                         .into_iter()
                         .enumerate()
                         .map(|(i, (left, short))| Standing {
+                            rates: Default::default(),
                             provider: Provider::named(match i {
                                 0 => "claude",
                                 1 => "codex",
@@ -646,191 +649,6 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
     assert_eq!(
         super::summary(&app),
         "Digest · ≥3 observed held · 1 unknown"
-    );
-}
-
-#[test]
-fn savings_captions_keep_estimate_window_and_partial_coverage() {
-    use crate::{
-        config::{DigestWindow, SavingsUnit},
-        labels::digest::SavingsSummary,
-    };
-    let mut value = SavingsSummary {
-        tokens: Some(18_200),
-        included: 3,
-        total: 5,
-        ..Default::default()
-    };
-    assert_eq!(
-        model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
-        "Est. ctx avoided 1d: 18.2k (3 of 5)"
-    );
-    assert_eq!(
-        model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 30),
-        "Est. avoided 1d: 18.2k (3 of 5)"
-    );
-    value.tokens = Some(1_400_000);
-    assert_eq!(
-        model::savings_caption(&value, DigestWindow::AllTime, SavingsUnit::Tokens, 100),
-        "Est. ctx avoided all time: 1.4M (3 of 5)"
-    );
-    value.tokens = Some(0);
-    value.included = 5;
-    assert_eq!(
-        model::savings_caption(&value, DigestWindow::Week, SavingsUnit::Tokens, 100),
-        "Est. ctx avoided 7d: 0"
-    );
-    value.tokens = None;
-    value.included = 0;
-    assert_eq!(
-        model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
-        "Est. ctx avoided 1d: — (0 of 5)"
-    );
-}
-
-#[test]
-fn every_unit_keeps_one_label_and_changes_only_the_value() {
-    use crate::{
-        config::{DigestWindow, SavingsUnit},
-        labels::digest::{SavingsSummary, Valuation},
-    };
-    let mut value = SavingsSummary {
-        tokens: Some(18_200),
-        included: 3,
-        total: 3,
-        percent: Valuation {
-            value: Some(1_204),
-            included: 3,
-            conflict: false,
-        },
-        cost: Valuation {
-            value: Some(12_398_600),
-            included: 2,
-            conflict: false,
-        },
-        ..Default::default()
-    };
-    let caption = |value: &SavingsSummary, window, unit, width| {
-        model::savings_caption(value, window, unit, width)
-    };
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
-        "Est. ctx avoided 1d: 18.2k"
-    );
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
-        "Est. ctx avoided 1d: 12% of input"
-    );
-    // Each unit has its own coverage.
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
-        "Est. ctx avoided 1d: ≈ $12.40 at list price (2 of 3)"
-    );
-    // Lifetime has no percent: the saved choice reads as tokens.
-    assert_eq!(
-        caption(&value, DigestWindow::AllTime, SavingsUnit::Percent, 100),
-        "Est. ctx avoided all time: 18.2k"
-    );
-    // The qualifier that stops cost reading as money saved never narrows away.
-    assert!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Cost, 20)
-            .ends_with("at list price (2 of 3)")
-    );
-    for (points, shown) in [
-        (0, "0%"),
-        (1, "<1%"),
-        (49, "<1%"),
-        (50, "1%"),
-        (1_667, "17%"),
-        (10_000, "100%"),
-    ] {
-        value.percent.value = Some(points);
-        assert_eq!(
-            caption(&value, DigestWindow::Week, SavingsUnit::Percent, 100),
-            format!("Est. ctx avoided 7d: {shown} of input")
-        );
-    }
-    for (micros, shown) in [
-        (0, "$0.00"),
-        (4_999, "< $0.01"),
-        (5_000, "≈ $0.01"),
-        (12_395_000, "≈ $12.40"),
-        (1_234_567_890, "≈ $1,234.57"),
-        (9_007_199_254_740_991, "≈ $9,007,199,254.74"),
-    ] {
-        value.cost.value = Some(micros);
-        value.cost.included = 3;
-        assert_eq!(
-            caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
-            format!("Est. ctx avoided 1d: {shown} at list price")
-        );
-    }
-    // Values that could not be combined are unavailable, named, and the note
-    // yields to width before the segment does.
-    value.percent = Valuation {
-        value: None,
-        included: 2,
-        conflict: true,
-    };
-    value.cost = Valuation {
-        value: None,
-        included: 2,
-        conflict: true,
-    };
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
-        "Est. ctx avoided 1d: — (intervals differ)"
-    );
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 37),
-        "Est. avoided 1d: — (intervals differ)"
-    );
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 36),
-        "Est. avoided 1d: —"
-    );
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
-        "Est. ctx avoided 1d: — (prices differ)"
-    );
-    // Nobody has the valuation: unavailable with its own coverage, not zero.
-    value.percent = Valuation::default();
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
-        "Est. ctx avoided 1d: — (0 of 3)"
-    );
-}
-
-#[test]
-fn lifetime_detail_uses_individual_source_starts_in_local_dates() {
-    use crate::{config::DigestWindow, labels::digest::SavingsSummary};
-    let ms = |value: &str| value.parse::<jiff::Timestamp>().unwrap().as_millisecond() as u64;
-    let zone = jiff::tz::TimeZone::get("Asia/Tokyo").unwrap();
-    let mut value = SavingsSummary {
-        tokens: Some(1),
-        included: 1,
-        total: 1,
-        earliest_from_ms: Some(ms("2026-10-01T16:00:00Z")),
-        latest_from_ms: Some(ms("2026-10-08T16:00:00Z")),
-        ..Default::default()
-    };
-    assert_eq!(
-        model::savings_start(&value, DigestWindow::AllTime, &zone, 160).as_deref(),
-        Some("since Digest began recording · members started 10-02 to 10-09")
-    );
-    value.latest_from_ms = value.earliest_from_ms;
-    assert_eq!(
-        model::savings_start(&value, DigestWindow::AllTime, &zone, 160).as_deref(),
-        Some("since Digest began recording on 10-02")
-    );
-    assert_eq!(
-        model::savings_start(&value, DigestWindow::Day, &zone, 160),
-        None
-    );
-    value.earliest_from_ms = None;
-    assert_eq!(
-        model::savings_start(&value, DigestWindow::AllTime, &zone, 160),
-        None
     );
 }
 
@@ -1649,6 +1467,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
     });
 }
 
+mod allowance;
 mod layout;
 
 #[test]

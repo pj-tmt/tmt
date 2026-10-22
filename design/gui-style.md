@@ -313,7 +313,8 @@ centered one-line label and an explicit remove control. Wrap the list at narrow
 widths; keep the full accessible name when a long label ellipsizes. A trailing
 `＋` opens a search combobox/listbox. Arrow keys move, Enter adds, Escape returns
 focus, Tab closes, and Backspace in an empty non-composing field removes the last
-chip, when enabled. Recipients use `Remove @name` and `Add recipient`; selected agents are not
+chip, when enabled. A host that lists recipients with it (the leaf fixture does; Colab's composer binds
+mention chips from its text instead) uses `Remove @name` and `Add recipient`; selected agents are not
 offered again. The host owns values, filtering, limits, status and trusted effects.
 At its cap Add is disabled with a visible reason; empty/loading/error copy stays
 host-owned. Page-list label tokens use the same item inside their existing editor.
@@ -430,18 +431,25 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   remains a borderless mark-and-label toggle beside it. Resolved windows start collapsed with counts,
   state/Reopen and an explicit Show conversation action; expansion retains drafts.
 
-- The recipient is independent of the message. An admitted stable prior
-  reply can supply the default; creation defaults require a reliable canonical binding.
-  Unknown creation and ambiguity require explicit selection, never a name or sole-agent guess.
-  Choose/Change recipient selects without mutating message text. There is no mandatory
-  `@` prefix. Optional mention completion preserves the surrounding
-  text and caret; changing or removing the token does not change the selected recipient.
+- The text decides the recipients. There is no separate recipient control: bound
+  mention chips and exactly typed `@name` tokens that match one current directory entry
+  are the recipients, and removing or replacing a token or chip removes its binding.
+  Prior replies and display names never choose a recipient. The one default is the
+  page's admitted creator, seeded as a chip in each fresh message while the device-local
+  creator toggle is on; removing that chip suppresses it for that message only. Unknown
+  names stay plain text, ambiguous names block Send until chosen or removed, fuzzy
+  matches never select, and mention completion preserves the surrounding text and caret.
+  The [browser discussion contract](../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
+  owns binding, the eight-recipient fan-out, offline handling and failure rules.
 - Enter submits the parent's current message action; Shift+Enter adds a line, Esc
   closes the innermost candidate list before the composer. Typed text and the selected
   recipient are kept on close and restored on the same anchor with `Draft kept`.
-- Plain comments have an explicit Post action and remain available under current
-  content-write admission when agent discovery fails. Asking an agent is an explicit
-  action; choosing a recipient alone never prepares or sends a message.
+- There is one Send. With no bound or exact mention it records a plain comment and
+  asks no one (`Posts as a comment.`; with a resolved creator and typed text the hint
+  adds `No agent will be asked.` and an `Ask @name` action that only inserts a chip);
+  with mentions its name says who gets it (`Send · to <names>`). A plain comment stays
+  available under current content-write admission when agent discovery fails. Choosing
+  or removing a recipient never prepares or sends a message.
 - Outside press closes it, but a page click never hides a typed draft; nothing
   closes it while a send is in flight.
 - `components/message-composer.tsx` is the shared plaintext editing boundary for

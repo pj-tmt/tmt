@@ -7,6 +7,148 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
 
+/** These controls can reach only this stub, never an installed tmux executable. */
+async function withStubTmux(
+  run: (fixture: {
+    executable: string;
+    calls: () => Array<{ args: string[]; tmux?: string; pane?: string }>;
+    socketReply: (value: string) => void;
+  }) => Promise<void>,
+) {
+  const path = await import('node:path');
+  const root = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'colab-tmux-stub-'));
+  const log = path.join(root, 'calls.jsonl');
+  const reply = path.join(root, 'socket-reply');
+  const executable = path.join(root, 'tmux');
+  fs.writeFileSync(
+    executable,
+    `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, tmux: process.env.TMUX, pane: process.env.TMUX_PANE }) + '\\n');
+const query = args.at(-1);
+if (query === '#{socket_path}') console.log(fs.existsSync(${JSON.stringify(reply)}) ? fs.readFileSync(${JSON.stringify(reply)}, 'utf8') : args[args.indexOf('-S') + 1]);
+if (query === '#{pid}') console.log(process.pid);
+if (query === '#{session_id}') console.log('$0');
+if (query === '#{pane_id}') console.log('%0');
+`,
+    { mode: 0o700 },
+  );
+  try {
+    await run({
+      executable,
+      socketReply: (value) => fs.writeFileSync(reply, value),
+      calls: () =>
+        fs.existsSync(log)
+          ? fs
+              .readFileSync(log, 'utf8')
+              .trim()
+              .split('\n')
+              .map((line) => JSON.parse(line))
+          : [],
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('harness: private tmux commands and the native wrapper select only the asserted socket', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  await withStubTmux(async (stub) => {
+    const binaries = { tmt: process.execPath, remote: process.execPath, colab: process.execPath };
+    const world = new AcceptanceWorld(binaries, { tmuxExecutable: stub.executable });
+    try {
+      await world.start();
+      const setupCalls = stub.calls().length;
+      world.tmux(['list-sessions']);
+      execFileSync('tmux', ['list-sessions'], { env: world.env('%0') });
+      execFileSync('tmux', ['-u', '-S', world.socketPath, 'list-sessions'], {
+        env: world.env('%0'),
+      });
+      const calls = stub.calls();
+      const list = ['-f', '/dev/null', '-S', world.socketPath, 'list-sessions'];
+      expect(calls.slice(setupCalls).map((call) => call.args)).toEqual([
+        list,
+        list,
+        ['-u', ...list],
+      ]);
+      for (const call of calls) {
+        const args = call.args[0] === '-u' ? call.args.slice(1) : call.args;
+        expect(args.slice(0, 4)).toEqual(['-f', '/dev/null', '-S', world.socketPath]);
+        expect(call.tmux).toBeUndefined();
+        expect(call.pane).toBeUndefined();
+      }
+      expect(() => world.tmux(['-S', '/foreign', 'list-sessions'])).toThrow('not allowed');
+      expect(() =>
+        execFileSync('tmux', ['-S', '/foreign', 'list-sessions'], {
+          env: world.env('%0'),
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+      expect(stub.calls()).toEqual(calls);
+    } finally {
+      expect(await world.dispose()).toEqual([]);
+    }
+    expect(fs.existsSync(world.root)).toBe(false);
+  });
+});
+
+test('harness: a changed private tmux socket is refused before the first server command', async () => {
+  const path = await import('node:path');
+  const { execFileSync } = await import('node:child_process');
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  await withStubTmux(async (stub) => {
+    const binaries = { tmt: process.execPath, remote: process.execPath, colab: process.execPath };
+    const world = new AcceptanceWorld(binaries, { tmuxExecutable: stub.executable });
+    fs.symlinkSync(path.join(world.root, 'foreign.sock'), world.socketPath);
+    try {
+      await expect(world.start()).rejects.toThrow('is a symlink');
+      expect(() =>
+        execFileSync('tmux', ['list-sessions'], {
+          env: world.env(),
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+      expect(stub.calls()).toEqual([]);
+      expect(() => AcceptanceWorld.stopServer(world.root, world.socketPath)).toThrow(
+        'is a symlink',
+      );
+      expect(() => AcceptanceWorld.stopServer(world.root, '/foreign.sock')).toThrow(
+        'outside the test root',
+      );
+      expect(stub.calls()).toEqual([]);
+    } finally {
+      expect(await world.dispose()).toEqual([]);
+    }
+    expect(fs.existsSync(world.root)).toBe(false);
+  });
+});
+
+test('harness: a refused reported tmux socket still stops the created private server', async () => {
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  await withStubTmux(async (stub) => {
+    const binaries = { tmt: process.execPath, remote: process.execPath, colab: process.execPath };
+    // A refusal after starting must retain enough ownership to stop this world's server.
+    const mismatch = new AcceptanceWorld(binaries, { tmuxExecutable: stub.executable });
+    stub.socketReply('/foreign.sock');
+    try {
+      await expect(mismatch.start()).rejects.toThrow('different acceptance socket');
+    } finally {
+      const callsBeforeDispose = stub.calls().length;
+      expect(await mismatch.dispose()).toEqual([]);
+      expect(stub.calls()).toHaveLength(callsBeforeDispose + 1);
+      expect(stub.calls().at(-1)?.args.slice(0, 4)).toEqual([
+        '-f',
+        '/dev/null',
+        '-S',
+        mismatch.socketPath,
+      ]);
+    }
+    expect(fs.existsSync(mismatch.root)).toBe(false);
+  });
+});
+
 // Proves the harness itself, independent of the Ask agent code: real binaries,
 // real pairing of two browser devices, a recipient whose durable counter and
 // real `tmt reply` carry the work, and a world that leaves nothing behind.
@@ -189,7 +331,7 @@ test('harness: a closer that never finishes is bounded and reported, and the res
   expect(fs.existsSync(world.root)).toBe(false);
   const listing = await processes();
   expect(listing).not.toContain(world.root);
-  expect(listing).not.toContain(` -L ${world.tmuxName}`);
+  expect(listing).not.toContain(` -S ${world.socketPath}`);
 });
 
 // A provider wrapper must finish and be reaped by tmux before the server goes away.
@@ -309,7 +451,7 @@ interface WorldLifecycle {
 
 /** Child fixture records are emitted only by the harness's spawn/start owners. */
 async function cleanupChildWorlds(records: WorldLifecycle[]): Promise<void> {
-  const { execFileSync } = await import('node:child_process');
+  const { AcceptanceWorld } = await import('./harness/world.js');
   const { alive, until } = await import('./harness/process.js');
   const { signalServeLockOwner } = await import('./harness/serve-lock.js');
   for (const root of new Set(records.map((record) => record.root))) {
@@ -333,8 +475,10 @@ async function cleanupChildWorlds(records: WorldLifecycle[]): Promise<void> {
         await until(() => !alive(pid), 'recorded private serve exit', 3_000);
     }
     const started = records.find((record) => record.root === root && record.stage === 'started');
-    if (started && alive(started.tmuxPid))
-      execFileSync('tmux', ['-S', started.tmuxSocket, 'kill-server']);
+    if (started && alive(started.tmuxPid)) {
+      AcceptanceWorld.stopServer(root, started.tmuxSocket);
+      await until(() => !alive(started.tmuxPid), 'recorded private tmux server exit', 3_000);
+    }
     fs.rmSync(root, { recursive: true, force: true });
   }
 }
