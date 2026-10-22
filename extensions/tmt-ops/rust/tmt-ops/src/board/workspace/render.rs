@@ -309,7 +309,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         &slots,
         look,
         app.cron_glyphs,
-        app.tok_range(),
+        app.tok_heading(),
         &marks,
     );
     let mut strip_hits = app.workspace_strip_hits.borrow_mut();
@@ -363,28 +363,45 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 OpsTarget::Pool | OpsTarget::DigestAll => None,
             };
             let timers = scope.and_then(|scope| app.cron.counts.count(scope));
-            let tokens = match &row.target {
-                OpsTarget::Squad(room) => snapshot
-                    .roster
-                    .squads
-                    .iter()
-                    .find(|squad| &squad.room_id == room)
-                    .and_then(|squad| app.overview_squad_usage(squad)),
-                OpsTarget::Member { identity_id, .. } => app
-                    .overview_member_usage(identity_id)
-                    .map(|reading| (reading.tokens, reading.partial)),
-                OpsTarget::Pool | OpsTarget::DigestAll => None,
-            }
-            .map_or_else(
-                || "—".into(),
-                |(tokens, partial)| {
-                    format!(
-                        "{}{}",
-                        if partial { "~" } else { "" },
-                        crate::source::tokens(tokens)
-                    )
-                },
-            );
+            let tokens = if app.tok_money() {
+                let members: std::collections::BTreeSet<&str> = match &row.target {
+                    OpsTarget::Squad(room) => snapshot
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| &squad.room_id == room)
+                        .map(|squad| squad.members.iter().map(String::as_str).collect())
+                        .unwrap_or_default(),
+                    OpsTarget::Member { identity_id, .. } => {
+                        std::iter::once(identity_id.as_str()).collect()
+                    }
+                    OpsTarget::Pool | OpsTarget::DigestAll => Default::default(),
+                };
+                app.tok_money_text(&members.into_iter().collect::<Vec<_>>())
+            } else {
+                match &row.target {
+                    OpsTarget::Squad(room) => snapshot
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| &squad.room_id == room)
+                        .and_then(|squad| app.overview_squad_usage(squad)),
+                    OpsTarget::Member { identity_id, .. } => app
+                        .overview_member_usage(identity_id)
+                        .map(|reading| (reading.tokens, reading.partial)),
+                    OpsTarget::Pool | OpsTarget::DigestAll => None,
+                }
+                .map_or_else(
+                    || "—".into(),
+                    |(tokens, partial)| {
+                        format!(
+                            "{}{}",
+                            if partial { "~" } else { "" },
+                            crate::source::tokens(tokens)
+                        )
+                    },
+                )
+            };
             let model_width = slots
                 .iter()
                 .find(|(field, _)| *field == Field::Model)
@@ -533,6 +550,11 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 },
                 look,
             );
+            if let Some(area) = painted.tokens {
+                app.workspace_strip_hits
+                    .borrow_mut()
+                    .push((area, Choice::TokMoney));
+            }
             if let Some(area) = painted.task {
                 crate::board::conversation::source::publish(
                     app,

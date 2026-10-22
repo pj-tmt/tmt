@@ -172,7 +172,7 @@ export function mountWorkPage(
   };
   if (scenario === 'child' || scenario === 'child-orphan') {
     // Arriving from the list: the list this page was opened from names its parent task.
-    const parent = { page: PARENT, task: 'T-3' };
+    const parent = { page: PARENT, task: 'T-3', title: 'Draft the copy' };
     rememberPages(routed, undefined, [
       {
         id: 'notes',

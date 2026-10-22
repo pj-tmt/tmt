@@ -383,6 +383,8 @@ jobs:
       TMT_COLAB_APP_DIR: ${{ github.workspace }}/extensions/tmt-colab/typescript/app/dist
       TMT_ACCEPTANCE_BIN_DIR: ${{ github.workspace }}/rust/target/debug
     steps:
+      - name: Record acceptance job start
+        run: echo "TMT_ACCEPTANCE_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -454,9 +456,10 @@ jobs:
             echo "Shard ${{ matrix.shard }} of 2 has no spec files; refusing to run the whole suite." >&2
             exit 1
           fi
-          pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
+          node scripts/colab-acceptance-run.mjs ${{ matrix.shard }} pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
       # Run once per full event, after the ordinary binaries and their hashes were consumed.
       - name: Prove the real producer and hosted reader through the emulators
+        timeout-minutes: 3
         if: ${{ !cancelled() && matrix.shard == 1 }}
         uses: ./.github/actions/hosted-reader-emulator
       - name: Retain only test outcomes without credentials or trace payloads

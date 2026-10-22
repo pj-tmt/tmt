@@ -101,10 +101,11 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await page.screenshot({ path: '/tmp/1713-native-1440-light-draft-kept.png' });
     await page.locator('.tmt-ui-header').click({ position: { x: 4, y: 4 } });
     await expect(popover).toHaveCount(0);
-    // A different selection does not inherit it.
+    // A different selection gets its settled creator seed, never the earlier typed body.
     await selectInRenderer(page, '#other');
     await page.getByTestId('selection-ask').click();
-    await expect(input).toHaveText('', { useInnerText: true });
+    await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
+    await expect(input).not.toContainText('Keep this draft.');
     await expect(popover.getByText('Draft kept', { exact: true })).toHaveCount(0);
     await close.click();
     expect(agent.received()).toHaveLength(0);

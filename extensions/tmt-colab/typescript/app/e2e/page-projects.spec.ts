@@ -17,6 +17,10 @@ const requests = (page: Page) =>
   page.evaluate(async (path) => (await import(path)).projectProof().requests, fixture) as Promise<
     { pageId: string; projects: string[] }[]
   >;
+const pins = (page: Page) =>
+  page.evaluate(async (path) => (await import(path)).projectProof().pins, fixture) as Promise<
+    { pageId: string; pinned: boolean }[]
+  >;
 const reads = (page: Page) =>
   page.evaluate(
     async (path) => (await import(path)).projectProof().spaceHomeReads,
@@ -41,6 +45,7 @@ async function open(
     deepLink?: boolean;
     slowRead?: boolean;
     strict?: boolean;
+    pinFail?: string;
   } = {},
 ) {
   await page.setViewportSize({ width, height: 900 });
@@ -54,6 +59,7 @@ async function open(
       fail: options.fail,
       deepLink: options.deepLink,
       slowRead: options.slowRead,
+      pinFail: options.pinFail,
     },
   });
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
@@ -148,6 +154,48 @@ test('choosing a project writes the page set and updates the chips; unchecking r
   await page.getByRole('menuitemcheckbox', { name: 'alpha' }).click();
   await expect(header.locator('.page-header-project-chip')).toHaveText(['beta', 'gamma']);
   expect((await requests(page)).at(-1)!.projects).toEqual(['beta', 'gamma']);
+});
+
+test('the header pins the page and unpins it, and a refusal is told beside the control', async ({
+  page,
+}) => {
+  const header = await open(page);
+  const pin = header.getByRole('button', { name: /^Pin Live shared page/ });
+  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+  await pin.click();
+  const unpin = header.getByRole('button', { name: /^Unpin Live shared page/ });
+  await expect(unpin).toHaveAttribute('aria-pressed', 'true');
+  expect(await pins(page)).toEqual([{ pageId: expect.any(String), pinned: true }]);
+  await unpin.click();
+  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+  expect((await pins(page)).map((request) => request.pinned)).toEqual([true, false]);
+});
+
+for (const theme of ['light', 'dark'] as const)
+  test(`the page header shows its pin beside the chips at 1440 ${theme}`, async ({ page }) => {
+    const header = await open(page, 1440, theme);
+    await header.getByRole('button', { name: /^Pin Live shared page/ }).click();
+    await expect(header.getByRole('button', { name: /^Unpin Live shared page/ })).toBeVisible();
+    expect(await noOverflow(page)).toBe(true);
+    await capture(page, `4356-header-pinned-1440-${theme}.png`);
+  });
+
+test('a phone header leaves its room to the title and keeps the pin on the Home row', async ({
+  page,
+}) => {
+  const header = await open(page, 390);
+  await expect(header.getByRole('button', { name: /^Pin Live shared page/ })).toBeHidden();
+  expect(await noOverflow(page)).toBe(true);
+});
+
+test('the header says why a pin was refused and keeps the page unpinned', async ({ page }) => {
+  const header = await open(page, 1440, 'light', { pinFail: 'CAPACITY' });
+  await header.getByRole('button', { name: /^Pin Live shared page/ }).click();
+  await expect(header.getByRole('alert')).toContainText('At most 20 pages can be pinned');
+  await expect(header.getByRole('button', { name: /^Pin Live shared page/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
 });
 
 test('the chips and Projects… in More open the same picker', async ({ page }) => {

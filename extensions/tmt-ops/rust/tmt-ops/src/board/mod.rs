@@ -35,6 +35,7 @@ mod key_value;
 mod keycap;
 mod lane;
 mod limits;
+pub(crate) use limits::history::document as limits_history;
 mod markdown;
 mod member_links;
 mod mentions;
@@ -161,6 +162,8 @@ pub(in crate::board) enum BoardEvent {
     },
     /// The labels the configured sources now supply; no generation, it is not a load.
     Labels(crate::labels::Supplied),
+    /// What the worker read from a dropped file's first bytes; no generation, it is not a load.
+    FileInfo(composer::files::Delivery),
     /// A finished Usage report read; no generation, it is not a load.
     UsageReport(usage_report::Delivery),
     HomeUsage {
@@ -887,6 +890,10 @@ fn session(
                 app.labels = supplied;
                 Effect::None
             }
+            Ok(BoardEvent::FileInfo(delivery)) => {
+                dirty |= app.apply_file_info(delivery);
+                Effect::None
+            }
             Ok(BoardEvent::UsageReport(delivery)) => {
                 app.usage_report.apply(delivery);
                 app.workspace_reconcile();
@@ -1424,6 +1431,11 @@ pub fn run(
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
     let keyboard_enhanced = guard.enable_keyboard_enhancement().map_err(failed)?;
     let mut app = App::new(squad);
+    // Dropped files' first bytes are read away from the paste and draw paths.
+    app.composer.probe = Some(composer::files::Probe::spawn({
+        let events = events.clone();
+        move |delivery| events.send(BoardEvent::FileInfo(delivery)).is_ok()
+    }));
     app.keyboard_enhanced = keyboard_enhanced;
     app.invoker_tmux = invoker_tmux;
     if let Some(tab) = cold_tab {
@@ -3372,9 +3384,9 @@ mod tests {
     fn a_board_with_a_draft_open_keeps_running_until_it_is_cancelled() {
         let draft = || app::Input {
             draft_key: None,
-            response_quotes: Vec::new(),
-            chat_quotes: Vec::new(),
-            chat_quote_focus: None,
+
+            inline_quotes: Default::default(),
+
             row_send: None,
             link: None,
             prompt: String::new(),

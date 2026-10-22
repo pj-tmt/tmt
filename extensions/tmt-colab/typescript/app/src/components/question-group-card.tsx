@@ -176,6 +176,9 @@ export function QuestionGroupCard({
     setRecipientState({ recipients: defaults, initialized: true });
   }
   const resolvingDefaults = !!ask && !recipientState.initialized && directory.state === 'loading';
+  // A recorded answer is released once its verified comment is in the discussion. The comment can
+  // arrive before `pending` is set (the Ask is still being prepared when the record lands), so
+  // the check follows the drafts as well as the discussion.
   useEffect(() => {
     setDrafts((previous) => {
       const verified = members.filter((question) => {
@@ -198,7 +201,7 @@ export function QuestionGroupCard({
       for (const question of verified) next[question.id] = emptyDraft();
       return next;
     });
-  }, [members, associated, setDrafts]);
+  }, [members, associated, drafts, setDrafts]);
   useEffect(() => {
     if (!focusReply || focusReply.id !== selected || !attached || !selectors.has(selected)) return;
     // Changing the open question retires its previous controls. Focus after the slot owner

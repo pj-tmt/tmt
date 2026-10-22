@@ -73,6 +73,8 @@ enum Action {
     /// of the named pages' projects, or one change to the space's projects.
     Projects(Vec<(String, Vec<String>)>),
     Project(crate::projects::Change),
+    /// Display-only pin of the request's page (contract: Pins).
+    Pin(bool),
     Archive,
     Unarchive,
     Delete,
@@ -161,6 +163,13 @@ fn present_text<'de, D: serde::Deserializer<'de>>(
 struct PageProjects {
     page_id: String,
     projects: Vec<String>,
+}
+/// The payload of `page.pin`: the page it names is the request's own.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PagePin {
+    page_id: String,
+    pinned: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -276,6 +285,13 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                     .map(|change| (change.page_id.clone(), change.projects.clone()))
                     .collect(),
             )
+        }
+        "page.pin" => {
+            let value: PagePin = typed(bytes)?;
+            if value.page_id != page {
+                return Err(tmt_colab_model::Invalid);
+            }
+            Action::Pin(value.pinned)
         }
         "project.manage" => {
             use crate::projects::{Change, valid};
@@ -404,8 +420,10 @@ impl Command {
             values::generated_id(&value.page)?;
             values::generated_id(&value.operation_id)?;
             let creating = value.operation == "page.create";
-            let revision = if matches!(value.operation.as_str(), "page.projects" | "project.manage")
-            {
+            let revision = if matches!(
+                value.operation.as_str(),
+                "page.projects" | "project.manage" | "page.pin"
+            ) {
                 auth::management_revision(&value.operation, &value.expected_revision)?.unwrap_or(0)
             } else {
                 values::decimal(&value.expected_revision, creating)?
@@ -543,6 +561,7 @@ fn apply(
     if let Some(head) = match &command.action {
         Action::Projects(changes) => Some(service.set_projects(changes)),
         Action::Project(change) => Some(service.manage_project(change)),
+        Action::Pin(pinned) => Some(service.set_pinned(&command.page, *pinned)),
         _ => None,
     } {
         let head = head.map_err(|error| error.code)?;
@@ -631,7 +650,7 @@ fn apply(
                 payload::Days::Count(n) => Some(*n),
             },
         },
-        Action::Projects(_) | Action::Project(_) => return Err(Code::Invalid),
+        Action::Projects(_) | Action::Project(_) | Action::Pin(_) => return Err(Code::Invalid),
         Action::MemberAdd(v) => {
             OwnerAction::Member(MemberAction::Add(crate::store::owner::Recipient {
                 kind: "member".into(),
@@ -712,7 +731,7 @@ mod tests {
     const OP: &str = "30000000-0000-4000-8000-000000000001";
     /// Projects carry an empty revision field; every other operation names a membership head.
     fn revision(operation: &str) -> &'static str {
-        if matches!(operation, "page.projects" | "project.manage") {
+        if matches!(operation, "page.projects" | "project.manage" | "page.pin") {
             ""
         } else {
             "1"

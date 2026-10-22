@@ -4,7 +4,7 @@ node_modules/
 tmt.json
 lib/
 dist/
-.claude/settings.json
+.claude/settings.local.json
 .tmux-team-id
 coverage/
 rust/target/

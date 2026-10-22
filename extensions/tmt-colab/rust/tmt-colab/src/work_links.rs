@@ -28,6 +28,10 @@ pub enum Refusal {
 
 /// What the work index holds for the pages of the space: a page absent from it is unavailable, a
 /// page present without work is in discussion.
+/// The most code points of a parent task's title a list row carries (`bootstrap.ts` holds the
+/// same number).
+pub const PARENT_TITLE_POINTS: usize = 32;
+
 pub struct Graph<'a>(pub &'a Found);
 
 impl Graph<'_> {
@@ -93,6 +97,20 @@ impl Graph<'_> {
             }
         }
         found
+    }
+
+    /// The title of task `task` of `page`, clipped to `PARENT_TITLE_POINTS` code points (a longer
+    /// one ends in `…`), when the page's tasks are kept (a page whose tasks follow other pages:
+    /// every parent is one). The list reply is bounded for 1,000 rows, so the clip is part of it.
+    pub fn task_title(&self, page: &str, task: &str) -> Option<String> {
+        let work = self.0.get(page)?.as_ref()?;
+        let title = &work.lines.iter().find(|line| line.id == task)?.title;
+        Some(if title.chars().count() > PARENT_TITLE_POINTS {
+            let head: String = title.chars().take(PARENT_TITLE_POINTS - 1).collect();
+            format!("{}…", head.trim_end())
+        } else {
+            title.clone()
+        })
     }
 
     /// The task that follows `child`, if any (see `parents`). `(page, task)`.
@@ -173,6 +191,7 @@ mod tests {
     fn line(id: &str, state: &str, child: Option<&str>) -> Line {
         Line {
             id: id.into(),
+            title: format!("Title of {id}"),
             state: state.into(),
             signoff: false,
             assignee: None,
@@ -297,6 +316,46 @@ mod tests {
             Some(("a".to_owned(), "T-4".to_owned()))
         );
         assert_eq!(Graph(&found).parent("a"), None);
+    }
+
+    #[test]
+    fn a_task_of_a_kept_page_names_its_title_and_other_tasks_do_not() {
+        let found = found(vec![
+            (
+                "b",
+                page(vec![
+                    line("T-1", "todo", Some("x")),
+                    line("T-2", "todo", None),
+                ]),
+            ),
+            ("c", page(vec![line("T-1", "todo", None)])),
+        ]);
+        let graph = Graph(&found);
+        assert_eq!(
+            graph.task_title("b", "T-1").as_deref(),
+            Some("Title of T-1")
+        );
+        assert_eq!(graph.task_title("b", "T-9"), None);
+        // A page whose tasks follow nothing keeps no lines, so it names none.
+        assert_eq!(graph.task_title("c", "T-1"), None);
+        assert_eq!(graph.task_title("zz", "T-1"), None);
+    }
+
+    #[test]
+    fn a_long_title_is_clipped_to_the_bound_and_ends_in_an_ellipsis() {
+        let mut long = line("T-1", "todo", Some("x"));
+        long.title = "é".repeat(PARENT_TITLE_POINTS + 5);
+        let clipped = found(vec![("b", page(vec![long]))]);
+        let title = Graph(&clipped).task_title("b", "T-1").unwrap();
+        assert_eq!(title.chars().count(), PARENT_TITLE_POINTS);
+        assert!(title.ends_with('…'));
+        let mut exact = line("T-1", "todo", Some("x"));
+        exact.title = "é".repeat(PARENT_TITLE_POINTS);
+        let whole = found(vec![("b", page(vec![exact]))]);
+        assert_eq!(
+            Graph(&whole).task_title("b", "T-1").unwrap(),
+            "é".repeat(PARENT_TITLE_POINTS)
+        );
     }
 
     #[test]

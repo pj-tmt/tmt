@@ -9,12 +9,13 @@
 mod allowance;
 mod estimate;
 mod footer;
+pub(super) mod history;
 mod listing;
 pub(in crate::board) mod observation;
 pub(in crate::board) mod pace;
 mod store;
 
-pub use allowance::{Line, NEED_CAP, Need, Outcome, Rates, Row, Weekly, rows};
+pub use allowance::{Line, NEED_CAP, Need, Outcome, Rates, Row, Spent, Weekly, rows};
 pub use estimate::{Figures, Left, Outlook, Trend, outlook};
 use serde_json::Value;
 use std::{

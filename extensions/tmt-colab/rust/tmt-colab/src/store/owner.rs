@@ -26,6 +26,9 @@ pub enum OwnerFault {
     StaleHead,
     WrongOwner,
     Invalid,
+    /// The page is archived: a display-only pin names it (contract: Pins), so the refusal says why
+    /// instead of reading as a device that may not write.
+    PageArchived,
     Capacity,
     /// One page's state is past a read limit; names the page, what was measured and the limit.
     PageCapacity(PageCapacity),
@@ -431,6 +434,53 @@ impl OwnerTransaction<'_> {
             self.check_project_names()?;
         }
         Ok(())
+    }
+    /// The pinned pages, in pin order.
+    pub fn pins(&self) -> Result<Vec<String>> {
+        let mut query = self.tx.prepare("SELECT page FROM page_pins ORDER BY seq")?;
+        Ok(query
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?)
+    }
+    /// Pin or unpin one open page (display-only, like projects). A pin goes last in the pin order;
+    /// pinning a pinned page or unpinning an unpinned one changes nothing. A pin past `SPACE_PINS` is
+    /// a capacity refusal, never a dropped older pin. Returns whether the stored state changed.
+    pub fn set_pinned(&mut self, page: &str, pinned: bool) -> Result<bool> {
+        values::generated_id(page).map_err(|_| OwnerFault::Invalid)?;
+        let open: bool = self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM epoch_secrets WHERE page=?)",
+            [page],
+            |r| r.get(0),
+        )?;
+        if !open {
+            return Err(OwnerFault::Invalid.into());
+        }
+        if !pinned {
+            return Ok(self
+                .tx
+                .execute("DELETE FROM page_pins WHERE page=?", [page])?
+                == 1);
+        }
+        let held: bool = self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM page_pins WHERE page=?)",
+            [page],
+            |r| r.get(0),
+        )?;
+        if held {
+            return Ok(false);
+        }
+        let total: i64 = self
+            .tx
+            .query_row("SELECT COUNT(*) FROM page_pins", [], |r| r.get(0))?;
+        if usize::try_from(total).map_or(true, |total| total >= crate::limits::SPACE_PINS) {
+            return Err(OwnerFault::Capacity.into());
+        }
+        self.tx.execute(
+            "INSERT INTO page_pins(page,seq)
+                SELECT ?, COALESCE(MAX(seq),0)+1 FROM page_pins",
+            [page],
+        )?;
+        Ok(true)
     }
     /// Create, rename or delete one project in the transaction. Create is idempotent; renaming onto
     /// an existing name merges the two; deleting removes the grouping and never a page. A project

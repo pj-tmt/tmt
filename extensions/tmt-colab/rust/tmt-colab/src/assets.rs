@@ -23,8 +23,9 @@ pub use crate::browser_policy::RENDERER_POLICY;
 
 /// Public static bytes an unpaired browser may fetch: the read-only reader entry (served at
 /// `/read`, which keeps the entry's relative `./assets/` references under the mount), the files it
-/// loads, the opaque renderer and the guidance script. Owner app files stay owner-only. The names
-/// are fixed by the `reader` and `recovery` build modes, so this allowlist is exact.
+/// loads, the opaque renderer, the guidance script and the page runtime a reader's page may opt
+/// into (#1693). Owner app files stay owner-only. The names are fixed by the `reader`, `recovery`
+/// and `runtime` build modes, so this allowlist is exact.
 pub const READER_ROUTE: &str = "/read";
 pub fn anonymous_file(path: &str) -> Option<&'static str> {
     Some(match path {
@@ -34,6 +35,8 @@ pub fn anonymous_file(path: &str) -> Option<&'static str> {
         "/assets/reader.css" => "/assets/reader.css",
         "/assets/reader-fold.js" => "/assets/reader-fold.js",
         "/assets/recovery.js" => "/assets/recovery.js",
+        "/assets/colab-runtime.js" => "/assets/colab-runtime.js",
+        "/assets/colab-runtime.css" => "/assets/colab-runtime.css",
         "/assets/chrome.css" => "/assets/chrome.css",
         _ => return None,
     })

@@ -120,7 +120,7 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
         value,
         json!({"items":[{
         "requestId":REQUEST,"roomId":null,"recipientId":ID,"sender":{"kind":"unknown","identityId":null},
-        "kind":"request","origin":"person","urgent":false,"digestKind":"fyi","preparedAtMs":1000,"delivery":"queued","recipientAcknowledged":false,
+        "kind":"request","origin":"person","urgent":false,"digestKind":"fyi","mode":"request","preparedAtMs":1000,"delivery":"queued","recipientAcknowledged":false,
         "preview":"Question","final":{"status":"retained","submittedAtMs":2000,"bodyBytes":8,"expiresAtMs":3000}
     }],"nextBefore":null})
     );
@@ -156,9 +156,10 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
     );
     assert_eq!(value["final"]["response"], "  answer\n");
     assert_eq!(value["recipientAcknowledged"], Value::Null);
-    assert_eq!(value.as_object().unwrap().len(), 13);
+    assert_eq!(value.as_object().unwrap().len(), 14);
     assert_eq!(value["urgent"], false);
     assert_eq!(value["digestKind"], "fyi");
+    assert_eq!(value["mode"], "request");
     for private in ["proof", "attemptId", "nonce", "socketPath", "paneId"] {
         assert!(value.get(private).is_none());
     }
@@ -269,5 +270,6 @@ fn results_wire_adds_only_preview_metadata_and_submission_cursor() {
         value["items"][0]["final"],
         json!({"status":"expired","submittedAtMs":2,"expiresAtMs":3})
     );
-    assert_eq!(value["items"][0].as_object().unwrap().len(), 15);
+    assert_eq!(value["items"][0].as_object().unwrap().len(), 16);
+    assert_eq!(value["items"][0]["mode"], "request");
 }

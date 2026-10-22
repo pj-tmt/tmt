@@ -212,6 +212,20 @@ it('a list the space home already loaded is shown at once by a switcher that nev
   });
 });
 
+it('a space whose last watcher stopped keeps no entry, and a later watcher still hears lists', () => {
+  const { transport: t } = transport();
+  const seen: number[] = [];
+  const first = watchRememberedPages(t, SPACE, () => {});
+  const second = watchRememberedPages(t, SPACE, () => {});
+  first();
+  second();
+  const stop = watchRememberedPages(t, SPACE, (pages) => seen.push(pages.length));
+  second();
+  rememberPages(t, SPACE, [page(1, 'One')]);
+  expect(seen).toEqual([1]);
+  stop();
+});
+
 it('a watcher follows each list remembered for its transport and space until it stops', () => {
   const { transport: t } = transport();
   const { transport: other } = transport();

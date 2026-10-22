@@ -4,6 +4,7 @@ import {
   AUTHOR_BYTES,
   DISCOVERY_BYTES,
   PAGE_TITLE_BYTES,
+  PARENT_TITLE_POINTS,
   ROW_WORKING,
   discover,
 } from '../src/bootstrap.js';
@@ -140,7 +141,12 @@ it('keeps 1000 worst-sized work rows and parents inside the bounded response', a
       needsYou: 350,
       author,
       work,
-      parent: { page: '10000000-0000-4000-8000-000000000001', task: 'T-9999999' },
+      parent: {
+        page: '10000000-0000-4000-8000-000000000001',
+        task: 'T-9999999',
+        // The longest title a row carries: 32 code points of four bytes each.
+        title: '\u{1F680}'.repeat(PARENT_TITLE_POINTS),
+      },
     },
   }));
   const body = await response(pages);
@@ -151,6 +157,7 @@ it('keeps 1000 worst-sized work rows and parents inside the bounded response', a
   const boot = await discover(mount);
   expect(boot.pages[999].summary?.work).toEqual(work);
   expect(boot.pages[999].summary?.parent?.task).toBe('T-9999999');
+  expect(boot.pages[999].summary?.parent?.title).toBe('\u{1F680}'.repeat(PARENT_TITLE_POINTS));
 });
 it("accepts the owner's local page title and refuses one it never serves", async () => {
   vi.stubGlobal('navigator', {
@@ -239,10 +246,16 @@ it('accepts a work row and the task that follows the page, each on its own', asy
   await response([
     ...rows.map((work, n) => ({ ...metadata, pageId: id(n + 1), summary: { ...base, work } })),
     { ...metadata, pageId: id(9), summary: { ...base, parent: { page: id(1), task: 'T-1' } } },
+    {
+      ...metadata,
+      pageId: id(10),
+      summary: { ...base, parent: { page: id(1), task: 'T-1', title: 'Draft the export' } },
+    },
   ]);
   const { pages } = await discover(mount);
   expect(pages.slice(0, 4).map((page) => page.summary?.work)).toEqual(rows);
   expect(pages[4].summary).toEqual({ ...base, parent: { page: id(1), task: 'T-1' } });
+  expect(pages[5].summary?.parent?.title).toBe('Draft the export');
 });
 it('refuses a work row or a parent outside the bounds the owner derives', async () => {
   vi.stubGlobal('navigator', {
@@ -292,6 +305,11 @@ it('refuses a work row or a parent outside the bounds the owner derives', async 
     { ...base, parent: { ...parent, task: 'T-01' } },
     { ...base, parent: { ...parent, task: 'T-10000000' } },
     { ...base, parent: { ...parent, task: 'task' } },
+    // The parent task's title is optional, bounded text; a longer or odd one is not the owner's.
+    { ...base, parent: { ...parent, title: '' } },
+    { ...base, parent: { ...parent, title: 7 } },
+    { ...base, parent: { ...parent, title: 'x'.repeat(PARENT_TITLE_POINTS + 1) } },
+    { ...base, parent: { ...parent, title: 'tab\there' } },
     { ...base, parent: { ...parent, task: 1 } },
   ]) {
     await response([{ ...metadata, summary }]);

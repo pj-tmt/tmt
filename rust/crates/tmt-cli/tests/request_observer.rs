@@ -17,8 +17,14 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
-use tmt_adapters::{request_runtime::wall_time_ms, storage::Storage};
-use tmt_core::request::{RequestService, SubmitResponse, notification::NotificationPolicy};
+use tmt_adapters::{
+    request_runtime::{request_ids, wall_time_ms},
+    storage::Storage,
+};
+use tmt_core::request::{
+    Originator, PrepareRequest, RequestKind, RequestOrigin, RequestRoute, RequestService,
+    SubmitResponse, notification::NotificationPolicy,
+};
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
@@ -47,23 +53,40 @@ impl Fixture {
             deadline_ms: 0,
             child: None,
         };
-        fixture.run(&["identity", "create", "Sender", "--json"]);
-        fixture.run(&["identity", "create", "Receiver", "--json"]);
-        let queued = fixture.run(&[
-            "talk",
-            "Receiver",
-            "observer probe",
-            "--inbox",
-            "--detach",
-            "--identity",
-            "Sender",
-            "--json",
-        ]);
-        let receipt: serde_json::Value = serde_json::from_slice(&queued.stdout).unwrap();
-        fixture.request_id = receipt["requestId"].as_str().unwrap().into();
-        fixture.recipient_id = receipt["recipientIdentityId"].as_str().unwrap().into();
-        fixture.deadline_ms = wall_time_ms() + timeout_ms;
+        let created = |fixture: &mut Fixture, name: &str| -> String {
+            let output = fixture.run(&["identity", "create", name, "--json"]);
+            let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            document["identity"]["id"].as_str().unwrap().into()
+        };
+        let sender = created(&mut fixture, "Sender");
+        fixture.recipient_id = created(&mut fixture, "Receiver");
+        // A request nobody asked to be notified about: the observer tests add the
+        // one notification policy under test themselves.
+        let (request_id, attempt_id) = request_ids();
+        fixture.request_id = request_id.clone();
         let mut storage = Storage::open(&fixture.database).unwrap();
+        RequestService::new(&mut storage, wall_time_ms)
+            .enqueue(
+                PrepareRequest {
+                    kind: RequestKind::Request,
+                    origin: RequestOrigin::Person,
+                    room_id: None,
+                    request_id,
+                    message: "observer probe".into(),
+                    route: RequestRoute::Inbox {
+                        recipient_identity_id: fixture.recipient_id.clone(),
+                    },
+                    wait: false,
+                    expires_at_ms: wall_time_ms() + 3_600_000,
+                    originator: Originator::Explicit(sender),
+                    recipient_identity_id: Some(fixture.recipient_id.clone()),
+                    preamble: None,
+                },
+                attempt_id,
+                7,
+            )
+            .unwrap();
+        fixture.deadline_ms = wall_time_ms() + timeout_ms;
         RequestService::new(&mut storage, wall_time_ms)
             .enable_notifications(
                 &fixture.request_id,

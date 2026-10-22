@@ -1,5 +1,6 @@
 //! Projects in the owner store: display-only projection state, one immediate transaction per
-//! write, no statement and no head change (contract: Projects).
+//! write, no statement and no head change (contract: Projects). Pins are the same kind of state and
+//! share this fixture (contract: Pins).
 use rusqlite::Connection;
 use std::{
     fs,
@@ -8,7 +9,7 @@ use std::{
 };
 use tmt_colab::{
     keyring::{Keyring, Layout},
-    limits::{PAGE_PROJECTS, SPACE_PROJECT_PAGES, SPACE_PROJECTS},
+    limits::{PAGE_PROJECTS, SPACE_PINS, SPACE_PROJECT_PAGES, SPACE_PROJECTS},
     projects::Change,
     store::{Store, owner::OwnerFault},
 };
@@ -87,6 +88,19 @@ impl Fixture {
             .project_transaction(&key.space_id, &key.owner_public(), |tx| tx.projects())
             .unwrap()
     }
+    fn pin(&mut self, page: &str, pinned: bool) -> tmt_colab::Result<bool> {
+        let key = &self.key;
+        self.store
+            .project_transaction(&key.space_id, &key.owner_public(), |tx| {
+                tx.set_pinned(page, pinned)
+            })
+    }
+    fn pins(&mut self) -> Vec<String> {
+        let key = &self.key;
+        self.store
+            .project_transaction(&key.space_id, &key.owner_public(), |tx| tx.pins())
+            .unwrap()
+    }
     fn rows(&self) -> usize {
         let rows: i64 = self
             .oracle()
@@ -98,7 +112,7 @@ impl Fixture {
     fn as_schema_12(&mut self, labels: &[(&str, &str)]) {
         let db = self.oracle();
         db.execute_batch(
-            "DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+            "DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
              CREATE TABLE page_labels(page TEXT NOT NULL, label TEXT NOT NULL,
                 PRIMARY KEY(page,label), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
              PRAGMA user_version=12;",
@@ -143,7 +157,7 @@ fn the_schema_adds_projects_and_keeps_what_was_there() {
     // A store from before labels (schema 6) gains the tables on the next open; nothing else moves.
     f.oracle()
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6;",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6;",
         )
         .unwrap();
     f.reopen();
@@ -458,4 +472,48 @@ fn an_unknown_project_cannot_be_renamed_or_deleted_and_a_rename_needs_a_new_vali
     }
     assert_eq!(f.names(), ["a"]);
     assert_eq!(f.projects(&one), ["a"]);
+}
+
+#[test]
+fn pins_keep_pin_order_change_only_when_the_state_changes_and_need_an_open_page() {
+    let mut f = Fixture::new();
+    for n in 1..=3 {
+        f.open_page(&page(n));
+    }
+    assert!(f.pins().is_empty());
+    assert!(f.pin(&page(2), true).unwrap());
+    assert!(f.pin(&page(1), true).unwrap());
+    assert!(!f.pin(&page(2), true).unwrap(), "pinning a pinned page");
+    assert_eq!(f.pins(), [page(2), page(1)], "pin order, not page order");
+    assert!(
+        !f.pin(&page(3), false).unwrap(),
+        "unpinning an unpinned page"
+    );
+    assert!(f.pin(&page(2), false).unwrap());
+    assert!(f.pin(&page(2), true).unwrap());
+    assert_eq!(f.pins(), [page(1), page(2)], "a repin goes last");
+    // An unknown page and a malformed ID are refused, and nothing changes.
+    for refused in [page(9), "not-a-page".to_owned()] {
+        let error = f.pin(&refused, true).unwrap_err();
+        assert_eq!(fault(error).as_deref(), Some("Invalid"), "{refused}");
+    }
+    assert_eq!(f.pins(), [page(1), page(2)]);
+}
+
+#[test]
+fn a_pin_past_the_space_limit_is_refused_and_keeps_the_older_pins() {
+    let mut f = Fixture::new();
+    for n in 1..=SPACE_PINS + 1 {
+        f.open_page(&page(n));
+    }
+    for n in 1..=SPACE_PINS {
+        assert!(f.pin(&page(n), true).unwrap());
+    }
+    let error = f.pin(&page(SPACE_PINS + 1), true).unwrap_err();
+    assert_eq!(fault(error).as_deref(), Some("Capacity"));
+    assert_eq!(f.pins().len(), SPACE_PINS);
+    assert_eq!(f.pins()[0], page(1));
+    // Unpinning frees a place.
+    assert!(f.pin(&page(1), false).unwrap());
+    assert!(f.pin(&page(SPACE_PINS + 1), true).unwrap());
 }

@@ -26,6 +26,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | ------------------------- | ------------------------------------------------------------------------------------ |
 | Repository root           | Entry points, contributor guidance, license and required configuration               |
 | `.agents/`                | Contributor skills and their area references                                         |
+| `.claude/`                | Claude Code project settings: the host-tmux guard hook                               |
 | `.claude-plugin/`         | Claude Code marketplace manifest for the bundled Claude plugins                      |
 | `.github/`                | Ownership/layout maps, workflows, shared Actions and isolated release tooling        |
 | `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
@@ -40,8 +41,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
 are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/SKILL.md)
-owns moves and the tracked-file guard. Handbook language exceptions belong to
-[AGENTS](AGENTS.md#repository-content-language) and the allowlist.
+owns moves and the tracked-file guard.
 
 `tmt-ux-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
 `./ui` isolates React/Radix/cmdk/CVA, CSS/themes/portals; legacy/static unchanged; no domain state.
@@ -287,8 +287,8 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
-`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist); `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
-Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
+`request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist), including the delivery mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, never a request to its recipient, and answers the oldest request that agent has open to them; `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
+Adapters admit idle handoff; extensions schedule. `tmt-adapters::request_frame` owns the request frame that `talk` sends and Digest pastes per item; `digest` renders a sealed checklist from it within a 32 KiB cap, and a claim seals only the prefix that fits. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
@@ -424,7 +424,7 @@ own module/drawing boundaries and verification.
   The quiet cache lane publishes per-name view hints (default keeps its original path): destination/UUID anchors, expansion, committed filters/sort/search, chart controls, pane ratios and pane scroll. Shared Config preferences stay separate; exec carries the layer and session-only visibility. [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.
   `labels::Reader` acquires Config-selected windows; `labels::digest` sums [supplier estimates](extensions/tmt-digest/contracts/digest-v1.md#savings) with cost and share valuations, not provider history. `board::savings` formats them; the price table is display-only.
-  `usage_report::Reader` acquires public Core usage/traffic off-thread;
+  `usage_report::Reader` acquires public Core usage/traffic off-thread; `usage_report::valuation` is the one reader of its TOK and input price, for the Digest table and the Agents TOK figures alike;
   [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns its range and lifecycle.
   Member references resolve through the acquired global identity inventory; Markdown carries UUID tags into clipped frame hits. Existing menu/actions own navigation, while copy/annotation retain raw source. No text grants new delivery authority or paint/input I/O. [Reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md).
   Membership removal pauses jobs before leave; only explicit Resume clears pause. Rename CAS keeps the room UUID, then moves Ops metadata/config and cron namespaces under owned locks; partial results
@@ -527,7 +527,7 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 Store owns managed/adopted SQLite transactions and typed newer refusals.
 Document/Guard own atomic byte updates/fail-fast ownership.
 Existing Store files use lstat to preserve locks.
-Remote, Colab, Ops, adapters' config and Digest history consume it; no TMT/crypto.
+Remote, Colab, Ops, adapters' config/hook consent and Digest history consume it; no TMT/crypto.
 Core and Colab's model cannot consume it. Guards check reviewed
 manifest/source edges across dependency kinds, aliases and targets.
 

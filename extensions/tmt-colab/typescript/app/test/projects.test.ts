@@ -90,6 +90,31 @@ describe('the page list', () => {
     expect(ids([], 'q4 page')).toEqual([id(1)]);
     expect(ids(['missing'], '')).toEqual([]);
   });
+  it('leads with the pinned pages in the order given, under either sort and any filter', () => {
+    const pinned = [
+      { ...page(3, [], { title: 'Zulu' }), pinned: true },
+      { ...page(2, ['design']), pinned: true },
+    ];
+    const list = [pages[0], ...pinned, page(5, ['ops'])];
+    const ids = (sort: 'updated' | 'title', projects: string[] = []) =>
+      filterPages(list, { projects, authors: [], text: '' }, sort).map((p) => p.id);
+    expect(ids('updated')).toEqual([id(3), id(2), id(1), id(5)]);
+    expect(ids('title')).toEqual([id(3), id(2), id(1), id(5)]);
+    // A filter still applies to a pinned page; the ones that remain keep their pin order.
+    expect(ids('updated', ['design'])).toEqual([id(2), id(1)]);
+    // An archived page keeps no pin in the list.
+    expect(
+      filterPages(
+        [{ ...page(4, [], { archived: true }), pinned: true }, pages[0]],
+        {
+          projects: [],
+          authors: [],
+          text: '',
+        },
+        'updated',
+      ).map((p) => p.id),
+    ).toEqual([id(1), id(4)]);
+  });
   describe('stages', () => {
     const activity = { comments: 0, waiting: false, needsYou: 0 };
     const row = (stage: 'discussion' | 'in-progress' | 'done', done: number, total: number) => ({

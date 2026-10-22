@@ -153,7 +153,10 @@ state only, no squad data or durable preference policy.
 - `digest_dashboard::allowance` paints the Allowance block under the range summary from
   `limits::allowance` (pure: rates per span from the sampled weekly history, NEED %/h, the
   outcome of each rate at the reset); `Standing::rates` is computed when sampled, projections
-  at paint from the clock, so no timer or read runs. It takes rows off the table only when the
+  at paint from the clock, so no timer or read runs. The TOKENS line sums the Digest usage
+  report's hourly seat cells per provider (`Rate::current_driver_of` names a seat's driver;
+  incomplete or stale series leave the provider out) and calibrates on `Rates` hours24, so it
+  adds no read or demand. It takes rows off the table only when the
   table keeps its minimum height.
 - `digest_dashboard` owns a fixed range summary, TOK-ranked UUID table with a
   read-only `DigestAll` aggregate, and selection details. The same row projection
@@ -390,17 +393,41 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   names `backtab`. `App::newline_key` is the one source of the new-line key: the footer
   caption and the info line under the input say `Shift+Enter`/`Shift+⏎` only with confirmed
   keyboard enhancement or that request, otherwise `Alt+Enter`/`Alt+⏎`. Terminals own IME preedit; committed Unicode enters the same
-  editor. `composer::paste` projects direct-message Editor folds as atomic chips
-  when a paste exceeds 500 Unicode characters or 10 logical lines (CRLF counts as
-  one break). The Editor remains the only owner of send bytes and retained folds.
+  editor. `composer::paste` owns the shared message-field classification and label
+  body: a paste folds when it exceeds 500 Unicode characters or 10 content lines.
+  CRLF is one break; one terminal LF, CRLF or CR does not add a content line,
+  while further blank lines count. Counting never normalizes source bytes.
+  Direct-message drafts project Editor folds as atomic chips. Draftless message
+  forms and cron message prefill use the same policy, with Ctrl-P expanding folds
+  inline and keyboard deletion removing them atomically; they show no × or preview
+  control. Cron retains its form-owned payload; status reasons stay plain text.
+  The Editor remains the only owner of send bytes and retained folds.
   Chip body clicks and Ctrl-P open a read-only, scrollable preview anchored above
-  the chip, or below when necessary, within half the conversation pane. Escape
-  and outside presses dismiss the preview without changing the draft; the outside
-  press continues to its underlying control. The chip's × removes its source range.
+  the chip, or below when necessary, within half the conversation pane. A final
+  line break does not add a blank preview row; additional empty lines remain visible.
+  Escape and outside presses dismiss the preview without changing the draft;
+  the outside press continues to its underlying control. The chip's × removes its source range.
+  Pasting while previewing closes the preview and admits that paste once at the
+  kept editor caret/selection. A size refusal keeps the exact draft and displays
+  the existing notice; paste never submits.
+  Quote insertion uses the same fold painter, preview and × removal path. It puts
+  the normalized selected text after the caret's logical line, on its own line, with
+  an empty answer line following. Editor retains bytes; `composer::chat_quotes`
+  keeps typed provenance by fold ID and formats quote ranges in place on send.
+  The [source guide](board-notebooks.md#inert-text-and-independent-notebooksource-utilities)
+  owns literal versus exact-response admission and send formats.
   Published chip hits are bounded to their draft UUIDs, fold ID and current range.
   Ctrl-P selects the Editor's current fold even between paints; the next paint
   publishes its anchor or closes the preview request when it cannot fit.
   Painting does not mutate the Editor or the pending-send revision fence.
+  `composer::files` turns a paste of only existing regular files (shell-unquoted paths
+  or `file://` URIs, at most 16, 16 KiB) into one such fold per file over the absolute
+  path; `App::paste` tries it before the long-paste rule. `stat` supplies the size on the
+  paste path; image dimensions (PNG, GIF, JPEG, WebP headers) and the popup's text head
+  come from `files::Probe`, a worker that reads at most 64 KiB and answers with
+  `BoardEvent::FileInfo`, which relabels the fold through `Editor::relabel_fold`. The
+  table of file facts is session-only and bounded. Tests use synthetic paths in the
+  oracle scenes so captures never depend on the machine.
   A combining mark joining a neighboring grapheme falls back to ordinary text,
   preserving every byte rather than splitting the grapheme at a chip edge.
   `mentions` supplies the shared completion component with acquired agent UUIDs

@@ -617,7 +617,7 @@ impl Session {
             );
         }
         self.text = text;
-        self.rendered = None;
+        self.stale = true;
     }
 }
 

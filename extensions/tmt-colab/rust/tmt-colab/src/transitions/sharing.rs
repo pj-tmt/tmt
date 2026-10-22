@@ -209,6 +209,7 @@ impl Engine {
                 }
                 if matches!(request.action, PageAction::Archive) {
                     tx.drop_page_title(request.page)?;
+                    tx.drop_page_pin(request.page)?;
                 }
                 if matches!(request.action, PageAction::Delete) {
                     tx.delete_page_data(request.page)?;

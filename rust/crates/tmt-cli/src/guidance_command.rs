@@ -42,7 +42,7 @@ pub fn execute(skill: Option<&str>) -> io::Result<u8> {
         )?;
         writeln!(
             output,
-            "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. Use talk --inbox for\na durable non-pane request and x listen for one bounded incoming wait. Reads\nnever ack.\n"
+            "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. Talk to an\nidentity with no pane queues for its inbox; x listen is one bounded incoming\nwait. Reads never ack.\n"
         )?;
         writeln!(
             output,
@@ -60,7 +60,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
     ),
     crate::cli_style_tests::HintSpec::skipped(
-        "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. Use talk --inbox for\na durable non-pane request and x listen for one bounded incoming wait. Reads\nnever ack.\n",
+        "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. Talk to an\nidentity with no pane queues for its inbox; x listen is one bounded incoming\nwait. Reads never ack.\n",
         "Bundled learn prose is outside printed hint commands and help Examples; installed guidance has its own verification.",
     ),
     crate::cli_style_tests::HintSpec::skipped(

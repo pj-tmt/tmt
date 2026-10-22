@@ -138,6 +138,7 @@ export async function mount(
             throw new Error('No writes in the header fixture');
           },
           manageProject: async () => {},
+          setPinned: async () => {},
           setProjects: async () => {
             throw new Error('No writes in the header fixture');
           },

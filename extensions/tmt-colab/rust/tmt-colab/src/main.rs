@@ -6,6 +6,7 @@ mod cli_layout;
 mod cli_management;
 mod cli_page_check;
 mod cli_patch;
+mod cli_pins;
 mod cli_projects;
 mod cli_proposal;
 mod cli_read;
@@ -367,6 +368,7 @@ fn grammar() -> Command {
             .subcommand(cli_proposal::command())
             .subcommand(cli_attachments::command())
             .subcommand(cli_projects::command())
+            .subcommands(cli_pins::commands())
             .subcommand(cli_dashboard::command())
             .subcommand(cli_work::task_command())
             .subcommand(cli_work::summary_command())
@@ -492,6 +494,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "project" {
         return cli_projects::run(&root, args);
+    }
+    if command == "pin" || command == "unpin" {
+        return cli_pins::run(&root, command, args);
     }
     if command == "dashboard" {
         return cli_dashboard::run(&root, args);

@@ -182,8 +182,8 @@ channels and the driver protocol. The owner map is in
 - Prompt-first `send` maps `no_agent`/`unsupported` to raw input, `blocked` to
   `AwaitingApproval`, `not_ready`/`not_found`/`bad_request` to not sent and anything else to
   uncertain. Raw input is paste with `enter: false`, core's paste-to-Enter delay, then Enter,
-  each call with its own deadline. Without `input`, a send is `Unsupported`, the request is
-  kept and `--inbox` queues.
+  each call with its own deadline. Without `input`, a send is `Unsupported` and the request
+  stays queued.
 - `drivers/herdr/rust/tmt-driver-herdr` depends only on the protocol crate, `tmt-invoke`, `serde_json`
   and `semver`, never on core or adapters, and has no `tmt-cli` edge. The CLI
   product still admits `tmt-driver-herdr` as an optional archive companion; Herdr

@@ -311,32 +311,17 @@ pub(super) fn execute(
             {
                 return encode(json!({"claimed":false}));
             }
-            let batch = RequestService::new(&mut *storage, wall_time_ms)
-                .claim_digest_checklist(
-                    &identity,
-                    tmt_core::operation::new_operation_id(),
-                    tmt_core::operation::new_operation_id(),
-                    opportunity,
-                )
-                .map_err(error)?;
-            match batch {
+            match digest::claim(storage, &identity, opportunity).map_err(error)? {
                 None => json!({"claimed":false}),
-                Some(batch) => {
+                Some((batch, text)) => {
                     let page = match digest::read(storage, &identity, Some(&batch.id), 0, 128) {
                         Ok(p) => p,
                         Err(e) => {
-                            RequestService::new(&mut *storage, wall_time_ms)
-                                .settle_digest_checklist(
-                                    &identity,
-                                    &batch.id,
-                                    &batch.attempt_token,
-                                    DigestState::Unsent,
-                                )
-                                .map_err(error)?;
+                            digest::release_unsent(storage, &batch).map_err(error)?;
                             return Err(error(e));
                         }
                     };
-                    json!({"claimed":true,"checklist":digest::checklist_value(&batch),"page":page,"text":digest::digest(&page,&batch)})
+                    json!({"claimed":true,"checklist":digest::checklist_value(&batch),"page":page,"text":text})
                 }
             }
         }

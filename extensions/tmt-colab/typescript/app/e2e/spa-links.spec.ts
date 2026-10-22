@@ -390,19 +390,22 @@ test.describe('the door serving the TMT app', () => {
       const id = await door!.createPage('Tab page', '<h1>Tab content</h1>');
       await door!.pair(page);
       await page.goto(`${door!.origin}/colab/`);
-      const all = page.getByRole('tab', { name: 'All', exact: true });
-      // A fresh visit to the bare list opens the default tab.
-      await expect(page.getByRole('tab', { name: /^In progress/ })).toHaveAttribute(
+      // A fresh visit to the bare list opens the default tab, All.
+      await expect(page.getByRole('tab', { name: /^All \d+$/ })).toHaveAttribute(
         'aria-selected',
         'true',
       );
-      await showAllPages(page);
+      await expect(page.locator(`[data-page-id="${id}"] a`)).toBeVisible();
+      // Another tab is what the entry keeps; the page may not have reported its stage yet, so the
+      // list leaves for it by its address.
+      const discussion = page.getByRole('tab', { name: /^Discussion/ });
+      await discussion.click();
       await page.reload();
-      await expect(all).toHaveAttribute('aria-selected', 'true');
-      await page.locator(`[data-page-id="${id}"] a`).click();
+      await expect(discussion).toHaveAttribute('aria-selected', 'true');
+      await page.goto(`${door!.origin}/colab/pages/${id}`);
       await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
       await page.goBack();
-      await expect(all).toHaveAttribute('aria-selected', 'true');
+      await expect(discussion).toHaveAttribute('aria-selected', 'true');
       await page.goForward();
       await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
       await expect(page.locator('.colab-route')).toBeVisible();

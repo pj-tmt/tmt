@@ -119,14 +119,14 @@ plain query: unreserved bytes, `=` and `&`, with no escape and no `tmt-session`;
 its own keys (`open`, `read`, `anchor`) there. Any other query is a malformed target (400). The client router switches routes in that
 one document: each route is a module mounted into the shared web shell, and Colab's module is
 loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
-always the same fixed list, Home, Colab, Remote, Ops, Digest, other described modules, Search and
+always the same fixed list, Home, Colab, Remote, Ops, Digest, other described modules and
 TMT settings, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
 browser holds an owner session; a module the answer does not describe stays listed, disabled, with
 its reason. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
 described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, its
-sections listed in the module menu. `/ops` and `/digest` are Ops and Digest. Until Core serves a
-browser read for a page, the page says it is not in the browser yet, names the terminal command
+sections listed in the module menu. `/ops` and `/digest` are Ops and Digest; their data have
+their [owner browser reads](#owner-browser-reads). Until a page has a browser read, the page says it is not in the browser yet, names the terminal command
 that shows the same facts and shows no values. Home preferences remain a
 separate consumer. Remote's landing and settings are the app routes `/remote/` and
 `/remote/settings`; their module menu lists each saved remote, Add remote and Remote settings.
@@ -1335,7 +1335,7 @@ Remote narrows supported operations/authority before core calls.
 | `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional runtime/activity evidence below, without pane address/cwd/process/profile.                                                  |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                    |
 | `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                   |
-| `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, anonymous core originator plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
+| `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                             |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                        |
 | `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`                  | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                               |
@@ -1375,18 +1375,45 @@ omits malformed values without failing the list. The same `agents.read` grant fi
 admission rule or limit increase. Activity grants no delivery, readiness, completion or dispatch authority.
 
 Helper payloads are `agents.list:{}`, `check:{agentId,lines?}`, `operation.show:{operationId}` and
-`result:{requestId}`. `dispatch.create` payload is exactly
+`result:{requestId}`. A client's `dispatch.create` payload is exactly
 `{version:1,operation:"dispatch.create",originator:"anonymous", input:{operationId,recipientIds:[agentId],message,kind:"request"}}`.
 Signed envelope operation and core operation must agree, and envelope id must equal
 input.operationId. Other supported core reads use their documented `{version,operation,input}`
 envelope. Discovery returns `{version:1,profile:"local-v1",binding,operations,limits}` with only the
 admitted operation subset and effective byte/rate bounds.
 
-A remote device is never a local identity. Core records the request with an anonymous originator;
-remote prefixes the frozen message with one provenance line naming the device,
+A remote device is never a local identity: a caller that selects an `identity` or any originator but
+`"originator":"anonymous"` is refused, and the signed client payload is always the anonymous form.
+Remote prefixes the frozen message with one provenance line naming the device,
 `[remote: <device name>]`. A `cli` device additionally names the sending identity it resolved on
 its own machine, `[remote: <device name> / <identity name>]`; that name is presentation only and is
-never mapped to an identity on the receiving machine. Callers reject a caller-selected `identity`.
+never mapped to an identity on the receiving machine. The core originator is set by the serve, not
+the caller: see **Identity attribution** below.
+
+**Identity attribution.** Only a `browser` grant from this door's origin, the owner's own paired browser, is
+attributed; `cli` and add-on grants stay anonymous and never ask core, because a `cli` device may be an agent on another
+machine. Once such a send is admitted the serve asks core for the person at this machine (`user.identity`, [extension API](extension-api.md#the-persons-identity))
+and freezes the core payload with `"identity":"<identityId>"` in place of `"originator":"anonymous"`,
+exactly one of the two. That makes core record the message as the person's own and keeps Digest from
+holding it. The journal holds the frozen form: a held send replays exactly what was frozen, a retry
+of a known operation ID asks core nothing, and a changed `user.name` takes effect on the next new
+send.
+
+A refusal of the person's name never blocks or retries the send: it is frozen anonymous. The send
+result then carries the optional field `identity`, defined here once and present only when there is
+something to say:
+
+- `{"state":"anonymous","reason":"USER_NAME_UNAVAILABLE"|"USER_NAME_INVALID"|"USER_NAME_TAKEN","message":<core's message>}`
+  when `user.identity` refused the name. The message is core's own and names `tmt config set user.name <name>`.
+  Any other `user.identity` failure freezes anonymous and says nothing.
+- `{"state":"person","name":<name>,"renamedFrom":<name>}` when core resolved the person under a
+  `-user` name because an agent holds the plain one.
+
+The field is about the freeze that created the operation: a later observation or a retry of an
+operation that was already frozen carries it only if the stored receipt does. A plain success has no
+`identity` field. Clients ignore its absence, parse it strictly when present (exact keys, `message`
+and names non-empty text of at most 512 bytes), and treat a malformed one as an unverifiable reply.
+How often a surface shows it is the surface's rule, not this contract's.
 
 On a paired `cli` device, ordinary `tmt talk` addressed to a remote agent is the send action: it
 freezes the operation ID and exact bytes, appends `dispatch.create`, and waits for the durable
@@ -1815,6 +1842,93 @@ The owner's machine never executes it, and page membership adds no operation sco
 extension records the ask and the reply in the shared resource, attributed to the asking member and
 to the answering agent and machine. Everyone who can see that resource sees them, like comments.
 Visibility is the extension's rule, not a remote grant.
+
+### Owner browser reads
+
+Three owner-session, read-only door GETs give the web app real Ops, limit-history and Digest data. They reuse the
+public JSON the terminal already reads; they add no grant, scope, pairing rule, write or push
+channel, and dispatch stays unreachable from them. They are siblings of the composed shell's
+`GET <prefix>/x/-/shell` and share its admission:
+
+| Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)          |
+| --------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET <prefix>/x/-/ops`            | `ops squad ls --json` and `ops squad cron ls --json`, run in parallel               |
+| `GET <prefix>/x/-/limits`         | `ops limits --json`                                                                |
+| `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d`  |
+
+The range is a path segment because the edge target grammar admits no query string beyond its two
+fixed forms; any other path, a bare `/digest`, an unknown range, another method or an upgrade is the
+generic 404 (a query string is refused by the edge before any session check). Cross-site
+`Sec-Fetch-Site` is 403. A request needs a live owner-device session (the mount-space cookie); the
+same device and grant revision are rechecked after the read and a changed or ended session gets the
+generic 404, never the data. Replies carry the door's security headers (`no-store`, `nosniff`).
+Remote reaches Ops and Digest through the public CLI only, with no crate or state-file dependency.
+A read writes nothing in an initialized store. The first read on a fresh machine performs the same one-time,
+idempotent initialization as opening the board (the core store, Ops's path markers and the owner's saved
+identity through `user.identity`, which the [extension API](extension-api.md#the-persons-identity) scopes to
+owner-authenticated sessions).
+
+Every answer is HTTP 200 with one JSON document:
+
+```
+{"version":1,"state":"ok","observedAtMs":<ms>, ...payload}
+{"version":1,"state":"unavailable","observedAtMs":<ms>,"reason":<reason>}
+```
+
+`reason` is one of `not_installed` (the extension command is absent: a fixed argv exits with
+`USAGE_ERROR`; an Ops without `limits` is also absent), `core_unavailable` (spawn, interruption or I/O failure), `timeout`, `read_failed`
+(non-zero exit, output that is not one JSON document, an unexpected `version` or, for Digest, a
+report for another range), `too_large` and, for limits only, `not_sampled` (the board has kept no samples). An unavailable read is never an empty list and never
+sample data; each reason is one empty state in the web app, and a client treats an unknown reason as
+a generic unavailable. `observedAtMs` is the owner's clock when the read finished.
+
+**Ops payload** (`state:"ok"`) is an allowlist projection, not the board document:
+
+- `squads[]`: `name`, `layout?`, `lead? {id,name}`, `idleAlertMs?` (only when the squad's idle alert is
+  enabled), `attention? {state,waiting,blocked}`.
+- `agents[]`, the squad's lead first (`role:"lead"`) then its members (`role:"member"`): `id`, `name`,
+  `squad`, `role`, `presence?`, `activity? {state,sinceMs}` (the four-state rule of `agents.list`),
+  `state?` (the board's raw state text, at most 80 scalars, so free text stays readable), `stateTone?`
+  (the board's colour token for it, `[a-z0-9-]` up to 24 bytes; a client maps tokens it knows and treats
+  the rest as neutral), `task?`, `next?`, `model?`, `link?` (`https://` only, no whitespace),
+  `pending?`, `waitingOnYou` (a count), `digest? {active,remainingMs,heldCount}` and `staleness?`.
+- `timers[]`, or `null` when the schedule read failed: `id`, `squad`, `scheduleText`, `owner?`, `state?`,
+  `nextMs?` (the first only) and `what?` (the first line of the job message).
+- `truncated`: true when a bound below cut `squads`, `agents` or `timers`.
+
+Never forwarded: a pane's id, target, cwd or location, process data, room IDs, owner IDs, unlisted row
+fields, the rest of a schedule message and the person's own identity. Text has control and
+bidirectional-control characters removed (controls become spaces), is trimmed and is cut to the limit
+below; the browser renders it as inert text.
+
+**Limits payload** (`state:"ok"`): `limitHistory[]`, the weekly-limit samples the board keeps in its local cache,
+as printed by `tmt ops limits --json` (a read-only command; it needs no Core and never writes): `provider` (a driver
+ID), `windowMinutes` (10080) and `points`, oldest first, each `[observedAtMs, percentLeft, resetsAtMs]` with the
+percentage rounded to two decimals; the reset time rides with every point because the kept 8 days can span two
+windows. The cache has at most 8 providers and 10-minute buckets, and the board samples only while it is open, so
+history has gaps and a machine whose board never ran has none: that answer is `not_sampled`, never an empty list.
+The short window is not served.
+
+**Digest payload** (`state:"ok"`): `{since, report}` where `report` is the
+[usage report document](../extensions/tmt-digest/contracts/usage-v1.md) unchanged. Digest keeps the
+document's contents (names, UUIDs, token counts and content-free exchange metadata). The web app
+derives a shorter window from the `24h` hourly `series`; there is no 5-minute read and no turn count.
+
+**Bounds.** The door never schedules a read. One request at a time runs a given route; concurrent
+requests wait for it (at most 12 seconds in total, then `timeout`), and a finished answer, ok or
+unavailable, answers every request for the next 5 seconds, so any number of tabs cost at most one read
+per route per 5 seconds. Nothing runs between requests and nothing is persisted. Each subprocess
+captures at most 2 MiB of stdout; an answer is at most 512 KiB (Ops, limits) or 1 MiB (Digest) and a larger
+one is `too_large`. Ops projects at most 32 squads, 256 agents and 64 timers; text fields are cut to
+64 scalars (names, model), 80 (state, schedule text), 200 (task, next, pending), 300 bytes (link) and
+120 scalars (`what`). The browser refreshes only while its route is visible and at the terminal's own
+cadence: Ops every 5 seconds (the board's default reload) and Digest every 60 seconds, backing off
+after failures. The SDK owns that timer and stops it with the route; the door has none.
+
+**Vectors.** [`owner-reads-v1.json`](owner-reads-v1.json) holds, per case, what the public commands
+print and the exact answer, the reasons, the strings that must appear nowhere in an answer and the
+bounds. The Remote tests run every case through the door's reader and compare the reason set and the
+bounds with the code.
 
 ### Object channel frames
 

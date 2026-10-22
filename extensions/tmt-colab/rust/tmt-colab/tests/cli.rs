@@ -1410,7 +1410,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -6392,7 +6392,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6488,7 +6488,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -10284,6 +10284,67 @@ fn page_projects_add_remove_and_list_without_touching_the_owner_log_offline_and_
         );
         assert_eq!(project_rows(&pilot, &one), 8);
         assert_eq!(pilot.call(&["ls", "--json"])["membershipHead"], head);
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+#[test]
+fn pinned_pages_lead_the_list_in_pin_order_and_archive_or_delete_drops_the_pin() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let one = titled_page(&pilot, "One");
+        let two = titled_page(&pilot, "Two");
+        let three = titled_page(&pilot, "Three");
+        let head = pilot.call(&["ls", "--json"])["membershipHead"].clone();
+        let ids = |pilot: &Pilot| -> Vec<String> {
+            pilot.call(&["ls", "--json"])["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|page| page["pageId"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        let pinned = |pilot: &Pilot| -> Vec<String> {
+            pilot.call(&["ls", "--json"])["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|page| page["pinned"] == true)
+                .map(|page| page["pageId"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert!(pinned(&pilot).is_empty());
+        let first = pilot.call(&["pin", &three, "--json"]);
+        assert_eq!(first["pageId"], three.as_str());
+        assert_eq!(first["pinned"], true);
+        assert_eq!(first["changed"], true);
+        assert_eq!(pilot.call(&["pin", &one, "--json"])["changed"], true);
+        assert_eq!(pilot.call(&["pin", &one, "--json"])["changed"], false);
+        assert_eq!(pinned(&pilot), [three.clone(), one.clone()]);
+        assert_eq!(&ids(&pilot)[..2], [three.clone(), one.clone()]);
+        assert_eq!(
+            pilot.call(&["ls", "--json"])["membershipHead"],
+            head,
+            "pins are not log statements"
+        );
+        let removed = pilot.call(&["unpin", &three, "--json"]);
+        assert_eq!(removed["pinned"], false);
+        assert_eq!(removed["changed"], true);
+        assert_eq!(pilot.call(&["unpin", &three, "--json"])["changed"], false);
+        assert_eq!(pinned(&pilot), std::slice::from_ref(&one));
+        // Archive drops the pin, and an archived page cannot be pinned.
+        pilot.call(&["archive", &one, "--json"]);
+        assert!(pinned(&pilot).is_empty());
+        failure(&pilot, &["pin", &one, "--json"], "COLAB_PAGE_ARCHIVED");
+        // Delete drops it too, and the pin does not come back for the page that is left.
+        pilot.call(&["pin", &two, "--json"]);
+        pilot.call(&["delete", &two, "--yes", "--json"]);
+        assert!(pinned(&pilot).is_empty());
+        failure(&pilot, &["pin", PAGE, "--json"], "COLAB_PAGE_NOT_FOUND");
         if serving {
             pilot.stop();
         }

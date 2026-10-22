@@ -31,7 +31,7 @@ pub(super) fn json_document(
         if correlation.offline {
             value["offline"] = true.into();
         }
-        if correlation.explicit_inbox || correlation.offline {
+        if correlation.offline {
             value["notification"] = "not_attempted".into();
             value["waitingFor"] = "recipient_inbox_pull".into();
         }
@@ -45,6 +45,9 @@ pub(super) fn json_document(
             value["notification"] = "held".into();
             value["waitingFor"] = "digest_checklist".into();
         }
+    }
+    if correlation.passthrough {
+        value["mode"] = "passthrough".into();
     }
     if correlation.delivery_uncertain {
         value["deliveryState"] = "uncertain".into();
@@ -131,6 +134,15 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 &unconfirmed_handoff(&correlation),
                 Some("the channel gives no receipt; do not resend"),
             )?;
+        } else if correlation.passthrough {
+            tmt_cli_style::message::success(
+                &mut stdout,
+                terminal,
+                &format!(
+                    "Typed {} into {}'s pane as written",
+                    correlation.request_id, correlation.target
+                ),
+            )?;
         } else {
             tmt_cli_style::message::success(
                 &mut stdout,
@@ -140,11 +152,6 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                     correlation.request_id, correlation.target, correlation.pane
                 ),
             )?;
-        }
-        if correlation.explicit_inbox && !completed {
-            for hint in inbox_hints(&correlation) {
-                tmt_cli_style::message::hint(&mut stdout, terminal, &hint)?;
-            }
         }
         if correlation.offline && !completed {
             tmt_cli_style::message::hint(&mut stdout, terminal, &correlation.recipient_recovery())?;

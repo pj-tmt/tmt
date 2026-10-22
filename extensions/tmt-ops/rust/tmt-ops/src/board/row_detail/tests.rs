@@ -211,7 +211,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
     );
     assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
     assert!(app.row_details.reader.is_none());
-    let quote = &app.input.as_ref().unwrap().response_quotes[0];
+    let quote = &app.input.as_ref().unwrap().exact_quotes().next().unwrap();
     assert_eq!(quote.key.request, "r1");
     assert_eq!(quote.key.lead, crate::board::app::workspace::tests::MEMBER);
     assert_eq!(quote.range, 0..source.len());
@@ -219,26 +219,47 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
     assert_eq!(app.view.as_ref().unwrap().document, before);
     press(&mut app, KeyCode::Esc);
     press(&mut app, KeyCode::Enter);
-    assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, source);
+    assert_eq!(
+        app.input
+            .as_ref()
+            .unwrap()
+            .exact_quotes()
+            .next()
+            .unwrap()
+            .text,
+        source
+    );
     app.paste("two words");
     app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "two ");
-    assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, source);
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        format!("{source}\ntwo ")
+    );
+    assert_eq!(
+        app.input
+            .as_ref()
+            .unwrap()
+            .exact_quotes()
+            .next()
+            .unwrap()
+            .text,
+        source
+    );
     draw(&app, 160, 44);
-    let hit = app.composer.quote_hit.borrow().clone().unwrap();
+    let hit = app.composer.paste_hits.borrow().last().cloned().unwrap();
     app.mouse(
         ratatui::crossterm::event::MouseEvent {
             kind: ratatui::crossterm::event::MouseEventKind::Down(
                 ratatui::crossterm::event::MouseButton::Left,
             ),
-            column: hit.area.x,
-            row: hit.area.y,
+            column: hit.remove.x,
+            row: hit.remove.y,
             modifiers: KeyModifiers::NONE,
         },
         std::time::Instant::now(),
     );
-    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "two ");
+    assert!(app.input.as_ref().unwrap().exact_quotes().next().is_none());
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "\ntwo ");
 }
 
 #[test]
@@ -301,7 +322,10 @@ fn scrolled_wrapped_source_drag_preserves_unicode_bytes_across_resize() {
     assert!(matches!(press(&mut app, KeyCode::Char('y')),
         Effect::Act(app::Request::Copy { text, .. }) if text == selected));
     assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
-    assert_eq!(app.input.as_ref().unwrap().response_quotes[0], quote);
+    assert_eq!(
+        app.input.as_ref().unwrap().exact_quotes().next().unwrap(),
+        quote
+    );
 }
 
 #[test]
@@ -332,7 +356,7 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
     let input = app.input.as_ref().unwrap();
     assert!(matches!(&input.compose, app::Compose::Talk { to } if to == "worker"));
     assert!(input.squad.is_empty());
-    let quote = &input.response_quotes[0];
+    let quote = &input.exact_quotes().next().unwrap();
     assert_eq!(quote.key.lead, MEMBER);
     assert_eq!(quote.range, 0..source.len());
     assert_eq!(quote.text, source);
@@ -340,7 +364,7 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
     assert!(matches!(
         press(&mut app, KeyCode::Enter),
         Effect::Act(app::Request::DirectTalk { recipient, text, .. })
-            if recipient == MEMBER && text == "[Common pool · worker]\n> A **literal** response\n> 漢字 e\u{301}"
+            if recipient == MEMBER && text == "[Common pool · worker]\n> A **literal** response\n> 漢字 e\u{301}\n"
     ));
 }
 

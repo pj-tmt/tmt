@@ -3,7 +3,7 @@
 use crate::{
     runtime::{
         RuntimeCommand,
-        hook_protocol::{CONTEXT_LIMIT, HOOK_INPUT_LIMIT, HOOK_TIMEOUT_SECONDS, LaunchHooks},
+        hook_protocol::{HOOK_INPUT_LIMIT, HOOK_TIMEOUT_SECONDS, LaunchHooks},
     },
     setup,
 };
@@ -125,7 +125,7 @@ pub(super) fn decode(bytes: &[u8]) -> Option<ProviderSessionId> {
 }
 
 pub(super) fn encode(digest: &str) -> Option<String> {
-    (!digest.is_empty() && digest.len() <= CONTEXT_LIMIT)
+    (!digest.is_empty() && digest.len() <= crate::digest::DIGEST_BYTES)
         .then(|| json!({"decision":"block", "reason":digest}).to_string())
 }
 

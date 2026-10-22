@@ -13,9 +13,9 @@ fn correlation() -> Correlation {
         pane: "%1".into(),
         identity: None,
         inbox: false,
-        explicit_inbox: false,
         delivery_uncertain: false,
         digest_until_ms: None,
+        passthrough: false,
     }
 }
 
@@ -120,10 +120,10 @@ fn an_unconfirmed_handoff_is_never_worded_as_a_sent_request() {
 }
 
 #[test]
-fn explicit_and_offline_pending_inbox_report_pull_without_live_notification() {
+fn offline_pending_inbox_reports_pull_without_live_notification() {
     let mut queued = correlation();
     queued.inbox = true;
-    queued.explicit_inbox = true;
+    queued.offline = true;
     let document = presentation::json_document(queued.clone(), None);
     assert_eq!(document["status"], "queued");
     assert_eq!(document["requestId"], "request-talk");

@@ -63,7 +63,9 @@ export function useLinkedPages(
   const parent = useMemo(() => {
     const link = pages?.find((page) => page.id === pageId)?.summary?.parent;
     const held = link && pages?.find((page) => page.id === link.page);
-    return link && held ? { pageId: link.page, taskId: link.task, title: held.title } : undefined;
+    return link && held
+      ? { pageId: link.page, taskId: link.task, title: held.title, taskTitle: link.title }
+      : undefined;
   }, [pages, pageId]);
   return { stageOf, parent };
 }

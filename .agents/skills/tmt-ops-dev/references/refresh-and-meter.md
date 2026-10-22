@@ -364,7 +364,8 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   unread. A reading is dated by its source's own time (the limits' own
   observation; a session's usage observation for a footer), never by the read.
   Samples persist in `$XDG_CACHE_HOME/tmt-ops/limits/samples.json` (10-minute buckets, 8
-  days, saved at most every 5 minutes), a disposable cache. The burn is the
+  days, saved at most every 5 minutes), a disposable cache; `tmt ops limits --json` reads it
+  without writing (the Remote owner browser read serves that document). The burn is the
   weekly percent left lost per hour over the 6 h before the newest sample inside
   the current cycle (a rise in percent left, or a reset time later by more than
   30 minutes, starts a new cycle) and needs 1 h of samples. A reading older than 2
