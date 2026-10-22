@@ -2411,7 +2411,7 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-chart-strip-row {
   display: grid;
-  grid-template-columns: minmax(8ch, 18ch) minmax(0, 1fr);
+  grid-template-columns: minmax(6ch, 12ch) minmax(0, 1fr);
   gap: var(--tmt-ui-space-s);
   align-items: center;
 }
@@ -2441,7 +2441,7 @@ svg.tmt-ui-mark {
 .tmt-ui-chart-strip-ends {
   display: flex;
   justify-content: space-between;
-  margin: var(--tmt-ui-space-xs) 0 0 calc(18ch + var(--tmt-ui-space-s));
+  margin: var(--tmt-ui-space-xs) 0 0 calc(12ch + var(--tmt-ui-space-s));
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
 }

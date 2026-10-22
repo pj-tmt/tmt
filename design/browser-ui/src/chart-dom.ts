@@ -48,13 +48,13 @@ export function paintAtWidth(
   }).observe(host);
 }
 
-/** A table for assistive technology and copy-paste; visually hidden by `tmt-ui-chart-data`. */
+/** A table for assistive technology and copy-paste, in a visually hidden `tmt-ui-chart-data` box. */
 export function dataTable(
   caption: string,
   columns: readonly string[],
   rows: readonly (readonly string[])[],
-): HTMLTableElement {
-  const table = htmlEl('table', 'tmt-ui-chart-data');
+): HTMLElement {
+  const table = htmlEl('table');
   table.append(htmlEl('caption', undefined, caption));
   const head = htmlEl('tr');
   head.append(htmlEl('th', undefined, ''));
@@ -75,5 +75,8 @@ export function dataTable(
     body.append(line);
   }
   table.append(body);
-  return table;
+  // A table ignores overflow, so the clipping box is a wrapper around it.
+  const box = htmlEl('div', 'tmt-ui-chart-data');
+  box.append(table);
+  return box;
 }
