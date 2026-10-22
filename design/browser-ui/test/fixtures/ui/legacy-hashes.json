@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "13498810b3ff910cf3f9af570a0cf0b408e38afddeddef9506ad451226e8bb73",
+    "generated/static.css": "dbab9b41eebe84c5dc654d19cad123c878d6834bacd5d421fea1afce5e7aeafb",
     "src/action.css": "d05343ca6a2523375358b5742f329a6e9027a332f48530b60708734c0c65a078",
     "src/action.tsx": "bb28278e920aabe3afd1179681ac90549a4a9dfe351076e4c80514c139182682",
     "src/chips.css": "6ddcc7b38134d4dede0da80a4bff3c37d1ee02dfda1a599585197e264050c2c9",
@@ -223,6 +223,7 @@
         "rule-width": "1px",
         "radius": "0",
         "notice-border-width": "1px",
+        "card-padding": "16px",
         "notice-padding": "clamp(24px, 5vw, 44px)",
         "notice-heading-line-height": "1.15",
         "notice-heading-gap": "16px",
@@ -251,8 +252,10 @@
         "rail-width": "220px",
         "rail-collapsed-width": "56px",
         "module-menu-width": "230px",
-        "rail-motion": "160ms ease-out",
-        "spin-duration": "0.9s"
+        "spin-duration": "0.9s",
+        "radius-s": "6px",
+        "radius-l": "12px",
+        "radius-pill": "999px"
       }
     }
   }

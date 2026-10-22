@@ -21,6 +21,29 @@ it('requires literal prefixed, square, token-backed utilities instead of stock s
     expect(() => uiCandidates(source), source).toThrow();
 });
 
+it('allows the named radius tokens, the one overlay shadow and token-backed motion, nothing else', () => {
+  for (const source of [
+    'className="tmt:rounded-control"',
+    'className="tmt:rounded-small"',
+    'className="tmt:rounded-surface"',
+    'className="tmt:rounded-pill"',
+    'className="tmt:shadow-overlay"',
+    'className="tmt:data-[state=open]:animate-[tmt-foundation-pop-in_var(--tmt-foundation-motion-fast)_var(--tmt-foundation-motion-ease-out)_both]"',
+  ])
+    expect(() => uiCandidates(source), source).not.toThrow();
+  for (const source of [
+    'className="tmt:rounded"',
+    'className="tmt:rounded-full"',
+    'className="tmt:rounded-lg"',
+    'className="tmt:shadow"',
+    'className="tmt:shadow-lg"',
+    'className="tmt:ring"',
+    'className="tmt:ring-2"',
+    'className="tmt:hover:shadow-md"',
+  ])
+    expect(() => uiCandidates(source), source).toThrow();
+});
+
 it('allows namespaced font-body identifiers but rejects real global output and element selectors', () => {
   for (const css of [
     '.tmt\\:font-body { font-family: var(--tmt-foundation-font-body); }',

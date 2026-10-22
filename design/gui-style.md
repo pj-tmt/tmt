@@ -14,8 +14,17 @@ named below; explicitly labelled design targets remain unshipped.
 
 ## Principles
 
-1. **Square and flat.** Corners are square except Colab annotation number badges (round) and the Annotate affordance (rounded pill). The browser leaf and Colab
-   menus, previews and dialogs use opaque surfaces without shadows.
+1. **Rounded and layered.** Controls and surfaces take the radius scale of the
+   tokens: `radius-s` for chips and keycaps, `radius` for controls and rows'
+   fills, `radius-l` for cards and overlays, `radius-pill` for pills and counts.
+   Surfaces are opaque steps with thin rules. Only an overlay (menu, dialog,
+   drawer, tooltip) takes the one overlay shadow; cards and rows stay shadow-free.
+   **No one-sided border on a rounded box.** A rounded element (radius above 0)
+   never takes `border-top`, `-right`, `-bottom` or `-left` alone: the lone edge
+   curls at the corner into a hook. Use a border on all four sides, a fill or
+   tint, or a separate straight indicator (an underline bar, a rail marker) with
+   radius 0 that sits outside the rounded box instead of being its border. A row
+   that needs a divider rule stays square.
 2. **Edge to edge.** The page fills the window. There is exactly one window
    scrollbar; no region under the header scrolls on its own, except an overlay's
    body.
@@ -113,7 +122,7 @@ page renders in it.
   surface and a 3 px leading bar. Needs-you counts show `◆ n` in the waiting colour,
   `99+` above 99; Home sums them only when every module reports one.
 - **Collapse:** the toggle collapses the rail to 56 px of icons and expands it again,
-  in one short slide (`--tmt-ui-rail-motion`, none under reduced motion); icons keep
+  in one short slide (the `base` motion, none under reduced motion); icons keep
   their place. The choice is remembered on the device. Collapsed counts become
   corner badges; hovering or focusing an item shows its label as a tooltip beside
   the rail, and labels stay accessible names.
@@ -598,9 +607,12 @@ your machine`) and a way to recheck.
 days`); exact time on hover.
 - **Counts:** the header carries one pending count per surface; it disappears at
   zero.
-- **Motion:** none except the LoaderCircle spin (see
-  [Transient states](#transient-states)), which stops under
-  `prefers-reduced-motion`.
+- **Motion:** two durations (`fast` 120 ms, `base` 180 ms), two easings
+  (`ease-out` for entering, `ease-in` for leaving) and the pop `scale` 0.96, all
+  tokens (`browser.motion`); no component sets its own duration or curve. Under
+  `prefers-reduced-motion` every duration is 0 ms, so a change is instant. The
+  LoaderCircle spin (see [Transient states](#transient-states)) stops under the
+  same preference.
 
 ## Transient states
 
