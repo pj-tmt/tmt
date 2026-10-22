@@ -37,10 +37,10 @@ for (const width of [1440, 390])
       await expect(page.getByText('Page content', { exact: true })).toHaveCount(0);
       await expect(page.locator('.canvas')).toHaveCSS('border-top-width', '0px');
       await expect(page.locator('.canvas')).toHaveCSS('box-shadow', 'none');
-      // Inside the TMT web shell the page fills the column beside the rail and module menu (the
-      // bar's own column) and starts under the bar, plus the module menu's tab row on a phone.
+      // Inside the TMT web shell the page fills the main column beside the rail and module menu
+      // and starts under the bar, plus the module menu's tab row on a phone.
       const rect = await frame.boundingBox();
-      const column = (await bar.boundingBox())!;
+      const column = (await page.locator('.tmt-ui-shell-main').boundingBox())!;
       const lead = await page.evaluate(() =>
         Number.parseFloat(
           getComputedStyle(document.querySelector('.tmt-ui-shell-bar')!).getPropertyValue(
@@ -55,7 +55,8 @@ for (const width of [1440, 390])
       expect(rect?.width).toBe(
         (await page.evaluate(() => document.documentElement.clientWidth)) - column.x,
       );
-      expect(rect?.y).toBe(column.y + column.height + lead);
+      const header = (await bar.boundingBox())!;
+      expect(rect?.y).toBe(header.y + header.height + lead);
       expect(rect?.height).toBeGreaterThanOrEqual(900 - rect!.y);
       expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(900);
       await expect(frame).toHaveAttribute('scrolling', 'no');
@@ -70,7 +71,7 @@ for (const width of [1440, 390])
       // The shell's rail carries the TMT mark; the bar keeps none (a phone's menu button opens the rail).
       await expect(bar.locator('.tmt-ui-mark')).toBeHidden();
       if (width >= 480)
-        await expect(page.locator('.tmt-ui-rail-brand .tmt-brand-mark')).toBeVisible();
+        await expect(page.locator('.tmt-ui-shell-brand .tmt-brand-mark')).toBeVisible();
       else await expect(page.locator('.tmt-ui-shell-open:visible')).toBeVisible();
       // The bar names the module (the shell keeps the TMT name in the rail), so the title keeps its row.
       await expect(bar.locator('.tmt-ui-wordmark')).toHaveText('Colab');
@@ -381,7 +382,7 @@ test('one-row fitting retains full labels, stable content and compact action aut
     await expect(header.locator('.tmt-ui-mark')).toBeHidden();
     await expect(
       page.locator(
-        width > 900 ? '.tmt-ui-rail-brand .tmt-brand-mark:visible' : '.tmt-ui-shell-open:visible',
+        width > 900 ? '.tmt-ui-shell-brand .tmt-brand-mark:visible' : '.tmt-ui-shell-open:visible',
       ),
     ).toBeVisible();
     await expect(remote).toHaveAttribute('title', `Colab · local · ${deviceName}`);

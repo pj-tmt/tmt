@@ -97,29 +97,40 @@ status remains visible as mark plus word.
 
 ### Shell
 
-The one TMT web UI frame (#3937): a global rail, an optional module menu, then the
-host's one header over its content. Every Colab and Remote page except the refusal
+The one TMT web UI frame (#3937): one header row, then a global rail, an optional
+module menu and the host's content. Every Colab and Remote page except the refusal
 page renders in it.
 
-- **Rail:** one fixed list, identical on every page: the TMT mark, then Home,
+- **Rail:** one fixed list, identical on every page: the collapse toggle in its own
+  row, ruled off above Home, then Home,
   Colab, Remote, Ops, Digest, any other module Remote's
   [composed shell](../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell)
-  describes (in its order), Search (Colab's quick switcher), and TMT settings at the
-  bottom. A module the composed shell does not describe keeps its place, dimmed in
+  describes (in its order), and TMT settings at the bottom. A module the composed shell does not describe keeps its place, dimmed in
   the disabled text colour with its reason as the tooltip (not paired, or not
   installed); it is never removed. Every page paints the answer this browser read
   last (session storage), then refreshes it once.
   Each item is a Lucide icon plus its label; the current item has the selected
   surface and a 3 px leading bar. Needs-you counts show `◆ n` in the waiting colour,
   `99+` above 99; Home sums them only when every module reports one.
-- **Collapse:** the toggle beside the mark collapses the rail to 56 px of icons; the
-  mark expands it again. The choice is remembered on the device. Collapsed counts
-  become corner badges; labels stay as tooltips and accessible names.
+- **Collapse:** the toggle collapses the rail to 56 px of icons and expands it again,
+  in one short slide (`--tmt-ui-rail-motion`, none under reduced motion); icons keep
+  their place. The choice is remembered on the device. Collapsed counts become
+  corner badges; hovering or focusing an item shows its label as a tooltip beside
+  the rail, and labels stay accessible names.
 - **Module menu:** the active module's own menu (Colab: All pages, then each project
   with its page count and `◆` count, then New project and Manage projects; Remote:
   each saved remote, Add remote, Remote settings). It replaces header dropdowns.
-- **Header:** the host's header moves into the shell's bar, the one sticky row; the
-  rail carries the mark, so the header shows the product word and title only.
+- **Header:** one continuous sticky row: the TMT mark and word above the rail, then
+  the host's header (moved into the shell's bar) as `<module> / <page>`, with one
+  bottom rule and no divider between them: `TMT · <module> / <page>`, every segment
+  in the header title's face and size, separators lighter. The bar paints the
+  module's name at once and keeps its height and rule while a route loads. The
+  module menu has no title of its own and shares the rail's surface, rows and
+  selection bar.
+- **Module content:** the shell adds no padding or width to a module's main area;
+  each module keeps its own layout. Shell page styles stay scoped to their own
+  pages (Remote: `.tmt-page`), since every module shares the one document. While a
+  route loads, its place shows the busy mark.
 - **Phone (≤ 900 px):** the rail becomes a top-left menu button that opens it as a
   drawer; the module menu becomes tabs under the title bar.
 - Primitive: `mountShell` in `design/browser-ui/src/shell.ts` (static hosts) and

@@ -22,8 +22,10 @@
 #tmt-colab-embed button:focus-visible,
 #tmt-colab-embed a:focus-visible,
 #tmt-colab-embed textarea:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
+  /* One focus frame (#3998): one inset outline in the focus colour, no gap and no second ring. */
+  outline: var(--tmt-ui-focus-width, 1px) solid var(--tmt-ui-color-focus, var(--c-text));
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width, 1px));
+  box-shadow: none;
 }
 #tmt-colab-embed button:disabled {
   color: var(--c-muted);

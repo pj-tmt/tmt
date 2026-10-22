@@ -88,6 +88,7 @@ beforeEach(() => {
   for (const id of ['tmt-settings-section', 'tmt-settings-note']) ids.set(id, new Node('div'));
   vi.stubGlobal('document', {
     createElement: (tag: string) => new Node(tag),
+    createElementNS: (_space: string, tag: string) => new Node(tag),
     getElementById: (id: string) => ids.get(id) ?? null,
     querySelector: () => title,
     documentElement: root,
@@ -290,12 +291,15 @@ it('reports a failed read and stops painting once cleaned up', async () => {
   expect(removed).toBe(1);
   release(sample);
   await settle();
-  expect(section().children).toEqual([]);
+  // Only the wait painted before the route ended; the late read paints nothing.
+  expect(section().children.map((child) => child.className)).toEqual(['tmt-page-loading']);
   route = new AbortController();
   tmtSettingsPage(shell(), { read: () => Promise.reject(new Error('no read')) });
   await settle();
   expect(note().textContent).toBe('Settings could not be read.');
   expect(note().hidden).toBe(false);
+  // A failed read ends the wait.
+  expect(section().children).toEqual([]);
 });
 
 it('leaves a page without its markup alone', () => {

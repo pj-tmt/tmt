@@ -179,7 +179,18 @@ function remoteMenu(actions, shell = void 0) {
 		const selected = catalog.entries.find((entry) => currentRemote(entry, address, location.href));
 		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
 		const remotes = [];
-		const onLanding = page !== "settings";
+		const onSettings = page === "settings";
+		const at = (href) => {
+			const url = new URL(href);
+			return url.pathname === location.pathname && url.hash === location.hash;
+		};
+		const parts = [
+			`${settings}#devices-title`,
+			`${settings}#opening-title`,
+			`${settings}#add-remote`,
+			`${landing}#heading`
+		];
+		const onLanding = !onSettings && !parts.some(at);
 		if (!selected) remotes.push({
 			id: "current",
 			label: [view.mark, `This machine · ${view.word}`].filter(Boolean).join(" "),
@@ -214,10 +225,7 @@ function remoteMenu(actions, shell = void 0) {
 		shell.setMenu({
 			title: "Remote",
 			groups: [
-				{
-					label: "Remotes",
-					items: remotes
-				},
+				{ items: remotes },
 				{
 					label: "This machine",
 					items: [
@@ -225,19 +233,19 @@ function remoteMenu(actions, shell = void 0) {
 							id: "devices",
 							label: "Devices",
 							href: `${settings}#devices-title`,
-							current: false
+							current: at(`${settings}#devices-title`)
 						},
 						{
 							id: "pair",
 							label: "Connect a device",
 							href: `${landing}#heading`,
-							current: false
+							current: at(`${landing}#heading`)
 						},
 						{
 							id: "machine",
 							label: "This machine’s settings",
 							href: `${settings}#opening-title`,
-							current: false
+							current: at(`${settings}#opening-title`)
 						}
 					]
 				},
@@ -245,12 +253,12 @@ function remoteMenu(actions, shell = void 0) {
 					id: "add",
 					label: "Add remote…",
 					href: `${settings}#add-remote`,
-					current: false
+					current: at(`${settings}#add-remote`)
 				}, {
 					id: "settings",
 					label: "Remote settings",
 					href: settings,
-					current: !onLanding
+					current: onSettings && !parts.some(at)
 				}] }
 			]
 		}, (id) => {
@@ -272,6 +280,8 @@ function remoteMenu(actions, shell = void 0) {
 	};
 	document.addEventListener("pointerover", entered, { signal: shell.signal });
 	document.addEventListener("focusin", entered, { signal: shell.signal });
+	window.addEventListener("hashchange", paint, { signal: shell.signal });
+	window.addEventListener("popstate", paint, { signal: shell.signal });
 	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;
@@ -1458,15 +1468,19 @@ function busySvg(doc) {
 	}
 	return svg;
 }
+/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
+function createBusyMark(doc = document) {
+	const busy = doc.createElement("span");
+	busy.className = browserUiClasses.busyMark;
+	busy.append(busySvg(doc));
+	return busy;
+}
 function createActionMark(doc = document) {
 	const mark = doc.createElement("span");
 	mark.className = browserUiClasses.actionMark;
 	mark.setAttribute("aria-hidden", "true");
 	mark.dataset.busy = "false";
-	const busy = doc.createElement("span");
-	busy.className = browserUiClasses.busyMark;
-	busy.append(busySvg(doc));
-	mark.append(busy);
+	mark.append(createBusyMark(doc));
 	return mark;
 }
 /**

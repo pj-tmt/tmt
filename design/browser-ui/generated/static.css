@@ -56,6 +56,7 @@
   --tmt-ui-rail-width: 220px;
   --tmt-ui-rail-collapsed-width: 56px;
   --tmt-ui-module-menu-width: 230px;
+  --tmt-ui-rail-motion: 160ms ease-out;
   --tmt-ui-spin-duration: 0.9s;
   --tmt-ui-color-text: #343434;
   --tmt-ui-color-secondary: #626262;
@@ -440,13 +441,16 @@ svg.tmt-ui-mark {
   color: var(--tmt-ui-color-secondary, currentColor);
 }
 
-/* The TMT web shell: global rail, optional module menu, then the host's one header (the bar)
-   over its main area. Square, flat, 1px rules; the window keeps the only scrollbar. */
+/* The TMT web shell: one header row (the TMT mark, then the host's bar), over the global rail, the
+   optional module menu and the host's main area. Square, flat, 1px rules; the window keeps the
+   only scrollbar. */
 .tmt-ui-shell {
   /* What stacks above the main area besides the sticky bar: nothing beside the rail, the module
      menu's tab row on a phone. Hosts subtract it from their viewport-high minimums. */
   --tmt-ui-module-menu-row-height: 44px;
   --tmt-ui-shell-lead: 0px;
+  /* The TMT mark's width at the breadcrumb's start, measured by mountShell. */
+  --tmt-ui-shell-brand-width: 0px;
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
   grid-template-rows: auto 1fr;
@@ -459,12 +463,70 @@ svg.tmt-ui-mark {
   position: sticky;
   top: 0;
   z-index: 50;
-  grid-area: 1 / 3;
+  grid-area: 1 / 1 / 2 / 4;
   min-width: 0;
+  /* The bar owns the header row's height, surface and rule, so they hold while a route loads and
+     before its header arrives. */
+  box-sizing: border-box;
+  min-height: var(--tmt-ui-header-height);
+  background: var(--tmt-ui-surface-sheet);
+}
+/* The rule is drawn over the row's last pixel, where a host header draws its own. */
+.tmt-ui-shell-bar::after {
+  position: absolute;
+  inset: auto 0 0;
+  height: var(--tmt-ui-rule-width);
+  background: var(--tmt-ui-surface-rule);
+  content: '';
+}
+/* The breadcrumb's start: the TMT mark over the bar's left end, whatever the rail's width. */
+.tmt-ui-shell-brand {
+  position: sticky;
+  top: 0;
+  z-index: 51;
+  grid-area: 1 / 1 / 2 / 4;
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+  box-sizing: border-box;
+  height: calc(var(--tmt-ui-header-height) - var(--tmt-ui-rule-width));
+  padding-left: calc((var(--tmt-ui-rail-collapsed-width) - var(--tmt-ui-space-xl)) / 2);
+  color: var(--tmt-ui-color-selected-text);
+  white-space: nowrap;
+}
+.tmt-ui-shell-brand > .tmt-brand-mark {
+  flex: none;
+  width: var(--tmt-ui-space-xl);
+  height: var(--tmt-ui-space-xl);
 }
 /* Hosts' fixed headers become the bar's sticky row; the rail carries the TMT mark. */
 .tmt-ui-shell-bar > .tmt-ui-header {
   position: static;
+  /* The host's `<module> / <page>` follows the TMT mark directly, as one breadcrumb. */
+  margin-left: var(--tmt-ui-shell-brand-width);
+  padding-left: var(--tmt-ui-space-m);
+}
+/* One breadcrumb, one type: TMT, the module and the page share the header title's face and size;
+   separators are lighter. */
+.tmt-ui-shell-brand-word,
+.tmt-ui-shell-brand-separator,
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-wordmark,
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-title,
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true'] {
+  font: var(--tmt-ui-header-title-weight) var(--tmt-ui-header-title-size) /
+    var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
+  letter-spacing: normal;
+}
+.tmt-ui-shell-brand-separator,
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-brand ~ [aria-hidden='true'],
+.tmt-ui-shell .tmt-ui-shell-bar .tmt-ui-heading > [aria-hidden='true'] {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 400;
+}
+.tmt-ui-shell-bar:has(> .tmt-ui-header:not([data-shell-crumb])) > [data-shell-crumb] {
+  display: none;
 }
 .tmt-ui-shell-bar .tmt-ui-mark {
   display: none;
@@ -473,18 +535,38 @@ svg.tmt-ui-mark {
   grid-area: 2 / 3;
   min-width: 0;
 }
+.tmt-ui-shell-loading {
+  grid-area: 2 / 3;
+  display: grid;
+  place-items: center;
+  min-height: calc(100dvh - var(--tmt-ui-header-height) - var(--tmt-ui-shell-lead));
+  color: var(--tmt-ui-color-secondary);
+  animation: tmt-ui-shell-loading 0s 200ms both;
+}
+.tmt-ui-shell-loading > .tmt-ui-busy-mark {
+  width: var(--tmt-ui-space-xl);
+  height: var(--tmt-ui-space-xl);
+}
+.tmt-ui-shell-main:has(> * > *) + .tmt-ui-shell-loading {
+  display: none;
+}
+@keyframes tmt-ui-shell-loading {
+  from {
+    visibility: hidden;
+  }
+}
 .tmt-ui-rail {
-  grid-area: 1 / 1 / 3;
+  grid-area: 2 / 1;
 }
 .tmt-ui-module-menu {
-  grid-area: 1 / 2 / 3;
+  grid-area: 2 / 2;
 }
 .tmt-ui-rail,
 .tmt-ui-module-menu {
   position: sticky;
-  top: 0;
+  top: var(--tmt-ui-header-height);
   box-sizing: border-box;
-  height: 100dvh;
+  height: calc(100dvh - var(--tmt-ui-header-height));
   overflow: hidden;
   border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   font: var(--tmt-ui-command-size)/1.3 var(--tmt-ui-font-body);
@@ -494,31 +576,27 @@ svg.tmt-ui-mark {
   flex-direction: column;
   width: var(--tmt-ui-rail-width);
   background: var(--tmt-ui-surface-sheet);
+  transition: width var(--tmt-ui-rail-motion);
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail {
   width: var(--tmt-ui-rail-collapsed-width);
 }
+/* The collapse toggle's own row, ruled off from the items. */
 .tmt-ui-rail-top {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-sizing: border-box;
-  height: var(--tmt-ui-header-height);
-  padding: 0 var(--tmt-ui-space-m) 0 var(--tmt-ui-space-l);
+  padding-block: var(--tmt-ui-space-xs);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
-.tmt-ui-rail-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--tmt-ui-space-m);
-  color: var(--tmt-ui-color-selected-text);
-  font: var(--tmt-ui-header-wordmark-weight) var(--tmt-ui-header-wordmark-size) /
-    var(--tmt-ui-header-wordmark-line-height) var(--tmt-ui-font-display);
-}
-.tmt-ui-rail-brand > .tmt-brand-mark {
-  width: var(--tmt-ui-space-xl);
-  height: var(--tmt-ui-space-xl);
+.tmt-ui-rail-tip {
+  position: fixed;
+  inset: auto;
+  margin: 0 0 0 var(--tmt-ui-space-xs);
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-caption-size) / var(--tmt-ui-caption-line-height) var(--tmt-ui-font-body);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .tmt-ui-rail-toggle,
 .tmt-ui-shell-open {
@@ -537,6 +615,11 @@ svg.tmt-ui-mark {
 .tmt-ui-rail-toggle:hover,
 .tmt-ui-shell-open:hover {
   background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-rail-toggle {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0 calc((var(--tmt-ui-rail-collapsed-width) - 18px) / 2);
 }
 .tmt-ui-rail-toggle:focus-visible,
 .tmt-ui-shell-open:focus-visible,
@@ -580,7 +663,8 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-rail-item {
   gap: var(--tmt-ui-space-m);
-  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-l);
+  /* The icon sits where the collapsed rail centres it, so it stays put as the rail slides. */
+  padding: var(--tmt-ui-space-s) calc((var(--tmt-ui-rail-collapsed-width) - 18px) / 2);
 }
 /* Hover keeps the text colour and only lightly tints the row; selection is the stronger grey. */
 .tmt-ui-rail-item:hover,
@@ -594,7 +678,8 @@ svg.tmt-ui-mark {
   color: var(--tmt-ui-color-selected-text);
   font-weight: 600;
 }
-.tmt-ui-rail-item[aria-current='page']::before {
+.tmt-ui-rail-item[aria-current='page']::before,
+.tmt-ui-module-menu-item[aria-current='page']::before {
   position: absolute;
   inset: 0 auto 0 0;
   width: var(--tmt-ui-indicator-width);
@@ -623,25 +708,13 @@ svg.tmt-ui-mark {
 .tmt-ui-shell-count[data-kind='needs-you'] {
   color: var(--tmt-ui-color-waiting);
 }
-/* Collapsed: icons only; the mark expands the rail again and counts become corner badges. */
-.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-label,
-.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-toggle > svg {
-  display: none;
+/* Collapsed: icons only (labels hide once the slide ends); labels show as tooltips and counts
+   become corner badges. */
+.tmt-ui-rail-label {
+  transition: visibility var(--tmt-ui-rail-motion);
 }
-.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-top {
-  justify-content: center;
-  padding: 0;
-}
-.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-toggle {
-  position: absolute;
-  inset: 0;
-  width: auto;
-  height: auto;
-  background: none;
-}
-.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-item {
-  justify-content: center;
-  padding: var(--tmt-ui-space-m) 0;
+.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-label {
+  visibility: hidden;
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-item .tmt-ui-shell-count {
   position: absolute;
@@ -656,24 +729,19 @@ svg.tmt-ui-mark {
   line-height: var(--tmt-ui-toggle-indicator-size);
   text-align: center;
 }
+/* The module menu is the rail's second level: the same surface, rows, selection and counts. */
 .tmt-ui-module-menu {
   width: var(--tmt-ui-module-menu-width);
-  background: var(--tmt-ui-surface-paper);
+  background: var(--tmt-ui-surface-sheet);
   overflow-y: auto;
 }
 .tmt-ui-shell[data-menu='none'] .tmt-ui-module-menu {
   display: none;
 }
-.tmt-ui-module-menu-title {
-  display: flex;
-  align-items: center;
-  box-sizing: border-box;
-  height: var(--tmt-ui-header-height);
-  padding: 0 var(--tmt-ui-space-l);
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  color: var(--tmt-ui-color-selected-text);
-  font: var(--tmt-ui-header-title-weight) var(--tmt-ui-header-title-size) /
-    var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
+@media (prefers-reduced-motion: reduce) {
+  .tmt-ui-shell {
+    --tmt-ui-rail-motion: 0s;
+  }
 }
 .tmt-ui-module-menu-group {
   min-height: var(--tmt-ui-space-s);
@@ -685,7 +753,11 @@ svg.tmt-ui-mark {
   text-transform: uppercase;
 }
 .tmt-ui-module-menu-item {
+  gap: var(--tmt-ui-space-m);
   padding: var(--tmt-ui-space-s) var(--tmt-ui-space-l);
+}
+.tmt-ui-module-menu-items {
+  padding-block: var(--tmt-ui-space-s);
 }
 .tmt-ui-rail-item[aria-disabled='true'],
 .tmt-ui-module-menu-item[aria-disabled='true'] {
@@ -721,10 +793,14 @@ svg.tmt-ui-mark {
     z-index: 53;
     display: flex;
   }
+  .tmt-ui-shell-bar > .tmt-ui-header {
+    margin-left: 0;
+  }
   .tmt-ui-shell-bar .tmt-ui-header {
     padding-left: calc(var(--tmt-ui-control-size) + var(--tmt-ui-space-l));
   }
-  .tmt-ui-rail {
+  .tmt-ui-rail,
+  .tmt-ui-shell-brand {
     display: none;
   }
   .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail {
@@ -734,25 +810,20 @@ svg.tmt-ui-mark {
     display: flex;
     width: min(calc(var(--tmt-ui-rail-width) + var(--tmt-ui-space-2xl) * 2), 100vw);
     height: auto;
+    /* Clears the menu button that stays over the drawer's corner. */
+    padding-top: var(--tmt-ui-header-compact-height);
+    transition: none;
   }
   .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-label {
-    display: inline;
+    visibility: visible;
   }
-  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-toggle {
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-top {
     display: none;
-  }
-  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-item {
-    justify-content: flex-start;
-    padding: var(--tmt-ui-space-s) var(--tmt-ui-space-l);
   }
   .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-item .tmt-ui-shell-count {
     position: static;
     background: none;
     color: var(--tmt-ui-color-waiting);
-  }
-  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-top {
-    justify-content: flex-start;
-    padding: 0 var(--tmt-ui-space-l) 0 var(--tmt-ui-rail-collapsed-width);
   }
   .tmt-ui-module-menu {
     position: static;
@@ -765,7 +836,6 @@ svg.tmt-ui-mark {
     background: var(--tmt-ui-surface-sheet);
     scrollbar-width: none;
   }
-  .tmt-ui-module-menu-title,
   .tmt-ui-module-menu-group:empty {
     display: none;
   }
@@ -786,6 +856,9 @@ svg.tmt-ui-mark {
   }
   .tmt-ui-module-menu-item[aria-current='page'] {
     background: none;
+  }
+  .tmt-ui-module-menu-item[aria-current='page']::before {
+    content: none;
   }
   .tmt-ui-module-menu-item[aria-current='page']::after {
     position: absolute;

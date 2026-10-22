@@ -152,14 +152,19 @@ function busySvg(doc: Document): SVGSVGElement {
   return svg;
 }
 
+/** The busy mark alone, for a framework-free wait such as a route that is still loading. */
+export function createBusyMark(doc: Document = document): HTMLElement {
+  const busy = doc.createElement('span');
+  busy.className = browserUiClasses.busyMark;
+  busy.append(busySvg(doc));
+  return busy;
+}
+
 export function createActionMark(doc: Document = document): HTMLElement {
   const mark = doc.createElement('span');
   mark.className = browserUiClasses.actionMark;
   mark.setAttribute('aria-hidden', 'true');
   mark.dataset.busy = 'false';
-  const busy = doc.createElement('span');
-  busy.className = browserUiClasses.busyMark;
-  busy.append(busySvg(doc));
-  mark.append(busy);
+  mark.append(createBusyMark(doc));
   return mark;
 }

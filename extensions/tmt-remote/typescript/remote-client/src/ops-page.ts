@@ -1,5 +1,6 @@
 /** The Ops web view, read-only: Agents by squad, Squads, Timers and Ops settings, one section at a
  * time from the module menu. Rows are the shared list rows; every state is a mark and a word. */
+import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
 import { notAvailable } from './not-available.js';
 import { AGENT_STATES, opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
@@ -143,12 +144,15 @@ export function opsPage(shell: RemoteShell, source: OpsSource = opsSource): void
       ],
     });
     if (title) title.textContent = SECTIONS.find((item) => item.id === section)!.label;
-    if (board) main.replaceChildren(...opsSection(board, section));
+    main.replaceChildren(...(board ? opsSection(board, section) : [pageLoading()]));
   };
   window.addEventListener('hashchange', paint, { signal: shell.signal });
   paint();
   void source.board().then((next) => {
-    if (next.unavailable) return notAvailable(note, next.unavailable);
+    if (next.unavailable) {
+      main.replaceChildren();
+      return notAvailable(note, next.unavailable);
+    }
     board = next;
     note.textContent = next.sample
       ? 'Sample data: Ops has no web read of your board yet. `tmt ops ui` shows the real board.'

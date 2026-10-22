@@ -55,7 +55,9 @@ body:not(:has(.tmt-ui-shell)) {
   right: 0;
   z-index: 30;
 }
-.page {
+/* Remote's page column. Its class and the element rules below stay scoped to it: a module route
+   (Colab) shares this document and keeps its own layout and type. */
+.tmt-page {
   width: min(100% - 32px, 820px);
   margin: 32px auto 64px;
 }
@@ -65,32 +67,34 @@ body:not(:has(.tmt-ui-shell)) {
 .state-mark {
   font: 400 18px/1.5 var(--tmt-ui-font-mono);
 }
-.eyebrow {
+:where(.tmt-page) .eyebrow {
   margin-top: 0;
   text-transform: uppercase;
 }
-p {
+:where(.tmt-page) p {
   margin: 0 0 12px;
 }
-p:last-child {
+:where(.tmt-page) p:last-child {
   margin-bottom: 0;
 }
-a {
+:where(.tmt-page) a {
   color: var(--tmt-ui-color-link);
 }
-a:focus-visible {
+:where(.tmt-page) a:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-form {
+:where(.tmt-page) form {
   margin-top: 16px;
 }
-input {
+:where(.tmt-page) input {
   display: block;
   width: 100%;
   margin: 6px 0 12px;
 }
-[data-tmt-page='pair'] .tmt-ui-notice {
+[data-tmt-page='pair'] .tmt-ui-notice,
+.settings-page .tmt-ui-notice {
+  /* A ruled band flush with the page column, not a card: its text has no inset from the sheet. */
   background: transparent;
 }
 #comparison {
@@ -274,8 +278,9 @@ input {
   padding: 12px 0;
 }
 
-/* Home: what needs you across modules, then recent pages, as shared list rows. */
-.home {
+/* Home: what needs you across modules, then recent pages, as shared list rows. Its own class name,
+   since a Colab route in the same document has its own `.home`. */
+.tmt-home {
   display: grid;
   gap: 32px;
 }
@@ -286,7 +291,7 @@ input {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.home .tmt-ui-list-leading[data-tone='waiting'] {
+.tmt-home .tmt-ui-list-leading[data-tone='waiting'] {
   color: var(--tmt-ui-color-waiting);
 }
 .home-note {
@@ -295,6 +300,20 @@ input {
 }
 .home-note {
   margin: 8px 0 0;
+}
+
+/* A page's first read in progress: the shell's busy mark, centred in the page as a route load
+   shows it. */
+.tmt-page-loading {
+  display: grid;
+  place-items: center;
+  min-height: 50vh;
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-page-loading > .tmt-ui-busy-mark {
+  width: 24px;
+  height: 24px;
 }
 
 /* Digest and Ops web views: sample-data note, the usage table and the board's state marks. */

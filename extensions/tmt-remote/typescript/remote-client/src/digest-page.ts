@@ -1,4 +1,5 @@
 /** The Digest web view: one range picker and the per-agent table (tokens, share, turns). */
+import { pageLoading } from './page-loading.js';
 import {
   digestSource,
   USAGE_RANGES,
@@ -71,6 +72,12 @@ export function digestPage(source: DigestSource = digestSource): void {
       button.setAttribute('aria-selected', String(selected));
       button.tabIndex = selected ? 0 : -1;
     }
+    const wait = document.createElement('tr');
+    const waitCell = document.createElement('td');
+    waitCell.colSpan = 4;
+    waitCell.append(pageLoading());
+    wait.append(waitCell);
+    body!.replaceChildren(wait);
     const report = await source.usage(range);
     if (mine !== generation) return;
     body!.replaceChildren(

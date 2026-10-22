@@ -823,12 +823,12 @@ test('the module menu lists dashboards under Dashboards and opens Colab settings
 }) => {
   await mount(page, 'shells');
   // The one rail: the same items as on every other TMT page.
-  await expect(app(page).locator('.tmt-ui-rail .tmt-ui-rail-item')).toHaveCount(7);
+  await expect(app(page).locator('.tmt-ui-rail .tmt-ui-rail-item')).toHaveCount(6);
   expect(
     await app(page)
       .locator('.tmt-ui-rail .tmt-ui-rail-item')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
-  ).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'search', 'settings']);
+  ).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
   const shells = moduleMenu(page).locator('a[data-id^="shell:"]');
   await expect(moduleMenu(page)).toContainText('Dashboards');
   await expect(moduleMenu(page)).not.toContainText('Shells');
@@ -1507,3 +1507,44 @@ for (const width of [1440, 390])
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       expect(await operations(page)).toEqual([]);
     });
+
+test('every focusable in the shell list shows one inset frame (#3998 tab walk)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const problems: string[] = [];
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await mount(page, 'few');
+    await expect(rows(page)).not.toHaveCount(0);
+    const seen = new Set<string>();
+    for (let step = 0; step < 80; step++) {
+      await page.keyboard.press('Tab');
+      const focus = await page.evaluate(() => {
+        const element = document.activeElement as HTMLElement | null;
+        if (!element || element === document.body) return undefined;
+        const style = getComputedStyle(element);
+        const width = Number.parseFloat(style.outlineWidth);
+        const outline = style.outlineStyle !== 'none' && width > 0;
+        const wrong: string[] = [];
+        if (style.outlineStyle === 'auto') wrong.push('a browser default ring');
+        if (outline && Number.parseFloat(style.outlineOffset) > -width)
+          wrong.push(`an outline outside its border (offset ${style.outlineOffset})`);
+        if (
+          style.boxShadow !== 'none' &&
+          style.boxShadow.split(/,(?![^(]*\))/).some((shadow) => !/inset/.test(shadow))
+        )
+          wrong.push('an outer glow');
+        const name =
+          element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 24) ?? '';
+        return { key: `${element.tagName.toLowerCase()}.${element.className} ${name}`, wrong };
+      });
+      if (!focus || seen.has(focus.key)) break;
+      seen.add(focus.key);
+      if (focus.wrong.length) problems.push(`${scheme} ${focus.key}: ${focus.wrong.join(', ')}`);
+    }
+    // The rail, the module menu, the header, the controls and the rows all take focus.
+    expect(seen.size, scheme).toBeGreaterThan(15);
+  }
+  expect(problems).toEqual([]);
+});
