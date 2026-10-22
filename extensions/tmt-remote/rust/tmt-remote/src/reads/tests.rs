@@ -110,6 +110,7 @@ fn cron() -> Value {
 #[test]
 fn routes_accept_exactly_the_named_reads_and_no_query_or_other_path() {
     assert_eq!(Target::route("ops"), Some(Target::Ops));
+    assert_eq!(Target::route("limits"), Some(Target::Limits));
     for (segment, range) in [
         ("24h", Range::Day),
         ("7d", Range::Week),
@@ -123,7 +124,9 @@ fn routes_accept_exactly_the_named_reads_and_no_query_or_other_path() {
     for unrouted in [
         "",
         "shell",
-        "limits",
+        "limits/",
+        "limits?x=1",
+        "Limits",
         "ops/",
         "ops/x",
         "opsx",
@@ -526,7 +529,8 @@ fn the_vector_reason_set_is_the_code_set() {
         | Reason::CoreUnavailable
         | Reason::Timeout
         | Reason::ReadFailed
-        | Reason::TooLarge => reason.code(),
+        | Reason::TooLarge
+        | Reason::NotSampled => reason.code(),
     };
     let codes: Vec<&str> = [
         Reason::NotInstalled,
@@ -534,6 +538,7 @@ fn the_vector_reason_set_is_the_code_set() {
         Reason::Timeout,
         Reason::ReadFailed,
         Reason::TooLarge,
+        Reason::NotSampled,
     ]
     .into_iter()
     .map(all)
@@ -560,6 +565,7 @@ fn the_vector_bounds_are_the_door_bounds() {
     );
     assert_eq!(bounds["opsBytes"], limits::READ_OPS_BYTES);
     assert_eq!(bounds["digestBytes"], limits::READ_DIGEST_BYTES);
+    assert_eq!(bounds["limitsBytes"], limits::READ_LIMITS_BYTES);
     assert_eq!(bounds["opsSquads"], limits::READ_OPS_SQUADS);
     assert_eq!(bounds["opsAgents"], limits::READ_OPS_AGENTS);
     assert_eq!(bounds["opsTimers"], limits::READ_OPS_TIMERS);

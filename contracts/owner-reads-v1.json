@@ -2,9 +2,10 @@
   "description": "Synthetic vectors for the owner browser reads (remote-channel-v1.md, Owner browser reads). Each case lists what the fixed public commands print and the exact document the door answers, without observedAtMs (a positive integer in every answer). Secrets in the inputs (pane address, cwd, room IDs, unlisted fields, schedule message beyond its first line) must appear nowhere in the answer.",
   "routes": {
     "ops": "<prefix>/x/-/ops",
+    "limits": "<prefix>/x/-/limits",
     "digest": "<prefix>/x/-/digest/{24h|7d|30d}"
   },
-  "reasons": ["not_installed", "core_unavailable", "timeout", "read_failed", "too_large"],
+  "reasons": ["not_installed", "core_unavailable", "timeout", "read_failed", "too_large", "not_sampled"],
   "forbiddenInAnswers": [
     "PANE-SECRET",
     "/Users/secret",
@@ -197,6 +198,59 @@
       "expect": { "version": 1, "state": "unavailable", "reason": "read_failed" }
     },
     {
+      "name": "limits: the kept weekly samples pass through as limitHistory",
+      "target": "limits",
+      "commands": {
+        "ops limits --json": {
+          "exit": 0,
+          "stdout": {
+            "version": 1,
+            "limitHistory": [
+              {
+                "provider": "codex",
+                "windowMinutes": 10080,
+                "points": [[1792000000000, 80.5, 1792500000000], [1792100000000, 70.25, 1792500000000]]
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "version": 1,
+        "state": "ok",
+        "limitHistory": [
+          {
+            "provider": "codex",
+            "windowMinutes": 10080,
+            "points": [[1792000000000, 80.5, 1792500000000], [1792100000000, 70.25, 1792500000000]]
+          }
+        ]
+      }
+    },
+    {
+      "name": "limits: no kept samples is not_sampled, never an empty history",
+      "target": "limits",
+      "commands": { "ops limits --json": { "exit": 0, "stdout": { "version": 1, "limitHistory": [] } } },
+      "expect": { "version": 1, "state": "unavailable", "reason": "not_sampled" }
+    },
+    {
+      "name": "limits: an Ops without the command is not installed",
+      "target": "limits",
+      "commands": {
+        "ops limits --json": {
+          "exit": 1,
+          "stdout": { "error": { "code": "USAGE_ERROR", "message": "error: unrecognized subcommand 'limits'" } }
+        }
+      },
+      "expect": { "version": 1, "state": "unavailable", "reason": "not_installed" }
+    },
+    {
+      "name": "limits: not the expected document",
+      "target": "limits",
+      "commands": { "ops limits --json": { "exit": 0, "stdout": { "version": 1, "limitHistory": "none" } } },
+      "expect": { "version": 1, "state": "unavailable", "reason": "read_failed" }
+    },
+    {
       "name": "digest: the usage report passes through unchanged under report",
       "target": "digest/7d",
       "commands": {
@@ -285,6 +339,7 @@
     "subprocessStdoutBytes": 2097152,
     "opsBytes": 524288,
     "digestBytes": 1048576,
+    "limitsBytes": 524288,
     "opsSquads": 32,
     "opsAgents": 256,
     "opsTimers": 64,

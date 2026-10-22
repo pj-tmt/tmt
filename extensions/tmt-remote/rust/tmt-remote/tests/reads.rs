@@ -95,6 +95,7 @@ impl Fixture {
                  case \"$*\" in\n\
                  'ops squad ls --json') printf '{{\"squads\":[]}}';;\n\
                  'ops squad cron ls --json') printf '{{\"jobs\":[]}}';;\n\
+                 'ops limits --json') printf '{{\"version\":1,\"limitHistory\":[{{\"provider\":\"codex\"}}]}}';;\n\
                  'digest usage report --since 7d --json') printf '{{\"version\":1,\"since\":\"7d\"}}';;\n\
                  'digest usage report --since 24h --json') printf '{{\"version\":1,\"since\":\"24h\"}}';;\n\
                  *) exit 3;;\nesac\n",
@@ -181,6 +182,12 @@ fn an_owner_session_reads_the_board_and_the_requested_usage_range() {
         (1.into(), "ok".into())
     );
     assert_eq!(board["squads"], serde_json::json!([]));
+    let (status, body) = door.get("/x/-/limits");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["limitHistory"][0]["provider"],
+        "codex"
+    );
     let (status, body) = door.get("/x/-/digest/24h");
     assert_eq!(status, 200);
     assert_eq!(
@@ -310,10 +317,11 @@ fn without_a_configured_read_source_the_routes_do_not_exist_and_other_mounts_are
 }
 
 #[test]
-fn only_the_two_named_reads_exist_under_the_reserved_segment() {
+fn only_the_named_reads_exist_under_the_reserved_segment() {
     let door = Fixture::new(Owner::steady(), true);
     for path in [
-        "/x/-/limits",
+        "/x/-/limits/",
+        "/x/-/Limits",
         "/x/-/ops/",
         "/x/-/digest/",
         "/x/-/Ops",
