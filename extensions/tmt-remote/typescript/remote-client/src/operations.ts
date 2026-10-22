@@ -30,10 +30,30 @@ export type SendState = (
       scope?: 'talk';
     }
 ) & { identity?: SendIdentity };
+/** Core's message state for a request, forwarded exactly (#4378); a state this SDK does not know is
+ * left out of the reply rather than failing it. `canSendNow` is display only:
+ * the owner's browser sees Core's answer, every other device sees `false`, and the server refuses a
+ * send-now from it regardless. `reason.code` is an open set; show `reason.text` for an unknown one. */
+export interface MessageState {
+  state: 'sent' | 'batched' | 'delivered' | 'working' | 'unconfirmed' | 'not_sent';
+  reason: { code: string; text: string };
+  latestMs: number | null;
+  remainingMs: number | null;
+  canSendNow: boolean;
+}
 export type ResultState =
-  | { state: 'pending'; requestId: string }
+  | { state: 'pending'; requestId: string; messageState?: MessageState }
   | { state: 'replied'; requestId: string; message: string }
   | { state: 'unavailable'; requestId: string; reason?: string };
+/** What asking to send a message now came to. `sent` only when Core typed it; `unconfirmed` means
+ * it may have been typed, so do not offer it again before reading `result`; `unavailable` and
+ * `refused` typed nothing. An unrecognized state decodes as `unconfirmed`, never `sent`. */
+export type SendNowState = {
+  state: 'sent' | 'already' | 'refused' | 'unconfirmed' | 'unavailable';
+  requestId: string;
+  reason?: string;
+  messageState?: MessageState;
+};
 export interface RemoteAgent {
   id: string;
   name: string;
@@ -52,6 +72,10 @@ export interface RemoteOperations {
   send(input: SendInput): Promise<SendState>;
   operation(operationId: string): Promise<SendState>;
   result(requestId: string): Promise<ResultState>;
+  /** The owner's own browser only, for a request this device sent; others get a RefusalError
+   * (`REMOTE_SCOPE_DENIED`). A repeat is safe: a delivered message answers `already`. A thrown
+   * ClientError means the outcome is unknown: read `result` before offering it again. */
+  sendNow(requestId: string): Promise<SendNowState>;
 }
 export type ClientErrorCode =
   | 'transport_failure'
@@ -156,6 +180,41 @@ function reason(value: Record<string, unknown>): { reason?: string } {
   valid(typeof value.reason === 'string' && utf8.encode(value.reason).length <= 256);
   return { reason: value.reason };
 }
+const MESSAGE_STATES = ['sent', 'batched', 'delivered', 'working', 'unconfirmed', 'not_sent'];
+const timestamp = (value: unknown): value is number | null =>
+  value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+/** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable.
+ * A well-formed state this SDK does not know is dropped and the rest of the reply kept, so a new
+ * Core state needs an additive SDK release but never breaks result(). */
+function messageState(value: Record<string, unknown>): { messageState?: MessageState } {
+  if (value.messageState === undefined) return {};
+  const state = record(value.messageState);
+  if (typeof state.state === 'string' && !MESSAGE_STATES.includes(state.state)) return {};
+  valid(
+    Object.keys(state).sort().join() === 'canSendNow,latestMs,reason,remainingMs,state' &&
+      MESSAGE_STATES.includes(state.state as string) &&
+      typeof state.canSendNow === 'boolean' &&
+      timestamp(state.latestMs) &&
+      timestamp(state.remainingMs),
+  );
+  const why = record(state.reason);
+  valid(
+    Object.keys(why).sort().join() === 'code,text' &&
+      typeof why.code === 'string' &&
+      /^[a-z][a-z0-9_]{0,63}$/.test(why.code) &&
+      typeof why.text === 'string' &&
+      utf8.encode(why.text).length <= 256,
+  );
+  return {
+    messageState: {
+      state: state.state as MessageState['state'],
+      reason: { code: why.code, text: why.text },
+      latestMs: state.latestMs as number | null,
+      remainingMs: state.remainingMs as number | null,
+      canSendNow: state.canSendNow,
+    },
+  };
+}
 const USER_NAME_REASONS = ['USER_NAME_UNAVAILABLE', 'USER_NAME_INVALID', 'USER_NAME_TAKEN'];
 function text(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && utf8.encode(value).length <= 512;
@@ -211,7 +270,7 @@ function resultState(value: unknown, id: string): ResultState {
   valid(state.requestId === id);
   switch (state.state) {
     case 'pending':
-      return { state: 'pending', requestId: id };
+      return { state: 'pending', requestId: id, ...messageState(state) };
     case 'replied':
       valid(typeof state.message === 'string');
       return { state: 'replied', requestId: id, message: state.message };
@@ -220,6 +279,20 @@ function resultState(value: unknown, id: string): ResultState {
     default:
       throw new Error('Invalid result state.');
   }
+}
+const SEND_NOW_STATES = ['sent', 'already', 'refused', 'unconfirmed', 'unavailable'];
+/** The reply to a send-now ask. The request ID must be the asked one; an unknown state is
+ * `unconfirmed`, so a future state can never read as `sent`. */
+function sendNowState(value: unknown, id: string): SendNowState {
+  const state = record(value);
+  valid(state.requestId === id);
+  const known = SEND_NOW_STATES.includes(state.state as string);
+  return {
+    state: known ? (state.state as SendNowState['state']) : 'unconfirmed',
+    requestId: id,
+    ...reason(state),
+    ...messageState(state),
+  };
 }
 function agents(value: unknown): RemoteAgent[] {
   const rows = record(value).identities;
@@ -646,6 +719,15 @@ export function operations(
       input(requestId(id));
       return call('result', crypto.randomUUID(), { requestId: id }, (value) =>
         resultState(value, id),
+      );
+    },
+    async sendNow(id) {
+      input(requestId(id));
+      return call(
+        'requests.sendNow',
+        crypto.randomUUID(),
+        { version: 1, operation: 'requests.sendNow', input: { requestId: id } },
+        (value) => sendNowState(value, id),
       );
     },
   };

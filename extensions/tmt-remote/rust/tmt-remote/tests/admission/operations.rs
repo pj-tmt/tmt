@@ -251,6 +251,321 @@ fn direct_exact_retry_keeps_one_core_acceptance_and_frozen_provenance() {
     );
     assert_eq!(core.sends(), 1);
 }
+fn message_state(can_send_now: bool) -> Value {
+    json!({"state":"sent","reason":{"code":"held_to_save_usage","text":"held to save usage"},
+        "latestMs":1000,"remainingMs":500,"canSendNow":can_send_now})
+}
+/// A device of this kind with every scope, having sent one request that Core accepted.
+fn sender(kind: &str, core: &Core) -> (OwnerDoor, String, String, Arc<Operations>) {
+    let scopes = tmt_remote::store::SUPPORTED_SCOPES
+        .iter()
+        .map(|s| (*s).into())
+        .collect();
+    let owner = OwnerDoor::with_device(scopes, "direct", "all".into(), None, kind);
+    let operations = core.operations();
+    let session = owner.open();
+    let id = uuid_v4().unwrap();
+    let recipient = uuid_v4().unwrap();
+    let sent = wire(&owner, &session, 1, &id, &recipient, "send me now");
+    let accepted = append(&owner, Arc::clone(&operations), &sent);
+    let request = accepted["requestId"].as_str().expect("accepted").to_owned();
+    (owner, session, request, operations)
+}
+fn ask(
+    owner: &OwnerDoor,
+    operations: &Arc<Operations>,
+    session: &str,
+    sequence: usize,
+    operation: &str,
+    request: &str,
+) -> Value {
+    let payload = if operation == "result" {
+        json!({"requestId":request})
+    } else {
+        json!({"version":1,"operation":operation,"input":{"requestId":request}})
+    };
+    append(
+        owner,
+        Arc::clone(operations),
+        &owner.wire(
+            session,
+            &sequence.to_string(),
+            operation,
+            payload.to_string().as_bytes(),
+        ),
+    )
+}
+#[test]
+fn the_owner_browser_sees_core_s_send_now_answer_and_every_other_grant_sees_it_false() {
+    for kind in ["browser", "cli", "addon"] {
+        let core = Core::new();
+        let (owner, session, request, operations) = sender(kind, &core);
+        fs::write(core.root.join("final"), r#"{"status":"not_submitted"}"#).unwrap();
+        core.message_state(&message_state(true));
+        let expected = kind == "browser";
+        let shown = ask(&owner, &operations, &session, 2, "requests.show", &request);
+        assert_eq!(shown["messageState"]["canSendNow"], expected, "{kind}");
+        assert_eq!(shown["messageState"]["state"], "sent", "{kind}");
+        assert_eq!(
+            shown["messageState"]["reason"]["code"], "held_to_save_usage",
+            "{kind}"
+        );
+        let result = ask(&owner, &operations, &session, 3, "result", &request);
+        assert_eq!(result["state"], "pending", "{kind}");
+        assert_eq!(result["messageState"]["canSendNow"], expected, "{kind}");
+        assert_eq!(result["messageState"]["remainingMs"], 500, "{kind}");
+        // Once replied there is no state left to show.
+        fs::write(
+            core.root.join("final"),
+            r#"{"status":"retained","response":"done"}"#,
+        )
+        .unwrap();
+        let replied = ask(&owner, &operations, &session, 4, "result", &request);
+        assert!(replied.get("messageState").is_none(), "{replied}");
+    }
+}
+#[test]
+fn the_door_projects_message_state_to_the_published_keys_and_omits_a_malformed_one() {
+    let core = Core::new();
+    let (owner, session, request, operations) = sender("browser", &core);
+    fs::write(core.root.join("final"), r#"{"status":"not_submitted"}"#).unwrap();
+    let published = message_state(true);
+    let mut sequence = 1;
+    let mut forwarded = |state: Value| {
+        core.message_state(&state);
+        sequence += 1;
+        let shown = ask(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "requests.show",
+            &request,
+        );
+        sequence += 1;
+        let result = ask(&owner, &operations, &session, sequence, "result", &request);
+        (shown, result)
+    };
+    // An additive Core field never reaches a strict decoder; a state the SDK does not know does,
+    // because it is well-formed and the decoder drops it.
+    let mut richer = message_state(true);
+    richer["futureField"] = json!({"deep": true});
+    richer["reason"]["futureReasonField"] = json!(1);
+    richer["state"] = json!("future_state");
+    let (shown, result) = forwarded(richer);
+    let mut expected = published.clone();
+    expected["state"] = json!("future_state");
+    assert_eq!(shown["messageState"], expected);
+    assert_eq!(result["messageState"], expected);
+    // Malformed: omitted from both, and the rest of the reply stays.
+    for bad in [
+        json!("sent"),
+        json!({"state":"sent","reason":{"code":"x","text":"t"},"latestMs":null,"remainingMs":null}),
+        json!({"state":"sent","reason":{"code":"x","text":"t"},"latestMs":null,"remainingMs":null,"canSendNow":"yes"}),
+        json!({"state":"Sent","reason":{"code":"x","text":"t"},"latestMs":null,"remainingMs":null,"canSendNow":true}),
+        json!({"state":"sent","reason":"x","latestMs":null,"remainingMs":null,"canSendNow":true}),
+        json!({"state":"sent","reason":{"code":"x","text":"t"},"latestMs":-1,"remainingMs":null,"canSendNow":true}),
+        json!({"state":"sent","reason":{"code":"x","text":"t"},"latestMs":null,"remainingMs":1.5,"canSendNow":true}),
+        json!({"state":"sent","reason":{"code":"x","text":"t".repeat(257)},"latestMs":null,"remainingMs":null,"canSendNow":true}),
+    ] {
+        let (shown, result) = forwarded(bad.clone());
+        assert!(shown.get("messageState").is_none(), "{bad}: {shown}");
+        assert_eq!(shown["requestId"], request, "{bad}");
+        assert_eq!(result["state"], "pending", "{bad}");
+        assert!(result.get("messageState").is_none(), "{bad}: {result}");
+    }
+}
+#[test]
+fn send_now_reports_what_core_did_and_never_a_guess() {
+    let core = Core::new();
+    let (owner, session, request, operations) = sender("browser", &core);
+    fs::write(core.root.join("final"), r#"{"status":"not_submitted"}"#).unwrap();
+    core.message_state(&message_state(false));
+    let mut sequence = 1;
+    for (answer, state, reason) in [
+        ("ok|sent", "sent", None),
+        ("ok|already", "already", None),
+        (
+            "err|SEND_NOW_NOT_AVAILABLE",
+            "refused",
+            Some("SEND_NOW_NOT_AVAILABLE"),
+        ),
+        (
+            "err|DELIVERY_AWAITING_APPROVAL",
+            "refused",
+            Some("DELIVERY_AWAITING_APPROVAL"),
+        ),
+        (
+            "err|DELIVERY_UNCERTAIN",
+            "unconfirmed",
+            Some("DELIVERY_UNCERTAIN"),
+        ),
+        // Core answered with some other error: it typed nothing.
+        (
+            "err|API_UNAVAILABLE",
+            "unavailable",
+            Some("API_UNAVAILABLE"),
+        ),
+        // The call itself failed on this side (here an unreadable answer; a timeout or an
+        // interruption takes the same path): the outcome is unknown, never `unavailable`.
+        ("raw|broken", "unconfirmed", Some("REMOTE_CORE_UNAVAILABLE")),
+    ] {
+        core.send_now_answers(answer);
+        sequence += 1;
+        let before = core.calls().len();
+        let reply = ask(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "requests.sendNow",
+            &request,
+        );
+        assert_eq!(reply["state"], state, "{answer}: {reply}");
+        assert_eq!(reply["requestId"], request, "{answer}");
+        assert_eq!(
+            reply.get("reason").and_then(Value::as_str),
+            reason,
+            "{answer}"
+        );
+        // The person asks, Core types, then the fresh state is read back; nothing else is called.
+        assert_eq!(
+            core.operations_since(before),
+            ["user.identity", "requests.sendNow", "requests.show"],
+            "{answer}"
+        );
+        assert_eq!(reply["messageState"]["state"], "sent", "{answer}");
+    }
+    let asked = core
+        .calls()
+        .into_iter()
+        .find(|call| call["operation"] == "requests.sendNow")
+        .unwrap();
+    assert_eq!(asked["identity"], Core::PERSON);
+    assert_eq!(asked["input"]["requestId"], request);
+    assert_eq!(core.sends(), 1, "asking to send now sends no new request");
+    // The person could not be resolved: nothing was asked of Core, so nothing was typed.
+    core.identity_fails("USER_NAME_INVALID", "no name");
+    let before = core.calls().len();
+    sequence += 1;
+    let reply = ask(
+        &owner,
+        &operations,
+        &session,
+        sequence,
+        "requests.sendNow",
+        &request,
+    );
+    assert_eq!(reply["state"], "unavailable", "{reply}");
+    assert_eq!(reply["reason"], "USER_NAME_INVALID", "{reply}");
+    assert_eq!(
+        core.operations_since(before),
+        ["user.identity", "requests.show"]
+    );
+}
+#[test]
+fn send_now_is_refused_with_core_never_called_unless_the_owner_browser_sent_the_request() {
+    // A cli or addon device is never the person, even with every scope and its own request.
+    for kind in ["cli", "addon"] {
+        let core = Core::new();
+        let (owner, session, request, operations) = sender(kind, &core);
+        let before = core.calls().len();
+        let reply = ask(
+            &owner,
+            &operations,
+            &session,
+            2,
+            "requests.sendNow",
+            &request,
+        );
+        assert_eq!(reply["error"]["code"], "REMOTE_SCOPE_DENIED", "{kind}");
+        assert_eq!(core.calls().len(), before, "{kind}: Core was not called");
+    }
+    // The owner's browser, for a request another device sent or one that never existed.
+    let core = Core::new();
+    let (owner, session, request, operations) = sender("browser", &core);
+    let before = core.calls().len();
+    let other = format!("req_{}", uuid_v4().unwrap());
+    for (sequence, id) in [(2, other.as_str()), (3, "req_not-a-request-id")] {
+        let reply = ask(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "requests.sendNow",
+            id,
+        );
+        assert!(reply.get("error").is_some(), "{reply}");
+    }
+    assert_eq!(core.calls().len(), before, "Core was not called");
+    // ... and the request it did send still works afterwards.
+    let reply = ask(
+        &owner,
+        &operations,
+        &session,
+        4,
+        "requests.sendNow",
+        &request,
+    );
+    assert_eq!(reply["state"], "sent", "{reply}");
+    // Without the `talk` scope the operation is not admitted at all.
+    let restricted = OwnerDoor::with_policy(vec!["results.read".into()], "direct");
+    let sid = restricted.open();
+    let before = core.calls().len();
+    let denied = ask(
+        &restricted,
+        &core.operations(),
+        &sid,
+        1,
+        "requests.sendNow",
+        &request,
+    );
+    assert_eq!(denied["error"]["code"], "REMOTE_SCOPE_DENIED");
+    assert_eq!(core.calls().len(), before);
+}
+#[test]
+fn send_now_is_offered_only_to_the_owner_browser_and_leaves_an_audit_row() {
+    for (kind, offered) in [("browser", true), ("cli", false)] {
+        let core = Core::new();
+        let (owner, session, request, operations) = sender(kind, &core);
+        let capabilities = append(
+            &owner,
+            Arc::clone(&operations),
+            &owner.wire(&session, "2", "capabilities", b"{}"),
+        );
+        let listed = capabilities["operations"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("requests.sendNow"));
+        assert_eq!(listed, offered, "{kind}: {capabilities}");
+        if offered {
+            ask(
+                &owner,
+                &operations,
+                &session,
+                3,
+                "requests.sendNow",
+                &request,
+            );
+            let oracle =
+                rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db"))
+                    .unwrap();
+            let audited: i64 = oracle
+                .query_row(
+                    "SELECT count(*) FROM audit WHERE operation='requests.sendNow' AND client_id=?1 AND decision='dispatching' AND resources_json=?2",
+                    [
+                        owner.grant.client_id.as_str(),
+                        json!([request.strip_prefix("req_").unwrap()])
+                            .to_string()
+                            .as_str(),
+                    ],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(audited, 1);
+        }
+    }
+}
 #[test]
 fn only_the_owners_own_browser_is_attributed_and_no_other_grant_asks_core_who_it_is() {
     for (kind, name) in [

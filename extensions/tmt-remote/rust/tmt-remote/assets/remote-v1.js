@@ -412,6 +412,36 @@ function reason(value) {
 	valid$6(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
+var MESSAGE_STATES = [
+	"sent",
+	"batched",
+	"delivered",
+	"working",
+	"unconfirmed",
+	"not_sent"
+];
+var timestamp$1 = (value) => value === null || typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+/** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable.
+* A well-formed state this SDK does not know is dropped and the rest of the reply kept, so a new
+* Core state needs an additive SDK release but never breaks result(). */
+function messageState(value) {
+	if (value.messageState === void 0) return {};
+	const state = record(value.messageState);
+	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
+	valid$6(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
+	const why = record(state.reason);
+	valid$6(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$1.encode(why.text).length <= 256);
+	return { messageState: {
+		state: state.state,
+		reason: {
+			code: why.code,
+			text: why.text
+		},
+		latestMs: state.latestMs,
+		remainingMs: state.remainingMs,
+		canSendNow: state.canSendNow
+	} };
+}
 var USER_NAME_REASONS = [
 	"USER_NAME_UNAVAILABLE",
 	"USER_NAME_INVALID",
@@ -485,7 +515,8 @@ function resultState(value, id) {
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
-			requestId: id
+			requestId: id,
+			...messageState(state)
 		};
 		case "replied":
 			valid$6(typeof state.message === "string");
@@ -501,6 +532,25 @@ function resultState(value, id) {
 		};
 		default: throw new Error("Invalid result state.");
 	}
+}
+var SEND_NOW_STATES = [
+	"sent",
+	"already",
+	"refused",
+	"unconfirmed",
+	"unavailable"
+];
+/** The reply to a send-now ask. The request ID must be the asked one; an unknown state is
+* `unconfirmed`, so a future state can never read as `sent`. */
+function sendNowState(value, id) {
+	const state = record(value);
+	valid$6(state.requestId === id);
+	return {
+		state: SEND_NOW_STATES.includes(state.state) ? state.state : "unconfirmed",
+		requestId: id,
+		...reason(state),
+		...messageState(state)
+	};
 }
 function agents(value) {
 	const rows = record(value).identities;
@@ -781,6 +831,14 @@ function operations(session, options = {}) {
 		async result(id) {
 			input$1(requestId(id));
 			return call("result", crypto.randomUUID(), { requestId: id }, (value) => resultState(value, id));
+		},
+		async sendNow(id) {
+			input$1(requestId(id));
+			return call("requests.sendNow", crypto.randomUUID(), {
+				version: 1,
+				operation: "requests.sendNow",
+				input: { requestId: id }
+			}, (value) => sendNowState(value, id));
 		}
 	};
 }

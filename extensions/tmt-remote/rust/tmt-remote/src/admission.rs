@@ -187,6 +187,7 @@ pub(crate) enum RemoteOperation {
     DispatchShow,
     OperationShow,
     RequestsShow,
+    RequestsSendNow,
     Result,
 }
 impl RemoteOperation {
@@ -213,6 +214,7 @@ impl RemoteOperation {
         ("dispatch.show", Self::DispatchShow),
         ("operation.show", Self::OperationShow),
         ("requests.show", Self::RequestsShow),
+        ("requests.sendNow", Self::RequestsSendNow),
         ("result", Self::Result),
     ];
     pub(crate) fn parse(name: &str) -> Option<Self> {
@@ -242,6 +244,7 @@ impl RemoteOperation {
             Self::DispatchShow => OperationClass::Read,
             Self::OperationShow => OperationClass::RecoveryObservation,
             Self::RequestsShow => OperationClass::Read,
+            Self::RequestsSendNow => OperationClass::Effect,
             Self::Result => OperationClass::Read,
         }
     }
@@ -266,6 +269,7 @@ impl RemoteOperation {
             Self::DispatchShow => Some("talk"),
             Self::OperationShow => Some("talk"),
             Self::RequestsShow => Some("results.read"),
+            Self::RequestsSendNow => Some("talk"),
             Self::Result => Some("results.read"),
         }
     }

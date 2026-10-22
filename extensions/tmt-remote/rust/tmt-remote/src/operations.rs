@@ -78,7 +78,51 @@ fn request_reference(id: &str) -> Result<String, RemoteError> {
         .map(str::to_owned)
         .ok_or_else(invalid)
 }
-fn result_state(id: &str, result: Result<Value, RemoteError>) -> Result<Value, RemoteError> {
+/// The message state a client may show, projected to exactly the published keys so an additive
+/// Core field or a malformed value never reaches a strict decoder; a malformed one is omitted.
+/// `canSendNow` is display only: the owner's browser sees Core's answer, any other grant sees
+/// false, and a send-now from it is refused regardless.
+fn message_state(detail: &Value, owner: bool) -> Option<Value> {
+    let state = detail.get("messageState")?.as_object()?;
+    let word = |value: &Value, max: usize, first_letter: bool| {
+        value
+            .as_str()
+            .filter(|text| {
+                !text.is_empty()
+                    && text.len() <= max
+                    && text.bytes().enumerate().all(|(index, byte)| {
+                        byte.is_ascii_lowercase()
+                            || (index > 0 || !first_letter)
+                                && (byte == b'_' || byte.is_ascii_digit())
+                    })
+            })
+            .map(str::to_owned)
+    };
+    let millis = |value: &Value| match value {
+        Value::Null => Some(Value::Null),
+        value => value
+            .as_u64()
+            .filter(|ms| *ms <= 9_007_199_254_740_991)
+            .map(|ms| json!(ms)),
+    };
+    let reason = state.get("reason")?.as_object()?;
+    let can_send_now = state.get("canSendNow")?.as_bool()?;
+    Some(json!({
+        "state": word(state.get("state")?, 32, true)?,
+        "reason": {
+            "code": word(reason.get("code")?, 64, true)?,
+            "text": reason.get("text")?.as_str().filter(|text| text.len() <= 256)?,
+        },
+        "latestMs": millis(state.get("latestMs")?)?,
+        "remainingMs": millis(state.get("remainingMs")?)?,
+        "canSendNow": owner && can_send_now,
+    }))
+}
+fn result_state(
+    id: &str,
+    result: Result<Value, RemoteError>,
+    owner: bool,
+) -> Result<Value, RemoteError> {
     let detail = match result {
         Ok(value) => value,
         Err(error) if error.code == "REQUEST_NOT_FOUND" => {
@@ -90,7 +134,13 @@ fn result_state(id: &str, result: Result<Value, RemoteError>) -> Result<Value, R
         return Err(invalid());
     }
     Ok(match detail["final"]["status"].as_str() {
-        Some("not_submitted") => json!({"state":"pending","requestId":id}),
+        Some("not_submitted") => {
+            let mut pending = json!({"state":"pending","requestId":id});
+            if let Some(state) = message_state(&detail, owner) {
+                pending["messageState"] = state;
+            }
+            pending
+        }
         Some("retained") => {
             json!({"state":"replied","requestId":id,"message":detail["final"]["response"].as_str().ok_or_else(invalid)?})
         }
@@ -240,6 +290,9 @@ impl Operations {
                 "requests.show",
                 "result",
             ];
+            if permit.owner_browser() && permit.grant.permits_scope("talk") {
+                supported.push("requests.sendNow");
+            }
             if self.management.is_some() && permit.owner_browser() {
                 supported.extend([
                     "remote.settings.show",
@@ -264,6 +317,9 @@ impl Operations {
             )
         }) {
             return self.read(permit);
+        }
+        if operation == "requests.sendNow" {
+            return self.send_now(permit);
         }
         let (id, notice) = match operation {
             "dispatch.create" => {
@@ -450,7 +506,17 @@ impl Operations {
                     }
                     Ok(json!({"identities":agents}))
                 },
-                "identities.status" | "requests.show" => self.api(&permit.message.payload),
+                "identities.status" => self.api(&permit.message.payload),
+                "requests.show" => self.api(&permit.message.payload).map(|mut detail| {
+                    let projected = message_state(&detail, permit.owner_browser());
+                    if let Some(fields) = detail.as_object_mut() {
+                        match projected {
+                            Some(state) => fields.insert("messageState".into(), state),
+                            None => fields.remove("messageState"),
+                        };
+                    }
+                    detail
+                }),
                 "check" => {
                     let input = agent.as_ref().expect("validated check input");
                     self.core.check(&input.agent_id, input.lines, &self.stop)
@@ -458,7 +524,7 @@ impl Operations {
                 "result" => {
                     let id = request.as_deref().expect("validated request input");
                     let api = json!({"version":1,"operation":"requests.show","input":{"requestId":id}});
-                    result_state(id, self.api(api.to_string().as_bytes()))
+                    result_state(id, self.api(api.to_string().as_bytes()), permit.owner_browser())
                 },
                 "operation.show" => {
                     let owned = owned.as_ref().expect("owned operation");
@@ -553,6 +619,96 @@ impl Operations {
             .map(|from| json!({"state":"person","name":person["name"],"renamedFrom":from}));
         (payload.to_string().into_bytes(), notice)
     }
+    /// `requests.sendNow`: the person, at their own paired browser, asks that a message they sent
+    /// be typed now (#4378). Core decides whether it may be and does the typing; this only carries
+    /// the ask. It is refused here, with Core never called, unless the grant is the owner's browser
+    /// and this device sent the request. No journal row is kept: a repeat is answered from Core's
+    /// own state (`already`), and the audit row is written with the call's fence.
+    fn send_now(&self, permit: &MessagePermit) -> Result<Vec<u8>, RemoteError> {
+        if !permit.owner_browser() {
+            return Err(RemoteError::new(
+                "REMOTE_SCOPE_DENIED",
+                "Send now is for the owner's own browser.",
+            ));
+        }
+        let input: ResultInput = read_input(permit)?;
+        let reference = request_reference(&input.request_id)?;
+        let digest = crate::journal::intent(&permit.message)?;
+        let (state, reason) = permit.with_store(|store| {
+            store.send_now(
+                &permit.grant,
+                permit.message.envelope().id,
+                &reference,
+                &digest,
+                now_ms,
+                || self.send_now_outcome(&input.request_id),
+            )
+        })?;
+        // Read back after the fence has committed, so the lock is not held for it.
+        let reply = self.send_now_reply(&input.request_id, state, reason);
+        permit.response(&reply)
+    }
+    /// What the ask came to, from Core's own answers and never a guess: `sent` only when Core
+    /// typed it; `refused` with Core's code when it typed nothing; `unconfirmed` when it may have
+    /// typed it, which includes every failure on this side of the call (a timeout, an interruption,
+    /// an unreadable answer); `unavailable` when the person could not be resolved or Core answered
+    /// with some other error, so nothing was typed.
+    fn send_now_outcome(&self, id: &str) -> (&'static str, Option<String>) {
+        let who = json!({"version":1,"operation":"user.identity","input":{}});
+        let person = match self.api(who.to_string().as_bytes()) {
+            Ok(person) => person["identityId"]
+                .as_str()
+                .filter(|id| canonical::is_core_id(id))
+                .map(str::to_owned)
+                .ok_or_else(|| "REMOTE_CORE_UNAVAILABLE".to_owned()),
+            Err(error) => Err(error.code),
+        };
+        let person = match person {
+            Ok(person) => person,
+            Err(code) => return ("unavailable", Some(code)),
+        };
+        let ask = json!({"version":1,"operation":"requests.sendNow","identity":person,"input":{"requestId":id}});
+        match self.api(ask.to_string().as_bytes()) {
+            Ok(done) => match done["status"].as_str() {
+                Some("sent") => ("sent", None),
+                Some("already") => ("already", None),
+                _ => ("unconfirmed", None),
+            },
+            Err(error) => match error.code.as_str() {
+                "DELIVERY_UNCERTAIN"
+                | "REMOTE_CORE_UNAVAILABLE"
+                | "REMOTE_CORE_UNCERTAIN"
+                | "REMOTE_IO" => ("unconfirmed", Some(error.code)),
+                code if code.starts_with("SEND_NOW_")
+                    || matches!(
+                        code,
+                        "DELIVERY_AWAITING_APPROVAL" | "DELIVERY_CHANNEL_UNAVAILABLE"
+                    ) =>
+                {
+                    ("refused", Some(error.code))
+                }
+                _ => ("unavailable", Some(error.code)),
+            },
+        }
+    }
+    /// The reply to the browser: the outcome plus Core's fresh `messageState`.
+    fn send_now_reply(&self, id: &str, state: &str, reason: Option<String>) -> Value {
+        let mut reply = json!({"state":state,"requestId":id});
+        if let Some(reason) = reason.filter(|reason| {
+            reason.len() <= 64 && reason.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+        }) {
+            reply["reason"] = json!(reason);
+        }
+        let show = json!({"version":1,"operation":"requests.show","input":{"requestId":id}});
+        if let Some(state) = self
+            .api(show.to_string().as_bytes())
+            .ok()
+            .and_then(|detail| message_state(&detail, true))
+        {
+            reply["messageState"] = state;
+        }
+        reply
+    }
     fn resolve(&self, frozen: &[u8], retry: bool, grant: &Grant) -> Result<Value, RemoteError> {
         let intent = frozen_dispatch(frozen)?.input;
         let id = &intent.operation_id;
@@ -605,6 +761,51 @@ impl Store {
         let value = action();
         tx.commit().map_err(database)?;
         Ok(value)
+    }
+    /// A send-now is ordered against revocation like a dispatch effect: authority, this device's
+    /// ownership of the request and the audit row commit with the bounded core call.
+    pub(crate) fn send_now<T>(
+        &mut self,
+        grant: &Grant,
+        envelope: &str,
+        request: &str,
+        digest: &[u8],
+        clock: impl FnOnce() -> Result<u64, RemoteError>,
+        action: impl FnOnce() -> T,
+    ) -> Result<T, RemoteError> {
+        let (tx, now) = self.authorized_at(grant, clock)?;
+        let sent_by_device: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM operations o, json_each(o.references_json) r
+                 WHERE o.client_id=?1 AND o.operation='dispatch.create' AND r.value=?2)",
+                params![grant.client_id, request],
+                |row| row.get(0),
+            )
+            .map_err(database)?;
+        if !sent_by_device {
+            return Err(RemoteError::new(
+                "REMOTE_SCOPE_DENIED",
+                "Request was not sent by this device.",
+            ));
+        }
+        audit::append(
+            &tx,
+            audit::AuditMetadata {
+                time: now,
+                client: &grant.client_id,
+                request: envelope,
+                operation: "requests.sendNow",
+                operation_id: None,
+                resources: &[request.to_owned()],
+                digest,
+                revision: grant.revision,
+                decision: "dispatching",
+                code: "",
+            },
+        )?;
+        let result = action();
+        tx.commit().map_err(database)?;
+        Ok(result)
     }
     /// The transaction owns authority, resource audit and the actual core invocation fence.
     pub(crate) fn effect<T>(
