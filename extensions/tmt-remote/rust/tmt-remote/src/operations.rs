@@ -634,7 +634,7 @@ impl Operations {
         let input: ResultInput = read_input(permit)?;
         let reference = request_reference(&input.request_id)?;
         let digest = crate::journal::intent(&permit.message)?;
-        let (state, reason) = permit.with_store(|store| {
+        let answer = permit.with_store(|store| {
             store.send_now(
                 &permit.grant,
                 permit.message.envelope().id,
@@ -645,15 +645,21 @@ impl Operations {
             )
         })?;
         // Read back after the fence has committed, so the lock is not held for it.
-        let reply = self.send_now_reply(&input.request_id, state, reason);
+        let reply = self.send_now_reply(&input.request_id, answer);
         permit.response(&reply)
     }
     /// What the ask came to, from Core's own answers and never a guess: `sent` only when Core
     /// typed it; `refused` with Core's code when it typed nothing; `unconfirmed` when it may have
     /// typed it, which includes every failure on this side of the call (a timeout, an interruption,
     /// an unreadable answer); `unavailable` when the person could not be resolved or Core answered
-    /// with some other error, so nothing was typed.
-    fn send_now_outcome(&self, id: &str) -> (&'static str, Option<String>) {
+    /// with some other error, so nothing was typed. Core's own sentence for a refusal or an
+    /// uncertain paste travels with its code; a failure of this side's has none.
+    fn send_now_outcome(&self, id: &str) -> SendNowAnswer {
+        let answer = |state, reason: Option<String>, text: Option<String>| SendNowAnswer {
+            state,
+            reason,
+            text,
+        };
         let who = json!({"version":1,"operation":"user.identity","input":{}});
         let person = match self.api(who.to_string().as_bytes()) {
             Ok(person) => person["identityId"]
@@ -665,39 +671,47 @@ impl Operations {
         };
         let person = match person {
             Ok(person) => person,
-            Err(code) => return ("unavailable", Some(code)),
+            Err(code) => return answer("unavailable", Some(code), None),
         };
         let ask = json!({"version":1,"operation":"requests.sendNow","identity":person,"input":{"requestId":id}});
         match self.api(ask.to_string().as_bytes()) {
             Ok(done) => match done["status"].as_str() {
-                Some("sent") => ("sent", None),
-                Some("already") => ("already", None),
-                _ => ("unconfirmed", None),
+                Some("sent") => answer("sent", None, None),
+                Some("already") => answer("already", None, None),
+                _ => answer("unconfirmed", None, None),
             },
             Err(error) => match error.code.as_str() {
-                "DELIVERY_UNCERTAIN"
-                | "REMOTE_CORE_UNAVAILABLE"
-                | "REMOTE_CORE_UNCERTAIN"
-                | "REMOTE_IO" => ("unconfirmed", Some(error.code)),
+                "DELIVERY_UNCERTAIN" => {
+                    answer("unconfirmed", Some(error.code), Some(error.message))
+                }
+                "REMOTE_CORE_UNAVAILABLE" | "REMOTE_CORE_UNCERTAIN" | "REMOTE_IO" => {
+                    answer("unconfirmed", Some(error.code), None)
+                }
                 code if code.starts_with("SEND_NOW_")
                     || matches!(
                         code,
                         "DELIVERY_AWAITING_APPROVAL" | "DELIVERY_CHANNEL_UNAVAILABLE"
                     ) =>
                 {
-                    ("refused", Some(error.code))
+                    answer("refused", Some(error.code), Some(error.message))
                 }
-                _ => ("unavailable", Some(error.code)),
+                _ => answer("unavailable", Some(error.code), None),
             },
         }
     }
-    /// The reply to the browser: the outcome plus Core's fresh `messageState`.
-    fn send_now_reply(&self, id: &str, state: &str, reason: Option<String>) -> Value {
-        let mut reply = json!({"state":state,"requestId":id});
-        if let Some(reason) = reason.filter(|reason| {
+    /// The reply to the browser: the outcome plus Core's fresh `messageState`. A code or sentence
+    /// that is not a plain bounded word or line is left out, never forwarded.
+    fn send_now_reply(&self, id: &str, answer: SendNowAnswer) -> Value {
+        let mut reply = json!({"state":answer.state,"requestId":id});
+        if let Some(reason) = answer.reason.filter(|reason| {
             reason.len() <= 64 && reason.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
         }) {
             reply["reason"] = json!(reason);
+            if let Some(text) = answer.text.filter(|text| {
+                !text.is_empty() && text.len() <= 256 && !text.chars().any(char::is_control)
+            }) {
+                reply["reasonText"] = json!(text);
+            }
         }
         let show = json!({"version":1,"operation":"requests.show","input":{"requestId":id}});
         if let Some(state) = self
@@ -741,6 +755,12 @@ impl Operations {
             self.resolve(frozen, true, grant)
         })?
     }
+}
+/// What a send-now came to (see `send_now_outcome`).
+struct SendNowAnswer {
+    state: &'static str,
+    reason: Option<String>,
+    text: Option<String>,
 }
 fn state(owned: &Owned) -> Value {
     if matches!(owned.phase.as_str(), "accepted" | "cancelled" | "refused") {
