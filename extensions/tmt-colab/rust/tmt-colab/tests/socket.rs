@@ -6639,44 +6639,91 @@ fn a_page_with_a_full_epoch_of_decisions_saves_no_further_request() {
     assert_eq!(native_source(&layout, &key), "", "a request was saved");
 }
 
-#[test]
-fn describe_keeps_navigation_without_unknown_counts_and_during_busy_catalog() {
-    let root = PathBuf::from(format!(
-        "/tmp/tmt-describe-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let layout = Layout::open(&root).unwrap();
-    let key = Keyring::open(&layout).unwrap();
+/// Owns only a newly created describe fixture directory until Running takes it.
+struct DescribeRoot(Option<PathBuf>);
+impl DescribeRoot {
+    fn new() -> Self {
+        use std::os::unix::fs::DirBuilderExt;
+        let path = PathBuf::from(format!(
+            "/tmp/tmt-describe-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        Self(Some(path))
+    }
+    fn path(&self) -> &std::path::Path {
+        self.0.as_deref().unwrap()
+    }
+    fn into_path(mut self) -> PathBuf {
+        self.0.take().unwrap()
+    }
+}
+impl Drop for DescribeRoot {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+}
+
+fn describe_fixture(root: DescribeRoot) -> tmt_colab::Result<Running> {
+    let layout = Layout::open(root.path())?;
+    let key = Keyring::open(&layout)?;
     let space = key.space_id.clone();
-    let registration = Arc::new(Mutex::new(
-        Registration::with_decoder_config(
-            Store::open(&layout).unwrap(),
-            key,
-            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
-        )
-        .unwrap(),
-    ));
-    let mount = MountSocket::bind(&layout, &space, Tunnels::PRODUCT)
-        .unwrap()
-        .with_registration(&layout, Arc::clone(&registration))
-        .unwrap();
+    let registration = Arc::new(Mutex::new(Registration::with_decoder_config(
+        Store::open(&layout)?,
+        key,
+        support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+    )?));
+    let mount = MountSocket::bind(&layout, &space, Tunnels::PRODUCT)?
+        .with_registration(&layout, Arc::clone(&registration))?;
     let path = mount.path.clone();
     let stop = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&stop);
     let worker = Some(std::thread::spawn(move || mount.run(&flag).unwrap()));
-    let running = Running {
+    Ok(Running {
         save_gate: Arc::default(),
         snapshot_gate: Arc::default(),
         replacement: Arc::default(),
         clock_fault: Arc::new(AtomicI32::new(-1)),
         registration,
-        root,
+        root: root.into_path(),
         path,
         space,
         stop,
         worker,
-    };
+    })
+}
+
+#[test]
+fn describe_fixture_removes_its_root_when_bind_fails() {
+    let root = DescribeRoot::new();
+    let path = root.path().to_path_buf();
+    let layout = Layout::open(&path).unwrap();
+    fs::write(layout.directory.join("door.sock"), b"occupied").unwrap();
+    let error = describe_fixture(root).err();
+    let leftover = path.exists();
+    // The negative control must clean its own known root even when the owner fails this assertion.
+    if leftover {
+        fs::remove_dir_all(&path).unwrap();
+    }
+    assert!(matches!(
+        error
+            .as_ref()
+            .and_then(|error| error.downcast_ref::<tmt_colab::socket::SocketFault>()),
+        Some(tmt_colab::socket::SocketFault::Occupied(_))
+    ));
+    assert!(
+        !leftover,
+        "the failed bind left its fixture directory behind"
+    );
+}
+
+#[test]
+fn describe_keeps_navigation_without_unknown_counts_and_during_busy_catalog() {
+    let running = describe_fixture(DescribeRoot::new()).unwrap();
+    let layout = Layout::open(&running.root).unwrap();
     let callback = Running::get(
         "/.tmt/remote/describe",
         "tmt-describe: 1\r\ntmt-mount: /r/abcdefghijklmnop/x/colab/\r\n",
