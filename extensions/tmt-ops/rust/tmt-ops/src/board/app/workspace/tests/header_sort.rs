@@ -4,7 +4,10 @@
 use super::*;
 use crate::{
     board::{
-        app::Choice, header_sort::Header, overview::cron_counts::GlyphSet, shell::OpsTab,
+        app::Choice,
+        header_sort::{Control, Header},
+        overview::cron_counts::GlyphSet,
+        shell::OpsTab,
         workspace::AgentsFilter,
     },
     config::{OpsSort, OverviewColumn, OverviewSort},
@@ -213,7 +216,7 @@ fn hovering_a_header_shows_the_swap_mark_and_the_accent_until_the_pointer_leaves
         row: area.y,
         modifiers: KeyModifiers::NONE,
     }));
-    assert_eq!(app.header_hover, Some(squad));
+    assert_eq!(app.header_hover, Some(Control::Sort(squad)));
     assert!(header_row(&app, squad).contains("SQUAD ↕"));
     let hovered = buffer(&app)[(area.x, area.y)].clone();
     assert_eq!(hovered.symbol(), idle.symbol());

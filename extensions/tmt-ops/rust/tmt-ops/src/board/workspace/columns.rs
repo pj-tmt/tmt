@@ -279,22 +279,24 @@ impl TokHeading {
     pub fn caption(self) -> &'static str {
         self.range.caption_in(self.money)
     }
-}
 
-/// The window word of the TOK caption (`1h` of `TOK 1h`) is its own control,
-/// separate from the rest of the caption. `slot` is the right-aligned TOK cell;
-/// a truncated caption has no whole word to hit.
-pub fn tok_window_chip(slot: Rect, heading: TokHeading) -> Option<Rect> {
-    use unicode_width::UnicodeWidthStr;
-    let range = heading.range;
-    let word = range.argument().len() as u16;
-    let caption = heading.caption().width() as u16;
-    (slot.height > 0 && slot.width >= caption)
-        .then(|| Rect::new(slot.x + slot.width - word, slot.y, word, 1))
+    /// The unit word on screen: `TOK` or `≈$`.
+    pub fn unit(self) -> &'static str {
+        if self.money { "≈$" } else { "TOK" }
+    }
+
+    /// The unit a click on the unit word switches to.
+    pub fn other_unit(self) -> &'static str {
+        Self {
+            money: !self.money,
+            ..self
+        }
+        .unit()
+    }
 }
 
 /// Paints the Agents column header and returns the hit areas of its controls:
-/// the TOK window word when the TOK column is present, and the sortable words.
+/// the TOK unit and window words when the TOK column is present, and the sortable words.
 pub fn paint_agents_header(
     buffer: &mut ratatui::buffer::Buffer,
     area: Rect,
@@ -319,7 +321,19 @@ pub fn paint_agents_header(
         let mut word = field.caption(glyphs);
         let mut style = base;
         let caption = if *field == AgentsField::Tokens {
-            hits.window = tok_window_chip(*slot, tok);
+            if let Some(cell) = marks.tokens(None, tok, slot.width, base, look) {
+                for (from, size, control) in cell.parts {
+                    let hit =
+                        Rect::new(slot.x.saturating_add(from), slot.y, size, 1).intersection(*slot);
+                    hits.tok.push((hit, control));
+                }
+                tmt_tui::components::strip::paint_left(
+                    buffer,
+                    *slot,
+                    ratatui::text::Line::from(cell.spans),
+                );
+                continue;
+            }
             word = tok.caption();
             word.to_owned()
         } else if let Some((header, lead)) = sorts {
@@ -360,8 +374,8 @@ pub fn paint_agents_header(
 /// What the Agents header made clickable.
 #[derive(Default)]
 pub struct AgentsHeaderHits {
-    /// The window word of `TOK 1h`.
-    pub window: Option<Rect>,
+    /// The unit and window words of `TOK 1h`.
+    pub tok: Vec<(Rect, crate::board::header_sort::Control)>,
     pub sorts: Vec<(Rect, crate::board::header_sort::Header)>,
 }
 

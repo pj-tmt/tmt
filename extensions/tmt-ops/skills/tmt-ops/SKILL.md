@@ -320,7 +320,8 @@ A sum of percents needs one shared interval and a sum of costs one price table;
 otherwise it reads `— (intervals differ)` or `— (prices differ)`. The `savings-unit`
 action has no default key: bind one under `[bind]` and its hint appears beside a
 painted estimate, or choose `Savings unit` from the Actions menu.
-The Agents TOK figures follow the same unit. Click a TOK figure to switch every figure
+The Agents TOK figures follow the same unit. Click the `TOK` (or `≈$`) word of the column
+heading, or any TOK figure, to switch every figure
 between tokens and the list price of the input tokens behind them (`≈$0.42`, `≈$12.3`,
 `≈$123`, `≈$1.2k`; the heading reads `≈$ 1d`). The click skips percent, a squad sums its
 members, and a figure is `—` until the usage report covers all of them completely, never a
@@ -398,7 +399,9 @@ The shared `workspace.tok_range` is `1h` (default), `3h`, `6h`, `1d` or `7d`;
 Workspace settings selects it, and clicking the window word of an Agents `TOK 1h`
 heading, clicking the Digest Range control or an explicit `cycle-tok-range`
 binding (unbound by default) cycles the same setting 1h, 3h, 6h, 1d, 7d, 1h. The
-window word is its own hit area, apart from the TOK word. Agents TOK headings
+window word is its own hit area, apart from the unit word, which switches tokens and cost,
+and from the flat list's sort mark before it; each lights up alone under the pointer, and a
+hovered unit word shows the unit a click switches to. Agents TOK headings
 and values follow it. Chart Time per bar/Range controls keep their independent viewport.
 `all` sums the admitted visible identities and never sends a message or changes a
 member's mode. Real members keep UUID selection as usage sorting changes.

@@ -137,12 +137,14 @@ state only, no squad data or durable preference policy.
 - `workspace::render::tree` projects viewport UUID targets through `tree_row`.
   `workspace::columns` owns fixed tracks and whole optional-column removal;
   The saved TOK range is visible with STATE, owned-timer count and a local lead marker when
-  they fit; `columns::tok_window_chip` gives the window word of the TOK heading its own
-  `Choice::TokRange` strip hit in the tree and flat headers (the TOK word is the flat
-  header's sort hit). `header_sort` owns the sortable header words: `Header` maps a
-  word to the saved `Order` a click asks for, `Marks` draws the order/hover mark, and
-  `Row` paints the flat header cell by cell; the hits join `workspace_strip_hits` as
-  `Choice::SortBy`, and `App::header_hover` follows the pointer over them. Connectors follow filtered siblings. Selection fills the whole row
+  they fit; `Marks::tokens` paints the TOK heading as three controls with their own strip hits in
+  the tree and flat headers: the window word (`Choice::TokRange`), the unit word
+  (`Choice::TokUnit`, the same switch as the row figures' `Choice::TokMoney`) and, in the flat
+  header only, the sort mark cell before the unit word. `header_sort` owns the header controls:
+  `Header` maps a sortable word to the saved `Order` a click asks for, `Control` names a
+  clickable part, `Marks` draws the order/hover marks, and `Row` paints the flat header cell by
+  cell; the hits join `workspace_strip_hits` through `App::control_choice`, and
+  `App::header_hover` follows the pointer over any of them. Connectors follow filtered siblings. Selection fills the whole row
   at normal weight, including when the conversation has focus; attention belongs
   to state glyphs. `agents_focus` owns selected member/squad projection through
   shared identity/stat/usage/timer/exchange/input components. Digest choices and

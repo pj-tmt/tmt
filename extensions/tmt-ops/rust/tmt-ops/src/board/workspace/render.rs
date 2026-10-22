@@ -313,9 +313,12 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         &marks,
     );
     let mut strip_hits = app.workspace_strip_hits.borrow_mut();
-    if let Some(chip) = header.window {
-        strip_hits.push((chip, Choice::TokRange(app.tok_range().next())));
-    }
+    strip_hits.extend(
+        header
+            .tok
+            .into_iter()
+            .map(|(area, control)| (area, app.control_choice(control))),
+    );
     strip_hits.extend(
         header
             .sorts
