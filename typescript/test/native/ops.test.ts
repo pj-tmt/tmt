@@ -5490,6 +5490,146 @@ describe('large board responsiveness', () => {
     });
   }, 120_000);
 
+  it('writes OSC 8 around an http(s) link label only when the terminal is known to support it', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const scratch = startPrivateTmux(sandbox, 'links');
+      sandbox.env.TERM = 'xterm-256color';
+      sandbox.env.NO_COLOR = '1';
+      const { tmux } = scratch;
+      await identity(sandbox, 'Ben');
+      await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      const sent = await runCli(sandbox, [
+        'talk',
+        'worker',
+        'link source',
+        '--identity',
+        'Ben',
+        '--room',
+        'squad-product',
+        '--detach',
+        '--json',
+      ]);
+      expect(sent.status).toBe(0);
+      const request = JSON.parse(sent.stdout).requestId;
+      const incoming = await runCli(sandbox, [
+        'x',
+        'show',
+        request,
+        '--incoming',
+        '--identity',
+        'worker',
+        '--json',
+      ]);
+      expect(incoming.status).toBe(0);
+      expect(
+        (
+          await runCli(sandbox, [
+            'reply',
+            request,
+            '--receipt',
+            JSON.parse(incoming.stdout).exchange.reply.receipt,
+            '--message',
+            'Read [docs](https://example.com/x?a=1) or [mail](mailto:a@example.com) or [bad](javascript:alert(1)) now',
+            '--json',
+          ])
+        ).status
+      ).toBe(0);
+      tmux([
+        'new-session',
+        '-d',
+        '-s',
+        'links',
+        '-c',
+        sandbox.root,
+        '-x',
+        '160',
+        '-y',
+        '36',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      const pane = tmux(['display-message', '-p', '#{pane_id}']);
+      const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      // What the board writes, as the program wrote it, before tmux interprets it.
+      const launch = async (name: string, force: string | undefined) => {
+        const bytes = path.join(sandbox.root, `${name}.bytes`);
+        tmux(['pipe-pane', '-O', '-t', pane, `cat >> ${quote(bytes)}`]);
+        const prefix = force === undefined ? 'env -u FORCE_HYPERLINK' : `FORCE_HYPERLINK=${force}`;
+        tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${prefix} ${quote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
+        ]);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        await vi.waitFor(() => expect(screen()).toContain('room product'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+        tmux(['send-keys', '-t', pane, 'Right']);
+        await vi.waitFor(() => expect(screen()).toMatch(/^[ \t]+▾ product[ \t]+/m), {
+          timeout: 10_000,
+          interval: 25,
+        });
+        tmux(['send-keys', '-t', pane, 'End']);
+        await vi.waitFor(() => expect(screen()).toContain('Read docs or mail or bad now'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+        tmux(['send-keys', '-t', pane, 'q']);
+        await vi.waitFor(
+          () =>
+            expect(tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}'])).not.toBe(
+              'tmt-ops'
+            ),
+          { timeout: 10_000, interval: 25 }
+        );
+        tmux(['pipe-pane', '-t', pane]);
+        return readFileSync(bytes, 'latin1');
+      };
+      try {
+        const forced = await launch('forced', '1');
+        const esc = String.fromCharCode(27);
+        const open = `${esc}]8;id=`;
+        const end = `${esc}\\`;
+        const close = `${esc}]8;;${end}`;
+        const start = forced.indexOf(open);
+        expect(start, 'the web link opens').toBeGreaterThanOrEqual(0);
+        expect(forced.slice(start).startsWith(open)).toBe(true);
+        const address = forced.indexOf(';https://example.com/x?a=1' + end, start);
+        const label = forced.indexOf('docs', start);
+        const closed = forced.indexOf(close, start);
+        expect(address).toBeGreaterThan(start);
+        expect(label).toBeGreaterThan(address);
+        expect(closed).toBeGreaterThan(label);
+        // Only the label sits inside the pair; the other schemes were never written.
+        expect(forced.slice(start, closed)).not.toContain('Read');
+        expect(forced).not.toContain(';mailto:');
+        expect(forced).not.toContain('javascript:');
+        // The pairs balance: every open is closed.
+        expect(forced.split(open).length).toBe(forced.split(close).length);
+        // Detached from any client, tmux reports no hyperlinks feature; forcing off wins too.
+        for (const [name, force] of [
+          ['auto', undefined],
+          ['off', '0'],
+        ] as const) {
+          expect(await launch(name, force), name).not.toContain(`${esc}]8;`);
+        }
+      } finally {
+        scratch.stop();
+        await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+          timeout: 10_000,
+          interval: 25,
+        });
+      }
+    });
+  }, 180_000);
+
   it('tmux gives the board a new-line key (Shift+Enter with csi-u, else Alt+Enter) while Enter still sends', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

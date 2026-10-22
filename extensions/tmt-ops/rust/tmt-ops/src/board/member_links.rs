@@ -163,6 +163,22 @@ impl State {
             entry.used = false;
         }
     }
+    /// The web links painted this frame, for the terminal to make clickable. The
+    /// pieces of one link share an id; a label shown twice does not.
+    pub fn web_spans(&self) -> Vec<super::hyperlinks::Span> {
+        use std::hash::{Hash, Hasher};
+        self.hits
+            .iter()
+            .filter_map(|hit| {
+                let Target::Url(url) = &hit.target else {
+                    return None;
+                };
+                let mut id = std::collections::hash_map::DefaultHasher::new();
+                (hit.surface.as_position(), url, hit.occurrence).hash(&mut id);
+                super::hyperlinks::Span::new(hit.area, url, id.finish() as u32)
+            })
+            .collect()
+    }
     pub fn invalidate(&mut self) {
         self.hits.clear();
         self.focused = None;

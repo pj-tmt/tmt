@@ -33,6 +33,13 @@ an autolink and a bare address outside code. They share the hit table, hover, fo
 and Enter with mentions; a `Url` hit opens the popover of `member_links/popover.rs`
 (a `Menu`: the origin as an inert row, then Open, Copy, Show full). `effects::open_argv`
 fills `{url}` as one argument; `detect_opener` picks the default per `OpenHost`.
+`board/hyperlinks.rs` also lets a supporting terminal click an `http(s)` label: `paint_hits`
+leaves the cells alone and `Hit`s of `Target::Url` become `Span`s (`State::web_spans`),
+which the draw closure hands to `hyperlinks::Links` and `terminal::Backend::draw` wraps
+around each changed run in OSC 8 (one writer, `hyperlinks::sequence`, http/https only,
+no control byte, percent-encoded non-ASCII, at most 2000 bytes). Support is decided once
+at start by `hyperlinks::supported` (`FORCE_HYPERLINK`, positive terminal signals, tmux
+3.4+ with the `hyperlinks` client feature); off, the backend's bytes are unchanged.
 
 Conversation bodies always render in full: there is no fold state, caption or
 control, and the pane scrolls. A separate anchor map preserves reading position

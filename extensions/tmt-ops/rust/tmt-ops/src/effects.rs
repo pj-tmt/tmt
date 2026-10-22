@@ -370,6 +370,24 @@ pub fn tmux_option(socket: &str, option: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// Whether the invoker's tmux hands OSC 8 on to the attached terminal: tmux 3.4 or
+/// later whose client reports the `hyperlinks` terminal feature. Any failure is `false`.
+pub fn tmux_passes_hyperlinks(socket: &str) -> bool {
+    let program = Path::new("tmux");
+    let new_enough = tmux(program, socket, &["-V"], b"")
+        .ok()
+        .and_then(|v| tmux_version(&v))
+        .is_some_and(|v| v >= (3, 4));
+    new_enough
+        && tmux(
+            program,
+            socket,
+            &["display-message", "-p", "#{client_termfeatures}"],
+            b"",
+        )
+        .is_ok_and(|features| features.split(',').any(|feature| feature == "hyperlinks"))
+}
+
 /// Whether tmux sends Shift+Enter as `CSI 13;2 u` once the board asks for
 /// modifyOtherKeys. The reader parses only that `csi-u` form; tmux's default
 /// `xterm` form (`CSI 27;2;13 ~`) would be dropped, so nothing is requested then.
