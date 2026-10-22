@@ -640,3 +640,61 @@ fn a_source_without_inventory_keeps_its_outcome_over_a_broken_store() {
         json!([{"host": "fake", "socket": SOCKET, "status": "offline", "reason": null}])
     );
 }
+
+#[test]
+fn guarded_add_names_the_agent_as_add_does_with_the_drivers_it_read() {
+    let fixture = naming("guarded-naming", &[]);
+    let record = fixture.approve();
+    approvals(&fixture, &[record.clone(), unrelated(&record)]);
+    let before = fs::read(registry_file(&fixture)).unwrap();
+    let digest = expect(&scan(&fixture));
+    let (code, bound) = add(&fixture, &["fake-1", "worker", "--expect", &digest]);
+    assert_eq!(code, 0, "{bound:#}");
+    assert_eq!(
+        bound["agentName"],
+        json!({"status": "set", "name": "worker"})
+    );
+    let requests = named(&fixture);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["name"], "worker");
+    // A refused repeat names nothing.
+    let (code, _) = add(&fixture, &["fake-1", "worker", "--expect", &digest]);
+    assert_eq!(code, 3);
+    assert_eq!(named(&fixture).len(), 1);
+    // An explicit, freshly fenced repeat is bound again, and named again.
+    let rescan = scan(&fixture);
+    let id = rescan["candidates"][0]["identity"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (code, repeated) = add(
+        &fixture,
+        &["fake-1", "--identity", &id, "--expect", &expect(&rescan)],
+    );
+    assert_eq!(code, 0, "{repeated:#}");
+    assert_eq!(repeated["status"], "already_bound");
+    assert_eq!(repeated["agentName"]["status"], "set");
+    assert_eq!(named(&fixture).len(), 2);
+    assert_eq!(publishes(&fixture), 1);
+    approvals_untouched(&fixture, &before);
+    assert_eq!(
+        fixture
+            .calls()
+            .iter()
+            .filter(|call| *call == "capabilities")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_refused_agent_name_keeps_the_guarded_binding() {
+    let fixture = naming("guarded-naming-refused", &["refused"]);
+    fixture.approve();
+    let digest = expect(&scan(&fixture));
+    let (code, bound) = add(&fixture, &["fake-1", "worker", "--expect", &digest]);
+    assert_eq!(code, 0, "{bound:#}");
+    assert_eq!(bound["status"], "bound");
+    assert_eq!(bound["agentName"]["status"], "refused");
+    assert_eq!(rows(&fixture, "bindings"), 1);
+}

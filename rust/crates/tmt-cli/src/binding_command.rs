@@ -1,6 +1,8 @@
 //! Thin composition of typed commands, one storage handle and binding policy.
 //! Preflight caller/target checks precede configuration and database effects.
 
+#[cfg(test)]
+mod guarded_tests;
 mod presentation;
 mod session;
 
@@ -398,25 +400,37 @@ fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failur
                 .map(|binding| (binding, &result.identity)),
             _ => None,
         };
-        // tmux has no agent names, so a tmux binding asks nothing and its
-        // result gains no member.
-        let named = named
-            .filter(|(binding, _)| !matches!(binding.server.host, tmt_core::host::HostKind::Tmux));
         let outcome = match named {
             Some((binding, identity)) => {
-                match Host::for_server(&binding.server).name_agent(binding, identity, None) {
-                    Err(error) if error.cleanup_failed() => return Err(cosmetic_cleanup(error)),
-                    result => Some(AgentNameOutcome {
-                        name: identity.name.clone(),
-                        result,
-                    }),
-                }
+                name_bound_agent(&Host::for_server(&binding.server), binding, identity)?
             }
             None => None,
         };
         Ok((report, outcome))
     });
     after_cleanup(pending, || storage.close())
+}
+
+/// After a committed bind: gives the agent in the binding's pane the
+/// identity's name, through `host`'s drivers. tmux has no agent names, so a
+/// tmux binding asks nothing and its result gains no member. A refusal or an
+/// unknown outcome keeps the binding; only a driver process that could not
+/// be cleaned up fails the command.
+fn name_bound_agent<R: tmt_adapters::process::CommandRunner>(
+    host: &Host<R>,
+    binding: &tmt_core::binding::Binding,
+    identity: &Identity,
+) -> Result<Option<AgentNameOutcome>, Failure> {
+    if binding.server.host == tmt_core::host::HostKind::Tmux {
+        return Ok(None);
+    }
+    match host.name_agent(binding, identity, None) {
+        Err(error) if error.cleanup_failed() => Err(cosmetic_cleanup(error)),
+        result => Ok(Some(AgentNameOutcome {
+            name: identity.name.clone(),
+            result,
+        })),
+    }
 }
 
 fn cosmetic_cleanup(error: tmt_adapters::host::HostError) -> Failure {
@@ -664,13 +678,7 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     if mode.json {
         let mut document = presentation::document(&report);
         if let Some(outcome) = &agent_name {
-            let (member, warning) = presentation::agent_name_json(outcome);
-            if let Some(member) = member {
-                document["agentName"] = member;
-            }
-            if let Some(warning) = warning {
-                document["warnings"] = serde_json::json!([warning]);
-            }
+            presentation::add_agent_name(&mut document, outcome);
         }
         if let Some(completion) = &completion {
             document["session"] = serde_json::json!({"unbound":completion.unbound});
@@ -794,7 +802,7 @@ fn run_guarded<R: tmt_adapters::process::CommandRunner + Clone>(
     paths: &ConfigPaths,
     request: &GuardedRequest<'_>,
     partial: &mut bool,
-) -> Result<tmt_core::binding::GuardedBoundIdentity, Failure> {
+) -> Result<GuardedOutcome, Failure> {
     use std::time::{Duration, Instant};
     use tmt_core::binding::{BindingError, GuardedIdentity};
     let host = match host {
@@ -826,7 +834,7 @@ fn run_guarded<R: tmt_adapters::process::CommandRunner + Clone>(
             Some(id) => GuardedIdentity::Uuid(id),
             None => GuardedIdentity::Name(request.name.expect("parser selected name")),
         };
-        let result =
+        let bound =
             binding::bind_guarded(&mut storage, &mut endpoint, &fence, selector, request.save)
                 .map_err(|error| match error {
                     BindingError::Partial(error) => {
@@ -834,14 +842,70 @@ fn run_guarded<R: tmt_adapters::process::CommandRunner + Clone>(
                         binding_failure(*error)
                     }
                     error => binding_failure(error),
-                });
-        if result.is_ok() {
-            *partial = true;
-        } // A close failure follows admitted effects.
-        result
+                })?;
+        // A naming or close failure follows admitted effects.
+        *partial = true;
+        let presence = &bound.bound.presence;
+        let agent_name = match &presence.binding {
+            Some(binding) => name_bound_agent(&host, binding, &presence.identity)?,
+            None => None,
+        };
+        Ok((bound, agent_name))
     })();
     after_cleanup(result, || storage.close())
 }
+
+/// A guarded add's one result: its document, or its failure with `partial`
+/// once host effects may have happened.
+fn present_guarded(
+    output: &mut impl Write,
+    mode: OutputMode,
+    pane: &str,
+    outcome: Result<GuardedOutcome, Failure>,
+    partial: bool,
+) -> io::Result<u8> {
+    match outcome {
+        Ok((result, agent_name)) => {
+            let row = &result.bound.presence;
+            let pane = &row.pane.as_ref().expect("verified binding").id;
+            if mode.json {
+                let mut document = serde_json::json!({"version":1,"status":if result.already_bound {"already_bound"}else{"bound"},"bound":true,"id":row.identity.id,"name":row.identity.name,"pane":pane,"lifetime":row.identity.lifetime.as_str()});
+                if let Some(outcome) = &agent_name {
+                    presentation::add_agent_name(&mut document, outcome);
+                }
+                writeln!(output, "{document}")?;
+            } else {
+                writeln!(output, "Bound {:?} on {}", row.identity.name, pane)?;
+                if let Some(AgentNameOutcome {
+                    name,
+                    result: Err(error),
+                }) = &agent_name
+                {
+                    let mut stderr = tmt_cli_style::stream::stderr();
+                    presentation::agent_name_warning(&mut stderr, name, error)?;
+                }
+            }
+            Ok(0)
+        }
+        Err(error) => {
+            if mode.json {
+                let mut document = error.document();
+                document["status"] = if partial { "partial" } else { "refused" }.into();
+                document["pane"] = pane.into();
+                writeln!(output, "{document}")?;
+                Ok(error.status)
+            } else {
+                error.publish(mode)
+            }
+        }
+    }
+}
+
+/// A committed guarded bind and what the host did with the agent name.
+type GuardedOutcome = (
+    tmt_core::binding::GuardedBoundIdentity,
+    Option<AgentNameOutcome>,
+);
 
 /// One guarded add, as parsed.
 struct GuardedRequest<'a> {
@@ -899,31 +963,5 @@ pub fn execute_guarded(request: Invocation, mode: OutputMode) -> io::Result<u8> 
         )
     })();
     let mut output = tmt_cli_style::stream::stdout(mode.json);
-    match outcome {
-        Ok(result) => {
-            let row = &result.bound.presence;
-            let pane = &row.pane.as_ref().expect("verified binding").id;
-            if mode.json {
-                writeln!(
-                    output,
-                    "{}",
-                    serde_json::json!({"version":1,"status":if result.already_bound {"already_bound"}else{"bound"},"bound":true,"id":row.identity.id,"name":row.identity.name,"pane":pane,"lifetime":row.identity.lifetime.as_str()})
-                )?;
-            } else {
-                writeln!(output, "Bound {:?} on {}", row.identity.name, pane)?;
-            }
-            Ok(0)
-        }
-        Err(error) => {
-            if mode.json {
-                let mut document = error.document();
-                document["status"] = if partial { "partial" } else { "refused" }.into();
-                document["pane"] = pane.into();
-                writeln!(output, "{document}")?;
-                Ok(error.status)
-            } else {
-                error.publish(mode)
-            }
-        }
-    }
+    present_guarded(&mut output, mode, &pane, outcome, partial)
 }

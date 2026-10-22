@@ -49,6 +49,7 @@ pub fn admitted() -> registry::Admitted {
 
 /// [`admitted`] for the configuration paths a command already resolved.
 pub fn admitted_at(paths: Result<&ConfigPaths, &crate::config::ConfigError>) -> registry::Admitted {
+    count_approval_read();
     match paths {
         Ok(paths) => {
             registry::admitted_read_only(&paths.global_dir, std::env::current_exe().ok().as_deref())
@@ -64,6 +65,7 @@ pub fn admitted_at(paths: Result<&ConfigPaths, &crate::config::ConfigError>) -> 
 /// read approves nothing. A first-party driver is the one the running
 /// release ships (`registry::current_first_party`), or none.
 pub fn approved() -> Vec<registry::DriverRecord> {
+    count_approval_read();
     let Ok(paths) = ConfigPaths::discover() else {
         return Vec::new();
     };
@@ -84,6 +86,23 @@ pub fn approved() -> Vec<registry::DriverRecord> {
             _ => None,
         })
         .collect()
+}
+
+#[cfg(any(test, feature = "test-isolation"))]
+thread_local! {
+    static APPROVAL_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How often this thread read the approvals ([`approved`], [`admitted_at`]),
+/// so a test can prove that a step reads none again.
+#[cfg(any(test, feature = "test-isolation"))]
+pub fn approval_reads() -> usize {
+    APPROVAL_READS.with(std::cell::Cell::get)
+}
+
+fn count_approval_read() {
+    #[cfg(any(test, feature = "test-isolation"))]
+    APPROVAL_READS.with(|reads| reads.set(reads.get() + 1));
 }
 
 /// Set on every driver call; a `tmt` that sees it runs no command.
