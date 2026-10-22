@@ -57,7 +57,9 @@ have no identity or host effects. On an external host, `Host::resolve_fenced_ser
 records the server UUID between the first admission and the transaction, and only
 for the incarnation the fence names, re-verified first. Failures after admission are partial host attempts
 with rolled-back SQL on an in-transaction refusal or uncertain commit/close;
-they never claim host rollback or automatic replay. Guarded
+they never claim host rollback or automatic replay. After the commit, guarded add
+names the host agent through the same `name_bound_agent` as ordinary add, with the
+host handle built from the drivers it read once. Guarded
 add and discovery bypass optional caller learning, workspace capture and hook
 delivery. They install and launch nothing.
 

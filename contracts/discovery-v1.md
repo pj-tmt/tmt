@@ -136,7 +136,11 @@ point can leave that one `host_servers` row; it is not an identity, binding or
 marker.
 
 Successful JSON has `{version:1,status:bound|already_bound,bound:true,id,name,
-pane,lifetime}`. Failed JSON adds `status:refused|partial` and `pane` to the
+pane,lifetime}`. After a committed bind on an external host, the host agent is
+named as after ordinary `add`, and the JSON gains the same `agentName` member or
+warning; a tmux bind gains none. A naming refusal or an unknown naming outcome
+keeps the binding; a naming child that cannot be cleaned up is `CLEANUP_ERROR`
+with status `partial`. Failed JSON adds `status:refused|partial` and `pane` to the
 existing error document. Refusal before admitted host effects leaves identities,
 bindings and markers unchanged. Failure after admission may leave host effects;
 refusals returned inside the SQL transaction roll back its identity/binding

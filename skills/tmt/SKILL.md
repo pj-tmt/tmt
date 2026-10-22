@@ -480,6 +480,7 @@ an existing canonical name even if offline. Pass the same `--socket` when scan
 selected one. Changed or unknown native/ownership evidence refuses before binding
 effects. A fresh expectation for the same UUID/target is `already_bound`;
 failures after admission report `partial` and never claim host rollback or replay.
+On a host with agent names, a bound result names the agent as `add` does.
 The [discovery contract](https://github.com/pj-tmt/tmt/blob/main/contracts/discovery-v1.md)
 owns the public JSON, limits and per-item outcomes.
 
