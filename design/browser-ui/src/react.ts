@@ -24,6 +24,8 @@ export { BrowserList, BrowserListRow } from './list.js';
 export type { BrowserListProps, BrowserListRowProps } from './list.js';
 export { BrowserSection } from './section.js';
 export type { BrowserSectionProps } from './section.js';
+export { BrowserDisclosure } from './disclosure.js';
+export type { BrowserDisclosureProps } from './disclosure.js';
 export { BrowserTable } from './table.js';
 export type { BrowserTableProps } from './table.js';
 export { BrowserTabs } from './tabs.js';

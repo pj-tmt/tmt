@@ -1,4 +1,10 @@
-import { BrowserList, BrowserListRow, BrowserSection, BrowserTable } from '../src/react.js';
+import {
+  BrowserDisclosure,
+  BrowserList,
+  BrowserListRow,
+  BrowserSection,
+  BrowserTable,
+} from '../src/react.js';
 import { browserUiClasses } from '../src/static.js';
 import { Pair, Section } from './kit.js';
 
@@ -74,6 +80,25 @@ export function VisuallyHiddenSection() {
           <p>
             Saved<span className={browserUiClasses.visuallyHidden}> — the draft is stored</span>
           </p>
+        )}
+      </Pair>
+    </Section>
+  );
+}
+
+export function DisclosureSection() {
+  return (
+    <Section id="disclosure">
+      <Pair title="BrowserDisclosure">
+        {() => (
+          <>
+            <BrowserDisclosure summary="Details" divided>
+              <p>Machine ID: 4f2a-91c0</p>
+            </BrowserDisclosure>
+            <BrowserDisclosure summary="Details (open)" open>
+              <p>Machine ID: 4f2a-91c0</p>
+            </BrowserDisclosure>
+          </>
         )}
       </Pair>
     </Section>

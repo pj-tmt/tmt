@@ -82,7 +82,7 @@ for (const width of [1440, 390])
         '03 · In progress',
       ]);
       await expect(chapters.first().locator('.shell-chapter-meta')).toContainText('tmt-feat-lead');
-      await expect(chapters.first().locator('.shell-tag')).toHaveText('Design');
+      await expect(chapters.first().locator('.tmt-ui-chip-label')).toHaveText('Design');
       // Each chapter's right side: the passage that most needs the owner, else the latest comment.
       await expect(chapters.nth(0).locator('.shell-passage-lead')).toContainText('To confirm');
       await expect(chapters.nth(0).locator('.shell-passage-title')).toHaveText(

@@ -260,8 +260,9 @@ export function ProposalCard({
           )}
         </div>
       )}
+      {/* A live line heard, not seen: it takes no room in the card. */}
       {!readOnly && !thread.resolved && (
-        <span className="proposal-announce" role="status">
+        <span className="proposal-announce tmt-ui-visually-hidden" role="status">
           {saving && markShown ? text.proposalSaving : ''}
         </span>
       )}

@@ -167,26 +167,8 @@
   color: var(--tmt-ui-color-secondary);
   font-size: 13px;
 }
-.shell-tag {
-  padding: 1px 6px;
-  background: var(--tmt-ui-surface-mention-agent);
-  font-size: 12px;
-}
-button.shell-open {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 .shell-open {
-  display: inline-block;
   margin-top: 22px;
-  font-size: 13px;
-  text-decoration: underline;
-  text-underline-offset: 4px;
 }
 .shell-chapter a:focus-visible,
 .shell-earlier a:focus-visible {

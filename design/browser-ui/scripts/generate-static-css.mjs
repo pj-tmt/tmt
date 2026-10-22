@@ -51,6 +51,7 @@ const fragments = await Promise.all(
     'chart',
     'section',
     'table',
+    'disclosure',
     'visually-hidden',
   ].map((name) => readFile(new URL(`src/${name}.css`, home), 'utf8')),
 );

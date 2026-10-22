@@ -56,7 +56,9 @@ export function AgentChip({
         <Bot className="agent-chip-icon" />
       </span>
       <span className="agent-chip-name">{name}</span>
-      {working && <span className="agent-chip-state">, {text.agentWorking}</span>}
+      {working && (
+        <span className="agent-chip-state tmt-ui-visually-hidden">, {text.agentWorking}</span>
+      )}
       {machine && <span className="agent-chip-machine"> · {machine}</span>}
       {children}
     </span>

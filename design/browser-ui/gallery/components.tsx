@@ -581,6 +581,19 @@ export function ListSection() {
           </BrowserList>
         )}
       </Pair>
+      <Pair title="Row with a description and a toned state">
+        {() => (
+          <BrowserList label="Settings">
+            <BrowserListRow
+              leading={<span aria-hidden="true">◆</span>}
+              title="Upgrade channel"
+              description="Where upgrades look for a build"
+              tone="waiting"
+              state="alpha"
+            />
+          </BrowserList>
+        )}
+      </Pair>
       <Pair title="Row title link states">
         {() => (
           <Cells>

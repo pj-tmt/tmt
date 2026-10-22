@@ -139,6 +139,7 @@ export function renderFirestore(
   }
   const details = node('details');
   details.id = 'firestore-budget';
+  details.className = browserUiClasses.disclosure;
   details.append(node('summary', 'Firestore free-plan limits'));
   const published = view.firestoreBudget;
   details.append(node('h3', `Published limits as of ${published.readOn}`));

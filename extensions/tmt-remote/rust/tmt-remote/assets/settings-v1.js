@@ -433,6 +433,7 @@ var browserUiClasses = Object.freeze({
 	section: "tmt-ui-section",
 	sectionHeading: "tmt-ui-section-heading",
 	table: "tmt-ui-table",
+	disclosure: "tmt-ui-disclosure",
 	visuallyHidden: "tmt-ui-visually-hidden"
 });
 /** The Ops TUI spinner frames (rust/crates/tmt-tui/src/components/status.rs `FRAMES`), in order. */
@@ -880,13 +881,18 @@ function action(text, run) {
 	button.addEventListener("click", run);
 	return button;
 }
+var fieldCount = 0;
 function field(label, value) {
-	const wrapper = node$1("label", label);
-	wrapper.className = "tmt-ui-field-label";
+	const wrapper = node$1("div");
+	wrapper.className = browserUiClasses.field;
 	const input = node$1("input");
-	input.className = "tmt-ui-field-control";
+	input.id = `remote-field-${++fieldCount}`;
+	input.className = browserUiClasses.fieldControl;
 	input.value = value;
-	wrapper.append(input);
+	const text = node$1("label", label);
+	text.className = browserUiClasses.fieldLabel;
+	text.htmlFor = input.id;
+	wrapper.append(text, input);
 	return {
 		label: wrapper,
 		input
@@ -1356,6 +1362,7 @@ function renderFirestore(target, access, view) {
 	}
 	const details = node("details");
 	details.id = "firestore-budget";
+	details.className = browserUiClasses.disclosure;
 	details.append(node("summary", "Firestore free-plan limits"));
 	const published = view.firestoreBudget;
 	details.append(node("h3", `Published limits as of ${published.readOn}`));
@@ -2092,12 +2099,13 @@ async function settingsPage(shell) {
 					});
 					form.append(field, save, talk, revoke);
 					const panel = document.createElement("div");
-					panel.className = "device-confirmation";
+					panel.className = browserUiClasses.notice;
 					panel.dataset.confirmation = "";
 					panel.id = `confirm-${device.clientId}`;
 					panel.hidden = true;
 					const consequence = document.createElement("p");
 					consequence.id = `${panel.id}-consequence`;
+					consequence.className = browserUiClasses.noticeBody;
 					consequence.setAttribute("role", "status");
 					const cancel = document.createElement("button");
 					cancel.type = "button";
@@ -2107,7 +2115,10 @@ async function settingsPage(shell) {
 					cancelLabel.textContent = "Cancel";
 					cancel.append(cancelLabel);
 					cancel.addEventListener("click", () => cancelConfirmation(true));
-					panel.append(consequence, cancel);
+					const actions = document.createElement("div");
+					actions.className = browserUiClasses.noticeActions;
+					actions.append(cancel);
+					panel.append(consequence, actions);
 					for (const button of [talk, revoke]) {
 						button.setAttribute("aria-controls", panel.id);
 						button.setAttribute("aria-expanded", "false");

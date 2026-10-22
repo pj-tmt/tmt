@@ -88,6 +88,7 @@ export const browserUiClasses = Object.freeze({
   section: 'tmt-ui-section',
   sectionHeading: 'tmt-ui-section-heading',
   table: 'tmt-ui-table',
+  disclosure: 'tmt-ui-disclosure',
   visuallyHidden: 'tmt-ui-visually-hidden',
 } as const);
 
