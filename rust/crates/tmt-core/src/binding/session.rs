@@ -318,6 +318,7 @@ impl BindingSessionState {
 
     /// A foreground launch needs live evidence for both processes. Hooks use
     /// `admit` instead and cannot replace ownership on an existing incarnation.
+    /// Attaching an owner after the exact provider key ended keeps that observation.
     pub fn admit_launched(
         &self,
         key: ObservedSessionKey,
@@ -342,6 +343,13 @@ impl BindingSessionState {
             return None;
         }
         let mut next = self.admit(key, transition, child_liveness)?;
+        if self.key == next.key
+            && self.state == RuntimeState::Unknown
+            && self.last_transition == Some(SessionTransition::Ended)
+        {
+            next.state = self.state;
+            next.last_transition = self.last_transition;
+        }
         next.launch_owner = Some(owner);
         Some(next)
     }
@@ -765,6 +773,116 @@ mod tests {
             SessionTransition::Ended,
         ] {
             assert_eq!(launched.name_launch(named.clone(), transition), None);
+        }
+    }
+
+    #[test]
+    fn late_foreground_admission_keeps_an_admitted_provider_end() {
+        let provider = key("child-start", "session-a");
+        let owner = ProcessIncarnation::new(41, "owner-start").unwrap();
+        let started = BindingSessionState::default()
+            .admit(
+                provider.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        for recorded_owner in [None, Some(owner.clone())] {
+            let mut ended = started
+                .transition(&provider, SessionTransition::Ended, None)
+                .unwrap();
+            ended.launch_owner = recorded_owner;
+            for transition in [SessionTransition::Started, SessionTransition::Resumed] {
+                let attached = ended
+                    .admit_launched(
+                        provider.clone(),
+                        owner.clone(),
+                        transition,
+                        RuntimeLiveness::Alive,
+                        RuntimeLiveness::Alive,
+                    )
+                    .unwrap();
+                assert_eq!(attached.key, Some(provider.clone()));
+                assert_eq!(attached.launch_owner, Some(owner.clone()));
+                assert_eq!(attached.state, RuntimeState::Unknown);
+                assert_eq!(attached.last_transition, Some(SessionTransition::Ended));
+                // A real provider start still goes through event admission.
+                let restarted = attached
+                    .admit(
+                        provider.clone(),
+                        SessionTransition::Started,
+                        RuntimeLiveness::Alive,
+                    )
+                    .unwrap();
+                assert_eq!(restarted.state, RuntimeState::Running);
+                assert_eq!(restarted.last_transition, Some(SessionTransition::Started));
+            }
+            for liveness in [RuntimeLiveness::Gone, RuntimeLiveness::Unknown] {
+                assert!(
+                    ended
+                        .admit_launched(
+                            provider.clone(),
+                            owner.clone(),
+                            SessionTransition::Started,
+                            liveness,
+                            RuntimeLiveness::Alive
+                        )
+                        .is_none()
+                );
+                assert!(
+                    ended
+                        .admit_launched(
+                            provider.clone(),
+                            owner.clone(),
+                            SessionTransition::Started,
+                            RuntimeLiveness::Alive,
+                            liveness
+                        )
+                        .is_none()
+                );
+            }
+            if ended.launch_owner.is_some() {
+                assert!(
+                    ended
+                        .admit_launched(
+                            provider.clone(),
+                            ProcessIncarnation::new(41, "other-owner").unwrap(),
+                            SessionTransition::Started,
+                            RuntimeLiveness::Alive,
+                            RuntimeLiveness::Alive
+                        )
+                        .is_none()
+                );
+            }
+            for different in [
+                key("child-start", "session-b"),
+                key("new-child", "session-a"),
+            ] {
+                let next = ended
+                    .admit_launched(
+                        different.clone(),
+                        owner.clone(),
+                        SessionTransition::Started,
+                        RuntimeLiveness::Alive,
+                        RuntimeLiveness::Alive,
+                    )
+                    .unwrap();
+                assert_eq!(next.key, Some(different));
+                assert_eq!(next.state, RuntimeState::Running);
+                assert_eq!(next.last_transition, Some(SessionTransition::Started));
+            }
+            ended.state = RuntimeState::Ended;
+            assert!(
+                ended
+                    .admit_launched(
+                        provider.clone(),
+                        owner.clone(),
+                        SessionTransition::Started,
+                        RuntimeLiveness::Alive,
+                        RuntimeLiveness::Alive
+                    )
+                    .is_none()
+            );
         }
     }
 
