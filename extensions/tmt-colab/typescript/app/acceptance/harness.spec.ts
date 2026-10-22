@@ -196,6 +196,31 @@ test('harness: the leak report detects a process the world did not stop', async 
   }
 });
 
+// A survivor is reported with who owns it, so the first failing run names the process to fix
+// (#4296): its parent, process group and age, and the parent's command when it is still running.
+test('harness: a reported survivor names its parent, process group and age', async () => {
+  const { spawn } = await import('node:child_process');
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  const world = new AcceptanceWorld();
+  await world.start();
+  const stray = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e6)', world.root], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  try {
+    const leaks = await world.dispose();
+    const [report] = leaks.filter((leak) => leak.startsWith('process remains'));
+    expect(report).toContain(`process remains: ${stray.pid} `);
+    // It was started detached by this process: its parent is this process and its group is its own.
+    expect(report).toMatch(
+      new RegExp(`\\(ppid ${process.pid}, pgid ${stray.pid}, age [\\d:.-]+, parent `),
+    );
+    expect(report).toContain(world.root);
+  } finally {
+    process.kill(stray.pid ?? 0, 'SIGKILL');
+  }
+});
+
 // #2520: a world is an agent run on a private PATH, so no command may reach the host browser.
 // `colab open` and `page create` without --no-open/--json are the paths that once did.
 test('harness: colab open and page create never invoke a browser opener in a world', async () => {
