@@ -6640,7 +6640,7 @@ fn a_page_with_a_full_epoch_of_decisions_saves_no_further_request() {
 }
 
 #[test]
-fn describe_keeps_navigation_without_unknown_counts_and_refuses_busy_catalog() {
+fn describe_keeps_navigation_without_unknown_counts_and_during_busy_catalog() {
     let root = PathBuf::from(format!(
         "/tmp/tmt-describe-{}-{}",
         std::process::id(),
@@ -6717,10 +6717,41 @@ fn describe_keeps_navigation_without_unknown_counts_and_refuses_busy_catalog() {
     }
     let held = running.registration.lock().unwrap();
     let answer = running.request(&callback);
-    assert!(answer.starts_with("HTTP/1.1 503"), "{answer}");
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
     let body: Value = serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap();
-    assert_eq!(body["error"]["code"], "COLAB_UNAVAILABLE");
+    assert_eq!(body["rail"]["label"], "Colab");
+    assert_eq!(body["menu"][0]["path"], "/");
+    assert_eq!(body["entry"], "/assets/colab-module.js");
+    assert!(
+        body["menu"][0].get("count").is_none(),
+        "busy count is unknown"
+    );
+    assert!(
+        body.get("needsYou").is_none(),
+        "busy waiting count is unknown"
+    );
+    assert!(
+        body.get("home").is_none(),
+        "busy catalog discloses no cards"
+    );
     drop(held);
+    let answer = running.request(&callback);
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    let body: Value = serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["menu"][0]["count"]["value"], 1);
     let refused = running.request(&Running::get("/.tmt/remote/describe", ""));
     assert!(refused.starts_with("HTTP/1.1 400"));
+    let registration = Arc::clone(&running.registration);
+    assert!(
+        std::thread::spawn(move || {
+            let _held = registration.lock().unwrap();
+            panic!("poison the registration to verify discovery remains refused");
+        })
+        .join()
+        .is_err()
+    );
+    let refused = running.request(&callback);
+    assert!(refused.starts_with("HTTP/1.1 503"), "{refused}");
+    let body: Value = serde_json::from_str(refused.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["error"]["code"], "COLAB_UNAVAILABLE");
 }

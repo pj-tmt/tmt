@@ -416,6 +416,16 @@ impl Registration {
             })
             .map_err(map_error)
     }
+    /// Static display-only navigation remains available while catalog work holds the service lock.
+    pub(crate) fn navigation_description() -> serde_json::Value {
+        serde_json::json!({
+            "version":1,
+            "rail":{"label":"Colab","icon":"file-text","path":"/","order":100},
+            "menu":[{"id":"pages","label":"Pages","path":"/"}],
+            "settings":[],
+            "entry":"/assets/colab-module.js"
+        })
+    }
     /// Display-only owner-socket callback. Unlike pages(), this never schedules a refresh.
     pub(crate) fn describe(&self) -> std::result::Result<Vec<u8>, Code> {
         let (catalog, fingerprints) = self.owner_catalog_fingerprinted()?;
@@ -436,14 +446,8 @@ impl Registration {
             let summary = self.summaries.get(id, fingerprint)?;
             Some(count + usize::from(summary.waiting))
         });
-        let mut answer = serde_json::json!({
-            "version":1,
-            "rail":{"label":"Colab","icon":"file-text","path":"/","order":100},
-            "menu":[{"id":"pages","label":"Pages","path":"/","count":{"value":pages.len(),"kind":"plain"}}],
-            "settings":[],
-            // The one TMT app imports this module from the owner's mount (#3937).
-            "entry":"/assets/colab-module.js"
-        });
+        let mut answer = Self::navigation_description();
+        answer["menu"][0]["count"] = serde_json::json!({"value":pages.len(),"kind":"plain"});
         if let Some(needs_you) = needs_you {
             answer["needsYou"] = serde_json::json!(needs_you);
         }

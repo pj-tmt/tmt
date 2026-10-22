@@ -34,7 +34,7 @@ use std::{
     },
     path::PathBuf,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, TryLockError,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
@@ -492,11 +492,17 @@ fn serve(
             {
                 return Err(registration::Code::Invalid);
             }
-            registration
+            match registration
                 .ok_or(registration::Code::Unavailable)?
                 .try_lock()
-                .map_err(|_| registration::Code::Unavailable)?
-                .describe()
+            {
+                Ok(service) => service.describe(),
+                Err(TryLockError::WouldBlock) => {
+                    serde_json::to_vec(&Registration::navigation_description())
+                        .map_err(|_| registration::Code::Unavailable)
+                }
+                Err(TryLockError::Poisoned(_)) => Err(registration::Code::Unavailable),
+            }
         })();
         let (status, body) = match result {
             Ok(body) => (200, body),

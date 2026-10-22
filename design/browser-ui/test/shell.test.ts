@@ -115,6 +115,27 @@ it('dims Colab with the reason until the answer describes Colab', () => {
   expect(shellRail(unknown, { origin, href: `${origin}/` }).main[0]!.count).toBeUndefined();
 });
 
+it('keeps a busy Colab available without fabricating menu or rail counts', () => {
+  const busy: ShellModule = {
+    extension: colab.extension,
+    rail: colab.rail,
+    menu: [{ id: 'pages', label: 'Pages', path: colab.rail.path }],
+    settings: [],
+  };
+  const place = { origin, href: colab.rail.path };
+  const rail = shellRail({ version: 1, modules: [busy, remote] }, place);
+  const item = rail.main.find((item) => item.id === 'colab')!;
+  expect(item.disabled).toBeUndefined();
+  expect(item.current).toBe(true);
+  expect(item.count).toBeUndefined();
+  expect(rail.main.find((item) => item.id === 'home')!.count).toBeUndefined();
+  const pages = describedMenu(busy, place).groups[0]!.items[0]!;
+  expect(pages.label).toBe('Pages');
+  expect(pages.href).toBe(colab.rail.path);
+  expect(pages.count).toBeUndefined();
+  expect(pages.total).toBeUndefined();
+});
+
 it('caps counts at 99+ and falls back to the box icon', () => {
   expect(shellCount(100)).toEqual({ text: '99+', needsYou: true });
   expect(shellCount(5, 'plain')).toEqual({ text: '5', needsYou: false });
