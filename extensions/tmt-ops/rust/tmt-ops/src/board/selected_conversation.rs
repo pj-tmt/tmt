@@ -63,7 +63,7 @@ impl Plan {
                     recent_responses::Observation::Observed(vec![recent_responses::Item {
                         provider: "codex".into(),
                         text: text.into(),
-                        ended_ms: 10,
+                        ended_ms: crate::status::now_ms().saturating_sub(60_000),
                         truncated: false,
                     }])
                 })
