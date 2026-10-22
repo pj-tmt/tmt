@@ -6,6 +6,167 @@ use std::os::unix::fs::PermissionsExt;
 const ID: &str = "11111111-1111-4111-8111-111111111111";
 const ROOM: &str = "22222222-2222-4222-8222-222222222222";
 
+thread_local! {
+    static AFTER_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = Default::default();
+}
+
+pub(super) fn after_consent_read() {
+    let checkpoint = AFTER_READ.with(|slot| slot.borrow_mut().take());
+    if let Some(checkpoint) = checkpoint {
+        checkpoint();
+    }
+}
+
+/// Own the thread and release its checkpoint before joining, including on panic.
+struct PausedMutation {
+    read: std::sync::mpsc::Receiver<()>,
+    release: Option<std::sync::mpsc::Sender<()>>,
+    worker: Option<std::thread::JoinHandle<Result<(), ExtensionHookError>>>,
+}
+
+impl PausedMutation {
+    fn start(
+        operation: impl FnOnce() -> Result<(), ExtensionHookError> + Send + 'static,
+    ) -> Self {
+        let (read_tx, read) = std::sync::mpsc::channel();
+        let (release, resume) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            AFTER_READ.with(|slot| {
+                *slot.borrow_mut() = Some(Box::new(move || {
+                    read_tx.send(()).unwrap();
+                    // Dropping the controller also releases a failed scenario.
+                    let _ = resume.recv();
+                }));
+            });
+            operation()
+        });
+        Self {
+            read,
+            release: Some(release),
+            worker: Some(worker),
+        }
+    }
+
+    fn wait_for_read(&self) {
+        self.read.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    fn finish(mut self) {
+        self.release.take().unwrap().send(()).unwrap();
+        self.worker.take().unwrap().join().unwrap().unwrap();
+    }
+}
+
+impl Drop for PausedMutation {
+    fn drop(&mut self) {
+        self.release.take();
+        if let Some(worker) = self.worker.take() {
+            let result = worker.join();
+            if !std::thread::panicking() {
+                result.unwrap().unwrap();
+            }
+        }
+    }
+}
+
+fn fixture_consent(name: &str) -> Consent {
+    Consent {
+        name: name.into(),
+        path: PathBuf::from("/fixture-not-executed"),
+        digest: "0".repeat(64),
+        fingerprint: Fingerprint {
+            device: 1,
+            inode: 2,
+            size: 3,
+            modified_ns: 4,
+            changed_ns: 5,
+            uid: 6,
+            mode: 0o755,
+        },
+        protocol: "1".into(),
+        capabilities: vec![LIFECYCLE_CAPABILITY.into()],
+        consented_at_ms: 7,
+    }
+}
+
+fn fixture_paths(directory: &TestDirectory) -> ConfigPaths {
+    ConfigPaths::resolve(
+        &directory.path,
+        &directory.path,
+        Some(&directory.path),
+        None,
+    )
+}
+
+#[test]
+fn concurrent_disables_keep_both_successful_removals() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    write_consents(
+        &consent_path(&paths.global_dir),
+        &[fixture_consent("a"), fixture_consent("b")],
+    )
+    .unwrap();
+    let first_paths = paths.clone();
+    let first = PausedMutation::start(move || {
+        assert!(disable(&first_paths, "a")?);
+        Ok(())
+    });
+    first.wait_for_read();
+    let second_paths = paths.clone();
+    let second = PausedMutation::start(move || {
+        assert!(disable(&second_paths, "b")?);
+        Ok(())
+    });
+    second.wait_for_read();
+    // Both operations have read [a,b]. Commit a's removal, then b's.
+    first.finish();
+    second.finish();
+    assert!(list_consents(&paths).unwrap().is_empty());
+}
+
+#[test]
+fn concurrent_enable_and_disable_keep_both_successful_changes() {
+    let directory = TestDirectory::new();
+    let paths = fixture_paths(&directory);
+    write_consents(
+        &consent_path(&paths.global_dir),
+        &[fixture_consent("a"), fixture_consent("b")],
+    )
+    .unwrap();
+    let bin = directory.path.join("bin");
+    fs::create_dir(&bin).unwrap();
+    let executable = bin.join("tmt-c");
+    fs::write(
+        &executable,
+        "#!/bin/sh\nprintf 'TMT-HOOKS/1\\nlifecycle_observations_v1\\n'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let first_paths = paths.clone();
+    let first = PausedMutation::start(move || {
+        enable(&first_paths, "c", bin.as_os_str(), &executable)?;
+        Ok(())
+    });
+    first.wait_for_read();
+    let second_paths = paths.clone();
+    let second = PausedMutation::start(move || {
+        assert!(disable(&second_paths, "a")?);
+        Ok(())
+    });
+    second.wait_for_read();
+    first.finish();
+    second.finish();
+    assert_eq!(
+        list_consents(&paths)
+            .unwrap()
+            .iter()
+            .map(|consent| consent.name.as_str())
+            .collect::<Vec<_>>(),
+        ["b", "c"]
+    );
+}
+
 fn capturing(path: &Path) -> Connection {
     crate::storage::Storage::open(path)
         .unwrap()

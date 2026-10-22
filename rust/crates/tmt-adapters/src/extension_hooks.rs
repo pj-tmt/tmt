@@ -136,6 +136,8 @@ fn read_consents(path: &Path) -> Result<Vec<Consent>, ExtensionHookError> {
             "The extension hook settings use an unsupported version.".into(),
         ));
     }
+    #[cfg(test)]
+    tests::after_consent_read();
     Ok(document.extensions)
 }
 
