@@ -235,7 +235,7 @@ fn only_unrecursive_documented_main_stop_claims_and_output_uses_block_reason() {
         json!({"decision":"block","reason":"digest"})
     );
     assert!(encode("").is_none());
-    assert!(encode(&"x".repeat(CONTEXT_LIMIT + 1)).is_none());
+    assert!(encode(&"x".repeat(crate::digest::DIGEST_BYTES + 1)).is_none());
 }
 
 #[test]

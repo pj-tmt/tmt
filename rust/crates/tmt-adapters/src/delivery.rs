@@ -1,6 +1,7 @@
 //! Shared composition for requests and advisory hints. Drivers own IO policy.
 
 mod notices;
+pub(crate) use notices::full_reply;
 
 pub(crate) use notices::queued_wake;
 

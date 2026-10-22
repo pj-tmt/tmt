@@ -288,7 +288,7 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 exact final submission, waiter release, attention revisions and bounded retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
 `request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist), including the delivery mode: a [passthrough](contracts/request-response-v1.md#passthrough) is a person's typed text, never a request to its recipient, and answers the oldest request that agent has open to them; `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
-Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
+Adapters admit idle handoff; extensions schedule. `tmt-adapters::request_frame` owns the request frame that `talk` sends and Digest pastes per item; `digest` renders a sealed checklist from it within a 32 KiB cap, and a claim seals only the prefix that fits. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from

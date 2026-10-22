@@ -201,6 +201,7 @@ fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_clai
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::TurnBoundary,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -218,6 +219,7 @@ fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_clai
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::TurnBoundary,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -236,6 +238,7 @@ fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_clai
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::TurnBoundary,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -254,6 +257,7 @@ fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_clai
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::TurnBoundary,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -311,7 +315,8 @@ fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_clai
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                DigestOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary,
+                None,
             )
             .unwrap()
             .is_none()
@@ -610,7 +615,8 @@ fn withdrawn_and_expired_members_never_offer_a_live_reply_or_renew_retention() {
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                DigestOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary,
+                None,
             )
             .unwrap()
             .is_none()
@@ -679,7 +685,8 @@ fn checklist_seals_order_and_later_arrivals_cannot_join_or_replay() {
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                DigestOpportunity::Idle
+                DigestOpportunity::Idle,
+                None,
             )
             .unwrap()
             .is_none()
@@ -692,6 +699,7 @@ fn checklist_seals_order_and_later_arrivals_cannot_join_or_replay() {
             id.clone(),
             token.clone(),
             DigestOpportunity::TurnBoundary,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -713,7 +721,8 @@ fn checklist_seals_order_and_later_arrivals_cannot_join_or_replay() {
                 &target,
                 id.clone(),
                 token.clone(),
-                DigestOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary,
+                None,
             )
             .unwrap()
             .is_none()
@@ -724,7 +733,8 @@ fn checklist_seals_order_and_later_arrivals_cannot_join_or_replay() {
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                DigestOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary,
+                None,
             )
             .unwrap()
             .is_none()
@@ -772,6 +782,7 @@ fn expiry_and_clear_expose_one_backlog_without_renewing_receipts() {
                 new_operation_id(),
                 new_operation_id(),
                 DigestOpportunity::Idle,
+                None,
             )
             .unwrap()
             .unwrap();
@@ -831,6 +842,7 @@ fn definitely_unsent_releases_members_but_uncertainty_never_replays() {
                 new_operation_id(),
                 new_operation_id(),
                 DigestOpportunity::TurnBoundary,
+                None,
             )
             .unwrap()
             .unwrap();
@@ -848,7 +860,8 @@ fn definitely_unsent_releases_members_but_uncertainty_never_replays() {
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                DigestOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary,
+                None,
             )
             .unwrap()
             .is_none()
@@ -889,6 +902,7 @@ fn concurrent_policy_writers_and_checklist_claims_have_one_winner() {
                     new_operation_id(),
                     new_operation_id(),
                     DigestOpportunity::TurnBoundary,
+                    None,
                 )
                 .unwrap()
                 .is_some()
@@ -1083,7 +1097,8 @@ fn due_now_seals_only_the_tick_range_at_idle_and_keeps_policy_active() {
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                DigestOpportunity::Idle
+                DigestOpportunity::Idle,
+                None,
             )
             .unwrap()
             .is_none()
@@ -1108,6 +1123,7 @@ fn due_now_seals_only_the_tick_range_at_idle_and_keeps_policy_active() {
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::Idle,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1167,7 +1183,8 @@ fn due_now_seals_only_the_tick_range_at_idle_and_keeps_policy_active() {
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                DigestOpportunity::Idle
+                DigestOpportunity::Idle,
+                None,
             )
             .unwrap()
             .is_none()
@@ -1179,7 +1196,8 @@ fn due_now_seals_only_the_tick_range_at_idle_and_keeps_policy_active() {
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                DigestOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary,
+                None,
             )
             .unwrap()
             .is_some()
@@ -1199,6 +1217,7 @@ fn due_watermark_and_delivery_counter_survive_restart_and_retention_cleanup() {
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::Idle,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1292,6 +1311,7 @@ fn digest_counter_failure_rolls_back_settlement_and_non_delivery_never_counts() 
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::TurnBoundary,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1342,6 +1362,7 @@ fn digest_counter_failure_rolls_back_settlement_and_non_delivery_never_counts() 
                 new_operation_id(),
                 new_operation_id(),
                 DigestOpportunity::Idle,
+                None,
             )
             .unwrap()
             .unwrap();
@@ -1529,6 +1550,7 @@ fn an_item_held_before_its_sender_became_a_person_is_still_marked() {
             new_operation_id(),
             new_operation_id(),
             DigestOpportunity::TurnBoundary,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1536,13 +1558,177 @@ fn an_item_held_before_its_sender_became_a_person_is_still_marked() {
         crate::digest::read(&mut f.storage, &target, Some(&batch.id), 0, 128).unwrap()
     };
     assert_eq!(page(&mut f)["items"][0]["fromUser"], false);
-    assert!(!crate::digest::digest(&page(&mut f), &batch).contains("(user)"));
+    let text = crate::digest::text(&mut f.storage, &batch).unwrap();
+    assert!(text.contains("▚ fyi · Digest Sender\n"), "{text}");
+    assert!(!text.contains("(user)"), "{text}");
     mark_user(&f, &sender, "true");
-    let page = page(&mut f);
-    assert_eq!(page["items"][0]["fromUser"], true);
-    let text = crate::digest::digest(&page, &batch);
-    assert!(text.contains("Digest Sender (user) / early"), "{text}");
+    assert_eq!(page(&mut f)["items"][0]["fromUser"], true);
+    let text = crate::digest::text(&mut f.storage, &batch).unwrap();
+    assert!(text.contains("▚ fyi · Digest Sender (user)\n"), "{text}");
     f.storage.close().unwrap();
+}
+
+#[test]
+fn a_claim_seals_only_the_prefix_up_to_its_limit_and_leaves_the_rest_held_in_order() {
+    let (mut f, target, _, sender) = start();
+    for id in ["one", "two", "three"] {
+        held(&mut f, &target, &sender, id);
+    }
+    let ids = |items: &[tmt_core::request::digest::DigestItem]| {
+        items
+            .iter()
+            .map(|item| item.request_id.clone())
+            .collect::<Vec<_>>()
+    };
+    let claimable = service(&mut f)
+        .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
+        .unwrap();
+    assert_eq!(ids(&claimable), ["one", "two", "three"]);
+    // While Digest is active an idle opportunity reaches nothing until the range is due.
+    assert!(
+        service(&mut f)
+            .digest_claimable_items(&target, DigestOpportunity::Idle, 128)
+            .unwrap()
+            .is_empty()
+    );
+    let batch = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::TurnBoundary,
+            Some(claimable[1].sequence),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(batch.through_sequence, claimable[1].sequence);
+    let (sealed, _) = service(&mut f)
+        .digest_checklist_items(&target, Some(&batch.id), 0, 128)
+        .unwrap();
+    assert_eq!(ids(&sealed), ["one", "two"]);
+    let rest = service(&mut f)
+        .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
+        .unwrap();
+    assert_eq!(ids(&rest), ["three"]);
+    service(&mut f)
+        .settle_digest_checklist(
+            &target,
+            &batch.id,
+            &batch.attempt_token,
+            DigestState::Delivered,
+        )
+        .unwrap();
+    let next = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::TurnBoundary,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+    let (sealed, _) = service(&mut f)
+        .digest_checklist_items(&target, Some(&next.id), 0, 128)
+        .unwrap();
+    assert_eq!(ids(&sealed), ["three"]);
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn a_limit_below_the_first_item_seals_nothing() {
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "one");
+    let first = service(&mut f)
+        .digest_claimable_items(&target, DigestOpportunity::TurnBoundary, 128)
+        .unwrap()[0]
+        .sequence;
+    assert!(
+        service(&mut f)
+            .claim_digest_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                DigestOpportunity::TurnBoundary,
+                Some(first - 1),
+            )
+            .unwrap()
+            .is_none()
+    );
+    f.storage.close().unwrap();
+}
+
+/// The paste is capped at whole items: the longest ordered prefix that fits is
+/// sealed, and the first item is always sealed even when it alone exceeds the cap.
+#[test]
+fn the_paste_fits_whole_items_in_order_and_an_oversized_first_item_goes_alone() {
+    let wall = crate::request_runtime::wall_time_ms();
+    for (sizes, sealed) in [
+        (vec![14_000, 14_000, 14_000], 2),
+        (vec![40_000, 100], 1),
+        (vec![100, 100, 100], 3),
+        (vec![100, 40_000, 100], 1),
+    ] {
+        let (mut f, target, owner, sender) = start();
+        f.set_now(wall);
+        service(&mut f)
+            .write_digest(policy(
+                &target,
+                &owner,
+                1,
+                tmt_core::limits::MAX_JS_SAFE_INTEGER,
+            ))
+            .unwrap();
+        for (index, size) in sizes.iter().enumerate() {
+            let id = format!("item-{index}");
+            let mut prepared = request(&target, Some(&sender), &id);
+            prepared.message = "x".repeat(*size);
+            prepared.expires_at_ms = wall + 3_600_000;
+            service(&mut f)
+                .prepare_delivery(
+                    prepared,
+                    format!("attempt-{id}"),
+                    7,
+                    DeliveryPolicy::default(),
+                    None,
+                )
+                .unwrap();
+        }
+        let through = crate::digest::fitting_through(
+            &mut f.storage,
+            &target,
+            DigestOpportunity::TurnBoundary,
+            true,
+        )
+        .unwrap();
+        // A provider hook carries at most the cap, so it never takes an oversized first
+        // item; the longest fitting prefix is the same otherwise.
+        let hook = crate::digest::fitting_through(
+            &mut f.storage,
+            &target,
+            DigestOpportunity::TurnBoundary,
+            false,
+        )
+        .unwrap();
+        assert_eq!(hook, (sizes[0] < 30_000).then_some(through).flatten());
+        let (batch, text) =
+            crate::digest::claim(&mut f.storage, &target, DigestOpportunity::TurnBoundary)
+                .unwrap()
+                .unwrap();
+        assert_eq!(Some(batch.through_sequence), through, "{sizes:?}");
+        let (items, _) = service(&mut f)
+            .digest_checklist_items(&target, Some(&batch.id), 0, 128)
+            .unwrap();
+        assert_eq!(items.len(), sealed, "{sizes:?}");
+        for index in 0..sealed {
+            assert!(text.contains(&"x".repeat(sizes[index])), "{sizes:?}");
+        }
+        // A sealed item that shares the paste never pushes it past the cap.
+        if sealed > 1 {
+            assert!(text.len() <= crate::digest::DIGEST_BYTES, "{sizes:?}");
+        }
+        f.storage.close().unwrap();
+    }
 }
 
 #[path = "digest_history.rs"]

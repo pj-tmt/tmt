@@ -9,7 +9,13 @@ fn claim(
         service(f).make_digest_due(target).unwrap();
     }
     service(f)
-        .claim_digest_checklist(target, new_operation_id(), new_operation_id(), opportunity)
+        .claim_digest_checklist(
+            target,
+            new_operation_id(),
+            new_operation_id(),
+            opportunity,
+            None,
+        )
         .unwrap()
         .unwrap()
 }

@@ -218,10 +218,12 @@ an extension marks the current held range due through the API, the next ordinary
 talk/check touching a verified idle recipient may hand off one eligible
 checklist. Later arrivals stay held on the due-now idle path. The optional Digest
 extension can offer opportunities through its minute tick; without hooks, traffic
-or that tick the checklist remains pending. A checklist contains original receipt-bound reply
-commands for eligible requests and result inspection commands for finals.
-Use the printed sealed-checklist API read/cursor for overflow; an uncertain
-handoff is never replay permission. Reads and delivery do not acknowledge X.
+or that tick the checklist remains pending. A checklist pastes every item whole, each
+framed like one live message: a request with its full text and its own original
+receipt-bound `tmt reply` line, a final with its full reply body and `tmt result`
+line. Treat each item as an ordinary message; no follow-up read is needed. A paste is
+capped at 32 KiB at an item boundary and the rest waits for the next one. An
+uncertain handoff is never replay permission. Reads and delivery do not acknowledge X.
 
 An identity with no recorded binding receives through inbox pull. Ordinary
 `talk` waits for its durable reply, using the same 180-second default,

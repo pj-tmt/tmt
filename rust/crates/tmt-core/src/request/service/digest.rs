@@ -295,14 +295,39 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         })
     }
 
+    /// The held items a claim for `opportunity` may seal, in order and with the same
+    /// eligibility as the claim itself. Nothing is claimed or marked read.
+    pub fn digest_claimable_items(
+        &mut self,
+        identity: &str,
+        opportunity: DigestOpportunity,
+        limit: u64,
+    ) -> Result<Vec<digest::DigestItem>, RequestError<R::Error>> {
+        if !(1..=128).contains(&limit) {
+            return Err(digest_error(DigestRejection::Invalid));
+        }
+        let clock = &self.clock;
+        self.repository.with_request_observation(|records| {
+            let now = positive(clock())?;
+            digest_identity(records, identity)?;
+            let bound = claim_bound(records, identity, opportunity, now)?;
+            let mut items = records.digest_items(identity, None, 0, limit, now)?;
+            items.retain(|item| item.sequence <= bound);
+            Ok(items)
+        })
+    }
+
     /// The caller admits an opportunity; policy and sealed membership are rechecked
     /// in the writer transaction. A claimed record is never a replay lease.
+    /// `through_limit` seals only the items up to that sequence, so the caller can
+    /// claim exactly the prefix it can deliver; the rest stays held in order.
     pub fn claim_digest_checklist(
         &mut self,
         identity: &str,
         id: String,
         token: String,
         opportunity: DigestOpportunity,
+        through_limit: Option<u64>,
     ) -> Result<Option<DigestChecklist>, RequestError<R::Error>> {
         if !crate::dispatch::canonical_id(&id) || !crate::dispatch::canonical_id(&token) {
             return Err(digest_error(DigestRejection::Invalid));
@@ -322,16 +347,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             if records.active_digest_checklist(identity)?.is_some() {
                 return Ok(None);
             }
-            let (count, through_sequence) = if opportunity == DigestOpportunity::Idle
-                && records
-                    .digest_policy(identity)?
-                    .is_some_and(|p| p.active(now))
-            {
-                let through = records.digest_counters(identity)?.due_through_sequence;
-                records.digest_due_inventory(identity, through, now)?
-            } else {
-                records.digest_inventory(identity, None, 0, now)?
-            };
+            let bound = claim_bound(records, identity, opportunity, now)?
+                .min(through_limit.unwrap_or(MAX_JS_SAFE_INTEGER));
+            let (count, through_sequence) = records.digest_due_inventory(identity, bound, now)?;
             if count == 0 {
                 return Ok(None);
             }
@@ -396,6 +414,26 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     ) -> Result<digest::DeliveryPolicy, RequestError<R::Error>> {
         self.repository
             .with_request_observation(|records| records.delivery_policy(id).map_err(Into::into))
+    }
+}
+
+/// The highest sequence a claim may seal. While Digest is active an idle
+/// opportunity reaches only the range previously marked due; a turn boundary
+/// keeps the broader eligibility.
+fn claim_bound<E>(
+    records: &dyn RequestRecords<Error = E>,
+    identity: &str,
+    opportunity: DigestOpportunity,
+    now: u64,
+) -> Result<u64, RequestError<E>> {
+    if opportunity == DigestOpportunity::Idle
+        && records
+            .digest_policy(identity)?
+            .is_some_and(|p| p.active(now))
+    {
+        Ok(records.digest_counters(identity)?.due_through_sequence)
+    } else {
+        Ok(MAX_JS_SAFE_INTEGER)
     }
 }
 
