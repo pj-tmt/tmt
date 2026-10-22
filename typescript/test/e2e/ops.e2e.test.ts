@@ -1337,7 +1337,7 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'hello there']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => /\bsent\b/.test(screen), shell.pane);
+      await fixture.waitForCapture((screen) => screen.includes('Sent to auth-fix'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
 
       const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
@@ -1409,7 +1409,7 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'first question']);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => /\bsent\b/.test(screen), shell.pane);
+      await fixture.waitForCapture((screen) => screen.includes('Sent to auth-fix'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
 
       const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
