@@ -57,7 +57,7 @@ pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
                     request: REQUEST.into(),
                     disposition: Disposition::Sent,
                     passthrough: false,
-                    message_state_text: None,
+                    message_state_label: None,
                     fallback: None,
                     warning: None,
                 }),
@@ -137,13 +137,13 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
                     Disposition::Sent
                 },
                 passthrough: !fallback,
-                message_state_text: Some(
+                message_state_label: Some(
                     if fallback {
-                        "not sent, the agent could not be reached"
-                    } else if scene == "chat-pending" {
-                        "delivered"
+                        "✗ not sent, the agent could not be reached"
+                    } else if scene == "chat-bound" {
+                        "⠹ the agent has started on it"
                     } else {
-                        "the agent has started on it"
+                        "✓ delivered"
                     }
                     .into(),
                 ),
@@ -166,7 +166,7 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
         };
         app.apply_sent(crate::board::home_leads::SentKey { sender, agent: MEMBER.into() }, Ok(vec![json!({
             "requestId":REQUEST,"preparedAtMs":at,"text":QUESTION,"truncated":false,"mode":"passthrough",
-            "messageState":{"reason":{"text":if scene=="chat-pending" {"delivered"} else {"the agent has started on it"}}},
+            "messageState":{"state":if scene=="chat-bound" {"working"} else {"delivered"},"reason":{"text":if scene=="chat-bound" {"the agent has started on it"} else {"delivered"}}},
             "passthrough":{"state":state,"boundAtMs":at+1,"answer":{"text":REPLY,"truncated":scene=="chat-truncated","provider":"codex","endedMs":now_ms-1000}}
         })]));
     }
@@ -373,44 +373,56 @@ fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
 fn core_text_changes_reach_live_and_restored_chat_without_local_activity_inference() {
     const NOW: u64 = 1_791_600_000_160;
     crate::status::with_now_ms(NOW, || {
-        let mut app = fixture("chat-bound", Look::default(), NOW);
-        let _ = board_frame(&app, 160, 51);
-        let text = "Core changed its wording: waiting for permission.";
-        let owner = app
-            .conversation_finals()
-            .expect("visible conversation lease");
-        app.apply_sent(
+        for scene in [
+            "chat-bound",
+            "chat-answered",
+            "chat-no-answer",
+            "chat-truncated",
+        ] {
+            let mut app = fixture(scene, Look::default(), NOW);
+            let _ = board_frame(&app, 160, 51);
+            let text = "Core changed its wording: waiting for permission.";
+            let owner = app
+                .conversation_finals()
+                .expect("visible conversation lease");
+            app.apply_sent(
             crate::board::home_leads::SentKey {
                 sender: owner.sender,
                 agent: owner.agent,
             },
             Ok(vec![json!({
                 "requestId":REQUEST,"preparedAtMs":NOW-42_000,"text":QUESTION,"truncated":false,
-                "mode":"passthrough","passthrough":{"state":"bound"},
-                "messageState":{"reason":{"text":text}}
+                "mode":"passthrough","passthrough":{"state":match scene {"chat-bound"=>"bound","chat-no-answer"=>"no_answer",_=>"answered"},
+                    "answer":{"text":REPLY,"truncated":scene=="chat-truncated","provider":"codex","endedMs":NOW-1000}},
+                "messageState":{"state":"working","reason":{"text":text}}
             })]),
         );
-        let _ = board_frame(&app, 160, 51);
-        {
-            let mut state = app.conversation.borrow_mut();
-            let session = state.sessions.values_mut().next().unwrap();
-            session.observe_progress("night-2", None, NOW, true);
-            assert_eq!(session.outgoing[0].status(), text);
-            assert!(session.outgoing[0].feedback_clock.is_none());
-            assert!(session.outgoing[0].capture.is_some());
+            let _ = board_frame(&app, 160, 51);
+            {
+                let mut state = app.conversation.borrow_mut();
+                let session = state.sessions.values_mut().next().unwrap();
+                session.observe_progress("night-2", None, NOW, true);
+                assert_eq!(session.outgoing[0].status(), format!("⠹ {text}"));
+                assert!(session.outgoing[0].feedback_clock.is_none());
+                assert!(session.outgoing[0].capture.is_some());
+            }
+            let live = board_frame(&app, 160, 51);
+            assert!(live.contains(text), "{live}");
+            assert!(!live.contains("working…"), "{live}");
+            {
+                let mut state = app.conversation.borrow_mut();
+                let session = state.sessions.values_mut().next().unwrap();
+                session.outgoing.clear();
+                session.refresh_outgoing();
+            }
+            let restored = board_frame(&app, 160, 51);
+            assert!(restored.contains(text), "{restored}");
+            assert!(!restored.contains("working…"), "{restored}");
+            if scene != "chat-bound" {
+                assert!(live.contains(expected(scene)), "{live}");
+                assert!(restored.contains(expected(scene)), "{restored}");
+            }
         }
-        let live = board_frame(&app, 160, 51);
-        assert!(live.contains(text), "{live}");
-        assert!(!live.contains("working…"), "{live}");
-        {
-            let mut state = app.conversation.borrow_mut();
-            let session = state.sessions.values_mut().next().unwrap();
-            session.outgoing.clear();
-            session.refresh_outgoing();
-        }
-        let restored = board_frame(&app, 160, 51);
-        assert!(restored.contains(text), "{restored}");
-        assert!(!restored.contains("working…"), "{restored}");
     });
 }
 
@@ -431,14 +443,14 @@ fn core_text_overrides_every_accepted_disposition_but_missing_state_keeps_the_lo
         };
         accepted.disposition = disposition;
         accepted.passthrough = false;
-        accepted.message_state_text = Some("Core owns these exact words.".into());
+        accepted.message_state_label = Some("Core owns these exact words.".into());
         entry.sending_held = true;
         assert_eq!(entry.status(), "Core owns these exact words.");
         entry.sending_held = false;
         let Some(Ok(accepted)) = &mut entry.outcome else {
             unreachable!()
         };
-        accepted.message_state_text = None;
+        accepted.message_state_label = None;
         entry.feedback = "legacy delivered line".into();
         assert!(!entry.status().is_empty());
     }

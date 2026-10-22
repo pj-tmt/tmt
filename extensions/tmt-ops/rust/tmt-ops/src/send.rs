@@ -31,8 +31,8 @@ pub enum Disposition {
 pub struct Accepted {
     pub request: String,
     pub disposition: Disposition,
-    /// Authoritative delivery wording from Core, without client paraphrasing.
-    pub message_state_text: Option<String>,
+    /// Verbatim Core delivery wording with its state mark and optional countdown.
+    pub message_state_label: Option<String>,
     /// Core accepted this as typed pane input, not a request notice.
     pub passthrough: bool,
     /// A capability-based request fallback, rendered beside its composer.
@@ -62,7 +62,7 @@ impl Accepted {
         Ok(Self {
             request: request.to_owned(),
             disposition,
-            message_state_text: crate::requests::message_state_text(document),
+            message_state_label: crate::requests::message_state_label(document),
             passthrough: false,
             fallback: None,
             warning: None,
@@ -71,7 +71,7 @@ impl Accepted {
 
     /// The board notice; `what` names the message, such as `Note on alpha`.
     pub fn describe(&self, what: &str, to: &str) -> String {
-        if let Some(text) = &self.message_state_text {
+        if let Some(text) = &self.message_state_label {
             return format!("{to}: {text}");
         }
         let request = &self.request;

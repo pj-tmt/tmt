@@ -897,7 +897,7 @@ fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
                 request: format!("budget-request-{}", app.conversation.borrow().sequence),
                 disposition: Disposition::Queued,
                 passthrough: false,
-                message_state_text: None,
+                message_state_label: None,
                 fallback: None,
                 warning: None,
             }),
@@ -1004,7 +1004,7 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
             request: "sent".into(),
             disposition: Disposition::Queued,
             passthrough: false,
-            message_state_text: None,
+            message_state_label: None,
             fallback: None,
             warning: None,
         }),
@@ -1779,7 +1779,7 @@ fn a_restored_send_is_dropped_once_a_live_entry_has_the_same_request() {
         text: "text".into(),
         truncated: false,
         capture: None,
-        message_state_text: None,
+        message_state_label: None,
     };
     session.sent = vec![sent("req-live"), sent("req-old")];
     let restored: Vec<_> = session.restored_sends().map(|send| &send.request).collect();

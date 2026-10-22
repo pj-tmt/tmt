@@ -415,7 +415,7 @@ impl Session {
                         for line in body.lines {
                             append(super::super::exchange_view::body(line, look), vec![], None);
                         }
-                        if let Some(text) = &send.message_state_text {
+                        if let Some(text) = &send.message_state_label {
                             for line in markdown::wrap_styled(
                                 super::super::exchange_view::feedback_content(text, look),
                                 width.saturating_sub(3).max(1),
@@ -424,7 +424,7 @@ impl Session {
                             }
                         }
                         if let Some(capture) = &send.capture
-                            && (send.message_state_text.is_none()
+                            && (send.message_state_label.is_none()
                                 || !matches!(
                                     capture,
                                     super::super::row_detail::Capture::Pending

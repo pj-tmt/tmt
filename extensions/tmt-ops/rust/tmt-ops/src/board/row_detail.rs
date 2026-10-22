@@ -123,7 +123,7 @@ pub(super) struct Sent {
     /// Only the listed preview survives: the full prompt is no longer retained.
     pub truncated: bool,
     pub capture: Option<Capture>,
-    pub message_state_text: Option<String>,
+    pub message_state_label: Option<String>,
 }
 
 /// Core's captured turn, independent of ordinary replies and pane observations.
@@ -382,7 +382,7 @@ impl App {
                     text: send["text"].as_str()?.into(),
                     truncated: send["truncated"].as_bool().unwrap_or(false),
                     capture: Capture::read(send),
-                    message_state_text: crate::requests::message_state_text(send),
+                    message_state_label: crate::requests::message_state_label(send),
                 })
             })
             .collect()

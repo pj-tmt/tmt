@@ -83,9 +83,9 @@ pub(crate) fn chat(
     result.warning = warning;
     // Acceptance already happened. A failed observation must never turn it into
     // a send failure or admit a second dispatch.
-    result.message_state_text = crate::requests::show_request(core, &result.request)
+    result.message_state_label = crate::requests::show_request(core, &result.request)
         .ok()
-        .and_then(|detail| crate::requests::message_state_text(&detail));
+        .and_then(|detail| crate::requests::message_state_label(&detail));
     Ok(result)
 }
 
@@ -122,7 +122,7 @@ fn accepted(
     Ok(Accepted {
         request: request.into(),
         disposition,
-        message_state_text: None,
+        message_state_label: None,
         passthrough,
         fallback: reason.map(str::to_owned),
         warning: None,
@@ -155,7 +155,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                accepted.message_state_text.as_deref(),
+                accepted.message_state_label.as_deref(),
                 (!fails).then_some(text)
             );
             assert_eq!(accepted.disposition, Disposition::Sent);

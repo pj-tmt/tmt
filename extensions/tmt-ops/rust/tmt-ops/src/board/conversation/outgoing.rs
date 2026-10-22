@@ -118,7 +118,7 @@ impl Completed {
         match &self.outcome {
             Ok(accepted) => {
                 let name = crate::board::notes::sanitize(&self.to);
-                if let Some(text) = &accepted.message_state_text {
+                if let Some(text) = &accepted.message_state_label {
                     return format!("{name}: {text}");
                 }
                 match accepted.disposition {
@@ -195,7 +195,7 @@ impl Entry {
     }
     fn status(&self) -> String {
         if let Some(Ok(accepted)) = &self.outcome
-            && let Some(text) = &accepted.message_state_text
+            && let Some(text) = &accepted.message_state_label
         {
             return text.clone();
         }
@@ -274,7 +274,7 @@ impl Session {
         let pending = &self.pending_replies;
         for entry in &mut self.outgoing {
             changed |= entry.observe_sending(now_ms);
-            if matches!(&entry.outcome, Some(Ok(accepted)) if accepted.passthrough || accepted.message_state_text.is_some())
+            if matches!(&entry.outcome, Some(Ok(accepted)) if accepted.passthrough || accepted.message_state_label.is_some())
             {
                 entry.feedback_clock = None;
                 continue;
@@ -565,9 +565,9 @@ impl Session {
                     changed = true;
                 }
                 if let Some(Ok(accepted)) = &mut entry.outcome
-                    && accepted.message_state_text != send.message_state_text
+                    && accepted.message_state_label != send.message_state_label
                 {
-                    accepted.message_state_text = send.message_state_text.clone();
+                    accepted.message_state_label = send.message_state_label.clone();
                     entry.feedback_clock = None;
                     changed = true;
                 }

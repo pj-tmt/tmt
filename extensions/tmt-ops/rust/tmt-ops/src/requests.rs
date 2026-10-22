@@ -334,12 +334,29 @@ pub fn age(now_ms: u64, then_ms: u64) -> String {
     }
 }
 
-/// Core owns delivery wording; absence preserves the caller's legacy line.
-pub(crate) fn message_state_text(item: &Value) -> Option<String> {
-    item["messageState"]["reason"]["text"]
+/// Core owns the words; only its state selects the presentation mark. Unknown
+/// states still show their verbatim text. The countdown is Core's read-time value.
+pub(crate) fn message_state_label(item: &Value) -> Option<String> {
+    let state = &item["messageState"];
+    let text = state["reason"]["text"]
         .as_str()
-        .filter(|text| !text.is_empty())
-        .map(str::to_owned)
+        .filter(|text| !text.is_empty())?;
+    let mark = match state["state"].as_str() {
+        Some("sent") => "○ ",
+        Some("batched") => "◌ ",
+        Some("delivered") => "✓ ",
+        Some("working") => "⠹ ",
+        Some("unconfirmed") => "? ",
+        Some("not_sent") => "✗ ",
+        _ => "",
+    };
+    let mut label = format!("{mark}{text}");
+    if state["state"] == "batched"
+        && let Some(remaining) = state["remainingMs"].as_u64()
+    {
+        label.push_str(&format!(" · {}", age(remaining, 0)));
+    }
+    Some(label)
 }
 
 /// Reads one request's detail through `requests.show`, which acknowledges
@@ -351,6 +368,33 @@ pub fn show_request(core: &Core, id: &str) -> Result<Value, SquadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delivery_marks_depend_only_on_core_state_and_never_rewrite_its_words() {
+        for (state, mark) in [
+            ("sent", "○"),
+            ("batched", "◌"),
+            ("delivered", "✓"),
+            ("working", "⠹"),
+            ("unconfirmed", "?"),
+            ("not_sent", "✗"),
+        ] {
+            let words = "Core changed this sentence, verbatim!";
+            let item = json!({"messageState":{"state":state,"reason":{"text":words},"remainingMs":120_000}});
+            let suffix = if state == "batched" { " · 2m" } else { "" };
+            assert_eq!(
+                message_state_label(&item),
+                Some(format!("{mark} {words}{suffix}"))
+            );
+        }
+        assert_eq!(
+            message_state_label(
+                &json!({"messageState":{"state":"future","reason":{"text":"future words"}}})
+            ),
+            Some("future words".into())
+        );
+        assert_eq!(message_state_label(&json!({})), None);
+    }
 
     #[test]
     fn a_publish_fills_known_bodies_without_reading_and_names_the_rest_unread() {
