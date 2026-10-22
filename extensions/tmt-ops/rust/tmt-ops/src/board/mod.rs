@@ -59,6 +59,7 @@ mod resume;
 mod row_chips;
 mod row_detail;
 mod savings;
+mod screen_view;
 mod scroll;
 mod search_field;
 mod section_rule;
@@ -195,6 +196,13 @@ pub(in crate::board) enum BoardEvent {
         key: conversation::ConversationKey,
         revision: u64,
         observation: recent_responses::Observation,
+    },
+    PaneScreen {
+        cancellation: crate::runner::Cancellation,
+        key: conversation::ConversationKey,
+        round: u64,
+        revision: u64,
+        observation: screen_view::Observation,
     },
     Status {
         cancellation: crate::runner::Cancellation,
@@ -693,6 +701,9 @@ fn session(
         if let Some(motion) = view::feedback_wait(app, crate::status::now_ms()) {
             wait = wait.min(motion);
         }
+        if let Some(motion) = app.screen_wait() {
+            wait = wait.min(motion);
+        }
         if let Some(motion) = app
             .meter
             .as_ref()
@@ -838,6 +849,23 @@ fn session(
                     && app.selected_read() == Some(refresh::SelectedRead::PaneOutput(key.clone()))
                 {
                     app.apply_pane_output(key, observation);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::PaneScreen {
+                cancellation,
+                key,
+                round,
+                revision: read_revision,
+                observation,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.selected_read()
+                        == Some(refresh::SelectedRead::PaneScreen(key.clone(), round))
+                {
+                    app.apply_pane_screen(key, round, observation);
                     dirty = true;
                 }
                 Effect::None

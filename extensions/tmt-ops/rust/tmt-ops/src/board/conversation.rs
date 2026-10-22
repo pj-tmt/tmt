@@ -23,6 +23,7 @@ pub(in crate::board) mod exchange;
 mod history;
 pub(super) mod layout;
 pub(super) mod outgoing;
+pub(in crate::board) mod screen;
 pub(in crate::board) use outgoing::FeedbackClock;
 pub(in crate::board) mod source;
 mod transcript;
@@ -46,6 +47,8 @@ pub(super) struct State {
     source_areas: Vec<(RowTarget, Rect)>,
     selection: Option<source::Selection>,
     response_area: Option<Rect>,
+    /// The selected pane's live screen in place of the chat (`v`), until toggled back.
+    pub(in crate::board) screen_mode: bool,
     pub area: Rect,
     pub pane: Option<Rect>,
 }
@@ -117,6 +120,15 @@ struct Session {
     pending_since_ms: Option<u64>,
     /// The user's durable sends to this agent, restored from storage.
     sent: Vec<crate::board::row_detail::Sent>,
+    /// What the live screen read last said, when the next read is due, and whether the
+    /// next paint starts at the bottom of the screen.
+    screen: crate::board::screen_view::Observation,
+    screen_due_ms: u64,
+    screen_round: u64,
+    screen_pin: bool,
+    /// Why the last read failed, while the screen from an earlier read is still shown.
+    screen_failed: Option<String>,
+    screen_failures: u32,
 }
 
 impl Default for Session {
@@ -142,6 +154,12 @@ impl Default for Session {
             transcript_context: Default::default(),
             pending_since_ms: None,
             sent: Vec::new(),
+            screen: Default::default(),
+            screen_due_ms: 0,
+            screen_round: 0,
+            screen_pin: true,
+            screen_failed: None,
+            screen_failures: 0,
         }
     }
 }
@@ -652,6 +670,7 @@ fn render_target(
         .filter(|row| RowTarget::Workspace(row.target.clone()) == target);
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
+    let screen_mode = state.screen_mode;
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity.clone()).or_default();
     let state_words = session.observe_context(app, &target, row);
@@ -867,14 +886,21 @@ fn render_target(
     } else {
         "reading · End resumes follow"
     };
-    header.push(rule(
-        format!("Response · {flow}"),
-        if session.change != Change::Current {
-            Role::Waiting
-        } else {
-            Role::Dim
-        },
-    ));
+    header.push(if screen_mode {
+        rule(
+            session.screen_title(usize::from(area.width), crate::status::now_ms()),
+            Role::Dim,
+        )
+    } else {
+        rule(
+            format!("Response · {flow}"),
+            if session.change != Change::Current {
+                Role::Waiting
+            } else {
+                Role::Dim
+            },
+        )
+    });
     // Keep a response viewport even when an input band or low terminal leaves
     // little vertical room. No decorative blank rows consume that budget.
     let header_height = area
@@ -1011,6 +1037,15 @@ fn render_target(
         height: body.height - u16::from(position.is_some()),
         ..body
     };
+    if screen_mode {
+        if switched {
+            session.screen_pin = true;
+        }
+        screen::paint(frame, app, session, body, look);
+        state.response_area = None;
+        state.header_hits = painted_controls;
+        return;
+    }
     let rebuilt = session.prepare(usize::from(body.width), look, &app.references);
     let mapped = &session.rendered.as_ref().unwrap().mapped;
     let previous = app.scrolls.offset(Pane::Replies);

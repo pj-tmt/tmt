@@ -466,7 +466,7 @@ impl App {
                 .iter()
                 .any(|surface| surface.area.contains(point))
     }
-    pub(in crate::board) fn rendered_selection_hint(&self) -> Option<&'static str> {
+    pub(in crate::board) fn rendered_selection_hint(&self, width: usize) -> Option<&'static str> {
         if self.focused() != Pane::Replies
             || self.input.is_some()
             || self.modal_open()
@@ -475,6 +475,9 @@ impl App {
             return None;
         }
         let state = self.conversation.borrow();
+        if state.screen_mode {
+            return Some("l chat · ↑↓ scroll · Esc back");
+        }
         if state.source_areas.is_empty() && state.response_area.is_none_or(|area| area.is_empty()) {
             return None;
         }
@@ -482,7 +485,15 @@ impl App {
             if state.selection.as_ref().is_some_and(Selection::has_text) {
                 "select text to copy · y copy · Enter + Quote · Esc clear"
             } else {
-                "select text to copy · Shift+arrows select · Esc back"
+                // The way to the live screen joins the guidance only when all of it fits.
+                const SELECT: &str = "select text to copy · Shift+arrows select · Esc back";
+                const WITH_SCREEN: &str =
+                    "select text to copy · Shift+arrows select · l live screen · Esc back";
+                if WITH_SCREEN.chars().count() <= width {
+                    WITH_SCREEN
+                } else {
+                    SELECT
+                }
             },
         )
     }
@@ -548,6 +559,15 @@ impl App {
         if event.code == KeyCode::Char('@') && event.modifiers.is_empty() {
             self.conversation.borrow_mut().selection = None;
             return None;
+        }
+        // `l` swaps the chat and the agent's live screen, unless the user bound `l`.
+        // (`v` is the factory `view-reply`.)
+        if event.code == KeyCode::Char('l')
+            && event.modifiers.is_empty()
+            && !self.bindings().contains_key("l")
+            && self.conversation_target().is_some()
+        {
+            return Some(self.toggle_screen());
         }
         let movement = matches!(
             event.code,

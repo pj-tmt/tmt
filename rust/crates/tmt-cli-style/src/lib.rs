@@ -9,6 +9,7 @@
 pub mod audit;
 pub mod breakpoint;
 pub mod detail;
+pub mod foreign;
 pub mod grid;
 pub mod help;
 pub mod interaction;
