@@ -158,6 +158,21 @@ impl SendNowRejection {
             Self::NotAvailable(_) => "SEND_NOW_NOT_AVAILABLE",
         }
     }
+
+    /// The one sentence every caller shows for it.
+    pub fn message(self) -> String {
+        match self {
+            Self::NotAllowed => "Only the request's originator, or a person, may send it now.".into(),
+            Self::NotApplicable => {
+                "Only an ordinary request to an identified recipient can be sent now.".into()
+            }
+            Self::Closed => {
+                "The request already has its final, was withdrawn or has expired.".into()
+            }
+            Self::Unconfirmed => "Delivery is unconfirmed; the message may already be in the pane, so it is not sent again.".into(),
+            Self::NotAvailable(why) => format!("It cannot be sent now: {}.", why.text()),
+        }
+    }
 }
 
 /// What a send-now decided, with its hold released and the request ready to type.

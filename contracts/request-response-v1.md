@@ -820,6 +820,10 @@ hold and types it now. Core decides, in one transaction, from the message's `mes
   (`SEND_NOW_UNREACHABLE`) or a session that cannot carry it types nothing and leaves the
   message sendable; an uncertain paste (`DELIVERY_UNCERTAIN`) is never retried.
 
+The extension API's `requests.sendNow` ([extension-api](extension-api.md)) runs the same decision
+and delivery for the envelope's `identity`; an anonymous envelope is `SEND_NOW_NOT_ALLOWED`. It
+replies `{status, requestId, state}` and carries each refusal above as its fault code.
+
 ## Verification ownership
 
 Exact body, retained retry, revision races and expiry belong to the request

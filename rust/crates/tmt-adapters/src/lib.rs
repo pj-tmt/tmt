@@ -61,10 +61,11 @@ pub mod response_input;
 pub mod room;
 #[cfg(unix)]
 pub mod runtime;
+pub mod send_now;
+#[cfg(unix)]
 #[cfg(unix)]
 #[cfg(unix)]
 pub mod setup;
-#[cfg(unix)]
 pub mod skill_installation;
 pub mod storage;
 #[cfg(unix)]
