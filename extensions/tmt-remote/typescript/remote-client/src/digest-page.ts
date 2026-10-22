@@ -18,6 +18,7 @@ import { pageLoading } from './page-loading.js';
 import {
   digestSource,
   USAGE_RANGES,
+  type DigestReport,
   type DigestSource,
   type UsageDocument,
   type UsageRange,
@@ -32,6 +33,10 @@ import {
   type ProviderView,
 } from './digest-view.js';
 import { notAvailable } from './not-available.js';
+import { whileVisible } from './owner-reads.js';
+
+/** The terminal Digest's own cadence: the usage read refreshes once a minute. */
+const REFRESH_MS = 60_000;
 
 export { compactCount as formatTokens };
 
@@ -193,16 +198,15 @@ function allowanceRow(doc: UsageDocument): HTMLElement {
   return node;
 }
 
-function tokensCard(doc: UsageDocument): HTMLElement {
+function tokensCard(doc: UsageDocument, scale: { share: boolean }): HTMLElement {
   const data = tokenSeries(doc);
   const body = el('div', 'digest-card-body');
   const host = el('div');
-  let share = false;
   const draw = () => {
     host.replaceChildren(
       createSeriesChart({
-        title: share ? 'Share of tokens by seat' : 'Tokens by seat',
-        kind: share ? 'share' : 'stack',
+        title: scale.share ? 'Share of tokens by seat' : 'Tokens by seat',
+        kind: scale.share ? 'share' : 'stack',
         x: data.x,
         series: topLayers(data.layers, SERIES_KEPT),
         empty: 'No token observations in this range.',
@@ -215,19 +219,19 @@ function tokensCard(doc: UsageDocument): HTMLElement {
     body.append(
       el('p', 'usage-note', 'Some buckets are incomplete: they are lower bounds, not errors.'),
     );
-  const scale = segments(
+  const control = segments(
     'Scale',
     [
       { value: 'absolute', text: 'Absolute' },
       { value: 'share', text: 'Share' },
     ],
-    'absolute',
+    scale.share ? 'share' : 'absolute',
     (value) => {
-      share = value === 'share';
+      scale.share = value === 'share';
       draw();
     },
   );
-  return card('digest-tokens', 'Token usage', [body], { actions: scale });
+  return card('digest-tokens', 'Token usage', [body], { actions: control });
 }
 
 function rankingCard(doc: UsageDocument): HTMLElement {
@@ -355,7 +359,15 @@ function coverageCard(): HTMLElement {
   return card('digest-missing', 'Data coverage', [list, method]);
 }
 
-export function digestPage(source: DigestSource = digestSource): void {
+/** What a report shows, without the read's own clock: a refresh that changed nothing repaints nothing. */
+function fingerprint(report: DigestReport): string {
+  return JSON.stringify({
+    ...report,
+    document: report.document && { ...report.document, observedAtMs: 0 },
+  });
+}
+
+export function digestPage(source: DigestSource = digestSource, signal?: AbortSignal): void {
   const tabs = document.getElementById('usage-ranges');
   const panel = document.getElementById('digest-sections');
   const note = document.getElementById('usage-note');
@@ -363,6 +375,11 @@ export function digestPage(source: DigestSource = digestSource): void {
   if (!tabs || !panel || !note || !badge) return;
   let current: UsageRange = USAGE_RANGES[0];
   let generation = 0;
+  let shown = '';
+  // The last good report on screen, for the range being shown.
+  let good: DigestReport | undefined;
+  // The token chart's Absolute/Share choice survives a refresh.
+  const scale = { share: false };
   const buttons = USAGE_RANGES.map((range) => {
     const button = el('button', 'digest-segment', range);
     button.type = 'button';
@@ -381,6 +398,57 @@ export function digestPage(source: DigestSource = digestSource): void {
     return button;
   });
   tabs.replaceChildren(...buttons);
+  function paint(report: DigestReport) {
+    shown = fingerprint(report);
+    good = undefined;
+    badge!.hidden = true;
+    badge!.textContent = '';
+    if (report.unavailable || !report.document) {
+      panel!.replaceChildren();
+      return notAvailable(note!, report.unavailable ?? 'Usage is not available.');
+    }
+    good = report;
+    const doc = report.document;
+    const activityBlock = activityCard(doc);
+    panel!.replaceChildren(
+      allowanceRow(doc),
+      row('digest-row-burn', tokensCard(doc, scale), rankingCard(doc)),
+      ...(activityBlock ? [activityBlock] : []),
+      row('digest-row-coverage', exchangeCard(doc), coverageCard()),
+    );
+    if (report.sample) badge!.textContent = 'Sample data';
+    badge!.hidden = !report.sample;
+    ordinaryNote(report);
+  }
+  /** The note a good report carries: the sample's preview line, else nothing. */
+  function ordinaryNote(report: DigestReport) {
+    if (report.sample) {
+      notAvailable(note!, 'Usage preview. Real numbers: `tmt digest usage report`.');
+    } else {
+      note!.replaceChildren();
+      note!.hidden = true;
+    }
+  }
+  /**
+   * A refresh that could not read keeps the last good report on screen and says why in a small
+   * note; only a first read with nothing to show empties the panel. The next good read clears it.
+   */
+  function refreshed(report: DigestReport) {
+    if (report.unavailable || !report.document) {
+      if (!good?.document) return paint(report);
+      const at = new Date(good.document.observedAtMs).toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      return notAvailable(
+        note!,
+        `${report.unavailable ?? 'Usage is not available.'} Showing the last report, read at ${at}.`,
+      );
+    }
+    if (fingerprint(report) !== shown) return paint(report);
+    // The same report as before: nothing to repaint, only a stale note to clear.
+    ordinaryNote(report);
+  }
   async function show(range: UsageRange) {
     current = range;
     const mine = ++generation;
@@ -390,30 +458,26 @@ export function digestPage(source: DigestSource = digestSource): void {
       button.tabIndex = selected ? 0 : -1;
     }
     panel!.replaceChildren(pageLoading());
-    const report = await source.report(range);
-    if (mine !== generation) return;
-    badge!.hidden = true;
-    badge!.textContent = '';
-    if (report.unavailable || !report.document) {
-      panel!.replaceChildren();
-      return notAvailable(note!, report.unavailable ?? 'Usage is not available.');
-    }
-    const doc = report.document;
-    const activityBlock = activityCard(doc);
-    panel!.replaceChildren(
-      allowanceRow(doc),
-      row('digest-row-burn', tokensCard(doc), rankingCard(doc)),
-      ...(activityBlock ? [activityBlock] : []),
-      row('digest-row-coverage', exchangeCard(doc), coverageCard()),
-    );
-    if (report.sample) {
-      badge!.textContent = 'Sample data';
-      badge!.hidden = false;
-      notAvailable(note!, 'Usage preview. Real numbers: `tmt digest usage report`.');
-    } else {
-      note!.replaceChildren();
-      note!.hidden = true;
-    }
+    const report = await source.report(range, signal);
+    if (mine !== generation || signal?.aborted) return;
+    paint(report);
   }
   void show(current);
+  // The usage read once a minute while the route is visible (the terminal Digest's cadence); the
+  // page repaints only when the report changed, so a reader's place stays. The timer runs once at
+  // once: that tick is the first read above, so it reads nothing.
+  let first = true;
+  if (signal)
+    whileVisible(REFRESH_MS, signal, async () => {
+      if (first) {
+        first = false;
+        return true;
+      }
+      const range = current;
+      const mine = generation;
+      const report = await source.report(range, signal);
+      if (signal.aborted || range !== current || mine !== generation) return true;
+      refreshed(report);
+      return !report.unavailable;
+    });
 }

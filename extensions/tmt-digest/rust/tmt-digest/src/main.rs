@@ -154,13 +154,16 @@ fn main() -> ExitCode {
                 };
             }
             let outcome = if let Some(selected) = matches.subcommand_matches("global") {
-                save_default(selected.get_one::<String>("value").expect("required value"))
+                save_default(
+                    selected.get_one::<String>("value").expect("required value"),
+                    &caps(selected),
+                )
             } else {
                 let Some(member) = matches.get_one::<String>("member") else {
                     return print_help(&grammar::command().render_help());
                 };
                 let value = matches.get_one::<String>("value").expect("paired operands");
-                save(member, value)
+                save(member, value, &caps(&matches))
             };
             match outcome {
                 Ok(message) => {
@@ -203,14 +206,25 @@ fn print_help(help: &clap::builder::StyledStr) -> ExitCode {
     }
 }
 
-fn save(member: &str, value: &str) -> Result<String, core::Error> {
+/// The caps the command line supplied; each was validated by the grammar.
+fn caps(matches: &clap::ArgMatches) -> settings::Caps {
+    settings::Caps {
+        max_wait_ms: matches
+            .get_one::<String>("max-wait")
+            .and_then(|text| settings::max_wait(text).ok()),
+        max_count: matches.get_one::<u64>("max-count").copied(),
+    }
+}
+
+fn save(member: &str, value: &str, caps: &settings::Caps) -> Result<String, core::Error> {
     let setting = settings::MemberSetting::parse(value)?;
     let core = core::Core::discover()?;
     let (id, name) = core.member(member)?;
     let setter = core.setter()?;
     let path = core.settings_path()?;
     let now = write_time()?;
-    let (effective, flush_count) = settings::set(&path, &id, &setting, setter.as_deref(), now)?;
+    let (effective, flush_count) =
+        settings::set_caps(&path, &id, &setting, caps, setter.as_deref(), now)?;
     let value = shown(&effective);
     let mut message = if setting == settings::MemberSetting::Default {
         format!("{name} now uses the default digest: {value}")
@@ -253,8 +267,14 @@ fn switch(on: bool) -> Result<String, core::Error> {
     Ok(message)
 }
 
-fn save_default(value: &str) -> Result<String, core::Error> {
+fn save_default(value: &str, caps: &settings::Caps) -> Result<String, core::Error> {
     match value {
+        "on" | "off" if !caps.is_empty() => {
+            return Err(core::Error::new(
+                "DIGEST_SETTINGS_INVALID",
+                "--max-wait and --max-count apply to auto only",
+            ));
+        }
         "on" => return switch(true),
         "off" => return switch(false),
         _ => {}
@@ -263,7 +283,7 @@ fn save_default(value: &str) -> Result<String, core::Error> {
     let core = core::Core::discover()?;
     let setter = core.setter()?;
     let path = core.settings_path()?;
-    settings::set_default(&path, &mode, setter.as_deref(), write_time()?)?;
+    settings::set_default_caps(&path, &mode, caps, setter.as_deref(), write_time()?)?;
     let mut message = format!(
         "Saved the global digest default: {} (Digest is on)",
         shown(&mode)

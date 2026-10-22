@@ -87,7 +87,7 @@ impl TickProcess {
         // The rule's own limit, recorded so Core can state a held message's latest send time.
         let max_hold = match &mode {
             Mode::Interval { milliseconds, .. } => Some(*milliseconds),
-            Mode::Auto => Some(super::AUTO_CAP_MS),
+            Mode::Auto => Some(settings.auto_caps(id)?.max_wait_ms),
             Mode::Off => None,
         };
         let adopts = revision > 0
@@ -433,6 +433,7 @@ fn observation(id: &str, settings: &DigestConfig, stats: &Value) -> Result<TickO
         identity_id: id.into(),
         mode: settings.effective(id)?,
         flush_count: settings.flush_count as u64,
+        auto_caps: settings.auto_caps(id)?,
         held_count: number(stats, "heldCount")?,
         oldest_held_at_ms: age.map(|age| observed.saturating_sub(age)),
     })

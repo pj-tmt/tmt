@@ -12,8 +12,8 @@ const ROOT: CommandSpec = CommandSpec {
             note: "Save an interval for a member",
         },
         Example {
-            command: "tmt digest worker off",
-            note: "Turn off the member's digest mode",
+            command: "tmt digest worker auto --max-wait 90s --max-count 3",
+            note: "Auto for this member, sent after 90 seconds or 3 held messages",
         },
         Example {
             command: "tmt digest worker default",
@@ -21,7 +21,7 @@ const ROOT: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::Human,
-    details: "Use a duration, auto or off to save a member override. Use default to remove it and inherit the global default. Set the global default with tmt digest global; the flush count (flushCount) is configured in digest.toml. Run tmt digest tick once a minute to apply settings and deliver due digests; Core still checks that each member is ready to receive them.",
+    details: "Use a duration, auto or off to save a member override (off delivers messages normally). With auto, --max-wait (30s to 1h, default 5m) and --max-count (1 to 100, default 5) set when a hold must end; a value left out keeps the stored one, then the global one, then the default. Use default to remove it and inherit the global default. Set the global default with tmt digest global; the flush count (flushCount) is configured in digest.toml. Run tmt digest tick once a minute to apply settings and deliver due digests; Core still checks that each member is ready to receive them.",
 };
 
 const GLOBAL: CommandSpec = CommandSpec {
@@ -37,12 +37,12 @@ const GLOBAL: CommandSpec = CommandSpec {
             note: "Batch again with the settings you had",
         },
         Example {
-            command: "tmt digest global 10m",
-            note: "Set the default to ten minutes and turn Digest on (auto works the same way)",
+            command: "tmt digest global auto --max-wait 90s --max-count 5",
+            note: "Auto for everyone without their own setting, ending a hold after 90 seconds or 5 messages",
         },
     ],
     outputs: OutputModes::Human,
-    details: "A mode (auto or a duration) saves what every member without its own setting inherits, turns Digest on, and records who set it; that person's messages pass the hold of every member that inherits it. A person marked with tmt identity meta set user true already passes every hold and does not need this. Without a caller identity nothing is recorded. off turns Digest off for everyone: nothing is held or merged, held messages are sent now, and no stored member or default setting changes. on turns it back on with the settings you had. A tick starts now to apply the change without waiting for the next minute. The switch is the enabled key in digest.toml (absent means on).",
+    details: "A mode (auto or a duration such as 10m) saves what every member without its own setting inherits, turns Digest on, and records who set it; that person's messages pass the hold of every member that inherits it. A person marked with tmt identity meta set user true already passes every hold and does not need this. Without a caller identity nothing is recorded. off turns Digest off for everyone: nothing is held or merged, held messages are sent now, and no stored member or default setting changes. on turns it back on with the settings you had. A tick starts now to apply the change without waiting for the next minute. The switch is the enabled key in digest.toml (absent means on). With auto, --max-wait (30s to 1h, default 5m) and --max-count (1 to 100, default 5) set the caps of every auto member that has none of its own; they stay stored when the default later changes.",
 };
 
 const TICK: CommandSpec = CommandSpec {
@@ -127,13 +127,44 @@ const REPORT: CommandSpec = CommandSpec {
     details: "Windows end at the last completed 5-minute boundary (window.toMs). Missing evidence is reported as unavailable, never as zero; Claude account limits are unavailable because Core has no source for them. CSV rows equal the JSON rows; a text cell starting with =, +, -, @, tab or carriage return gets a leading ' so a spreadsheet never reads it as a formula.",
 };
 
+/// The two `auto` caps, validated before any write.
+fn cap_args(command: Command) -> Command {
+    command
+        .arg(
+            Arg::new("max-wait")
+                .long("max-wait")
+                .value_name("DURATION")
+                .help("With auto: end a hold after this long (30s to 1h, default 5m)")
+                .value_parser(|text: &str| {
+                    crate::settings::max_wait(text)
+                        .map(|_| text.to_owned())
+                        .map_err(|error| error.message)
+                }),
+        )
+        .arg(
+            Arg::new("max-count")
+                .long("max-count")
+                .value_name("COUNT")
+                .help("With auto: end a hold at this many messages (1 to 100, default 5)")
+                .value_parser(|text: &str| {
+                    text.parse::<u64>()
+                        .map_err(|_| {
+                            "The most messages held must be a whole number from 1 to 100".to_owned()
+                        })
+                        .and_then(|count| {
+                            crate::settings::max_count(count).map_err(|error| error.message)
+                        })
+                }),
+        )
+}
+
 pub fn command() -> Command {
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt digest")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_negates_reqs(true)
         .subcommand(
-            tmt_cli_style::command(&GLOBAL).arg(
+            cap_args(tmt_cli_style::command(&GLOBAL)).arg(
                 Arg::new("value")
                     .value_name("on|off|auto|DURATION")
                     .required(true)
@@ -247,6 +278,7 @@ pub fn command() -> Command {
                 .requires("value")
                 .help("Saved identity name or UUID"),
         )
+        .args(cap_args(Command::new("caps")).get_arguments().cloned())
         .arg(
             Arg::new("value")
                 .value_name("DURATION|auto|off|default")

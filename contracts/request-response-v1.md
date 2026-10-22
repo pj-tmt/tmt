@@ -593,7 +593,8 @@ conversion every pane delivery applies. Core enforces two rules before anything 
 stored: the sender must carry the reserved `user` metadata mark (`PASSTHROUGH_NOT_ALLOWED`
 otherwise), and the recipient must be an identity with a live pane (`PASSTHROUGH_UNAVAILABLE`;
 a person's request mode still reaches an identity without one). `--timeout`, `--room`
-and `--no-preamble` are refused with the flag.
+and `--no-preamble` are refused with the flag. `dispatch.create` with `mode: "passthrough"`
+applies the same two rules and codes ([API](extension-api.md#passthrough-dispatch)).
 
 A passthrough is a request only for its sender. It publishes no recipient attention, so it
 is not in the recipient's inbox, incoming list, `whoami --context` count or Digest

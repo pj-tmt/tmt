@@ -345,6 +345,77 @@ fn global_off_and_on_flip_one_switch_and_keep_every_stored_setting() {
 }
 
 #[test]
+fn the_auto_caps_are_saved_globally_bounded_before_any_write_and_refused_for_other_modes() {
+    use std::os::unix::fs::PermissionsExt;
+    let sandbox = Sandbox::new();
+    let config = sandbox.0.join("config.json");
+    let path = sandbox.0.join("digest.toml");
+    let core = sandbox.0.join("core");
+    fs::write(
+        &core,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  'identity show --json') printf '%s\\n' '{{\"identity\":{{\"id\":\"20000000-0000-4000-8000-000000000001\"}}}}' ;;\n  'config show --json') printf '%s\\n' '{{\"paths\":{{\"global\":\"{}\"}}}}' ;;\n  *) exit 9 ;;\nesac\n",
+            config.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&core, fs::Permissions::from_mode(0o700)).unwrap();
+    let run = |words: &[&str]| {
+        support::digest()
+            .args(words)
+            .env("TMT_EXECUTABLE", &core)
+            .env("NO_COLOR", "1")
+            .current_dir(&sandbox.0)
+            .output()
+            .unwrap()
+    };
+    let saved = run(&["global", "auto", "--max-wait", "90s", "--max-count", "3"]);
+    assert!(saved.status.success(), "{:?}", saved.stderr);
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains("maxWait = \"90s\"") && text.contains("maxCount = 3"),
+        "{text}"
+    );
+    // Outside the bounds the grammar refuses, with the range, and nothing is written.
+    let before = fs::read(&path).unwrap();
+    for (flag, value) in [
+        ("--max-wait", "29s"),
+        ("--max-wait", "3601s"),
+        ("--max-wait", "soon"),
+        ("--max-count", "0"),
+        ("--max-count", "101"),
+        ("--max-count", "many"),
+    ] {
+        let result = run(&["global", "auto", flag, value]);
+        assert_eq!(result.status.code(), Some(2), "{flag} {value}");
+        let said = String::from_utf8(result.stderr).unwrap();
+        assert!(
+            said.contains("30s") || said.contains("1 to 100"),
+            "{flag} {value}: {said}"
+        );
+        let member = run(&["worker", "auto", flag, value]);
+        assert_eq!(member.status.code(), Some(2), "member {flag} {value}");
+    }
+    // Caps belong to auto.
+    for words in [
+        &["global", "10m", "--max-count", "2"][..],
+        &["global", "off", "--max-wait", "60s"][..],
+        &["global", "on", "--max-count", "2"][..],
+    ] {
+        let result = run(words);
+        assert_eq!(result.status.code(), Some(1), "{words:?}");
+    }
+    assert_eq!(fs::read(&path).unwrap(), before);
+    // A later default keeps the stored caps.
+    assert!(run(&["global", "10m"]).status.success());
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains("maxWait = \"90s\"") && text.contains("maxCount = 3"),
+        "{text}"
+    );
+}
+
+#[test]
 fn decisions_needs_json_and_a_missing_core_is_a_json_error_without_state() {
     let sandbox = Sandbox::new();
     let help = sandbox.run(&["decisions", "--help"]);

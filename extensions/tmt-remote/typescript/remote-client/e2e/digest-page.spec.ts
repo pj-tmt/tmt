@@ -27,6 +27,7 @@ test.beforeAll(async () => {
         formats: ['es'],
         fileName: () => 'harness.js',
       },
+      rollupOptions: { output: { inlineDynamicImports: true } },
     },
   });
   harness = await readFile(path.join(root, 'harness.js'), 'utf8');
@@ -421,11 +422,58 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
-test('the product source keeps the honest empty state and draws no chart', async ({ page }) => {
+test('the product source reads the owner reads and, without an owner session, says so and draws nothing', async ({
+  page,
+}) => {
   const errors = await open(page, '?product');
-  await expect(page.locator('#usage-note')).toContainText('not in the browser yet');
-  await expect(page.locator('#usage-note code')).toHaveText('tmt ops ui');
+  await expect(page.locator('#usage-note')).toHaveText(
+    'This browser has no owner session for your machine. Pair it from Remote to see your usage.',
+  );
+  await expect(page.locator('#usage-badge')).toBeHidden();
   await expect(page.locator('#digest-sections .tmt-ui-chart')).toHaveCount(0);
   await expect(page.locator('#digest-sections .digest-card')).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('Sample data');
+  expect(errors).toEqual([]);
+});
+
+test('the report refreshes once a minute and repaints only when it changed', async ({ page }) => {
+  await page.clock.install();
+  const errors = await open(page, '?refresh');
+  const reads = () => page.evaluate(() => window.digestReads);
+  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('26%');
+  expect(await reads()).toBe(1);
+  // A reader's place: the Share choice and a marker on the token card must survive a refresh
+  // that found nothing new.
+  await page.getByRole('button', { name: 'Share' }).click();
+  await page.locator('#digest-tokens').evaluate((node) => node.setAttribute('data-kept', 'yes'));
+  await page.clock.fastForward(60_000);
+  await expect.poll(reads).toBe(2);
+  await expect(page.locator('#digest-tokens')).toHaveAttribute('data-kept', 'yes');
+  // The third read has less allowance left: the cards repaint, and Share is still the choice.
+  await page.clock.fastForward(60_000);
+  await expect.poll(reads).toBe(3);
+  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('10%');
+  await expect(page.getByRole('button', { name: 'Share' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#digest-tokens .tmt-ui-chart-title')).toHaveText(
+    'Share of tokens by seat',
+  );
+  // A read that fails after a good one keeps the last good report and says why in a small note;
+  // the panel is not emptied.
+  await page.clock.fastForward(60_000);
+  await expect.poll(reads).toBe(4);
+  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('10%');
+  await expect(page.locator('#digest-tokens')).toBeVisible();
+  await expect(page.locator('#usage-note')).toContainText('Your machine did not answer');
+  await expect(page.locator('#usage-note')).toContainText('Showing the last report, read at');
+  // The next good read clears it: the sample's own preview line is back.
+  await page.clock.fastForward(120_000);
+  await expect.poll(reads).toBe(5);
+  await expect(page.locator('#usage-note')).toContainText('Usage preview');
+  await expect(page.locator('#usage-note')).not.toContainText('Showing the last report');
+  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('10%');
+  // Leaving the route stops the reads.
+  await page.evaluate(() => window.digestRoute.abort());
+  await page.clock.fastForward(300_000);
+  expect(await reads()).toBe(5);
   expect(errors).toEqual([]);
 });

@@ -5,7 +5,7 @@ use tmt_core::{
     dispatch::{
         Acceptance, DispatchInput, DispatchItem, DispatchReceipt, DispatchRoom, canonical_id,
     },
-    request::{PrepareRequest, RequestError, RequestRoute, RequestService},
+    request::{PrepareRequest, RequestError, RequestRoute, RequestService, digest::DeliveryPolicy},
     retention::{REQUEST_MIN_EXPIRY_MS, checked_deadline, valid_retention_days},
 };
 
@@ -139,7 +139,7 @@ impl Storage {
             let mut items = Vec::with_capacity(input.recipient_ids.len());
             for recipient_id in &input.recipient_ids {
                 let (request_id, attempt_id) = request_ids();
-                let result = service.enqueue(
+                let result = service.enqueue_delivery(
                     PrepareRequest {
                         room_id: input.room.as_ref().map(|room| room.room_id().to_owned()),
                         kind: input.kind,
@@ -157,6 +157,10 @@ impl Storage {
                     },
                     attempt_id,
                     retention_days,
+                    DeliveryPolicy {
+                        mode: input.mode,
+                        ..DeliveryPolicy::default()
+                    },
                 );
                 let acceptance = match result {
                     Ok(_) => Acceptance::Queued,

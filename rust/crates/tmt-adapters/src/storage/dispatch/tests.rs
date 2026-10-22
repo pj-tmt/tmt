@@ -358,6 +358,7 @@ impl Fixture {
             recipient_ids: self.recipients.clone(),
             message: "Review this together.\nKeep exact text!".into(),
             room: None,
+            mode: tmt_core::request::digest::DeliveryMode::Request,
         }
     }
     fn oracle(&self) -> Connection {

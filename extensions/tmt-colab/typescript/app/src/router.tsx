@@ -4,7 +4,8 @@ import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
-import { PageProjects } from './page-projects.js';
+import { PagePinNotice, PageProjects } from './page-projects.js';
+import type { PagePinRequest, PagePinState } from './pins.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
 import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
@@ -18,7 +19,7 @@ import {
   HostedShell,
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { carriesThreadFragment, shortPageId, validPagePrefix } from './short-links.js';
+import { shortPageId, validPagePrefix } from './short-links.js';
 import {
   hintFragment,
   hintSearch,
@@ -68,6 +69,7 @@ import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { isListPath, keepListSearch, storedListSearch } from './list-history.js';
 import { ColabShell, ShellHostSlot } from './colab-shell.js';
+import { usePageEnvironment } from './page-environment.js';
 import { ColabSettings } from './colab-settings.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
@@ -107,10 +109,9 @@ import { CreatorDefaultProvider } from './creator-default.js';
 import { DraftSession } from './draft-store.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
-import { SaveConflict, SaveOutcomeUnknown, SaveRefused, saveMessage } from './save.js';
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
-import { compactOffered } from './page-usage.js';
-import { SaveNotice, type SaveProblem } from './save-notice.js';
+import { usePageEditor } from './use-page-editor.js';
+import { SaveNotice } from './save-notice.js';
 import { toolbarInset } from './toolbar-inset.js';
 
 /** In-page cards whose controls the floating actions move above, never over. */
@@ -1061,6 +1062,10 @@ function Shell() {
 }
 function Page() {
   const router = useRouter();
+  const environment = usePageEnvironment();
+  // The renderer's thread handler outlives a render, so it reads the environment through a ref.
+  const environmentRef = useRef(environment);
+  environmentRef.current = environment;
   const quickSwitcher = useQuickSwitcher();
   const quickSwitcherOwner = useRef(quickSwitcher);
   quickSwitcherOwner.current = quickSwitcher;
@@ -1106,6 +1111,10 @@ function Page() {
   const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
   const openProjects = (from?: DOMRect) =>
     setProjects((previous) => ({ request: previous.request + 1, from }));
+  const [pin, setPin] = useState<PagePinState>();
+  const [pinRequest, setPinRequest] = useState<PagePinRequest>();
+  const requestPin = (action: PagePinRequest['action']) =>
+    setPinRequest((previous) => ({ id: (previous?.id ?? 0) + 1, action }));
   const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
@@ -1131,30 +1140,30 @@ function Page() {
   // reads them speaks (#3894): no count, no band, no Needs you, and the discussion stays shut.
   const discussionPending = !!view.discussionPending;
   useEffect(() => {
-    document.title = `${view.title || snapshot.title} · ${text.product}`;
-    return () => {
-      document.title = text.product;
-    };
-  }, [view.title, snapshot.title]);
+    return environment.setTitle(`${view.title || snapshot.title} · ${text.product}`);
+  }, [environment, view.title, snapshot.title]);
   // This device remembers which pages it opened, for a quick switcher to offer first; local only.
   useEffect(() => {
     void noteOpened(space, snapshot.id);
   }, [space, snapshot.id]);
-  const latest = useRef(view),
-    dirty = useRef(false),
-    base = useRef(snapshot.source),
-    draftPage = useRef(snapshot.id);
-  const [draft, setDraft] = useState(snapshot.source),
-    [saving, setSaving] = useState(false);
-  const [editError, setEditError] = useState<SaveProblem | null>(null);
-  /** The last Save merged the edit into a page that had changed; true until the next edit. */
-  const [merged, setMerged] = useState(false);
-  /** How the last Copy draft ended. */
-  const [copied, setCopied] = useState<'copied' | 'failed' | null>(null);
-  const sourceArea = useRef<HTMLTextAreaElement>(null);
-  /** Where the caret and scroll were when a merged Save replaced the text, to put them back. */
-  const placement = useRef<{ start: number; end: number; top: number } | null>(null);
+  const latest = useRef(view);
   const size = usePageSize(snapshot.binding);
+  const {
+    draft,
+    changed: draftChanged,
+    saving,
+    error: editError,
+    merged,
+    copied,
+    sourceArea,
+    saveSettled,
+    adoptSnapshot,
+    adoptUpdate,
+    save,
+    copyDraft,
+    compactFromRefusal,
+    type: typeSource,
+  } = usePageEditor({ snapshot, latest, size });
   const { state: connection, controller: connectionOwner } = useConnection({
     loaded,
     binding: () => snapshot.binding,
@@ -1186,14 +1195,7 @@ function Page() {
     wasArchived.current = archived;
   }, [archived]);
   useEffect(() => {
-    // A replacement of the same page keeps a dirty Source draft with its frozen base and caret,
-    // never saving or retargeting it; a clean draft, or another page, adopts the snapshot.
-    if (!dirty.current || draftPage.current !== snapshot.id) {
-      dirty.current = false;
-      base.current = snapshot.source;
-      setDraft(snapshot.source);
-    }
-    draftPage.current = snapshot.id;
+    adoptSnapshot(snapshot);
     setView({
       discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
@@ -1212,7 +1214,6 @@ function Page() {
       threads: snapshot.threads,
     });
     connectionOwner.reset();
-    setEditError(null);
     let firstView = true;
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
@@ -1229,100 +1230,14 @@ function Page() {
         }
         latest.current = next;
         setView(next);
-        if (!dirty.current) {
-          base.current = value.source;
-          setDraft(value.source);
-        }
+        adoptUpdate(value.source);
       },
       (error) => connectionOwner.report(error),
     );
     return () => {
       unsubscribe?.();
     };
-  }, [snapshot, loaded, transport, connectionOwner, replyObserver]);
-  // Settles when the Save in flight has landed (true) or failed (false); true when none is.
-  const saveSettled = useRef<Promise<boolean> | null>(null);
-  async function save() {
-    if (!snapshot.binding || saving) return;
-    let landed = false;
-    let settle!: (landed: boolean) => void;
-    saveSettled.current = new Promise<boolean>((resolve) => (settle = resolve));
-    setSaving(true);
-    setEditError(null);
-    setMerged(false);
-    setCopied(null);
-    const area = sourceArea.current;
-    try {
-      const outcome = await snapshot.binding.edit(draft, base.current);
-      dirty.current = false;
-      base.current = latest.current.source;
-      if (outcome.merged && area && document.activeElement === area)
-        placement.current = {
-          start: area.selectionStart,
-          end: area.selectionEnd,
-          top: area.scrollTop,
-        };
-      setDraft(latest.current.source);
-      setMerged(outcome.merged);
-      void size.refresh();
-      landed = true;
-    } catch (error) {
-      const problem: SaveProblem = {
-        message: saveMessage(error),
-        unconfirmed: error instanceof SaveOutcomeUnknown,
-        ...(error instanceof SaveConflict ? { conflict: true as const } : {}),
-      };
-      // A full page names the way out that can help, decided by what the serve says is limiting
-      // it now: combining changes frees room only when the changes are the limit.
-      if (error instanceof SaveRefused && error.code === 'COLAB_CAPACITY') {
-        const usage = await size.refresh();
-        // A device that cannot ask the serve to combine is told who can.
-        if (!snapshot.binding.compact) problem.message = text.pageSize.saveFullReader;
-        else if (usage) {
-          problem.full = compactOffered(usage) ? 'compact' : 'export';
-          problem.message = compactOffered(usage)
-            ? text.pageSize.saveFullTail
-            : text.pageSize.saveFullBudget;
-        }
-      }
-      setEditError(problem);
-    } finally {
-      setSaving(false);
-      saveSettled.current = null;
-      settle(landed);
-    }
-  }
-  // A merged Save replaces the text with the merged page; the caret and scroll stay where the new
-  // text allows, and nothing takes focus.
-  useLayoutEffect(() => {
-    const area = sourceArea.current,
-      kept = placement.current;
-    placement.current = null;
-    if (!area || !kept || document.activeElement !== area) return;
-    area.setSelectionRange(Math.min(kept.start, draft.length), Math.min(kept.end, draft.length));
-    area.scrollTop = kept.top;
-  }, [draft]);
-  /** Copy the unsaved draft from a conflict, since a reload loses it. */
-  function copyDraft() {
-    void navigator.clipboard.writeText(draft).then(
-      () => setCopied('copied'),
-      () => setCopied('failed'),
-    );
-  }
-  /** Compact from the save refusal: the draft stays, nothing is saved or resent; the person
-   * presses Save again. */
-  async function compactFromRefusal() {
-    const outcome = await size.compact();
-    setEditError(
-      outcome.kind === 'failed'
-        ? { message: text.pageSize.failed, unconfirmed: false, full: 'compact' }
-        : outcome.kind === 'nothing'
-          ? { message: text.pageSize.nothingToCombine, unconfirmed: false, full: 'export' }
-          : outcome.kind === 'still-high'
-            ? { message: text.pageSize.saveFullBudget, unconfirmed: false, full: 'export' }
-            : { message: text.pageSize.compactedSaveAgain, unconfirmed: false, full: 'compacted' },
-    );
-  }
+  }, [snapshot, loaded, transport, connectionOwner, replyObserver, adoptSnapshot, adoptUpdate]);
   const refreshSize = size.refresh;
   useEffect(() => {
     if (panel === 'about' || panel === 'source') void refreshSize();
@@ -1482,7 +1397,7 @@ function Page() {
   useEffect(() => {
     if (!annotation) return;
     const outside = (event: PointerEvent) => {
-      if (document.querySelector('dialog:modal')) return;
+      if (environment.modalOpen()) return;
       const target = event.target;
       if (
         target instanceof Element &&
@@ -1493,7 +1408,7 @@ function Page() {
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
-  }, [annotation]);
+  }, [annotation, environment]);
   function openThread(ref: DiscussionRef | null) {
     if (annotationBusy.current || statusBusy.current) return;
     if (!ref) {
@@ -1506,12 +1421,7 @@ function Page() {
     binding.current?.markThreadStatusSeen?.(ref);
     setActiveThread(id);
     setPanel('comments');
-    if (carriesThreadFragment(location.pathname, inShell()))
-      history.replaceState(
-        history.state,
-        '',
-        `${location.pathname}${inShell() ? location.search : ''}#t=${ref.id}`,
-      );
+    environmentRef.current.threadFragment()?.write(ref.id);
     renderer.current?.scrollAnchor(id);
   }
   function continueAnnotation(ref: DiscussionRef) {
@@ -1569,8 +1479,9 @@ function Page() {
           : text.blocked;
   const deepThread = useRef<string | null>(null);
   useEffect(() => {
-    if (state !== 'ready' || !carriesThreadFragment(location.pathname, inShell())) return;
-    const target = new URLSearchParams(location.hash.slice(1)).get('t');
+    const fragment = environment.threadFragment();
+    if (state !== 'ready' || !fragment) return;
+    const target = fragment.read();
     if (!target || deepThread.current === `${snapshot.id}:${target}`) return;
     const thread = view.threads?.find((value) => value.threadId === target && !value.deleted);
     if (!thread) return;
@@ -1578,7 +1489,7 @@ function Page() {
     setActiveThread(`${thread.ref.writer}:${thread.ref.id}`);
     setPanel('comments');
     renderer.current?.scrollAnchor(`${thread.ref.writer}:${thread.ref.id}`);
-  }, [state, snapshot.id, view.threads]);
+  }, [environment, state, snapshot.id, view.threads]);
 
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked =
@@ -1589,13 +1500,7 @@ function Page() {
   // Selecting is offered once the threads are verified; until then its button holds its place.
   const selectPending = selectable && discussionPending && !archived && !liveError;
   activateChat.current = () => {
-    if (
-      archived ||
-      (panel !== null && panel !== 'chat') ||
-      [...document.querySelectorAll<HTMLElement>('[role="menu"], dialog[open]')].some(
-        (node) => node.getClientRects().length > 0 && node.dataset.panel !== 'chat',
-      )
-    )
+    if (archived || (panel !== null && panel !== 'chat') || environment.overlayOpen('chat'))
       return false;
     const insertMention = panel !== 'chat';
     setChatOpened(true);
@@ -1920,6 +1825,8 @@ function Page() {
             request={projects.request}
             from={projects.from}
             open={() => openProjects()}
+            pinRequest={pinRequest}
+            onPinState={setPin}
           />
         }
         crumb={
@@ -2024,12 +1931,16 @@ function Page() {
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
             canProjects={!!transport.management}
-            onSelect={(action) =>
-              action === 'projects' ? openProjects(moreButtonRect()) : toggle(action)
-            }
+            pin={pin}
+            onSelect={(action) => {
+              if (action === 'projects') openProjects(moreButtonRect());
+              else if (action === 'pin') requestPin('toggle');
+              else toggle(action);
+            }}
           />
         }
       />
+      <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
       <p role="status" className="archive-announcement tmt-ui-visually-hidden">
         {archiveAnnouncement}
       </p>
@@ -2056,7 +1967,7 @@ function Page() {
       />
       <BrowserDrawer
         notice={endedNotice}
-        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+        focusFallback={environment.focusFallback}
         open={panel === 'about'}
         title={text.aboutPage}
         panel="about"
@@ -2282,7 +2193,7 @@ function Page() {
       {snapshot.binding?.files && (
         <BrowserDrawer
           notice={endedNotice}
-          focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+          focusFallback={environment.focusFallback}
           open={panel === 'files'}
           title={text.files}
           panel="files"
@@ -2299,7 +2210,7 @@ function Page() {
       )}
       <BrowserDrawer
         notice={endedNotice}
-        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+        focusFallback={environment.focusFallback}
         open={panel === 'source'}
         title={text.source}
         panel="source"
@@ -2316,7 +2227,7 @@ function Page() {
                 label={text.save}
                 busy={saving}
                 busyMark={<BusyMark />}
-                disabled={!!liveError || draft === base.current}
+                disabled={!!liveError || !draftChanged}
                 onActivate={() => void save()}
               />
             )}
@@ -2374,17 +2285,13 @@ function Page() {
             readOnly={archived || !snapshot.binding || saving || !!liveError}
             spellCheck={false}
             value={draft}
-            onChange={(event) => {
-              dirty.current = true;
-              setMerged(false);
-              setDraft(event.target.value);
-            }}
+            onChange={(event) => typeSource(event.target.value)}
           />
         </div>
       </BrowserDrawer>
       <BrowserDrawer
         notice={endedNotice}
-        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+        focusFallback={environment.focusFallback}
         open={panel === 'comments'}
         title={text.comments}
         panel="comments"
@@ -2445,7 +2352,7 @@ function Page() {
       </BrowserDrawer>
       <BrowserDrawer
         notice={endedNotice}
-        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+        focusFallback={environment.focusFallback}
         open={panel === 'agents'}
         title={text.agentStatus}
         panel="agents"
@@ -2461,10 +2368,7 @@ function Page() {
       <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
         <BrowserDrawer
           notice={archived ? endedNotice : undefined}
-          focusFallback={() =>
-            floatingChat.current ??
-            document.querySelector<HTMLButtonElement>('.tmt-ui-header button')
-          }
+          focusFallback={() => floatingChat.current ?? environment.focusFallback()}
           open={panel === 'chat'}
           title="Chat"
           panel="chat"

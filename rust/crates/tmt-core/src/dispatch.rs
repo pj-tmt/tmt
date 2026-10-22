@@ -16,6 +16,9 @@ pub struct DispatchInput {
     pub recipient_ids: Vec<String>,
     pub message: String,
     pub room: Option<DispatchRoom>,
+    /// What the recipient is handed. A passthrough is one request from a person to one
+    /// identity, with no room, like `talk --passthrough`.
+    pub mode: crate::request::digest::DeliveryMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +61,14 @@ impl DispatchInput {
         self.recipient_ids.sort();
         self.recipient_ids.dedup();
         if matches!(self.room, Some(DispatchRoom::Direct { .. })) && self.recipient_ids.len() != 1 {
+            return None;
+        }
+        if self.mode == crate::request::digest::DeliveryMode::Passthrough
+            && (self.kind != crate::request::RequestKind::Request
+                || self.origin != crate::request::RequestOrigin::Person
+                || self.recipient_ids.len() != 1
+                || self.room.is_some())
+        {
             return None;
         }
         Some(self)

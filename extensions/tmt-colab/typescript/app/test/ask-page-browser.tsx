@@ -38,6 +38,7 @@ import { ThreadStatusSeen } from '../src/thread-status-view.js';
 import type { ThreadStatusView } from '../src/thread-status.js';
 import { destination, id, pageLink, RemoteDouble, selection } from './ask-fixtures.js';
 let root: Root | undefined;
+let appRouter: ReturnType<typeof createAppRouter> | undefined;
 let sends: RemoteDouble;
 let dispatched: RemoteDouble[];
 let actions: string[];
@@ -1036,7 +1037,8 @@ export async function mount(
   // Arriving from the list: the space home has loaded, which the page's chips read.
   if (projectState && !options.projects?.deepLink)
     rememberPages(transport, undefined, projectPages());
-  const app = <RouterProvider router={createAppRouter(transport)} />;
+  appRouter = createAppRouter(transport);
+  const app = <RouterProvider router={appRouter} />;
   root.render(options.strict ? <StrictMode>{app}</StrictMode> : app);
 }
 /** The local device loses owner-member provenance (a non-owner member). */
@@ -1084,6 +1086,11 @@ export function seenProof() {
 }
 export function proof() {
   return { sends: dispatched.flatMap((remote) => remote.sends), actions };
+}
+/** Leave the mounted page through its real router. */
+export async function navigateHome() {
+  if (!appRouter) throw new Error('The fixture has no mounted router.');
+  await appRouter.navigate({ to: '/' });
 }
 /** What the page's own project picker wrote and how often it read the owner list. */
 export function projectProof() {

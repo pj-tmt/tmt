@@ -191,7 +191,7 @@ export const routes: readonly ShellRoute[] = [
     id: 'digest',
     paths: ['/digest', '/digest/'],
     rail: 'digest',
-    load: async () => remotePage(digest, () => digestPage()),
+    load: async () => remotePage(digest, () => digestPage(undefined, remoteShell()!.signal)),
   },
   {
     id: 'settings',

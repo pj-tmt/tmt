@@ -65,7 +65,10 @@ fn hold(
 /// The driver's last admitted event for the exact session and process the
 /// recipient is bound to now. It is not liveness evidence: a stopped process
 /// keeps its last phase until a new binding replaces it.
-fn activity(db: &Connection, identity: &str) -> Result<Option<RecipientActivity>, StorageError> {
+pub(super) fn activity(
+    db: &Connection,
+    identity: &str,
+) -> Result<Option<RecipientActivity>, StorageError> {
     let rows = crate::storage::bindings::BindingRows(db);
     let Some(key) = rows
         .entry_by_id(identity)?

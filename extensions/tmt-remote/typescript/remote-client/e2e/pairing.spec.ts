@@ -4905,7 +4905,7 @@ test('the rail shows the same items in the same order on every page', async () =
   }
 });
 
-test('Digest and an unpaired Ops say what they wait for and show no invented numbers', async () => {
+test('an unpaired Digest and Ops say what they wait for and show no invented numbers', async () => {
   const page = await browser.newPage();
   try {
     await page.goto(`${origin}/digest/`);
@@ -4915,18 +4915,20 @@ test('Digest and an unpaired Ops say what they wait for and show no invented num
       'aria-current',
       'page',
     );
-    // No browser read of usage yet: the page names the terminal command and shows no rows.
+    // Digest reads the owner's usage (x/-/digest, x/-/limits), which needs an owner session: this
+    // browser is not paired, so the page says so and shows no numbers.
     const usage = page.locator('#usage-note');
-    await expect(usage).toHaveText('Usage is not in the browser yet. Open Digest in tmt ops ui.');
-    await expect(usage.locator('code')).toHaveText('tmt ops ui');
+    await expect(usage).toHaveText(
+      'This browser has no owner session for your machine. Pair it from Remote to see your usage.',
+    );
     await expect(usage.locator('a')).toHaveCount(0);
     await expect(page.getByRole('tab')).toHaveText(['24h', '7d', '30d']);
-    await expect(page.locator('#usage-rows tr')).toHaveCount(0);
+    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Sample data');
     await captureState(
       page,
       'digest-web',
-      'Empty until the usage read exists',
+      'Empty until this browser is paired',
       [1440, 390],
       ['light', 'dark'],
     );

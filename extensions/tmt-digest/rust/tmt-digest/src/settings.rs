@@ -13,6 +13,80 @@ use toml_edit::{DocumentMut, Item, Table};
 const FILE_LIMIT: u64 = 1024 * 1024;
 const MAX_MS: u64 = 9_007_199_254_740_991;
 pub const DEFAULT_FLUSH_COUNT: i64 = 10;
+/// An `auto` member's hold ends with this many messages held, or when the oldest has waited
+/// this long. Both are settable ([`Caps`]); the re-offer interval is not.
+pub const DEFAULT_MAX_COUNT: u64 = 5;
+pub const DEFAULT_MAX_WAIT_MS: u64 = 300_000;
+const MIN_MAX_WAIT_MS: u64 = 30_000;
+const MAX_MAX_WAIT_MS: u64 = 3_600_000;
+const MAX_MAX_COUNT: u64 = 100;
+
+/// The caps an `auto` member runs under, after the member's value, the global one and the defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AutoCaps {
+    pub max_wait_ms: u64,
+    pub max_count: u64,
+}
+/// Caps a command supplies; a field left out keeps what is stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Caps {
+    pub max_wait_ms: Option<u64>,
+    pub max_count: Option<u64>,
+}
+impl Default for AutoCaps {
+    fn default() -> Self {
+        Self {
+            max_wait_ms: DEFAULT_MAX_WAIT_MS,
+            max_count: DEFAULT_MAX_COUNT,
+        }
+    }
+}
+impl Caps {
+    pub fn is_empty(&self) -> bool {
+        self.max_wait_ms.is_none() && self.max_count.is_none()
+    }
+}
+/// The longest an `auto` hold may keep a message: 30 seconds to one hour.
+pub fn max_wait(text: &str) -> Result<u64, Error> {
+    duration(text)
+        .ok()
+        .filter(|ms| (MIN_MAX_WAIT_MS..=MAX_MAX_WAIT_MS).contains(ms))
+        .ok_or_else(|| invalid("The longest wait must be a duration from 30s to 1h (3600s)"))
+}
+/// The most messages one `auto` checklist waits for: 1 to 100.
+pub fn max_count(count: u64) -> Result<u64, Error> {
+    (1..=MAX_MAX_COUNT)
+        .contains(&count)
+        .then_some(count)
+        .ok_or_else(|| invalid("The most messages held must be a whole number from 1 to 100"))
+}
+fn wait_text(ms: u64) -> String {
+    if ms.is_multiple_of(1000) {
+        format!("{}s", ms / 1000)
+    } else {
+        format!("{ms}ms")
+    }
+}
+fn read_caps(row: &dyn toml_edit::TableLike) -> Result<Caps, Error> {
+    let max_wait_ms = match row.get("maxWait") {
+        None => None,
+        Some(item) => Some(max_wait(item.as_str().ok_or_else(|| {
+            invalid("maxWait must be a duration string such as '90s'")
+        })?)?),
+    };
+    let max_count = match row.get("maxCount") {
+        None => None,
+        Some(item) => Some(max_count(
+            item.as_integer()
+                .and_then(|count| u64::try_from(count).ok())
+                .ok_or_else(|| invalid("maxCount must be a whole number from 1 to 100"))?,
+        )?),
+    };
+    Ok(Caps {
+        max_wait_ms,
+        max_count,
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mode {
@@ -120,6 +194,7 @@ pub struct DigestConfig {
     /// The global switch (`enabled = false`; absent means on). While off every member is
     /// handled as `off` and no stored setting is read or changed.
     enabled: bool,
+    global_caps: Caps,
     pub flush_count: i64,
     document: DocumentMut,
 }
@@ -166,6 +241,7 @@ impl DigestConfig {
                 .as_bool()
                 .ok_or_else(|| invalid("enabled must be true or false"))?,
         };
+        let global_caps = read_caps(document.as_table())?;
         let flush_count = match document.get("flushCount") {
             None => DEFAULT_FLUSH_COUNT,
             Some(item) => item
@@ -200,11 +276,14 @@ impl DigestConfig {
                 let row = item
                     .as_table_like()
                     .ok_or_else(|| invalid("Each member must be a table"))?;
-                Mode::parse(
+                let mode = Mode::parse(
                     row.get("mode")
                         .and_then(Item::as_str)
                         .ok_or_else(|| invalid("Member mode must be a duration, auto or off"))?,
                 )?;
+                if !read_caps(row)?.is_empty() && mode != Mode::Auto {
+                    return Err(invalid("maxWait and maxCount apply to an auto member only"));
+                }
                 if let Some(setter) = row.get("setByIdentityId")
                     && !setter.as_str().is_some_and(canonical_uuid)
                 {
@@ -221,6 +300,7 @@ impl DigestConfig {
         }
         Ok(Self {
             default,
+            global_caps,
             enabled,
             flush_count,
             document,
@@ -237,6 +317,28 @@ impl DigestConfig {
             Some(text) => Mode::parse(text).map(MemberSetting::Override),
             None => Ok(MemberSetting::Default),
         }
+    }
+    /// The caps an `auto` member runs under: its own value, else the global one, else the default.
+    pub fn auto_caps(&self, id: &str) -> Result<AutoCaps, Error> {
+        let own = match self
+            .document
+            .get("members")
+            .and_then(|members| members.get(id))
+            .and_then(Item::as_table_like)
+        {
+            Some(row) => read_caps(row)?,
+            None => Caps::default(),
+        };
+        Ok(AutoCaps {
+            max_wait_ms: own
+                .max_wait_ms
+                .or(self.global_caps.max_wait_ms)
+                .unwrap_or(DEFAULT_MAX_WAIT_MS),
+            max_count: own
+                .max_count
+                .or(self.global_caps.max_count)
+                .unwrap_or(DEFAULT_MAX_COUNT),
+        })
     }
     /// Whether Digest batches at all. A legacy `default = "off"` is the same as off.
     pub fn enabled(&self) -> bool {
@@ -281,7 +383,18 @@ impl DigestConfig {
         self.enabled = enabled;
         Ok(())
     }
-    fn edit_default(&mut self, mode: &Mode, setter: Option<&str>, now: i64) -> Result<(), Error> {
+    /// The global caps belong to every `auto` member, whatever the default is, so a new
+    /// default keeps them; supplying caps with a mode that is not `auto` is refused.
+    fn edit_default(
+        &mut self,
+        mode: &Mode,
+        caps: &Caps,
+        setter: Option<&str>,
+        now: i64,
+    ) -> Result<(), Error> {
+        if !caps.is_empty() && *mode != Mode::Auto {
+            return Err(invalid("--max-wait and --max-count apply to auto only"));
+        }
         if setter.is_some_and(|id| !canonical_uuid(id)) || now < 0 || now as u64 > MAX_MS {
             return Err(invalid("Invalid identity or write timestamp"));
         }
@@ -296,16 +409,29 @@ impl DigestConfig {
             }
         }
         self.default = mode.clone();
+        write_caps(self.document.as_table_mut(), caps);
+        if let Some(ms) = caps.max_wait_ms {
+            self.global_caps.max_wait_ms = Some(ms);
+        }
+        if let Some(count) = caps.max_count {
+            self.global_caps.max_count = Some(count);
+        }
         // Choosing a global mode is choosing to batch with it.
         self.edit_enabled(true)
     }
+    /// Caps ride with an `auto` row: an `auto` save without caps keeps the stored ones, any
+    /// other mode drops them, and caps with a mode that is not `auto` are refused.
     fn edit(
         &mut self,
         id: &str,
         setting: &MemberSetting,
+        caps: &Caps,
         setter: Option<&str>,
         now: i64,
     ) -> Result<(), Error> {
+        if !caps.is_empty() && *setting != MemberSetting::Override(Mode::Auto) {
+            return Err(invalid("--max-wait and --max-count apply to auto only"));
+        }
         if !canonical_uuid(id)
             || setter.is_some_and(|id| !canonical_uuid(id))
             || now < 0
@@ -345,6 +471,12 @@ impl DigestConfig {
                     .expect("validated member table");
                 row.insert("mode", toml_edit::value(mode.text()));
                 row.insert("setAtMs", toml_edit::value(now));
+                if *mode == Mode::Auto {
+                    write_caps(row, caps);
+                } else {
+                    row.remove("maxWait");
+                    row.remove("maxCount");
+                }
                 if let Some(setter) = setter {
                     row.insert("setByIdentityId", toml_edit::value(setter));
                 } else {
@@ -373,21 +505,42 @@ fn read(path: &Path) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
-/// Save one member's setting.
-pub fn set(
+fn write_caps(table: &mut dyn toml_edit::TableLike, caps: &Caps) {
+    if let Some(ms) = caps.max_wait_ms {
+        table.insert("maxWait", toml_edit::value(wait_text(ms)));
+    }
+    if let Some(count) = caps.max_count {
+        table.insert("maxCount", toml_edit::value(count as i64));
+    }
+}
+
+/// Save one member's setting with the auto caps the command supplied.
+pub fn set_caps(
     path: &Path,
     id: &str,
     setting: &MemberSetting,
+    caps: &Caps,
     setter: Option<&str>,
     now: i64,
 ) -> Result<(Mode, i64), Error> {
-    let settings = update(path, |settings| settings.edit(id, setting, setter, now))?;
+    let settings = update(path, |settings| {
+        settings.edit(id, setting, caps, setter, now)
+    })?;
     Ok((settings.stored_effective(id)?, settings.flush_count))
 }
 
-/// Save the global default and who set it, which members inheriting it adopt as owner.
-pub fn set_default(path: &Path, mode: &Mode, setter: Option<&str>, now: i64) -> Result<(), Error> {
-    update(path, |settings| settings.edit_default(mode, setter, now)).map(drop)
+/// Save the global default with the auto caps the command supplied.
+pub fn set_default_caps(
+    path: &Path,
+    mode: &Mode,
+    caps: &Caps,
+    setter: Option<&str>,
+    now: i64,
+) -> Result<(), Error> {
+    update(path, |settings| {
+        settings.edit_default(mode, caps, setter, now)
+    })
+    .map(drop)
 }
 
 /// Turn Digest on or off for everyone without touching any stored setting.
