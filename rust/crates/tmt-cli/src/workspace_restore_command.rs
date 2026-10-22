@@ -40,6 +40,11 @@ fn identities(
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
+        "needs you (floating pane is not restored; tmt resume -- {name})",
+        &[")"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         "needs you (stale conversation; tmt resume --retry -- {name})",
         &[")"],
         &[],
