@@ -512,6 +512,7 @@ fn live_server_encoding_adapts_geometry_and_preserves_same_encoding_bytes() {
         window: &saved.windows[0],
         root: root.clone(),
         panes: vec![],
+        floating: vec![],
         zoomed: false,
         border_status: "off",
         splits: vec![],
@@ -524,6 +525,7 @@ fn live_server_encoding_adapts_geometry_and_preserves_same_encoding_bytes() {
         window: &saved.windows[0],
         root: root.clone(),
         panes: vec![],
+        floating: vec![],
         zoomed: false,
         border_status: "off",
         splits: vec![],
@@ -580,6 +582,7 @@ fn reversed_v2_indexes_keep_historical_panes_with_their_geometry() {
         window: &saved.windows[0],
         root: root.clone(),
         panes: vec![],
+        floating: vec![],
         zoomed: false,
         border_status: "off",
         splits: vec![],
@@ -589,4 +592,248 @@ fn reversed_v2_indexes_keep_historical_panes_with_their_geometry() {
     assert_eq!(applied, expected);
     assert_eq!(parse_layout(&applied).unwrap(), root);
     assert_eq!(saved.windows[0].layout, producer);
+}
+
+// Exact `window_layout` / `window_visible_layout` strings from an isolated tmux 3.8 server (its
+// own -S socket, never the host's), captured for #4405 by the two scripts and outputs kept in
+// /private/tmp/core-ops-4405-evidence/. They are producer evidence, not output of the codec under
+// test. The panes were made with `new-pane`; the plain split is the same window without floats.
+const TMUX_38_SINGLE: &str =
+    r#"{"V":2,"L":{"t":"p","w":120,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%0"}}"#;
+const TMUX_38_SPLIT: &str = r#"{"V":2,"L":{"t":"h","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":60,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%0"},{"t":"p","w":59,"h":40,"x":61,"y":0,"i":1,"I":"%1"}]}}"#;
+const TMUX_38_ONE_FLOAT: &str = r#"{"V":2,"L":{"t":"h","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":60,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%0"},{"t":"p","w":60,"h":10,"x":4,"y":2,"i":2,"z":0,"I":"%2"},{"t":"p","w":59,"h":40,"x":61,"y":0,"i":1,"I":"%1"}]}}"#;
+const TMUX_38_TWO_FLOATS: &str = r#"{"V":2,"L":{"t":"h","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":60,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%0"},{"t":"p","w":28,"h":8,"x":6,"y":4,"i":3,"z":0,"I":"%3"},{"t":"p","w":60,"h":10,"x":4,"y":2,"i":2,"z":1,"I":"%2"},{"t":"p","w":59,"h":40,"x":61,"y":0,"i":1,"I":"%1"}]}}"#;
+const TMUX_38_THREE_FLOATS: &str = r#"{"V":2,"L":{"t":"h","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":60,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%0"},{"t":"p","w":18,"h":6,"x":61,"y":21,"i":4,"z":0,"I":"%4"},{"t":"p","w":28,"h":8,"x":6,"y":4,"i":3,"z":1,"I":"%3"},{"t":"p","w":60,"h":10,"x":4,"y":2,"i":2,"z":2,"I":"%2"},{"t":"p","w":59,"h":40,"x":61,"y":0,"i":1,"I":"%1"}]}}"#;
+const TMUX_38_ACTIVE_FLOAT: &str = r#"{"V":2,"L":{"t":"h","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":60,"h":40,"x":0,"y":0,"l":0,"i":0,"I":"%0"},{"t":"p","w":23,"h":4,"x":8,"y":4,"a":true,"i":5,"z":0,"I":"%5"},{"t":"p","w":18,"h":6,"x":61,"y":21,"i":4,"z":1,"I":"%4"},{"t":"p","w":28,"h":8,"x":6,"y":4,"i":3,"z":2,"I":"%3"},{"t":"p","w":60,"h":10,"x":4,"y":2,"i":2,"z":3,"I":"%2"},{"t":"p","w":59,"h":40,"x":61,"y":0,"i":1,"I":"%1"}]}}"#;
+const TMUX_38_SINGLE_PLUS_FLOAT: &str = r#"{"V":2,"L":{"t":"v","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":120,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%0"},{"t":"p","w":28,"h":8,"x":6,"y":4,"i":1,"z":0,"I":"%1"}]}}"#;
+const TMUX_38_NESTED_PLUS_FLOAT: &str = r#"{"V":2,"L":{"t":"h","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":60,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%2"},{"t":"p","w":28,"h":8,"x":6,"y":4,"i":3,"z":0,"I":"%5"},{"t":"v","w":59,"h":40,"x":61,"y":0,"c":[{"t":"p","w":59,"h":20,"x":61,"y":0,"i":1,"I":"%3"},{"t":"p","w":59,"h":19,"x":61,"y":21,"i":2,"I":"%4"}]}]}}"#;
+const TMUX_38_ZOOMED: &str = r#"{"V":2,"L":{"t":"h","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":60,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%6"},{"t":"p","w":18,"h":6,"x":11,"y":11,"i":3,"z":0,"I":"%9"},{"t":"p","w":18,"h":6,"x":61,"y":21,"i":2,"z":1,"I":"%8"},{"t":"p","w":59,"h":40,"x":61,"y":0,"i":1,"I":"%7"}]}}"#;
+const TMUX_38_ZOOMED_VISIBLE: &str = r#"{"V":2,"L":{"t":"v","w":120,"h":40,"x":0,"y":0,"c":[{"t":"p","w":120,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%6"},{"t":"p","w":18,"h":6,"x":61,"y":21,"i":2,"z":0,"I":"%8"}]}}"#;
+
+#[test]
+fn floating_panes_project_to_the_tiled_tree_they_floated_over() {
+    let tiled = parse_layout(TMUX_38_SPLIT).unwrap();
+    for (layout, floating) in [
+        (TMUX_38_ONE_FLOAT, vec![2]),
+        (TMUX_38_TWO_FLOATS, vec![3, 2]),
+        (TMUX_38_THREE_FLOATS, vec![4, 3, 2]),
+        // A floating pane may be the active one; the tiled pane it replaced is then `last`.
+        (TMUX_38_ACTIVE_FLOAT, vec![5, 4, 3, 2]),
+    ] {
+        let saved = parse_saved_layout(layout).unwrap();
+        assert_eq!(saved.tiled, tiled, "{layout}");
+        assert_eq!(saved.floating, floating, "{layout}");
+        // A live layout is tiled only.
+        assert_eq!(parse_layout(layout), Err(WorkspaceLayoutError::Syntax));
+    }
+    let pure = parse_saved_layout(TMUX_38_SPLIT).unwrap();
+    assert_eq!((pure.tiled, pure.floating), (tiled, vec![]));
+}
+
+#[test]
+fn a_root_left_with_one_tiled_pane_collapses_to_it() {
+    let saved = parse_saved_layout(TMUX_38_SINGLE_PLUS_FLOAT).unwrap();
+    assert_eq!(saved.tiled, parse_layout(TMUX_38_SINGLE).unwrap());
+    assert_eq!(saved.floating, [1]);
+}
+
+#[test]
+fn floats_sit_in_the_root_even_beside_a_nested_split() {
+    let saved = parse_saved_layout(TMUX_38_NESTED_PLUS_FLOAT).unwrap();
+    assert_eq!(saved.floating, [5]);
+    assert_eq!(saved.tiled.leaf_ids(), [2, 3, 4]);
+    let WorkspaceLayoutKind::Split(WorkspaceSplitAxis::Horizontal, children) = &saved.tiled.kind
+    else {
+        panic!("the root stays the tiled horizontal split")
+    };
+    assert_eq!(children.len(), 2);
+    assert!(matches!(
+        children[1].kind,
+        WorkspaceLayoutKind::Split(WorkspaceSplitAxis::Vertical, _)
+    ));
+}
+
+#[test]
+fn a_zoom_keeps_every_float_in_the_layout_and_only_the_above_ones_in_the_visible_layout() {
+    let full = parse_saved_layout(TMUX_38_ZOOMED).unwrap();
+    assert_eq!(
+        (full.tiled.leaf_ids(), full.floating),
+        (vec![6, 7], vec![9, 8])
+    );
+    let visible = parse_saved_layout(TMUX_38_ZOOMED_VISIBLE).unwrap();
+    assert_eq!(
+        visible.tiled,
+        parse_layout(TMUX_38_ZOOMED_VISIBLE_PANE).unwrap()
+    );
+    assert_eq!(visible.floating, [8]);
+}
+
+// The zoomed pane of the capture above on its own: what is left of its visible layout.
+const TMUX_38_ZOOMED_VISIBLE_PANE: &str =
+    r#"{"V":2,"L":{"t":"p","w":120,"h":40,"x":0,"y":0,"a":true,"i":0,"I":"%6"}}"#;
+
+#[test]
+fn floating_cells_outside_the_producer_grammar_are_refused() {
+    for invalid in [
+        // Two floats cannot share a stacking order.
+        TMUX_38_TWO_FLOATS.replace("\"z\":1", "\"z\":0"),
+        TMUX_38_ONE_FLOAT.replace("\"z\":0", "\"z\":65536"),
+        TMUX_38_ONE_FLOAT.replace("\"z\":0", "\"z\":-1"),
+        // Only a pane cell directly under the root floats.
+        TMUX_38_ONE_FLOAT.replacen("\"t\":\"h\"", "\"t\":\"h\",\"z\":0", 1),
+        TMUX_38_NESTED_PLUS_FLOAT.replace("\"i\":1,\"I\":\"%3\"", "\"i\":1,\"z\":1,\"I\":\"%3\""),
+        TMUX_38_SINGLE.replace("\"i\":0", "\"z\":0,\"i\":0"),
+        // A window of floats only, a lone tiled pane that does not fill the root, and a
+        // tiled remainder that is not contiguous.
+        TMUX_38_TWO_FLOATS
+            .replace("\"a\":true,\"i\":0", "\"z\":7,\"i\":0")
+            .replace("\"i\":1,\"I\":\"%1\"", "\"z\":8,\"i\":1,\"I\":\"%1\""),
+        TMUX_38_SINGLE_PLUS_FLOAT.replace(
+            "\"w\":120,\"h\":40,\"x\":0,\"y\":0,\"a\"",
+            "\"w\":119,\"h\":40,\"x\":0,\"y\":0,\"a\"",
+        ),
+        TMUX_38_ONE_FLOAT.replace("\"x\":61", "\"x\":60"),
+    ] {
+        assert!(parse_saved_layout(&invalid).is_err(), "admitted {invalid}");
+    }
+}
+
+fn floating_snapshot(
+    layout: &str,
+    visible: &str,
+    active: &str,
+    panes: &[u32],
+) -> WorkspaceSnapshot {
+    let mut saved = snapshot();
+    saved.windows[0].layout = layout.into();
+    saved.windows[0].visible_layout = visible.into();
+    saved.windows[0].width = 120;
+    saved.windows[0].height = 40;
+    saved.windows[0].active_pane = active.into();
+    let template = saved.panes[0].clone();
+    saved.panes = panes
+        .iter()
+        .map(|id| WorkspacePane {
+            id: format!("%{id}"),
+            index: u64::from(*id),
+            cwd: format!("/work/{id}"),
+            ..template.clone()
+        })
+        .collect();
+    saved
+}
+
+fn place(saved: &mut WorkspaceSnapshot, id: &str, rectangle: (u64, u64, u64, u64)) {
+    let pane = saved.panes.iter_mut().find(|pane| pane.id == id).unwrap();
+    (pane.left, pane.top, pane.width, pane.height) = rectangle;
+}
+
+#[test]
+fn restore_plans_the_tiled_layout_and_names_each_float_it_leaves_out() {
+    let mut saved = floating_snapshot(TMUX_38_TWO_FLOATS, TMUX_38_TWO_FLOATS, "%0", &[0, 1, 2, 3]);
+    for (id, rectangle) in [
+        ("%0", (0, 0, 60, 40)),
+        ("%1", (61, 0, 59, 40)),
+        ("%2", (4, 2, 60, 10)),
+        ("%3", (6, 4, 28, 8)),
+    ] {
+        place(&mut saved, id, rectangle);
+    }
+    let windows = prepare_layout(&saved).unwrap();
+    assert_eq!(windows[0].root.leaf_ids(), [0, 1]);
+    let ids =
+        |panes: &[&WorkspacePane]| panes.iter().map(|pane| pane.id.clone()).collect::<Vec<_>>();
+    assert_eq!(ids(&windows[0].panes), ["%0", "%1"]);
+    assert_eq!(ids(&windows[0].floating), ["%3", "%2"]);
+    assert_eq!(
+        windows[0].splits.len(),
+        1,
+        "only the tiled panes are carved out"
+    );
+    assert!(!windows[0].zoomed);
+    assert_eq!(
+        floating_pane_ids(&saved),
+        HashSet::from(["%2".to_owned(), "%3".to_owned()])
+    );
+    // The plan creates the tiled panes only, so no float is ever a creation target.
+    let plan = layout_creation(&saved, &[]).unwrap();
+    assert_eq!(plan.windows[0].panes.len(), 2);
+
+    // Every float needs its saved pane, and every saved pane of the window a cell.
+    let mut missing = saved.clone();
+    missing.panes.retain(|pane| pane.id != "%3");
+    assert!(matches!(
+        prepare_layout(&missing),
+        Err(WorkspaceLayoutError::Topology)
+    ));
+    let mut extra = saved.clone();
+    extra.panes.push(WorkspacePane {
+        id: "%9".into(),
+        ..saved.panes[0].clone()
+    });
+    assert!(matches!(
+        prepare_layout(&extra),
+        Err(WorkspaceLayoutError::Topology)
+    ));
+}
+
+#[test]
+fn a_zoomed_window_with_floats_restores_its_tiled_panes() {
+    let mut saved = floating_snapshot(TMUX_38_ZOOMED, TMUX_38_ZOOMED_VISIBLE, "%6", &[6, 7, 8, 9]);
+    for (id, rectangle) in [
+        ("%6", (0, 0, 120, 40)),
+        ("%7", (61, 0, 59, 40)),
+        ("%8", (61, 21, 18, 6)),
+        ("%9", (11, 11, 18, 6)),
+    ] {
+        place(&mut saved, id, rectangle);
+    }
+    let windows = prepare_layout(&saved).unwrap();
+    assert!(windows[0].zoomed);
+    assert_eq!(windows[0].root.leaf_ids(), [6, 7]);
+    assert_eq!(
+        windows[0]
+            .floating
+            .iter()
+            .map(|pane| pane.id.as_str())
+            .collect::<Vec<_>>(),
+        ["%9", "%8"]
+    );
+    // The visible layout may keep only floats the layout has.
+    let mut foreign = saved.clone();
+    foreign.windows[0].visible_layout = TMUX_38_ZOOMED_VISIBLE.replace("%8", "%7");
+    assert!(prepare_layout(&foreign).is_err());
+}
+
+#[test]
+fn a_window_with_floats_is_applied_as_its_tiled_tree_never_as_the_saved_bytes() {
+    let saved = floating_snapshot(TMUX_38_ONE_FLOAT, TMUX_38_ONE_FLOAT, "%0", &[0, 1, 2]);
+    let root = parse_saved_layout(TMUX_38_ONE_FLOAT).unwrap().tiled;
+    let prepared = WorkspaceLayoutWindow {
+        window: &saved.windows[0],
+        root: root.clone(),
+        panes: vec![],
+        floating: vec![&saved.panes[2]],
+        zoomed: false,
+        border_status: "off",
+        splits: vec![],
+    };
+    let applied = prepared.layout_for_server(TMUX_38_SPLIT).unwrap();
+    assert!(!applied.contains("\"z\""), "{applied}");
+    assert_eq!(parse_layout(&applied).unwrap(), root);
+    // The same window without floats keeps passing its original bytes through.
+    let plain_saved = floating_snapshot(TMUX_38_SPLIT, TMUX_38_SPLIT, "%0", &[0, 1]);
+    let plain = WorkspaceLayoutWindow {
+        window: &plain_saved.windows[0],
+        root,
+        panes: vec![],
+        floating: vec![],
+        zoomed: false,
+        border_status: "off",
+        splits: vec![],
+    };
+    assert_eq!(
+        plain.layout_for_server(TMUX_38_SPLIT).unwrap(),
+        TMUX_38_SPLIT
+    );
 }

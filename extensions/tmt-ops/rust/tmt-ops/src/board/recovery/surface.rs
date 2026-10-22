@@ -645,6 +645,7 @@ fn pane_action(action: &str) -> &'static str {
         "identity_missing" => "Needs you: original identity missing",
         "no_remembered_session" => "Needs you: no remembered session",
         "stale_requires_retry" => "Needs you: stale remembered session; no automatic retry",
+        "floating" => "Floating pane: not restored",
         _ => "Unknown",
     }
 }

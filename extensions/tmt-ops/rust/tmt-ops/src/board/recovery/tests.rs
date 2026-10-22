@@ -500,6 +500,25 @@ fn restore_value(digest: &str, status: &str) -> Value {
         "failures":if status=="partial"{vec!["link failed"]}else{vec![]}})
 }
 #[test]
+fn a_floating_pane_previews_as_not_restored_and_a_layout_only_report_carries_it_skipped() {
+    let mut value = preview_value(Some("saved"));
+    value["panes"][0]["action"] = json!("floating");
+    let preview = Preview::decode(&value).expect("the floating action is part of the preview");
+    assert!(
+        surface::topology(&preview)
+            .iter()
+            .any(|note| note.ends_with("full-mode action: Floating pane: not restored")),
+        "{:?}",
+        surface::topology(&preview)
+    );
+    // A layout-only restore names only what it left out; the report still decodes.
+    let mut report = restore_value(DIGEST, "completed");
+    report["revival"] = json!([{"recorded":"%2","native":null,"name":"%2","status":"skipped","message":"skipped (floating pane)"}]);
+    let report = model::Restore::decode(&report).unwrap();
+    assert!(report.layout_only);
+    assert_eq!(report.revival[0].message, "skipped (floating pane)");
+}
+#[test]
 fn public_client_preserves_partial_nonzero_report_and_exact_layout_guard() {
     let f = Fixture::new();
     let core = f.core(&restore_value(DIGEST, "partial"), false);

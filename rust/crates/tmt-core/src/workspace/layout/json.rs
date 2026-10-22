@@ -1,18 +1,30 @@
-//! The tiled tmux v2 producer grammar, not an arbitrary JSON document reader.
-//! Metadata is validated here; geometry and recovery admission have one owner.
+//! The tmux v2 producer grammar, not an arbitrary JSON document reader. Metadata is
+//! validated here; geometry and recovery admission have one owner. A saved layout may
+//! also carry tmux 3.8 floating panes (#4405): `p` cells with a stacking order `z`
+//! directly under the root. They never enter the tiled model; the parser removes them
+//! and returns their pane IDs, so everything after it sees only the tiled tree.
 
 use super::*;
 use WorkspaceLayoutError::{DuplicatePane, Geometry, Limit, Syntax};
 
-pub(super) fn parse(value: &str) -> Result<WorkspaceLayoutCell, WorkspaceLayoutError> {
-    parse_with_order(value).map(|(root, _)| root)
+/// The tiled tree of `value` and the floating panes removed from it, frontmost
+/// first. `floating` admits `z` cells; a live layout never has them.
+pub(super) fn parse(
+    value: &str,
+    floating: bool,
+) -> Result<(WorkspaceLayoutCell, Vec<u32>), WorkspaceLayoutError> {
+    parse_with_order(value, floating).map(|(root, floating, _)| (root, floating))
 }
 
+/// Whether the tiled panes' indexes agree with the tree's depth-first order.
 pub(super) fn creation_ordered(value: &str) -> Result<bool, WorkspaceLayoutError> {
-    parse_with_order(value).map(|(_, ordered)| ordered)
+    parse_with_order(value, true).map(|(_, _, ordered)| ordered)
 }
 
-fn parse_with_order(value: &str) -> Result<(WorkspaceLayoutCell, bool), WorkspaceLayoutError> {
+fn parse_with_order(
+    value: &str,
+    floating: bool,
+) -> Result<(WorkspaceLayoutCell, Vec<u32>, bool), WorkspaceLayoutError> {
     let mut p = Parser {
         bytes: value.as_bytes(),
         offset: 0,
@@ -22,6 +34,8 @@ fn parse_with_order(value: &str) -> Result<(WorkspaceLayoutCell, bool), Workspac
         active: false,
         previous_index: None,
         creation_ordered: true,
+        floating_allowed: floating,
+        floating: Vec::new(),
     };
     p.take(b'{')?;
     let mut version = None;
@@ -46,7 +60,56 @@ fn parse_with_order(value: &str) -> Result<(WorkspaceLayoutCell, bool), Workspac
     if version != Some(2) || p.offset != p.bytes.len() {
         return Err(Syntax);
     }
-    Ok((root.ok_or(Syntax)?, p.creation_ordered))
+    p.floating.sort_by_key(|(_, z)| *z);
+    let floating: Vec<u32> = p.floating.iter().map(|(id, _)| *id).collect();
+    Ok((
+        project(root.ok_or(Syntax)?, &floating)?,
+        floating,
+        p.creation_ordered,
+    ))
+}
+
+/// Remove the floating cells from the root. What is left is the contiguous tiled
+/// tree tmux laid out around them; a root left with one child is that child, which
+/// must then fill exactly the root's rectangle.
+fn project(
+    root: WorkspaceLayoutCell,
+    floating: &[u32],
+) -> Result<WorkspaceLayoutCell, WorkspaceLayoutError> {
+    if floating.is_empty() {
+        return Ok(root);
+    }
+    let WorkspaceLayoutCell {
+        width,
+        height,
+        left,
+        top,
+        kind: WorkspaceLayoutKind::Split(axis, mut children),
+    } = root
+    else {
+        return Err(Syntax);
+    };
+    children.retain(
+        |child| !matches!(child.kind, WorkspaceLayoutKind::Pane(id) if floating.contains(&id)),
+    );
+    if children.len() == 1 {
+        let only = children.remove(0);
+        if (only.width, only.height, only.left, only.top) != (width, height, left, top) {
+            return Err(Geometry);
+        }
+        return Ok(only);
+    }
+    // No tiled pane at all: tmux never keeps a window of floats only.
+    if children.is_empty() {
+        return Err(Geometry);
+    }
+    Ok(WorkspaceLayoutCell {
+        width,
+        height,
+        left,
+        top,
+        kind: WorkspaceLayoutKind::Split(axis, children),
+    })
 }
 
 struct Parser<'a> {
@@ -58,6 +121,9 @@ struct Parser<'a> {
     active: bool,
     previous_index: Option<u32>,
     creation_ordered: bool,
+    floating_allowed: bool,
+    /// Pane ID and stacking order of each floating cell, in document order.
+    floating: Vec<(u32, u16)>,
 }
 
 impl<'a> Parser<'a> {
@@ -140,6 +206,7 @@ impl<'a> Parser<'a> {
         let (mut kind, mut width, mut height, mut left, mut top) = (None, None, None, None, None);
         let (mut children, mut index, mut id, mut active, mut last) =
             (None, None, None, None, None);
+        let mut stacking = None;
         let mut seen = 0u16;
         loop {
             let key = self.string()?;
@@ -154,6 +221,7 @@ impl<'a> Parser<'a> {
                 "I" => 7,
                 "a" => 8,
                 "l" => 9,
+                "z" => 10,
                 _ => return Err(Syntax),
             };
             if seen & (1 << bit) != 0 {
@@ -178,6 +246,7 @@ impl<'a> Parser<'a> {
                 }
                 "a" => active = Some(self.boolean()?),
                 "l" => last = Some(self.index()?),
+                "z" => stacking = Some(self.dimension()?),
                 "c" => {
                     self.take(b'[')?;
                     let mut values = Vec::new();
@@ -214,12 +283,25 @@ impl<'a> Parser<'a> {
                 if !self.indexes.insert(index) {
                     return Err(Syntax);
                 }
-                // tmux assigns v2 cells by sorted pane index, ignoring I.
-                // Invocation-created panes instead follow the geometry tree.
-                if self.previous_index.is_some_and(|previous| previous > index) {
-                    self.creation_ordered = false;
+                // A floating pane is a direct child of the root with its own stacking
+                // order; it lies outside the tiled tree, so it takes no part in the
+                // creation order below.
+                if let Some(z) = stacking {
+                    if !self.floating_allowed
+                        || depth != 1
+                        || self.floating.iter().any(|(_, other)| *other == z)
+                    {
+                        return Err(Syntax);
+                    }
+                    self.floating.push((id, z));
+                } else {
+                    // tmux assigns v2 cells by sorted pane index, ignoring I.
+                    // Invocation-created panes instead follow the geometry tree.
+                    if self.previous_index.is_some_and(|previous| previous > index) {
+                        self.creation_ordered = false;
+                    }
+                    self.previous_index = Some(index);
                 }
-                self.previous_index = Some(index);
                 if let Some(last) = last
                     && !self.last.insert(last)
                 {
@@ -234,7 +316,12 @@ impl<'a> Parser<'a> {
                 WorkspaceLayoutKind::Pane(id)
             }
             kind @ ("h" | "v") => {
-                if index.is_some() || id.is_some() || active.is_some() || last.is_some() {
+                if index.is_some()
+                    || id.is_some()
+                    || active.is_some()
+                    || last.is_some()
+                    || stacking.is_some()
+                {
                     return Err(Syntax);
                 }
                 WorkspaceLayoutKind::Split(
