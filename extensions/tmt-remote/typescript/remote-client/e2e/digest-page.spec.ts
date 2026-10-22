@@ -573,7 +573,7 @@ for (const scheme of ['light', 'dark'] as const)
       await expect(region).toHaveAttribute('tabindex', '0');
       await expect(card.locator('thead .tmt-ui-chart-matrix-column')).toHaveCount(25);
       await expect(card.locator('tbody tr')).toHaveCount(24);
-      await region.scrollIntoViewIfNeeded();
+      await card.scrollIntoViewIfNeeded();
       const sender = card.locator('tbody th').first();
       const start = (await sender.boundingBox())!;
       const viewport = (await region.boundingBox())!;
@@ -582,7 +582,7 @@ for (const scheme of ['light', 'dark'] as const)
       const dir = process.env.DIGEST_CAPTURE_DIR;
       if (dir)
         await card.screenshot({ path: path.join(dir, `matrix-${scheme}-${width}-initial.png`) });
-      await region.focus();
+      await region.evaluate((node) => node.focus({ preventScroll: true }));
       await page.keyboard.press('ArrowRight');
       await expect.poll(() => region.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
       expect(await region.evaluate((node) => getComputedStyle(node).outlineStyle)).not.toBe('none');
