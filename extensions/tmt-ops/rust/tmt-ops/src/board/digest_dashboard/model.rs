@@ -2,6 +2,7 @@ use crate::{
     board::savings::{percent_text, usd_text},
     labels::{Supplied, digest::SettingSource},
 };
+use tmt_cli_style::mark::Mark;
 
 pub(in crate::board) fn summary(
     supplied: &Supplied,
@@ -54,16 +55,23 @@ const TICK_STALE_MS: u64 = 3 * 60_000;
 /// What the Digest tab says about a tick that stopped: only while Digest is on, since a stopped
 /// tick has no effect otherwise, and only for a supplier that reports its liveness record. Both
 /// times come from the one status document, so the age never depends on this machine's clock.
+/// The shared warning mark leads, so the state never rests on colour alone.
 pub(super) fn tick_notice(supplied: &Supplied) -> Option<String> {
     let (status, _) = supplied.digest()?;
     if status.global.as_ref().is_some_and(|global| !global.enabled) {
         return None;
     }
     match status.tick?.last_at_ms {
-        None => Some("No tick yet".into()),
+        None => Some(format!("{} No tick yet", Mark::Warning.symbol())),
         Some(last) => {
             let age = status.observed_at_ms.saturating_sub(last);
-            (age > TICK_STALE_MS).then(|| format!("No tick for {}", human_duration(age)))
+            (age > TICK_STALE_MS).then(|| {
+                format!(
+                    "{} No tick for {}",
+                    Mark::Warning.symbol(),
+                    human_duration(age)
+                )
+            })
         }
     }
 }

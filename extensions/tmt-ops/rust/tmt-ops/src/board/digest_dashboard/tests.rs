@@ -1643,19 +1643,19 @@ fn the_digest_tab_says_when_the_tick_stopped_only_past_three_minutes_and_while_o
         (
             ago(7 * 60_000 + 59_000),
             Some(true),
-            Some("No tick for 7 min"),
+            Some("! No tick for 7 min"),
         ),
-        (ago(180_001), Some(true), Some("No tick for 3 min")),
+        (ago(180_001), Some(true), Some("! No tick for 3 min")),
         (ago(180_000), Some(true), None),
         (ago(30_000), Some(true), None),
-        (ago(90 * 60_000), Some(true), Some("No tick for 1 h")),
-        (ago(5 * 86_400_000), Some(true), Some("No tick for 5 d")),
+        (ago(90 * 60_000), Some(true), Some("! No tick for 1 h")),
+        (ago(5 * 86_400_000), Some(true), Some("! No tick for 5 d")),
         (
             Some(serde_json::json!(null)),
             Some(true),
-            Some("No tick yet"),
+            Some("! No tick yet"),
         ),
-        (ago(7 * 60_000), None, Some("No tick for 7 min")),
+        (ago(7 * 60_000), None, Some("! No tick for 7 min")),
         (ago(7 * 60_000), Some(false), None),
         (Some(serde_json::json!(null)), Some(false), None),
         (None, Some(true), None),
@@ -1696,7 +1696,10 @@ fn the_stopped_tick_notice_is_the_only_waiting_part_of_the_summary_and_outlives_
     };
     let waiting = app.look().role(tmt_cli_style::Role::Waiting);
     let plain = app.look().role(tmt_cli_style::Role::Text);
-    assert_eq!(row("No tick for 10 min").fg, waiting.fg.unwrap_or_default());
+    assert_eq!(
+        row("! No tick for 10 min").fg,
+        waiting.fg.unwrap_or_default()
+    );
     assert_eq!(row("Digest: on (auto)").fg, plain.fg.unwrap_or_default());
     assert_ne!(waiting.fg, plain.fg);
     // A narrow strip drops the trailing savings caption before the stopped tick.
@@ -1708,5 +1711,5 @@ fn the_stopped_tick_notice_is_the_only_waiting_part_of_the_summary_and_outlives_
         press(&mut app, '2');
         paint(&mut app, 100, 36)
     };
-    assert!(narrow.contains("No tick for 10 min"), "{narrow}");
+    assert!(narrow.contains("! No tick for 10 min"), "{narrow}");
 }
