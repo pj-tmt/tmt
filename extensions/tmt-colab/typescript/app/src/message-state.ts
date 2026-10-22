@@ -28,7 +28,13 @@ export interface MessageState {
  * press was made in: that it is on its way, or why nothing came of it. `reason` is Core's code. */
 export type SendNowProgress =
   | { phase: 'sending' }
-  | { phase: 'outcome'; outcome: 'refused' | 'unconfirmed' | 'unavailable'; reason?: string };
+  | {
+      phase: 'outcome';
+      outcome: 'refused' | 'unconfirmed' | 'unavailable';
+      /** Core's code, and Core's own sentence for it when Remote carried one. */
+      reason?: string;
+      reasonText?: string;
+    };
 /** A state with the local time of the read, so the page counts down without a clock of Core's. */
 export interface ObservedMessageState extends MessageState {
   receivedAt: number;
@@ -108,7 +114,10 @@ function sameSendNow(shown: SendNowProgress | undefined, read: SendNowProgress |
   return (
     shown.phase === read.phase &&
     (shown.phase === 'sending' ||
-      (read.phase === 'outcome' && shown.outcome === read.outcome && shown.reason === read.reason))
+      (read.phase === 'outcome' &&
+        shown.outcome === read.outcome &&
+        shown.reason === read.reason &&
+        shown.reasonText === read.reasonText))
   );
 }
 
