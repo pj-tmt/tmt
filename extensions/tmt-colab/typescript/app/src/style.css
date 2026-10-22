@@ -171,11 +171,29 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   text-decoration: none;
 }
 .needs-you-header-row {
-  display: block;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
   min-width: 0;
+}
+/* A row without an agent keeps the avatar's room, so the titles of a group line up. */
+.needs-you-header-avatar-gap {
+  inline-size: 24px;
+}
+.needs-you-header-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.needs-you-header-title,
+.needs-you-header-agent {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.needs-you-header-agent {
+  font-size: 12px;
 }
 /* Menu rows stay on one ellipsized line, including inline agent attribution. */
 .needs-you-header-row
