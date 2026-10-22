@@ -302,8 +302,10 @@ pub enum Choice {
     HostAction,
     /// Opens the squad settings overlay for this squad from the Workspace settings menu.
     SquadSettings(String),
-    /// A row painted but never chosen: a rule between menu groups, or a line of text.
+    /// A rule between menu groups: painted, never chosen.
     Rule,
+    /// The muted line above a menu's rows: painted, never chosen, not counted.
+    Heading,
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
     /// The shared saved TOK range for Agents and Digest.
@@ -372,7 +374,7 @@ impl Menu {
                     break;
                 }
                 next = moved;
-                if !matches!(self.entries[next].choice, Choice::Rule) {
+                if !matches!(self.entries[next].choice, Choice::Rule | Choice::Heading) {
                     at = next;
                     break;
                 }
@@ -2910,7 +2912,7 @@ impl App {
             } => self.workspace_choose_room(kind, &identity_id, &room_id),
             Choice::HostAction => Effect::HostAction,
             Choice::SquadSettings(squad) => Effect::SquadSettings(squad),
-            Choice::Rule => Effect::None,
+            Choice::Rule | Choice::Heading => Effect::None,
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::TokRange(range) => self.select_tok_range(range),
@@ -3448,6 +3450,11 @@ impl App {
             return Effect::None;
         }
 
+        if key.code == KeyCode::Esc
+            && let Some((url, anchor)) = self.link_full_menu()
+        {
+            return self.link_popover(&url, anchor);
+        }
         let Some(menu) = &mut self.menu else {
             return Effect::None;
         };

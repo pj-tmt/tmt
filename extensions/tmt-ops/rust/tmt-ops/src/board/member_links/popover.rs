@@ -36,23 +36,18 @@ fn chunks(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-/// A row painted for reading, never chosen.
-fn line(label: String) -> MenuEntry {
-    MenuEntry {
-        key: String::new(),
-        label,
-        choice: Choice::Rule,
-    }
-}
-
 /// The popover's rows: the address up to its host, then what can be done with it.
 fn actions(url: &str, can_open: bool, anchor: Rect) -> Vec<MenuEntry> {
     let shown = origin(url);
-    let mut entries = vec![line(if shown.width() > LINE {
-        crate::board::view::fit(shown, LINE)
-    } else {
-        shown.to_owned()
-    })];
+    let mut entries = vec![MenuEntry {
+        key: String::new(),
+        label: if shown.width() > LINE {
+            crate::board::view::fit(shown, LINE)
+        } else {
+            shown.to_owned()
+        },
+        choice: Choice::Heading,
+    }];
     entries.push(if can_open {
         MenuEntry {
             key: "o".into(),
@@ -95,11 +90,16 @@ impl App {
         let Target::Url(url) = &hit.target else {
             return Effect::None;
         };
+        self.link_popover(url, hit.area)
+    }
+
+    /// The popover for `url` under `anchor`: where it goes, then what to do with it.
+    pub(in crate::board) fn link_popover(&mut self, url: &str, anchor: Rect) -> Effect {
         let can_open = self.link_opener().is_some();
-        let entries = actions(url, can_open, hit.area);
+        let entries = actions(url, can_open, anchor);
         if menu_area(
             self.member_links.borrow().screen,
-            hit.area,
+            anchor,
             entries.len() as u16 + 4,
         )
         .is_none()
@@ -114,10 +114,27 @@ impl App {
             entries,
             // Open is the default; without a browser the default is Copy.
             selected: if can_open { 1 } else { 2 },
-            anchor: Some(hit.area),
+            anchor: Some(anchor),
             surface: RefCell::new(None),
         });
         Effect::None
+    }
+
+    /// The address and anchor of the open "Full link" menu, whose Esc goes back to the popover.
+    pub(in crate::board) fn link_full_menu(&self) -> Option<(String, Rect)> {
+        let menu = self.menu.as_ref()?;
+        let anchor = menu.anchor?;
+        match menu.entries.first()?.choice.clone() {
+            Choice::LinkCopy(url)
+                if menu
+                    .entries
+                    .iter()
+                    .all(|entry| entry.choice == Choice::LinkCopy(url.clone())) =>
+            {
+                Some((url, anchor))
+            }
+            _ => None,
+        }
     }
 
     pub(in crate::board) fn link_open(&mut self, url: String) -> Effect {
@@ -395,6 +412,60 @@ mod tests {
                 .iter()
                 .all(|entry| entry.choice == Choice::LinkCopy(url.clone()))
         );
+    }
+
+    #[test]
+    fn the_origin_is_a_heading_the_cursor_never_visits_and_no_row_counts() {
+        let mut app = reader("Read [the docs](https://example.com/a?b=1) now.");
+        let (area, _) = url_hits(&app).remove(0);
+        click(&mut app, area);
+        let menu = app.menu.as_mut().unwrap();
+        assert_eq!(menu.entries[0].choice, Choice::Heading);
+        for _ in 0..6 {
+            menu.step(-1);
+        }
+        assert_eq!(menu.selected, 1, "up saturates on Open, not on the heading");
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let text = (0..40)
+            .map(|y| {
+                (0..120)
+                    .map(|x| terminal.backend().buffer()[(x, y)].symbol().to_owned())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !text.contains(" of 4"),
+            "no position line when rows fit:\n{text}"
+        );
+        assert!(text.contains("Enter runs · Esc closes"), "{text}");
+    }
+
+    #[test]
+    fn esc_in_the_full_address_goes_back_to_the_popover_and_then_closes() {
+        let mut app = reader("Read [it](https://example.com/a?b=1) now.");
+        let (area, url) = url_hits(&app).remove(0);
+        click(&mut app, area);
+        let show = app
+            .menu
+            .take()
+            .unwrap()
+            .entries
+            .last()
+            .unwrap()
+            .choice
+            .clone();
+        app.choose(show);
+        assert_eq!(app.menu.as_ref().unwrap().title, "Full link");
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let menu = app.menu.as_ref().expect("back at the popover");
+        assert_eq!(menu.title, "Link");
+        assert_eq!(menu.entries[2].choice, Choice::LinkCopy(url));
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.menu.is_none());
     }
 
     #[test]

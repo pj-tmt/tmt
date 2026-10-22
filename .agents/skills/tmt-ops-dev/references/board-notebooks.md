@@ -21,12 +21,18 @@ located migration notices without rewriting authored values.
 
 `board::notes::sanitize` removes escapes, controls and hidden bidi/format
 characters, preserves newlines and script/emoji joiners, and expands tabs to four
-spaces. Shared Markdown renders headings, lists, neutral underlined links,
+spaces. Shared Markdown renders headings, lists, underlined links,
 filled code and quote gutters; fitted tables use a boxed grid and fall back to
 source when they cannot fit. Unsupported HTML, images and footnotes remain
 literal. Code lines clip without wrapping, and inline code adds no padding. The retained `NotesCursor` anchors response source lines and wrapped
 continuations; it reconciles nearest duplicates and clamps deleted lines.
 Conversation Scrolls owns the viewport, independently of that source anchor.
+Openable links (`effects::openable`: `http`, `https`, `mailto`) are recorded by the
+renderer as `member_links::Target::Url` cells beside the member mentions, for a label,
+an autolink and a bare address outside code. They share the hit table, hover, focus
+and Enter with mentions; a `Url` hit opens the popover of `member_links/popover.rs`
+(a `Menu`: the origin as an inert row, then Open, Copy, Show full). `effects::open_argv`
+fills `{url}` as one argument; `detect_opener` picks the default per `OpenHost`.
 
 Conversation bodies always render in full: there is no fold state, caption or
 control, and the pane scrolls. A separate anchor map preserves reading position

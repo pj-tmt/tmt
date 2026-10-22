@@ -672,8 +672,21 @@ recipient for a hidden, removed or unknown target.
 
 Conversation Markdown includes filled, unwrapped code blocks, muted quote gutters
 and boxed tables (literal source when the grid is too wide). Links and member
-references use neutral underlined text; GitHub issue URLs shorten to
-`owner/repo#N`. Conversation bodies always render in full; the pane scrolls.
+references use underlined text; GitHub issue URLs shorten to `owner/repo#N`.
+Conversation bodies always render in full; the pane scrolls.
+
+Clicking a link label, a bare `http(s)` address in the text, or pressing Enter on a
+keyboard-focused link opens a small popover under it. It names the address up to its
+host first, because a label can differ from its target, then offers Open, Copy and
+Show full (`o`, `y`, `f`). Copy puts the whole address on the clipboard; Show full
+lists every character, wrapped. Only `http`, `https` and `mailto` open; any other
+scheme stays plain text. Open runs the board's opener: the `opener` row of the Ops
+settings (a JSON argv such as `["firefox","--new-tab","{url}"]`; `{url}` is replaced by
+the address as one argument, never through a shell, and an opener without `{url}` gets
+the address appended), else `open` on macOS, `wslview` (or `cmd.exe /c start`) under
+WSL, `xdg-open` with a graphical session. Over SSH there is none unless `opener` is
+set: Open shows "no browser here" and Copy stays. A failure to start it is reported in
+the status line.
 
 Default Enter focuses Talk for the selected agent through the shared conversation
 composer; clicking it also focuses. The composer stays visible while idle and

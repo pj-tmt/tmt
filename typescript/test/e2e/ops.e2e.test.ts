@@ -1316,6 +1316,128 @@ renameSync(output+'.tmp',output);
     });
   }, 60_000);
 
+  it('opens a chat link in a popover that copies it, shows it whole and runs the opener once (#4377)', async () => {
+    await withE2EFixture(async (fixture) => {
+      await squadWithMember(fixture);
+      // The opener records its argv instead of starting a browser: the link must arrive as
+      // one argument, whatever characters it holds.
+      const log = path.join(fixture.root, 'opener.log');
+      const recorder = path.join(fixture.root, 'record-open');
+      fs.writeFileSync(recorder, `#!/bin/sh\nprintf '%s\\n' "$#" "$@" >> '${log}'\n`, {
+        mode: 0o755,
+      });
+      fs.appendFileSync(
+        path.join(fixture.globalDir, 'ops.toml'),
+        `\nopener = [${JSON.stringify(recorder)}, "{url}"]\n`
+      );
+      const link = "https://example.com/a%20b;c?x='1'&y=2#frag";
+      const store = new Database(path.join(fixture.globalDir, 'tmt.db'));
+      try {
+        const agent = store.prepare('SELECT id FROM identities WHERE name = ?').get('auth-fix') as {
+          id: string;
+        };
+        const now = Date.now();
+        store
+          .prepare(
+            "INSERT INTO recent_responses (identity_id, text, ended_ms, provider, truncated, session_id, expires_ms) VALUES (?, ?, ?, 'claude', 0, NULL, ?)"
+          )
+          .run(agent.id, `Read [the docs](${link}) first.`, now, now + 3_600_000);
+      } finally {
+        store.close();
+      }
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('link-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'tmt ops ui --squad product; echo LINK_BOARD_EXIT=$?',
+        'Enter',
+      ]);
+      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '1']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'auth-fix', 'Enter', 'End']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('⏎ to message auth-fix'),
+        shell.pane
+      );
+      await fixture.waitForCapture((screen) => screen.includes('Read the docs first.'), shell.pane);
+
+      const screen = () => fixture.tmux(['capture-pane', '-p', '-t', shell.pane]);
+      const where = (needle: string) => {
+        const rows = screen().split('\n');
+        const y = rows.findIndex((row) => row.includes(needle));
+        expect(y, `${needle} on screen:\n${screen()}`).toBeGreaterThanOrEqual(0);
+        return { x: [...rows[y]!.slice(0, rows[y]!.indexOf(needle))].length, y };
+      };
+      const click = (x: number, y: number) => {
+        for (const final of ['M', 'm'])
+          fixture.tmux([
+            'send-keys',
+            '-t',
+            shell.pane,
+            '-l',
+            `\u001b[<0;${x + 1};${y + 1}${final}`,
+          ]);
+      };
+      const buffer = () => {
+        try {
+          return fixture.tmux(['show-buffer']).trim();
+        } catch {
+          return '';
+        }
+      };
+      const open = async () => {
+        const label = where('the docs');
+        click(label.x + 1, label.y);
+        await fixture.waitForCapture((current) => current.includes('┌ Link'), shell.pane);
+      };
+
+      // The popover names where the link goes before it offers anything.
+      await open();
+      const popover = screen();
+      expect(popover).toContain('https://example.com');
+      for (const action of ['Open', 'Copy', 'Show full'])
+        expect(popover, popover).toContain(action);
+
+      // Copy puts the whole address, not the label, on the clipboard.
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'y']);
+      await fixture.waitFor(() => buffer() === link, 5_000, `Copy:\n${screen()}`);
+
+      // Show full lists every character of the address.
+      await open();
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'f']);
+      await fixture.waitForCapture((current) => current.includes('Full link'), shell.pane);
+      const lines = screen()
+        .split('\n')
+        .map((row) => /│ [› ]\s?(\S.*?)\s*│\s*$/.exec(row)?.[1])
+        .filter((row): row is string => Boolean(row));
+      expect(lines.join('').replace(/\s/g, ''), screen()).toContain(link);
+      expect(screen()).toContain('Enter copies · Esc back');
+      // Esc goes back to the popover; a second Esc closes it.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture(
+        (current) => current.includes('┌ Link') && !current.includes('Full link'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((current) => !current.includes('┌ Link'), shell.pane);
+
+      // Open runs the configured command with the address as one argument, once.
+      await open();
+      fixture.tmux(['send-keys', '-t', shell.pane, '-l', 'o']);
+      await fixture.waitFor(() => fs.existsSync(log), 10_000, 'the opener ran');
+      expect(fs.readFileSync(log, 'utf8')).toBe(`1\n${link}\n`);
+
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture((current) => current.includes('LINK_BOARD_EXIT=0'), shell.pane);
+    });
+  }, 90_000);
+
   it('closes a --popup board after its jump and keeps the pane board open', async () => {
     await withE2EFixture(async (fixture) => {
       const member = await squadWithMember(fixture);
