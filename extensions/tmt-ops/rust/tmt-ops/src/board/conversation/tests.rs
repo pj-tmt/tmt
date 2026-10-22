@@ -12,6 +12,7 @@ mod markdown_packet;
 pub(in crate::board) mod performance;
 mod question;
 mod recent_output_packet;
+mod tables;
 
 fn fixture() -> App {
     let mut app = App::new(Some("product".into()));

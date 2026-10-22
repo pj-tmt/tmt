@@ -74,6 +74,8 @@ struct Renderer<'a> {
     lists: Vec<Option<u64>>,
     /// Skip events inside an unsupported construct already shown as source.
     skip_until: usize,
+    /// The table whose rows are being read.
+    table: Option<tables::Build>,
 }
 
 impl Renderer<'_> {
@@ -254,6 +256,9 @@ impl Renderer<'_> {
             .starts
             .partition_point(|start| *start <= range.start)
             .saturating_sub(1);
+        if self.table_event(&event, &range) {
+            return;
+        }
         match event {
             Event::Start(
                 Tag::HtmlBlock
@@ -266,7 +271,7 @@ impl Renderer<'_> {
             }
             Event::Start(Tag::Table(_)) => {
                 self.separate();
-                self.table(range);
+                self.table_start(range);
             }
             Event::Start(Tag::CodeBlock(_)) => {
                 self.separate();
@@ -469,6 +474,7 @@ fn project<'a>(
         width: width.max(1),
         lists: Vec::new(),
         skip_until: 0,
+        table: None,
     };
     let options = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES;
     if plain {
@@ -741,6 +747,44 @@ mod tests {
         for line in lines {
             assert!(line.to_string().starts_with("▎ "));
             assert!(line.width() <= 10);
+        }
+    }
+
+    #[test]
+    fn a_table_wider_than_the_pane_squeezes_its_widest_column_and_wraps_the_cell() {
+        let source = "| a | b |\n|---|---|\n| aaaa bbbb | c |";
+        let mapped = render_mapped(source, 12, Look::default());
+        assert_eq!(
+            text(&mapped.lines),
+            [
+                "┌──────┬───┐",
+                "│ a    │ b │",
+                "├──────┼───┤",
+                "│ aaaa │ c │",
+                "│ bbbb │   │",
+                "└──────┴───┘"
+            ]
+        );
+        assert_eq!(mapped.sources, [0, 0, 0, 2, 2, 2]);
+    }
+
+    #[test]
+    fn tables_in_quotes_and_lists_keep_their_context_inside_the_width() {
+        let source = "> | Name | Notes |\n> |---|---|\n> | one | words that need to wrap here |\n\n- item\n\n  | Name | Notes |\n  |---|---|\n  | one | words that need to wrap here |";
+        for width in [24, 40, 80] {
+            let mapped = render_mapped(source, width, Look::default());
+            let lines = text(&mapped.lines);
+            let quoted: Vec<_> = lines.iter().filter(|line| line.starts_with('▎')).collect();
+            assert!(quoted.len() >= 5, "{width}: {lines:?}");
+            assert!(quoted.iter().all(|line| line.starts_with("▎ ")));
+            assert!(
+                lines.iter().any(|line| line.starts_with("  ┌")),
+                "{width}: {lines:?}"
+            );
+            assert!(lines.iter().all(|line| !line.contains("|--")), "{width}");
+            for line in &mapped.lines {
+                assert!(line.width() <= width, "{width}: {line:?}");
+            }
         }
     }
 
