@@ -2070,7 +2070,11 @@ The browser ledger publishes `dispatching` before one signed Remote
 originator, one agent UUID and exact unprefixed message. Remote owns dispatch
 admission and, once a send is admitted, its attribution to the person at the machine
 ([Identity attribution](../../../contracts/remote-channel-v1.md#operations)); the ledger
-still sends only the anonymous form. Core owns acceptance/advisory wake/final retention. Accepted is not
+still sends only the anonymous form. When Remote's send result carries the optional `identity` notice, the
+chat panel tells the person once per page session, in memory only, in a quiet dismissible line under the
+composer: `anonymous` reads "Sent without your name." followed by Core's own message, with the command it
+names shown as code; `person` reads "Sent as {name}: an agent already uses {renamedFrom}." An absent
+notice, including from an older Remote, shows nothing, and the line never blocks, retries or changes the send. Core owns acceptance/advisory wake/final retention. Accepted is not
 an agent final. Valid states are:
 
 ```text

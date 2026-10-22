@@ -1,5 +1,5 @@
 import type { AdmittedSelection, AskDestination } from '../src/ask-intent.js';
-import type { RemoteClient, SendInput, SendState } from '../src/ask-remote.js';
+import type { RemoteClient, SendIdentity, SendInput, SendState } from '../src/ask-remote.js';
 export const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 /** The page's own mounted URL, the only link an Ask may carry. */
 export const pageLink = (space = 'a'.repeat(32), page = id(1)) =>
@@ -36,6 +36,8 @@ export class RemoteDouble implements RemoteClient {
   sends: SendInput[] = [];
   reads: string[] = [];
   mode: 'accepted' | 'held' | 'refused' | 'throw' | 'wrong_id' = 'accepted';
+  /** What Remote says about the send's attribution (#4255); absent like an older Remote. */
+  identity: SendIdentity | undefined;
   async context() {
     return {
       machineId: id(5),
@@ -58,11 +60,13 @@ export class RemoteDouble implements RemoteClient {
         operationId: input.operationId,
         reason: 'REMOTE_SCOPE_DENIED',
       };
-    if (this.mode === 'held') return { state: 'held', operationId: input.operationId };
+    const identity = this.identity ? { identity: this.identity } : {};
+    if (this.mode === 'held') return { state: 'held', operationId: input.operationId, ...identity };
     return {
       state: 'accepted',
       operationId: this.mode === 'wrong_id' ? id(99) : input.operationId,
       requestId: `req_${id(8)}`,
+      ...identity,
     };
   }
   async operation(operationId: string): Promise<SendState> {

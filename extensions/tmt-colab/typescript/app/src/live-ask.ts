@@ -12,6 +12,7 @@ import { AskRecordStore } from './ask-record-store.js';
 import { readAskViews, type AskRoot } from './ask-records.js';
 import type { RemoteClient, RemoteAgent, SessionEvictedError } from './ask-remote.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
+import { SendIdentityNotice } from './send-identity-notice.js';
 import type { PreviewAttempt } from './ask-preview.js';
 import type { Admission } from './admission.js';
 import type { Connection } from './connection.js';
@@ -90,6 +91,7 @@ export class LiveAsk implements AskBinding {
   #store: AskRecordStore;
   #selection: AdmittedSelection | null = null;
   #closed = false;
+  readonly identity = new SendIdentityNotice();
   constructor(private options: LiveAskOptions) {
     const store = (this.#store = new AskRecordStore({
       space: options.space,
@@ -108,6 +110,9 @@ export class LiveAsk implements AskBinding {
       },
       sessionEnded: (error) => {
         if (!this.#closed) options.sessionEnded?.(error);
+      },
+      identityNotice: (identity) => {
+        if (!this.#closed) this.identity.show(identity);
       },
       activityRead: () => this.#observeDirectory(),
       activityObserved: (observation) => {

@@ -17,7 +17,14 @@ export interface SendInput {
   agentId: string;
   message: string;
 }
-export type SendState =
+/** How Remote attributed an admitted send, present only when there is something to say (#4255,
+ * defined once in remote-channel-v1): anonymous because Core refused the person's name (the message
+ * is Core's own and names the fix), or the person resolved under another name because an agent
+ * already uses the plain one. An older Remote sends none. */
+export type SendIdentity =
+  | { state: 'anonymous'; reason: string; message: string }
+  | { state: 'person'; name: string; renamedFrom: string };
+export type SendState = (
   | { state: 'held'; operationId: string }
   | { state: 'accepted'; operationId: string; requestId: string }
   | { state: 'uncertain'; operationId: string; reason?: SessionEndCode }
@@ -28,7 +35,8 @@ export type SendState =
       limit?: number;
       settingsUrl?: string;
       scope?: 'talk';
-    };
+    }
+) & { identity?: SendIdentity };
 export const REMOTE_REFUSAL_CODES = [
   'REMOTE_SCOPE_DENIED',
   'REMOTE_INPUT_INVALID',
