@@ -30,8 +30,10 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
     const item = htmlEl('li', 'tmt-ui-chart-legend-item');
     const swatch = htmlEl('span', `tmt-ui-chart-swatch tmt-ui-chart-s${style}`);
     swatch.setAttribute('aria-hidden', 'true');
-    const value = htmlEl('span', 'tmt-ui-chart-legend-value');
-    item.append(swatch, htmlEl('span', 'tmt-ui-chart-legend-label', label), value);
+    item.append(swatch, htmlEl('span', 'tmt-ui-chart-legend-label', label));
+    // A stacked bucket next to a total reads like a total itself: only a line shows its value here.
+    const value = options.kind === 'line' ? htmlEl('span', 'tmt-ui-chart-legend-value') : undefined;
+    if (value) item.append(value);
     legend.append(item);
     return value;
   });
@@ -67,7 +69,10 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
   }
   function select(at: number) {
     active = Math.max(0, Math.min(options.x.length - 1, at));
-    model.values(active).forEach((text, i) => (valueNodes[i]!.textContent = text));
+    model.values(active).forEach((text, i) => {
+      const node = valueNodes[i];
+      if (node) node.textContent = text;
+    });
     readout.textContent = model.readout(active);
     const cursor = plot.querySelector('.tmt-ui-chart-cursor');
     const x = String(model.xs[active] ?? 0);

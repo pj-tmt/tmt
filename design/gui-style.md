@@ -539,8 +539,9 @@ intensity step; the painter only maps it to elements, so the model is what is un
   series and folds the rest into one `Other`, drawn in a neutral step of the text colour
   (`tmt-ui-chart-s7`). Intensity (matrix, strips) uses five steps of the text colour; its text
   meets 4.5:1 on every step in light and dark (a test computes it). Colour is never the only
-  carrier: every series is named in a legend with its value at the selected column and in the
-  hover tip, and the data table is always there.
+  carrier: every series is named in a legend (a line chart also shows its value at the selected
+  column; a stacked chart leaves values to the hover tip, since a last bucket reads like a total)
+  and the data table is always there.
 - Hovering the plot (or focusing it and using the arrows) shows a tip beside the column with the
   time and every series' value; a visually hidden live line says the same to assistive technology.
 - A missing observation is never a zero. A line breaks, a cell reads `—`, a slot stays blank;
