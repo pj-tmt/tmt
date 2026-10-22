@@ -95,7 +95,8 @@ impl App {
         let Target::Url(url) = &hit.target else {
             return Effect::None;
         };
-        let entries = actions(url, self.link_opener().is_some(), hit.area);
+        let can_open = self.link_opener().is_some();
+        let entries = actions(url, can_open, hit.area);
         if menu_area(
             self.member_links.borrow().screen,
             hit.area,
@@ -111,7 +112,8 @@ impl App {
             prefill: String::new(),
             title: "Link".into(),
             entries,
-            selected: 1,
+            // Open is the default; without a browser the default is Copy.
+            selected: if can_open { 1 } else { 2 },
             anchor: Some(hit.area),
             surface: RefCell::new(None),
         });
@@ -167,6 +169,72 @@ impl App {
         });
         Effect::None
     }
+}
+
+/// The oracle's link scenes: the popover for a link in the chat, without a browser, and the
+/// whole address. The address is fixed and synthetic.
+#[cfg(test)]
+pub(in crate::board) const SCENES: &[&str] = &["link-popover", "link-no-browser", "link-full"];
+
+#[cfg(test)]
+pub(in crate::board) fn capture_case(
+    scene: &str,
+    look: crate::look::Look,
+    width: u16,
+    height: u16,
+) -> App {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    use ratatui::{Terminal, backend::TestBackend};
+    let url = "https://docs.example.com/guides/getting-started/installing-the-board?ref=chat&section=links";
+    let mut app = board();
+    {
+        let view = app.view.as_mut().unwrap();
+        view.look = look;
+        view.opener = Some(vec!["oracle-open".into(), "{url}".into()]);
+        view.replies = vec![serde_json::json!({
+            "recipientId": MEMBER,
+            "requestId": "link-scene",
+            "response": format!("Read [the install guide]({url}) before you start."),
+        })];
+        let workspace = &mut view.home.as_mut().unwrap().workspace;
+        for squad in &workspace.roster.squads {
+            workspace.squad_looks.insert(squad.room_id.clone(), look);
+        }
+    }
+    app.focus = 1;
+    let draw = |app: &App| {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, app))
+            .unwrap();
+    };
+    draw(&app);
+    let (area, _) = {
+        let hits = app.member_links.borrow();
+        hits.hits
+            .iter()
+            .find_map(|hit| matches!(hit.target, Target::Url(_)).then(|| (hit.area, ())))
+            .expect("the link is painted at this width")
+    };
+    let hit = Hit {
+        area,
+        surface: area,
+        target: Target::Url(url.into()),
+        reader: true,
+        occurrence: 0,
+    };
+    app.open_url_link(&hit);
+    if scene == "link-no-browser" {
+        let menu = app.menu.as_mut().unwrap();
+        menu.entries = actions(url, false, area);
+        menu.selected = 2;
+    }
+    if scene == "link-full" {
+        app.menu = None;
+        app.link_show(url, area);
+    }
+    draw(&app);
+    app
 }
 
 #[cfg(test)]

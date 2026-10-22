@@ -916,6 +916,6 @@ pub(super) fn capture_menu(app: &mut App) {
     }
 }
 
-mod popover;
+pub(in crate::board) mod popover;
 #[cfg(test)]
 mod tests;
