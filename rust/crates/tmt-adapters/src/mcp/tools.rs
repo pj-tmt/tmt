@@ -136,6 +136,7 @@ pub(super) fn decode(params: &RawValue) -> Option<ToolCall> {
                 kind: tmt_core::request::RequestKind::Request,
                 origin: tmt_core::request::RequestOrigin::Person,
                 room: None,
+                mode: tmt_core::request::digest::DeliveryMode::Request,
             }
             .normalize()?;
             ToolCall::Send(Box::new(input))

@@ -1021,7 +1021,8 @@ mod tests {
         assert_eq!(entries[1]["status"]["stale"], true);
         assert_eq!(
             entries[2],
-            json!({"id": plain, "found": true, "status": null})
+            json!({"id": plain, "found": true, "status": null,
+                "canPassthrough": {"available": false, "reason": "no_pane"}})
         );
         assert_eq!(entries[3], json!({"id": missing, "found": false}));
         let too_many: Vec<String> = (0..257).map(|_| fresh.to_owned()).collect();

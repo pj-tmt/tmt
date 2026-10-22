@@ -25,6 +25,7 @@
 //   message / continuationMessage  the Stop's and the continuation Stop's last_assistant_message
 //   transcript                     the Stop's transcript_path
 //   prompt: true                   a UserPromptSubmit instead (starts the next turn)
+//   promptText                     optional provider prompt for that UserPromptSubmit
 // Control files next to the log: `<log>.kill-server` kills the channel server
 // (a crash while the session lives), `<log>.quit` ends the mock cleanly.
 
@@ -382,6 +383,7 @@ const control = setInterval(() => {
             hook_event_name: 'UserPromptSubmit',
             session_id: step.session ?? process.env.MOCK_SESSION_ID,
             transcript_path: step.transcript,
+            ...(step.promptText === undefined ? {} : { prompt: step.promptText }),
           }
         : {
             hook_event_name: 'Stop',

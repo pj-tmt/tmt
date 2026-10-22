@@ -42,6 +42,7 @@ pub mod native_install;
 pub mod notes;
 #[cfg(unix)]
 pub mod pane_badge;
+pub mod passthrough;
 pub mod private_file;
 #[cfg(unix)]
 pub mod process;

@@ -212,3 +212,148 @@ fn typed_text_that_never_reached_the_pane_leaves_the_question_open() {
         "{listed:#}"
     );
 }
+
+/// One `tmt api` call, as the person `ben` when it writes, with the driver's agent set to `agent`.
+fn api(fixture: &Fixture, agent: &str, operation: &str, input: Value) -> Value {
+    use std::io::Write;
+    fs::write(fixture.root.join("driver/agent"), agent).unwrap();
+    let mut command = fixture.command_in(None, &["api"]);
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Only the write names its originator; reads name none.
+    let mut body = serde_json::json!({"version": 1, "operation": operation, "input": input});
+    if operation == "dispatch.create" {
+        body["identity"] = "ben".into();
+    }
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(body.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|_| panic!("{output:?}"))
+}
+
+fn identity_id(fixture: &Fixture, name: &str) -> String {
+    let shown = fixture.json(&["identity", "show", name, "--json"]);
+    shown["identity"]["id"].as_str().unwrap().to_owned()
+}
+
+const OPERATION: &str = "7d1c7c8e-2f4a-4a53-8c5d-9d6b0a4b1e01";
+
+#[test]
+fn dispatch_create_types_a_persons_message_through_the_same_rules_as_the_command() {
+    let fixture = world("passthrough-api");
+    let worker = identity_id(&fixture, "worker");
+    let ghost = {
+        let created = fixture.tmt(&["identity", "create", "ghost", "--json"]);
+        assert!(created.status.success(), "{created:?}");
+        identity_id(&fixture, "ghost")
+    };
+    let dispatch = |operation: &str, recipient: &str, agent: &str| {
+        api(
+            &fixture,
+            agent,
+            "dispatch.create",
+            serde_json::json!({
+                "operationId": operation, "recipientIds": [recipient],
+                "message": "Please run the tests!\nthen report", "mode": "passthrough",
+            }),
+        )
+    };
+
+    // Not a person: refused with the command's code, and nothing is typed or stored.
+    let refused = dispatch(OPERATION, &worker, "ok");
+    assert_eq!(
+        refused["error"]["code"], "PASSTHROUGH_NOT_ALLOWED",
+        "{refused:#}"
+    );
+    assert!(fixture.requests("prompted").is_empty());
+
+    mark_person(&fixture);
+    // A recipient with no pane is refused before anything is stored.
+    let gone = dispatch(OPERATION, &ghost, "ok");
+    assert_eq!(gone["error"]["code"], "PASSTHROUGH_UNAVAILABLE", "{gone:#}");
+    assert!(fixture.requests("prompted").is_empty());
+
+    // Typed as written (only `!` is protected), with no wake line and no request for the agent.
+    let sent = dispatch(OPERATION, &worker, "ok");
+    assert_eq!(sent["wake"]["status"], "sent", "{sent:#}");
+    let prompted = fixture.requests("prompted");
+    assert_eq!(prompted.len(), 1, "{prompted:?}");
+    assert_eq!(
+        prompted[0]["text"],
+        "Please run the tests\u{ff01}\nthen report"
+    );
+    let inbox = fixture.tmt(&["inbox", "--identity", "worker", "--json"]);
+    let listed: Value = serde_json::from_slice(&inbox.stdout).unwrap();
+    assert_eq!(
+        listed["items"].as_array().map(Vec::len),
+        Some(0),
+        "{listed:#}"
+    );
+    // The sender reads it as its own passthrough exchange.
+    let request = sent["items"][0]["requestId"].as_str().unwrap();
+    let shown = api(
+        &fixture,
+        "ok",
+        "requests.show",
+        serde_json::json!({ "requestId": request }),
+    );
+    assert_eq!(shown["mode"], "passthrough", "{shown:#}");
+
+    // A replay returns the receipt and types nothing again.
+    let again = dispatch(OPERATION, &worker, "ok");
+    assert_eq!(
+        again["items"][0]["requestId"],
+        sent["items"][0]["requestId"]
+    );
+    assert_eq!(fixture.requests("prompted").len(), 1);
+}
+
+#[test]
+fn a_busy_agent_is_not_typed_into_through_the_api_either() {
+    let fixture = world("passthrough-api-blocked");
+    mark_person(&fixture);
+    let worker = identity_id(&fixture, "worker");
+    let sent = api(
+        &fixture,
+        "blocked",
+        "dispatch.create",
+        serde_json::json!({
+            "operationId": OPERATION, "recipientIds": [worker],
+            "message": "Use main", "mode": "passthrough",
+        }),
+    );
+    assert_ne!(sent["wake"]["status"], "sent", "{sent:#}");
+    assert!(fixture.requests("prompted").is_empty());
+}
+
+#[test]
+fn identities_status_says_which_recipients_can_take_typed_input() {
+    let fixture = world("passthrough-api-can");
+    let worker = identity_id(&fixture, "worker");
+    let ben = identity_id(&fixture, "ben");
+    let status = api(
+        &fixture,
+        "ok",
+        "identities.status",
+        serde_json::json!({ "identityIds": [worker, ben] }),
+    );
+    let entries = status["identities"].as_array().unwrap();
+    assert_eq!(
+        entries[0]["canPassthrough"],
+        serde_json::json!({"available": true}),
+        "{status:#}"
+    );
+    assert_eq!(
+        entries[1]["canPassthrough"],
+        serde_json::json!({"available": false, "reason": "no_pane"}),
+        "{status:#}"
+    );
+}

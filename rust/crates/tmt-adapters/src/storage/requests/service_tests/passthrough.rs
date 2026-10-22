@@ -463,3 +463,56 @@ fn a_sent_passthrough_starts_a_capture_the_history_shows_and_an_unsent_one_does_
     assert_eq!(late.state, CaptureState::NoAnswer);
     f.storage.close().unwrap();
 }
+
+#[test]
+fn whether_an_identity_can_take_typed_input_is_read_from_stored_facts_only() {
+    use crate::passthrough::{Can, Reason, can_identity};
+    let mut f = Fixture::new();
+    let target = identity(&mut f, "worker");
+    let can = |f: &Fixture| can_identity(&f.storage, &target).unwrap();
+    // Unknown identity: nothing to say.
+    assert_eq!(
+        can_identity(&f.storage, "00000000-0000-4000-8000-000000000000").unwrap(),
+        None
+    );
+    // Saved but unbound.
+    assert_eq!(can(&f), Some(Can::no(Reason::NoPane)));
+
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    db.execute(
+        "INSERT INTO bindings(id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at,runtime_state,runtime_pid,runtime_start_identity,observed_provider_session_id,launch_owner_pid,launch_owner_start_identity)
+         VALUES('binding',?1,'tmux','%1','server','/fixture',10,'server-start',11,'original','original','running',12,'runtime-start','session',13,'owner-start')",
+        [&target],
+    )
+    .unwrap();
+    // Running with no reported activity yet: still offered; the send verifies it.
+    assert_eq!(can(&f), Some(Can::YES));
+
+    let report = |state: &str| {
+        let activity = serde_json::json!({"activity": {
+            "session": "session", "pid": 12, "start": "runtime-start", "state": state,
+            "turn": null, "sinceMs": 1, "lastActivityMs": 1,
+        }});
+        db.execute(
+            "INSERT OR REPLACE INTO identity_session_preferences(identity_id,remembered_harness,runtime_mode,provider_session_id,driver_state_version,driver_state)
+             VALUES(?1,'claude','default','session',3,?2)",
+            rusqlite::params![target, activity.to_string()],
+        )
+        .unwrap();
+    };
+    for state in ["working", "idle"] {
+        report(state);
+        assert_eq!(can(&f), Some(Can::YES), "{state}");
+    }
+    // Waiting on its user: the delivery would be refused anyway.
+    report("waiting");
+    assert_eq!(can(&f), Some(Can::no(Reason::AwaitingApproval)));
+    // An ended agent keeps its last phase, which is no evidence.
+    db.execute("UPDATE bindings SET runtime_state='ended'", [])
+        .unwrap();
+    assert_eq!(can(&f), Some(Can::no(Reason::NotRunning)));
+    // A runtime nobody observed yet is offered, as the command does; the send verifies it.
+    db.execute("UPDATE bindings SET runtime_state='unknown'", [])
+        .unwrap();
+    assert_eq!(can(&f), Some(Can::no(Reason::AwaitingApproval)));
+}

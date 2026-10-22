@@ -93,6 +93,7 @@ pub enum Availability {
     Unavailable,
 }
 
+/// An advisory consumer wake: it never satisfies the recipient's attention.
 /// Claim once before attempting input. A lost settlement remains claimed and
 /// must never cause a second paste; the durable request remains recoverable.
 pub fn wake_request(
@@ -101,6 +102,36 @@ pub fn wake_request(
     recipient_id: &str,
     notification: &str,
     delay: Duration,
+) -> WakeState {
+    deliver_text(
+        storage,
+        request_id,
+        recipient_id,
+        notification,
+        delay,
+        false,
+    )
+}
+
+/// The request itself typed into the pane (a person's passthrough): unlike a wake, the
+/// paste is the delivery, so settling it as sent also starts the passthrough capture.
+pub fn deliver_request(
+    storage: &mut Storage,
+    request_id: &str,
+    recipient_id: &str,
+    text: &str,
+    delay: Duration,
+) -> WakeState {
+    deliver_text(storage, request_id, recipient_id, text, delay, true)
+}
+
+fn deliver_text(
+    storage: &mut Storage,
+    request_id: &str,
+    recipient_id: &str,
+    text: &str,
+    delay: Duration,
+    is_request: bool,
 ) -> WakeState {
     use crate::request_runtime::wall_time_ms;
     let claim = match RequestService::new(storage, wall_time_ms).claim_wake(request_id) {
@@ -114,16 +145,19 @@ pub fn wake_request(
         .wake_recipient_is_eligible(request_id, recipient_id)
         .unwrap_or(false);
     let state = if eligible {
-        send(storage, recipient_id, notification, delay)
+        send(storage, recipient_id, text, delay)
             .map(|attempt| attempt.delivery.wake_state())
             .unwrap_or(WakeState::Unavailable)
     } else {
         WakeState::Unavailable
     };
-    if RequestService::new(storage, wall_time_ms)
-        .settle_wake(request_id, state)
-        .is_err()
-    {
+    let mut service = RequestService::new(storage, wall_time_ms);
+    let settled = if is_request {
+        service.settle_request_delivery(request_id, state)
+    } else {
+        service.settle_wake(request_id, state)
+    };
+    if settled.is_err() {
         WakeState::Claimed
     } else {
         state

@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { OWNER_READ_REASONS, ownerAnswer, ownerRead, whileVisible } from '../src/owner-reads.js';
 
-const reopenSession = vi.fn<() => Promise<void>>();
-vi.mock('../src/browser.js', () => ({ reopenSession: () => reopenSession() }));
+const reopenSession = vi.fn<(_: undefined, options: { signal: AbortSignal }) => Promise<void>>();
+vi.mock('../src/browser.js', () => ({
+  reopenSession: (_: undefined, options: { signal: AbortSignal }) => reopenSession(_, options),
+}));
 
 interface Vectors {
   reasons: string[];
@@ -145,4 +147,69 @@ it('a 404 reopens the session from the pairing before it names a missing session
     Object.assign(new Error('unreachable'), { reason: 'unreachable' }),
   );
   expect(await ownerRead('ops', signal)).toEqual({ state: 'unreachable' });
+});
+
+it('reads that meet the same door restart share one reopen until it settles', async () => {
+  let open = false;
+  vi.stubGlobal('location', new URL('https://door.test/ops'));
+  vi.stubGlobal('fetch', async (input: string) =>
+    input === '/sdk/mount'
+      ? Response.json({ address: 'https://door.test/r/owner' })
+      : open
+        ? Response.json({ version: 1, state: 'ok', observedAtMs: 1 })
+        : new Response('', { status: 404 }),
+  );
+  const ok = { state: 'ok', observedAtMs: 1, payload: {} };
+  let settle = () => {};
+  let fail: (error: unknown) => void = () => {};
+  const pending = () =>
+    new Promise<void>((resolve, reject) => {
+      settle = () => {
+        open = true;
+        resolve();
+      };
+      fail = reject;
+    });
+  // Digest reads digest and limits together: one reopen serves both.
+  reopenSession.mockReset().mockImplementation(pending);
+  const both = Promise.all([
+    ownerRead('limits', new AbortController().signal),
+    ownerRead('digest/24h', new AbortController().signal),
+  ]);
+  await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(1));
+  settle();
+  expect(await both).toEqual([ok, ok]);
+  // A settled reopen is not reused: the next restart opens again, and its answer reaches each read.
+  open = false;
+  const missing = Promise.all([
+    ownerRead('limits', new AbortController().signal),
+    ownerRead('ops', new AbortController().signal),
+  ]);
+  await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(2));
+  fail(Object.assign(new Error('unpaired'), { reason: 'unpaired' }));
+  expect(await missing).toEqual([{ state: 'no-session' }, { state: 'no-session' }]);
+  // A read whose route left goes at once; the reopen goes on for the read still waiting.
+  const leaving = new AbortController();
+  const left = ownerRead('limits', leaving.signal);
+  const staying = ownerRead('ops', new AbortController().signal);
+  await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(3));
+  const shared = reopenSession.mock.calls[2]![1].signal;
+  leaving.abort();
+  expect(await left).toEqual({ state: 'unreachable' });
+  expect(shared.aborted).toBe(false);
+  settle();
+  expect(await staying).toEqual(ok);
+  // Once every waiting read left, the reopen stops and the next read starts a fresh one.
+  open = false;
+  const only = new AbortController();
+  const alone = ownerRead('ops', only.signal);
+  await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(4));
+  only.abort();
+  expect(await alone).toEqual({ state: 'unreachable' });
+  expect(reopenSession.mock.calls[3]![1].signal.aborted).toBe(true);
+  const next = ownerRead('ops', new AbortController().signal);
+  await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(5));
+  settle();
+  expect(await next).toEqual(ok);
+  reopenSession.mockReset();
 });

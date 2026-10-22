@@ -3903,7 +3903,7 @@ function ownerAnswer(document) {
 var address;
 /** Without an owner session, a pairing kept in this browser opens one again (a door restart ends
 * them); `no-session` when there is no pairing to use, else `unreachable` (try again later). */
-async function reopen(signal) {
+async function reopenOnce$1(signal) {
 	try {
 		const { reopenSession } = await import("./remote-v1.js");
 		await reopenSession(void 0, { signal });
@@ -3912,6 +3912,42 @@ async function reopen(signal) {
 		const reason = error?.reason;
 		return reason === "unpaired" || reason === "revoked" || reason === "expired" ? "no-session" : "unreachable";
 	}
+}
+/** The reopen in flight: reads that meet the same door restart together wait on this one. */
+var reopening;
+/** Join the reopen in flight, or start one. It stops only once every read waiting on it left; a
+* read whose own signal aborts leaves at once as `unreachable`. */
+function reopen(signal) {
+	if (reopening === void 0) {
+		const stop = new AbortController();
+		const shared = {
+			result: reopenOnce$1(stop.signal),
+			waiting: 0,
+			stop
+		};
+		shared.result.finally(() => {
+			if (reopening === shared) reopening = void 0;
+		});
+		reopening = shared;
+	}
+	const shared = reopening;
+	shared.waiting += 1;
+	return new Promise((resolve) => {
+		const leave = () => {
+			shared.waiting -= 1;
+			if (shared.waiting === 0) {
+				shared.stop.abort();
+				if (reopening === shared) reopening = void 0;
+			}
+			resolve("unreachable");
+		};
+		if (signal.aborted) return leave();
+		signal.addEventListener("abort", leave, { once: true });
+		shared.result.then((result) => {
+			signal.removeEventListener("abort", leave);
+			resolve(result);
+		});
+	});
 }
 async function readOnce(url, signal) {
 	try {
@@ -3928,7 +3964,8 @@ async function readOnce(url, signal) {
 * Read `<address>/x/-/<name>` once. The mount address is found once per page and found again
 * after a read that had none. The door answers a request without a live owner session with its
 * generic 404: the read then reopens the session from this browser's pairing and reads again, so
-* only a browser with no pairing to use is told it has no session (#4018).
+* only a browser with no pairing to use is told it has no session (#4018). Reads that meet the
+* same restart share one reopen.
 */
 async function ownerRead(name, signal) {
 	address ??= shellAddress();
