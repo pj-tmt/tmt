@@ -437,6 +437,32 @@ fn nested_exchange_and_role_options_stay_at_their_own_boundaries() {
 }
 
 #[test]
+fn send_now_takes_one_request_id_and_an_optional_identity() {
+    assert_eq!(
+        parsed(&["send-now", "req_1"]).invocation,
+        Invocation::SendNow {
+            request_id: "req_1".into(),
+            identity: None,
+        }
+    );
+    assert_eq!(
+        parsed(&["send-now", "req_1", "--identity", "ben"]).invocation,
+        Invocation::SendNow {
+            request_id: "req_1".into(),
+            identity: Some("ben".into()),
+        }
+    );
+    for bad in [
+        &["send-now"][..],
+        &["send-now", "req_1", "req_2"][..],
+        &["send-now", "req_1", "--urgent"][..],
+        &["send-now", "req_1", "--timeout", "5"][..],
+    ] {
+        assert_eq!(parse_error(bad).code, "USAGE_ERROR", "{bad:?}");
+    }
+}
+
+#[test]
 fn inbox_and_answer_select_an_identity_and_one_body_source() {
     assert_eq!(
         parsed(&[

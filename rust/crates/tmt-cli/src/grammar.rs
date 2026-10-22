@@ -139,6 +139,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(requests::result())
     .subcommand(requests::inbox())
     .subcommand(requests::answer())
+    .subcommand(requests::send_now())
     .subcommand(installation::install(names))
     .subcommand(installation::setup(hooked.clone()))
     .subcommand(installation::digest_hook(hooked.clone()))
