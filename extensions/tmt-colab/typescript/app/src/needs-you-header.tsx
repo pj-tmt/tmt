@@ -199,7 +199,12 @@ export function NeedsYouHeader({
                         >
                           <span className="needs-you-header-row" title={item.title}>
                             {agentNames(item).length > 0 ? (
-                              <BrowserAvatar name={agentNames(item)[0]!} size="s" decorative />
+                              <BrowserAvatar
+                                name={agentNames(item)[0]!}
+                                kind="agent"
+                                size="s"
+                                decorative
+                              />
                             ) : (
                               <span className="needs-you-header-avatar-gap" aria-hidden="true" />
                             )}

@@ -275,6 +275,10 @@ for (const width of [1440, 390])
       await expect(avatars).toHaveCount(3);
       await expect(avatars.first()).toHaveText('A1');
       await expect(avatars.first()).toHaveAttribute('aria-hidden', 'true');
+      // A row names an agent, so its mark carries the agent kind (the mint fill).
+      await expect(
+        menu.locator('.needs-you-header-row .tmt-ui-avatar[data-kind="agent"]'),
+      ).toHaveCount(3);
       await expect(avatars.first()).toHaveCSS('width', '24px');
       await expect(menu.locator('.needs-you-header-title')).toHaveText([
         'Read the summary',
