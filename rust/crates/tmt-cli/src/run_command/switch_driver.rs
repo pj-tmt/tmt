@@ -257,7 +257,6 @@ mod tests {
         let options = tmt_adapters::runtime::launch_preset::LaunchSettings {
             model: Some("model name".into()),
             effort: Some("high".into()),
-            ..Default::default()
         };
         let request = RunRequest {
             name: "-Saved agent",
