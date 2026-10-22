@@ -153,10 +153,9 @@ fn a_refused_send_is_not_sent() {
     );
 }
 
-#[test]
-fn every_reason_has_its_own_code_and_text() {
+const ALL_REASONS: [DeliveryReason; 8] = {
     use DeliveryReason::*;
-    let all = [
+    [
         Unreachable,
         WaitingForDelivery,
         AwaitingApproval,
@@ -165,8 +164,35 @@ fn every_reason_has_its_own_code_and_text() {
         AgentWorking,
         HandedOver,
         Refused,
-    ];
-    let codes: std::collections::HashSet<_> = all.iter().map(|r| r.code()).collect();
-    let texts: std::collections::HashSet<_> = all.iter().map(|r| r.text()).collect();
-    assert_eq!((codes.len(), texts.len()), (all.len(), all.len()));
+    ]
+};
+
+#[test]
+fn every_reason_has_its_own_code_and_text() {
+    let codes: std::collections::HashSet<_> = ALL_REASONS.iter().map(|r| r.code()).collect();
+    let texts: std::collections::HashSet<_> = ALL_REASONS.iter().map(|r| r.text()).collect();
+    assert_eq!(
+        (codes.len(), texts.len()),
+        (ALL_REASONS.len(), ALL_REASONS.len())
+    );
+}
+
+#[test]
+fn the_contract_table_words_every_reason_exactly_as_core_does() {
+    const CONTRACT: &str = include_str!("../../../../../../contracts/request-response-v1.md");
+    let rows: Vec<Vec<&str>> = CONTRACT
+        .lines()
+        .skip_while(|line| !line.starts_with("| `reason.code`"))
+        .skip(2)
+        .take_while(|line| line.starts_with('|'))
+        .map(|line| line.split('|').map(str::trim).collect())
+        .collect();
+    assert_eq!(rows.len(), ALL_REASONS.len(), "one contract row per reason");
+    for reason in ALL_REASONS {
+        let row = rows
+            .iter()
+            .find(|cells| cells[1] == format!("`{}`", reason.code()))
+            .unwrap_or_else(|| panic!("the contract has no row for {}", reason.code()));
+        assert_eq!(row[3], reason.text(), "wording of {}", reason.code());
+    }
 }
