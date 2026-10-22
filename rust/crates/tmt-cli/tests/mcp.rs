@@ -615,6 +615,7 @@ fn mcp_send_never_reclaims_an_uncertain_wake() {
                 message: "uncertain wake".into(),
                 kind: tmt_core::request::RequestKind::Request,
                 room: None,
+                mode: tmt_core::request::digest::DeliveryMode::Request,
             },
             90,
             tmt_adapters::request_runtime::wall_time_ms,

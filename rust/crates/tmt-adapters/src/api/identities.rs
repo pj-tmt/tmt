@@ -43,7 +43,12 @@ pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u
             {
                 None => json!({"id": id, "found": false}),
                 Some(_) => json!({"id": id, "found": true,
-                    "status": crate::identity_status::status_value(statuses.get(id), now)}),
+                    "status": crate::identity_status::status_value(statuses.get(id), now),
+                    "canPassthrough": crate::passthrough::can_identity(storage, id)
+                        .map_err(|_| Fault::unavailable())?
+                        // A retired identity has no pane to type into.
+                        .unwrap_or(crate::passthrough::Can::no(crate::passthrough::Reason::NoPane))
+                        .to_json()}),
             },
         );
     }

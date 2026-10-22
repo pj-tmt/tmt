@@ -307,42 +307,33 @@ pub(super) fn prepare(
 }
 
 // Source-checked command samples for the printed-command guard.
-/// A passthrough types a person's own text into a live pane. Core enforces the person rule
-/// again at preparation; this names it before anything is stored.
+/// Core enforces the person rule again at preparation; this names both rules before
+/// anything is stored. The rules and their wording live in `tmt_adapters::passthrough`.
 fn passthrough_gate(
     storage: &mut Storage,
     correlation: &Correlation,
     originator: &Originator,
     no_live_pane: bool,
 ) -> Result<(), Failure> {
+    use tmt_adapters::passthrough::{Can, Reason, gate};
     let person = match originator.identity_id() {
         Some(id) => RequestService::new(storage, wall_time_ms)
             .identity_is_user(id)
             .map_err(|error| correlation.state_error(error, false))?,
         None => false,
     };
-    if !person {
-        return Err(correlation.error(
-            "PASSTHROUGH_NOT_ALLOWED",
-            "Passthrough types a person's own message into a pane, and the sender is not marked as a person. Nothing was sent.",
-            1,
-        ));
-    }
-    if correlation.identity.is_none() || no_live_pane {
-        return Err(correlation
-            .error(
-                "PASSTHROUGH_UNAVAILABLE",
-                format!(
-                    "{} has no live pane to type into. Nothing was sent.",
-                    correlation.target
-                ),
-                1,
-            )
-            .suggestion(
-                "Send it as a request instead: run the command again without --passthrough.".into(),
-            ));
-    }
-    Ok(())
+    let recipient = if correlation.identity.is_none() || no_live_pane {
+        Can::no(Reason::NoPane)
+    } else {
+        Can::YES
+    };
+    gate(person, recipient).map_err(|refusal| {
+        let failure = correlation.error(refusal.code(), refusal.message(&correlation.target), 1);
+        match refusal.suggestion() {
+            Some(suggestion) => failure.suggestion(suggestion.into()),
+            None => failure,
+        }
+    })
 }
 
 #[cfg(test)]
