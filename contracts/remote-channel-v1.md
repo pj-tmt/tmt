@@ -1845,7 +1845,7 @@ Visibility is the extension's rule, not a remote grant.
 
 ### Owner browser reads
 
-Two owner-session, read-only door GETs give the web app real Ops and Digest data. They reuse the
+Three owner-session, read-only door GETs give the web app real Ops, limit-history and Digest data. They reuse the
 public JSON the terminal already reads; they add no grant, scope, pairing rule, write or push
 channel, and dispatch stays unreachable from them. They are siblings of the composed shell's
 `GET <prefix>/x/-/shell` and share its admission:
@@ -1853,6 +1853,7 @@ channel, and dispatch stays unreachable from them. They are siblings of the comp
 | Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)          |
 | --------------------------------- | ----------------------------------------------------------------------------------- |
 | `GET <prefix>/x/-/ops`            | `ops squad ls --json` and `ops squad cron ls --json`, run in parallel               |
+| `GET <prefix>/x/-/limits`         | `ops limits --json`                                                                |
 | `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d`  |
 
 The range is a path segment because the edge target grammar admits no query string beyond its two
@@ -1875,9 +1876,9 @@ Every answer is HTTP 200 with one JSON document:
 ```
 
 `reason` is one of `not_installed` (the extension command is absent: a fixed argv exits with
-`USAGE_ERROR`), `core_unavailable` (spawn, interruption or I/O failure), `timeout`, `read_failed`
+`USAGE_ERROR`; an Ops without `limits` is also absent), `core_unavailable` (spawn, interruption or I/O failure), `timeout`, `read_failed`
 (non-zero exit, output that is not one JSON document, an unexpected `version` or, for Digest, a
-report for another range) and `too_large`. An unavailable read is never an empty list and never
+report for another range), `too_large` and, for limits only, `not_sampled` (the board has kept no samples). An unavailable read is never an empty list and never
 sample data; each reason is one empty state in the web app, and a client treats an unknown reason as
 a generic unavailable. `observedAtMs` is the owner's clock when the read finished.
 
@@ -1900,6 +1901,14 @@ fields, the rest of a schedule message and the person's own identity. Text has c
 bidirectional-control characters removed (controls become spaces), is trimmed and is cut to the limit
 below; the browser renders it as inert text.
 
+**Limits payload** (`state:"ok"`): `limitHistory[]`, the weekly-limit samples the board keeps in its local cache,
+as printed by `tmt ops limits --json` (a read-only command; it needs no Core and never writes): `provider` (a driver
+ID), `windowMinutes` (10080) and `points`, oldest first, each `[observedAtMs, percentLeft, resetsAtMs]` with the
+percentage rounded to two decimals; the reset time rides with every point because the kept 8 days can span two
+windows. The cache has at most 8 providers and 10-minute buckets, and the board samples only while it is open, so
+history has gaps and a machine whose board never ran has none: that answer is `not_sampled`, never an empty list.
+The short window is not served.
+
 **Digest payload** (`state:"ok"`): `{since, report}` where `report` is the
 [usage report document](../extensions/tmt-digest/contracts/usage-v1.md) unchanged. Digest keeps the
 document's contents (names, UUIDs, token counts and content-free exchange metadata). The web app
@@ -1909,7 +1918,7 @@ derives a shorter window from the `24h` hourly `series`; there is no 5-minute re
 requests wait for it (at most 12 seconds in total, then `timeout`), and a finished answer, ok or
 unavailable, answers every request for the next 5 seconds, so any number of tabs cost at most one read
 per route per 5 seconds. Nothing runs between requests and nothing is persisted. Each subprocess
-captures at most 2 MiB of stdout; an answer is at most 512 KiB (Ops) or 1 MiB (Digest) and a larger
+captures at most 2 MiB of stdout; an answer is at most 512 KiB (Ops, limits) or 1 MiB (Digest) and a larger
 one is `too_large`. Ops projects at most 32 squads, 256 agents and 64 timers; text fields are cut to
 64 scalars (names, model), 80 (state, schedule text), 200 (task, next, pending), 300 bytes (link) and
 120 scalars (`what`). The browser refreshes only while its route is visible and at the terminal's own

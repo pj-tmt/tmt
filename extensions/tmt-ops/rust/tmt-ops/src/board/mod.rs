@@ -35,6 +35,7 @@ mod key_value;
 mod keycap;
 mod lane;
 mod limits;
+pub(crate) use limits::history::document as limits_history;
 mod markdown;
 mod member_links;
 mod mentions;

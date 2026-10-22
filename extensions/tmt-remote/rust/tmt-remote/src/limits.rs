@@ -76,6 +76,7 @@ pub const READ_WAIT: Duration = Duration::from_secs(12);
 pub const READ_SUBPROCESS_BYTES: usize = 2 * 1024 * 1024;
 pub const READ_OPS_BYTES: usize = 512 * 1024;
 pub const READ_DIGEST_BYTES: usize = 1024 * 1024;
+pub const READ_LIMITS_BYTES: usize = 512 * 1024;
 pub const READ_OPS_SQUADS: usize = 32;
 pub const READ_OPS_AGENTS: usize = 256;
 pub const READ_OPS_TIMERS: usize = 64;
