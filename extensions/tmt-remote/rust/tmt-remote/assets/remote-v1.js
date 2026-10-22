@@ -3276,7 +3276,7 @@ function round(value) {
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-dom.ts
 /**
-* DOM helpers the leaf's chart painters share. No inline styles anywhere: every look comes from a
+* DOM helpers the leaf's chart painters share. No style attributes in markup: every look comes from a
 * `tmt-ui-chart-*` class, so a chart works under a strict style policy.
 */
 var SVG = "http://www.w3.org/2000/svg";
