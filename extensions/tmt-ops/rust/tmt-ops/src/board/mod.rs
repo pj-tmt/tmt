@@ -386,10 +386,16 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 app::CopyFeedback::Selection => format!("Could not copy: {error}"),
             }),
         Request::Run(argv) => effects::spawn(&argv).map(|()| format!("Started {}.", argv[0])),
-        Request::PreparedRun { action, row } => core
+        Request::PreparedRun { action, row, ops } => core
             .json(&["whoami"])
             .map_err(|error| error.message)
-            .and_then(|caller| action.argv_with_board_pane(&row, caller["pane"].as_str()))
+            .and_then(|caller| {
+                action.argv_parameters(crate::template::Parameters {
+                    row: &row,
+                    ops: Some(&ops),
+                    board_pane: caller["pane"].as_str(),
+                })
+            })
             .and_then(|argv| effects::spawn(&argv).map(|()| format!("Started {}.", argv[0]))),
         Request::Talk {
             me,

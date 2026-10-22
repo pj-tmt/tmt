@@ -1,4 +1,4 @@
-//! The j editor holds its binding context and agent sample with the parent's Config draft/writer.
+//! The binding editor holds an opening sample and typed Config destination; j presets share it.
 use crate::{
     action::{Action, Verb},
     config::{Config, OpsKeyScope},
@@ -13,17 +13,19 @@ pub(in crate::board) struct Selection {
     pub row: Option<Value>,
     /// A squad's host action targets its current lead, not the squad record.
     pub recipient: Option<Value>,
-    /// Factory j before authored overrides, held with the opening workspace context.
-    pub default_action: Option<Action>,
+    /// Opening effective factory choices (including recipient-dependent Enter/j).
+    pub factory_bindings: crate::action::Bindings,
     pub squad: Option<String>,
     pub scope: OpsKeyScope,
     pub invoker_tmux: bool,
+    /// Opening held sample, never saved argv or live authority.
+    pub ops: Value,
 }
 
 pub(super) struct HostAction {
     pub selection: Selection,
     pub board_pane: Option<String>,
-    pub source: String,
+    pub destination: Option<crate::config::BindingLocation>,
 }
 
 impl HostAction {
@@ -44,10 +46,33 @@ impl HostAction {
         } else {
             "Custom command"
         });
-        let meaning = self.meaning(text);
+        let event = overlay
+            .editing
+            .as_ref()
+            .and_then(|(key, _)| key.strip_prefix("bind."))
+            .unwrap_or("j");
+        let meaning = format!(
+            "{} · {}",
+            self.meaning(text),
+            self.destination_notice(overlay.config.as_ref().unwrap(), event)
+        );
         let command = self
             .preview(text)
             .unwrap_or_else(|error| format!("Preview unavailable: {error}"));
+        let parameters = self
+            .selection
+            .recipient
+            .as_ref()
+            .or(self.selection.row.as_ref())
+            .map(|row| {
+                crate::template::Parameters {
+                    row,
+                    ops: Some(&self.selection.ops),
+                    board_pane: self.board_pane.as_deref(),
+                }
+                .inventory()
+            })
+            .unwrap_or_default();
         let error = overlay
             .notice
             .as_ref()
@@ -57,7 +82,8 @@ impl HostAction {
         let width = body.width.saturating_sub(4);
         // Borders, scroll position and footer reserve four rows; Custom also has a query row.
         let height = [&meaning, &command]
-            .iter()
+            .into_iter()
+            .chain(parameters.iter())
             .map(|line| tmt_tui::text::lines(line, width, tmt_tui::style::TextFlow::Wrap).len())
             .sum::<usize>()
             .saturating_add(if error.is_empty() {
@@ -65,7 +91,7 @@ impl HostAction {
             } else {
                 tmt_tui::text::lines(&error, width, tmt_tui::style::TextFlow::Wrap).len()
             })
-            .saturating_add(if readonly { 4 } else { 5 })
+            .saturating_add(if readonly { 5 } else { 6 })
             .min(usize::from(u16::MAX));
         let query = if readonly {
             ""
@@ -78,7 +104,7 @@ impl HostAction {
             r#"<tmt-text slot="status" bind="$.status" token="blocked" wrap="true"/>"#
         };
         let markup = format!(
-            r#"<tmt-view version="1"><tmt-modal id="settings-edit" title="{title}" placement="docked" class="w-{} h-{height}"><tmt-scroll id="body"><tmt-text bind="$.meaning" token="text" wrap="true"/><tmt-text bind="$.command" token="dim" wrap="true"/></tmt-scroll>{query}{status}<tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            r#"<tmt-view version="1"><tmt-modal id="settings-edit" title="{title}" placement="docked" class="w-{} h-{height}"><tmt-scroll id="body"><tmt-text bind="$.meaning" token="text" wrap="true"/><tmt-text bind="$.command" token="dim" wrap="true"/><tmt-text token="muted" wrap="true">Parameters · opening sample</tmt-text><tmt-repeat each="$.parameters" as="parameter"><tmt-text bind="parameter.text" token="dim" wrap="true"/></tmt-repeat></tmt-scroll>{query}{status}<tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
             body.width
         );
         let key = super::PromptStyle {
@@ -96,41 +122,144 @@ impl HostAction {
             for name in ["meaning", "command"] {
                 root.insert(name.into(), tmt_tui::binding::Schema::Scalar);
             }
+            root.insert(
+                "parameters".into(),
+                tmt_tui::binding::Schema::Collection(Box::new(tmt_tui::binding::Schema::Object(
+                    std::collections::BTreeMap::from([(
+                        "text".into(),
+                        tmt_tui::binding::Schema::Scalar,
+                    )]),
+                ))),
+            );
             cache.replace(super::CachedTemplate {
                 key,
                 template: crate::board::picker_surface::compile(super::FILE, &markup, schema),
             });
         }
-        overlay.prompt.borrow_mut().render_modal(super::FILE, &cache.as_ref().unwrap().template, json!({"rows":[],"query":format!("{text}▏"),"meaning":meaning,"command":command,"status":error,"footer":if readonly {"s save · Esc cancel"} else {"Enter save · Esc cancel · Ctrl-U clear"}}), frame, look, body);
+        overlay.prompt.borrow_mut().render_modal(super::FILE, &cache.as_ref().unwrap().template, json!({"rows":[],"query":format!("{text}▏"),"meaning":meaning,"command":command,"parameters":parameters.into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(),"status":error,"footer":if readonly {"s save · Esc cancel"} else {"Enter save · Tab scope · Esc cancel · Ctrl-U clear"}}), frame, look, body);
     }
 
     pub fn settings(&mut self, config: &Config) -> Result<BoardSettings, SquadError> {
-        let (action, source) = config.host_action_binding(
-            self.selection.scope,
-            self.selection.row.as_ref(),
-            self.selection.recipient.as_ref(),
-            self.selection.squad.as_deref(),
-            self.selection.default_action.as_ref(),
-        )?;
-        self.source = source.clone();
+        let locations = self.locations(config)?;
         let mut settings = config.settings(None, false, None)?;
         settings.entries.clear();
-        settings.push("bind.j", json!(action.map(|action| action.text)), source);
-        settings.entries[0].editable = true;
-        settings.entries[0].description = Some(format!(
-            "Preview uses {} · {}",
-            self.name(),
-            self.scope_label()
-        ));
+        let mut bindings = config
+            .binding_events(&locations)?
+            .into_iter()
+            .map(|event| {
+                config
+                    .binding(
+                        self.selection.scope,
+                        &locations,
+                        &event,
+                        &self.selection.factory_bindings,
+                    )
+                    .map(|binding| (event, binding))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        bindings.sort_by(|(a, binding_a), (b, binding_b)| {
+            (
+                a != "j",
+                binding_a.action.is_none() && binding_a.authored.is_none(),
+                a,
+            )
+                .cmp(&(
+                    b != "j",
+                    binding_b.action.is_none() && binding_b.authored.is_none(),
+                    b,
+                ))
+        });
+        for (
+            event,
+            crate::config::ResolvedBinding {
+                action,
+                owner,
+                authored,
+            },
+        ) in bindings
+        {
+            let source = owner
+                .as_ref()
+                .map_or_else(|| "workspace default".into(), |owner| owner.label(&event));
+            let value = action.as_ref().map(|action| action.text.as_str());
+            settings.push(format!("bind.{event}"), json!(value), source);
+            let entry = settings.entries.last_mut().unwrap();
+            entry.editable = true;
+            let availability = match authored.as_ref().or(action.as_ref()) {
+                Some(action)
+                    if crate::config::admit_workspace_action(action, &entry.key).is_err() =>
+                {
+                    format!("Retired or unavailable authored action: {}", action.text)
+                }
+                Some(action) => self
+                    .preview(&action.text)
+                    .unwrap_or_else(|error| format!("Preview unavailable: {error}")),
+                None => "Unassigned".into(),
+            };
+            entry.description = (action.is_some() || authored.is_some())
+                .then(|| format!("{availability} · opening sample: {}", self.name()));
+        }
         Ok(settings)
     }
 
-    pub fn write_source(&self) -> &str {
-        if self.source == "workspace default" {
-            "bind.j"
-        } else {
-            &self.source
-        }
+    pub fn locations(
+        &self,
+        config: &Config,
+    ) -> Result<Vec<crate::config::BindingLocation>, SquadError> {
+        config.binding_locations(
+            self.selection.row.as_ref(),
+            self.selection.recipient.as_ref(),
+            self.selection.squad.as_deref(),
+        )
+    }
+
+    pub fn begin(&mut self, config: &Config, event: &str) {
+        self.destination = config
+            .binding(
+                self.selection.scope,
+                &self.locations(config).expect("validated locations"),
+                event,
+                &self.selection.factory_bindings,
+            )
+            .expect("validated bindings")
+            .owner
+            .or(Some(crate::config::BindingLocation::Global));
+    }
+
+    pub fn cycle_destination(&mut self, config: &Config) {
+        let locations = self.locations(config).expect("validated locations");
+        let next = locations
+            .iter()
+            .position(|location| Some(location) == self.destination.as_ref())
+            .map_or(0, |index| (index + 1) % locations.len());
+        self.destination = Some(locations[next].clone());
+    }
+
+    pub fn destination_notice(&self, config: &Config, event: &str) -> String {
+        let destination = self.destination.as_ref().expect("editing destination");
+        let winner = config
+            .binding(
+                self.selection.scope,
+                &self.locations(config).expect("validated locations"),
+                event,
+                &self.selection.factory_bindings,
+            )
+            .expect("validated bindings")
+            .owner;
+        let masked = winner.filter(|winner| {
+            let locations = self.locations(config).expect("validated locations");
+            locations.iter().position(|location| location == winner)
+                > locations
+                    .iter()
+                    .position(|location| location == destination)
+        });
+        format!(
+            "Save to {}{} · Tab scope · opening sample",
+            destination.label(event),
+            masked
+                .map(|owner| format!("; still masked by {}", owner.label(event)))
+                .unwrap_or_default()
+        )
     }
 
     pub fn name(&self) -> String {
@@ -147,22 +276,6 @@ impl HostAction {
             .replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('"', "&quot;")
-    }
-
-    fn scope_label(&self) -> String {
-        match self.source.as_str() {
-            "workspace default" | "bind.j" => "All agents".into(),
-            source => source
-                .strip_prefix("bind.")
-                .and_then(|source| source.strip_suffix(".j"))
-                .map(|host| format!("Host {host}"))
-                .unwrap_or_else(|| {
-                    self.source
-                        .strip_suffix(".bind.j")
-                        .unwrap_or(&self.source)
-                        .into()
-                }),
-        }
     }
 
     pub fn meaning(&self, line: &str) -> String {
@@ -237,17 +350,22 @@ impl HostAction {
 
     pub fn preview(&self, line: &str) -> Result<String, String> {
         let action = Action::parse(line)?;
+        if action.verb.acts_on_member() && self.selection.recipient.is_none() {
+            return Err("Select a visible named member before running this action.".into());
+        }
         let row = self
             .selection
             .recipient
             .as_ref()
-            .ok_or("Select an agent.")?;
-        row["name"].as_str().ok_or("This row has no agent.")?;
+            .or(self.selection.row.as_ref())
+            .ok_or("Select a row.")?;
+        let parameters = crate::template::Parameters {
+            row,
+            ops: Some(&self.selection.ops),
+            board_pane: self.board_pane.as_deref(),
+        };
         match action.verb {
-            Verb::Run => Ok(format!(
-                "argv {:?}",
-                action.argv_with_board_pane(row, self.board_pane.as_deref())?
-            )),
+            Verb::Run => Ok(format!("argv {:?}", action.argv_parameters(parameters)?)),
             Verb::Swap => Ok(format!(
                 "tmt focus {} --into {} --json",
                 row["id"].as_str().ok_or("No identity UUID.")?,
@@ -262,7 +380,15 @@ impl HostAction {
             Verb::Jump => crate::board::overview::actions::host(row, true)
                 .map(|id| format!("tmt focus {id} --json"))
                 .map_err(str::to_owned),
-            _ => Err("Host action takes jump, swap <direction> or run <program>….".into()),
+            Verb::Copy => action.args[0]
+                .fill_parameters(parameters)
+                .map(|text| format!("Copy {text:?}")),
+            Verb::Open => crate::effects::resolve_open_parameters(&action, parameters)
+                .map(|link| format!("Open {link:?}")),
+            _ => Ok(format!(
+                "UI: {} (no shell command)",
+                action.workspace_description()
+            )),
         }
     }
 }

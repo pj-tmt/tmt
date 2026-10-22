@@ -144,7 +144,12 @@ impl App {
                     .find(|(_, action)| action.verb == crate::action::Verb::Jump)
                     .map(|(key, action)| (key.as_str(), action))
             });
-            lines.push(actions::host_preview(raw, self.invoker_tmux, host_action));
+            lines.push(actions::host_preview(
+                raw,
+                self.invoker_tmux,
+                host_action,
+                Some(&self.parameter_observations(raw)),
+            ));
             let scope = match self.workspace_scope() {
                 crate::config::OpsKeyScope::Member => "selected squad member",
                 crate::config::OpsKeyScope::Squad => "selected squad",

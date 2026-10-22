@@ -236,18 +236,30 @@ membership target; unsupported legacy actions are reported rather than remapped.
 
 ## Settings inspection and editing
 
-The comma menu offers workspace layout, Digest estimate windows, Host action (j),
+The comma menu offers workspace layout, Digest estimate windows, Bindings (with j presets),
 Theme, Token window and Actions. It does not expose the former general
-configuration-inspection overlay. Host action reuses the Settings list, editor and
-Config CAS writer for Focus agent, directional Swap beside board, or Custom
-command. `workspace_keys` supplies the effective action; Config's shared provenance
+configuration-inspection overlay. Bindings reuses the Settings list, editor and
+Config CAS writer for every admitted event, including unassigned keys; j presets
+share that editor. Typed global/host/exact-section locations carry a literal event
+separately, so punctuation keys never pass through a split display label. Tab
+chooses the destination, masked writes name the winner, and reset removes only
+the authored override. A valid unavailable preview may save with a warning; the
+execution resolver still refuses missing values. `workspace_keys` supplies the effective action; Config's shared provenance
 resolver identifies its global/host/selected-section write owner and preserves
 other bindings. App supplies the same recipient-dependent factory action as
 dispatch. Retired bindings retain their fallback or unset value; a chosen preset
 repairs their authored owner. Preview freezes the binding context and recipient:
 a squad uses its lead for host/argv evidence without inheriting the lead's member
 section. It fills argv without execution and keeps missing context unavailable.
-Preset previews are read-only (`s` saves); Custom keeps typing and Enter save.
+Preset previews are read-only (`s` saves); custom/event commands keep typing and
+Enter save. The template resolver and inventory are shared by Settings, Help,
+Open, Copy and Run. `row:/` addresses admitted public row scalars; `ops:/`
+addresses held public Core observations under their original names and selected
+Ops squad/timer projections. JSON Pointer escaping and explicit array elements
+keep scalar types; missing/null/failed/nonscalar values refuse by name. Root
+annotation, waiting-question and receipt containers never supply parameters.
+Custom metadata names are not a body denylist. Preview uses the opening sample;
+dispatch uses the current admitted row and held observations, not saved argv.
 Esc cancels; a file conflict retains the unsaved draft/error without retry.
 Other keys and nested configuration remain file-owned; `config show` retains
 independent values/provenance. Ordinary Settings and Theme openings do not
@@ -317,7 +329,7 @@ scoped override semantics; CLI configuration remains available for explicit edit
   arrays, or the system opener. An opener starts in its own process group with null stdio
   and a reaper thread. `run` fills one argv element per template (refusing a value that
   would start an argument with `-`) and starts it the same way. Reserved `{board_pane}` for Run comes only from public
-  `whoami --json`: the effect lane reads it at dispatch, while the Host action
+  `whoami --json`: the effect lane reads it at dispatch, while the Bindings
   opening reads a nullable sample for preview. Agent fields cannot supply it,
   and paint/input never read Core. `{{` and `}}` are literal braces; for example
   `{{left-of}}` stays a literal program argument, never a row placeholder.

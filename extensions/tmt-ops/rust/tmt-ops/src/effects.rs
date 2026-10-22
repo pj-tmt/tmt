@@ -91,9 +91,23 @@ pub fn default_link(row: &Value) -> Option<&str> {
 /// Resolve exactly the chosen field/template. An invalid first choice never
 /// substitutes another record field, and previews use the same resolver.
 pub fn resolve_open(action: &crate::action::Action, row: &Value) -> Result<String, String> {
+    resolve_open_parameters(
+        action,
+        crate::template::Parameters {
+            row,
+            ops: None,
+            board_pane: None,
+        },
+    )
+}
+
+pub fn resolve_open_parameters(
+    action: &crate::action::Action,
+    parameters: crate::template::Parameters<'_>,
+) -> Result<String, String> {
     let link = match action.args.first() {
-        Some(template) => template.fill(row)?,
-        None => default_link(row)
+        Some(template) => template.fill_parameters(parameters)?,
+        None => default_link(parameters.row)
             .ok_or("This row has no link field.")?
             .to_owned(),
     };

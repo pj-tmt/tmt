@@ -341,6 +341,9 @@ fn capture_frame(
     captured["selectionState"] = json!(format!("{:?}", app.workspace_selection_state()));
     captured["focus"] = json!(format!("{:?}", app.focused_pane()));
     captured["input"] = json!(format!("{:?}", app.input_band.get()));
+    if state.starts_with("bindings-") {
+        captured["bindingGeometry"] = app.settings.as_ref().unwrap().captured_binding_geometry();
+    }
     captured
 }
 
@@ -440,6 +443,32 @@ fn captures() -> Value {
                         51,
                         &mut styles,
                     ));
+                }
+            }
+        }
+        // All-key Settings and inert parameter previews use the actual board owner.
+        for (look_name, look) in looks() {
+            for state in [
+                "bindings-list",
+                "bindings-punctuation",
+                "bindings-preview",
+                "bindings-unavailable",
+                "bindings-masked",
+                "bindings-j-preset",
+            ] {
+                for width in [160, 100, 80, 60] {
+                    for height in [36, 8] {
+                        let app =
+                            crate::board::settings::tests::host_action::capture_case(state, look);
+                        frames.push(capture_frame(
+                            &app,
+                            state,
+                            look_name,
+                            width,
+                            height,
+                            &mut styles,
+                        ));
+                    }
                 }
             }
         }

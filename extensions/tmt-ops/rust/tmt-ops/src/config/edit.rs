@@ -226,72 +226,98 @@ impl Config {
         Ok(draft)
     }
 
-    /// A j-only edit uses the same disposable draft and byte-CAS publication owner.
-    pub fn preview_host_action(&self, source: &str, text: &str) -> Result<Self, SquadError> {
-        let action = crate::action::Action::parse(text).map_err(invalid)?;
-        if !matches!(
-            action.verb,
-            crate::action::Verb::Jump | crate::action::Verb::Swap | crate::action::Verb::Run
-        ) {
-            return Err(invalid(
-                "Host action takes jump, swap <direction> or run <program>….",
-            ));
+    /// Disposable binding draft and publication use the same format-preserving CAS owner.
+    pub fn preview_binding(
+        &self,
+        location: &super::BindingLocation,
+        event: &str,
+        text: Option<&str>,
+    ) -> Result<Self, SquadError> {
+        use super::BindingLocation;
+        if !crate::action::valid_event(event) {
+            return Err(invalid("This event is reserved or unavailable."));
         }
-        crate::config::admit_workspace_action(&action, source)?;
+        let action = text
+            .map(crate::action::Action::parse)
+            .transpose()
+            .map_err(invalid)?;
+        if let Some(action) = &action {
+            crate::config::admit_workspace_action(action, &location.label(event))?;
+        }
         let mut draft = self.clone();
-        let source = if source == "workspace default" {
-            "bind.j"
-        } else {
-            source
-        };
-        let parts: Vec<_> = source.split('.').collect();
-        match parts.as_slice() {
-            ["bind", "j"] => draft.insert_setting(&["bind", "j"], value(&action.text))?,
-            ["bind", host, "j"] if valid_host(host) => {
-                draft.insert_setting(&["bind", host, "j"], value(&action.text))?;
-            }
-            ["squad", name, section, "bind", "j"] if crate::squad::valid_name(name) => {
-                let index = section
-                    .strip_prefix("section[")
-                    .and_then(|s| s.strip_suffix(']'))
-                    .and_then(|s| s.parse::<usize>().ok())
-                    .ok_or_else(|| invalid("Invalid host binding source."))?;
-                draft.sections(name)?;
-                let table = draft
-                    .document
-                    .get_mut("squad")
-                    .and_then(|s| s.get_mut(name))
-                    .and_then(|s| s.get_mut("section"))
-                    .and_then(Item::as_array_of_tables_mut)
-                    .and_then(|s| s.get_mut(index))
-                    .ok_or_else(|| {
-                        invalid("The selected binding section is no longer available.")
-                    })?;
-                let bindings = table
-                    .get_mut("bind")
-                    .and_then(Item::as_table_like_mut)
-                    .ok_or_else(|| {
-                        invalid("The selected binding section is no longer available.")
-                    })?;
+        if action.is_none() && self.binding_at(location, event)?.is_none() {
+            return Ok(draft);
+        }
+        let edit = |bindings: &mut dyn TableLike| {
+            if let Some(action) = &action {
                 let mut replacement = value(&action.text);
                 if let (Some(old), Some(new)) = (
-                    bindings.get("j").and_then(Item::as_value),
+                    bindings.get(event).and_then(Item::as_value),
                     replacement.as_value_mut(),
                 ) {
                     *new.decor_mut() = old.decor().clone();
                 }
-                bindings.insert("j", replacement);
+                bindings.insert(event, replacement);
+            } else {
+                bindings.remove(event);
             }
-            _ => return Err(invalid("Invalid host binding source.")),
-        }
+        };
+        let bindings: &mut dyn TableLike = match location {
+            BindingLocation::Global => {
+                if draft.document.get("bind").is_none() {
+                    draft.document["bind"] = Item::Table(Table::new());
+                }
+                draft.document["bind"]
+                    .as_table_like_mut()
+                    .ok_or_else(|| invalid("Invalid bind table."))?
+            }
+            BindingLocation::Host(host) if valid_host(host) => {
+                if draft.document.get("bind").is_none() {
+                    draft.document["bind"] = Item::Table(Table::new());
+                }
+                if draft.document["bind"].get(host).is_none() {
+                    draft.document["bind"][host] = Item::Table(Table::new());
+                }
+                draft.document["bind"][host]
+                    .as_table_like_mut()
+                    .ok_or_else(|| invalid("Invalid host binding table."))?
+            }
+            BindingLocation::Section { squad, index } if crate::squad::valid_name(squad) => {
+                draft.sections(squad)?;
+                let table = draft
+                    .document
+                    .get_mut("squad")
+                    .and_then(|s| s.get_mut(squad))
+                    .and_then(|s| s.get_mut("section"))
+                    .and_then(Item::as_array_of_tables_mut)
+                    .and_then(|sections| sections.get_mut(*index))
+                    .ok_or_else(|| {
+                        invalid("The selected binding section is no longer available.")
+                    })?;
+                if table.get("bind").is_none() {
+                    table.insert("bind", Item::Table(Table::new()));
+                }
+                table
+                    .get_mut("bind")
+                    .and_then(Item::as_table_like_mut)
+                    .ok_or_else(|| invalid("Invalid section binding table."))?
+            }
+            _ => return Err(invalid("Invalid binding location.")),
+        };
+        edit(bindings);
         draft.configured_bindings()?;
         draft.host_bindings()?;
         draft.tabs()?;
         Ok(draft)
     }
 
-    pub fn set_host_action(&mut self, source: &str, text: &str) -> Result<bool, SquadError> {
-        let draft = self.preview_host_action(source, text)?;
+    pub fn set_binding(
+        &mut self,
+        location: &super::BindingLocation,
+        event: &str,
+        text: Option<&str>,
+    ) -> Result<bool, SquadError> {
+        let draft = self.preview_binding(location, event, text)?;
         let changed = self.document.to_string() != draft.document.to_string();
         self.write(|document| *document = draft.document)?;
         Ok(changed)
