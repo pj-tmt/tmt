@@ -461,8 +461,8 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   speech-bubble icon and `Annotate`, with a short thin leader at the focus end.
   Shortcut help is accessible through `aria-keyshortcuts`, without visible hotkey copy.
 - Annotation ranges use the mint `annotation-highlight` tint and a 1px
-  `annotation-rule` underline, 0.2em under the baseline (flush with the foot of the tint, clear
-  of descenders, so every rule runs unbroken), with no rounding or shadow, preserving authored text
+  `annotation-rule` underline, unbroken under descenders (skip-ink off on the highlight), with
+  no rounding or shadow, preserving authored text
   colour and weight. While the pointer is over one it takes the `-hover` tint and a
   2px underline, with no outline box. The passage whose thread window is open takes the
   `-selected` tint and a solid 3px `annotation-rule-selected` underline (hover's is 2px), above

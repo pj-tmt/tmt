@@ -310,14 +310,13 @@
             annotationTokens +
             pageFrame +
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
-            // Each rule sits 0.2em under the baseline, flush with the foot of the tint and clear of the
-            // descenders, so it runs unbroken: browsers skip ink where an underline meets a glyph, a
-            // highlight cannot turn that off, and the rule's offset is the same in every state so it
-            // does not move between rest, hover and selected.
+            // Each rule runs unbroken under descenders: a 2 px or 3 px rule broken at every descender
+            // reads as dotted. The page root's skip-ink does not reach a highlight's decoration; the
+            // highlight's own does.
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
-            '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px;text-underline-offset:0.2em}' +
-            '::highlight(colab-selected){background:var(--tmt-ui-surface-annotation-highlight-selected);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule-selected);text-decoration-thickness:3px;text-underline-offset:0.2em}' +
-            '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:2px;text-underline-offset:0.2em}' +
+            '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:1px;text-decoration-skip-ink:none}' +
+            '::highlight(colab-selected){background:var(--tmt-ui-surface-annotation-highlight-selected);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule-selected);text-decoration-thickness:3px;text-decoration-skip-ink:none}' +
+            '::highlight(colab-hover){background:var(--tmt-ui-surface-annotation-highlight-hover);color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-annotation-rule);text-decoration-thickness:2px;text-decoration-skip-ink:none}' +
             `
             [data-colab-question-group]:not([hidden]){display:block!important}
             [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
@@ -1193,7 +1192,7 @@
                     if (++rectangles > 2048) throw new Error('highlight budget');
                     const mark = document.createElement('div');
                     mark.dataset.thread = id;
-                    mark.style.cssText = `position:absolute;pointer-events:none;background:var(--tmt-ui-surface-annotation-highlight);border-bottom:1px solid var(--tmt-ui-color-annotation-rule);left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
+                    mark.style.cssText = `position:absolute;pointer-events:none;text-decoration-skip-ink:none;background:var(--tmt-ui-surface-annotation-highlight);border-bottom:1px solid var(--tmt-ui-color-annotation-rule);left:${rect.left - origin.left - 2}px;top:${rect.top - origin.top}px;width:${rect.width + 4}px;height:${rect.height}px`;
                     layer.append(mark);
                   }
               }
