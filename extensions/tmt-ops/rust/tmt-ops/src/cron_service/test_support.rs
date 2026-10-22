@@ -194,6 +194,12 @@ elif a[0]=='identity':
  x=next((x for x in m['members'] if a[2] in [x['id'],x['name']] and x['id'] not in m['retired']),None)
  if x is None: fail('NAME_NOT_FOUND')
  print(json.dumps({'identity':x}))
+elif a[0]=='send-now':
+ m['calls'].append({'command':a})
+ failure=m.get('sendNowFailure')
+ if failure: save(m); print(json.dumps({'error':failure})); sys.exit(1)
+ if 'afterSendNow' in m: m['requestShow']=m['afterSendNow']
+ save(m); print(json.dumps({'status':m.get('sendNowStatus','sent'),'requestId':a[1],'state':'delivered'}))
 elif a[0]=='whoami':
  if m['caller']=='ambiguous': fail('CALLER_IDENTITY_AMBIGUOUS')
  print(json.dumps({'bound':False} if m['caller'] is None else dict(next(x for x in m['members'] if x['id']==m['caller']),bound=True)))

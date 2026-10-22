@@ -83,9 +83,10 @@ pub(crate) fn chat(
     result.warning = warning;
     // Acceptance already happened. A failed observation must never turn it into
     // a send failure or admit a second dispatch.
-    result.message_state_label = crate::requests::show_request(core, &result.request)
-        .ok()
-        .and_then(|detail| crate::requests::message_state_label(&detail));
+    if let Ok(detail) = crate::requests::show_request(core, &result.request) {
+        result.message_state_label = crate::requests::message_state_label(&detail);
+        result.can_send_now = crate::requests::can_send_now(&detail);
+    }
     Ok(result)
 }
 
@@ -123,6 +124,7 @@ fn accepted(
         request: request.into(),
         disposition,
         message_state_label: None,
+        can_send_now: false,
         passthrough,
         fallback: reason.map(str::to_owned),
         warning: None,

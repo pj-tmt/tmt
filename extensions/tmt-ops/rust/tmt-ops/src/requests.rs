@@ -359,6 +359,12 @@ pub(crate) fn message_state_label(item: &Value) -> Option<String> {
     Some(label)
 }
 
+/// Whether Core says a send-now applies to this message right now. Only an explicit `true`
+/// counts, so a missing or unknown `messageState` never offers the action.
+pub(crate) fn can_send_now(item: &Value) -> bool {
+    item["messageState"]["canSendNow"] == true
+}
+
 /// Reads one request's detail through `requests.show`, which acknowledges
 /// nothing.
 pub fn show_request(core: &Core, id: &str) -> Result<Value, SquadError> {
