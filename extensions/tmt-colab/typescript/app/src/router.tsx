@@ -88,7 +88,7 @@ import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
-import type { AnchorPosition, PageScheme, RenderState, SelectionRect } from './renderer.js';
+import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
@@ -111,8 +111,9 @@ import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread, threadNumbers } from './thread-records.js';
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
 import { usePageEditor } from './use-page-editor.js';
+import { usePagePanels } from './use-page-panels.js';
+import { usePageRenderer } from './use-page-renderer.js';
 import { SaveNotice } from './save-notice.js';
-import { toolbarInset } from './toolbar-inset.js';
 
 /** In-page cards whose controls the floating actions move above, never over. */
 const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
@@ -1097,15 +1098,26 @@ function Page() {
     select: (state) => (state.location.state as { scope?: unknown }).scope,
   });
   const scope = typeof fromScope === 'string' ? fromScope : undefined;
-  const [panel, setPanel] = useState<PageHeaderAction | null>(null);
-  const [chatOpened, setChatOpened] = useState(false);
+  const panels = usePagePanels(snapshot.id, snapshot.binding);
+  // Handlers the renderer and the keys keep across renders reach the panels through a ref.
+  const panelsRef = useRef(panels);
+  panelsRef.current = panels;
+  const {
+    panel,
+    chatOpened,
+    chatActivation,
+    activeThread,
+    toggle,
+    show,
+    close,
+    closeIf,
+    showThread,
+    openChat,
+    settleChatActivation,
+    setActiveThread,
+  } = panels;
   const floatingChat = useRef<HTMLButtonElement>(null);
-  const [chatActivation, setChatActivation] = useState<{ id: string; insertMention: boolean }>();
   const activateChat = useRef<() => boolean>(() => false);
-  useEffect(() => {
-    if (panel !== 'chat') setChatActivation(undefined);
-  }, [panel]);
-  useEffect(() => setChatActivation(undefined), [snapshot.binding]);
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
   const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
@@ -1115,10 +1127,6 @@ function Page() {
   const [pinRequest, setPinRequest] = useState<PagePinRequest>();
   const requestPin = (action: PagePinRequest['action']) =>
     setPinRequest((previous) => ({ id: (previous?.id ?? 0) + 1, action }));
-  const toggle = (value: PageHeaderAction) => {
-    if (value === 'chat') setChatOpened(true);
-    setPanel((previous) => (previous === value ? null : value));
-  };
   const [view, setView] = useState<PageView>({
     discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
@@ -1246,8 +1254,8 @@ function Page() {
   useEffect(() => {
     if (!archived) return;
     setSelectionMode(false);
-    setPanel((current) => (current === 'agents' || current === 'export' ? null : current));
-  }, [archived]);
+    closeIf('agents', 'export');
+  }, [archived, closeIf]);
   const toggleSelectionMode = useRef<() => void>(() => {});
   const escapeAnnotation = useRef<() => void>(() => {});
   const chatBusy = useRef(false);
@@ -1286,7 +1294,6 @@ function Page() {
   const annotationBusy = useRef(false);
   const statusBusy = useRef(false);
   const [changingStatus, setChangingStatus] = useState(false);
-  const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
     setAnnotation(undefined);
     drafts.current.clear();
@@ -1298,12 +1305,6 @@ function Page() {
     currentSelector.current = null;
     currentRectangle.current = null;
     setRectangle(null);
-    setResolved([]);
-    setAnchorsChecked(false);
-    setActiveThread(null);
-    setPanel(null);
-    setChatOpened(false);
-    setChatActivation(undefined);
   }, [snapshot.id]);
   useEffect(() => {
     const store = transport.drafts;
@@ -1354,9 +1355,8 @@ function Page() {
       rectangle: { ...currentRectangle.current },
       restored: drafts.current.get(JSON.stringify(currentSelector.current)),
     });
-    setActiveThread(null);
     setRectangle(null);
-    setPanel(null);
+    panelsRef.current.clear();
   }
   const annotationThread = annotation?.thread
     ? view.threads?.find(
@@ -1412,15 +1412,14 @@ function Page() {
   function openThread(ref: DiscussionRef | null) {
     if (annotationBusy.current || statusBusy.current) return;
     if (!ref) {
-      setActiveThread(null);
+      panelsRef.current.setActiveThread(null);
       return;
     }
     const id = `${ref.writer}:${ref.id}`;
     if (annotationRef.current) closeRef.current(false);
     setAnnotation(undefined);
     binding.current?.markThreadStatusSeen?.(ref);
-    setActiveThread(id);
-    setPanel('comments');
+    panelsRef.current.showThread(id);
     environmentRef.current.threadFragment()?.write(ref.id);
     renderer.current?.scrollAnchor(id);
   }
@@ -1451,23 +1450,10 @@ function Page() {
       thread: ref,
       restored: drafts.current.get(`${ref.writer}:${ref.id}`),
     });
-    setActiveThread(null);
-    setPanel(null);
+    panelsRef.current.clear();
   }
-  const [resolved, setResolved] = useState<string[]>([]);
-  const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
-  const imageBinding = snapshot.binding?.files?.attachments;
-  const imageScope = imageBinding?.scope?.();
-  const imageDescriptors = JSON.stringify(view.attachments ?? []);
-  const imageInput = useRef({ binding: imageBinding, descriptors: view.attachments ?? [] });
-  imageInput.current = { binding: imageBinding, descriptors: view.attachments ?? [] };
-  useEffect(() => {
-    renderer.current?.images(imageInput.current);
-  }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
-  // Until the frame reports what its page paints, the cards keep the app theme.
-  const [pageScheme, setPageScheme] = useState<PageScheme>();
   const accessLabel = archived
     ? text.archiveReadOnly
     : recoveryRequired
@@ -1486,10 +1472,9 @@ function Page() {
     const thread = view.threads?.find((value) => value.threadId === target && !value.deleted);
     if (!thread) return;
     deepThread.current = `${snapshot.id}:${target}`;
-    setActiveThread(`${thread.ref.writer}:${thread.ref.id}`);
-    setPanel('comments');
+    showThread(`${thread.ref.writer}:${thread.ref.id}`);
     renderer.current?.scrollAnchor(`${thread.ref.writer}:${thread.ref.id}`);
-  }, [environment, state, snapshot.id, view.threads]);
+  }, [environment, showThread, state, snapshot.id, view.threads]);
 
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked =
@@ -1503,9 +1488,7 @@ function Page() {
     if (archived || (panel !== null && panel !== 'chat') || environment.overlayOpen('chat'))
       return false;
     const insertMention = panel !== 'chat';
-    setChatOpened(true);
-    setPanel('chat');
-    setChatActivation(
+    openChat(
       !discussionBlocked && !recoveryRequired && !chatBusy.current
         ? { id: crypto.randomUUID(), insertMention }
         : undefined,
@@ -1514,7 +1497,7 @@ function Page() {
   };
   escapeAnnotation.current = () => {
     if (panel === 'chat') {
-      if (!chatBusy.current) setPanel(null);
+      if (!chatBusy.current) close();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };
@@ -1560,23 +1543,6 @@ function Page() {
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
   const { read: readingHint, anchor, task } = page.useSearch();
-  // A shell item can open the page at one exact element; when it is not there, say so once.
-  const [missingAnchor, setMissingAnchor] = useState<string>();
-  const revealed = useRef('');
-  const [rendererMounts, setRendererMounts] = useState(0);
-  useEffect(() => {
-    const key = anchor ? `${snapshot.id}:${anchor}` : '';
-    if (!anchor || !renderer.current || revealed.current === key) return;
-    // Once per opening: a later live edit of the page never pulls the reader back to it.
-    revealed.current = key;
-    setMissingAnchor(undefined);
-    void renderer.current.reveal(anchor).then((found) => {
-      if (found === false) setMissingAnchor(anchor);
-    });
-  }, [anchor, rendererMounts, snapshot.id]);
-  useEffect(() => {
-    if (!anchor) setMissingAnchor(undefined);
-  }, [anchor]);
   const {
     readings,
     inlineSlots,
@@ -1613,48 +1579,29 @@ function Page() {
     activeThread,
     setActiveThread,
   });
-  useEffect(() => {
-    const controller = new AbortController();
-    if (view.pageType === 'shell') {
-      host.current?.replaceChildren();
-      setState('ready');
-      return () => controller.abort();
-    }
-    if (endedError) {
-      host.current?.replaceChildren();
-      setState('failed');
-      return () => controller.abort();
-    }
-    setState('loading');
-    resetPageLinks();
-    // Source revisions replace only author content. Parent selection and composer
-    // state keep the original quote and rectangle even if that quote is now stale.
-    setResolved([]);
-    setAnchorsChecked(false);
-    setPageScheme(undefined);
-    void mountRenderer(host.current!, view.source, {
-      signal: controller.signal,
-      layout: view.layout,
-      onState: (next) => {
-        if (next !== 'ready') resetPageLinks();
-        setState(next);
-      },
-      onScheme: setPageScheme,
-      onLink: requestPageLink,
+  const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
+    snapshot,
+    view,
+    endedError,
+    host,
+    renderer,
+    setState,
+    toolbar,
+    anchor,
+    layers: {
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
       onReadings: onReadingAnchors,
-      viewportInset: () => toolbarInset(toolbar.current),
-      onSelection: (_value, quote, rect) => {
+    },
+    resetPageLinks,
+    requestPageLink,
+    handlers: {
+      onSelection: (quote, rect) => {
         setSelector(quote ?? null);
         currentSelector.current = quote ?? null;
         currentRectangle.current = rect ?? null;
         setRectangle(rect ?? null);
         if (!quote) selectionCleared.current();
-      },
-      onAnchors: (ids, checked = false) => {
-        setResolved(ids);
-        setAnchorsChecked(checked);
       },
       onAnnotate: annotate,
       onToggleSelectionMode: () => toggleSelectionMode.current(),
@@ -1670,41 +1617,8 @@ function Page() {
         );
         if (thread) openAnchoredThread(thread.ref);
       },
-    })
-      .then((handle) => {
-        if (controller.signal.aborted) handle.destroy();
-        else {
-          renderer.current = handle;
-          handle.images(imageInput.current);
-          setRendererMounts((count) => count + 1);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          host.current?.replaceChildren();
-          setState('failed');
-        }
-      });
-    return () => {
-      // Retire messages before replacing the frame, retaining its layout and the
-      // parent's frozen selection. Unmount removes the host itself.
-      renderer.current?.release();
-      resetPageLinks();
-      controller.abort();
-      renderer.current = null;
-    };
-  }, [
-    snapshot.id,
-    view.source,
-    view.layout,
-    view.pageType,
-    endedError,
-    inlineSlots.onSlots,
-    onQuestionAnchors,
-    onReadingAnchors,
-    resetPageLinks,
-    requestPageLink,
-  ]);
+    },
+  });
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
   // A reply or a status change elsewhere leaves this list as it was, so the document is not told
   // to highlight again.
@@ -1781,16 +1695,13 @@ function Page() {
         return false;
       if (event.destination === 'Chat') {
         if (annotationRef.current) closeRef.current(false);
-        setChatOpened(true);
-        setChatActivation(undefined);
-        setPanel('chat');
+        openChat();
       } else if (event.destination === 'Answer') {
         return questionLayer.activateNotification(event);
       } else if (event.destination === 'Proposal' && event.thread) {
         const target = proposalLayer.activateNotification(event.thread);
         if (target === 'comments') {
-          setActiveThread(`${event.thread.writer}:${event.thread.id}`);
-          setPanel('comments');
+          showThread(`${event.thread.writer}:${event.thread.id}`);
         }
         return !!target;
       } else if (event.thread) openAnchoredThread(event.thread);
@@ -1949,13 +1860,13 @@ function Page() {
         drawer
         notice={endedNotice}
         opened={panel === 'export'}
-        changeOpen={(open) => setPanel(open ? 'export' : null)}
+        changeOpen={(open) => (open ? show('export') : close())}
       />
       <ManagePage
         pageId={snapshot.id}
         title={view.title || snapshot.title}
         open={panel === 'manage'}
-        close={() => setPanel(null)}
+        close={() => close()}
         changed={(operation) => {
           // Archive commits invalidate sync; verified read catch-up keeps this draft owner mounted.
           if (operation === 'page.archive') return;
@@ -1969,14 +1880,14 @@ function Page() {
         open={panel === 'about'}
         title={text.aboutPage}
         panel="about"
-        onDismiss={() => setPanel(null)}
+        onDismiss={() => close()}
       >
         <PageAttribution
           originalAuthor={view.originalAuthor}
           publisherAgent={view.publisherAgent}
         />
         <PageLayoutSection layout={view.layout} reason={view.layoutReason} />
-        <PageSizeSection size={size} exportPage={() => setPanel('export')} />
+        <PageSizeSection size={size} exportPage={() => show('export')} />
         <p>{text.warning}</p>
       </BrowserDrawer>
       <div className="workspace">
@@ -2195,7 +2106,7 @@ function Page() {
           open={panel === 'files'}
           title={text.files}
           panel="files"
-          onDismiss={() => setPanel(null)}
+          onDismiss={() => close()}
         >
           <FilesPanel
             descriptors={view.attachments ?? []}
@@ -2213,7 +2124,7 @@ function Page() {
         title={text.source}
         panel="source"
         width="wide"
-        onDismiss={() => setPanel(null)}
+        onDismiss={() => close()}
       >
         <div className="source">
           <span>
@@ -2248,7 +2159,7 @@ function Page() {
                     type="button"
                     label={text.pageSize.export}
                     variant="text"
-                    onActivate={() => setPanel('export')}
+                    onActivate={() => show('export')}
                   />
                 ) : editError.conflict ? (
                   <>
@@ -2270,7 +2181,7 @@ function Page() {
               }
             />
           ) : (
-            <PageSizeNotice size={size} exportPage={() => setPanel('export')} />
+            <PageSizeNotice size={size} exportPage={() => show('export')} />
           )}
           {merged && !editError && (
             <div className="source-notice">
@@ -2293,7 +2204,7 @@ function Page() {
         open={panel === 'comments'}
         title={text.comments}
         panel="comments"
-        onDismiss={() => setPanel(null)}
+        onDismiss={() => close()}
       >
         {discussionPending && !liveError && (
           <p role="status" className="discussion-pending">
@@ -2354,7 +2265,7 @@ function Page() {
         open={panel === 'agents'}
         title={text.agentStatus}
         panel="agents"
-        onDismiss={() => setPanel(null)}
+        onDismiss={() => close()}
       >
         <AgentStatusPanel
           open={panel === 'agents'}
@@ -2372,7 +2283,7 @@ function Page() {
           panel="chat"
           caption={text.chatVisible}
           onDismiss={(reason) => {
-            if (reason === 'close') setPanel(null);
+            if (reason === 'close') close();
             else escapeAnnotation.current();
           }}
         >
@@ -2396,10 +2307,7 @@ function Page() {
                 !chatBusy.current
                   ? {
                       ...chatActivation,
-                      consumed: () =>
-                        setChatActivation((current) =>
-                          current?.id === chatActivation.id ? undefined : current,
-                        ),
+                      consumed: () => settleChatActivation(chatActivation.id),
                     }
                   : undefined
               }
@@ -2418,7 +2326,7 @@ function Page() {
               title={view.title || snapshot.title}
               blocked={discussionBlocked}
               recoveryRequired={recoveryRequired}
-              close={() => setPanel(null)}
+              close={() => close()}
               escape={() => escapeAnnotation.current()}
             />
           )}
