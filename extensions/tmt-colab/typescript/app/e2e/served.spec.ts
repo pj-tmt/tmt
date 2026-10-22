@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile, access, mkdir } from 'node:fs/promises';
 import { createServer, request, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
@@ -27,6 +27,48 @@ test.beforeEach(() => {
     'Needs the native serve executable: cargo build -p tmt-colab or set COLAB_SERVE_EXECUTABLE',
   );
 });
+/** Bind one page that opted in to the bundled runtime into a renderer frame, as the app does:
+ * the served script and theme travel in the bind message's `runtime` field. */
+async function bindRuntimePage(page: Page, base: string, id: string, source: string) {
+  await page.evaluate(
+    async ({ base, id, source }) => {
+      const script = await (await fetch(base + 'assets/colab-runtime.js')).text();
+      const style = await (await fetch(base + 'assets/colab-runtime.css')).text();
+      const frame = document.createElement('iframe');
+      frame.id = id;
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.src = base + 'renderer.html';
+      await new Promise<void>((resolve) => {
+        frame.onload = () => resolve();
+        document.body.append(frame);
+      });
+      const digest = 'd'.repeat(64);
+      frame.contentWindow!.postMessage(
+        {
+          type: 'colab.render.bind',
+          renderId: `00000000-0000-4000-8000-000000000004:${digest}`,
+          sourceDigest: digest,
+          source,
+          theme: 'light',
+          runtime: { script, style },
+        },
+        '*',
+        [new MessageChannel().port2],
+      );
+    },
+    { base, id, source },
+  );
+}
+/** The full interactive sample in the skill's runtime reference: its last `html` block. */
+function runtimeSkillSample(): string {
+  const reference = readFileSync(
+    fileURLToPath(new URL('../../../skills/tmt-colab/references/runtime.md', import.meta.url)),
+    'utf8',
+  );
+  const blocks = reference.split('```html\n').slice(1);
+  expect(blocks.length).toBeGreaterThanOrEqual(2);
+  return blocks[blocks.length - 1].split('```')[0];
+}
 const owner = JSON.stringify({
   owner: true,
   deviceId: '00000000-0000-4000-8000-000000000004',
@@ -364,33 +406,13 @@ for (let run = 1; run <= 2; run++) {
       // The real bundled runtime (#1693) runs in the opaque frame under the production CSP:
       // `window.tmt` exists before the page script, and Tailwind styles the page without eval.
       await page.goto(server.origin + '/');
-      await page.evaluate(async (base) => {
-        const script = await (await fetch(base + 'assets/colab-runtime.js')).text();
-        const style = await (await fetch(base + 'assets/colab-runtime.css')).text();
-        const probe = document.createElement('iframe');
-        probe.id = 'runtime-probe';
-        probe.setAttribute('sandbox', 'allow-scripts');
-        probe.src = base + 'renderer.html';
-        await new Promise<void>((resolve) => {
-          probe.onload = () => resolve();
-          document.body.append(probe);
-        });
-        const digest = 'd'.repeat(64);
-        probe.contentWindow!.postMessage(
-          {
-            type: 'colab.render.bind',
-            renderId: `00000000-0000-4000-8000-000000000004:${digest}`,
-            sourceDigest: digest,
-            source:
-              '<meta name="tmt-colab-runtime" content="react tailwind"><div id="t" class="p-4 bg-paper"></div>' +
-              '<script>document.getElementById("t").dataset.react = window.tmt.React.version</script>',
-            theme: 'light',
-            runtime: { script, style },
-          },
-          '*',
-          [new MessageChannel().port2],
-        );
-      }, mount);
+      await bindRuntimePage(
+        page,
+        mount,
+        'runtime-probe',
+        '<meta name="tmt-colab-runtime" content="react tailwind"><div id="t" class="p-4 bg-paper"></div>' +
+          '<script>document.getElementById("t").dataset.react = window.tmt.React.version</script>',
+      );
       const probed = page.frameLocator('#runtime-probe').locator('#t');
       await expect(probed).toHaveAttribute('data-react', /^19\./);
       await expect
@@ -400,6 +422,21 @@ for (let run = 1; run <= 2; run++) {
       expect(
         await probed.evaluate((element) => getComputedStyle(element).backgroundColor),
       ).not.toBe('rgba(0, 0, 0, 0)');
+
+      // The skill's own sample (#1693) renders and works in the same frame: React draws it, the
+      // theme colours and Lucide icon appear, and typing filters the list.
+      await bindRuntimePage(page, mount, 'runtime-sample', runtimeSkillSample());
+      const sample = page.frameLocator('#runtime-sample');
+      await expect(sample.getByRole('listitem')).toHaveCount(3);
+      await expect(sample.getByRole('img', { name: 'Search' })).toBeVisible();
+      await sample.getByPlaceholder('Filter').fill('rev');
+      await expect(sample.getByRole('listitem')).toHaveCount(1);
+      await expect(sample.getByRole('listitem')).toContainText('Review');
+      expect(
+        await sample
+          .locator('.text-waiting')
+          .evaluate((element) => getComputedStyle(element).color),
+      ).toBe('rgb(150, 69, 0)');
 
       // The same served build at the test door's root selects its sample adapter,
       // exercising the opaque renderer beneath the production response CSP.

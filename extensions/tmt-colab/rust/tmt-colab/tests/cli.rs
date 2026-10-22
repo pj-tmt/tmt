@@ -9386,10 +9386,10 @@ fn dashboard_skill_examples_publish_the_documented_data_without_changing_the_sou
     assert!(pilot.opened().is_empty());
 }
 
-/// #3927: a markup sample the layout and component references teach must be markup `page check`
+/// #3927: a markup sample the layout, component and runtime references teach must be markup `page check`
 /// accepts, or an agent that copies it publishes a page the check then refuses.
 #[test]
-fn every_html_sample_in_the_layout_and_component_references_passes_page_check() {
+fn every_html_sample_in_the_layout_component_and_runtime_references_passes_page_check() {
     let pilot = Pilot::new(None);
     let mut checked = 0;
     for (name, text) in [
@@ -9400,6 +9400,10 @@ fn every_html_sample_in_the_layout_and_component_references_passes_page_check() 
         (
             "components.md",
             include_str!("../../../skills/tmt-colab/references/components.md"),
+        ),
+        (
+            "runtime.md",
+            include_str!("../../../skills/tmt-colab/references/runtime.md"),
         ),
     ] {
         for (index, block) in text.split("```html\n").skip(1).enumerate() {
