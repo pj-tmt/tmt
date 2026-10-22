@@ -562,7 +562,6 @@ refuses a missing value. The UUID remains the target; Core revalidates effects.
 Every filled Run argument stays one argv element with no shell expansion, and
 `{board_pane}` remains separate caller evidence, never an agent field.
 
-
 `ctrl-r` refreshes without discarding entered text. `/` searches. `?` help and the
 footer use the same effective binding table as dispatch: defaults, global `[bind]`,
 host overrides, then section overrides. Compatible explicit bindings keep their
