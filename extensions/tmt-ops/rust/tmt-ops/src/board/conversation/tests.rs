@@ -11,6 +11,7 @@ mod finals;
 mod markdown_packet;
 pub(in crate::board) mod performance;
 mod question;
+mod tables;
 mod recent_output_packet;
 
 fn fixture() -> App {
