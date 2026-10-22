@@ -1,0 +1,164 @@
+{
+  "scenario": "connection soak: detached eviction and a refused new tab leave the attached page usable",
+  "id": "detached-eviction-refused-tab",
+  "attachment": "colab-soak-failure",
+  "maxBytes": 16384,
+  "tailBytes": 65536,
+  "tailLines": 40,
+  "spans": 128,
+  "timelineMs": 30000,
+  "api": {
+    "Click": "locator.click",
+    "Fill": "locator.fill",
+    "Press": "locator.press",
+    "Navigate": "page.goto",
+    "Evaluate": "page.evaluate",
+    "Wait for function": "page.waitForFunction",
+    "Bring to front": "page.bringToFront",
+    "Create new page": "browserContext.newPage",
+    "Launch persistent context": "chromium.launchPersistentContext",
+    "Close page": "page.close"
+  },
+  "signals": [
+    "SIGABRT",
+    "SIGALRM",
+    "SIGBUS",
+    "SIGFPE",
+    "SIGHUP",
+    "SIGILL",
+    "SIGINT",
+    "SIGKILL",
+    "SIGPIPE",
+    "SIGQUIT",
+    "SIGSEGV",
+    "SIGTERM",
+    "SIGTRAP",
+    "SIGUSR1",
+    "SIGUSR2"
+  ],
+  "roles": ["core", "remote", "colab", "pair", "provider", "other"],
+  "assertions": [
+    "setup",
+    "positive-send",
+    "directory",
+    "detached-eviction",
+    "detached-send",
+    "peer-open",
+    "tab-refusal",
+    "peer-ready",
+    "capacity-send",
+    "peer-live-after-refusal",
+    "peer-source-after-refusal"
+  ],
+  "owners": [
+    {
+      "file": "contracts/pane-screen-v1.json",
+      "kind": "json",
+      "name": "errors",
+      "allowed": ["PANE_NOT_FOUND", "NAME_NOT_FOUND", "API_UNAVAILABLE"]
+    },
+    {
+      "file": "extensions/tmt-remote/typescript/remote-client/src/operations.ts",
+      "kind": "type",
+      "name": "RemoteRefusalCode",
+      "allowed": [
+        "REMOTE_SCOPE_DENIED",
+        "REMOTE_INPUT_INVALID",
+        "REMOTE_RATE_LIMITED",
+        "REMOTE_INTENT_CONFLICT",
+        "REMOTE_GRANT_CHANGED",
+        "REMOTE_SERVE_STOPPED",
+        "REMOTE_CLOSED",
+        "REMOTE_SESSION_ENDED",
+        "REMOTE_SESSION_EVICTED",
+        "REMOTE_SESSION_LIMIT",
+        "REMOTE_INPUT_TOO_LARGE",
+        "REMOTE_STATE_UNAVAILABLE",
+        "REMOTE_CORE_UNAVAILABLE",
+        "REMOTE_MANAGEMENT_READ_ONLY",
+        "REMOTE_MANAGEMENT_UNAVAILABLE",
+        "REMOTE_GRANT_EXPIRED",
+        "REMOTE_DEVICE_REVOKED",
+        "REMOTE_DEVICE_NOT_FOUND",
+        "REMOTE_SETTINGS_UNAVAILABLE",
+        "REMOTE_MANAGEMENT_CAPACITY",
+        "REMOTE_DEVICE_LIST_CHANGED",
+        "REMOTE_DEVICE_REMOVAL_LIMIT"
+      ]
+    },
+    {
+      "file": "extensions/tmt-colab/typescript/app/src/connection-state.ts",
+      "kind": "keys",
+      "name": "CONNECTION_CODES",
+      "allowed": [
+        "INVALID",
+        "GAP",
+        "CONFLICT",
+        "RESYNC_REQUIRED",
+        "DENIED",
+        "EXPIRED",
+        "STALE_EPOCH",
+        "CAPACITY"
+      ]
+    },
+    {
+      "file": "extensions/tmt-colab/typescript/app/src/connection-state.ts",
+      "kind": "const",
+      "name": "SYNC_DISCONNECTED",
+      "allowed": ["Sync disconnected"]
+    },
+    {
+      "file": "extensions/tmt-colab/typescript/app/src/fold.ts",
+      "kind": "new",
+      "name": "Error",
+      "allowed": [
+        "Rejected decoder output",
+        "Invalid decoder output",
+        "Decoder projection capacity",
+        "Decoder input capacity",
+        "Decoder unavailable",
+        "Decoder checkpoint capacity",
+        "Decoder baseline capacity",
+        "Decoder writer capacity",
+        "Decoder failed or exceeded its time budget"
+      ]
+    },
+    {
+      "file": "extensions/tmt-colab/typescript/app/src/connection.ts",
+      "kind": "new",
+      "name": "Error",
+      "allowed": [
+        "Invalid sync protocol",
+        "Sync unavailable",
+        "Sync message capacity",
+        "Title read byte budget exhausted",
+        "Invalid sync message",
+        "Storage unavailable",
+        "Object channel unavailable",
+        "Unexpected sync message",
+        "Page reply timed out",
+        "Page request unavailable",
+        "Save reply timed out",
+        "Save unavailable"
+      ]
+    },
+    {
+      "file": "extensions/tmt-colab/typescript/app/src/own-publication.ts",
+      "kind": "super",
+      "name": "super",
+      "allowed": ["CONFLICT", "Own record conflict", "Own publication catchup timed out"]
+    },
+    {
+      "file": "extensions/tmt-colab/typescript/app/src/objects.ts",
+      "kind": "new",
+      "name": "Error",
+      "allowed": ["Checkpoint decoder capacity"]
+    },
+    {
+      "file": "extensions/tmt-remote/rust/tmt-remote/src/error.rs",
+      "kind": "rust",
+      "name": "Self::new",
+      "allowed": ["REMOTE_IO", "Remote I/O failed; the door is closed."]
+    }
+  ]
+}

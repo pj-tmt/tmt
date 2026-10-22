@@ -11,6 +11,8 @@ import {
 } from '../../../../../../typescript/test/support/private-tmux.js';
 import { alive, OwnedProcess, until } from './process.js';
 import { serveLockOwners, signalServeLockOwner } from './serve-lock.js';
+import { loadSoakDictionary, type SoakDictionary } from './soak-literals.js';
+import { appendSoakInvocation } from './soak-diagnostics.js';
 
 const harness = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(harness, '../../../../../..');
@@ -121,6 +123,10 @@ export class AcceptanceWorld {
   /** One line per call of a host browser opener; a world must never write here. */
   readonly openerLog = path.join(this.root, 'opener.log');
   private readonly processes = new Set<OwnedProcess>();
+  private soakEnabled = false;
+  private soakDictionary?: SoakDictionary;
+  private readonly soakEvents: Record<string, unknown>[] = [];
+  private soakEventsTruncated = false;
   private readonly servePids = new Set<number>();
   private readonly agentPanes = new Set<string>();
   private readonly closers: Closer[] = [];
@@ -205,6 +211,7 @@ export class AcceptanceWorld {
       TMT_EXECUTABLE: path.join(this.root, 'core'),
       TMT_ACCEPTANCE_REAL_TMT: this.binaries.tmt,
       TMT_ACCEPTANCE_BARRIER_DIR: this.barrierDirectory,
+      TMT_ACCEPTANCE_SOAK_DIAGNOSTICS: this.soakEnabled ? '1' : '0',
       ...(pane === undefined
         ? {}
         : {
@@ -349,6 +356,8 @@ export class AcceptanceWorld {
         } catch {
           // Human output: the caller asserts on stdout/stderr.
         }
+        if (this.soakEnabled)
+          appendSoakInvocation(this.root, 'core', code, child.signalCode, stdout);
         resolve({ code, stdout, stderr, json });
       });
     });
@@ -488,6 +497,11 @@ export class AcceptanceWorld {
       cwd: this.workspace,
       env: this.env(pane),
       stderrPath: path.join(this.root, `${label}.stderr`),
+      observe:
+        this.soakEnabled && [this.binaries.remote, this.binaries.colab].includes(executable)
+          ? (line) =>
+              this.observeSoakLine(executable === this.binaries.remote ? 'remote' : 'colab', line)
+          : undefined,
     });
     this.processes.add(owned);
     this.lifecycle('spawned');
@@ -508,6 +522,66 @@ export class AcceptanceWorld {
   onDispose(close: Closer): void {
     this.live('register a closer');
     this.closers.push(close);
+  }
+
+  /** Enabled only by the synthetic refused-tab scenario; no process or cleanup owner changes. */
+  enableSoakDiagnostics(): void {
+    this.soakEnabled = true;
+    this.soakDictionary = loadSoakDictionary();
+  }
+  private observeSoakLine(source: string, line: string): void {
+    const dictionary = this.soakDictionary;
+    if (!dictionary) return;
+    // Only whole code tokens or exact known message literals survive this observation.
+    const codes = line.match(/\b[A-Z][A-Z0-9_]{1,63}\b/g) ?? [];
+    const messages = [...dictionary.messages].filter(
+      (message) => message.includes(' ') && line.includes(message),
+    );
+    for (const code of [...new Set(codes)].filter((code) => dictionary.codes.has(code))) {
+      this.soakEvents.push({ source, event: 'error', code, atMs: Date.now() });
+    }
+    for (const message of messages)
+      this.soakEvents.push({ source, event: 'error', message, atMs: Date.now() });
+    if (this.soakEvents.length > 256) {
+      this.soakEvents.splice(0, this.soakEvents.length - 256);
+      this.soakEventsTruncated = true;
+    }
+  }
+  soakLogs() {
+    return { records: this.soakEvents, truncated: this.soakEventsTruncated };
+  }
+  recordSoakInvocation(
+    binary: string,
+    code: number | null,
+    signal: string | null,
+    output: string,
+  ): void {
+    if (!this.soakEnabled) return;
+    const source =
+      binary === this.binaries.tmt
+        ? 'core'
+        : binary === this.binaries.remote
+          ? 'remote'
+          : binary === this.binaries.colab
+            ? 'colab'
+            : null;
+    if (source) appendSoakInvocation(this.root, source, code, signal, output);
+  }
+  /** Private inputs for the collector; paths, labels and PIDs never enter its public projection. */
+  soakChildren() {
+    return [...this.processes].map((owned) => ({
+      role: owned.label.startsWith('remote-serve-')
+        ? 'remote'
+        : owned.label.startsWith('colab-serve-')
+          ? 'colab'
+          : owned.label.startsWith('pair-')
+            ? 'pair'
+            : 'other',
+      alive: owned.child.exitCode === null && owned.child.signalCode === null && alive(owned.pid),
+      exitCode: owned.child.exitCode,
+      signal: owned.child.signalCode,
+      stderr: `${owned.label}.stderr`,
+    }));
   }
 
   /** Read bounded diagnostics before cleanup closes the browsers. Never replace the failure. */

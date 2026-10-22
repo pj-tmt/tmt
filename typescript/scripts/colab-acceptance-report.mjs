@@ -1,5 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  loadSoakDictionary,
+  policy,
+} from '../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-literals.ts';
+import { projectSoakFailure } from '../../extensions/tmt-colab/typescript/app/acceptance/harness/soak-diagnostics.ts';
 
 const input = process.env.PLAYWRIGHT_JSON_OUTPUT_FILE;
 const acceptance = path.resolve('extensions/tmt-colab/typescript/app/acceptance');
@@ -12,6 +17,38 @@ const sources = new Set(
     : []
 );
 const tests = [];
+const dictionary = loadSoakDictionary();
+let soakEvidence;
+
+// Only this synthetic failing case may create the separate, bounded diagnostic artifact.
+function retainSoak(spec, result) {
+  if (
+    path.basename(spec.file ?? '') !== 'connection-soak.spec.ts' ||
+    spec.title !== policy.scenario ||
+    !['failed', 'timedOut', 'interrupted'].includes(result.status)
+  )
+    return;
+  for (const attachment of (Array.isArray(result.attachments) ? result.attachments : []).slice(
+    0,
+    64
+  )) {
+    if (
+      attachment?.name !== policy.attachment ||
+      attachment.contentType !== 'application/json' ||
+      typeof attachment.body !== 'string' ||
+      attachment.body.length > 131072
+    )
+      continue;
+    try {
+      const bytes = Buffer.from(attachment.body, 'base64');
+      if (bytes.length > 65536 || bytes.toString('base64') !== attachment.body) continue;
+      const value = projectSoakFailure(JSON.parse(bytes.toString('utf8')), dictionary);
+      if (value && !soakEvidence) soakEvidence = value;
+    } catch {
+      // Unknown private input and attachment paths never belong in retained evidence.
+    }
+  }
+}
 
 // An attachment's JSON row by exact name, or nothing. Never follows an attachment path.
 function attachedRow(attachment, name) {
@@ -175,7 +212,10 @@ function visit(suite) {
         title: spec.title,
         outcome: test.status,
         expectedStatus: test.expectedStatus,
-        results: test.results.map((result) => outcome(spec, result)),
+        results: test.results.map((result) => {
+          retainSoak(spec, result);
+          return outcome(spec, result);
+        }),
       };
       tests.push(value);
       if (test.status === 'unexpected') console.log(JSON.stringify(value));
@@ -238,5 +278,10 @@ fs.writeFileSync(
   path.join(output, 'outcomes.json'),
   JSON.stringify({ run, tests }, null, 2) + '\n'
 );
+if (soakEvidence) {
+  const diagnostics = path.join(process.env.RUNNER_TEMP, 'colab-soak-diagnostics');
+  fs.mkdirSync(diagnostics, { recursive: true });
+  fs.writeFileSync(path.join(diagnostics, 'soak-failure.json'), JSON.stringify(soakEvidence));
+}
 if (run.status === 'incomplete') console.log(JSON.stringify({ run }));
 process.exitCode = run.status === 'passed' ? 0 : 1;
