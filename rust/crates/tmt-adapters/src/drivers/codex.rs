@@ -916,6 +916,25 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::evidence::observe_main_in_pane(&runner, caller, pane, deadline, NAME)
     }
 
+    fn movable_process(
+        &self,
+        runner: &dyn crate::process::CommandRunner,
+        binding: &tmt_core::binding::Binding,
+        preferences: &tmt_core::binding::session::SessionPreferences,
+        deadline: std::time::Instant,
+    ) -> Option<tmt_core::endpoint::ProcessIncarnation> {
+        if preferences.remembered.as_ref()?.mode.as_str() != MODE_EMBEDDED {
+            return None;
+        }
+        crate::runtime::evidence::movable_process(
+            &runner,
+            &binding.session.key.as_ref()?.incarnation,
+            binding.pane_pid,
+            deadline,
+            NAME,
+        )
+    }
+
     fn mode(
         &self,
         host: crate::runtime::lifecycle::HostEvidence,

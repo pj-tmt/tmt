@@ -112,10 +112,18 @@ pub(in crate::grammar) fn resume() -> Command {
         details = "Paste delivery is the default. With global experimental.channel=true, resume reuses the remembered channel choice.",
         [
             "Resume an identity's last session" => "tmt resume worker",
-            "Require a channel for exact resume" => "tmt resume --channel worker",
+            "Move a running member here" => "tmt resume worker --move",
             "Forget an identity's last session" => "tmt resume --forget worker",
         ]
     ))
+    .arg(
+        Arg::new("move")
+            .long("move")
+            .action(ArgAction::SetTrue)
+            .requires("name")
+            .conflicts_with_all(["forget", "forget-launch", "show"])
+            .help("Stop the verified agent in its old pane, then resume its session here"),
+    )
     .arg(
         Arg::new("forget")
             .long("forget")

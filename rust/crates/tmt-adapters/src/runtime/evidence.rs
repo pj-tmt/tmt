@@ -90,15 +90,39 @@ pub(crate) fn observe_replacement(
     }
 }
 
+/// Unlike replacement discovery, this selects only the captured incarnation.
+/// It must still be this driver's main process under the verified pane, and
+/// must not be the pane itself: stopping that process would close the pane.
+pub(crate) fn movable_process(
+    runner: &impl CommandRunner,
+    recorded: &ProcessIncarnation,
+    pane: u64,
+    deadline: Instant,
+    executable: &str,
+) -> Option<ProcessIncarnation> {
+    if recorded.pid() == pane {
+        return None;
+    }
+    let snapshot = query_ps(
+        runner,
+        &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+        deadline,
+        4 * 1024 * 1024,
+    )
+    .ok()?;
+    let text = std::str::from_utf8(&snapshot.stdout).ok()?;
+    let parsed = rows(text)?;
+    if Path::new(parsed.get(&recorded.pid())?.1).file_name()
+        != Some(std::ffi::OsStr::new(executable))
+    {
+        return None;
+    }
+    (classify_recorded(runner, text, recorded, pane, deadline) == RecordedRuntime::Main)
+        .then(|| recorded.clone())
+}
+
 /// Where a recorded runtime sits relative to its verified pane (#3919).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "#3919: the admission caller lands after #4046 and #3693"
-    )
-)]
 pub(crate) enum RecordedRuntime {
     /// No other built-in provider sits between it and the pane.
     Main,
@@ -113,13 +137,6 @@ pub(crate) enum RecordedRuntime {
 /// before `snapshot` was captured: an incarnation that still matches after it
 /// was then alive throughout, so the snapshot row for its PID is its own, not
 /// a reuser's. A reparenting during the read is not covered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "#3919: the admission caller lands after #4046 and #3693"
-    )
-)]
 pub(crate) fn classify_recorded(
     runner: &impl CommandRunner,
     snapshot: &str,
@@ -478,5 +495,43 @@ mod tests {
             Unknown
         );
         assert!(runner.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_move_proves_the_exact_main_driver_and_never_the_pane_or_a_nested_agent() {
+        use crate::scripted_runner::ScriptedRunner;
+        let runner = ScriptedRunner::new([Ok(DAEMON), Ok(LIVE)]);
+        assert_eq!(
+            movable_process(&runner, &recorded(20), 10, soon(), "claude"),
+            Some(recorded(20))
+        );
+        let runner = ScriptedRunner::new([Ok(DAEMON), Ok(LIVE)]);
+        assert_eq!(
+            movable_process(&runner, &recorded(40), 10, soon(), "claude"),
+            None
+        );
+        let runner = ScriptedRunner::new([]);
+        assert_eq!(
+            movable_process(&runner, &recorded(20), 20, soon(), "claude"),
+            None
+        );
+        assert!(runner.calls.borrow().is_empty());
+        let runner = ScriptedRunner::new([Ok(DAEMON)]);
+        assert_eq!(
+            movable_process(&runner, &recorded(20), 10, soon(), "codex"),
+            None
+        );
+        assert_eq!(runner.calls.borrow().len(), 1);
+        for answer in [
+            "Sun Sep 27 10:00:01 2026 S+\n",
+            "Sun Sep 27 10:00:00 2026 T+\n",
+            "busy\n",
+        ] {
+            let runner = ScriptedRunner::new([Ok(DAEMON), Ok(answer)]);
+            assert_eq!(
+                movable_process(&runner, &recorded(20), 10, soon(), "claude"),
+                None
+            );
+        }
     }
 }

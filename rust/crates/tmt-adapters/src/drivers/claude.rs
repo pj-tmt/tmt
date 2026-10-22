@@ -641,6 +641,22 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         crate::runtime::evidence::observe_main_in_pane(&runner, caller, pane, deadline, NAME)
     }
 
+    fn movable_process(
+        &self,
+        runner: &dyn crate::process::CommandRunner,
+        binding: &tmt_core::binding::Binding,
+        _preferences: &tmt_core::binding::session::SessionPreferences,
+        deadline: std::time::Instant,
+    ) -> Option<tmt_core::endpoint::ProcessIncarnation> {
+        crate::runtime::evidence::movable_process(
+            &runner,
+            &binding.session.key.as_ref()?.incarnation,
+            binding.pane_pid,
+            deadline,
+            NAME,
+        )
+    }
+
     fn mode(
         &self,
         _: crate::runtime::lifecycle::HostEvidence,

@@ -7,6 +7,8 @@
 // This fixture uses only the shared private command environment.
 #[path = "external_host/caller_session.rs"]
 mod caller_session;
+#[path = "external_host/move_session.rs"]
+mod move_session;
 #[path = "external_host/nested_host.rs"]
 mod nested_host;
 #[path = "external_host/nested_provider.rs"]
@@ -1966,6 +1968,7 @@ impl SteppedProvider {
         // `NAME=value` lines of `<i>.env` exported. With `hang`, it ignores
         // its stop file and SIGHUP, for a cleanup test.
         let script = "echo $$ > \"$1/provider.pid\"
+                 if [ -e \"$1/ignore-term\" ]; then trap 'printf \"TERM\\n\" >> \"$1/terms\"' TERM; fi
                  if [ -e \"$1/hang\" ]; then trap '' HUP
                    i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 0; fi
                  i=0; while :; do w=0

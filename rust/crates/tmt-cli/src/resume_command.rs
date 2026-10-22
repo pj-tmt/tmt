@@ -25,7 +25,7 @@ pub fn execute(
     show: bool,
     forget_launch: bool,
     forget: bool,
-    retry: bool,
+    resume: crate::run_command::Resume,
     options: tmt_adapters::runtime::launch_preset::LaunchSettings,
     channel: crate::invocation::ChannelMode,
 ) -> io::Result<u8> {
@@ -36,7 +36,7 @@ pub fn execute(
             return self::forget(name);
         }
         if !show && !forget_launch {
-            return crate::run_command::resume_with_options(name, retry, &options, channel);
+            return crate::run_command::resume_with_options(name, resume, &options, channel);
         }
     }
     let selected = (|| {
@@ -127,7 +127,7 @@ pub fn execute(
         }
         Ok((name, None)) if forget => self::forget(&name),
         Ok((name, None)) => {
-            crate::run_command::resume_with_options(&name, retry, &options, channel)
+            crate::run_command::resume_with_options(&name, resume, &options, channel)
         }
         Err(error) => error.publish(OutputMode::default()),
     }

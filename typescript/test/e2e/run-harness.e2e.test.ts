@@ -141,6 +141,120 @@ function userArgsWithLaunchHooks(argv: string[]): string[] {
 }
 
 describe('foreground identity launch', { concurrent: false }, () => {
+  it('moves an exact session only after its old agent ends and keeps both panes', async () => {
+    await withE2EFixture(async (fixture) => {
+      const source = fixture.createShellPane('move-source').pane;
+      const target = fixture.createShellPane('move-target').pane;
+      const session = '12345678-1234-4234-8234-123456789abc';
+      const oldScenario = path.join(fixture.root, 'move-old.json');
+      const newScenario = path.join(fixture.root, 'move-new.json');
+      const oldReady = path.join(fixture.root, 'move-old-ready');
+      const newReady = path.join(fixture.root, 'move-new-ready');
+      const oldRecord = path.join(fixture.root, 'move-old-record.json');
+      const launchProof = path.join(fixture.root, 'move-launch-proof.json');
+      const argsFile = path.join(fixture.root, 'move-args');
+      const newReport = path.join(fixture.root, 'move-new-report.json');
+      const oldStatus = path.join(fixture.root, 'move-old.status');
+      const newStatus = path.join(fixture.root, 'move-new.status');
+      const start = (kind: string) => ({
+        args: ['__hook', 'claude'],
+        input: { hook_event_name: 'SessionStart', session_id: session, source: kind },
+      });
+      writeFileSync(
+        oldScenario,
+        JSON.stringify([start('startup'), { checkpoint: oldReady, args: ['whoami', '--json'] }])
+      );
+      writeFileSync(
+        newScenario,
+        JSON.stringify([start('resume'), { checkpoint: newReady, args: ['whoami', '--json'] }])
+      );
+      const fake = path.join(fixture.wrapperDir, 'claude');
+      const checkOld = `const fs=require('node:fs');const {pid}=JSON.parse(fs.readFileSync(${JSON.stringify(oldRecord)},'utf8'));let live=false;try{const stat=fs.readFileSync('/proc/'+pid+'/stat','utf8');live=!['Z','X'].includes(stat.slice(stat.lastIndexOf(')')+2)[0]);}catch(error){if(error.code!=='ENOENT')throw error;}fs.writeFileSync(${JSON.stringify(launchProof)},JSON.stringify({oldPid:pid,oldLive:live}));if(live)process.exit(91);`;
+      writeExecutable(
+        fake,
+        `#!/bin/sh
+if [ "$1" = "--resume" ]; then
+  printf '%s\\0' "$@" > ${quote(argsFile)}
+  ${quote(process.execPath)} -e ${quote(checkOld)} || exit "$?"
+  exec /opt/tmt-tests/claude ${quote(fixture.executables.cli.executable)} ${quote(newScenario)} ${quote(newReport)}
+fi
+exec /opt/tmt-tests/claude "$@"
+`,
+        0o700
+      );
+      submit(
+        fixture,
+        source,
+        [
+          'run',
+          '--save',
+          '--no-channel',
+          'Mover',
+          fake,
+          fixture.executables.cli.executable,
+          oldScenario,
+          path.join(fixture.root, 'move-old-report.json'),
+        ],
+        oldStatus
+      );
+      await waitForFileContent(oldReady, {
+        description: 'old provider admitted its exact session',
+      });
+      const before = durableState(fixture);
+      const original = before.bindings.find((row) => row.pane_id === source)!;
+      expect(original.observed_provider_session_id).toBe(session);
+      expect(original.runtime_state).toBe('running');
+      expect(Number(original.runtime_pid)).toBeGreaterThan(0);
+      writeFileSync(oldRecord, JSON.stringify({ pid: Number(original.runtime_pid) }));
+      submit(fixture, target, ['resume', '--move', '--no-channel', 'Mover'], newStatus);
+      await waitForFileContent(newReady, {
+        description: 'moved provider admitted the same session',
+      });
+      expect(JSON.parse(readFileSync(launchProof, 'utf8'))).toEqual({
+        oldPid: Number(original.runtime_pid),
+        oldLive: false,
+      });
+      expect(readFileSync(argsFile, 'utf8').split('\0').slice(0, 2)).toEqual(['--resume', session]);
+      expect(
+        await waitForFileContent(oldStatus, {
+          description: 'old foreground wrapper reaped its agent',
+        })
+      ).toBe('143');
+      const after = durableState(fixture);
+      expect(after.identities).toEqual(before.identities);
+      expect(after.profiles).toEqual(before.profiles);
+      expect(after.metadata).toEqual(before.metadata);
+      expect(after.bindings).toHaveLength(1);
+      expect(after.bindings[0]).toMatchObject({
+        identity_id: original.identity_id,
+        pane_id: target,
+        observed_provider_session_id: session,
+        runtime_state: 'running',
+      });
+      expect(after.bindings[0].id).not.toBe(original.id);
+      expect(after.bindings[0].runtime_pid).not.toBe(original.runtime_pid);
+      for (const pane of [source, target]) {
+        expect(fixture.tmux(['display-message', '-p', '-t', pane, '#{pane_dead}']).trim()).toBe(
+          '0'
+        );
+      }
+      writeFileSync(newReady, 'continue');
+      expect(
+        await waitForFileContent(newStatus, { description: 'moved foreground wrapper exit' })
+      ).toBe('0');
+      const report = JSON.parse(readFileSync(newReport, 'utf8')) as Array<{
+        code: number;
+        stderr: string;
+        stdout: string;
+      }>;
+      expect(report.map((step) => [step.code, step.stderr])).toEqual([
+        [0, ''],
+        [0, ''],
+      ]);
+      expect(JSON.parse(report[1].stdout).id).toBe(original.identity_id);
+    });
+  });
+
   it('auto-names a launch, names the same live identity, and resumes its hook-recorded session', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('auto-run').pane;
