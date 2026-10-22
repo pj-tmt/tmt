@@ -422,6 +422,7 @@ body:not(:has(.tmt-ui-shell)) {
 }
 .digest-row {
   display: grid;
+  align-items: start;
   gap: var(--tmt-ui-space-xl);
   min-width: 0;
 }
@@ -534,6 +535,33 @@ body:not(:has(.tmt-ui-shell)) {
   width: 40%;
   text-align: left;
 }
+/* A seat name stays on one line; a long one ends in an ellipsis with the full name on hover. */
+.digest-seat {
+  display: block;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.digest-partial {
+  color: var(--tmt-ui-color-secondary);
+}
+.digest-more {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tmt-ui-color-link);
+  font: inherit;
+  cursor: pointer;
+}
+.digest-more:hover {
+  text-decoration: underline;
+}
+.digest-more:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: 2px;
+}
 .digest-gaps {
   display: grid;
   margin: 0;
@@ -579,12 +607,23 @@ body:not(:has(.tmt-ui-shell)) {
   .digest-row-burn {
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   }
+  /* One provider fills the row. */
+  .digest-row-providers:has(> .digest-card:only-child) {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 /* A provider card is wide enough for its figure beside its chart on a tablet and on a wide
    screen; between them two cards share the row, so the chart goes below the figure. */
 @media (min-width: 640px) and (max-width: 899px), (min-width: 1280px) {
   .digest-provider-body {
     grid-template-columns: minmax(9rem, 2fr) minmax(0, 3fr);
+  }
+}
+/* A lone provider card is the row's width: its figure stays beside its chart at any width from
+   tablet up. */
+@media (min-width: 640px) {
+  .digest-provider:only-child .digest-provider-body {
+    grid-template-columns: minmax(9rem, 1fr) minmax(0, 3fr);
   }
 }
 @media (max-width: 520px) {

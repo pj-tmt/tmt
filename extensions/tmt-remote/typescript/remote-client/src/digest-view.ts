@@ -83,6 +83,32 @@ export function rankRows(doc: UsageDocument): RankRow[] {
     .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
 }
 
+/** Seats the ranking lists before the rest fold into one row. */
+export const RANKING_KEPT = 8;
+
+export interface Ranking {
+  /** The leading seats, largest first. */
+  top: RankRow[];
+  /** Every seat after them, folded: null when none is left out. */
+  other: { seats: number; tokens: number; share: number } | null;
+  /** True when any seat, listed or folded, lacks evidence for part of the window. */
+  partial: boolean;
+}
+
+/** The ranking's top `kept` seats and one folded row for the rest. */
+export function ranking(rows: readonly RankRow[], kept = RANKING_KEPT): Ranking {
+  const rest = rows.slice(kept);
+  const total = rows.reduce((sum, row) => sum + row.tokens, 0);
+  const tokens = rest.reduce((sum, row) => sum + row.tokens, 0);
+  return {
+    top: rows.slice(0, kept),
+    other: rest.length
+      ? { seats: rest.length, tokens, share: total ? Math.round((tokens / total) * 100) : 0 }
+      : null,
+    partial: rows.some((row) => row.partial),
+  };
+}
+
 export interface Exchange {
   participants: { id: string; label: string }[];
   value: (from: string, to: string) => number | null;
@@ -123,6 +149,13 @@ export function exchange(doc: UsageDocument, limit = 8): Exchange | null {
   return { participants, value: (from, to) => pairs.get(`${from}>${to}`) ?? 0 };
 }
 
+/** Seats by tokens in the window, largest first (ties by name), as `rankRows` orders them. */
+function ranked(seats: readonly UsageSeat[]): UsageSeat[] {
+  return [...seats].sort(
+    (a, b) => tokensOf(b.totals) - tokensOf(a.totals) || seatName(a).localeCompare(seatName(b)),
+  );
+}
+
 export interface Activity {
   rows: { id: string; label: string; slots: (number | null)[] }[];
   /** The start of each slot, oldest first. */
@@ -140,7 +173,7 @@ const SLOTS: Record<string, { count: number; stepMs: number; slot: 'hour' | 'day
 /**
  * One slot per seat across the range, at the resolution the report carries: hourly for 24 h,
  * daily for 7d and 30d. The slots end at the newest bucket; one with no bucket is not observed
- * (null), never zero.
+ * (null), never zero. Seats come in the ranking's order: most tokens first.
  */
 export function activity(doc: UsageDocument): Activity | null {
   const shape = SLOTS[doc.since];
@@ -156,7 +189,7 @@ export function activity(doc: UsageDocument): Activity | null {
   return {
     starts,
     slot: shape.slot,
-    rows: doc.usage.seats.map((seat: UsageSeat) => {
+    rows: ranked(doc.usage.seats).map((seat: UsageSeat) => {
       const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
       return {
         id: seat.id,

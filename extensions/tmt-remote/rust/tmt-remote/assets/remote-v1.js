@@ -4224,6 +4224,21 @@ function rankRows(doc) {
 		share: total ? Math.round(row.tokens / total * 100) : 0
 	})).sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
 }
+/** The ranking's top `kept` seats and one folded row for the rest. */
+function ranking(rows, kept = 8) {
+	const rest = rows.slice(kept);
+	const total = rows.reduce((sum, row) => sum + row.tokens, 0);
+	const tokens = rest.reduce((sum, row) => sum + row.tokens, 0);
+	return {
+		top: rows.slice(0, kept),
+		other: rest.length ? {
+			seats: rest.length,
+			tokens,
+			share: total ? Math.round(tokens / total * 100) : 0
+		} : null,
+		partial: rows.some((row) => row.partial)
+	};
+}
 var COUNTED = /* @__PURE__ */ new Set(["talk", "reply"]);
 /**
 * Who talks to whom: only talk and reply count (an ack or a result is not a conversation),
@@ -4255,6 +4270,10 @@ function exchange(doc, limit = 8) {
 		value: (from, to) => pairs.get(`${from}>${to}`) ?? 0
 	};
 }
+/** Seats by tokens in the window, largest first (ties by name), as `rankRows` orders them. */
+function ranked(seats) {
+	return [...seats].sort((a, b) => tokensOf(b.totals) - tokensOf(a.totals) || seatName(a).localeCompare(seatName(b)));
+}
 var SLOTS = {
 	"24h": {
 		count: 24,
@@ -4275,7 +4294,7 @@ var SLOTS = {
 /**
 * One slot per seat across the range, at the resolution the report carries: hourly for 24 h,
 * daily for 7d and 30d. The slots end at the newest bucket; one with no bucket is not observed
-* (null), never zero.
+* (null), never zero. Seats come in the ranking's order: most tokens first.
 */
 function activity(doc) {
 	const shape = SLOTS[doc.since];
@@ -4286,7 +4305,7 @@ function activity(doc) {
 	return {
 		starts,
 		slot: shape.slot,
-		rows: doc.usage.seats.map((seat) => {
+		rows: ranked(doc.usage.seats).map((seat) => {
 			const byStart = new Map(seat.series.map((point) => [point.fromMs, point]));
 			return {
 				id: seat.id,
@@ -4537,8 +4556,16 @@ function tokensCard(doc, scale) {
 	});
 	return card("digest-tokens", "Token usage", [body], { actions: control });
 }
+/** A seat's name on one line, the full name on hover, `*` after a partial one. */
+function seatLabel(name, partial) {
+	const node = el("span", "digest-seat", name);
+	node.title = partial ? `${name} (partial)` : name;
+	if (partial) node.append(el("span", "digest-partial", "*"));
+	return node;
+}
 function rankingCard(doc) {
 	const rows = rankRows(doc);
+	const view = ranking(rows);
 	const hue = new Map(topLayers(tokenSeries(doc).layers, SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at]));
 	const largest = Math.max(1, ...rows.map((entry) => entry.tokens));
 	const bar = (id, tokens) => {
@@ -4547,17 +4574,49 @@ function rankingCard(doc) {
 		node.setAttribute("aria-hidden", "true");
 		return node;
 	};
-	return card("digest-ranking", `Last ${doc.since} by seat`, rows.length ? [table([
-		"Seat",
-		"",
-		"Tokens",
-		"Share"
-	], rows.map((entry) => [
-		entry.partial ? `${entry.name} (partial)` : entry.name,
-		bar(entry.id, entry.tokens),
-		compactCount(entry.tokens),
-		`${entry.share}%`
-	]))] : [el("p", "usage-note", "No seat has token observations in this range.")]);
+	if (!rows.length) return card("digest-ranking", `Last ${doc.since} by seat`, [el("p", "usage-note", "No seat has token observations in this range.")]);
+	const host = el("div", "digest-ranking-table");
+	host.id = "digest-ranking-rows";
+	const draw = (all) => {
+		const lines = (all ? rows : view.top).map((entry) => [
+			seatLabel(entry.name, entry.partial),
+			bar(entry.id, entry.tokens),
+			compactCount(entry.tokens),
+			`${entry.share}%`
+		]);
+		if (!all && view.other) lines.push([
+			seatLabel(`Other (${view.other.seats} seats)`, false),
+			"",
+			compactCount(view.other.tokens),
+			`${view.other.share}%`
+		]);
+		host.replaceChildren(table([
+			"Seat",
+			"",
+			"Tokens",
+			"Share"
+		], lines));
+	};
+	draw(false);
+	const body = [host];
+	if (view.partial) body.push(el("p", "usage-note", "* Partial: some of this range has no data for the seat."));
+	if (view.other) {
+		const toggle = el("button", "digest-more");
+		toggle.type = "button";
+		toggle.setAttribute("aria-controls", host.id);
+		const sync = (all) => {
+			toggle.setAttribute("aria-expanded", String(all));
+			toggle.textContent = all ? `Show top ${view.top.length}` : `Show all ${rows.length} seats`;
+		};
+		sync(false);
+		toggle.addEventListener("click", () => {
+			const all = toggle.getAttribute("aria-expanded") !== "true";
+			draw(all);
+			sync(all);
+		});
+		body.push(toggle);
+	}
+	return card("digest-ranking", `Last ${doc.since} by seat`, body);
 }
 function activityCard(doc) {
 	const view = activity(doc);
