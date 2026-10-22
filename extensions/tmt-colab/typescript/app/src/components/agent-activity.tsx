@@ -9,6 +9,7 @@ import {
   sentenceCase,
   type MessageStateName,
   type MessageStates,
+  type ObservedMessageState,
 } from '../message-state.js';
 import { text } from '../strings.js';
 import { AgentChip, AgentChipActivity } from './agent-chip.js';
@@ -98,6 +99,23 @@ function DashedCircle() {
   return <CircleDashed className="agent-activity-dashed" />;
 }
 
+/** Core's wording of the message, unless a Send now is under way or came to nothing (#4136): that
+ * replaces it while the message is in the state the press was made in. */
+function stateWording(shared: ObservedMessageState): string {
+  const progress = shared.sendNow;
+  if (progress?.phase === 'sending') return text.sendNowSending;
+  if (progress?.phase === 'outcome') {
+    if (progress.outcome === 'unconfirmed') return text.sendNowUnconfirmed;
+    if (progress.outcome === 'unavailable') return text.sendNowUnavailable;
+    const known =
+      progress.reason !== undefined && Object.hasOwn(text.sendNowReasons, progress.reason);
+    return known
+      ? text.sendNowNotSent(text.sendNowReasons[progress.reason!])
+      : text.sendNowRefusedUnknown;
+  }
+  return sentenceCase(shared.reason.text);
+}
+
 /** Delivery outcomes stay in AskPanel; this line never changes the signed ledger. When Core has
  * given the state of the message (#4317) the line draws it: Core's wording, one symbol, and the
  * countdown of a batched message. Without it the line is the agent's own activity. */
@@ -107,24 +125,35 @@ export function AgentActivityLine({ record }: { record: PageAsk }) {
   const name = record.agentName || text.askAgentLabel;
   const shared = messages?.[record.operationId];
   if (shared) {
-    const remaining = shared.state === 'batched' ? remainingAt(shared, now) : null;
+    const progress = shared.sendNow;
+    const sending = progress?.phase === 'sending';
+    const unconfirmed = progress?.phase === 'outcome' && progress.outcome === 'unconfirmed';
+    const remaining =
+      shared.state === 'batched' && !sending && !unconfirmed ? remainingAt(shared, now) : null;
     return (
       <span className="agent-activity" data-message-state={shared.state}>
-        {shared.state === 'working' ? (
+        {sending || shared.state === 'working' ? (
           <BusyMark className="agent-activity-spinner" />
         ) : (
           <span className="agent-activity-mark" aria-hidden>
-            {MARKS[shared.state]}{' '}
+            {unconfirmed ? MARKS.unconfirmed : MARKS[shared.state]}{' '}
           </span>
         )}
-        {sentenceCase(shared.reason.text)}
+        {stateWording(shared)}
         {remaining !== null && (
-          // The countdown moves to the next line whole, never split inside "in 2:30".
-          <span className="agent-activity-clock"> · {text.messageStateIn(clock(remaining))}</span>
+          // The countdown moves to the next line whole, never split inside "in 2:30", and is not
+          // read out: only a change of the state is announced, not every second of it.
+          <span className="agent-activity-clock" aria-hidden="true">
+            {' '}
+            · {text.messageStateIn(clock(remaining))}
+          </span>
         )}
-        {shared.state === 'working' &&
-          activity?.kind === 'working' &&
-          ` · ${duration(activity.elapsedMs, true)}`}
+        {shared.state === 'working' && !sending && activity?.kind === 'working' && (
+          <span className="agent-activity-elapsed" aria-hidden="true">
+            {' '}
+            · {duration(activity.elapsedMs, true)}
+          </span>
+        )}
       </span>
     );
   }

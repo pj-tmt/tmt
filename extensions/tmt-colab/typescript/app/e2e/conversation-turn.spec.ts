@@ -1061,8 +1061,11 @@ for (const surface of ['chat', 'thread'] as const)
         await expect(line.locator('.agent-activity-spinner')).toHaveCount(
           state.state === 'working' ? 1 : 0,
         );
-        // Core's wording is drawn as text and no button is offered by this state: Send now is #4136.
-        await expect(window.getByRole('button', { name: /send now/i })).toHaveCount(0);
+        // Core's wording is drawn as text; the one action beside it is Send now, and only when Core
+        // says the message may be sent now (#4136).
+        await expect(window.getByRole('button', { name: /send now/i })).toHaveCount(
+          state.canSendNow ? 1 : 0,
+        );
         const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
         if (captures) {
           mkdirSync(captures, { recursive: true });
@@ -1097,6 +1100,251 @@ for (const surface of ['chat', 'thread'] as const)
       await run(page, 'conversationMessageState', {});
       await expect(status).toHaveText('Sent');
       expect(await run(page, 'proof')).toEqual(before);
+    });
+
+// Send now (#4136): the button is Core's answer (`canSendNow`) and nothing else, one ask per press.
+const asked = (code: string) => ({
+  state: 'batched',
+  reason: {
+    code: 'held_to_save_usage',
+    text: 'batched to save usage, sends when the agent finishes this turn',
+  },
+  latestMs: 1_700_000_150_000,
+  remainingMs: 151_000,
+  canSendNow: code === 'sendable',
+});
+const sendNowButton = (window: Locator) =>
+  window.getByRole('button', { name: /^(Send now|Try again)$/ });
+for (const surface of ['chat', 'thread'] as const)
+  test(`Send now is offered only when Core says the message may be sent now: ${surface}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mount(page, surface);
+    const window =
+      surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+    for (const [state, offered] of [
+      [core('sent', 'waiting_for_delivery', 'waiting for delivery', { canSendNow: true }), true],
+      [asked('sendable'), true],
+      [
+        core('not_sent', 'unreachable', 'not sent, the agent could not be reached', {
+          canSendNow: true,
+        }),
+        true,
+      ],
+      // Core says no: delivered, working, unconfirmed, and any device that is not the owner's.
+      [core('delivered', 'reached_the_agent', 'delivered'), false],
+      [core('working', 'agent_working', 'the agent has started on it'), false],
+      [
+        core(
+          'unconfirmed',
+          'handed_over',
+          'handed to the agent, delivery unconfirmed, do not resend',
+        ),
+        false,
+      ],
+      [core('sent', 'waiting_for_delivery', 'waiting for delivery', { canSendNow: false }), false],
+      [asked('not-owner'), false],
+    ] as const) {
+      await run(page, 'conversationMessageState', { state });
+      await expect(window.getByTestId('ask-state')).toContainText(
+        state.reason.text.slice(0, 1).toUpperCase() + state.reason.text.slice(1, 12),
+      );
+      await expect(sendNowButton(window)).toHaveCount(offered ? 1 : 0);
+    }
+    // No state at all (an older Remote): the line it always was, and no button.
+    await run(page, 'conversationMessageState', {});
+    await expect(window.getByTestId('ask-state')).toHaveText('Sent');
+    await expect(sendNowButton(window)).toHaveCount(0);
+  });
+
+for (const surface of ['chat', 'thread'] as const)
+  test(`Send now never appears beside Colab's own approval hold: ${surface}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mount(page, surface, 'held');
+    const window =
+      surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+    await expect(window.getByTestId('ask-state')).toContainText(text.askApproval);
+    // Even a state that says the message may be sent now does not shorten an approval hold.
+    await run(page, 'conversationMessageState', { state: asked('sendable') });
+    await expect(window.getByTestId('ask-state')).toContainText(text.askApproval);
+    await expect(sendNowButton(window)).toHaveCount(0);
+    expect(await run(page, 'proof')).toMatchObject({ actions: [] });
+  });
+
+for (const surface of ['chat', 'thread'] as const)
+  test(`one press asks once and holds the button until it is over: ${surface}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mount(page, surface);
+    const window =
+      surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+    await run(page, 'conversationMessageState', { state: asked('sendable') });
+    const button = window.getByRole('button', { name: text.sendNow });
+    await expect(button).toBeEnabled();
+    await run(page, 'holdSendNow');
+    await button.click();
+    await expect(button).toBeDisabled();
+    // A second press while it is in flight asks nobody.
+    await button.click({ force: true });
+    await button.press('Enter', { noWaitAfter: true }).catch(() => {});
+    let proof = (await run(page, 'proof')) as { actions: string[] };
+    expect(proof.actions.filter((action) => action.startsWith('sendNow:'))).toHaveLength(1);
+    await run(page, 'finishSendNow');
+    await expect(button).toBeEnabled();
+    proof = (await run(page, 'proof')) as { actions: string[] };
+    expect(proof.actions.filter((action) => action.startsWith('sendNow:'))).toHaveLength(1);
+  });
+
+for (const surface of ['chat', 'thread'] as const)
+  test(`what a Send now came to is drawn from Core's code, as text: ${surface}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mount(page, surface);
+    const window =
+      surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+    const status = window.getByTestId('ask-state');
+    const show = (sendNow: unknown) =>
+      run(page, 'conversationMessageState', { state: asked('sendable'), sendNow });
+    // On its way: the line says so, with the spinner, and the button is disabled.
+    await show({ phase: 'sending' });
+    await expect(status).toHaveText(text.sendNowSending);
+    await expect(status.locator('.agent-activity-spinner')).toHaveCount(1);
+    await expect(window.getByRole('button', { name: text.sendNow })).toBeDisabled();
+    // Core refused: its reason (the approved sentence of each code), the button as Try again,
+    // Check again beside it.
+    for (const [reason, sentence] of [
+      ['SEND_NOW_UNREACHABLE', 'Could not send now: the agent could not be reached'],
+      [
+        'DELIVERY_AWAITING_APPROVAL',
+        'Could not send now: the agent is waiting for approval on its machine',
+      ],
+      ['DELIVERY_CHANNEL_UNAVAILABLE', "Could not send now: the agent's channel is not available"],
+      [
+        'SEND_NOW_NOT_AVAILABLE',
+        'Could not send now: sending early is not available for it right now',
+      ],
+      [
+        'SEND_NOW_CLOSED',
+        'Could not send now: it already has an answer, or was withdrawn or expired',
+      ],
+      ['SEND_NOW_NOT_APPLICABLE', 'Could not send now: it is not waiting in a batch'],
+      ['SEND_NOW_NOT_ALLOWED', 'Could not send now: only the person who sent it can send it early'],
+      [
+        'SEND_NOW_UNCONFIRMED',
+        'Could not send now: an earlier delivery is unconfirmed, do not resend',
+      ],
+      ['REMOTE_SCOPE_DENIED', 'Could not send now: this device may not send it early'],
+      // A code a newer Core adds, a code that is not one, and none: never the bare code.
+      ['A_CODE_FROM_A_NEWER_CORE', 'Could not send now. It stays batched.'],
+      ['constructor', 'Could not send now. It stays batched.'],
+      [undefined, 'Could not send now. It stays batched.'],
+    ] as const) {
+      await show({ phase: 'outcome', outcome: 'refused', ...(reason ? { reason } : {}) });
+      await expect(status).toContainText(sentence);
+      await expect(status).not.toContainText('Batched to save usage');
+      await expect(status).not.toContainText(reason ?? 'SEND_NOW_');
+      await expect(window.getByRole('button', { name: text.sendNowTryAgain })).toBeEnabled();
+      await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(1);
+    }
+    // It may have been typed: no button to ask again, Check again stays.
+    await show({ phase: 'outcome', outcome: 'unconfirmed' });
+    await expect(status).toContainText(text.sendNowUnconfirmed);
+    await expect(sendNowButton(window)).toHaveCount(0);
+    await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(1);
+    // Remote could not ask or answer: nothing typed, so it can be tried again.
+    await show({ phase: 'outcome', outcome: 'unavailable' });
+    await expect(status).toContainText('Your machine did not answer. Nothing was sent.');
+    await expect(window.getByRole('button', { name: text.sendNowTryAgain })).toBeEnabled();
+    // The outcome goes with the state it was reported for.
+    await run(page, 'conversationMessageState', {
+      state: core('delivered', 'reached_the_agent', 'delivered'),
+    });
+    await expect(status).toContainText('Delivered');
+    await expect(sendNowButton(window)).toHaveCount(0);
+  });
+
+// Captures for the look (#4136), written only when asked for: a batched message with Send now, in
+// flight, after the state is read again, refused with its reason, possibly typed, and unanswered.
+for (const surface of ['chat', 'thread'] as const)
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const)
+      test(`Send now looks: ${surface} ${width} ${theme}`, async ({ page }) => {
+        const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
+        test.skip(!captures, 'captures are written only when COLAB_ACTIVITY_CAPTURE_DIR is set');
+        mkdirSync(captures!, { recursive: true });
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'no-preference' });
+        await mount(page, surface);
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        const window =
+          surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+        const status = window.getByTestId('ask-state');
+        for (const [name, progress, state] of [
+          ['batched', undefined, asked('sendable')],
+          ['in-flight', { phase: 'sending' }, asked('sendable')],
+          ['after-success', undefined, core('delivered', 'reached_the_agent', 'delivered')],
+          [
+            'refused',
+            { phase: 'outcome', outcome: 'refused', reason: 'SEND_NOW_UNREACHABLE' },
+            asked('sendable'),
+          ],
+          ['maybe-sent', { phase: 'outcome', outcome: 'unconfirmed' }, asked('sendable')],
+          ['unanswered', { phase: 'outcome', outcome: 'unavailable' }, asked('sendable')],
+        ] as const) {
+          await run(page, 'conversationMessageState', { state, sendNow: progress });
+          await expect(status).toBeVisible();
+          await page.screenshot({
+            path: `${captures}/send-now-${surface}-${width}-${theme}-${name}.png`,
+          });
+        }
+      });
+
+// The countdown and the elapsed time tick every second; only a change of state is announced.
+test('the ticking clocks of a state line are hidden from the live region', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mount(page, 'chat');
+  const window = page.getByTestId('chat-panel');
+  await run(page, 'conversationMessageState', { state: asked('sendable') });
+  const status = window.getByTestId('ask-state');
+  await expect(status).toHaveAttribute('role', 'status');
+  await expect(status.locator('.agent-activity-clock')).toHaveAttribute('aria-hidden', 'true');
+  await run(page, 'conversationActivity', { kind: 'working', ageMs: 75_000 });
+  await run(page, 'conversationMessageState', {
+    state: core('working', 'agent_working', 'the agent has started on it'),
+  });
+  await expect(status.locator('.agent-activity-elapsed')).toHaveAttribute('aria-hidden', 'true');
+  await expect(status.locator('.agent-activity-elapsed')).toContainText(/· \d+:\d\d/);
+});
+
+// A batched message with Send now keeps a 44 px target at 390, and sits after the countdown.
+for (const surface of ['chat', 'thread'] as const)
+  for (const width of [1440, 390])
+    test(`Send now is a 44 px target on the line, after the countdown: ${surface} ${width}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mount(page, surface);
+      const window =
+        surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+      await run(page, 'conversationMessageState', { state: asked('sendable') });
+      const [clock, send, check] = await Promise.all(
+        [
+          window.getByTestId('ask-state').locator('.agent-activity-clock'),
+          window.getByRole('button', { name: text.sendNow }),
+          window.getByRole('button', { name: text.askRecheck }),
+        ].map((locator) => locator.boundingBox()),
+      );
+      if (width === 390) expect(send!.height).toBeGreaterThanOrEqual(44);
+      expect(send!.x).toBeGreaterThanOrEqual(clock!.x + clock!.width);
+      expect(check!.x).toBeGreaterThanOrEqual(send!.x + send!.width);
+      expect(Math.abs(send!.y + send!.height / 2 - (clock!.y + clock!.height / 2))).toBeLessThan(
+        send!.height / 2,
+      );
     });
 
 // A batched line runs to several lines in a narrow Chat; the control follows its last word.

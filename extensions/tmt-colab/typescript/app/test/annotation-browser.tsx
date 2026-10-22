@@ -320,6 +320,7 @@ export function mount(
         };
       },
       async recheck() {},
+      async sendNow() {},
       async abandon() {},
     });
     const [binding, setBinding] = useState<AskBinding>(makeBinding);

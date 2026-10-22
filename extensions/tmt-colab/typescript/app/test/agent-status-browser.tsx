@@ -102,6 +102,9 @@ function client(replacement = false): AskBinding {
     async recheck() {
       ledgerActions++;
     },
+    async sendNow() {
+      ledgerActions++;
+    },
     async abandon() {
       ledgerActions++;
     },

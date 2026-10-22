@@ -37,6 +37,7 @@ export async function fixtureAttempt(
     send: (input) => remote.send(input),
     operation: (id) => remote.operation(id),
     result: (id) => remote.result(id),
+    sendNow: (id) => remote.sendNow(id),
   };
   const keys = await deviceKeys(captured.senderDevice);
   const storageKey = `test:ask-own:${captured.space}:${captured.page}:${captured.senderDevice}`;

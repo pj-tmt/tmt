@@ -131,6 +131,24 @@ export type ResultState =
   | { state: 'pending'; requestId: string; messageState?: MessageState }
   | { state: 'replied'; requestId: string; message: string }
   | { state: 'unavailable'; requestId: string; reason?: string };
+/** What Remote answers to a Send now ask (#4136), exactly as its SDK verified it. `sent`: Core typed
+ * the message; `already`: it had reached the agent and nothing was typed again; `refused` and
+ * `unavailable`: nothing was typed; `unconfirmed`: it may have been, so read the result before any
+ * other ask. `reason` is Core's code, and `messageState` the state read back after the ask. */
+export const SEND_NOW_STATES = [
+  'sent',
+  'already',
+  'refused',
+  'unconfirmed',
+  'unavailable',
+] as const;
+export interface SendNowReply {
+  state: (typeof SEND_NOW_STATES)[number];
+  reason?: string;
+  messageState?: MessageState;
+}
+/** Core's fault codes are upper-case words (`SEND_NOW_UNREACHABLE`, `DELIVERY_AWAITING_APPROVAL`). */
+const SEND_NOW_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
 export interface RemoteContext {
   machineId: string;
   deviceId: string;
@@ -145,6 +163,8 @@ export interface RemoteClient {
   send(input: SendInput): Promise<SendState>;
   operation(operationId: string): Promise<SendState>;
   result(requestId: string): Promise<ResultState>;
+  /** Asks Core, through Remote, to type a message of this device now. Never retried by Colab. */
+  sendNow(requestId: string): Promise<SendNowReply>;
 }
 /** The served Remote SDK owns credentials, sequence and response verification.
  * Colab consumes its public helper; it never signs raw Remote envelopes. */
@@ -162,6 +182,13 @@ export interface OperationsSdk {
       | { state: 'replied'; requestId?: string; message: string }
       | { state: 'unavailable'; requestId?: string; reason?: string }
     >;
+    /** Absent from an SDK older than Remote's send-now carriage (#4378): the ask is `unavailable`. */
+    sendNow?(requestId: string): Promise<{
+      state: string;
+      requestId?: string;
+      reason?: string;
+      messageState?: unknown;
+    }>;
     listAgents(): Promise<
       {
         id: string;
@@ -395,6 +422,34 @@ export async function createRemoteClient(
       // does not parse is no state: the ask shows what it showed without it.
       const messageState = parseMessageState(result.messageState);
       return { state: 'pending', requestId: id, ...(messageState ? { messageState } : {}) };
+    },
+    sendNow: async (id) => {
+      requestId(id);
+      if (typeof ops.sendNow !== 'function') return { state: 'unavailable' };
+      let reply: Awaited<ReturnType<NonNullable<typeof ops.sendNow>>>;
+      try {
+        reply = await observe(() => ops.sendNow!(id));
+      } catch (error) {
+        // The session ending is the session's to handle; a refusal Remote signed typed nothing;
+        // anything else (a timeout, a closed socket, an unreadable answer) may have reached Core.
+        if (error instanceof SessionEndedError || error instanceof SessionEvictedError) throw error;
+        if (error instanceof ReadRefusedError) return { state: 'refused', reason: error.code };
+        return { state: 'unconfirmed' };
+      }
+      const known = SEND_NOW_STATES.find((state) => state === reply?.state);
+      // Whatever the reply carries beyond Core's code and state is display only: not a code, or not
+      // a state, is not shown. A state this client does not know may have typed, so it is never
+      // read as `sent` or as `refused`.
+      const reason =
+        typeof reply?.reason === 'string' && SEND_NOW_CODE.test(reply.reason)
+          ? reply.reason
+          : undefined;
+      const messageState = parseMessageState(reply?.messageState);
+      return {
+        state: known ?? 'unconfirmed',
+        ...(reason ? { reason } : {}),
+        ...(messageState ? { messageState } : {}),
+      };
     },
   };
 }

@@ -335,6 +335,13 @@ export class LiveAsk implements AskBinding {
     await controller.recover(operationId);
     this.options.observe?.();
   }
+  async sendNow(operationId: string): Promise<void> {
+    requireValue(!this.#closed);
+    const controller = this.#controller;
+    await this.#admit();
+    await controller.sendNow(operationId);
+    this.options.observe?.();
+  }
   async abandon(operationId: string): Promise<void> {
     requireValue(!this.#closed);
     const controller = this.#controller;
