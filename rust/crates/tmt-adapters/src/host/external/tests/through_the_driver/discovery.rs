@@ -329,7 +329,7 @@ fn a_caller_search_past_its_deadline_runs_no_driver() {
 }
 
 #[test]
-fn implicit_selection_refuses_a_gap_host_several_hosts_or_no_registry() {
+fn implicit_selection_refuses_a_lone_gap_host_several_hosts_or_no_registry() {
     use crate::driver_protocol::registry::{Admitted, Gap};
     use crate::host::{CallerEnvironment, Unselectable};
     let installed = Installed::new("fake", answers("fake", "fake-", Some("f{n}")));
@@ -356,15 +356,21 @@ fn implicit_selection_refuses_a_gap_host_several_hosts_or_no_registry() {
         gaps: vec![gap("herdr", "HERDR_PANE_ID")],
         ..Admitted::default()
     };
-    // A gap host named alone, or nested in tmux: that gap, with no fallback.
-    for tmux in [false, true] {
-        assert_eq!(
-            environment(tmux, &["HERDR_PANE_ID"]).unselectable(&only_gap),
-            Some(Unselectable::Gap(&only_gap.gaps[0]))
-        );
-    }
-    // Not named: ordinary selection.
+    // A gap host named alone: that gap, with no fallback.
+    let alone = environment(false, &["HERDR_PANE_ID"]);
+    assert_eq!(
+        alone.unselectable(&only_gap),
+        Some(Unselectable::Gap(&only_gap.gaps[0]))
+    );
+    assert_eq!(alone.gap_beside_tmux(&only_gap), None);
+    // Nested in tmux: ordinary selection keeps tmux, and the gap is reported
+    // beside it.
+    let nested = environment(true, &["HERDR_PANE_ID"]);
+    assert_eq!(nested.unselectable(&only_gap), None);
+    assert_eq!(nested.gap_beside_tmux(&only_gap), Some(&only_gap.gaps[0]));
+    // Not named: ordinary selection, and no gap.
     assert_eq!(environment(true, &[]).unselectable(&only_gap), None);
+    assert_eq!(environment(true, &[]).gap_beside_tmux(&only_gap), None);
     let both = Admitted {
         records: vec![record.clone()],
         gaps: vec![gap("herdr", "HERDR_PANE_ID")],
@@ -374,16 +380,23 @@ fn implicit_selection_refuses_a_gap_host_several_hosts_or_no_registry() {
         environment(false, &["FAKE_PANE_ID"]).unselectable(&both),
         None
     );
-    assert_eq!(
-        environment(false, &["FAKE_PANE_ID", "HERDR_PANE_ID"]).unselectable(&both),
-        Some(Unselectable::Ambiguous(vec!["fake", "herdr"]))
-    );
+    // Several hosts stay ambiguous, with tmux or without it.
+    for tmux in [false, true] {
+        let several = environment(tmux, &["FAKE_PANE_ID", "HERDR_PANE_ID"]);
+        assert_eq!(
+            several.unselectable(&both),
+            Some(Unselectable::Ambiguous(vec!["fake", "herdr"]))
+        );
+        assert_eq!(several.gap_beside_tmux(&both), None);
+    }
     let unreadable = Admitted {
         unreadable: Some("bad registry".into()),
         ..Admitted::default()
     };
-    assert_eq!(
-        environment(false, &[]).unselectable(&unreadable),
-        Some(Unselectable::RegistryUnreadable)
-    );
+    for tmux in [false, true] {
+        assert_eq!(
+            environment(tmux, &[]).unselectable(&unreadable),
+            Some(Unselectable::RegistryUnreadable)
+        );
+    }
 }

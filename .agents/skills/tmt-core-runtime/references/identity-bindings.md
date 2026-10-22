@@ -43,8 +43,9 @@ without initializing a server marker, and `host::external::discovery` reads a
 driver's `server` and `snapshot`; each makes one batched native-start
 observation. `registry::admitted_read_only` reads the approvals once per
 discovery or guarded add, never adopting, probing or locking: an approval it
-cannot use is a gap, whose caller variables only make implicit selection
-refuse. `storage::discovery` reads only the existing schema/rows, without
+cannot use is a gap, whose driver never runs: its caller variables alone make
+implicit selection refuse, and with tmux variables the gap is reported beside
+the tmux scan. `storage::discovery` reads only the existing schema/rows, without
 reconciliation, creation or migration, and an external host's server ID comes
 from the recorded `host_servers` row. Unknown markers and conflicting rows
 supply no adoption authority.

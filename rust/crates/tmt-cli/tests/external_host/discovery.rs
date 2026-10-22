@@ -193,13 +193,19 @@ fn an_unapproved_or_outdated_driver_is_unsupported_and_never_called() {
     assert_eq!(fixture.calls(), ["capabilities"]);
 }
 
-/// A `tmux` on PATH that only logs its arguments and fails.
+/// A `tmux` on PATH that logs its arguments and fails, except that it
+/// answers `list-panes` with the `panes` file beside it, when there is one.
 fn tmux_shim(fixture: &Fixture) -> PathBuf {
     let bin = fixture.root.join("shim");
     fs::create_dir_all(&bin).unwrap();
     tmt_test_support::write_executable(
         &bin.join("tmux"),
-        b"#!/bin/sh\nprintf 'call %s %s %s %s\\n' \"$1\" \"$2\" \"$3\" \"$4\" >> \"$(dirname \"$0\")/log\"\nexit 1\n",
+        br#"#!/bin/sh
+d=$(dirname "$0")
+printf 'call %s %s %s %s\n' "$1" "$2" "$3" "$4" >> "$d/log"
+case " $* " in *" list-panes "*) if [ -f "$d/panes" ]; then cat "$d/panes"; exit 0; fi ;; esac
+exit 1
+"#,
         0o755,
     )
     .unwrap();
@@ -238,14 +244,14 @@ fn implicit_discovery_in_a_gap_hosts_pane_runs_nothing() {
     let record = fixture.approve();
     approvals(&fixture, &[first_party(record)]);
     let before = fs::read(registry_file(&fixture)).unwrap();
-    let gap = json!([{"host": "fake", "socket": null, "status": "unsupported",
-        "reason": "driver_not_shipped"}]);
-    // In the gap host's pane, alone or nested in tmux: no tmux fallback.
-    for nested in [false, true] {
-        let document = shimmed(&fixture, nested, &["discover", "--json"]);
-        assert_eq!(document["sources"], gap, "nested: {nested}");
-        assert_eq!(document["candidates"], json!([]));
-    }
+    // In the gap host's pane, with no tmux variables: no tmux fallback.
+    let document = shimmed(&fixture, false, &["discover", "--json"]);
+    assert_eq!(
+        document["sources"],
+        json!([{"host": "fake", "socket": null, "status": "unsupported",
+            "reason": "driver_not_shipped"}])
+    );
+    assert_eq!(document["candidates"], json!([]));
     approvals_untouched(&fixture, &before);
     assert_eq!(fixture.calls(), ["capabilities"]);
     assert!(shim_log(&fixture).is_empty());
@@ -269,6 +275,47 @@ fn implicit_discovery_in_a_gap_hosts_pane_runs_nothing() {
         shim_log(&fixture),
         [format!("call -u -S {socket} list-panes")]
     );
+}
+
+#[test]
+fn implicit_discovery_in_tmux_inside_a_gap_host_scans_tmux_and_reports_the_gap() {
+    let fixture = Fixture::new("discover-nested-gap");
+    let record = fixture.approve();
+    approvals(&fixture, &[first_party(record)]);
+    let before = fs::read(registry_file(&fixture)).unwrap();
+    // One tmux pane, whose server and shell are this test process.
+    let socket = fixture.root.join("tmux/nest");
+    let pid = std::process::id();
+    fs::write(
+        tmux_shim(&fixture).join("panes"),
+        format!(
+            "{}\t{pid}\t\t%1\t{pid}\tmain\t0\t0\tshell\tsh\t/src\t\tstart\n",
+            socket.display()
+        ),
+    )
+    .unwrap();
+    let document = shimmed(&fixture, true, &["discover", "--json"]);
+    // The ordinary tmux scan, and the gap host as its own source.
+    assert_eq!(
+        document["sources"],
+        json!([
+            {"host": "tmux", "socket": socket, "status": "ok", "reason": null},
+            {"host": "fake", "socket": null, "status": "unsupported",
+                "reason": "driver_not_shipped"}
+        ]),
+        "{document:#}"
+    );
+    let candidates = document["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), 1, "{document:#}");
+    assert_eq!(candidates[0]["host"], "tmux");
+    assert_eq!(candidates[0]["pane"], "%1");
+    assert_eq!(document["truncated"], false);
+    // The gap host's driver never runs; tmux is listed once.
+    assert_eq!(fixture.calls(), ["capabilities"]);
+    let log = shim_log(&fixture);
+    assert_eq!(log.len(), 1, "{log:?}");
+    assert!(log[0].contains("list-panes"), "{log:?}");
+    approvals_untouched(&fixture, &before);
 }
 
 #[test]

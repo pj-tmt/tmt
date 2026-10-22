@@ -39,10 +39,10 @@ struct Refusal {
     reason: &'static str,
 }
 
-/// What selection chose: a host to observe, or the sources a scan reports
-/// instead.
+/// What selection chose: a host to observe, with any gap host reported
+/// beside it, or the sources a scan reports instead.
 enum Selected<R> {
-    Host(Box<Host<R>>),
+    Host(Box<Host<R>>, Option<Refusal>),
     Refused(Refusal),
 }
 
@@ -50,9 +50,10 @@ enum Selected<R> {
 /// affected by driver approvals. An explicit external host runs only its
 /// admitted driver, on the caller's own server of that host when no socket
 /// is given. Implicit selection refuses, running nothing, when the caller's
-/// host cannot be known without a driver it must not run. Finding the
-/// caller's pane spends at most 1 s of the scan; a read that fails to clean
-/// up is an error, and nothing is observed.
+/// host cannot be known without a driver it must not run; tmux inside a gap
+/// host is scanned as usual, with the gap host reported beside it. Finding
+/// the caller's pane spends at most 1 s of the scan; a read that fails to
+/// clean up is an error, and nothing is observed.
 fn select<R: CommandRunner + Clone>(
     runner: R,
     selected_host: Option<&str>,
@@ -72,18 +73,23 @@ fn select<R: CommandRunner + Clone>(
     let within = deadline.min(Instant::now() + Duration::from_secs(1));
     Ok(match selected_host {
         Some(name) if name == HostKind::Tmux.as_str() => {
-            Selected::Host(Box::new(Host::for_caller_with(caller, runner)))
+            Selected::Host(Box::new(Host::for_caller_with(caller, runner)), None)
         }
-        None if socket.is_some() => Selected::Host(Box::new(Host::for_caller_with(caller, runner))),
+        None if socket.is_some() => {
+            Selected::Host(Box::new(Host::for_caller_with(caller, runner)), None)
+        }
         Some(name) => {
             let host = HostName::new(name)
                 .filter(|_| admitted.records.iter().any(|record| record.name == name));
             if let Some(host) = host {
                 let host = HostKind::External(host);
-                return Ok(Selected::Host(Box::new(match socket {
-                    Some(_) => Host::for_host(host, runner, records()),
-                    None => Host::for_selected_host(host, caller, runner, records(), within)?,
-                })));
+                return Ok(Selected::Host(
+                    Box::new(match socket {
+                        Some(_) => Host::for_host(host, runner, records()),
+                        None => Host::for_selected_host(host, caller, runner, records(), within)?,
+                    }),
+                    None,
+                ));
             }
             match admitted.gaps.iter().find(|gap| gap.name == name) {
                 Some(gap) => refuse(name, "unsupported", gap.reason),
@@ -107,12 +113,14 @@ fn select<R: CommandRunner + Clone>(
                 "unknown",
                 "driver_registry_unreadable",
             ),
-            None => Selected::Host(Box::new(Host::for_caller_within(
-                caller,
-                runner,
-                records(),
-                within,
-            )?)),
+            None => Selected::Host(
+                Box::new(Host::for_caller_within(caller, runner, records(), within)?),
+                caller.gap_beside_tmux(admitted).map(|gap| Refusal {
+                    hosts: vec![gap.name.clone()],
+                    status: "unsupported",
+                    reason: gap.reason,
+                }),
+            ),
         },
     })
 }
@@ -137,29 +145,24 @@ pub fn execute(
         &caller,
         deadline,
     );
-    let selected = match selected {
+    let mut selected = match selected {
         Ok(selected) => selected,
         Err(error) => return Failure::new("CLEANUP_ERROR", error.to_string(), 1).publish(mode),
     };
+    // A gap host beside the scan is reported as the scan would have been
+    // before it observed anything: implicit, so with no socket.
+    let gap = match &mut selected {
+        Selected::Host(_, gap) => gap.take().map(|gap| refused_sources(&source, &gap)),
+        Selected::Refused(_) => None,
+    };
     match selected {
         Selected::Refused(refusal) => {
-            source["status"] = refusal.status.into();
-            source["reason"] = refusal.reason.into();
-            let sources: Vec<Value> = refusal
-                .hosts
-                .iter()
-                .map(|host| {
-                    let mut source = source.clone();
-                    source["host"] = host.as_str().into();
-                    source
-                })
-                .collect();
             // An unknown source never claims a complete scan.
             document["truncated"] = (refusal.status == "unknown").into();
-            document["sources"] = sources.into();
+            document["sources"] = refused_sources(&source, &refusal).into();
             return print(document, mode);
         }
-        Selected::Host(host) => match host.discover(socket, None, deadline) {
+        Selected::Host(host, _) => match host.discover(socket, None, deadline) {
             Ok(mut observation) => {
                 let (status, reason) = observation.source.status();
                 source["host"] = observation.host.as_str().into();
@@ -232,8 +235,25 @@ pub fn execute(
             }
         },
     }
-    document["sources"] = json!([source]);
+    let mut sources = vec![source];
+    sources.extend(gap.into_iter().flatten());
+    document["sources"] = sources.into();
     print(document, mode)
+}
+
+/// One source per refused host, each with the refusal's status and reason.
+fn refused_sources(template: &Value, refusal: &Refusal) -> Vec<Value> {
+    refusal
+        .hosts
+        .iter()
+        .map(|host| {
+            let mut source = template.clone();
+            source["host"] = host.as_str().into();
+            source["status"] = refusal.status.into();
+            source["reason"] = refusal.reason.into();
+            source
+        })
+        .collect()
 }
 
 fn print(document: Value, mode: OutputMode) -> io::Result<u8> {
@@ -417,7 +437,7 @@ esac
                 deadline(),
             );
             match selected {
-                Ok(Selected::Host(chosen)) => assert_eq!(chosen.kind(), fake, "{host:?}"),
+                Ok(Selected::Host(chosen, _)) => assert_eq!(chosen.kind(), fake, "{host:?}"),
                 _ => panic!("{host:?}: the fake host is selected"),
             }
             for (nested, read) in [

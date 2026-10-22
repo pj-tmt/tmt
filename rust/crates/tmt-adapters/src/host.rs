@@ -206,8 +206,9 @@ impl CallerEnvironment {
 /// read its drivers once ([`CallerEnvironment::unselectable`]).
 #[derive(Debug, PartialEq, Eq)]
 pub enum Unselectable<'a> {
-    /// The locators name a host whose approval is a gap, alone or with tmux:
-    /// without running that driver, no pane is proven nearest.
+    /// The locators name a host whose approval is a gap, and no tmux: without
+    /// running that driver, no pane is proven to be the caller's. With tmux,
+    /// tmux stays selectable ([`CallerEnvironment::gap_beside_tmux`]).
     Gap(&'a crate::driver_protocol::registry::Gap),
     /// The locators name more than one external host, listed by name;
     /// registry order never chooses.
@@ -226,6 +227,37 @@ impl CallerEnvironment {
         if admitted.unreadable.is_some() {
             return Some(Unselectable::RegistryUnreadable);
         }
+        let (hosts, gaps) = self.named_hosts(admitted);
+        match (hosts.len(), gaps.as_slice()) {
+            (0 | 1, []) => None,
+            (1, [_]) if self.names_tmux() => None,
+            (1, [gap]) => Some(Unselectable::Gap(gap)),
+            _ => Some(Unselectable::Ambiguous(hosts)),
+        }
+    }
+
+    /// The gap host the locators name beside tmux, and no other host: tmux
+    /// stays the caller's host, and the gap is reported as a source of its
+    /// own. It runs nothing.
+    pub fn gap_beside_tmux<'a>(
+        &self,
+        admitted: &'a crate::driver_protocol::registry::Admitted,
+    ) -> Option<&'a crate::driver_protocol::registry::Gap> {
+        if admitted.unreadable.is_some() || !self.names_tmux() {
+            return None;
+        }
+        match self.named_hosts(admitted) {
+            (hosts, gaps) if hosts.len() == 1 => gaps.first().copied(),
+            _ => None,
+        }
+    }
+
+    /// The external hosts the locators name, sorted by name, and the gaps
+    /// among them.
+    fn named_hosts<'a>(
+        &self,
+        admitted: &'a crate::driver_protocol::registry::Admitted,
+    ) -> (Vec<&'a str>, Vec<&'a crate::driver_protocol::registry::Gap>) {
         let names = |declared: &[String]| {
             declared
                 .iter()
@@ -250,11 +282,7 @@ impl CallerEnvironment {
             .collect();
         hosts.sort_unstable();
         hosts.dedup();
-        match (hosts.len(), gaps.as_slice()) {
-            (0 | 1, []) => None,
-            (1, [gap]) => Some(Unselectable::Gap(gap)),
-            _ => Some(Unselectable::Ambiguous(hosts)),
-        }
+        (hosts, gaps)
     }
 }
 

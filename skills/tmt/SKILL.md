@@ -463,8 +463,9 @@ a remembered version number.
 candidate inventory. It does not initialize server metadata, reconcile bindings,
 create identities or install/launch anything. It covers tmux and every approved
 host driver that lists panes (Herdr included); a host without a usable approved
-driver reports `unsupported` with its reason, and in such a host's pane a scan
-without flags reports that instead of falling back to tmux. Unknown, stale,
+driver reports `unsupported` with its reason. In such a host's pane, a scan
+without flags reports that instead of falling back to tmux; in tmux inside such
+a host, it scans tmux and reports that host beside it. Unknown, stale,
 hook-only, conflicting and permission/offline observations remain explicit data.
 A row's `display.agentName` is the host's untrusted name for the agent: never
 an identity name or a suggestion for one. A truncated scan supplies
