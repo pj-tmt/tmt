@@ -13,6 +13,7 @@ import sys
 import termios
 import time
 
+sys.dont_write_bytecode = True
 from ops_pty_screen import Screen
 
 spec = json.loads(sys.argv[1])

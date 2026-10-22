@@ -5572,19 +5572,21 @@ fn overview_state_keeps_the_task_by_width_and_without_colour() {
     }
 }
 
-/// The Overview STATE width a painted screen shows: from `STATE` to `TOK 1h`
-/// on the header, less the one gap and the right-aligned token cell's pad.
+/// Measure STATE up to the next admitted column, excluding its gap and any token pad.
 fn overview_state_width(screen: &[String]) -> usize {
     let header = screen
         .iter()
         .find(|line| line.contains("STATE") && line.contains("TOK 1h"))
         .expect("the agents header");
-    header.find("TOK 1h").unwrap() - header.find("STATE").unwrap() - 2
+    let (next, gap) = header
+        .find("HOST / SESSION")
+        .map_or((header.find("TOK 1h").unwrap(), 2), |at| (at, 1));
+    next - header.find("STATE").unwrap() - gap
 }
 
 /// The STATE column is as wide as the widest cell of the list that fits whole, at least 12
 /// cells and within the row's room after the tokens and 16 NOW cells (at most 32).
-/// TOK and NOW start right after it, in colour and without.
+/// The optional Host / Session column comes next; TOK and NOW retain their gaps.
 #[test]
 fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
     let long = "reviewing-the-release-plan-now";
@@ -5634,14 +5636,20 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
                 expected,
                 "{case}: {screen:#?}"
             );
-            // The row's tokens start right after the column and its one gap.
+            // The next admitted column starts after STATE and its one gap.
             let row = screen
                 .iter()
                 .find(|line| line.contains(words) && line.contains("product"))
                 .unwrap_or_else(|| panic!("{case}: {screen:#?}"));
             let state = row.find("● ").unwrap();
             let after = row[state..].chars().skip(expected).collect::<String>();
-            assert!(after.starts_with("       —   "), "{case}: {row:?}");
+            let session_shown = screen.iter().any(|line| line.contains("HOST / SESSION"));
+            let next = if session_shown {
+                " — · unavailable"
+            } else {
+                "       —   "
+            };
+            assert!(after.starts_with(next), "{case}: {row:?}");
         }
     }
 }
