@@ -77,7 +77,6 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
                 urgent: false,
                 digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
-                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: None,
@@ -97,7 +96,6 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
                 urgent: false,
                 digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
-                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: Some(2_147_483.647),
@@ -139,7 +137,6 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
                 urgent: false,
                 digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
-                inbox: false,
                 force: false,
                 detach: true,
                 delay_seconds: None,
@@ -157,11 +154,15 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
 
 #[test]
 fn inbox_and_listener_options_have_typed_defaults_and_minutes() {
-    let talk = parsed(&["talk", "Receiver", "hello", "--inbox", "--detach"]);
-    let Invocation::Talk { options, .. } = talk.invocation else {
-        panic!("talk invocation")
-    };
-    assert!(options.inbox);
+    // Queue-only delivery is not a sender's choice (#4302): talk and room send
+    // refuse the retired option like any other unknown one.
+    for argv in [
+        &["talk", "Receiver", "hello", "--inbox", "--detach"][..],
+        &["talk", "Receiver", "hello", "--room", "Design", "--inbox"][..],
+        &["room", "send", "Design", "hello", "--inbox"][..],
+    ] {
+        assert_usage_error(argv, "unexpected argument '--inbox'", OutputMode::default());
+    }
 
     assert_eq!(
         parsed(&["x", "listen", "--identity", "Receiver"]).invocation,

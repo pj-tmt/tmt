@@ -187,7 +187,7 @@ and `waitingFor:"digest_checklist"`. Preserve the request ID; do not resend just
 because it was held. `--urgent` bypasses Digest only, and `--kind decision|review|fyi`
 records its checklist purpose (default `fyi`). The pinned recorded owner UUID
 also bypasses. All channel, host and pending-approval guards still apply.
-Explicit `--inbox` stays pull-only. Existing `tmt focus` still switches panes.
+Existing `tmt focus` still switches panes.
 
 For a lead doing a review or other work that benefits from fewer interruptions,
 use the agreed Digest cadence: for example, `5m` for short batches or `20m` for
@@ -227,8 +227,7 @@ inactive agent.
 
 Identified offline recipients with a recorded endpoint instead return queued with an offline notice.
 Their request stays in Inbox; no automatic re-wake occurs when they come online.
-Confirmed live delivery does not leave duplicate incoming attention. Explicit
-`--inbox` remains queue-only. Detached or interrupted originators can receive
+Confirmed live delivery does not leave duplicate incoming attention. Detached or interrupted originators can receive
 `▚ ✓ <name> · <original request preview> · tmt result <id>` at their current
 verified binding. Pane batches align one row per request under a count header.
 The ID appears only in runnable result commands, using a unique short prefix
@@ -253,7 +252,7 @@ pending, not failed or cancelled. Both timeout forms also end with
 `· tmt result <id>`, using the same unique short/full rule and printing the ID once.
 The full timeout forms, including a missing preview, are defined in
 [the request/response contract](https://github.com/pj-tmt/tmt/blob/main/contracts/request-response-v1.md).
-Anonymous and explicit queue-only requests do not
+Anonymous requests do not
 push these hints.
 
 Talk/send's command-local `--identity <existing-name>` attributes the originator,
@@ -422,20 +421,21 @@ Recipient requests use a separate participant attention scope. The focused
 installed `tmt-inbox` skill owns the complete processing loop:
 
 ```bash
-tmt talk reviewer "Review this patch" --inbox --identity coordinator --detach --json
+tmt talk reviewer "Review this patch" --identity coordinator --detach --json
 tmt x listen --identity reviewer --timeout 15m --debounce 10s --json
 tmt x show <request-id> --incoming --identity reviewer --json
 tmt x ack <request-id> --incoming --revision <revision> --identity reviewer --json
 tmt x ackall --incoming --identity reviewer --json
 ```
 
-`--inbox` is for intentional queue-only delivery: it accepts one existing
-non-retired identity, reports `queued`, and never attempts live notification or
-falls back to tmux delivery. The recipient must pull with `tmt inbox`; coming
-online or enrolling a channel does not deliver the backlog. Use plain `talk`
-when you want live notification. Human queue output gives the recipient pull
-and correlated inspection commands; JSON adds `notification:"not_attempted"`
-and `waitingFor:"recipient_inbox_pull"`, preserving exit 0 and the request ID.
+Plain `talk` to an identity with no pane queues for its inbox: it accepts one
+existing non-retired identity, reports `queued`, and never attempts live
+notification or falls back to tmux delivery. A sender has no option to make talk
+to a bound identity silent. The recipient must pull with `tmt inbox`; coming
+online or enrolling a channel does not deliver the backlog. Human queue output
+gives the recipient pull and correlated inspection commands; JSON adds
+`notification:"not_attempted"` and `waitingFor:"recipient_inbox_pull"`,
+preserving exit 0 and the request ID.
 Listen returns a trailing-edge debounced
 unread batch, with a 15-minute hard deadline and 10-second quiet default. An idle
 deadline is successful `reason:"timeout"`. Listening/showing never acknowledges,
@@ -529,8 +529,8 @@ Create returns `{identity:{id,name,canonicalName,lifetime},created}`; show retur
 `{identity:{id,name,canonicalName,lifetime}}`; ls returns `{identities:[...]}` in
 canonical-name order, including unbound identities. It does not report presence.
 Use ordinary `tmt ls` for verified active pane destinations. A new unbound identity
-receives ordinary talk through Inbox with the foreground wait; `--inbox` suppresses
-live delivery even after binding with `add`, `name` or `this`.
+receives ordinary talk through Inbox with the foreground wait; once bound with
+`add`, `name` or `this`, talk attempts live delivery.
 
 Use shared identity metadata for exact local discovery:
 
@@ -614,8 +614,7 @@ tmt whoami --context                  # bounded read-only rehydration summary
 tmt unbind                            # remove the current pane identity
 tmt rm <global-name>                  # retire; saved identities require --force
 tmt notes path [--identity <name>]    # initialize/print saved identity Markdown
-tmt talk <target> "message"          # target a global name or pane
-tmt talk <identity> "message" --inbox # durable queue without pane delivery
+tmt talk <target> "message"          # global name or pane; no pane queues to its inbox
 tmt x listen --identity <name>       # bounded recipient/result wait
 tmt check <target> [lines]
 tmt ls [target]                       # list identities or one pane
@@ -672,7 +671,7 @@ tmt room ls --json
 tmt room join Design --identity Alice
 tmt room show Design --json
 tmt ls --room Design --json
-tmt talk Alice "Review only this change" --room Design --inbox --detach
+tmt talk Alice "Review only this change" --room Design --detach
 tmt room send Design "Review this change" --identity Alice --json
 tmt room broadcast Design "Review starts now" --identity Alice --json
 tmt x listen --room Design --identity Alice
@@ -698,7 +697,7 @@ the returned request IDs with `tmt result`. For uncertain sends, retain/reuse
 conflicts rather than silently sending again. Empty rooms send nothing.
 `talk <target> <message> --room <room>` still targets only that agent; it requires
 membership and records the room, without turning a direct message into fan-out.
-Normal pane delivery, `--inbox`, timeout and detach rules still apply.
+Normal pane delivery, timeout and detach rules still apply.
 
 ### Self-reported activity and mood
 

@@ -255,16 +255,10 @@ impl App {
 
     fn cron_ask(&mut self, draft: Draft, text: String, hint: Option<Hint>) -> Effect {
         let mut editor = tmt_tui::components::Editor::default();
-        if draft.message_field() && (text.chars().count() > 500 || text.lines().count() > 8) {
-            editor.insert_folded(
-                &text,
-                format!(
-                    "[message · {} bytes · {} lines]",
-                    text.len(),
-                    text.lines().count()
-                ),
-                super::super::app::MESSAGE_LIMIT,
-            );
+        if draft.message_field()
+            && let Some(label) = crate::board::composer::paste::label(&text)
+        {
+            editor.insert_folded(&text, label, super::super::app::MESSAGE_LIMIT);
         } else {
             editor = text.into();
         }
@@ -291,24 +285,14 @@ impl App {
     }
 
     fn cron_retry(&mut self, draft: Draft, text: String, why: String) -> Effect {
-        self.input = Some(Input {
-            draft_key: None,
-            response_quotes: Vec::new(),
-            chat_quotes: Vec::new(),
-            chat_quote_focus: None,
-            row_send: None,
-            link: None,
-            prompt: draft.prompt(),
-            text: text.into(),
-            compose: Compose::Cron,
-            squad: draft.squad.clone(),
-            hint: Some(Hint {
+        self.cron_ask(
+            draft,
+            text,
+            Some(Hint {
                 text: why,
                 error: true,
             }),
-        });
-        self.cron_draft = Some(draft);
-        Effect::None
+        )
     }
 
     /// Enter on a form step. The text arrives exactly as typed.

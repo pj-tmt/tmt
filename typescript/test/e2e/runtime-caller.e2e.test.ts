@@ -126,6 +126,12 @@ describe(
             await fixture.runJsonCli<Bound>(['add', client.pane, 'Alice', '-s'])
           );
           expect(host.id).not.toBe(alice.id);
+          const receiver = expectJsonResult(
+            await fixture.runJsonCli<{ identity: { id: string } }>(
+              ['identity', 'create', 'Receiver'],
+              { withoutTmux: true }
+            )
+          ).identity;
           const before = durableState(fixture);
           const metadata = fixture.paneMetadata();
           const context = await fixture.runJsonCli(['whoami', '--context']);
@@ -172,7 +178,7 @@ describe(
 
           const anonymousResult = await fixture.runJsonCli<{
             error: { code: string; reason: string; fix: string };
-          }>(['talk', 'Alice', 'Anonymous from shared host', '--inbox', '--detach']);
+          }>(['talk', 'Alice', 'Anonymous from shared host', '--detach']);
           expect(anonymousResult.code).toBe(1);
           expect(anonymousResult.json?.error).toMatchObject({
             code: 'CALLER_IDENTITY_AMBIGUOUS',
@@ -190,9 +196,8 @@ describe(
           const explicit = expectJsonResult(
             await fixture.runJsonCli<Queued>([
               'talk',
-              'Host',
+              'Receiver',
               'Explicit Alice from shared host',
-              '--inbox',
               '--detach',
               '--identity',
               alice.id,
@@ -204,11 +209,16 @@ describe(
           expect(attempts.find((row) => row.request_id === explicit.requestId)).toMatchObject({
             originator_kind: 'explicit',
             originator_identity_id: alice.id,
-            recipient_identity_id: host.id,
+            recipient_identity_id: receiver.id,
             message_text: 'Explicit Alice from shared host',
           });
           expect(attempts.some((row) => row.originator_identity_id === host.id)).toBe(false);
-          expect(durableState(fixture)).toEqual(before);
+          // Sending as Alice re-verifies her binding to route the reply notice; nothing else changes.
+          const unverified = (state: ReturnType<typeof durableState>) => ({
+            ...state,
+            bindings: state.bindings.map((row) => ({ ...row, last_verified_at: null })),
+          });
+          expect(unverified(durableState(fixture))).toEqual(unverified(before));
           expect(fixture.events().filter((event) => event.event === 'request')).toEqual([]);
         },
         { mode: 'input-log', executableEnv: runtimeSelection('app-server') }
@@ -244,7 +254,6 @@ describe(
                 'talk',
                 'Receiver',
                 'Independent caller',
-                '--inbox',
                 '--detach',
               ])
             );

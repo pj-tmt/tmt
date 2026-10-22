@@ -9,6 +9,7 @@ use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 use serde_json::json;
 
 pub(in crate::board) const ROOM: &str = "11111111-1111-4111-8111-111111111111";
+pub(in crate::board) const CODEX_MEMBER: &str = "55555555-5555-4555-8555-555555555555";
 pub(in crate::board) const MEMBER: &str = "22222222-2222-4222-8222-222222222222";
 
 /// Literal attention evidence and the agent-list mode for member-action scenarios.
@@ -2512,6 +2513,80 @@ fn repeated_membership_selection_keeps_its_room_context_and_exact_row_data() {
     }
 }
 
+/// Gives `app` a usage report holding one 24-cell hourly series per seat (identity id, driver it
+/// is on, input + output tokens per cell, oldest first, the last cell ending `ends_ago_ms` before
+/// `now_ms`) and the token meter that names each seat's driver, as the Digest tab reads them.
+pub(in crate::board) fn install_hourly_tokens(
+    app: &mut App,
+    now_ms: u64,
+    ends_ago_ms: u64,
+    complete: [bool; 24],
+    seats: &[(&str, &str, [u64; 24])],
+) {
+    use crate::board::usage_report::{
+        Delivery, Report,
+        model::{HourlySeries, Seat, Who},
+    };
+    const HOUR: u64 = 3_600_000;
+    let mut input = crate::board::rate::tests::input(1_000);
+    input.resumes.clear();
+    input.names.clear();
+    for (id, driver, _) in seats {
+        let mut resume = crate::board::rate::tests::input(1_000).resumes["a"].clone();
+        resume["driver"] = json!(driver);
+        input.resumes.insert((*id).into(), resume);
+        input.names.insert((*id).into(), (*id).into());
+    }
+    crate::board::app::tests::install_rate_observation(
+        app,
+        "product".into(),
+        crate::board::app::RateView {
+            settings: crate::config::TokenRate {
+                enabled: true,
+                ..Default::default()
+            },
+            input,
+            history: None,
+        },
+    );
+    let range = app.tok_range();
+    let from_ms = now_ms - ends_ago_ms - 24 * HOUR;
+    let seat = |id: &str, cells: [u64; 24]| Seat {
+        who: Who {
+            id: Some(id.into()),
+            name: None,
+            retired: false,
+        },
+        model_inputs: None,
+        input: cells.iter().sum(),
+        output: 0,
+        cached: 0,
+        covered_ms: 24 * HOUR,
+        window_ms: 24 * HOUR,
+        from_ms,
+        to_ms: from_ms + 24 * HOUR,
+        observed_at_ms: now_ms,
+        starts_at_ms: Some(from_ms),
+        complete: true,
+        series: HourlySeries::new(from_ms, cells, complete),
+    };
+    app.usage_report.apply(Delivery {
+        since: range,
+        result: Ok(Report {
+            since: range,
+            observed_at_ms: now_ms,
+            window_from_ms: Some(from_ms),
+            seats: seats
+                .iter()
+                .map(|(id, _, cells)| seat(id, *cells))
+                .collect(),
+            unavailable: vec![],
+            exchange: None,
+            warnings: vec![],
+        }),
+    });
+}
+
 /// Puts the Measure column on `app` with `extra` more agents (`agent-1..`) in the first squad
 /// and a one-hour usage report whose exchange traffic is `flows` (sender index, recipient
 /// index, count); index 0 is `MEMBER`, the others follow in order.
@@ -2613,7 +2688,8 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             home.workspace.roster.observation = OpsObservation::Partial;
         }
         "digest" => app.shell.tab = OpsTab::Digest,
-        "digest-allowance" => {
+        "digest-allowance" | "digest-allowance-tokens" => {
+            let with_tokens = scene == "digest-allowance-tokens";
             use crate::board::limits::{Provider, Rates, Reading, Standing, Window};
             const NOW: u64 = 1_791_600_000_000;
             const HOUR: u64 = 3_600_000;
@@ -2644,10 +2720,26 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                     "codex",
                     55.0,
                     100,
-                    Rates::measured(Some(0.3), Some(0.3), None, Some(0.3)),
+                    Rates::measured(Some(0.3), Some(0.3), with_tokens.then_some(0.3), Some(0.3)),
                 ),
                 sampled("muse", 81.0, 100, Rates::default()),
             ]);
+            if with_tokens {
+                // A second member on codex, so each provider has tokens of its own.
+                let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                let mut member = workspace.roster.members[MEMBER].clone();
+                member.id = CODEX_MEMBER.into();
+                member.name = "codex-worker".into();
+                workspace.roster.members.insert(CODEX_MEMBER.into(), member);
+                workspace.roster.squads[0].members.push(CODEX_MEMBER.into());
+                workspace.rows.insert(
+                    OpsTarget::Member {
+                        room_id: Some(ROOM.into()),
+                        identity_id: CODEX_MEMBER.into(),
+                    },
+                    json!({"id":CODEX_MEMBER,"name":"codex-worker","state":"working"}),
+                );
+            }
         }
         "empty" => {
             home.summary = Default::default();
@@ -2743,6 +2835,21 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                 )),
                 ..Default::default()
             })
+        }
+        "digest-allowance-tokens" => {
+            // claude: 45 000 tokens in the day, 3 000 in the last 3 h (a slow day) and it lasts;
+            // codex: 39 000 in the day, 18 000 in the last 3 h (a burst) and it runs out.
+            let mut claude = [2_000u64; 24];
+            claude[21..].fill(1_000);
+            let mut codex = [1_000u64; 24];
+            codex[21..].fill(6_000);
+            install_hourly_tokens(
+                &mut app,
+                1_791_600_000_000,
+                0,
+                [true; 24],
+                &[(MEMBER, "claude", claude), (CODEX_MEMBER, "codex", codex)],
+            );
         }
         "agents-state-sorted" => {
             app.workspace.order = Some(crate::board::view_state::Order {

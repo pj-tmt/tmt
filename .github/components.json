@@ -291,6 +291,16 @@
       ]
     },
     {
+      "id": "host-tmux-hook",
+      "consumers": ["native"],
+      "why": "The Claude Code project hook for Host tmux safety: host-tmux-guard.test.ts, run by the Unit tests job, reads the settings file and the script, so a change to either selects it instead of taking a prose-only path.",
+      "paths": [
+        ".claude/**",
+        "typescript/scripts/host-tmux-guard.mjs",
+        "typescript/scripts/host-tmux-guard.d.mts"
+      ]
+    },
+    {
       "id": "colab-protected-hosting",
       "consumers": ["native"],
       "why": "Hosted-bundle build and entry/config inputs retain full native verification ahead of browser-only rules.",

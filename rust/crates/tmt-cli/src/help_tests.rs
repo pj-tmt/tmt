@@ -302,8 +302,8 @@ fn talk_help_distinguishes_recipient_pull_from_live_notification() {
     ));
     assert!(text.contains("recipient must pull with tmt inbox or tmt x listen"));
     assert!(text.contains("Use --detach to return at once"));
-    assert!(text.contains("For a bound recipient, plain talk attempts live notification"));
-    assert!(text.contains("--inbox suppresses that notification and requires inbox pull"));
+    assert!(text.contains("For a bound recipient, talk attempts live notification"));
+    assert!(!text.contains("--inbox"), "{text}");
 }
 
 #[test]

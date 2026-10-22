@@ -42,9 +42,8 @@ struct Correlation {
     target: String,
     pane: String,
     identity: Option<Identity>,
+    /// The request waits in the recipient's inbox: offline, unbound or held by Digest.
     inbox: bool,
-    /// Explicit queue-only selection, distinct from offline or claimed live routes.
-    explicit_inbox: bool,
     offline: bool,
     /// No recorded endpoint: an active recipient must pull from its inbox.
     unbound: bool,

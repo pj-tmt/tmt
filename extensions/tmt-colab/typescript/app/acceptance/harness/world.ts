@@ -674,13 +674,26 @@ export class AcceptanceWorld {
     return leaks;
   }
 
-  /** Processes whose command line still names this world's root or tmux socket. */
+  /**
+   * Processes whose command line still names this world's root or tmux socket, each with who owns
+   * it: its parent, process group and age, and the parent's command while that is still running.
+   * The detail is for the report only; what counts as a survivor is the command line alone.
+   */
   survivors(): string[] {
-    const listing = execFileSync('/bin/ps', ['-axo', 'pid=,command='], { encoding: 'utf8' });
-    return listing
+    const listing = execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,pgid=,etime=,command='], {
+      encoding: 'utf8',
+    });
+    const rows = listing
       .split('\n')
-      .filter((line) => line.includes(this.root) && !line.includes('/bin/ps -axo'))
-      .map((line) => line.trim());
+      .map((line) => /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line))
+      .filter((row): row is RegExpExecArray => row !== null)
+      .map(([, pid, ppid, pgid, age, command]) => ({ pid, ppid, pgid, age, command: command! }));
+    return rows
+      .filter((row) => row.command.includes(this.root) && !row.command.includes('/bin/ps -axo'))
+      .map((row) => {
+        const parent = rows.find((candidate) => candidate.pid === row.ppid)?.command ?? 'gone';
+        return `${row.pid} ${row.command} (ppid ${row.ppid}, pgid ${row.pgid}, age ${row.age}, parent ${parent})`;
+      });
   }
 
   /** Unix sockets left under the root. */
