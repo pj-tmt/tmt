@@ -14,17 +14,23 @@ fn destination(fixture: &Fixture) {
 }
 
 fn remembered(fixture: &Fixture) -> tmt_adapters::storage::IdentityContextSnapshot {
-    Storage::context_by_provider_session(&fixture.state().join("tmt.db"), "claude", SESSION, 1)
+    let database = fixture.state().join("tmt.db");
+    // Preferences belong to the identity even between a move and child admission.
+    let connection = rusqlite::Connection::open_with_flags(
+        &database,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let identity: String = connection
+        .query_row(
+            "SELECT id FROM identities WHERE name = 'worker' AND retired_at_ms IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    drop(connection);
+    Storage::context_by_identity(&database, &identity, 0)
         .unwrap()
-        .or_else(|| {
-            Storage::context_by_provider_session(
-                &fixture.state().join("tmt.db"),
-                "codex",
-                SESSION,
-                1,
-            )
-            .unwrap()
-        })
         .unwrap()
 }
 
@@ -262,6 +268,68 @@ fn resume_move_refuses_a_shared_codex_server_without_a_signal_or_binding_change(
     let after = remembered(&fixture);
     assert_eq!(after.entry, before.entry);
     assert_eq!(after.preferences, before.preferences);
+    drop(old);
+    assert_drivers_ended(&fixture);
+}
+
+#[test]
+fn resume_move_reports_a_failed_spawn_and_the_retry_resumes_here_without_moving_again() {
+    register();
+    let fixture = Fixture::new("move-spawn-fails");
+    destination(&fixture);
+    let (old, process) = start(&fixture, "claude", fixture.approve());
+    let before = remembered(&fixture);
+    let executable = fixture.root.join("bin/claude");
+    fs::remove_file(&executable).unwrap();
+    let output = command(&fixture, "f2").output().unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("No new agent was launched"), "{error}");
+    assert!(error.contains("The identity is now bound here"), "{error}");
+    assert!(error.contains("retry: tmt resume -- worker"), "{error}");
+    assert!(!error.contains("retry: tmt resume --move"), "{error}");
+    assert_eq!(process.seen(), Seen::Ended);
+    let moved = remembered(&fixture);
+    assert_eq!(moved.entry.identity, before.entry.identity);
+    let binding = moved.entry.binding.as_ref().unwrap();
+    assert_eq!(binding.pane_id, "fake-2");
+    assert_ne!(binding.id, before.entry.binding.unwrap().id);
+    assert!(!fixture.root.join("agent.pid").exists());
+    // Repair only our missing executable, then execute the suggested public retry.
+    tmt_test_support::write_executable(
+        &executable,
+        format!("#!/bin/sh\n{AGENT}\n").as_bytes(),
+        0o755,
+    )
+    .unwrap();
+    let mut retry = fixture.command_in(Some("f2"), &["resume", "--", "worker"]);
+    retry.env(
+        "PATH",
+        format!(
+            "{}:/usr/bin:/bin:/usr/sbin:/sbin",
+            fixture.root.join("bin").display()
+        ),
+    );
+    let mut launched = Launched::start(&fixture, retry);
+    wait_until("the suggested retry starts or refuses", || {
+        fixture.root.join("agent.pid").exists()
+            || launched
+                .child
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .unwrap()
+                .is_some()
+    });
+    assert!(
+        fixture.root.join("agent.pid").exists(),
+        "{}",
+        fs::read_to_string(fixture.root.join("launched.err")).unwrap()
+    );
+    launched.adopt("agent.pid", false);
+    assert_eq!(remembered(&fixture).entry.binding.unwrap().id, binding.id);
+    let (code, stderr) = launched.finish();
+    assert_eq!(code, Some(7), "{stderr}");
     drop(old);
     assert_drivers_ended(&fixture);
 }

@@ -112,6 +112,15 @@ fn warn(message: &str, hint: Option<&str>) {
         tmt_cli_style::message::warning(&mut stderr, terminal, &format!("tmt: {message}"), hint);
 }
 
+/// Effects observed by this invocation, solely for truthful failure/retry output.
+#[derive(Clone, Copy, Default)]
+enum LaunchEffect {
+    #[default]
+    NotLaunched,
+    BoundHere,
+    Launched,
+}
+
 #[derive(Clone, Copy)]
 struct RunRequest<'a> {
     name: &'a str,
@@ -184,17 +193,17 @@ pub fn resume_with_options(
 
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     // This invocation-local fact reports effects; it grants no admission authority.
-    let mut launched = false;
-    run_observed(request, &mut launched).map_err(|error| {
+    let mut effect = LaunchEffect::NotLaunched;
+    run_observed(request, &mut effect).map_err(|error| {
         if request.resume.is_some_and(|resume| resume.move_running) {
-            move_session::launch_failure(error, request.name, launched)
+            move_session::launch_failure(error, request.name, effect)
         } else {
             error
         }
     })
 }
 
-fn run_observed(request: RunRequest<'_>, launched: &mut bool) -> Result<u8, Failure> {
+fn run_observed(request: RunRequest<'_>, effect: &mut LaunchEffect) -> Result<u8, Failure> {
     crate::caller_context::require_independent_host_for(Some(request.name))?;
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let settings = ConfigFiles {
@@ -232,7 +241,7 @@ fn run_observed(request: RunRequest<'_>, launched: &mut bool) -> Result<u8, Fail
         &pane,
         request,
         &settings,
-        launched,
+        effect,
     );
     // The child's status remains authoritative after it has actually run.
     // Closing local state cannot turn a successful child into a different exit.
@@ -364,22 +373,34 @@ mod tests {
 
     #[test]
     fn move_errors_report_the_observed_launch_effect_and_exact_retry() {
-        for launched in [false, true] {
+        for (effect, message, retry) in [
+            (
+                LaunchEffect::NotLaunched,
+                "No new agent was launched",
+                "tmt resume --move -- '-Saved agent'",
+            ),
+            (
+                LaunchEffect::BoundHere,
+                "No new agent was launched",
+                "tmt resume -- '-Saved agent'",
+            ),
+            (
+                LaunchEffect::Launched,
+                "A new agent was launched",
+                "tmt resume -- '-Saved agent'",
+            ),
+        ] {
             let error = super::move_session::launch_failure(
                 crate::output::Failure::new("PROCESS_ERROR", "Observation failed.", 1),
                 "-Saved agent",
-                launched,
+                effect,
             );
             assert_eq!(error.code, "PROCESS_ERROR");
             assert_eq!(error.status, 1);
-            assert!(error.message.contains(if launched {
-                "A new agent was launched"
-            } else {
-                "No new agent was launched"
-            }));
+            assert!(error.message.contains(message));
             assert_eq!(
                 error.document()["error"]["suggestion"],
-                "After resolving this refusal, retry: tmt resume --move -- '-Saved agent'"
+                format!("After resolving this refusal, retry: {retry}")
             );
         }
     }

@@ -1,7 +1,7 @@
 //! Bound foreground launch and completion retain one owned child and storage lifetime.
 
 use super::{
-    RunRequest, agent_name,
+    LaunchEffect, RunRequest, agent_name,
     channel::{
         HeldLease, admitted_key, claim_is_current, enrollment_failure, paste_notice, preflight,
         verify_claim, verify_plain_fallback,
@@ -51,7 +51,7 @@ pub(super) fn run_bound(
     pane: &str,
     request: RunRequest<'_>,
     settings: &Settings,
-    launched: &mut bool,
+    effect: &mut LaunchEffect,
 ) -> Result<u8, Failure> {
     let observer = &mut super::EmptyObserver;
     let RunRequest {
@@ -246,6 +246,9 @@ pub(super) fn run_bound(
         binding::bind_identity_with_creation(storage, &mut host.session(), pane, name, save)
     }
     .map_err(binding_failure)?;
+    if moving {
+        *effect = LaunchEffect::BoundHere;
+    }
     let binding = bound
         .presence
         .binding
@@ -468,7 +471,7 @@ pub(super) fn run_bound(
                 Failure::new("LAUNCH_FAILED", "Could not start the requested command.", 1)
                     .caused_by(error)
             })?;
-    *launched = true;
+    *effect = LaunchEffect::Launched;
     if let Some(preset) = &captured_preset {
         if !tmt_adapters::runtime::launch_preset::remember(storage, &binding.identity_id, preset)
             .unwrap_or(false)

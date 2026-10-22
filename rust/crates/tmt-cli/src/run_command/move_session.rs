@@ -37,16 +37,30 @@ fn refusal(code: impl Into<String>, reason: impl std::fmt::Display) -> Failure {
     Failure::new(code, reason.to_string(), status)
 }
 
-pub(super) fn launch_failure(mut error: Failure, name: &str, launched: bool) -> Failure {
-    error.message.push_str(if launched {
-        " A new agent was launched; inspect its pane before trying again."
-    } else {
-        " No new agent was launched."
-    });
-    error.suggestion(format!(
-        "After resolving this refusal, retry: tmt resume --move -- {}",
-        crate::output::shell_word(name)
-    ))
+pub(super) fn launch_failure(
+    mut error: Failure,
+    name: &str,
+    effect: super::LaunchEffect,
+) -> Failure {
+    let command = match effect {
+        super::LaunchEffect::NotLaunched => {
+            error.message.push_str(" No new agent was launched.");
+            format!("tmt resume --move -- {}", crate::output::shell_word(name))
+        }
+        super::LaunchEffect::BoundHere => {
+            error
+                .message
+                .push_str(" The identity is now bound here. No new agent was launched.");
+            format!("tmt resume -- {}", crate::output::shell_word(name))
+        }
+        super::LaunchEffect::Launched => {
+            error
+                .message
+                .push_str(" A new agent was launched; inspect its pane before trying again.");
+            format!("tmt resume -- {}", crate::output::shell_word(name))
+        }
+    };
+    error.suggestion(format!("After resolving this refusal, retry: {command}"))
 }
 
 fn stop_failed(error: impl std::fmt::Display) -> Failure {
@@ -332,9 +346,7 @@ pub(super) fn move_binding(
 }
 
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
-    &[crate::cli_style_tests::HintSpec::core(
-        "After resolving this refusal, retry: tmt resume --move -- {}",
-        &[""],
-        &[("{}", "worker")],
-    )];
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core("tmt resume --move -- {}", &[""], &[("{}", "worker")]),
+    crate::cli_style_tests::HintSpec::core("tmt resume -- {}", &[""], &[("{}", "worker")]),
+];
