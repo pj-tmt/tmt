@@ -1,5 +1,5 @@
 //! Uploads over the actual bus and retained backend; no mock mutation algorithm.
-use super::observe::{allowed, payload_snapshot, spec, status_input, transfer};
+use super::observe::{allowed, payload_snapshot, reacquire, spec, status_input, transfer};
 use super::*;
 use crate::objects::{BeginSpec, Milestone, TransferState};
 use std::sync::atomic::AtomicU64;
@@ -714,6 +714,7 @@ fn upload_callback_timeout_keeps_original_charged_and_ends_channel() {
 #[test]
 fn upload_shutdown_cancels_mutation_joins_writer_and_reacquires_lease() {
     let mut env = Env::new();
+    let lease = env.serving.lease_diagnostics();
     let (service, peer) = running(&env, bounds());
     let active = service.locked();
     let channel = active.slots[0].active.as_ref().unwrap();
@@ -767,13 +768,11 @@ fn upload_shutdown_cancels_mutation_joins_writer_and_reacquires_lease() {
     );
     drop(service);
     drop(peer);
-    let replacement = Layout::open(&env.root.join("replacement"))
-        .unwrap()
-        .serve_lock()
-        .unwrap();
-    drop(std::mem::replace(&mut env.serving, replacement));
-    let second = Layout::open(&env.root).unwrap().serve_lock().unwrap();
-    drop(second);
+    reacquire(
+        &mut env,
+        &lease,
+        "upload shutdown cancelled the mutation, joined the writer and the peer, and dropped the original lease handle",
+    );
 }
 
 #[test]
