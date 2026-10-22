@@ -132,6 +132,8 @@ function expectNativeSchema(
       version: 59,
       name: "record whether a request is a request or a person's passthrough text",
     },
+    { version: 60, name: "keep the turn output a person's passthrough message earned" },
+    { version: 61, name: "record how long a digest rule keeps a member's oldest held message" },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -177,6 +179,7 @@ function expectNativeSchema(
       'reply_notices',
       'consumption_family',
       'consumption_family_files',
+      'request_passthrough',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([

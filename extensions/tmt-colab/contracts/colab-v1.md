@@ -49,7 +49,15 @@ After sync hello, an `object` frame carries the current sync scope, a generated
 `discard`, `verify`, `read`, `history`, `historynext` or `historycancel`. Responses
 are correlated `object-result` frames in that same scope, containing only `ok` or
 `error`. Eight outstanding requests are allowed per peer; queue failure is a bare
-unavailable response and never a retry. Missing channels do not activate storage.
+unavailable response and never a retry. Missing channels do not activate storage. A
+connection upgraded without an origin (Remote's object setup missed its budget) has no peer
+object handle: every object request on it answers the typed `no-object-channel`, while its page
+sync is unaffected. Only that case does; any other missing handle (no channel client behind a
+valid origin, or an origin that is not a UUID) stays the bare `unavailable`, which a reconnect
+cannot fix. The app reconnects once per attachment attempt, through its ordinary
+connection-loss path and no earlier than Remote's 1 s cool-down after the refusal; a repeat is a
+typed refusal that keeps the unsent message. A page that never attaches never reconnects for
+this.
 An immutable absolute deadline includes queueing, callbacks, I/O and final delivery.
 No late data is disclosed; a possibly effected mutation answers unknown. A sent
 callback timeout ends its generation rather than leaving outstanding authority.
@@ -766,12 +774,12 @@ theme through `[data-theme=dark]`, so a page needs no author code; no default Ta
 `browser.metric.radius` on every `rounded-*` scale; no shadows; the system part of the token font stacks; and one
 focus outline of `browser.metric.focus-width` in the focus colour. It is source for a `<style type="text/tailwindcss">`
 block, so it never contains `@import`. Both files are ordinary inventory files, and `/assets/colab-runtime.js` and
-`/assets/colab-runtime.css` are on the anonymous list above so a reader can load them. No page loads it until the opt-in slice ships, and the renderer CSP is
-unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
+`/assets/colab-runtime.css` are on the anonymous list above so a reader can load them. Only a page that opts in loads them (see the bind
+message below), and the renderer CSP is unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
 ReactDOM, htm, `@tailwindcss/browser` and `lucide-react` and the SHA-256 and length of both assets, and `scripts/verify-runtime.mjs`
 fails the app build when the bytes or versions differ, when the script exceeds 1.5 MiB, ends a script
-tag, reads `process.env`, references a source map or uses `eval`/`new Function`, when the theme exceeds 16 KiB, contains
-`@import` or ends a style tag, or when the notices lack
+tag or opens an HTML comment, reads `process.env`, references a source map or uses `eval`/`new Function`, when the theme exceeds 16 KiB, contains
+`@import`, ends a style tag or opens an HTML comment, or when the notices lack
 any of those five packages. `scripts/runtime-notices.mjs` appends htm's and the Tailwind browser
 script's licenses to `THIRD-PARTY-NOTICES.txt`, since the default build bundles neither. A changed
 dependency or output is therefore a reviewed `runtime-pin.json` diff.
@@ -2347,7 +2355,7 @@ Send retain the captured source/quote/final bytes.
 After the bootstrap document loads, the parent sends exactly one source-init
 message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest`,
 `source` and `theme` (`"light"` or `"dark"`), and optionally `layout` (`"column"`,
-`"full"`, `"canvas"` or `"freeform"`; absent is `freeform`), plus one MessagePort. The renderer accepts only these exact fields,
+`"full"`, `"canvas"` or `"freeform"`; absent is `freeform`) and `runtime`, plus one MessagePort. The renderer accepts only these exact fields,
 valid UUIDv4/digest metadata and source at most 2 MiB UTF-8, from
 `event.source === window.parent`; origin is not an admission predicate for this
 opaque channel. Direct top-level opening cannot initialize source. Invalid or
@@ -2357,6 +2365,28 @@ replaces its own document using `document.open/write/close`, retaining the
 response policy and prepending a trusted acknowledgement before author source.
 Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
+
+**Page runtime (#1693).** A page opts in by its first `<meta name="tmt-colab-runtime">`
+element in document order, found by HTML parsing with scripting off (never by text search, so a
+comment, a `textarea`, a `title`, a `style`, a `template`'s content or a script string holding the
+markup does not count, while `noscript` content is ordinary markup and does). The `name` value matches exactly; the
+`content` value is split on ASCII whitespace into case-sensitive tokens, and the page opts in when
+any token is `react` or `tailwind`. The runtime is one bundle, so either loads all of it; other
+tokens are ignored, and no marker means nothing extra loads and the bind message is exactly as above.
+This rule is stated here once: the app's parent detection and the native standalone export both
+test against the shared cases in
+[`vectors/runtime-marker-v1.json`](vectors/runtime-marker-v1.json), so the two parsers cannot drift.
+
+The parent then fetches `assets/colab-runtime.js` and the theme `assets/colab-runtime.css` once per
+path, next to the renderer on the mount or at the root of the hosted origin, and sends them as the
+optional `runtime` field: exactly `{script,style}`, two strings of at most 1.5 MiB and 256 KiB UTF-8.
+The bootstrap refuses the whole bind when `runtime` has other keys or types, exceeds a cap, or either
+string contains an HTML comment opener or the closing tag of its own element. It writes
+`<style type="text/tailwindcss">` (the theme, as Tailwind source) and then `<script>` into the trusted
+head after the acknowledgement and before the author's document, so `window.tmt` and the theme exist
+before any page script. If either asset cannot be fetched, the render ends `failed` rather than running
+a page that needs them. The same `mountRenderer` serves the owner view and the reader; no capability,
+message type or CSP allowance is added.
 The parent sets no deadline on the `colab.render.bound` acknowledgement, which follows the author
 document's own `load`: a very large page binds late and shows its loading state meanwhile, and only
 navigation or the page being left ends the frame (#3982).
@@ -5954,11 +5984,13 @@ image sizes need payloads of tens of KiB, and reference resolution needs a page'
 
 Export v1 emits `page.html`, `conversations.json`, `conversations.md`, one
 `attachments/<attachmentId>` file for each attachment it could read, and `manifest.json` (see
-[Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)). Native captures one
+[Conversation export](#conversation-export-1574) and [Attachments in an export](#attachments-in-an-export-1867)).
+A page that opts in to the bundled runtime also gets `page.standalone.html` (see
+[Standalone copy of a page that uses the runtime](#standalone-copy-of-a-page-that-uses-the-runtime-1693)). Native captures one
 owner-authenticated read snapshot through its isolated decoder; the mounted
 browser captures one admitted committed projection through its connection executor.
 HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
-inject renderer CSP/bootstrap, normalize source or execute it. The title, epoch
+inject renderer CSP/bootstrap into `page.html`, normalize source or execute it. The title, epoch
 and verified membership head MUST belong to that same snapshot. A later write
 cannot change an already captured bundle. This head is locally verified, not a
 claim of globally current membership.
@@ -5973,24 +6005,24 @@ All other snapshot, privacy, file-publication and failure rules are unchanged.
 
 The manifest is UTF-8 JSON with these fields:
 
-| Field               | Value / meaning                                                                                                                                                             |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `format`            | `tmt-colab-page-export`                                                                                                                                                     |
-| `version`           | JSON integer `1`                                                                                                                                                            |
-| `spaceId`           | Pinned space ID                                                                                                                                                             |
-| `pageId`            | Exported page UUID                                                                                                                                                          |
-| `title`             | Exact admitted title                                                                                                                                                        |
-| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                                                               |
-| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                         |
-| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                           |
-| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                            |
-| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                               |
-| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                                                        |
-| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                                                                   |
-| `plaintext`         | `true`                                                                                                                                                                      |
-| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                                                       |
-| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                                                           |
-| `files`             | `page.html` (or `shell.json`), `work.json` when the page has work, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+| Field               | Value / meaning                                                                                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`            | `tmt-colab-page-export`                                                                                                                                                                                                                                          |
+| `version`           | JSON integer `1`                                                                                                                                                                                                                                                 |
+| `spaceId`           | Pinned space ID                                                                                                                                                                                                                                                  |
+| `pageId`            | Exported page UUID                                                                                                                                                                                                                                               |
+| `title`             | Exact admitted title                                                                                                                                                                                                                                             |
+| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                                                                                                                                                    |
+| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                                                                                                              |
+| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                                                                                                                |
+| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                                                                                                                 |
+| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                                                                                                                    |
+| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                                                                                                                                             |
+| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                                                                                                                                                        |
+| `plaintext`         | `true`                                                                                                                                                                                                                                                           |
+| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                                                                                                                                            |
+| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                                                                                                                                                |
+| `files`             | `page.html` (or `shell.json`), `work.json` when the page has work, `page.standalone.html` when it was made, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}` (plus `derivedFrom` on the standalone copy); bytes and lowercase hex SHA-256 |
 
 Export copies the optional creation preference from the same captured admitted view
 before asynchronous work; it does not acquire or infer a new recipient.
@@ -6045,10 +6077,50 @@ of the same frozen bytes. A requested download is not confirmation that a file
 was saved; the user checks browser downloads. Failure exposes no new download
 request. Native create-only filesystem and permission guarantees do not apply
 to browser-managed downloads. Parent-owned Blob URLs use attachment filenames
-`page.html`, `conversations.json`, `conversations.md` and `manifest.json`, never source/title paths. Revoke each URL after
+`page.html`, `page.standalone.html` (when the bundle has it), `conversations.json`, `conversations.md` and `manifest.json`, never source/title paths. Revoke each URL after
 bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export is not supported; deleted pages remain denied.
+
+### Standalone copy of a page that uses the runtime (#1693)
+
+`page.html` is the exact admitted source and never changes. For an ordinary page whose source opts
+in to the bundled runtime (the page runtime's marker rule: the first `<meta name="tmt-colab-runtime">`
+in document order, found by parsing, with a `react` or `tailwind` token), the export also writes
+`page.standalone.html`, listed right after `page.html` (after `work.json` when the page has work) and
+before `conversations.json`. It is the document the renderer frame builds for the page, with the
+runtime written into its head, so the page works when the file is opened from disk with no Colab and
+no network. Its bytes are this template around the exact source, in UTF-8, with the text between
+braces written verbatim and nothing else added:
+
+```text
+<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="{policy}"><meta charset="utf-8"><style type="text/tailwindcss">{style}</style><script>{themeSwitch}</script><script>{script}</script></head><body>{source}</body></html>
+```
+
+- `{policy}` is the renderer frame's response policy without its `sandbox allow-scripts` directive:
+  a `<meta>` cannot carry `sandbox`, so the copy has the same no-network policy (nothing loads or
+  leaves) but is not sandboxed; opened from disk it runs with the origin the browser gives a local
+  file, like any HTML file.
+- `{themeSwitch}` is one fixed script that sets `data-theme` on the root from the system colour
+  scheme and follows its changes, because the runtime theme reads `data-theme` only.
+- `{script}` and `{style}` are the bytes of `assets/colab-runtime.js` and `assets/colab-runtime.css`
+  of the same build. A runtime text that contains `<!--`, or `</script` / `</style` in any ASCII case,
+  is not written (the build already refuses them).
+
+The manifest row of the copy is `{name, sizeBytes, sha256, derivedFrom:"page.html"}`; `derivedFrom`
+appears on no other row. A page that does not opt in, and every dashboard, exports byte for byte as
+before: no file, no new field.
+
+When a page opts in but no copy can be made, the export still succeeds without the file and says
+why. The reasons are `runtime-unavailable` (the build carries no runtime, or the browser could not
+load it), `runtime-unusable` (a runtime text could escape its element) and, for native export only,
+`page-too-deep` (the page nests past the parse depth, so its marker cannot be judged). The CLI JSON
+result has `standalone: {included, reason?}` (absent for a page that does not opt in) and the human
+output prints a line naming the reason; the browser's Export panel does the same. Native export
+reads the marker with an HTML parser that has scripting off, as `DOMParser` does, and both sides
+pass the same cases (`vectors/runtime-marker-v1.json`). Native and browser export write identical
+bytes: `vectors/export-v1.json` has a `standalone` section with a tiny stand-in runtime that pins the
+copy, its policy, theme switch, hash and the manifest.
 
 ### Attachments in an export (#1867)
 
@@ -6077,7 +6149,7 @@ never opens storage or a backend, so with no serve every row is `unavailable`. T
 browser reads through its existing admitted read, then offers each included file as a download
 under its own filename beside the page files, and lists the other rows with their outcome.
 Both build the same rows and `manifest.json` bytes (`vectors/export-v1.json`); the file list
-published is the three page files, the included attachments in row order, then the manifest.
+published is the page files, the included attachments in row order, then the manifest.
 Archived and deleted pages stay denied as above.
 
 ### Attachment read command (#1867, #2464)

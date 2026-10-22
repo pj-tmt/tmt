@@ -76,6 +76,8 @@ pub struct HistoryRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryItem<T = ()> {
     pub delivery_policy: super::digest::DeliveryPolicy,
+    /// What a passthrough's turn earned, with its state as of the read.
+    pub capture: Option<super::passthrough::PassthroughCapture>,
     pub request_id: String,
     pub room_id: Option<String>,
     pub recipient_identity_id: Option<String>,
@@ -84,6 +86,8 @@ pub struct HistoryItem<T = ()> {
     pub origin: super::RequestOrigin,
     pub prepared_at_ms: u64,
     pub delivery: AttemptStatus,
+    /// The one state a person sees for this message; clients paint it as given.
+    pub delivery_view: super::delivery::DeliveryView,
     /// Inbox acknowledgment only. Pane transport cannot prove agent read state.
     pub recipient_acknowledged: Option<bool>,
     pub final_state: FinalState<T>,

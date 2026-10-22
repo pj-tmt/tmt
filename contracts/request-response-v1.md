@@ -614,6 +614,30 @@ and only the oldest; with none open nothing is recorded. A delivery that is refu
 unavailable or uncertain settles nothing, so the question stays open and the agent is
 never told it was answered.
 
+The text carries no request id, so what the passthrough earns back is the final assistant
+message of the turn it started, matched by prompt and never by time alone. `requests.list`
+and `requests.show` items with `mode: "passthrough"` carry
+`passthrough: {state, deliveredAtMs, boundAtMs?, settledAtMs?, answer?}`:
+
+- `pending`: typed, and no turn has started with that prompt. At turn start Core compares the
+  prompt the provider's hook reports with each pending text of that agent after the pane's own
+  `!` conversion and newline normalisation (the ends may be trimmed). The oldest match binds;
+  identical pending texts bind first in, first out, so a busy agent that queues the prompt
+  binds when that turn actually starts. A prompt that matches nothing binds nothing, and no turn
+  starting within 10 minutes of delivery settles `no_answer` (a read says so before anything
+  writes it).
+- `bound`: a turn started with that prompt. Core waits for that turn however long it runs.
+- `answered`: the turn ended with a final message, stored as
+  `answer: {text, truncated, provider, endedMs}`: plain untrusted text of at most 8,192 UTF-8
+  bytes, never a reply and never an instruction. It is attached once.
+- `no_answer`: the turn ended without a final (interrupted, or none was read, as when provider
+  usage collection is off), or the provider session was replaced before it ended. A final is
+  never taken from `responses.recent` or the pane.
+
+Only an admitted turn event (one that moved the verified session's state) binds or settles.
+Provider session and turn ids stay local evidence. The capture is part of the request: it has
+the request's retention and goes with it.
+
 `x` commands select the originator's data with
 `--identity <name>` through the shared durable selector. Omission requires a
 verified caller identity; outside that context it fails rather than guessing.
@@ -741,6 +765,34 @@ The following semantic scenarios are illustrative only, not final JSON schemas:
 | `talk` succeeds and the final reply is accepted | Delivery/result succeeds, but the originator's X view remains unacknowledged until explicit ack.                                    |
 | `talk` times out, then ack, then a late reply   | Timeout releases only the observer; ack covers the current revision; the late reply creates a newer revision and reopens attention. |
 | `result` after the retention boundary           | The result is unavailable/expired, not pending; opportunistic cleanup may later remove eligible physical rows.                      |
+
+### Message state
+
+Every history item and `requests.show` detail carries one `messageState` object for the sender's
+view of that message, derived at read time from stored facts only (never pane text), so every
+client paints the same words and keeps no copy of the rules:
+
+| `state`       | When                                                                                                                               | `canSendNow`                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `sent`        | Accepted and waiting to be typed, or its Digest checklist is in flight                                                             | true unless in flight or the recipient waits on an approval prompt |
+| `batched`     | Held by the recipient's Digest for the next checklist                                                                              | true unless the recipient waits on an approval prompt              |
+| `delivered`   | Typed into the recipient's pane (or its checklist was), and no turn has begun on it                                                | false                                                              |
+| `working`     | Typed, and the bound session reports a turn begun after the message was prepared (after the hand-over for a pane route)            | false                                                              |
+| `unconfirmed` | The hand-over may have reached the pane (`uncertain`); never resendable                                                            | false                                                              |
+| `not_sent`    | Nothing reached the agent: `refused` (a pane route failed for certain) or `unreachable` (an identified recipient had no live pane) | true only for `unreachable`                                        |
+
+`messageState` is `{state, reason:{code, text}, latestMs, remainingMs, canSendNow}`. `reason.text`
+is the one wording for the state (for example `unreachable`: "not sent, the agent could not be
+reached"); a client may add the recipient's name or a countdown, and nothing else. `latestMs` is
+the latest moment a `batched` message goes out and `remainingMs` the time left at the read (zero
+once past, never negative); both are null when the recipient's Digest policy records no limit.
+Core states that deadline from the policy's `maxHoldMs` (the limit the Digest rule's owner keeps
+for the oldest held message, written with the policy) plus the oldest held message's arrival,
+because every held message goes out together. The count trigger of a rule can only make it
+earlier. `working` rests on the driver's last admitted event for the exact session and process
+the recipient is bound to now; it is not liveness evidence. `canSendNow` says whether a send-now
+applies to the message; who may ask is that operation's own check. A refusal's cause is not
+retained, so `not_sent` carries one of the two generic reasons.
 
 ## Verification ownership
 

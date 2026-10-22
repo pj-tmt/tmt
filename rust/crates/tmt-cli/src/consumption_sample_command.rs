@@ -215,6 +215,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
             // Written only with a state that counted it: rows and totals move together.
             family: family.filter(|_| next_counted).map(|family| family.write),
             response: None,
+            boundary: None,
             now_ms: tmt_adapters::request_runtime::wall_time_ms(),
             deadline,
         })

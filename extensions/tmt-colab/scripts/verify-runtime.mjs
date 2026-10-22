@@ -54,7 +54,8 @@ const text = bytes.toString('utf8');
 expect(bytes.length <= MAX_BYTES, `runtime is ${bytes.length} bytes, over ${MAX_BYTES}`);
 // The frame injects this as an inline script: it must not close its own tag, must not need
 // `process`, must not load a source map, and must not need eval (the frame has no unsafe-eval).
-expect(!text.includes('</script'), 'contains a script end tag');
+expect(!text.toLowerCase().includes('</script'), 'contains a script end tag');
+  expect(!text.includes('<' + '!--'), 'contains an HTML comment opener');
 expect(!text.includes('process.env'), 'reads process.env');
 expect(!text.includes('sourceMappingURL'), 'references a source map');
 expect(!/\beval\s*\(/.test(text) && !text.includes('new Function('), 'uses eval or new Function');
@@ -63,7 +64,8 @@ expect(!/\beval\s*\(/.test(text) && !text.includes('new Function('), 'uses eval 
 const theme = themeBytes.toString('utf8');
 expect(themeBytes.length <= MAX_THEME_BYTES, `theme is ${themeBytes.length} bytes, over ${MAX_THEME_BYTES}`);
 expect(!theme.includes('@import'), 'theme contains @import');
-expect(!theme.includes('</style'), 'theme contains a style end tag');
+expect(!theme.toLowerCase().includes('</style'), 'theme contains a style end tag');
+expect(!theme.includes('<' + '!--'), 'theme contains an HTML comment opener');
 const notices = read(join(directory, 'THIRD-PARTY-NOTICES.txt'));
 for (const name of Object.keys(packages))
   expect(notices.includes(`\n## ${name} - ${packages[name]} (`), `notices lack ${name} ${packages[name]}`);

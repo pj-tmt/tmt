@@ -205,6 +205,45 @@ test('the renderer is still a separate sandboxed frame with an opaque origin', a
   ).toBe('');
 });
 
+test('a page that opts in to the runtime renders in the shell with the runtime from /colab/assets/', async ({
+  page,
+}) => {
+  const fetched: string[] = [];
+  await page.route('**/assets/colab-runtime.*', (route) => {
+    const url = new URL(route.request().url());
+    fetched.push(url.pathname);
+    return url.pathname.endsWith('.css')
+      ? route.fulfill({ contentType: 'text/css', body: '@theme { --color-stub: #123456; }' })
+      : route.fulfill({
+          contentType: 'text/javascript',
+          body: 'window.tmt = Object.freeze({ stub: true });',
+        });
+  });
+  await page.goto('/');
+  await serveRendererLikeTheDoor(page);
+  await page.evaluate(
+    async ({ fixture, url }) =>
+      (await import(fixture)).mountAt(
+        url,
+        undefined,
+        '<meta name="tmt-colab-runtime" content="react tailwind"><p id="opted">Marker</p>' +
+          '<script>document.getElementById("opted").dataset.tmt = String(window.tmt && window.tmt.stub)</script>',
+      ),
+    { fixture, url: `/colab/pages/${page1}` },
+  );
+  // The renderer and the runtime it loads share one base: beside /colab/, not the page's route.
+  const frame = page.locator('iframe');
+  await expect(frame).toHaveAttribute('src', /\/colab\/renderer\.html/);
+  const inside = page
+    .frames()
+    .find((candidate) => candidate.url().endsWith('/colab/renderer.html'))!;
+  await expect(inside.locator('#opted')).toHaveAttribute('data-tmt', 'true');
+  expect(fetched.sort()).toEqual([
+    '/colab/assets/colab-runtime.css',
+    '/colab/assets/colab-runtime.js',
+  ]);
+});
+
 test('the policy comparison accepts a stricter document and names every loosening', () => {
   expect(APP_POLICY).toContain("default-src 'none'");
   expect(atLeastAsStrict(APP_POLICY, APP_POLICY)).toEqual([]);

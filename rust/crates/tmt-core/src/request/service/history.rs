@@ -3,6 +3,7 @@ use crate::{
     dispatch::canonical_id,
     request::{
         attention::{AttentionRecord, FinalState},
+        delivery,
         history::*,
     },
 };
@@ -39,10 +40,30 @@ fn valid_query(query: &HistoryQuery) -> bool {
         })
 }
 
+/// The capture of a passthrough, with the state a read at `now` shows.
+fn capture<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    request_id: &str,
+    mode: super::super::digest::DeliveryMode,
+    now: u64,
+) -> Result<Option<super::super::passthrough::PassthroughCapture>, RequestError<E>> {
+    if mode != super::super::digest::DeliveryMode::Passthrough {
+        return Ok(None);
+    }
+    Ok(records.passthrough_capture(request_id)?.map(|capture| {
+        super::super::passthrough::PassthroughCapture {
+            state: capture.state_at(now),
+            ..capture
+        }
+    }))
+}
+
 fn item<T>(
     record: AttentionRecord,
     final_state: FinalState<T>,
     delivery_policy: super::super::digest::DeliveryPolicy,
+    capture: Option<super::super::passthrough::PassthroughCapture>,
+    delivery_view: super::super::delivery::DeliveryView,
 ) -> HistoryItem<T> {
     let acknowledged = matches!(record.attempt.route, RequestRoute::Inbox { .. }).then_some(
         record.revision > 0
@@ -51,6 +72,7 @@ fn item<T>(
     );
     HistoryItem {
         delivery_policy,
+        capture,
         request_id: record.attempt.request_id,
         room_id: record.attempt.room_id,
         recipient_identity_id: record.attempt.recipient_identity_id,
@@ -59,6 +81,7 @@ fn item<T>(
         origin: record.attempt.origin,
         prepared_at_ms: record.attempt.prepared_at_ms,
         delivery: record.attempt.status,
+        delivery_view,
         recipient_acknowledged: acknowledged,
         final_state,
     }
@@ -105,8 +128,24 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                         Some(()),
                         delivery_policy.mode,
                     )?;
+                    let capture = capture(
+                        records,
+                        &row.attention.attempt.request_id,
+                        delivery_policy.mode,
+                        now,
+                    )?;
+                    let delivery_view = delivery::delivery_view(
+                        &records.delivery_facts(&row.attention.attempt, now)?,
+                        now,
+                    );
                     Ok(HistorySummary {
-                        item: item(row.attention, final_state, delivery_policy),
+                        item: item(
+                            row.attention,
+                            final_state,
+                            delivery_policy,
+                            capture,
+                            delivery_view,
+                        ),
                         preview: row.preview,
                         response_preview: row.response_preview,
                     })
@@ -145,8 +184,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 response.map(|response| response.body),
                 delivery_policy.mode,
             )?;
+            let capture = capture(records, request_id, delivery_policy.mode, now)?;
+            let delivery_view =
+                delivery::delivery_view(&records.delivery_facts(&record.attempt, now)?, now);
             Ok(HistoryDetail {
-                item: item(record, final_state, delivery_policy),
+                item: item(record, final_state, delivery_policy, capture, delivery_view),
                 prompt: context.prompt,
             })
         })

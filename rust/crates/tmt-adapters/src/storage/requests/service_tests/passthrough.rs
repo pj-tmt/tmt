@@ -394,3 +394,72 @@ fn a_delivery_that_did_not_reach_the_pane_leaves_the_question_open() {
     assert_eq!(open_ids(&mut f, &person), ["q-refused", "q-unsure"]);
     f.storage.close().unwrap();
 }
+
+#[test]
+fn a_sent_passthrough_starts_a_capture_the_history_shows_and_an_unsent_one_does_not() {
+    use tmt_core::request::{
+        WakeState,
+        passthrough::{BIND_WINDOW_MS, CaptureState},
+    };
+    let mut f = Fixture::new();
+    let agent = f.identity_id.clone();
+    let person = identity(&mut f, "Ben");
+    mark_user(&f, &person);
+    claimed_passthrough(&mut f, &agent, &person, "typed", "Use main!");
+    claimed_passthrough(&mut f, &agent, &person, "refused", "Not typed");
+    // Nothing is captured before the text is in the pane.
+    assert!(
+        service(&mut f)
+            .request_detail("typed")
+            .unwrap()
+            .item
+            .capture
+            .is_none()
+    );
+    service(&mut f)
+        .settle_request_delivery("typed", WakeState::Sent)
+        .unwrap();
+    service(&mut f)
+        .settle_request_delivery("refused", WakeState::Unavailable)
+        .unwrap();
+
+    let capture = service(&mut f)
+        .request_detail("typed")
+        .unwrap()
+        .item
+        .capture
+        .unwrap();
+    assert_eq!(capture.state, CaptureState::Pending);
+    assert_eq!(capture.delivered_at_ms, NOW_MS);
+    assert!(capture.answer.is_none());
+    assert!(
+        service(&mut f)
+            .request_detail("refused")
+            .unwrap()
+            .item
+            .capture
+            .is_none(),
+        "a refused delivery has no turn to wait for"
+    );
+    // A request is never a passthrough: it has no capture.
+    enqueue(&mut f, &agent, &person, "asked", DeliveryMode::Request).unwrap();
+    assert!(
+        service(&mut f)
+            .request_detail("asked")
+            .unwrap()
+            .item
+            .capture
+            .is_none()
+    );
+
+    // Past the binding window the read says no answer, though nothing wrote that.
+    f.set_now(NOW_MS + BIND_WINDOW_MS + 1);
+    let late = service(&mut f)
+        .request_detail("typed")
+        .unwrap()
+        .item
+        .capture
+        .unwrap();
+    assert_eq!(late.state, CaptureState::NoAnswer);
+    f.storage.close().unwrap();
+}

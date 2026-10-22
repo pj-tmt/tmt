@@ -127,9 +127,18 @@ impl ReaderMount {
         session
     }
     fn upgrade(&self, session: &Value) -> std::result::Result<WebSocket<UnixStream>, u16> {
+        self.upgrade_from(session, None)
+    }
+    /// An upgrade as Remote forwards it: with a `tmt-origin` header, or without one.
+    fn upgrade_from(
+        &self,
+        session: &Value,
+        origin: Option<&str>,
+    ) -> std::result::Result<WebSocket<UnixStream>, u16> {
         let token = session["token"].as_str().unwrap();
+        let origin = origin.map_or_else(String::new, |origin| format!("tmt-origin: {origin}\r\n"));
         let mut socket = self.socket();
-        socket.write_all(format!("GET /sync HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-reader-v1.{token}, colab-sync-v1\r\n\r\n").as_bytes()).unwrap();
+        socket.write_all(format!("GET /sync HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-reader-v1.{token}, colab-sync-v1\r\n{origin}\r\n").as_bytes()).unwrap();
         let mut head = Vec::new();
         while !head.ends_with(b"\r\n\r\n") {
             assert!(head.len() < limits::HEADER_BYTES);
@@ -404,6 +413,39 @@ fn reader_fixture(public: bool, short_cert: bool) -> Fixture {
 }
 
 /// Real HTTP admission, mounted subscriptions and the root transition sync lock.
+#[test]
+fn only_an_upgrade_without_an_origin_names_the_missing_object_channel() {
+    // Remote forwards an upgrade without an origin when its object setup missed its budget, and
+    // a reconnect is what fixes that. Every other connection with no object handle (here an
+    // origin with no channel behind it, and an origin that is not a UUID) stays the bare
+    // `unavailable`, so the app does not reconnect for a cause a reconnect cannot fix (#4297).
+    let mut f = reader_fixture(true, false);
+    let mount = ReaderMount::start(&mut f);
+    for (origin, code) in [
+        (None, "no-object-channel"),
+        (Some("5f3a7c1e-2b4d-4e6f-8a9b-0c1d2e3f4a5b"), "unavailable"),
+        (Some("not-a-uuid"), "unavailable"),
+    ] {
+        let session = mount.session(&f, false);
+        let mut peer = mount.upgrade_from(&session, origin).unwrap();
+        bootstrap_reader(&mut peer, &session);
+        send_reader(
+            &mut peer,
+            reader_frame(
+                &session,
+                "object",
+                json!({"requestId":"00000000-0000-4000-8000-0000000000a1","request":{"method":"config"}}),
+            ),
+        );
+        let reply = read_reader(&mut peer);
+        assert_eq!(reply["type"], "object-result", "{origin:?}: {reply}");
+        assert_eq!(
+            reply["result"],
+            json!({"error":{"code":code}}),
+            "{origin:?}"
+        );
+    }
+}
 #[test]
 fn mounted_reader_narrowing_reset_removal_rotation_revocation_and_expiry_twice() {
     for (public, change) in [

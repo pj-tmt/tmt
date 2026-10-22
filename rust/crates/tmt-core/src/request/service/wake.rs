@@ -173,7 +173,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 {
                     // It published no attention, so there is none to acknowledge; the
                     // typed text now in the pane answers the agent's oldest open request.
-                    super::answers::answer_oldest_open(records, &attempt, positive(clock())?)?;
+                    let now = positive(clock())?;
+                    records.create_passthrough_capture(request_id, now)?;
+                    super::answers::answer_oldest_open(records, &attempt, now)?;
                 } else {
                     let attention = records
                         .find_recipient_attention(recipient_identity_id, request_id)?

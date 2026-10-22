@@ -33,10 +33,15 @@ struct Part {
     text: String,
     style: Style,
     source: usize,
-    member: Option<(String, usize)>,
+    member: Option<(super::member_links::Target, usize)>,
 }
 impl Part {
-    fn new(text: String, style: Style, source: usize, member: Option<(String, usize)>) -> Self {
+    fn new(
+        text: String,
+        style: Style,
+        source: usize,
+        member: Option<(super::member_links::Target, usize)>,
+    ) -> Self {
         Self {
             text,
             style,
@@ -60,6 +65,9 @@ struct Renderer<'a> {
     italic: usize,
     heading: bool,
     link: bool,
+    /// The address of the link being read, and the occurrence its cells share, when the
+    /// board may open it.
+    link_url: Option<(String, usize)>,
     quote_depth: usize,
     width: usize,
     /// Numbering for each open list; None for bullets.
@@ -115,6 +123,24 @@ impl Renderer<'_> {
         });
     }
 
+    /// Text that opens `url` from the board, in its own occurrence.
+    fn push_url(&mut self, text: &str, style: Style, url: &str) {
+        if self.current.is_none() {
+            let indent = self.lists.len() * 2;
+            self.start(" ".repeat(indent), indent);
+        }
+        let occurrence = self.next_mention;
+        self.next_mention += 1;
+        if let Some(block) = &mut self.current {
+            block.spans.push(Part::new(
+                text.into(),
+                style,
+                self.source_line,
+                Some((super::member_links::Target::Url(url.into()), occurrence)),
+            ));
+        }
+    }
+
     fn finish(&mut self) {
         if let Some(block) = self.current.take() {
             self.blocks.push(block);
@@ -127,6 +153,15 @@ impl Renderer<'_> {
             self.start(" ".repeat(indent), indent);
         }
         if let Some(block) = &mut self.current {
+            if let Some((url, occurrence)) = &self.link_url {
+                block.spans.push(Part::new(
+                    text.into(),
+                    style,
+                    self.source_line,
+                    Some((super::member_links::Target::Url(url.clone()), *occurrence)),
+                ));
+                return;
+            }
             let mut at = 0;
             for mention in self.inventory.map_or_else(Vec::new, |inventory| {
                 super::member_links::resolve(text, inventory)
@@ -146,7 +181,10 @@ impl Renderer<'_> {
                         .remove_modifier(Modifier::BOLD)
                         .add_modifier(Modifier::UNDERLINED),
                     self.source_line,
-                    Some((mention.identity, self.next_mention)),
+                    Some((
+                        super::member_links::Target::Member(mention.identity),
+                        self.next_mention,
+                    )),
                 ));
                 self.next_mention += 1;
                 at = mention.range.end;
@@ -290,8 +328,15 @@ impl Renderer<'_> {
             Event::End(TagEnd::Emphasis) => self.italic = self.italic.saturating_sub(1),
             Event::Start(Tag::Link { dest_url, .. }) => {
                 self.link = crate::links::styled_target(&dest_url);
+                self.link_url = crate::effects::openable(&dest_url)
+                    .is_ok()
+                    .then(|| (dest_url.to_string(), self.next_mention));
+                self.next_mention += usize::from(self.link_url.is_some());
             }
-            Event::End(TagEnd::Link) => self.link = false,
+            Event::End(TagEnd::Link) => {
+                self.link = false;
+                self.link_url = None;
+            }
             Event::Text(text) => {
                 self.prose(&text);
             }
@@ -409,6 +454,7 @@ fn project<'a>(
         italic: 0,
         heading: false,
         link: false,
+        link_url: None,
         quote_depth: 0,
         width: width.max(1),
         lists: Vec::new(),
@@ -481,11 +527,11 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
         let mut column = 0;
         for part in block.spans {
             let width = cells(&part.text);
-            if let Some((identity, occurrence)) = part.member {
+            if let Some((target, occurrence)) = part.member {
                 mentions.push(super::member_links::Link {
                     column,
                     width,
-                    identity,
+                    target,
                     occurrence,
                 });
             }
@@ -571,12 +617,12 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
                 line.push(Span::styled(indent.clone(), block.prefix_style));
                 used = block.indent;
             }
-            if let Some((identity, occurrence)) = &identity {
+            if let Some((target, occurrence)) = &identity {
                 if let Some(last) =
                     mentions
                         .last_mut()
                         .filter(|last: &&mut super::member_links::Link| {
-                            last.identity == *identity
+                            last.target == *target
                                 && last.occurrence == *occurrence
                                 && last.column + last.width == used
                         })
@@ -586,7 +632,7 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
                     mentions.push(super::member_links::Link {
                         column: used,
                         width: size,
-                        identity: identity.clone(),
+                        target: target.clone(),
                         occurrence: *occurrence,
                     });
                 }
@@ -596,11 +642,11 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
         }
         line.push(Span::styled(piece, style));
         if word.ends_with(' ') && used < width {
-            if let Some((identity, occurrence)) = &identity {
+            if let Some((target, occurrence)) = &identity {
                 mentions.push(super::member_links::Link {
                     column: used,
                     width: 1,
-                    identity: identity.clone(),
+                    target: target.clone(),
                     occurrence: *occurrence,
                 });
             }

@@ -77,6 +77,22 @@ pub fn decode_prompt(bytes: &[u8]) -> Option<tmt_core::binding::session::Provide
     tmt_core::binding::session::ProviderSessionId::new(&payload.session_id).ok()
 }
 
+/// The prompt text a `UserPromptSubmit` payload carries: what the provider is about to run as
+/// the turn. It is compared with the text a passthrough typed and never stored.
+pub fn decode_prompt_text(bytes: &[u8]) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Prompt {
+        hook_event_name: String,
+        prompt: Option<String>,
+    }
+    if bytes.len() > HOOK_INPUT_LIMIT {
+        return None;
+    }
+    let payload: Prompt = serde_json::from_slice(bytes).ok()?;
+    (payload.hook_event_name == "UserPromptSubmit").then_some(())?;
+    payload.prompt.filter(|prompt| !prompt.is_empty())
+}
+
 /// One decoded activity payload: the normalized event, and the model the same
 /// payload reported for the main session. The model is evidence only for the
 /// driver state an admitted transition writes; it never decides admission.
