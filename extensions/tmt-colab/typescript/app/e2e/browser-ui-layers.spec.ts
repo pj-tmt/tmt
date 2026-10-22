@@ -852,3 +852,20 @@ for (const width of [320, 390, 1440])
       });
     });
   }
+
+test('an end-aligned menu from a left-edge trigger stays 8px inside the 390px viewport', async ({
+  page,
+}) => {
+  await prepare(page, 390, 'light');
+  const edge = fixture(page).getByRole('button', { name: 'Edge menu trigger', exact: true });
+  expect((await edge.boundingBox())?.x).toBe(0);
+  await edge.click();
+  const menu = page.getByRole('menu', { name: 'Edge menu trigger', exact: true });
+  await expect(menu).toBeVisible();
+  // Read the box after the enter motion: a scaling surface reports a smaller box.
+  await menu.evaluate((node) => Promise.all(node.getAnimations().map((a) => a.finished)));
+  const box = await menu.boundingBox();
+  if (!box) throw new Error('Missing menu box');
+  expect(box.x).toBeGreaterThanOrEqual(8);
+  expect(box.x + box.width).toBeLessThanOrEqual(390 - 8);
+});

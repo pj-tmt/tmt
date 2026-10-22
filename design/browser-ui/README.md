@@ -634,6 +634,9 @@ Tooltip retains stock Radix hover/focus timing and Escape behavior; it has no
 busy-veto controller. All portals use their originating `UiTheme` container.
 The scrim aliases the existing `browser.surface.scrim` token; layer dimensions
 follow the visual viewport with a gutter derived from existing spacing.
+The floating contents (DropdownMenu and its submenu, Popover, Tooltip) default
+`collisionPadding` to that gutter, 8 px (`layerCollisionPadding`), so no layer touches the
+viewport edge; a caller may pass its own `collisionPadding`.
 No second popup stack or domain operation lives in this leaf.
 
 Actionable hosts that require close veto must supply a controlled

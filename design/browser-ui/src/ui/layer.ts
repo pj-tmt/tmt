@@ -210,6 +210,9 @@ export function admitLayerDismiss(
   controller.requestClose(reason, original);
 }
 
+/** Radix collision padding of every floating layer: the 2-unit gutter, so none touches the viewport edge. */
+export const layerCollisionPadding = 8;
+
 /** Observe only a mounted Radix surface. Geometry uses the viewport, styling uses tokens. */
 export function observeLayerViewport(
   node: HTMLElement,

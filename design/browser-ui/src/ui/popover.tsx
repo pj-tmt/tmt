@@ -6,6 +6,7 @@ import { useUiPortalContainer } from './theme.js';
 import {
   LayerAdmission,
   admitLayerDismiss,
+  layerCollisionPadding,
   useLayerAdmission,
   useLayerFocus,
   useLayerSurface,
@@ -43,6 +44,7 @@ export function PopoverContent({
   className,
   align = 'center',
   sideOffset = 4,
+  collisionPadding = layerCollisionPadding,
   outsidePress = 'through',
   initialFocus,
   returnFocus,
@@ -100,6 +102,7 @@ export function PopoverContent({
           ref={surface.ref}
           align={align}
           sideOffset={sideOffset}
+          collisionPadding={collisionPadding}
           className={cn(
             'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:w-72 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-popover-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-4 tmt:outline-none',
             'tmt:rounded-control tmt:shadow-overlay',

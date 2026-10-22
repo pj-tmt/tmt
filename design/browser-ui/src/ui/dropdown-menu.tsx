@@ -7,6 +7,7 @@ import { useUiPortalContainer } from './theme.js';
 import {
   LayerAdmission,
   admitLayerDismiss,
+  layerCollisionPadding,
   useLayerAdmission,
   useLayerFocus,
   useLayerSurface,
@@ -46,6 +47,7 @@ export function DropdownMenuTrigger(props: ComponentProps<typeof Primitive.Trigg
 export function DropdownMenuContent({
   className,
   sideOffset = 4,
+  collisionPadding = layerCollisionPadding,
   returnFocus,
   focusFallback,
   onCloseAutoFocus,
@@ -69,6 +71,7 @@ export function DropdownMenuContent({
         {...props}
         ref={surface.ref}
         sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
         className={cn(
           'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:min-w-32 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-dropdown-menu-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-x-hidden tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-1 tmt:outline-none',
           'tmt:rounded-control tmt:shadow-overlay',
@@ -239,6 +242,7 @@ export function DropdownMenuSubTrigger({
 }
 export function DropdownMenuSubContent({
   className,
+  collisionPadding = layerCollisionPadding,
   ref,
   style,
   ...props
@@ -250,6 +254,7 @@ export function DropdownMenuSubContent({
         data-slot="dropdown-menu-sub-content"
         {...props}
         ref={surface.ref}
+        collisionPadding={collisionPadding}
         className={cn(
           'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:z-(--tmt-foundation-z-layer) tmt:min-w-32 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-[min(var(--radix-dropdown-menu-content-available-height),var(--tmt-layer-available-height))] tmt:overflow-y-auto tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-popover tmt:text-popover-foreground tmt:p-1 tmt:outline-none',
           'tmt:rounded-control tmt:shadow-overlay',
