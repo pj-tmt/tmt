@@ -117,6 +117,9 @@ pub fn canonical_uuid(id: &str) -> bool {
 
 pub struct DigestConfig {
     pub default: Mode,
+    /// The global switch (`enabled = false`; absent means on). While off every member is
+    /// handled as `off` and no stored setting is read or changed.
+    enabled: bool,
     pub flush_count: i64,
     document: DocumentMut,
 }
@@ -156,6 +159,12 @@ impl DigestConfig {
                 item.as_str()
                     .ok_or_else(|| invalid("default must be a duration, auto or off"))?,
             )?,
+        };
+        let enabled = match document.get("enabled") {
+            None => true,
+            Some(item) => item
+                .as_bool()
+                .ok_or_else(|| invalid("enabled must be true or false"))?,
         };
         let flush_count = match document.get("flushCount") {
             None => DEFAULT_FLUSH_COUNT,
@@ -212,6 +221,7 @@ impl DigestConfig {
         }
         Ok(Self {
             default,
+            enabled,
             flush_count,
             document,
         })
@@ -228,7 +238,22 @@ impl DigestConfig {
             None => Ok(MemberSetting::Default),
         }
     }
+    /// Whether Digest batches at all. A legacy `default = "off"` is the same as off.
+    pub fn enabled(&self) -> bool {
+        self.enabled && self.default != Mode::Off
+    }
+    /// What the member would get with the switch on.
+    pub fn stored_effective(&self, id: &str) -> Result<Mode, Error> {
+        match self.member_setting(id)? {
+            MemberSetting::Default => Ok(self.default.clone()),
+            MemberSetting::Override(mode) => Ok(mode),
+        }
+    }
+    /// What the tick applies: the switch masks every stored setting.
     pub fn effective(&self, id: &str) -> Result<Mode, Error> {
+        if !self.enabled {
+            return Ok(Mode::Off);
+        }
         match self.member_setting(id)? {
             MemberSetting::Default => Ok(self.default.clone()),
             MemberSetting::Override(mode) => Ok(mode),
@@ -240,6 +265,21 @@ impl DigestConfig {
             .and_then(|members| members.get(id))
             .and_then(|row| row.get("setAtMs"))
             .and_then(Item::as_integer)
+    }
+    /// Flip the switch only; every stored setting stays. Turning it on removes the key and
+    /// gives a legacy `default = "off"`, which has nothing to restore, the shipped `auto`.
+    fn edit_enabled(&mut self, enabled: bool) -> Result<(), Error> {
+        if enabled {
+            self.document.remove("enabled");
+            if self.default == Mode::Off {
+                self.document["default"] = toml_edit::value(Mode::Auto.text());
+                self.default = Mode::Auto;
+            }
+        } else {
+            self.document["enabled"] = toml_edit::value(false);
+        }
+        self.enabled = enabled;
+        Ok(())
     }
     fn edit_default(&mut self, mode: &Mode, setter: Option<&str>, now: i64) -> Result<(), Error> {
         if setter.is_some_and(|id| !canonical_uuid(id)) || now < 0 || now as u64 > MAX_MS {
@@ -256,7 +296,8 @@ impl DigestConfig {
             }
         }
         self.default = mode.clone();
-        Ok(())
+        // Choosing a global mode is choosing to batch with it.
+        self.edit_enabled(true)
     }
     fn edit(
         &mut self,
@@ -341,12 +382,17 @@ pub fn set(
     now: i64,
 ) -> Result<(Mode, i64), Error> {
     let settings = update(path, |settings| settings.edit(id, setting, setter, now))?;
-    Ok((settings.effective(id)?, settings.flush_count))
+    Ok((settings.stored_effective(id)?, settings.flush_count))
 }
 
 /// Save the global default and who set it, which members inheriting it adopt as owner.
 pub fn set_default(path: &Path, mode: &Mode, setter: Option<&str>, now: i64) -> Result<(), Error> {
     update(path, |settings| settings.edit_default(mode, setter, now)).map(drop)
+}
+
+/// Turn Digest on or off for everyone without touching any stored setting.
+pub fn set_enabled(path: &Path, enabled: bool) -> Result<(), Error> {
+    update(path, |settings| settings.edit_enabled(enabled)).map(drop)
 }
 
 /// Serialize extension writers, preserve comments/unknown fields and publish one atomic file.

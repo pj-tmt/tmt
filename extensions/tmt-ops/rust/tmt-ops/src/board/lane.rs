@@ -140,7 +140,7 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         Job::Act(request) => {
             let jump = matches!(request, Request::Jump(_));
             let sends = request.sends();
-            let digest = matches!(request, Request::Digest(_));
+            let digest = matches!(request, Request::Digest(_) | Request::DigestSwitch(_));
             let outcome = execute(core, request);
             // What the extension supplies changed: read it now, not at the next tick.
             if let (true, Ok(_), Some(labels)) = (digest, &outcome, labels) {

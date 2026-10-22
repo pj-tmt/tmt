@@ -63,6 +63,10 @@ impl Core {
             deadline: None,
         })
     }
+    /// The `tmt` Digest was started by; ticks and reads go through it.
+    pub fn program(&self) -> &std::path::Path {
+        &self.program
+    }
     pub fn until(mut self, deadline: Instant) -> Self {
         self.deadline = Some(deadline);
         self

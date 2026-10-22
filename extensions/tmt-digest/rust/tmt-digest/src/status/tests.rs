@@ -261,3 +261,20 @@ fn a_row_says_whether_a_recorded_owner_passes_its_hold() {
         Value::Null
     );
 }
+
+#[test]
+fn the_global_switch_is_reported_with_the_default_it_would_restore() {
+    let parse = |source: &str| DigestConfig::parse(source.as_bytes()).unwrap();
+    assert_eq!(
+        global(&parse("")),
+        json!({"enabled":true,"default":"auto","text":"Digest: on (auto)"})
+    );
+    assert_eq!(
+        global(&parse("default = '10m'\nenabled = false\n")),
+        json!({"enabled":false,"default":"10m","text":"Digest: off"})
+    );
+    assert_eq!(
+        global(&parse("default = '10m'\n")),
+        json!({"enabled":true,"default":"10m","text":"Digest: on (10m)"})
+    );
+}

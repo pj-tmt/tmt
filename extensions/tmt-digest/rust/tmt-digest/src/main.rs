@@ -222,16 +222,55 @@ fn save(member: &str, value: &str) -> Result<String, core::Error> {
             ". Sends early once {flush_count} messages are held"
         ));
     }
+    if !settings::DigestConfig::load(&path)?.enabled() {
+        message.push_str(
+            ". Digest is off for everyone, so this applies when it is turned on (tmt digest global on)",
+        );
+    }
+    Ok(message)
+}
+
+/// Turn Digest on or off for everyone; every stored setting stays.
+fn switch(on: bool) -> Result<String, core::Error> {
+    let core = core::Core::discover()?;
+    let path = core.settings_path()?;
+    settings::set_enabled(&path, on)?;
+    let config = settings::DigestConfig::load(&path)?;
+    let mut message = if on {
+        format!(
+            "Digest is on (default: {}). Member settings apply again",
+            shown(&config.default)
+        )
+    } else {
+        "Digest is off for everyone: messages are sent one by one. Member settings and the default are kept"
+            .to_owned()
+    };
+    message.push_str(if tick::kick(&core) {
+        "; the change is applied now."
+    } else {
+        "; it is applied by the next tick."
+    });
     Ok(message)
 }
 
 fn save_default(value: &str) -> Result<String, core::Error> {
+    match value {
+        "on" => return switch(true),
+        "off" => return switch(false),
+        _ => {}
+    }
     let mode = settings::Mode::parse(value)?;
     let core = core::Core::discover()?;
     let setter = core.setter()?;
     let path = core.settings_path()?;
     settings::set_default(&path, &mode, setter.as_deref(), write_time()?)?;
-    let mut message = format!("Saved the global digest default: {}", shown(&mode));
+    let mut message = format!(
+        "Saved the global digest default: {} (Digest is on)",
+        shown(&mode)
+    );
+    if !tick::kick(&core) {
+        message.push_str(". It is applied by the next tick");
+    }
     if setter.is_none() {
         message.push_str(
             ". No caller identity was found, so no one is recorded as the setter; only --urgent and a person marked with tmt identity meta set user true pass the hold. Run it from the pane of the person who should reach members directly.",
