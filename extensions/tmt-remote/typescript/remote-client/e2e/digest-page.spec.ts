@@ -592,6 +592,21 @@ for (const scheme of ['light', 'dark'] as const)
       const last = (await card.locator('tbody tr').first().locator('td').last().boundingBox())!;
       const pinned = (await sender.boundingBox())!;
       expect(Math.abs(pinned.x - start.x)).toBeLessThan(2);
+      expect(
+        await sender.evaluate((node) => getComputedStyle(node.closest('table')!).borderCollapse),
+      ).toBe('separate');
+      expect(
+        await sender.evaluate((node) => Number.parseFloat(getComputedStyle(node).borderRightWidth)),
+      ).toBeGreaterThan(0);
+      const firstVisibleCell = await sender.evaluate((node) => {
+        const edge = node.getBoundingClientRect().right;
+        const cell = Array.from(node.parentElement!.querySelectorAll('td')).find(
+          (candidate) => candidate.getBoundingClientRect().left >= edge,
+        );
+        return cell?.getBoundingClientRect().left ?? null;
+      });
+      expect(firstVisibleCell).not.toBeNull();
+      expect(pinned.x + pinned.width).toBeLessThanOrEqual(firstVisibleCell!);
       expect(last.x + last.width).toBeLessThanOrEqual(viewport.x + viewport.width + 1);
       expect(last.x).toBeGreaterThanOrEqual(viewport.x);
       await expect(card.locator('.tmt-ui-chart-matrix-edge')).toBeHidden();

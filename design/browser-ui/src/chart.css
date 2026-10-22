@@ -172,13 +172,17 @@
   outline-offset: calc(var(--tmt-ui-focus-width) * -1);
 }
 .tmt-ui-chart-matrix {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   font: var(--tmt-ui-header-action-size) / 1.4 var(--tmt-ui-font-mono);
 }
 .tmt-ui-chart-matrix th,
 .tmt-ui-chart-cell {
   padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-chart-matrix-corner,
 .tmt-ui-chart-matrix-column,
