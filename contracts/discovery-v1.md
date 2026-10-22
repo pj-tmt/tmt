@@ -17,8 +17,9 @@ Without explicit selection, the caller host is used. When the caller's
 variables name a host whose approval is not usable and do not name tmux, that
 host's source is `unsupported` with the reason, and nothing runs; there is no
 tmux fallback. When they also name tmux (tmux inside that host), tmux is scanned
-as if that host were not named, and the result adds that host as a second
-source, `unsupported` with the reason; that host's driver never runs. Variables that name more than one external host give one
+through the ordinary caller selection, and the result adds that host as a second
+source, `unsupported` with the reason; that host's driver never runs.
+Variables that name more than one external host give one
 `unknown` source per named host (`ambiguous_caller_host`), and an unreadable
 registry gives an `unknown` tmux source (`driver_registry_unreadable`); both run
 nothing. An explicit `--host tmux` or `--socket` without `--host` is never
