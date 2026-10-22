@@ -456,7 +456,7 @@ jobs:
             echo "Shard ${{ matrix.shard }} of 2 has no spec files; refusing to run the whole suite." >&2
             exit 1
           fi
-          node scripts/colab-acceptance-run.mjs ${{ matrix.shard }} pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
+          node scripts/colab-acceptance-run.mjs ${{ matrix.shard }} pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,./acceptance/harness/soak-reporter.ts,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
       # Run once per full event, after the ordinary binaries and their hashes were consumed.
       - name: Prove the real producer and hosted reader through the emulators
         timeout-minutes: 3
@@ -467,6 +467,14 @@ jobs:
         shell: bash
         run: |
           node typescript/scripts/colab-acceptance-report.mjs
+      - name: Upload synthetic soak failure projection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colab-soak-failure-${{ matrix.shard }}
+          path: ${{ runner.temp }}/colab-soak-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload public acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4

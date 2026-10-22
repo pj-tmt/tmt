@@ -45,7 +45,12 @@ export class OwnedProcess {
     readonly label: string,
     executable: string,
     args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; stderrPath: string },
+    options: {
+      cwd: string;
+      env: NodeJS.ProcessEnv;
+      stderrPath: string;
+      observe?: (line: string) => void;
+    },
   ) {
     this.child = spawn(executable, args, {
       cwd: options.cwd,
@@ -57,9 +62,14 @@ export class OwnedProcess {
     this.child.stdin.on('error', () => {});
     createInterface({ input: this.child.stdout }).on('line', (line) => {
       this.lines.push(line);
+      options.observe?.(line);
       for (const wake of this.waiters) wake();
     });
-    this.child.stderr.on('data', (chunk: Buffer) => fs.appendFileSync(options.stderrPath, chunk));
+    this.child.stderr.on('data', (chunk: Buffer) => {
+      fs.appendFileSync(options.stderrPath, chunk);
+      for (const line of chunk.subarray(-65_536).toString('utf8').split('\n'))
+        options.observe?.(line);
+    });
     this.exited = new Promise((resolve) => {
       this.child.once('error', () => resolve({ code: 1, signal: null }));
       this.child.once('close', (code, signal) => {

@@ -147,6 +147,12 @@ channels and the driver protocol. The owner map is in
   driver doubt, an ancestry that can't be pinned (a reused pid), both hosts naming one pane
   process, a changed entry, or the shared 1 s budget running out keep tmux, and tmux doubt
   (a stale or partial tmux environment) counts as no tmux pane.
+  The tmux pane check waits 1 s (`OPERATION_TIMEOUT`); `name`, `whoami`, `unbind` and
+  `ls --here` (`binding_command::labeled_caller_pane` through `Host::caller_pane_required`)
+  wait 5 s once, no retry, when `TMUX` and `TMUX_PANE` both name a pane. A late tmux there
+  is `RECONCILIATION_FAILED` ("tmux did not answer within 5 s while checking the caller
+  pane"), not "no pane"; other doubt still means no pane. The architecture suite pins that
+  call-site list (`required_caller.rs`).
   Hooks and the caller-session worker use `Host::for_verified_caller` instead, which uses a
   host only when the caller's locators name exactly that host or prove a nested caller's
   owner. No locator keeps tmux (outside any host), and tmux variables alone keep the tmux

@@ -23,6 +23,7 @@ pub(in crate::board) fn host_preview(
     row: &Value,
     invoker_tmux: bool,
     action: Option<(&str, &Action)>,
+    ops: Option<&Value>,
 ) -> String {
     let host_name = row["pane"]["location"]["host"]
         .as_str()
@@ -49,7 +50,11 @@ pub(in crate::board) fn host_preview(
             format!("{} · board_pane resolves when pressed", action.text)
         }
         Verb::Run => action
-            .argv(row)
+            .argv_parameters(crate::template::Parameters {
+                row,
+                ops,
+                board_pane: None,
+            })
             .map(|argv| format!("argv {argv:?}"))
             .unwrap_or_else(|reason| format!("Unavailable: {reason}")),
         _ => action.description(),
@@ -107,13 +112,16 @@ mod tests {
     fn host_preview_uses_the_effective_custom_argv_without_inventing_a_focus_command() {
         let row = json!({"id":"uuid", "pane":{"location":{"host":"tmux"}}, "presence":"active", "fields":{"task":"literal $(id)"}});
         let action = Action::parse("run recorder {task}").unwrap();
-        let preview = host_preview(&row, true, Some(("j", &action)));
+        let preview = host_preview(&row, true, Some(("j", &action)), None);
         assert!(preview.contains(&format!("argv {:?}", action.argv(&row).unwrap())));
         assert!(!preview.contains("tmt focus"));
         let jump = Action::parse("jump").unwrap();
-        assert!(host_preview(&row, true, Some(("f6", &jump))).contains("press f6: tmt focus uuid"));
         assert!(
-            host_preview(&row, false, Some(("f6", &jump)))
+            host_preview(&row, true, Some(("f6", &jump)), None)
+                .contains("press f6: tmt focus uuid")
+        );
+        assert!(
+            host_preview(&row, false, Some(("f6", &jump)), None)
                 .contains("opens conversation · Esc returns")
         );
     }
@@ -121,17 +129,18 @@ mod tests {
     fn host_preview_leaves_dispatch_context_unresolved_and_swap_capability_unclaimed() {
         let row = json!({"id":"uuid", "pane":{"location":{"host":"herdr"}}, "fields":{"board_pane":"%99"}});
         let run = Action::parse("run recorder {board_pane} {pane}").unwrap();
-        let preview = host_preview(&row, false, Some(("j", &run)));
+        let preview = host_preview(&row, false, Some(("j", &run)), None);
         assert!(preview.contains("run recorder {board_pane} {pane}"));
         assert!(preview.contains("board_pane resolves when pressed"));
         assert!(!preview.contains("argv") && !preview.contains("%99"));
         assert!(!preview.contains("Unavailable"));
         let swap = Action::parse("swap left").unwrap();
-        let preview = host_preview(&row, false, Some(("j", &swap)));
+        let preview = host_preview(&row, false, Some(("j", &swap)), None);
         assert!(preview.contains("press j: tmt focus uuid --into left --json"));
         assert!(!preview.contains("Swapped") && !preview.contains("Started"));
         assert!(
-            host_preview(&json!({}), false, Some(("j", &swap))).contains("target UUID unavailable")
+            host_preview(&json!({}), false, Some(("j", &swap)), None)
+                .contains("target UUID unavailable")
         );
     }
     #[test]

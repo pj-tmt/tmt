@@ -633,6 +633,18 @@ impl<R: CommandRunner> Host<R> {
         }
     }
 
+    /// The caller's pane for a command that cannot do without it; see
+    /// [`tmux::Tmux::caller_pane_required`]. An external host answers as [`Host::caller_pane`].
+    pub fn caller_pane_required(
+        &self,
+        environment: &CallerEnvironment,
+    ) -> Result<Option<String>, HostError> {
+        match self.primary {
+            HostKind::Tmux => Ok(self.tmux.caller_pane_required(environment)?),
+            HostKind::External(_) => self.caller_pane(environment),
+        }
+    }
+
     /// How the user names the caller's own pane `id`: its ID on tmux, its
     /// public target on an external host, as the driver reports it. A pane
     /// the driver can't describe keeps its ID.

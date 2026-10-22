@@ -138,6 +138,12 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
     else {
         return false;
     };
+    let ops = app.parameter_observations(row);
+    let parameters = crate::template::Parameters {
+        row,
+        ops: Some(&ops),
+        board_pane: None,
+    };
     match action.verb {
         Verb::Reply => true,
         Verb::UpdateStatus => target.as_ref().is_none_or(|target| {
@@ -145,10 +151,13 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
                 .is_some_and(|squad| !squad.is_empty())
         }),
         Verb::Open => match action.args.first() {
-            Some(template) => template.fill(row).is_ok(),
+            Some(template) => template.fill_parameters(parameters).is_ok(),
             None => crate::effects::default_link(row).is_some(),
         },
-        Verb::Copy => action.args.first().is_none_or(|t| t.fill(row).is_ok()),
+        Verb::Copy => action
+            .args
+            .first()
+            .is_none_or(|t| t.fill_parameters(parameters).is_ok()),
         _ => true,
     }
 }

@@ -13,7 +13,7 @@ use crate::{
 use ratatui::crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
@@ -163,6 +163,7 @@ pub enum Request {
     PreparedRun {
         action: Action,
         row: Value,
+        ops: Value,
     },
     Talk {
         me: String,
@@ -1849,14 +1850,69 @@ impl App {
         Effect::Load(next)
     }
 
+    /// Project one selected occurrence from held public observations, never from a first membership.
+    pub(super) fn parameter_observations(&self, row: &Value) -> Value {
+        self.parameter_observations_for(row, self.workspace.selected.as_ref())
+    }
+
+    fn parameter_observations_for(
+        &self,
+        row: &Value,
+        target: Option<&super::workspace::OpsTarget>,
+    ) -> Value {
+        use super::overview::cron_counts::CronCountScope;
+        use super::workspace::OpsTarget;
+        let mut ops = row["id"]
+            .as_str()
+            .and_then(|id| self.references.agents.get(id))
+            .map(|agent| agent.parameters.clone())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        let room = match target {
+            Some(OpsTarget::Squad(room)) => Some(room.as_str()),
+            Some(OpsTarget::Member { room_id, .. }) => room_id.as_deref(),
+            _ => None,
+        };
+        if let Some(room) = room {
+            ops["squad"] = json!({"roomId":room});
+            if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
+                snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| squad.room_id == room)
+            }) {
+                ops["squad"]["name"] = json!(squad.name);
+            }
+        }
+        let scope = match target {
+            Some(OpsTarget::Squad(room)) => Some(CronCountScope::Room(room)),
+            Some(OpsTarget::Member { .. }) => row["id"]
+                .as_str()
+                .map(|id| CronCountScope::Owner { id, room }),
+            Some(OpsTarget::Pool | OpsTarget::DigestAll) => Some(CronCountScope::All),
+            _ => None,
+        };
+        if let Some(count) = scope.and_then(|scope| self.cron.counts.count(scope)) {
+            ops["timers"] = json!({"active":count.active, "total":count.total});
+        }
+        ops
+    }
+
     pub(super) fn host_action_selection(&self) -> super::settings::host_action::Selection {
-        let recipient = self.workspace_message_target();
+        let recipient = self
+            .workspace_message_target()
+            .and_then(|target| self.workspace_snapshot()?.rows.get(&target).cloned());
+        let ops = self.parameter_observations(
+            recipient
+                .as_ref()
+                .or_else(|| self.selected_row())
+                .unwrap_or(&Value::Null),
+        );
         super::settings::host_action::Selection {
             row: self.selected_row().cloned(),
-            recipient: recipient
-                .as_ref()
-                .and_then(|target| self.workspace_snapshot()?.rows.get(target).cloned()),
-            default_action: self.workspace_factory_j(recipient.as_ref()),
+            recipient,
+            factory_bindings: self.workspace_factory_bindings(),
             squad: self
                 .workspace
                 .selected
@@ -1865,6 +1921,7 @@ impl App {
                 .filter(|name| !name.is_empty()),
             scope: self.workspace_scope(),
             invoker_tmux: self.invoker_tmux,
+            ops,
         }
     }
 
@@ -2296,6 +2353,7 @@ impl App {
         }
         // UI actions dispatch before resolving a row. A member action uses the
         // same verified occurrence as paint, including an observed squad lead.
+        let parameter_target = member.or(self.workspace.selected.as_ref()).cloned();
         let target = member.cloned().or_else(|| self.workspace_message_target());
         let member = target.as_ref();
         if self.workspace_snapshot().is_some()
@@ -2366,6 +2424,12 @@ impl App {
                 return self.say(reason);
             }
         }
+        let ops = self.parameter_observations_for(&row, parameter_target.as_ref());
+        let parameters = crate::template::Parameters {
+            row: &row,
+            ops: Some(&ops),
+            board_pane: None,
+        };
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
             Verb::Talk | Verb::Annotate | Verb::Reply | Verb::UpdateStatus => {
@@ -2397,20 +2461,25 @@ impl App {
                 }),
                 _ => Err("Swap needs a visible agent and a direction.".into()),
             },
-            Verb::Open => effects::resolve_open(action, &row).map(|link| Request::Open {
-                link,
-                opener: view.opener.clone(),
-            }),
-            Verb::Copy => action.args[0].fill(&row).map(|text| Request::Copy {
-                text,
-                program: view.clipboard.clone(),
-                feedback: CopyFeedback::Destination,
-            }),
+            Verb::Open => {
+                effects::resolve_open_parameters(action, parameters).map(|link| Request::Open {
+                    link,
+                    opener: view.opener.clone(),
+                })
+            }
+            Verb::Copy => action.args[0]
+                .fill_parameters(parameters)
+                .map(|text| Request::Copy {
+                    text,
+                    program: view.clipboard.clone(),
+                    feedback: CopyFeedback::Destination,
+                }),
             Verb::Run if action.needs_board_pane() => Ok(Request::PreparedRun {
                 action: action.clone(),
                 row,
+                ops,
             }),
-            Verb::Run => action.argv(&row).map(Request::Run),
+            Verb::Run => action.argv_parameters(parameters).map(Request::Run),
             _ => unreachable!("handled above"),
         };
         match request {

@@ -1,5 +1,8 @@
 use super::*;
-use crate::{action::Verb, config::OpsKeyScope};
+use crate::{
+    action::Verb,
+    config::{BindingLocation, OpsKeyScope},
+};
 use serde_json::json;
 
 struct Fixture {
@@ -40,7 +43,9 @@ fn preview_is_disposable_and_save_preserves_comments_other_keys_and_reload() {
     );
     let f = Fixture::new(&original);
     let mut config = f.config();
-    let draft = config.preview_host_action("bind.j", "swap left").unwrap();
+    let draft = config
+        .preview_binding(&BindingLocation::Global, "j", Some("swap left"))
+        .unwrap();
     assert_eq!(f.text(), original);
     assert_eq!(
         draft
@@ -50,7 +55,11 @@ fn preview_is_disposable_and_save_preserves_comments_other_keys_and_reload() {
             .verb,
         Verb::Swap
     );
-    assert!(config.set_host_action("bind.j", "swap left").unwrap());
+    assert!(
+        config
+            .set_binding(&BindingLocation::Global, "j", Some("swap left"))
+            .unwrap()
+    );
     assert_eq!(
         f.text(),
         original.replace("j = 'jump'", r#"j = "swap left""#)
@@ -76,18 +85,27 @@ fn editor_changes_only_the_winning_host_or_exact_section() {
     let f = Fixture::new(text);
     let row = json!({"id":"uuid", "name":"alpha", "fields":{}, "pane":{"id":"%1","location":{"host":"tmux"}}});
     let mut config = f.config();
-    let (action, source) = config
-        .host_action_binding(
+    let locations = config
+        .binding_locations(Some(&row), Some(&row), Some("product"))
+        .unwrap();
+    let crate::config::ResolvedBinding { action, owner, .. } = config
+        .binding(
             OpsKeyScope::Reader,
-            Some(&row),
-            Some(&row),
-            Some("product"),
-            None,
+            &locations,
+            "j",
+            &crate::config::workspace_defaults(OpsKeyScope::Reader),
         )
         .unwrap();
     assert_eq!(action.unwrap().text, "swap right");
-    assert_eq!(source, "squad.product.section[0].bind.j");
-    config.set_host_action(&source, "swap down").unwrap();
+    let owner = owner.unwrap();
+    assert_eq!(
+        owner,
+        BindingLocation::Section {
+            squad: "product".into(),
+            index: 0
+        }
+    );
+    config.set_binding(&owner, "j", Some("swap down")).unwrap();
     assert_eq!(config.configured_bindings().unwrap()["j"].text, "jump");
     assert_eq!(
         config.host_bindings().unwrap()["tmux"]["j"].text,
@@ -97,11 +115,20 @@ fn editor_changes_only_the_winning_host_or_exact_section() {
         config.sections("product").unwrap()[0].bind["j"].text,
         "swap down"
     );
-    let (_, source) = config
-        .host_action_binding(OpsKeyScope::Member, Some(&row), Some(&row), None, None)
+    let locations = config
+        .binding_locations(Some(&row), Some(&row), None)
         .unwrap();
-    assert_eq!(source, "bind.tmux.j");
-    config.set_host_action(&source, "swap up").unwrap();
+    let crate::config::ResolvedBinding { owner, .. } = config
+        .binding(
+            OpsKeyScope::Member,
+            &locations,
+            "j",
+            &crate::config::workspace_defaults(OpsKeyScope::Reader),
+        )
+        .unwrap();
+    let owner = owner.unwrap();
+    assert_eq!(owner, BindingLocation::Host("tmux".into()));
+    config.set_binding(&owner, "j", Some("swap up")).unwrap();
     assert_eq!(
         config.sections("product").unwrap()[0].bind["j"].text,
         "swap down"
@@ -113,23 +140,32 @@ fn editor_changes_only_the_winning_host_or_exact_section() {
 fn invalid_or_concurrent_edits_keep_the_file_and_in_memory_binding() {
     let f = Fixture::new("[bind]\nj='jump'\n");
     let mut config = f.config();
-    for (source, line) in [
-        ("bind.j", "swap somewhere"),
-        ("bind.j", "jump lead"),
-        ("bind.j", "open {link}"),
-        ("bind.o", "swap left"),
-        ("squad.missing.section[0].bind.j", "swap left"),
+    for (location, event, line) in [
+        (BindingLocation::Global, "j", "swap somewhere"),
+        (BindingLocation::Global, "j", "jump lead"),
+        (BindingLocation::Global, "esc", "open {link}"),
+        (BindingLocation::Global, "ctrl-c", "swap left"),
+        (
+            BindingLocation::Section {
+                squad: "missing".into(),
+                index: 0,
+            },
+            "j",
+            "swap left",
+        ),
     ] {
         assert!(
-            config.preview_host_action(source, line).is_err(),
-            "{source}: {line}"
+            config
+                .preview_binding(&location, event, Some(line))
+                .is_err(),
+            "{event}: {line}"
         );
         assert_eq!(f.text(), "[bind]\nj='jump'\n");
     }
     fs::write(&f.path, "# external edit\n[bind]\nj='jump'\n").unwrap();
     assert_eq!(
         config
-            .set_host_action("bind.j", "swap left")
+            .set_binding(&BindingLocation::Global, "j", Some("swap left"))
             .unwrap_err()
             .code,
         "SQUAD_CONFIG_CHANGED"
@@ -183,4 +219,56 @@ fn bad_openers_are_refused_before_anything_is_written() {
         );
     }
     assert_eq!(f.text(), "");
+}
+
+#[test]
+fn punctuation_section_reset_reveals_host_without_touching_global_or_other_sections() {
+    assert_eq!(BindingLocation::Global.label("."), "bind.\".\"");
+    assert_eq!(
+        BindingLocation::Host("tmux".into()).label("/"),
+        "bind.tmux.\"/\""
+    );
+    let f = Fixture::new(
+        "[bind]\n\".\"='copy {name}'\n[bind.tmux]\n\".\"='copy {id}'\n[[squad.product.section]]\ntitle='All'\n[squad.product.section.bind]\n\".\"='copy {pane}' # kept\n\"/\"='search'\n",
+    );
+    let mut config = f.config();
+    let section = BindingLocation::Section {
+        squad: "product".into(),
+        index: 0,
+    };
+    config
+        .set_binding(&section, ".", Some("copy {row:/fields/task}"))
+        .unwrap();
+    assert!(f.text().contains("# kept"));
+    assert_eq!(
+        config.sections("product").unwrap()[0].bind["."].text,
+        "copy {row:/fields/task}"
+    );
+    config.set_binding(&section, ".", None).unwrap();
+    let row = json!({"name":"worker", "pane":{"location":{"host":"tmux"}}});
+    let locations = config
+        .binding_locations(Some(&row), Some(&row), Some("product"))
+        .unwrap();
+    assert_eq!(
+        config
+            .binding(
+                OpsKeyScope::Member,
+                &locations,
+                ".",
+                &crate::config::workspace_defaults(OpsKeyScope::Member)
+            )
+            .unwrap()
+            .action
+            .unwrap()
+            .text,
+        "copy {id}"
+    );
+    assert_eq!(
+        config.sections("product").unwrap()[0].bind["/"].text,
+        "search"
+    );
+    assert_eq!(
+        config.configured_bindings().unwrap()["."].text,
+        "copy {name}"
+    );
 }

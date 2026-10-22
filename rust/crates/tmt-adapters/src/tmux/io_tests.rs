@@ -190,6 +190,113 @@ fn full_environment() -> CallerEnvironment {
     }
 }
 
+/// A reply that names the expected pane, socket and server, as tmux prints it.
+fn caller_reply(pane: &str, socket: &str, server: u32) -> String {
+    let separator = "__TMT_CALLER_PANE_4f1c__";
+    format!("{pane}{separator}{socket}{separator}{server}\n")
+}
+
+/// A runner that answers once, with a reply tmux printed or with a failed command.
+fn answering(result: Result<String, CommandError>) -> Tmux<ScriptedRunner> {
+    let runner = ScriptedRunner::default();
+    runner
+        .results
+        .borrow_mut()
+        .push_back(result.map(|text| CommandOutput {
+            stdout: text.into_bytes(),
+            stderr: Vec::new(),
+        }));
+    Tmux::new(runner)
+}
+
+fn budget_of(tmux: &Tmux<ScriptedRunner>, before: std::time::Instant) -> Duration {
+    tmux.runner.calls.borrow()[0]
+        .deadline
+        .duration_since(before)
+}
+
+#[test]
+fn only_a_required_caller_pane_waits_five_seconds_for_supplied_evidence() {
+    use std::time::Instant;
+    // Best-effort: one second, a timeout is no pane.
+    let tmux = Tmux::new(ScriptedRunner::new([Err(failure(false))]));
+    let before = Instant::now();
+    assert_eq!(tmux.caller_pane(&full_environment()).unwrap(), None);
+    let after = Instant::now();
+    let deadline = tmux.runner.calls.borrow()[0].deadline;
+    assert!(deadline >= before + OPERATION_TIMEOUT && deadline <= after + OPERATION_TIMEOUT);
+
+    // Required, with supplied evidence: five seconds, and a timeout is reported as one.
+    let tmux = Tmux::new(ScriptedRunner::new([Err(failure(false))]));
+    let before = Instant::now();
+    let error = tmux.caller_pane_required(&full_environment()).unwrap_err();
+    let after = Instant::now();
+    let deadline = tmux.runner.calls.borrow()[0].deadline;
+    assert!(
+        deadline >= before + REQUIRED_CALLER_TIMEOUT && deadline <= after + REQUIRED_CALLER_TIMEOUT
+    );
+    assert_eq!(
+        REQUIRED_CALLER_TIMEOUT.as_secs(),
+        5,
+        "the message below says 5 s"
+    );
+    assert!(error.timed_out() && !error.cleanup_failed());
+    assert_eq!(error.kind, TmuxFailure::Command);
+    assert_eq!(
+        error.to_string(),
+        "tmux did not answer within 5 s while checking the caller pane (ETIMEDOUT)."
+    );
+    assert!(budget_of(&tmux, before) > OPERATION_TIMEOUT * 4);
+
+    // Required, without supplied evidence: discovery keeps the shared one second.
+    let discovery = CallerEnvironment {
+        tmux: None,
+        pane: None,
+        process_id: 900,
+        driver_env: Default::default(),
+    };
+    let tmux = Tmux::new(ScriptedRunner::new([Err(failure(false))]));
+    let before = Instant::now();
+    assert_eq!(tmux.caller_pane_required(&discovery).unwrap(), None);
+    let after = Instant::now();
+    let deadline = tmux.runner.calls.borrow()[0].deadline;
+    assert!(deadline >= before + OPERATION_TIMEOUT && deadline <= after + OPERATION_TIMEOUT);
+}
+
+#[test]
+fn a_required_caller_pane_keeps_absence_for_evidence_that_was_read_or_cannot_be_asked() {
+    let good = caller_reply("%9", "/tmp/private.sock", 321);
+    let required = |result: Result<String, CommandError>| {
+        answering(result).caller_pane_required(&full_environment())
+    };
+    assert_eq!(required(Ok(good.clone())).unwrap().as_deref(), Some("%9"));
+    // Stale pane, another socket, another server, trailing junk: completed observations.
+    for wrong in [
+        caller_reply("%8", "/tmp/private.sock", 321),
+        caller_reply("%9", "/tmp/other.sock", 321),
+        caller_reply("%9", "/tmp/private.sock", 999),
+        format!("{good}extra line\n"),
+        String::new(),
+    ] {
+        assert_eq!(required(Ok(wrong.clone())).unwrap(), None, "{wrong:?}");
+    }
+    // tmux ran and said no such pane, or could not be started or read: not a missing budget.
+    for kind in [
+        CommandFailure::Exit {
+            code: Some(1),
+            signal: None,
+        },
+        CommandFailure::Spawn,
+        CommandFailure::Io,
+    ] {
+        let error = crate::scripted_runner::failure_with_kind(kind, false);
+        assert_eq!(required(Err(error)).unwrap(), None, "{kind:?}");
+    }
+    // A failed cleanup still reaches the owner, timeout or not.
+    let error = required(Err(failure(true))).unwrap_err();
+    assert!(error.cleanup_failed());
+}
+
 #[test]
 fn complete_caller_evidence_uses_one_small_query_without_ancestry() {
     let tmux = Tmux::new(ScriptedRunner::new([Ok(

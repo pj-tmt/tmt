@@ -1,3 +1,4 @@
+import { SoakCollector } from './harness/soak-collector.js';
 import { text } from '../src/strings.js';
 import { createHash } from 'node:crypto';
 import {
@@ -279,8 +280,23 @@ for (const beyondGrace of [false, true]) {
   });
 }
 
+export const SOAK_ASSERTIONS = {
+  setup: 'Start the isolated recipient, door and paired browser.',
+  'positive-send': 'The capacity control reads source and receives one Send reply.',
+  directory: 'The SDK directory exactly matches the native identity set.',
+  'detached-eviction': 'The oldest detached session is evicted with limit two.',
+  'detached-send': 'The attached page reads source and receives one reply after detached eviction.',
+  'peer-open': 'A second attached peer renders the current source.',
+  'tab-refusal': 'A new tab is refused with the session limit and no renderer.',
+  'peer-ready': 'The attached peer is Live before the final Send.',
+  'capacity-send': 'The first page receives one reply after new-tab refusal.',
+  'peer-live-after-refusal': 'The attached peer remains Live after refused-tab Send.',
+  'peer-source-after-refusal':
+    'The attached peer renders the source written after refused-tab Send.',
+} as const;
+
 interface SdkOperations {
-  listAgents(): Promise<unknown[]>;
+  listAgents(): Promise<{ id: string }[]>;
 }
 interface SdkFixtureWindow {
   soakOperations?: SdkOperations;
@@ -296,7 +312,7 @@ async function sdkOpen(page: Page) {
     const session = await sdk.reopenSession();
     const ops = sdk.operations(session);
     (window as unknown as SdkFixtureWindow).soakOperations = ops;
-    return (await ops.listAgents()).length;
+    return (await ops.listAgents()).map((agent) => agent.id).sort();
   });
 }
 
@@ -304,7 +320,9 @@ async function sdkRead(page: Page) {
   return page.evaluate(async () => {
     try {
       return {
-        agents: (await (window as unknown as SdkFixtureWindow).soakOperations!.listAgents()).length,
+        agents: (await (window as unknown as SdkFixtureWindow).soakOperations!.listAgents())
+          .map((agent) => agent.id)
+          .sort(),
       };
     } catch (error) {
       const refusal = error as { code?: string; limit?: number };
@@ -315,60 +333,85 @@ async function sdkRead(page: Page) {
 
 test('connection soak: detached eviction and a refused new tab leave the attached page usable', async () => {
   test.setTimeout(240_000);
-  await withWorld(async (world) => {
-    run(world, world.binaries.remote, ['settings', 'sessions-per-device', '2', '--json']);
-    const s = await owner(world);
-    await readSendReceive(s, 'capacity positive control');
-    const sdkPages: Page[] = [];
-    for (let index = 0; index < 2; index++) {
-      const tab = await s.browser.context.newPage();
-      // An SDK-only tab is intentionally detached, as in the existing tabs acceptance control.
-      await tab.route('**/colab/assets/*.js', (route) => route.abort());
-      await tab.goto(`${s.door.mounts}colab/`);
-      expect(await sdkOpen(tab)).toBe(1);
-      sdkPages.push(tab);
-    }
-    await expect
-      .poll(() => sdkRead(sdkPages[0]))
-      .toMatchObject({ code: 'REMOTE_SESSION_EVICTED', limit: 2 });
-    expect(await sdkRead(sdkPages[1])).toEqual({ agents: 1 });
-    await readSendReceive(s, 'detached eviction');
-
-    // A second attached owner page takes the detached slot; all capacity is now attached.
-    const second = await openPage(s.door, s.browser, s.created);
-    await expect(second.frameLocator('iframe').locator('#source')).toHaveText(
-      'After detached eviction',
-    );
-    const refused = await openPage(s.door, s.browser, s.created);
-    await expect(refused.getByRole('alert')).toBeVisible({ timeout: 30_000 });
-    await expect(refused.locator('iframe')).toHaveCount(0);
-    const reason = await refused.evaluate(async () => {
-      const sdk = (await import('/sdk/remote-v1.js' as string)) as {
-        reopenSession(): Promise<unknown>;
+  let diagnostic: SoakCollector;
+  await withWorld(
+    async (world) => {
+      run(world, world.binaries.remote, ['settings', 'sessions-per-device', '2', '--json']);
+      const s = await owner(world, async (context) => diagnostic.observe(context));
+      diagnostic.setDoor(s.door);
+      diagnostic.phase('positive-send', s.page);
+      await readSendReceive(s, 'capacity positive control');
+      // Send can create the person's identity; the SDK projects the permitted Core directory.
+      diagnostic.phase('directory', s.page);
+      const directory = JSON.parse(run(world, world.binaries.tmt, ['list', '--json'])) as {
+        identities: { id: string }[];
       };
-      try {
-        await sdk.reopenSession();
-        return { opened: true };
-      } catch (error) {
-        const failure = error as { code?: string; limit?: number };
-        return { code: failure.code, limit: failure.limit };
+      const directoryIds = directory.identities.map((identity) => identity.id).sort();
+      expect(directoryIds).toContain(s.agent.id);
+      const sdkPages: Page[] = [];
+      for (let index = 0; index < 2; index++) {
+        const tab = await s.browser.context.newPage();
+        // An SDK-only tab is intentionally detached, as in the existing tabs acceptance control.
+        await tab.route('**/colab/assets/*.js', (route) => route.abort());
+        await tab.goto(`${s.door.mounts}colab/`);
+        expect(await sdkOpen(tab)).toEqual(directoryIds);
+        sdkPages.push(tab);
       }
-    });
-    expect(reason).toEqual({ code: 'REMOTE_SESSION_LIMIT', limit: 2 });
-    // Source can be visible before this tab's renderer has reported ready.
-    // Make the attached peer current before exercising its next update.
-    await second.bringToFront();
-    await expect.poll(() => second.evaluate(() => document.visibilityState)).toBe('visible');
-    await expectLive(second);
-    await readSendReceive(s, 'new-tab capacity refusal');
-    // The Send/reply exercise targets the first page; return to the peer being checked.
-    await second.bringToFront();
-    await expect.poll(() => second.evaluate(() => document.visibilityState)).toBe('visible');
-    await expectLive(second);
-    await expect(second.frameLocator('iframe').locator('#source')).toHaveText(
-      'After new-tab capacity refusal',
-    );
-  });
+      diagnostic.phase('detached-eviction', s.page);
+      await expect
+        .poll(() => sdkRead(sdkPages[0]))
+        .toMatchObject({ code: 'REMOTE_SESSION_EVICTED', limit: 2 });
+      expect(await sdkRead(sdkPages[1])).toEqual({ agents: directoryIds });
+      diagnostic.phase('detached-send', s.page);
+      await readSendReceive(s, 'detached eviction');
+
+      // A second attached owner page takes the detached slot; all capacity is now attached.
+      diagnostic.phase('peer-open', s.page);
+      const second = await openPage(s.door, s.browser, s.created);
+      diagnostic.phase('peer-open', second);
+      await expect(second.frameLocator('iframe').locator('#source')).toHaveText(
+        'After detached eviction',
+      );
+      diagnostic.phase('tab-refusal', second);
+      const refused = await openPage(s.door, s.browser, s.created);
+      diagnostic.phase('tab-refusal', refused);
+      await expect(refused.getByRole('alert')).toBeVisible({ timeout: 30_000 });
+      await expect(refused.locator('iframe')).toHaveCount(0);
+      const reason = await refused.evaluate(async () => {
+        const sdk = (await import('/sdk/remote-v1.js' as string)) as {
+          reopenSession(): Promise<unknown>;
+        };
+        try {
+          await sdk.reopenSession();
+          return { opened: true };
+        } catch (error) {
+          const failure = error as { code?: string; limit?: number };
+          return { code: failure.code, limit: failure.limit };
+        }
+      });
+      expect(reason).toEqual({ code: 'REMOTE_SESSION_LIMIT', limit: 2 });
+      // Source can be visible before this tab's renderer has reported ready.
+      // Make the attached peer current before exercising its next update.
+      diagnostic.phase('peer-ready', second);
+      await second.bringToFront();
+      await expect.poll(() => second.evaluate(() => document.visibilityState)).toBe('visible');
+      await expectLive(second);
+      diagnostic.phase('capacity-send', s.page);
+      await readSendReceive(s, 'new-tab capacity refusal');
+      diagnostic.phase('peer-live-after-refusal', second);
+      // The Send/reply exercise targets the first page; return to the peer being checked.
+      await second.bringToFront();
+      await expect.poll(() => second.evaluate(() => document.visibilityState)).toBe('visible');
+      await expectLive(second);
+      diagnostic.phase('peer-source-after-refusal', second);
+      await expect(second.frameLocator('iframe').locator('#source')).toHaveText(
+        'After new-tab capacity refusal',
+      );
+    },
+    (world) => {
+      diagnostic = new SoakCollector(world, test.info());
+    },
+  );
 });
 
 test('connection soak: explicit revoke ends access and cannot dispatch a retained draft', async () => {

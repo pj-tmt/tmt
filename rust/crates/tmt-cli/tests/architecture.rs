@@ -22,6 +22,8 @@ mod output_allowlist;
 mod output_cases;
 #[path = "architecture/policy.rs"]
 mod policy;
+#[path = "architecture/required_caller.rs"]
+mod required_caller;
 #[path = "architecture/skill_lists.rs"]
 mod skill_lists;
 #[path = "architecture/source.rs"]
@@ -253,6 +255,10 @@ fn workspace_obeys_native_architecture() {
         output_allowlist::MIGRATING,
     ));
     violations.extend(interaction::violations(&sources, interaction::MIGRATING));
+    violations.extend(required_caller::violations(
+        &sources,
+        required_caller::CALLERS,
+    ));
     // The extensions outside the workspace draw too; they obey the same rule.
     let mut drawn = sources;
     for (package, root) in [
