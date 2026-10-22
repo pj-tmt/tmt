@@ -230,8 +230,9 @@ a working directory, active pane or sole identity.
   conclusive evidence or explicit unbind, and exchanges are kept. Presence is
   observation, not routing permission: a marker or socket cannot authorize a
   different identity, and the pane marker proves ownership by IDs, never by name.
-- `binding::session` separates identity-owned preferences from binding-owned runtime
-  observations, with compare-and-set writes inside the binding transaction.
+- `binding::session` separates per-driver identity resume records from the one binding/runtime,
+  with transactional CAS. [Switching](contracts/driver-protocol-v1.md#built-in-driver-switch)
+  hands off once and uses the existing stop/move and caller-owned launch paths.
   Drivers verify processes, map events and own state; core never parses it. CLI learns direct sessions after output via this admission/CAS,
   with bounded silent refusal, storage-only prechecks and private TTL hints.
   Provider end leaves readiness Unknown until fresh start; only proven process loss

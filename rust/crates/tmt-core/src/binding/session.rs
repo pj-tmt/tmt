@@ -112,6 +112,15 @@ pub struct SessionPreferences {
     pub channel: Option<bool>,
     pub preferred_harness: Option<HarnessId>,
     pub remembered: Option<RememberedSession>,
+    /// Inactive driver records grant resume coordinates, never runtime authority.
+    pub retained: Vec<RetainedSession>,
+}
+
+/// One inactive driver's exact session and its own channel choice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedSession {
+    pub session: RememberedSession,
+    pub channel: Option<bool>,
 }
 
 /// Exact resume coordinates stay paired even when the preferred harness changes.
@@ -141,6 +150,16 @@ impl SessionPreferences {
         mode: RuntimeMode,
         provider_session: ProviderSessionId,
     ) {
+        if self
+            .remembered
+            .as_ref()
+            .is_some_and(|previous| previous.harness != harness)
+        {
+            self.retain_current();
+            self.channel = None;
+        }
+        self.retained
+            .retain(|record| record.session.harness != harness);
         let state = self
             .remembered
             .take()
@@ -181,19 +200,41 @@ impl SessionPreferences {
         stale
     }
 
-    /// A confirmed launch under a runtime driver becomes the preferred harness,
-    /// and a session remembered by a different driver is dropped with its state.
+    /// Select this driver's coordinates without asserting that an agent exists.
+    /// Other drivers retain one exact record and their own channel choice.
     pub fn launched(&mut self, harness: &HarnessId) {
-        if self.preferred_harness.as_ref() != Some(harness) {
-            self.channel = None;
-        }
-        self.preferred_harness = Some(harness.clone());
         if self
             .remembered
             .as_ref()
-            .is_some_and(|remembered| &remembered.harness != harness)
+            .is_none_or(|session| &session.harness != harness)
         {
-            self.remembered = None;
+            self.retain_current();
+            self.channel = None;
+            if let Some(index) = self
+                .retained
+                .iter()
+                .position(|record| &record.session.harness == harness)
+            {
+                let record = self.retained.remove(index);
+                self.remembered = Some(record.session);
+                self.channel = record.channel;
+            }
+        } else if self.preferred_harness.as_ref() != Some(harness) {
+            self.channel = None;
+        }
+        self.preferred_harness = Some(harness.clone());
+    }
+
+    fn retain_current(&mut self) {
+        if let Some(session) = self.remembered.take() {
+            self.retained
+                .retain(|record| record.session.harness != session.harness);
+            let channel = self
+                .channel
+                .filter(|_| self.preferred_harness.as_ref() == Some(&session.harness));
+            self.retained.push(RetainedSession { session, channel });
+            self.retained
+                .sort_by(|a, b| a.session.harness.as_str().cmp(b.session.harness.as_str()));
         }
     }
 }
@@ -497,6 +538,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn switching_drivers_retains_each_exact_session_and_its_channel() {
+        let mut preferences = SessionPreferences::default();
+        let (harness, mode, id) = session("claude", "claude-turn");
+        preferences.remember(harness.clone(), mode, id);
+        preferences.preferred_harness = Some(harness);
+        preferences.channel = Some(true);
+        let claude = preferences.remembered.clone();
+        let codex = HarnessId::new("codex").unwrap();
+        preferences.launched(&codex);
+        assert!(preferences.remembered.is_none());
+        assert_eq!(preferences.channel, None);
+        assert_eq!(preferences.retained.len(), 1);
+        assert_eq!(Some(&preferences.retained[0].session), claude.as_ref());
+        let (harness, mode, id) = session("codex", "codex-turn");
+        preferences.remember(harness, mode, id);
+        preferences.channel = Some(false);
+        let codex = preferences.remembered.clone();
+        preferences.launched(&HarnessId::new("claude").unwrap());
+        assert_eq!(preferences.remembered, claude);
+        assert_eq!(preferences.channel, Some(true));
+        assert_eq!(preferences.retained.len(), 1);
+        assert_eq!(Some(&preferences.retained[0].session), codex.as_ref());
+        preferences.launched(&HarnessId::new("claude").unwrap());
+        assert_eq!(preferences.retained.len(), 1);
+        assert_eq!(BindingSessionState::default().state, RuntimeState::Unknown);
+    }
+
+    #[test]
+    fn archiving_never_assigns_another_preferred_drivers_channel() {
+        let mut preferences = SessionPreferences::default();
+        let (harness, mode, id) = session("claude", "kept");
+        preferences.remember(harness, mode, id);
+        preferences.preferred_harness = Some(HarnessId::new("codex").unwrap());
+        preferences.channel = Some(true);
+        preferences.launched(&HarnessId::new("other").unwrap());
+        assert_eq!(preferences.retained[0].channel, None);
+    }
+
+    #[test]
     fn a_binding_without_runtime_evidence_is_unknown() {
         assert_eq!(
             BindingSessionState::default(),
@@ -546,6 +626,7 @@ mod tests {
     #[test]
     fn provider_metadata_does_not_implicitly_claim_a_running_agent() {
         let preferences = SessionPreferences {
+            retained: Vec::new(),
             channel: None,
             preferred_harness: Some(HarnessId::new("codex").unwrap()),
             remembered: Some(RememberedSession {
@@ -649,7 +730,7 @@ mod tests {
     }
 
     #[test]
-    fn launching_another_runtime_drops_the_previous_drivers_session() {
+    fn launching_another_runtime_keeps_the_previous_driver_inactive() {
         let mut preferences = SessionPreferences::default();
         let (harness, mode, id) = session("claude", "kept");
         preferences.remember(harness.clone(), mode, id);

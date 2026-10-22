@@ -7,6 +7,8 @@
 // This fixture uses only the shared private command environment.
 #[path = "external_host/caller_session.rs"]
 mod caller_session;
+#[path = "external_host/driver_switch.rs"]
+mod driver_switch;
 #[path = "external_host/move_session.rs"]
 mod move_session;
 #[path = "external_host/nested_host.rs"]

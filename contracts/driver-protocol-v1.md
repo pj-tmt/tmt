@@ -589,6 +589,48 @@ shell. Any error answer, a timeout or an invalid `argv` means the resume
 failed: core reports it and starts nothing. A failed resume never starts a
 fresh session.
 
+#### Built-in driver switch
+
+`tmt resume <identity> --driver <driver> [--model <model>]` is an explicit
+same-machine switch, not an ordinary exact resume. It implies `--move`: launch
+in the verified caller pane, never take over another terminal or type a shell
+command into it. `--move --driver` is equivalent. The current binding and runtime
+remain singular; identity-owned storage retains one exact session per driver,
+including its opaque state, stale/pending marks and associated launch choices.
+Switching back resumes that driver's record; first use starts a new session.
+No model, effort or channel choice is borrowed from another driver. No provider
+settings are edited. Retirement clears current and inactive resume records.
+
+Preflight selects the target command/settings and verifies the caller destination
+and old attachment before any handoff or signal. Only a verified private main
+foreground may be stopped; shared/channel servers, nested providers, an agent
+that is itself the pane process, and unknown or suspended evidence refuse.
+An already-exited old agent needs no handoff or signal. A caller already in the
+identity's pane may launch only when that old agent has conclusively ended.
+
+A live old agent receives one ordinary receipt-bound request to write its handoff
+into identity notes, with a 30-second answer deadline. Uncertain delivery or timeout
+never authorizes a resend. The fallback is a no-follow notebook prefix of at most
+16 KiB, explicitly marked when truncated, plus at most 20 open-request metadata
+items (ID, sender ID and age, with an overflow marker). No request body or receipt
+is copied. The new driver's first input labels all of this as untrusted context
+and points to `tmt x show` for request details; text is never completion evidence.
+
+After handoff, re-read and revalidate the old attachment, caller destination and
+session preferences. Reuse the move path's immediate native PID/start recheck,
+one TERM and three-second exit allowance, with no force or signal retry and no
+writer transaction across the wait. The target record is rechecked before
+activation. Partial failures say whether the old agent ended, the binding moved
+and a new agent launched, and retain the explicit driver/settings in the retry.
+A failed spawn never erases another driver's retained record or silently falls
+back to a different provider.
+
+Built-in drivers own initial-message argv composition; this adds no external
+agent-driver wire operation. Drivers without that capability refuse before
+stopping anything. A message-channel launch that cannot accept initial handoff
+input refuses before handoff or stop and offers `--no-channel`; existing channel
+admission and initial-prompt refusals remain unchanged.
+
 #### `usage`
 
 - **Request:** `{"session": "…", "transcript": "/Users/ann/.kimi/sessions/x.jsonl"}`.

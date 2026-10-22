@@ -202,8 +202,14 @@ delivery. They install and launch nothing.
   - SessionStart is the explicit exception to the admitted-activity rule. A start of either
     provider sets it from its own valid reported model, and clears it otherwise. The kept
     resume model is not evidence, and caller discovery clears it.
-- One identity has one current runtime: only starting provider events replace the session, and
-  a launch under another driver drops the previous driver's session and state.
+- One identity has one current binding/runtime and one exact resume record per driver.
+  `SessionPreferences::retained` holds inactive records and their own channel choice;
+  selecting a driver does not assert liveness. Storage schema 62 keeps inactive records in
+  `identity_resume_records`, in the same transaction/fence as current preferences.
+  Retirement clears both. A switch archives only an exactly associated launch preset
+  under `resume.driver.<harness>`; another driver's settings never apply.
+  [Driver switching](../../../../contracts/driver-protocol-v1.md#built-in-driver-switch)
+  owns handoff, stop and caller-pane launch behavior.
 - An independent provider hook, attributed by pane ancestry, records only the pane's main
   provider: the nearest provider process above the hook with no built-in provider above it up
   to the verified pane. The pane process itself may be that provider after a shell exec.

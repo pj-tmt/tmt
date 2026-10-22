@@ -463,7 +463,7 @@ fn workspace_projection(
         .transaction()
         .map_err(|error| classify(error, "Begin workspace projection"))?;
     super::migrations::require_current(&transaction)?;
-    let records = {
+    let mut records = {
         let mut statement = transaction.prepare(&format!(
                 "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS}, p.preferred_harness, p.remembered_harness, p.runtime_mode, p.provider_session_id, p.driver_state_version, p.driver_state, p.stale_at_ms, p.resume_pending_at_ms, p.channel \
                  FROM identities i LEFT JOIN bindings b ON b.identity_id = i.id \
@@ -480,6 +480,9 @@ fn workspace_projection(
             .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
             .map_err(|error| classify(error, "Read workspace projection"))?
     };
+    for record in &mut records {
+        record.preferences = session::preferences(&transaction, &record.entry.identity.id)?;
+    }
     if records.len() > tmt_core::workspace::MAX_PANES {
         return Err(classify(
             rusqlite::Error::InvalidQuery,

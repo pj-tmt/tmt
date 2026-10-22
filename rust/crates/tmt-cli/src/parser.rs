@@ -334,7 +334,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         }
         ["resume"] => Invocation::Resume {
             name: text(m, "name"),
-            move_running: flag(m, "move"),
+            driver: text(m, "driver"),
+            move_running: flag(m, "move") || text(m, "driver").is_some(),
             show: flag(m, "show"),
             forget_launch: flag(m, "forget-launch"),
             model: text(m, "model"),

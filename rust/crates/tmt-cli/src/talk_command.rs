@@ -30,6 +30,9 @@ use tmt_core::{
 };
 
 struct Input {
+    /// Only the explicit switch handoff pins its captured old attachment.
+    expected_binding: Option<tmt_core::binding::Binding>,
+    deadline: Option<Instant>,
     target: String,
     message: String,
     originator: Option<String>,
@@ -237,7 +240,12 @@ fn deliver(
     }
     let wait = prepared.wait;
     let timeout = input.options.timeout_seconds.unwrap_or(settings.timeout);
-    let deadline = Instant::now() + Duration::from_secs_f64(timeout);
+    let deadline = input
+        .deadline
+        .unwrap_or_else(|| Instant::now() + Duration::from_secs_f64(timeout));
+    let timeout = deadline
+        .saturating_duration_since(Instant::now())
+        .as_secs_f64();
     if prepared.notify_originator {
         let waiter = if wait {
             match tmt_adapters::process::runtime::observe_runtime_process(
@@ -603,6 +611,49 @@ fn run(
     })
 }
 
+/// A driver switch makes one ordinary receipt-bound handoff request. It never
+/// replays uncertain delivery or treats terminal output as the answer.
+pub(crate) fn request_handoff(
+    name: &str,
+    binding: &tmt_core::binding::Binding,
+    message: &str,
+    paths: &ConfigPaths,
+    settings: &Settings,
+) -> Result<(), Failure> {
+    let input = Input {
+        expected_binding: Some(binding.clone()),
+        deadline: Some(Instant::now() + Duration::from_secs(30)),
+        target: name.into(),
+        message: message.into(),
+        originator: None,
+        options: TalkOptions {
+            urgent: true,
+            passthrough: false,
+            digest_kind: tmt_core::request::digest::DigestKind::Fyi,
+            room: None,
+            force: false,
+            detach: false,
+            delay_seconds: None,
+            timeout_seconds: Some(30.0),
+            no_preamble: false,
+        },
+    };
+    let interrupt = Interrupt::install().map_err(|error| {
+        Failure::new("ERROR", "Could not observe handoff interruption.", 1).caused_by(error)
+    })?;
+    match run(
+        input,
+        paths.clone(),
+        settings.clone(),
+        Some(&interrupt),
+        OutputMode { json: true },
+    ) {
+        Ok(_) => Ok(()),
+        Err(error) if error.code == "INTERRUPTED" => Err(error),
+        Err(_) => Ok(()), // A refusal/timeout is fallback context, never permission to resend.
+    }
+}
+
 pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     let Invocation::Talk {
         target,
@@ -614,6 +665,8 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
         unreachable!("talk dispatch")
     };
     let input = Input {
+        expected_binding: None,
+        deadline: None,
         target,
         message,
         originator,

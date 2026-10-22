@@ -325,3 +325,31 @@ fn rejects_symlink_and_nonregular_targets_without_touching_them() {
     fs::create_dir(&notes_file).unwrap();
     assert!(initialize(&paths, &identity_id()).is_err());
 }
+
+#[test]
+fn handoff_reads_only_a_bounded_regular_notebook_without_creating_state() {
+    let directory = TestDirectory::new();
+    let paths = paths(&directory);
+    let identity = identity_id();
+    assert!(handoff_prefix(&paths, &identity).is_err());
+    assert!(!paths.global_dir.exists());
+    fs::create_dir_all(&paths.global_dir).unwrap();
+    let file = initialize(&paths, &identity).unwrap().path;
+    fs::write(&file, "first\0note").unwrap();
+    assert_eq!(
+        handoff_prefix(&paths, &identity).unwrap(),
+        "first\u{fffd}note"
+    );
+    let bytes = vec![b'x'; 20 * 1024];
+    fs::write(&file, &bytes).unwrap();
+    let prefix = handoff_prefix(&paths, &identity).unwrap();
+    assert_eq!(&prefix[..16 * 1024], "x".repeat(16 * 1024));
+    assert!(prefix[16 * 1024..].contains("Notes truncated at 16 KiB"));
+    assert_eq!(fs::read(&file).unwrap(), bytes);
+    fs::remove_file(&file).unwrap();
+    let outside = directory.path.join("outside-notes");
+    fs::write(&outside, "must not follow").unwrap();
+    symlink(&outside, &file).unwrap();
+    assert!(handoff_prefix(&paths, &identity).is_err());
+    assert_eq!(fs::read_to_string(outside).unwrap(), "must not follow");
+}

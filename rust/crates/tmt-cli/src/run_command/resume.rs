@@ -100,7 +100,7 @@ pub(super) fn select_command(
     registry: &mut RuntimeRegistry,
     name: &str,
     command: &[OsString],
-    resume: Option<Resume>,
+    resume: Option<Resume<'_>>,
     preferences: &SessionPreferences,
 ) -> Result<Launch, Failure> {
     if let Some(command) = RuntimeCommand::verbatim(command) {
@@ -126,6 +126,35 @@ pub(super) fn select_command(
             resumed: None,
         });
     };
+    if let Some(driver) = resume.driver {
+        let harness = tmt_core::binding::session::HarnessId::new(driver).map_err(|_| {
+            Failure::new(
+                "RESUME_UNSUPPORTED",
+                "The selected driver name is invalid; no new agent was launched.",
+                1,
+            )
+        })?;
+        if registry.lifecycle(&harness).is_none() {
+            return Err(Failure::new(
+                "RESUME_UNSUPPORTED",
+                "The selected driver cannot switch sessions; no new agent was launched.",
+                1,
+            ));
+        }
+        if preferences.remembered.is_none() {
+            let command = registry.relaunch(&harness).ok_or_else(|| {
+                Failure::new(
+                    "RESUME_UNSUPPORTED",
+                    "The selected driver has no foreground command; no new agent was launched.",
+                    1,
+                )
+            })?;
+            return Ok(Launch {
+                command,
+                resumed: None,
+            });
+        }
+    }
     let Some(session) = &preferences.remembered else {
         return Err(resume_failure(
             "RESUME_UNAVAILABLE",

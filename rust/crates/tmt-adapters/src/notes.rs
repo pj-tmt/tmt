@@ -123,6 +123,26 @@ fn read_existing(
     )
 }
 
+/// A bounded prefix for an explicitly requested agent handoff. Directory
+/// acquisition uses the same no-follow owner as notebook reads; no state is created.
+pub fn handoff_prefix(paths: &ConfigPaths, identity_id: &NotesIdentityId) -> io::Result<String> {
+    use std::io::Read;
+    const LIMIT: usize = 16 * 1024;
+    let file = open_existing(paths, identity_id)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::other("Notes path is not a regular file."));
+    }
+    let mut bytes = Vec::new();
+    file.take((LIMIT + 1) as u64).read_to_end(&mut bytes)?;
+    let truncated = bytes.len() > LIMIT;
+    bytes.truncate(LIMIT);
+    let mut text = String::from_utf8_lossy(&bytes).replace('\0', "\u{fffd}");
+    if truncated {
+        text.push_str("\n[Notes truncated at 16 KiB; read the identity notebook for the rest.]\n");
+    }
+    Ok(text)
+}
+
 /// Project an existing saved-identity notebook without opening storage, creating
 /// directories or reading its contents. The caller owns active-identity lookup.
 pub fn existing_path(

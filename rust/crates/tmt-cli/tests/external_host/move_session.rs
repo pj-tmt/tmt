@@ -3,7 +3,7 @@ use super::*;
 
 const SESSION: &str = "4f8c2a7e-0d3b-4c61-9a52-7b1e6d0c9f13";
 
-fn destination(fixture: &Fixture) {
+pub(super) fn destination(fixture: &Fixture) {
     fs::write(fixture.root.join("driver/two-panes"), "").unwrap();
     // The test process is the destination shell and the new CLI's ancestor.
     fs::write(
@@ -13,7 +13,7 @@ fn destination(fixture: &Fixture) {
     .unwrap();
 }
 
-fn remembered(fixture: &Fixture) -> tmt_adapters::storage::IdentityContextSnapshot {
+pub(super) fn remembered(fixture: &Fixture) -> tmt_adapters::storage::IdentityContextSnapshot {
     let database = fixture.state().join("tmt.db");
     // Preferences belong to the identity even between a move and child admission.
     let connection = rusqlite::Connection::open_with_flags(
@@ -34,7 +34,7 @@ fn remembered(fixture: &Fixture) -> tmt_adapters::storage::IdentityContextSnapsh
         .unwrap()
 }
 
-fn start(
+pub(super) fn start(
     fixture: &Fixture,
     provider: &'static str,
     record: registry::DriverRecord,
