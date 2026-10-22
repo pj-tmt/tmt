@@ -35,6 +35,22 @@ pub(super) struct HeaderHit {
     pub target: RowTarget,
 }
 
+/// The painted Send now chip: what a click or its key acts on, valid for the frame that painted it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct SendNowHit {
+    pub area: Rect,
+    pub request: String,
+    /// The agent's name, for the notice.
+    pub to: String,
+}
+
+/// A finished send-now: the notice is Core's own words, success or refusal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SendNowDone {
+    pub request: String,
+    pub outcome: Result<String, String>,
+}
+
 pub(super) type ConversationKey = (Option<String>, String);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -115,6 +131,9 @@ pub(super) struct State {
     sequence: u64,
     pending_send: Option<outgoing::Ticket>,
     pub header_hits: Vec<HeaderHit>,
+    pub send_now_hit: Option<SendNowHit>,
+    /// The request a send-now is running for; its chip is disabled until Core answers.
+    pub send_now_pending: Option<String>,
     source_surfaces: Vec<source::Surface>,
     source_areas: Vec<(RowTarget, Rect)>,
     selection: Option<source::Selection>,
@@ -663,6 +682,7 @@ fn render_target(
 ) {
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
+    app.conversation.borrow_mut().send_now_hit = None;
     app.conversation.borrow_mut().response_area = None;
     let row = target
         .as_ref()
@@ -749,6 +769,8 @@ fn render_target(
     let switched = state.active.as_ref() != Some(&identity);
     let screen_mode = state.screen_mode;
     state.active = Some(identity.clone());
+    let send_now_pending = state.send_now_pending.clone();
+    let mut send_now_hit = None;
     let session = state.sessions.entry(identity.clone()).or_default();
     let state_words = if refresh == Refresh::Current {
         session.observe_context(app, &target, row)
@@ -1178,6 +1200,24 @@ fn render_target(
     }
     if let Some(position) = position {
         let visible = shown.min(mapped.lines.len().saturating_sub(offset));
+        let chip = session.send_now_request().map(|request| {
+            send_now_chip(
+                frame,
+                app,
+                position,
+                request,
+                send_now_pending.as_deref(),
+                row["name"].as_str().unwrap_or("agent"),
+                SEND_NOW_KEEPS_PAGE_RANGE,
+            )
+        });
+        let position = Rect {
+            width: position
+                .width
+                .saturating_sub(chip.as_ref().map_or(0, |chip| chip.0)),
+            ..position
+        };
+        send_now_hit = chip.and_then(|chip| chip.1);
         strip::paint_left(
             frame.buffer_mut(),
             position,
@@ -1204,7 +1244,55 @@ fn render_target(
     }
     state.response_area = Some(body);
     state.header_hits = painted_controls;
+    state.send_now_hit = send_now_hit;
 }
+
+/// The Send now chip, right-aligned on a conversation's footer row. It names the agent it acts
+/// on and falls back to the bare words on a narrow row; with no room for either it is not
+/// painted; `keep` cells at the left stay for the footer's own text. Returns the cells it takes (one spare beside it) and, unless a send-now is already
+/// running for this request, where it can be pressed.
+fn send_now_chip(
+    frame: &mut Frame,
+    app: &App,
+    footer: Rect,
+    request: &str,
+    pending: Option<&str>,
+    name: &str,
+    keep: u16,
+) -> (u16, Option<SendNowHit>) {
+    let busy = pending == Some(request);
+    let name = sanitize(name);
+    let labels = if busy {
+        vec!["Sending now…".to_owned()]
+    } else {
+        vec![format!("Send now · {name}"), "Send now".to_owned()]
+    };
+    // A chip is its label and a cell of padding either side; keep the page range readable.
+    let room = footer.width.saturating_sub(keep);
+    let Some(label) = labels.iter().find(|label| label.width() as u16 + 2 <= room) else {
+        return (0, None);
+    };
+    let painted = super::buttons::paint(
+        app,
+        frame.buffer_mut(),
+        footer,
+        &[super::buttons::Button::secondary(label).enabled(!busy)],
+        tmt_cli_style::grid::Align::Right,
+        None,
+    )[0];
+    let Some(area) = painted else {
+        return (0, None);
+    };
+    let hit = (!busy && app.button_owner_is_active(None)).then(|| SendNowHit {
+        area,
+        request: request.to_owned(),
+        to: name,
+    });
+    (area.width + 1, hit)
+}
+
+/// Cells of the transcript footer's page range kept when the chip shares its row.
+const SEND_NOW_KEEPS_PAGE_RANGE: u16 = 14;
 
 #[cfg(test)]
 pub(in crate::board) mod tests;

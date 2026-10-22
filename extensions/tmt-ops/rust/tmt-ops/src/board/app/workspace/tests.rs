@@ -126,7 +126,7 @@ pub(in crate::board) fn board() -> App {
 }
 
 /// Acquire effective tables through Config, as the refresh worker does.
-fn configured_member(text: &str, row: serde_json::Value) -> App {
+pub(in crate::board) fn configured_member(text: &str, row: serde_json::Value) -> App {
     let mut app = board();
     let target = app.workspace.selected.clone().unwrap();
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;

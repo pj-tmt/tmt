@@ -33,6 +33,8 @@ pub struct Accepted {
     pub disposition: Disposition,
     /// Verbatim Core delivery wording with its state mark and optional countdown.
     pub message_state_label: Option<String>,
+    /// Core's `canSendNow` for that state, read in the same document as the label.
+    pub can_send_now: bool,
     /// Core accepted this as typed pane input, not a request notice.
     pub passthrough: bool,
     /// A capability-based request fallback, rendered beside its composer.
@@ -63,6 +65,7 @@ impl Accepted {
             request: request.to_owned(),
             disposition,
             message_state_label: crate::requests::message_state_label(document),
+            can_send_now: crate::requests::can_send_now(document),
             passthrough: false,
             fallback: None,
             warning: None,
@@ -125,6 +128,21 @@ pub fn talk(
         )
         .map_err(retained)?;
     Accepted::from_document(&sent)
+}
+
+/// Takes one of the person's own messages out of the recipient's Digest hold and types it now
+/// (`tmt send-now`). Core decides who may ask and what the message's state allows, and a refusal
+/// is its one sentence. This runs the command once and never retries: a hand-over that may have
+/// happened is not repeated. The notice is the state Core reports afterwards, in its words.
+pub fn send_now(core: &Core, me: &str, request: &str, to: &str) -> Result<String, SquadError> {
+    core.json(&["send-now", request, "--identity", me])?;
+    Ok(crate::requests::show_request(core, request)
+        .ok()
+        .and_then(|detail| crate::requests::message_state_label(&detail))
+        .map_or_else(
+            || format!("Sent now to {to}."),
+            |label| format!("{to}: {label}"),
+        ))
 }
 
 /// New explicit sends retain this UUID through acceptance recovery.

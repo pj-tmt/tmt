@@ -514,9 +514,15 @@ test('the product source reads the owner reads and, without an owner session, sa
 
 test('the report refreshes once a minute and repaints only when it changed', async ({ page }) => {
   await page.clock.install();
-  const errors = await open(page, '?refresh');
+  const errors = await open(page, '?refresh', { width: 390, height: 900 });
   const reads = () => page.evaluate(() => window.digestReads);
   await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('26%');
+  const matrix = page.locator('#digest-exchange').getByRole('region', { name: /^Messages, last / });
+  await matrix.evaluate((node) => {
+    node.scrollLeft = 100;
+  });
+  const matrixPosition = await matrix.evaluate((node) => node.scrollLeft);
+  expect(matrixPosition).toBeGreaterThan(0);
   expect(await reads()).toBe(1);
   // A reader's place: the Share choice and a marker on the token card must survive a refresh
   // that found nothing new.
@@ -525,6 +531,7 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(2);
   await expect(page.locator('#digest-tokens')).toHaveAttribute('data-kept', 'yes');
+  expect(await matrix.evaluate((node) => node.scrollLeft)).toBe(matrixPosition);
   // The third read has less allowance left: the cards repaint, and Share is still the choice.
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(3);
@@ -552,4 +559,79 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await page.clock.fastForward(300_000);
   expect(await reads()).toBe(5);
   expect(errors).toEqual([]);
+});
+
+for (const scheme of ['light', 'dark'] as const)
+  for (const width of [1440, 390])
+    test(`the 24-seat matrix reaches the last column and keeps sender labels at ${width}px ${scheme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      const errors = await openShell(page, { width, height: 900 }, '?seats=24');
+      const card = page.locator('#digest-exchange');
+      const region = card.getByRole('region', { name: /^Messages, last / });
+      await expect(region).toHaveAttribute('tabindex', '0');
+      await expect(card.locator('thead .tmt-ui-chart-matrix-column')).toHaveCount(25);
+      await expect(card.locator('tbody tr')).toHaveCount(24);
+      await card.scrollIntoViewIfNeeded();
+      const sender = card.locator('tbody th').first();
+      const start = (await sender.boundingBox())!;
+      const viewport = (await region.boundingBox())!;
+      expect(await region.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+      await expect(card.locator('.tmt-ui-chart-matrix-edge')).toBeVisible();
+      const dir = process.env.DIGEST_CAPTURE_DIR;
+      if (dir)
+        await card.screenshot({ path: path.join(dir, `matrix-${scheme}-${width}-initial.png`) });
+      await region.evaluate((node) => node.focus({ preventScroll: true }));
+      await page.keyboard.press('ArrowRight');
+      await expect.poll(() => region.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+      expect(await region.evaluate((node) => getComputedStyle(node).outlineStyle)).not.toBe('none');
+      await region.evaluate((node) => {
+        node.scrollLeft = node.scrollWidth;
+      });
+      const last = (await card.locator('tbody tr').first().locator('td').last().boundingBox())!;
+      const pinned = (await sender.boundingBox())!;
+      expect(Math.abs(pinned.x - start.x)).toBeLessThan(2);
+      expect(
+        await sender.evaluate((node) => getComputedStyle(node.closest('table')!).borderCollapse),
+      ).toBe('separate');
+      expect(
+        await sender.evaluate((node) => Number.parseFloat(getComputedStyle(node).borderRightWidth)),
+      ).toBeGreaterThan(0);
+      const firstVisibleCell = await sender.evaluate((node) => {
+        const edge = node.getBoundingClientRect().right;
+        const cell = Array.from(node.parentElement!.querySelectorAll('td')).find(
+          (candidate) => candidate.getBoundingClientRect().left >= edge,
+        );
+        return cell?.getBoundingClientRect().left ?? null;
+      });
+      expect(firstVisibleCell).not.toBeNull();
+      expect(pinned.x + pinned.width).toBeLessThanOrEqual(firstVisibleCell!);
+      expect(last.x + last.width).toBeLessThanOrEqual(viewport.x + viewport.width + 1);
+      expect(last.x).toBeGreaterThanOrEqual(viewport.x);
+      await expect(card.locator('.tmt-ui-chart-matrix-edge')).toBeHidden();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        ),
+      ).toBeLessThanOrEqual(0);
+      if (dir)
+        await card.screenshot({ path: path.join(dir, `matrix-${scheme}-${width}-last.png`) });
+      expect(errors).toEqual([]);
+    });
+
+test('a fitting matrix has no edge cue and resize updates the overflow cue', async ({ page }) => {
+  await open(page, '', { width: 1440, height: 900 });
+  const card = page.locator('#digest-exchange');
+  const region = card.getByRole('region', { name: /^Messages, last / });
+  const edge = card.locator('.tmt-ui-chart-matrix-edge');
+  expect(await region.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await expect(edge).toBeHidden();
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect
+    .poll(() => region.evaluate((node) => node.scrollWidth > node.clientWidth))
+    .toBe(true);
+  await expect(edge).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(edge).toBeHidden();
 });

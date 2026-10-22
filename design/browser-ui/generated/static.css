@@ -3149,6 +3149,18 @@ svg.tmt-ui-mark {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+.tmt-ui-chart-matrix-viewport {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+.tmt-ui-chart-matrix-edge {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: var(--tmt-ui-space-xs);
+  background: var(--tmt-ui-color-edge);
+  pointer-events: none;
+}
 .tmt-ui-chart-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -3158,13 +3170,17 @@ svg.tmt-ui-mark {
   outline-offset: calc(var(--tmt-ui-focus-width) * -1);
 }
 .tmt-ui-chart-matrix {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   font: var(--tmt-ui-header-action-size) / 1.4 var(--tmt-ui-font-mono);
 }
 .tmt-ui-chart-matrix th,
 .tmt-ui-chart-cell {
   padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-chart-matrix-corner,
 .tmt-ui-chart-matrix-column,
@@ -3175,6 +3191,9 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-chart-matrix-corner,
 .tmt-ui-chart-matrix-row {
+  position: sticky;
+  left: 0;
+  z-index: 1;
   text-align: left;
 }
 .tmt-ui-chart-matrix-column {
