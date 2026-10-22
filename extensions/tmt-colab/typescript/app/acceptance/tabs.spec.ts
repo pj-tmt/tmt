@@ -165,7 +165,11 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
     ]);
     for (const tab of [a, b, c]) {
       await tab.reload();
-      await expect(tab.locator('#colab-guidance')).toBeVisible();
+      await expect(tab.getByRole('link', { name: 'Pair this browser', exact: true })).toBeVisible();
+      await expect(
+        tab.getByRole('link', { name: 'Pair this browser', exact: true }),
+      ).toHaveAttribute('href', '/remote/');
+      await expect(tab.locator('iframe')).toHaveCount(0);
     }
   });
 });
