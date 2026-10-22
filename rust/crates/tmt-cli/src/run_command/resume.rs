@@ -1,8 +1,7 @@
 //! Fresh command selection and exact resume settlement share the existing session policy.
 
-use super::{Launch, Resume, diagnostic, storage_failure, warn};
+use super::{Launch, RunRequest, diagnostic, storage_failure, warn};
 use crate::output::Failure;
-use std::ffi::OsString;
 use tmt_adapters::{
     config::ConfigPaths,
     runtime::{RuntimeCommand, RuntimeError, RuntimeRegistry},
@@ -98,11 +97,15 @@ fn resume_failure(code: &'static str, message: String, name: &str) -> Failure {
 /// session is reported, and a fresh start stays explicit (`tmt run <name>`).
 pub(super) fn select_command(
     registry: &mut RuntimeRegistry,
-    name: &str,
-    command: &[OsString],
-    resume: Option<Resume<'_>>,
+    request: RunRequest<'_>,
     preferences: &SessionPreferences,
 ) -> Result<Launch, Failure> {
+    let RunRequest {
+        name,
+        command,
+        resume,
+        ..
+    } = request;
     if let Some(command) = RuntimeCommand::verbatim(command) {
         return Ok(Launch {
             command,
@@ -164,6 +167,23 @@ pub(super) fn select_command(
     };
     let harness = session.harness.as_str();
     if session.stale_at_ms.is_some() && !resume.retry {
+        if let Some(driver) = resume.driver {
+            let retry = super::switch_driver::retry(
+                RunRequest {
+                    resume: Some(super::Resume {
+                        retry: true,
+                        ..resume
+                    }),
+                    ..request
+                },
+                driver,
+            );
+            return Err(Failure::new(
+                "RESUME_UNAVAILABLE",
+                format!("{name}'s remembered {harness} session looked gone when it was last resumed. No new agent was launched."),
+                1,
+            ).suggestion(format!("To try the selected driver's session once more, run: {retry}")));
+        }
         return Err(resume_failure(
             "RESUME_UNAVAILABLE",
             format!(

@@ -33,7 +33,7 @@ mod switch_driver;
 use run::run_bound;
 
 #[cfg(test)]
-use resume::{failure_is_trustworthy, select_command};
+use resume::failure_is_trustworthy;
 #[cfg(test)]
 use tmt_adapters::runtime::RuntimeRegistry;
 #[cfg(test)]
@@ -199,24 +199,28 @@ pub fn resume_with_options(
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     // This invocation-local fact reports effects; it grants no admission authority.
     let mut effect = LaunchEffect::NotLaunched;
-    run_observed(request, &mut effect).map_err(|error| {
-        if request
-            .resume
-            .is_some_and(|resume| resume.move_running || resume.driver.is_some())
-        {
-            let error = move_session::launch_failure(error, request.name, effect);
-            if let Some(driver) = request.resume.and_then(|resume| resume.driver) {
-                let retry = switch_driver::retry(request, driver);
-                error.suggestion(format!(
-                    "Inspect the old and caller panes before retrying: {retry}"
-                ))
-            } else {
-                error
-            }
-        } else {
-            error
-        }
-    })
+    run_observed(request, &mut effect).map_err(|error| launch_failure(error, request, effect))
+}
+
+fn launch_failure(error: Failure, request: RunRequest<'_>, effect: LaunchEffect) -> Failure {
+    if !request
+        .resume
+        .is_some_and(|resume| resume.move_running || resume.driver.is_some())
+    {
+        return error;
+    }
+    // Preserve a refusal's actionable remedy instead of replacing it with a
+    // retry that repeats the same refusal or acts on a different driver's record.
+    let remedy = error.suggestion_text().map(str::to_owned);
+    let error = move_session::launch_failure(error, request.name, effect);
+    if let Some(driver) = request.resume.and_then(|resume| resume.driver) {
+        error.suggestion(remedy.unwrap_or_else(|| {
+            let retry = switch_driver::retry(request, driver);
+            format!("Inspect the old and caller panes before retrying: {retry}")
+        }))
+    } else {
+        error
+    }
 }
 
 fn run_observed(request: RunRequest<'_>, effect: &mut LaunchEffect) -> Result<u8, Failure> {
@@ -459,6 +463,27 @@ mod tests {
         retry: false,
         move_running: false,
     });
+
+    fn select_command(
+        registry: &mut RuntimeRegistry,
+        name: &str,
+        command: &[OsString],
+        resume: Option<Resume<'_>>,
+        preferences: &SessionPreferences,
+    ) -> Result<Launch, Failure> {
+        super::resume::select_command(
+            registry,
+            RunRequest {
+                name,
+                command,
+                resume,
+                save: false,
+                options: &Default::default(),
+                channel: crate::invocation::ChannelMode::Default,
+            },
+            preferences,
+        )
+    }
 
     fn refused(result: Result<Launch, Failure>) -> (String, String) {
         let error = result.err().expect("resume must not launch");

@@ -185,6 +185,9 @@ pub(super) fn retry(request: super::RunRequest<'_>, driver: &str) -> String {
     let driver = crate::output::shell_word(driver);
     let name = crate::output::shell_word(request.name);
     let mut options = String::new();
+    if request.resume.is_some_and(|resume| resume.retry) {
+        options.push_str(" --retry");
+    }
     for (flag, value) in [
         ("--model", request.options.model.as_deref()),
         ("--effort", request.options.effort.as_deref()),
@@ -199,6 +202,22 @@ pub(super) fn retry(request: super::RunRequest<'_>, driver: &str) -> String {
         crate::invocation::ChannelMode::Default => (),
     }
     format!("tmt resume --driver {driver}{options} -- {name}")
+}
+
+pub(super) fn channel_retry(request: super::RunRequest<'_>, driver: &str) -> String {
+    let retry = retry(
+        super::RunRequest {
+            channel: crate::invocation::ChannelMode::Disabled,
+            ..request
+        },
+        driver,
+    );
+    format!("Retry without the channel: {retry}")
+}
+
+pub(super) fn channel_refusal(request: super::RunRequest<'_>, driver: &str) -> Failure {
+    Failure::new("CHANNEL_UNSUPPORTED", "This driver's message-channel launch cannot accept initial handoff input. No agent was stopped or launched.", 1)
+        .suggestion(channel_retry(request, driver))
 }
 
 #[cfg(test)]
@@ -228,6 +247,103 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 mod tests {
     use super::*;
     use tmt_core::binding::session::{HarnessId, ProviderSessionId, RuntimeMode};
+
+    #[test]
+    fn switch_refusals_preserve_the_selected_driver_options_and_actionable_remedy() {
+        use crate::{
+            invocation::ChannelMode,
+            run_command::{LaunchEffect, Resume, RunRequest},
+        };
+        let options = tmt_adapters::runtime::launch_preset::LaunchSettings {
+            model: Some("model name".into()),
+            effort: Some("high".into()),
+            ..Default::default()
+        };
+        let request = RunRequest {
+            name: "-Saved agent",
+            command: &[],
+            save: false,
+            options: &options,
+            channel: ChannelMode::Required,
+            resume: Some(Resume {
+                driver: Some("codex"),
+                retry: true,
+                move_running: false,
+            }),
+        };
+        assert_eq!(
+            retry(request, "codex"),
+            "tmt resume --driver codex --retry --model 'model name' --effort high --channel -- '-Saved agent'"
+        );
+        let refusal = crate::run_command::launch_failure(
+            channel_refusal(request, "codex"),
+            request,
+            LaunchEffect::NotLaunched,
+        );
+        assert_eq!(refusal.code, "CHANNEL_UNSUPPORTED");
+        assert_eq!(
+            refusal.document()["error"]["suggestion"],
+            "Retry without the channel: tmt resume --driver codex --retry --model 'model name' --effort high --no-channel -- '-Saved agent'"
+        );
+        for channel in [ChannelMode::Default, ChannelMode::Disabled] {
+            let request = RunRequest { channel, ..request };
+            let refusal = crate::run_command::launch_failure(
+                Failure::new("PROCESS_ERROR", "Observation failed.", 1),
+                request,
+                LaunchEffect::OldStopped,
+            );
+            assert!(refusal.message.contains("The old agent was stopped"));
+            assert!(
+                refusal.document()["error"]["suggestion"]
+                    .as_str()
+                    .unwrap()
+                    .ends_with(&retry(request, "codex"))
+            );
+        }
+    }
+
+    #[test]
+    fn stale_selected_driver_suggests_retrying_that_record_without_forgetting_the_current_driver() {
+        use crate::{
+            invocation::ChannelMode,
+            run_command::{LaunchEffect, Resume, RunRequest},
+        };
+        let mut preferences = SessionPreferences::default();
+        preferences.remember(
+            HarnessId::new("codex").unwrap(),
+            RuntimeMode::new("embedded").unwrap(),
+            ProviderSessionId::new("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap(),
+        );
+        preferences.remembered.as_mut().unwrap().stale_at_ms = Some(1);
+        let options = tmt_adapters::runtime::launch_preset::LaunchSettings {
+            model: Some("model name".into()),
+            ..Default::default()
+        };
+        let request = RunRequest {
+            name: "-Saved agent",
+            command: &[],
+            save: false,
+            options: &options,
+            channel: ChannelMode::Disabled,
+            resume: Some(Resume {
+                driver: Some("codex"),
+                retry: false,
+                move_running: false,
+            }),
+        };
+        let mut registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
+        let error =
+            crate::run_command::resume::select_command(&mut registry, request, &preferences)
+                .err()
+                .expect("stale record must refuse before launch");
+        let error = crate::run_command::launch_failure(error, request, LaunchEffect::NotLaunched);
+        assert_eq!(error.code, "RESUME_UNAVAILABLE");
+        assert!(!error.message.contains("--forget"));
+        assert_eq!(
+            error.document()["error"]["suggestion"],
+            "To try the selected driver's session once more, run: tmt resume --driver codex --retry --model 'model name' --no-channel -- '-Saved agent'"
+        );
+    }
 
     #[test]
     fn selection_uses_only_the_requested_drivers_record_and_never_mutates_the_source() {

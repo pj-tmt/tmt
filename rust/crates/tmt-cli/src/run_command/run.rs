@@ -159,7 +159,15 @@ pub(super) fn run_bound(
         })
         .map_err(storage_failure)?;
     let selected_preferences = super::switch_driver::selection(&preferences, switching)?;
-    let mut launch = select_command(&mut registry, name, command, resume, &selected_preferences)?;
+    let mut launch = select_command(
+        &mut registry,
+        RunRequest {
+            name,
+            command,
+            ..request
+        },
+        &selected_preferences,
+    )?;
     let preset = existing
         .as_ref()
         .map(|identity| match launch.resumed.as_ref() {
@@ -262,13 +270,21 @@ pub(super) fn run_bound(
     };
     let remember_channel =
         launch.resumed.is_none() || channel != crate::invocation::ChannelMode::Default;
-    let mut channel = preflight(&registry, mode, claim.as_ref(), &launch.command, paths)
-        .map_err(|error| channel_preflight_failure(error, channel, mode, name))?;
+    let mut channel =
+        preflight(&registry, mode, claim.as_ref(), &launch.command, paths).map_err(|error| {
+            if let Some(driver) = switching
+                && channel == crate::invocation::ChannelMode::Default
+                && mode == crate::invocation::ChannelMode::Required
+            {
+                error.suggestion(super::switch_driver::channel_retry(request, driver))
+            } else {
+                channel_preflight_failure(error, channel, mode, name)
+            }
+        })?;
     if let Some(driver) = switching
         && channel.channel.is_some()
     {
-        return Err(Failure::new("CHANNEL_UNSUPPORTED", "This driver's message-channel launch cannot accept initial handoff input. No agent was stopped or launched.", 1)
-            .suggestion(format!("Retry without the channel: tmt resume --driver {} --no-channel -- {}", driver, crate::output::shell_word(name))));
+        return Err(super::switch_driver::channel_refusal(request, driver));
     }
     host.resolve_servers(storage).map_err(endpoint_failure)?;
     let mut handoff_request = |binding: &Binding| {
@@ -974,11 +990,6 @@ pub(super) fn channel_preflight_failure(
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
-    crate::cli_style_tests::HintSpec::core(
-        "Retry without the channel: tmt resume --driver {} --no-channel -- {}",
-        &[""],
-        &[("{}", "claude")],
-    ),
     crate::cli_style_tests::HintSpec::core(
         "This session was launched with a message channel; resume without it: tmt resume --no-channel -- {name}",
         &[""],
