@@ -342,9 +342,15 @@ describe('Remote owner-device operations (#1055)', () => {
           );
           expect(check).toMatchObject({ target: 'remote-read', lines: 10 });
           expect(check).toEqual(localCheck);
+          // A pending result carries Core's message state; a cli device never sees `canSendNow`.
           expect(await session.append('result', { requestId })).toEqual({
             state: 'pending',
             requestId,
+            messageState: expect.objectContaining({
+              state: expect.any(String),
+              reason: expect.objectContaining({ code: expect.any(String) }),
+              canSendNow: false,
+            }),
           });
           expect(
             await session.append('requests.show', {
@@ -352,7 +358,12 @@ describe('Remote owner-device operations (#1055)', () => {
               operation: 'requests.show',
               input: { requestId },
             })
-          ).toMatchObject({ requestId, recipientId: allowed, final: { status: 'not_submitted' } });
+          ).toMatchObject({
+            requestId,
+            recipientId: allowed,
+            final: { status: 'not_submitted' },
+            messageState: { canSendNow: false },
+          });
           // The core queues an inbox request and sends one advisory wake; it
           // does not paste a talk reply frame. Act as the recipient through the
           // actual public receipt and CLI, without fabricating a final response.
