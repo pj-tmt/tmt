@@ -1,4 +1,4 @@
-//! Owner browser reads of the Ops board and Digest usage. Each read runs one fixed public
+//! Owner browser reads of the Ops board, the sampled limit history and Digest usage. Each read runs one fixed public
 //! command through the supplied `tmt` executable and answers `{version,state,...}`; the
 //! contract is "Owner browser reads" in `remote-channel-v1.md`. Nothing here grants anything:
 //! the route admission is the composed shell's, and no read is a generic command endpoint.
@@ -46,6 +46,7 @@ impl Range {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Target {
     Ops,
+    Limits,
     Digest(Range),
 }
 impl Target {
@@ -55,6 +56,7 @@ impl Target {
     pub(crate) fn route(rest: &str) -> Option<Self> {
         match rest {
             "ops" => Some(Self::Ops),
+            "limits" => Some(Self::Limits),
             _ => rest
                 .strip_prefix("digest/")
                 .and_then(Range::parse)
@@ -64,6 +66,7 @@ impl Target {
     fn cap(self) -> usize {
         match self {
             Self::Ops => limits::READ_OPS_BYTES,
+            Self::Limits => limits::READ_LIMITS_BYTES,
             Self::Digest(_) => limits::READ_DIGEST_BYTES,
         }
     }
@@ -80,6 +83,8 @@ pub(crate) enum Reason {
     /// Non-zero exit, invalid JSON or an unexpected document version.
     ReadFailed,
     TooLarge,
+    /// Limits only: the board has kept no samples (it samples only while open).
+    NotSampled,
 }
 impl Reason {
     fn code(self) -> &'static str {
@@ -89,6 +94,7 @@ impl Reason {
             Self::Timeout => "timeout",
             Self::ReadFailed => "read_failed",
             Self::TooLarge => "too_large",
+            Self::NotSampled => "not_sampled",
         }
     }
 }
@@ -201,6 +207,24 @@ impl Reads {
                 // Timers are optional: a failed cron read leaves them null, never empty.
                 let timers = timers.ok().and_then(Result::ok);
                 ops::project(&board?, timers.as_ref()).ok_or(Reason::ReadFailed)
+            }
+            Target::Limits => {
+                let history = self.json(&["ops", "limits", "--json"], deadline)?;
+                if history["version"] != 1 {
+                    return Err(Reason::ReadFailed);
+                }
+                match history["limitHistory"].as_array() {
+                    None => Err(Reason::ReadFailed),
+                    Some(kept) if kept.is_empty() => Err(Reason::NotSampled),
+                    Some(_) => {
+                        let Value::Object(payload) =
+                            json!({"limitHistory": history["limitHistory"]})
+                        else {
+                            unreachable!("object literal")
+                        };
+                        Ok(payload)
+                    }
+                }
             }
             Target::Digest(range) => {
                 let report = self.json(

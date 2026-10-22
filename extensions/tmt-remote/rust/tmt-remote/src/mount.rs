@@ -390,7 +390,7 @@ impl Mounts {
         self.origins = Some(origins);
         self
     }
-    /// Serve `x/-/ops` and `x/-/digest` from `reads`.
+    /// Serve `x/-/ops`, `x/-/limits` and `x/-/digest` from `reads`.
     pub fn with_reads(mut self, reads: Reads) -> Self {
         self.reads = Some(reads);
         self
@@ -788,7 +788,7 @@ impl Mounts {
                         && !current.session.ended()
                 })
     }
-    /// `x/-/ops` or `x/-/digest/<range>`, only when reads are configured.
+    /// `x/-/ops`, `x/-/limits` or `x/-/digest/<range>`, only when reads are configured.
     fn read_route(&self, path: &str) -> Option<Target> {
         self.reads.as_ref()?;
         Target::route(path.strip_prefix(&self.base)?.strip_prefix("-/")?)

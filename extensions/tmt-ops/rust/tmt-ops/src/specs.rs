@@ -333,6 +333,15 @@ pub const COPY: &CommandSpec = spec!(
     ]
 );
 
+pub const LIMITS: &CommandSpec = spec!(
+    "limits",
+    "Show the sampled weekly-limit history the board keeps",
+    details = "Read-only: it reads the board's local sample cache (eight days, ten-minute buckets). Samples are taken only while a board is open, so a closed board leaves gaps and a new machine has none. Each point is [observed ms, percent left, window reset ms].",
+    [
+        "Print the history for a script" => "tmt ops limits --json",
+    ]
+);
+
 pub const SKILL: &CommandSpec = spec!(
     "skill",
     "The tmt-ops skill for lead agents",

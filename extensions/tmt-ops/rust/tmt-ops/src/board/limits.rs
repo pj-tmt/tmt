@@ -9,6 +9,7 @@
 mod allowance;
 mod estimate;
 mod footer;
+pub(super) mod history;
 mod listing;
 pub(in crate::board) mod observation;
 pub(in crate::board) mod pace;
