@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "planDigest": "83f9f61f5808d6472cac1dc265eb244a662090c5904ea0717a90234bffeb4c32",
-  "declarationDigest": "f0f604b664da0b7a62170ae8ac7b7f902b1deb6debc9a6ef1a3b00b35b881dae",
+  "planDigest": "2e27ec6026bf2cdfeb1aa59ac82f1821add54d730233881616d96d5e792b0ba0",
+  "declarationDigest": "b2c12b3f869cebef2585d513e0908e90341ad8c1026fa2249b6a3dd6e0fa095b",
   "artifactDigest": "2d3f32c04c0bfe154c54d87781a8704c1e857a239d32cf8386dba7d018301bba",
   "plan": {
     "version": 1,
@@ -13,7 +13,7 @@
     "extensions": [
       {
         "name": "colab",
-        "declarationDigest": "f0f604b664da0b7a62170ae8ac7b7f902b1deb6debc9a6ef1a3b00b35b881dae",
+        "declarationDigest": "b2c12b3f869cebef2585d513e0908e90341ad8c1026fa2249b6a3dd6e0fa095b",
         "admission": {
           "artifactDigest": "2d3f32c04c0bfe154c54d87781a8704c1e857a239d32cf8386dba7d018301bba",
           "entryPoint": "colab"
@@ -24,7 +24,7 @@
             "kind": "checkpoint",
             "path": "x/colab/checkpoints",
             "limits": {
-              "maxObjectBytes": 4194304,
+              "maxObjectBytes": 524288,
               "maxNamespaceBytes": 33554432,
               "maxEntries": 64
             },

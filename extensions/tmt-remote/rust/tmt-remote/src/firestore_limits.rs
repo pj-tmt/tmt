@@ -23,6 +23,18 @@ const KIB: u64 = 1024;
 const MIB: u64 = KIB * KIB;
 const GIB: u64 = MIB * KIB;
 
+/// The most decoded bytes one Remote object document carries (#2522). A document is at most
+/// `documentBytes` (1 MiB); the plan reserves its name (6,144 B), 64 field names of at most 64 B
+/// plus 1 B each and 32 B of overhead, and base64 stores three bytes in four. A resource's
+/// `chunkBytes` (or the whole object of an unchunked resource) is bounded by this per
+/// document by the extension's Rules, not verified by Remote.
+pub const DOCUMENT_PAYLOAD_BYTES: u64 = (MIB - DOCUMENT_RESERVED_BYTES) / 4 * 3;
+const DOCUMENT_RESERVED_BYTES: u64 = 6_144 + 64 * (64 + 1) + 32;
+/// Sanity ceilings for one resource's namespace and entry count. Firestore has no per-collection
+/// byte or document limit, so these only keep a declaration reviewable; Remote does not meter them.
+pub const NAMESPACE_SANITY_BYTES: u64 = GIB;
+pub const ENTRIES_SANITY: u64 = 1 << 20;
+
 /// How a limit's value is written for people.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FirestoreLimitUnit {

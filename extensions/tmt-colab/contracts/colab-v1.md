@@ -4506,8 +4506,8 @@ ciphertext, never authority; clients still verify every statement, chain and env
   entry's own `expiresAt` with `request.time` in a query, so a query can return an entry past its
   own `expiresAt` while its page is live. Clients drop it. Physical TTL is not provisioned
   (Remote records `not-provisioned`); expiry is enforced in Rules, and removal is cleanup.
-- Remote's current backend ceilings (12 MiB per object, 64 MiB and 1,024 entries per resource)
-  bound the declared limits; they are the owner-approved plan's numbers, not enforcement. Page expiry is finite and at most
+- Remote's [backend ceilings](../../../contracts/remote-channel-v1.md#backend-ceilings) bound the declared
+  limits; they are the owner-approved plan's numbers, not enforcement. Page expiry is finite and at most
   `request.time + duration.value(365, 'd')` on create and update; entry create and owner expiry refresh enforce the same ceiling independently of
   the page deadline. The declaration digest covers these Rules without adding a declaration field.
 

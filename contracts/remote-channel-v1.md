@@ -2421,8 +2421,8 @@ and is unique in the declaration; kind is `log`, `checkpoint`, `blob` or `awaren
 `x/<extension>/`: no absolute path, empty/dot segment, escape or wildcard, and no first segment equal to an
 operation route name (`append`, `subscribe`, `ack`, `pair`) or the mount segment `x`. Two resources of a plan never
 have equal or nested paths. Limits specify positive JSON integers `maxObjectBytes`, `maxNamespaceBytes` and
-`maxEntries` (each below 2^53, `maxObjectBytes` not above `maxNamespaceBytes`), bounded by Remote's advertised
-backend limits. Optional `limits.chunkBytes` is a positive integer below 2^53 and not above
+`maxEntries` (each below 2^53, `maxObjectBytes` not above `maxNamespaceBytes`), bounded by the
+[backend ceilings](#backend-ceilings) below. Optional `limits.chunkBytes` is a positive integer below 2^53 and not above
 `maxObjectBytes`; absence preserves existing declarations without an inferred chunk size.
 Optional resource `sync` is `{fields,spaceField,uidField,query}`: 1..64 unique field names
 using the index-field grammar, a declared string-valued space binding, and a declared
@@ -2441,6 +2441,28 @@ contain at most 64 distinct `{field,direction}` entries, where direction is `asc
 name grammar. Field semantics and admission belong to Rules; sync declares transported names and query bindings, never grants. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
 epoch/writer checks and expiry policy remain extension-owned; declarations cannot redefine grants,
 signed operations or the machine journal.
+
+#### Backend ceilings
+
+Each backend owns the numbers its declarations are checked against; a declaration above its
+backend's ceiling is refused as `limit-above-backend`. The plan's canonical bytes and digest carry
+only the declared limits, never these ceilings. The Local row is the machine journal's
+(`OBJECT_PAYLOAD_BYTES`, `OBJECT_NAMESPACE_BYTES`, `OBJECT_NAMESPACE_ENTRIES`), which an object
+stored in a cloud backend must also fit when a second machine imports it.
+
+| Declared limit                      | Local (journal)    | Firestore                                                                  | Cloudflare (advisory)      |
+| ----------------------------------- | ------------------ | -------------------------------------------------------------------------- | -------------------------- |
+| `maxObjectBytes`, unchunked         | 12 MiB             | 778,680 B: one document, bounded by the extension's Rules, not verified by Remote | 12 MiB             |
+| `chunkBytes`                        | -                  | 778,680 B per document, bounded by the extension's Rules, not verified by Remote | none beyond `maxObjectBytes` |
+| `maxObjectBytes`, chunked           | 12 MiB             | 12 MiB (the Local value, referenced; advisory)                             | 12 MiB                     |
+| `maxNamespaceBytes`                 | 64 MiB             | 1 GiB (advisory sanity ceiling)                                            | 64 MiB                     |
+| `maxEntries`                        | 1,024              | 1,048,576 (advisory sanity ceiling)                                        | 1,024                      |
+
+Firestore's 778,680 B is a 1 MiB document less 10,336 B reserved (a 6,144 B document name, 64 field
+names of at most 64 B plus 1 B each, and 32 B of overhead), with base64 storing three bytes in
+four. "Advisory" means Remote checks the declared number at planning but does not meter use: Firestore
+has no per-collection byte or document limit, and only Rules bound a single document. Cloudflare's
+numbers stay advisory until its backend ticket states its own.
 
 Admission is `{artifact,digest,entryPoint}`: an installed relative artifact path, its lowercase
 SHA-256 hex digest (checked against the artifact's bytes, at most 64 KiB) and its namespace entry point; `local` names the extension's existing admission

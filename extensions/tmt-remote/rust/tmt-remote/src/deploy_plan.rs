@@ -9,8 +9,8 @@
 //! and digest never change when one is added.
 use crate::{
     canonical,
-    declaration::{self, Backend, Declaration, Direction, Kind, Reason},
-    limits,
+    declaration::{self, Backend, Declaration, Direction, Kind, Reason, ResourceLimits},
+    firestore_limits, limits,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -33,6 +33,51 @@ impl CloudBackend {
             Self::Firestore => Backend::Firestore,
             Self::Cloudflare => Backend::Cloudflare,
         }
+    }
+    /// The ceilings this backend states for a resource; each backend owns its own numbers.
+    fn ceilings(self) -> Ceilings {
+        match self {
+            // Machine-journal limits, which a cloud object must import into on another machine.
+            Self::Cloudflare => Ceilings {
+                document_bytes: None,
+                object_bytes: limits::OBJECT_PAYLOAD_BYTES,
+                namespace_bytes: limits::OBJECT_NAMESPACE_BYTES,
+                entries: limits::OBJECT_NAMESPACE_ENTRIES as u64,
+            },
+            Self::Firestore => Ceilings {
+                document_bytes: Some(firestore_limits::DOCUMENT_PAYLOAD_BYTES),
+                object_bytes: limits::OBJECT_PAYLOAD_BYTES,
+                namespace_bytes: firestore_limits::NAMESPACE_SANITY_BYTES,
+                entries: firestore_limits::ENTRIES_SANITY,
+            },
+        }
+    }
+}
+/// One backend's ceilings for a resource's declared limits. `document_bytes` bounds a single
+/// stored document: the whole object of an unchunked resource, or `chunkBytes`. The other
+/// object bound applies to a chunked resource's whole object, which a second machine must
+/// import into its journal.
+#[derive(Clone, Copy)]
+struct Ceilings {
+    document_bytes: Option<u64>,
+    object_bytes: u64,
+    namespace_bytes: u64,
+    entries: u64,
+}
+impl Ceilings {
+    fn admit(self, bounds: ResourceLimits) -> bool {
+        // An unchunked resource is one stored document, so its whole object meets the document
+        // bound; a chunked one meets it per chunk and its whole object the import bound.
+        let (stored, whole) = match (self.document_bytes, bounds.chunk_bytes) {
+            (Some(document), None) => (bounds.max_object_bytes, document),
+            (Some(document), Some(chunk)) => (chunk, self.object_bytes.max(document)),
+            (None, _) => (0, self.object_bytes),
+        };
+        let document = self.document_bytes.unwrap_or(u64::MAX);
+        stored <= document
+            && bounds.max_object_bytes <= whole
+            && bounds.max_namespace_bytes <= self.namespace_bytes
+            && bounds.max_entries <= self.entries
     }
 }
 /// What the deployment target can provide. The caller decides it; the plan only records it.
@@ -241,14 +286,8 @@ impl Plan {
     }
 }
 
-/// What a backend offers a resource, from the object-channel bounds the contract states
-/// (`payloadBytes`) and the storage proposal's namespace bounds. The same for every cloud
-/// backend until a backend ticket states its own.
-const MAX_OBJECT_BYTES: u64 = limits::OBJECT_PAYLOAD_BYTES;
-const MAX_NAMESPACE_BYTES: u64 = limits::OBJECT_NAMESPACE_BYTES;
 /// Longest resource path that names a Firestore collection under `x/<extension>`.
 const FIRESTORE_COLLECTION_SEGMENTS: usize = 7;
-const MAX_ENTRIES: u64 = limits::OBJECT_NAMESPACE_ENTRIES as u64;
 
 pub fn compose(target: Target, enabled: &[Enabled<'_>]) -> Result<Plan, PlanError> {
     let fail = |extension: Option<&str>, resource: Option<usize>, reason| PlanError {
@@ -335,10 +374,7 @@ fn extension(target: Target, name: &str, supplied: Supplied<'_>) -> Result<Plann
                 return Err((Some(position), PlanReason::PathNotCollection));
             }
         }
-        if bounds.max_object_bytes > MAX_OBJECT_BYTES
-            || bounds.max_namespace_bytes > MAX_NAMESPACE_BYTES
-            || bounds.max_entries > MAX_ENTRIES
-        {
+        if !target.backend.ceilings().admit(bounds) {
             return Err((Some(position), PlanReason::LimitAboveBackend));
         }
         let ttl = match (&resource.ttl_field, target.physical_ttl) {
