@@ -4436,14 +4436,18 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await sdk('add', ['desk', `${secondOrigin}/`]);
       await page.reload();
       await expect(page.locator('#state-label')).toHaveText('Connected');
-      await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText('Connected');
+      await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText(
+        'Connected',
+      );
       await expect(
         page.locator('[data-remote="studio"]').getByRole('button', { name: 'Open' }),
       ).toHaveCount(0);
       await expect(
         page.locator('[data-remote="studio"]').getByRole('button', { name: 'Rename studio' }),
       ).toHaveText('Rename');
-      await expect(page.locator('[data-remote="desk"] .tmt-ui-list-state')).toHaveText('not checked');
+      await expect(page.locator('[data-remote="desk"] .tmt-ui-list-state')).toHaveText(
+        'not checked',
+      );
       await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
       expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
       await page.locator('#remotes').scrollIntoViewIfNeeded();
@@ -4465,7 +4469,9 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await page.getByRole('button', { name: 'Add', exact: true }).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(page.locator('#remote-add')).toBeFocused();
-      await expect(page.locator('[data-remote="spare"] .tmt-ui-list-state')).toHaveText('not checked');
+      await expect(page.locator('[data-remote="spare"] .tmt-ui-list-state')).toHaveText(
+        'not checked',
+      );
       expect(network.some((url) => url.startsWith('http://127.0.0.1:9876/'))).toBe(false);
       expect(await identity()).toEqual(first);
       await sdk('remove', ['spare']);
