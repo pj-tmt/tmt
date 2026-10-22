@@ -118,10 +118,10 @@ const COUNTED = new Set(['talk', 'reply']);
 
 /**
  * Who talks to whom: only talk and reply count (an ack or a result is not a conversation),
- * seats ranked by messages sent plus received, the busiest `limit` kept. Null without a flow
+ * all seats ranked by messages sent plus received. Null without a flow
  * read; a pair with no message is a known none (0).
  */
-export function exchange(doc: UsageDocument, limit = 8): Exchange | null {
+export function exchange(doc: UsageDocument): Exchange | null {
   const flow = doc.exchange;
   if (!flow) return null;
   const labels = new Map<string, string>();
@@ -144,8 +144,9 @@ export function exchange(doc: UsageDocument, limit = 8): Exchange | null {
   }
   const participants = [...labels]
     .map(([id, label]) => ({ id, label }))
-    .sort((a, b) => (sent.get(b.id) ?? 0) - (sent.get(a.id) ?? 0) || a.label.localeCompare(b.label))
-    .slice(0, limit);
+    .sort(
+      (a, b) => (sent.get(b.id) ?? 0) - (sent.get(a.id) ?? 0) || a.label.localeCompare(b.label),
+    );
   return { participants, value: (from, to) => pairs.get(`${from}>${to}`) ?? 0 };
 }
 

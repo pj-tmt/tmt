@@ -558,7 +558,11 @@ intensity step; the painter only maps it to elements, so the model is what is un
   conventions as the terminal Digest.
 - Keyboard: the plot is one tab stop; Left, Right, Home and End move the readout. Every chart
   also carries a visually hidden data table for assistive technology. A matrix wider than its
-  container scrolls inside its own region; the page never scrolls sideways.
+  container scrolls inside its own named, keyboard-focusable region; the page never scrolls sideways.
+  Sender labels stay opaque and sticky at the left. Matrix cells use separate, zero-spaced
+  borders so each sticky sender keeps its own right and bottom rules while scrolling. A separate straight edge cue marks more
+  columns to the right and disappears at the end or when the matrix fits. Digest keeps all
+  seats in that region; it does not silently discard low-traffic participants.
 - Text is repainted at the container's width (ResizeObserver), so type keeps its size at phone
   and desktop widths. Empty data shows one plain sentence, not an empty axis.
 - More series than a chart keeps (five on Digest) fold into one `Other` with `topLayers`.

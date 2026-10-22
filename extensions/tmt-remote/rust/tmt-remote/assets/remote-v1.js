@@ -3514,7 +3514,21 @@ function createMatrix(options) {
 	scroll.setAttribute("role", "region");
 	scroll.setAttribute("aria-label", options.title);
 	scroll.append(table);
-	figure.append(scroll);
+	const viewport = htmlEl("div", "tmt-ui-chart-matrix-viewport");
+	const edge = htmlEl("span", "tmt-ui-chart-matrix-edge");
+	edge.setAttribute("aria-hidden", "true");
+	edge.hidden = true;
+	const updateEdge = () => {
+		edge.hidden = scroll.scrollWidth - scroll.clientWidth - scroll.scrollLeft <= 1;
+	};
+	scroll.addEventListener("scroll", updateEdge, { passive: true });
+	if (typeof ResizeObserver !== "undefined") {
+		const observer = new ResizeObserver(updateEdge);
+		observer.observe(scroll);
+		observer.observe(table);
+	}
+	viewport.append(scroll, edge);
+	figure.append(viewport);
 	return figure;
 }
 var OTHER_STYLE = 7;
@@ -4274,10 +4288,10 @@ function ranking(rows, kept = 8) {
 var COUNTED = /* @__PURE__ */ new Set(["talk", "reply"]);
 /**
 * Who talks to whom: only talk and reply count (an ack or a result is not a conversation),
-* seats ranked by messages sent plus received, the busiest `limit` kept. Null without a flow
+* all seats ranked by messages sent plus received. Null without a flow
 * read; a pair with no message is a known none (0).
 */
-function exchange(doc, limit = 8) {
+function exchange(doc) {
 	const flow = doc.exchange;
 	if (!flow) return null;
 	const labels = /* @__PURE__ */ new Map();
@@ -4298,7 +4312,7 @@ function exchange(doc, limit = 8) {
 		participants: [...labels].map(([id, label]) => ({
 			id,
 			label
-		})).sort((a, b) => (sent.get(b.id) ?? 0) - (sent.get(a.id) ?? 0) || a.label.localeCompare(b.label)).slice(0, limit),
+		})).sort((a, b) => (sent.get(b.id) ?? 0) - (sent.get(a.id) ?? 0) || a.label.localeCompare(b.label)),
 		value: (from, to) => pairs.get(`${from}>${to}`) ?? 0
 	};
 }
