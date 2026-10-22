@@ -231,11 +231,13 @@ test('principals: owner, a second paired device and a read-only link read; a rev
       '--json',
     ]);
     await second.reload();
-    await expect(
-      second.getByText("This browser's pairing was removed.", { exact: true }),
-    ).toBeVisible({
+    await expect(second.getByRole('link', { name: 'Pair this browser', exact: true })).toBeVisible({
       timeout: 30_000,
     });
+    await expect(
+      second.getByRole('link', { name: 'Pair this browser', exact: true }),
+    ).toHaveAttribute('href', '/remote/');
+    await expect(second.locator('iframe')).toHaveCount(0);
     await expect(second.getByTestId('file-row')).toHaveCount(0);
     await expect(second.locator('.page-header-actions')).toHaveCount(0);
     await expect(second.getByRole('button', { name: /^Files(?: \(\d+\)| \d+)?$/ })).toHaveCount(0);

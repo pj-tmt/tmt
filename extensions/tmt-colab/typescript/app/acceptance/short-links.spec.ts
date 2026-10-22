@@ -122,8 +122,11 @@ test('real Colab keeps public short entries across admission, reload and history
     const requestCount = reader.requests.length;
     await reader.page.goto(shown.link);
     await expect(
-      reader.page.getByRole('heading', { name: 'Pair this browser first', level: 2 }),
+      reader.page.getByRole('link', { name: 'Pair this browser', exact: true }),
     ).toBeVisible();
+    await expect(
+      reader.page.getByRole('link', { name: 'Pair this browser', exact: true }),
+    ).toHaveAttribute('href', '/remote/');
     expect(reader.page.url()).toBe(shown.link);
     await expect(reader.page.locator('iframe')).toHaveCount(0);
     expect(

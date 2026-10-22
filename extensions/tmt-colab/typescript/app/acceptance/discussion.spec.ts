@@ -385,6 +385,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     }
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    const beforeCommentsWidth = (await first.locator('iframe').boundingBox())!.width;
     await comments(first);
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
@@ -435,7 +436,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t1).toBeVisible();
     await expect(first.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
     const frameWidth = (await first.locator('iframe').boundingBox())!.width;
-    expect(frameWidth).toBe(1440);
+    expect(frameWidth).toBe(beforeCommentsWidth);
     await first
       .frameLocator('iframe')
       .locator('body')

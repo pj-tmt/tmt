@@ -214,11 +214,11 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
     await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
     await expect(dialog.getByRole('alert')).toContainText(
-      'The owner accepted the deletion, but it is not confirmed yet',
+      'Your machine accepted the deletion, but it is not confirmed yet',
     );
     await dialog.getByRole('button', { name: 'Check again' }).click();
     await expect(dialog.getByRole('alert')).toContainText(
-      'The owner accepted the deletion, but it is not confirmed yet',
+      'Your machine accepted the deletion, but it is not confirmed yet',
     );
     const catalog = JSON.parse(run(world, world.binaries.colab, ['ls', '--archived', '--json']));
     expect(catalog.pages).toHaveLength(0);
