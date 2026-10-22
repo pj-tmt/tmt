@@ -307,10 +307,6 @@ fn draftless_fold_label_and_keyboard_actions_keep_the_editor_owner() {
         Compose::Talk {
             to: "worker".into(),
         },
-        Compose::Reply {
-            request: "request".into(),
-            from: "worker".into(),
-        },
         Compose::Annotate {
             to: "lead".into(),
             row: "worker".into(),

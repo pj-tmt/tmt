@@ -393,7 +393,9 @@ fn captures() -> Value {
                     for height in [36, 8] {
                         let app = if state == "header-usage" {
                             metered(look)
-                        } else if state.starts_with("sent-") {
+                        } else if crate::board::conversation::outgoing::tests::captures::SCENES
+                            .contains(&state)
+                        {
                             crate::board::conversation::outgoing::tests::captures::fixture(
                                 state, look, NOW,
                             )
@@ -402,6 +404,23 @@ fn captures() -> Value {
                         };
                         let captured =
                             capture_frame(&app, state, look_name, width, height, &mut styles);
+                        if state.starts_with("chat-") && width == 160 && height == 36 {
+                            let text = captured["lines"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|line| line.as_str().unwrap())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            assert!(
+                                text.contains(
+                                    crate::board::conversation::outgoing::tests::captures::expected(
+                                        state
+                                    )
+                                ),
+                                "missing capture state {state}: {text}"
+                            );
+                        }
                         frames.push(captured);
                     }
                 }

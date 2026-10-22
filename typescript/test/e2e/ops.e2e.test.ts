@@ -1282,7 +1282,7 @@ renameSync(output+'.tmp',output);
           requestResponses(fixture).filter((row) => questions.includes(row.request_id))
         ).toEqual([expect.objectContaining({ request_id: questions[0], body: '/yes!' })]);
         const request = sends()[0]!.request_id;
-        await step('chat-prompt', { prompt: true });
+        await step('chat-prompt', { prompt: true, promptText: '/yes！' });
         await fixture.waitForCapture((screen) => screen.includes('working…'), board.pane);
         await step('chat-stop', { message: 'Captured answer from this turn' });
         await fixture.waitFor(

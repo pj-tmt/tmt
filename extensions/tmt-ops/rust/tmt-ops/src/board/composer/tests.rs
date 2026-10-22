@@ -883,7 +883,7 @@ fn paste_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts() {
         assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
         app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("auth-fix");
         assert!(
-            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Chat { name: to, text, .. }) if to == "auth-fix" && text == format!("{exact}"))
+            matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(Request::Chat { name: to, text, .. }) if to == "auth-fix" && text == exact)
         );
         open(&mut app, "docs");
         assert_eq!(

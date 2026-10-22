@@ -184,13 +184,6 @@ pub enum Request {
         row: String,
         text: String,
     },
-    Reply {
-        me: String,
-        squad: String,
-        request: String,
-        from: String,
-        text: String,
-    },
     Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     WorkspacePreferences {
@@ -221,9 +214,7 @@ impl Request {
             Self::Digest(_) => "Saving digest…",
             Self::DigestSwitch(_) => "Switching Digest…",
             Self::Copy { .. } => "Copying…",
-            Self::Talk { .. } | Self::Chat { .. } | Self::Annotate { .. } | Self::Reply { .. } => {
-                "Sending…"
-            }
+            Self::Talk { .. } | Self::Chat { .. } | Self::Annotate { .. } => "Sending…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
@@ -240,7 +231,6 @@ impl Request {
             Self::Talk { .. }
                 | Self::Chat { .. }
                 | Self::Annotate { .. }
-                | Self::Reply { .. }
                 | Self::WorkspacePreferences { .. }
                 | Self::WorkspaceOperation(_)
                 | Self::Cron(_)
@@ -406,12 +396,6 @@ pub enum Compose {
         to: String,
         row: String,
     },
-    /// A resolved submission snapshot, never an editor mode. The request is
-    /// selected from current data at Enter and is not retained in the editor.
-    Reply {
-        request: String,
-        from: String,
-    },
     Status,
     /// One step of a cron form; its draft lives in `App::cron_draft`.
     Cron,
@@ -466,7 +450,7 @@ pub(super) struct RowSend {
 
 impl RowSend {
     pub(super) fn valid(&self, app: &App, input: &Input) -> bool {
-        if matches!(input.compose, Compose::Talk { .. } | Compose::Reply { .. }) {
+        if matches!(input.compose, Compose::Talk { .. }) {
             return app
                 .view
                 .as_ref()
@@ -493,7 +477,7 @@ impl RowSend {
         }
         match &input.compose {
             Compose::Status => true,
-            Compose::Talk { .. } | Compose::Reply { .. } => {
+            Compose::Talk { .. } => {
                 unreachable!("member admission handled above")
             }
             Compose::Annotate { .. } => {
@@ -545,7 +529,6 @@ impl Input {
                     format!("→ {to} ({})", self.squad)
                 }
             }
-            Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
             Compose::Annotate { to, row } if to != row => {
                 format!("→ {to} ({}) · note · about {row}", self.squad)
             }
@@ -3217,7 +3200,7 @@ impl App {
         if input.text.as_str().trim().is_empty() {
             return self.say("Nothing sent.");
         }
-        if matches!(input.compose, Compose::Talk { .. } | Compose::Reply { .. })
+        if matches!(input.compose, Compose::Talk { .. })
             && let Some(send) = input.row_send.as_ref()
         {
             let Some(row) = self.target_row(&send.target) else {
@@ -3285,20 +3268,12 @@ impl App {
             let valid = self.view.as_ref().and_then(|view| view.me.as_ref()) == Some(sender)
                 && !self.loading()
                 && self.current.as_deref() == Some(&input.squad)
-                && row.is_some_and(|row| match &input.compose {
+                && row.is_some_and(|_| match &input.compose {
                     Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
                     Compose::Cron | Compose::Workspace | Compose::Status | Compose::Digest(_) => {
                         false
-                    }
-                    Compose::Reply { request, from } => {
-                        from == member
-                            && row["waitingOnYou"].as_array().is_some_and(|items| {
-                                items
-                                    .iter()
-                                    .any(|item| item["requestId"].as_str() == Some(request))
-                            })
                     }
                 });
             if !valid {
@@ -3345,10 +3320,7 @@ impl App {
 
                 inline_quotes: Default::default(),
 
-                compose: match &input.compose {
-                    Compose::Reply { from, .. } => Compose::Talk { to: from.clone() },
-                    compose => compose.clone(),
-                },
+                compose: input.compose.clone(),
                 ..input.clone()
             });
         }
@@ -3382,13 +3354,6 @@ impl App {
                 unreachable!("form steps are submitted before this match")
             }
             Compose::Digest(_) => unreachable!("a digest value is submitted before this match"),
-            Compose::Reply { request, from } => Request::Reply {
-                me,
-                squad,
-                request,
-                from,
-                text,
-            },
         })
     }
 
@@ -5378,10 +5343,6 @@ pub(crate) mod tests {
                     to: "sol".into(),
                     row: "auth-fix".into(),
                 },
-                Compose::Reply {
-                    request: "q1".into(),
-                    from: "auth-fix".into(),
-                },
             ] {
                 app.input = Some(Input {
                     draft_key: None,
@@ -6132,10 +6093,6 @@ mod token_window_tests {
         app.searching = false;
         for compose in [
             Compose::Talk { to: "a".into() },
-            Compose::Reply {
-                request: "q".into(),
-                from: "a".into(),
-            },
             Compose::Annotate {
                 to: "a".into(),
                 row: "a".into(),

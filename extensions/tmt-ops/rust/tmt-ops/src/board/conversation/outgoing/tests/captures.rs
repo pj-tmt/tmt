@@ -164,7 +164,7 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
     app
 }
 
-fn expected(scene: &str) -> &'static str {
+pub(in crate::board) fn expected(scene: &str) -> &'static str {
     match scene {
         "sent-sending" => "sending…",
         "sent-working" => "night-2 is working · 0:42",

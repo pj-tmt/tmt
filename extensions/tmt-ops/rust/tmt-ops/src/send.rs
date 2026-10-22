@@ -1,6 +1,5 @@
-//! Messages from the user to squad members through public core commands:
-//! detached talk, tagged annotations and answers. Nothing here
-//! waits for an answer or acknowledges anything.
+//! User messages and tagged annotations through Core's public ports.
+//! Core owns delivery, question settlement and captured turn output.
 
 use crate::{
     core::{Core, SquadError},
@@ -120,87 +119,6 @@ pub fn talk(
         )
         .map_err(retained)?;
     Accepted::from_document(&sent)
-}
-
-/// The virtual common pool is not a Core room. Its explicit identity recipient
-/// uses the same public talk command and acceptance parser, without --room.
-pub fn talk_direct(
-    core: &Core,
-    sender: &str,
-    recipient: &str,
-    text: &str,
-) -> Result<Accepted, SquadError> {
-    if text.trim().is_empty() {
-        return Err(refused("Nothing to send."));
-    }
-    let sent = core
-        .json_with_operands(
-            &["talk", "--identity", sender, "--detach"],
-            &[recipient, text],
-        )
-        .map_err(retained)?;
-    Accepted::from_document(&sent)
-}
-
-/// Answers one open request from `from` to `me` through `tmt answer`: core
-/// checks that it is addressed to `me` and derives the proof, so no receipt
-/// passes through Squad. The incoming item stays unacknowledged.
-pub fn answer(
-    core: &Core,
-    me: &str,
-    request: &str,
-    from: &str,
-    text: &str,
-) -> Result<(), SquadError> {
-    if text.trim().is_empty() {
-        return Err(refused("Nothing to send."));
-    }
-    core.json_with_operands(
-        &["answer", "--identity", me, "--request", request],
-        &[from, text],
-    )?;
-    Ok(())
-}
-
-/// Preserve the typed result of the operation actually attempted, including a
-/// fallback Talk whose acceptance is uncertain. Its request ID must still clear
-/// only the submitted draft and prevent a duplicate send.
-pub(crate) enum AnswerOrTalk {
-    Answer(Result<(), SquadError>),
-    Talk(Result<Accepted, SquadError>),
-}
-
-/// Answer the currently selected request, or send one new message if Core
-/// definitively reports that the request settled. No transport/unknown result
-/// permits another send, even if it carries no acceptance ID.
-pub(crate) fn answer_or_talk(
-    core: &Core,
-    squad: &str,
-    me: &str,
-    request: &str,
-    from: &str,
-    text: &str,
-) -> AnswerOrTalk {
-    match answer(core, me, request, from, text) {
-        Err(error)
-            if !error.was_cancelled()
-                && matches!(
-                    error.code.as_str(),
-                    "ANSWER_NOT_WAITING"
-                        | "REQUEST_WITHDRAWN"
-                        | "RESPONSE_NOT_REQUIRED"
-                        | "RESPONSE_CONFLICT"
-                        | "RESPONSE_EXPIRED"
-                ) =>
-        {
-            AnswerOrTalk::Talk(if squad.is_empty() {
-                talk_direct(core, me, from, text)
-            } else {
-                talk(core, squad, me, from, text)
-            })
-        }
-        outcome => AnswerOrTalk::Answer(outcome),
-    }
 }
 
 /// New explicit sends retain this UUID through acceptance recovery.

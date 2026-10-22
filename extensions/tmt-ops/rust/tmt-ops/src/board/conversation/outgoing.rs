@@ -131,23 +131,10 @@ impl Completed {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Answered {
-    pub ticket: Ticket,
-    pub outcome: Result<(), SquadError>,
-    pub to: String,
-}
-
-enum Outcome {
-    Send(Result<Accepted, SquadError>),
-    Answer(Result<(), SquadError>),
-}
-
 pub(super) struct Entry {
     ticket: Ticket,
     pub(super) started_ms: u64,
-    outcome: Option<Outcome>,
-    question: Option<String>,
+    outcome: Option<Result<Accepted, SquadError>>,
     /// The agent question that opened this send's group, when it arrived after
     /// earlier sends; the first group's question is `Session::before_send`.
     pub(super) lead_in: Option<Reply>,
@@ -165,9 +152,7 @@ impl Entry {
         self.outcome.is_none()
     }
     pub(super) fn request(&self) -> Option<&str> {
-        let Outcome::Send(outcome) = self.outcome.as_ref()? else {
-            return None;
-        };
+        let outcome = self.outcome.as_ref()?;
         outcome.as_ref().map_or_else(
             |error| error.request.as_deref(),
             |accepted| Some(accepted.request.as_str()),
@@ -212,7 +197,7 @@ impl Entry {
         match &self.outcome {
             None if self.sending_shown_ms.is_some() => "sending…".into(),
             None => String::new(),
-            Some(Outcome::Send(Ok(accepted)))
+            Some(Ok(accepted))
                 if accepted.passthrough
                     && (self.capture.is_some() || accepted.disposition == Disposition::Sent) =>
             {
@@ -224,19 +209,15 @@ impl Entry {
                     _ => "✓ delivered".into(),
                 }
             }
-            Some(Outcome::Send(Ok(accepted))) => match accepted.disposition {
+            Some(Ok(accepted)) => match accepted.disposition {
                 Disposition::Sent => self.feedback.clone(),
                 Disposition::Queued => "◌ queued · inbox".into(),
                 Disposition::Offline => "○ offline · queued".into(),
                 Disposition::Held => "◌ held · digest".into(),
                 Disposition::Uncertain => "? unknown · do not resend".into(),
             },
-            Some(Outcome::Send(Err(error))) if error.request.is_some() => {
-                "? unknown · do not resend".into()
-            }
-            Some(Outcome::Send(Err(_))) => "✗ not delivered – draft kept".into(),
-            Some(Outcome::Answer(Ok(()))) => "✓ replied".into(),
-            Some(Outcome::Answer(Err(_))) => "✗ reply failed – draft kept".into(),
+            Some(Err(error)) if error.request.is_some() => "? unknown · do not resend".into(),
+            Some(Err(_)) => "✗ not delivered – draft kept".into(),
         }
     }
 }
@@ -285,7 +266,7 @@ impl Session {
         let pending = &self.pending_replies;
         for entry in &mut self.outgoing {
             changed |= entry.observe_sending(now_ms);
-            if matches!(&entry.outcome, Some(Outcome::Send(Ok(accepted))) if accepted.passthrough) {
+            if matches!(&entry.outcome, Some(Ok(accepted)) if accepted.passthrough) {
                 entry.feedback_clock = None;
                 continue;
             }
@@ -296,10 +277,10 @@ impl Session {
                 || entry.reply.is_some()
                 || !matches!(
                     &entry.outcome,
-                    Some(Outcome::Send(Ok(Accepted {
+                    Some(Ok(Accepted {
                         disposition: Disposition::Sent,
                         ..
-                    })))
+                    }))
                 )
             {
                 continue;
@@ -568,12 +549,11 @@ impl Session {
                 .sent
                 .iter()
                 .find(|send| Some(send.request.as_str()) == entry.request())
+                && entry.capture != send.capture
             {
-                if entry.capture != send.capture {
-                    entry.capture = send.capture.clone();
-                    entry.feedback_clock = None;
-                    changed = true;
-                }
+                entry.capture = send.capture.clone();
+                entry.feedback_clock = None;
+                changed = true;
             }
         }
         if changed {
@@ -618,7 +598,7 @@ impl Session {
             self.authored_lines.insert(
                 header_line,
                 super::AuthoredLine::Outgoing {
-                    answer: entry.question.is_some(),
+                    answer: false,
                     sequence: entry.ticket.sequence,
                 },
             );
@@ -637,15 +617,15 @@ impl Session {
                 text.push_str("\n\n");
                 push_literal(&mut text, &entry.status());
             }
-            if let Some(capture) = &entry.capture {
-                if !matches!(
+            if let Some(capture) = &entry.capture
+                && !matches!(
                     capture,
                     crate::board::row_detail::Capture::Pending
                         | crate::board::row_detail::Capture::Bound
-                ) {
-                    text.push_str("\n\n");
-                    text.push_str(&capture.markdown());
-                }
+                )
+            {
+                text.push_str("\n\n");
+                text.push_str(&capture.markdown());
             }
             if let Some(reply) = &entry.reply {
                 text.push_str("\n\n");
@@ -751,7 +731,7 @@ impl App {
             .get(&(Some(key.0.clone()), key.1.clone()))?
             .outgoing
             .back()?;
-        let Some(Outcome::Send(Ok(accepted))) = &entry.outcome else {
+        let Some(Ok(accepted)) = &entry.outcome else {
             return None;
         };
         let reason = accepted.fallback.as_ref()?;
@@ -768,7 +748,6 @@ impl App {
             crate::board::app::Compose::Talk { .. }
                 | crate::board::app::Compose::AskLead { .. }
                 | crate::board::app::Compose::Annotate { .. }
-                | crate::board::app::Compose::Reply { .. }
         ) {
             return;
         }
@@ -782,12 +761,8 @@ impl App {
                 self.target_row(target).and_then(|row| row["id"].as_str()) == Some(key.1.as_str())
             })
             .and_then(|target| {
-                if let crate::board::app::Compose::Reply { request, .. } = &input.compose {
-                    self.pending_question(target, Some(request))
-                } else {
-                    self.detail(&Target::Row(target.clone()))
-                        .and_then(|detail| detail.reply)
-                }
+                self.detail(&Target::Row(target.clone()))
+                    .and_then(|detail| detail.reply)
             });
         let mut state = self.conversation.borrow_mut();
         state.sequence = state
@@ -813,10 +788,6 @@ impl App {
             ticket: ticket.clone(),
             started_ms: crate::status::now_ms(),
             outcome: None,
-            question: match &input.compose {
-                crate::board::app::Compose::Reply { request, .. } => Some(request.clone()),
-                _ => None,
-            },
             lead_in,
             reply: None,
             capture: None,
@@ -833,15 +804,9 @@ impl App {
     }
 
     pub(in crate::board) fn outgoing_ticket(&mut self, request: &Request) -> Option<Ticket> {
-        let question = if let Request::Reply { request, .. } = request {
-            Some(request.as_str())
-        } else {
-            None
-        };
         let text = match request {
             Request::Talk { text, .. }
             | Request::Chat { text, .. }
-            | Request::Reply { text, .. }
             | Request::Annotate { text, .. } => text.clone(),
             _ => return None,
         };
@@ -852,9 +817,7 @@ impl App {
                     .sessions
                     .get(&(Some(ticket.key.0.clone()), ticket.key.1.clone()))
                     .is_some_and(|session| {
-                        session.outgoing.iter().any(|entry| {
-                            entry.ticket == *ticket && entry.question.as_deref() == question
-                        })
+                        session.outgoing.iter().any(|entry| entry.ticket == *ticket)
                     })
         }) {
             state.pending_send.take()
@@ -863,45 +826,6 @@ impl App {
         }
     }
 
-    pub(in crate::board) fn finished_answer(&mut self, completed: Answered) {
-        let ticket = &completed.ticket;
-        let identity = (Some(ticket.key.0.clone()), ticket.key.1.clone());
-        let current = self
-            .conversation
-            .borrow()
-            .sessions
-            .get(&identity)
-            .is_some_and(|session| {
-                session.outgoing.iter().any(|entry| {
-                    entry.ticket == *ticket && entry.question.is_some() && entry.outcome.is_none()
-                })
-            });
-        if !current {
-            return;
-        }
-        self.finish_draft(completed.outcome.is_ok());
-        self.notice = Some(completed.outcome.as_ref().map_or_else(
-            |error| error.message.clone(),
-            |()| {
-                format!(
-                    "Replied to {}",
-                    crate::board::notes::sanitize(&completed.to)
-                )
-            },
-        ));
-        let mut state = self.conversation.borrow_mut();
-        let session = state
-            .sessions
-            .get_mut(&identity)
-            .expect("verified answer session");
-        let entry = session
-            .outgoing
-            .iter_mut()
-            .find(|entry| entry.ticket == *ticket)
-            .expect("verified answer ticket");
-        entry.outcome = Some(Outcome::Answer(completed.outcome));
-        session.refresh_outgoing();
-    }
     pub(in crate::board) fn finished_send(&mut self, completed: Completed) {
         let Some(ticket) = completed.ticket.as_ref() else {
             self.set_notice(Some(completed.notice()), false);
@@ -937,7 +861,7 @@ impl App {
             return;
         };
         entry.feedback = progress::Progress::Sent.text(&completed.to, crate::status::now_ms(), "⠹");
-        entry.outcome = Some(Outcome::Send(completed.outcome));
+        entry.outcome = Some(completed.outcome);
         session.observe_captures();
         session.refresh_outgoing();
     }

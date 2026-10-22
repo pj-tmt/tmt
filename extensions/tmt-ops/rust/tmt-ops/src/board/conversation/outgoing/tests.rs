@@ -78,47 +78,6 @@ fn begin(app: &mut App, text: &str) -> (Ticket, crate::board::app::Request) {
     assert!(app.reload_blocked());
     (ticket, request)
 }
-/// Exercise the retained explicit-answer worker independently of plain chat,
-/// whose UI intentionally no longer chooses a question for the user.
-fn explicit_answer(app: &mut App, request_id: &str) -> (Ticket, Request) {
-    let mut input = app.input.as_ref().unwrap().clone();
-    let from = match &input.compose {
-        Compose::Talk { to } => to.clone(),
-        _ => panic!("member composer"),
-    };
-    let row = app
-        .target_row(&input.row_send.as_ref().unwrap().target)
-        .unwrap();
-    assert!(
-        row["waitingOnYou"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["requestId"] == request_id)
-    );
-    input.compose = Compose::Reply {
-        request: request_id.into(),
-        from: from.clone(),
-    };
-    let text = crate::requests::message::inline_body(
-        Some((&input.squad, &from)),
-        &input.quoted_message(),
-        false,
-    );
-    app.begin_outgoing(&input, &text);
-    app.sending_draft(&input);
-    app.input.as_mut().unwrap().text.clear();
-    let request = Request::Reply {
-        me: app.view.as_ref().unwrap().me.clone().unwrap(),
-        squad: input.squad,
-        request: request_id.into(),
-        from,
-        text,
-    };
-    let ticket = app.outgoing_ticket(&request).unwrap();
-    (ticket, request)
-}
-
 fn ordinary_request(app: &App, request: Request) -> Request {
     match request {
         Request::Chat { name, text, .. } => Request::Talk {
@@ -902,10 +861,10 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
             assert!(
                 matches!(
                     &session.outgoing.front().unwrap().outcome,
-                    Some(Outcome::Send(Ok(Accepted {
+                    Some(Ok(Accepted {
                         disposition: Disposition::Sent,
                         ..
-                    })))
+                    }))
                 ),
                 "{source}: delivery stays the typed acceptance fact"
             );
@@ -1008,97 +967,6 @@ fn outgoing_preserves_exact_effect_bytes_without_painting_terminal_controls() {
 }
 
 #[test]
-fn answers_use_the_existing_worker_once_and_keep_the_question_and_reply_in_one_group() {
-    use crate::board::{
-        app::workspace::tests::{board, observe_waiting_member},
-        shell::OpsTab,
-    };
-    for failure in [false, true] {
-        let mut app = board();
-        observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Agents;
-        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        let target = app.workspace.selected.clone().unwrap();
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .rows
-            .get_mut(&target)
-            .unwrap()["waitingOnYou"] = json!([{"requestId":"req_99999999-9999-4999-8999-999999999999","preview":"Question retained","preparedAtMs":crate::status::now_ms()-1_000}]);
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(matches!(
-            app.input.as_ref().unwrap().compose,
-            Compose::Talk { .. }
-        ));
-        app.paste("Exact answer");
-        let expected = "req_99999999-9999-4999-8999-999999999999".to_owned();
-        let (ticket, request) = explicit_answer(&mut app, &expected);
-        let fake = Fake::new(
-            if failure {
-                json!({"error":{"code":"REFUSED","message":"Not submitted."}})
-            } else {
-                json!({"status":"submitted","requestId":expected})
-            },
-            failure,
-        );
-        let BoardEvent::Acted {
-            outcome: Ok(ActionOutcome::Answer(completed)),
-            sends: true,
-            ..
-        } = lane::run(
-            &fake.core,
-            None,
-            lane::Job::Send {
-                request: ordinary_request(&app, request),
-                ticket,
-            },
-        )
-        else {
-            panic!("typed answer completion");
-        };
-        assert_eq!(completed.outcome.is_err(), failure);
-        let frozen = completed.ticket.clone();
-        app.finished_answer(*completed);
-        assert_eq!(
-            fake.arguments(),
-            [
-                "answer",
-                "--identity",
-                "Owner",
-                "--request",
-                &expected,
-                "--json",
-                "--",
-                "worker",
-                "[product · worker] Exact answer"
-            ]
-        );
-        let state = app.conversation.borrow();
-        let session = &state.sessions[&(Some(frozen.key.0), frozen.key.1)];
-        assert!(
-            session.text.contains("Question retained") && session.text.contains("Exact answer")
-        );
-        assert!(session.text.contains(if failure {
-            "reply failed"
-        } else {
-            "✓ replied"
-        }));
-        drop(state);
-        assert_eq!(app.composer.has_drafts(), failure);
-        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert_eq!(
-            app.reload_blocked(),
-            failure,
-            "only the retained failed draft blocks reload after leaving the editor"
-        );
-    }
-}
-
-#[test]
 fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
     let mut app = fixture();
     app.perform(&crate::action::Action::parse("talk").unwrap());
@@ -1194,101 +1062,6 @@ fn header_shows_core_activity_and_feedback_never_infers_it_from_task_state() {
             !screen.contains("✗ worker") && !screen.contains("worker is working"),
             "the task never picks the feedback glyph or phase: {screen}"
         );
-    }
-}
-
-#[test]
-fn a_settled_answer_falls_back_once_and_keeps_the_actual_talk_acceptance() {
-    use crate::board::app::workspace::tests::board;
-    for uncertain in [false, true] {
-        let mut app = board();
-        let target = app.workspace.selected.clone().unwrap();
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .rows
-            .get_mut(&target)
-            .unwrap()["waitingOnYou"] = json!([
-            {"requestId":"settled-request", "preparedAtMs":20}
-        ]);
-        app.focus_composer();
-        let text = "Keep the exact first line.\nAnd the second.";
-        app.paste(text);
-        let (ticket, request) = explicit_answer(&mut app, "settled-request");
-        let expected = ticket.text.clone();
-        let fake = Fake::new(json!({}), false);
-        let document = if uncertain {
-            json!({"requestId":"accepted-fallback", "error":{"code":"TALK_DELIVERY_FAILED", "message":"Delivery unknown."}})
-        } else {
-            json!({"requestId":"accepted-fallback", "status":"queued"})
-        };
-        let document = document.to_string().replace('\'', "'\"'\"'");
-        let script = format!(
-            r#"#!/bin/sh
-printf '%s\0' "$@" >> '{calls}'
-if [ "$1" = answer ]; then
-  printf '%s\n' '{{"error":{{"code":"RESPONSE_CONFLICT","message":"Settled meanwhile."}}}}'
-  exit 1
-fi
-printf '%s\n' '{document}'
-exit {status}
-"#,
-            calls = fake.calls.display(),
-            status = usize::from(uncertain)
-        );
-        crate::test_support::write_ready_executable(&fake.root.join("tmt"), &script);
-        let BoardEvent::Acted {
-            outcome: Ok(ActionOutcome::Send(completed)),
-            sends: true,
-            ..
-        } = lane::run(
-            &fake.core,
-            None,
-            lane::Job::Send {
-                request: ordinary_request(&app, request),
-                ticket,
-            },
-        )
-        else {
-            panic!("the fallback must retain Talk completion, not answer completion");
-        };
-        assert!(
-            completed.accepted(),
-            "retained acceptance must not offer a resend"
-        );
-        if uncertain {
-            assert_eq!(
-                completed.outcome.as_ref().unwrap_err().request.as_deref(),
-                Some("accepted-fallback")
-            );
-        } else {
-            assert_eq!(
-                completed.outcome.as_ref().unwrap().request,
-                "accepted-fallback"
-            );
-        }
-        app.finished_send(*completed);
-        assert!(app.input.as_ref().unwrap().text.is_empty());
-        let args = fake.arguments();
-        assert_eq!(
-            args.iter().filter(|arg| arg.as_str() == "answer").count(),
-            1
-        );
-        assert_eq!(args.iter().filter(|arg| arg.as_str() == "talk").count(), 1);
-        assert_eq!(
-            args.iter().filter(|arg| *arg == &expected).count(),
-            2,
-            "both operations receive the identical multiline body"
-        );
-        assert!(app.notice.as_deref().unwrap().contains(if uncertain {
-            "do not resend"
-        } else {
-            "Queued"
-        }));
     }
 }
 
@@ -1759,7 +1532,6 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
             },
             started_ms: sequence,
             outcome: None,
-            question: None,
             lead_in: None,
             reply: None,
             capture: None,

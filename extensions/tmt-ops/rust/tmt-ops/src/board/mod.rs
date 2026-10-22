@@ -290,7 +290,6 @@ pub(super) enum ActionOutcome {
     },
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     Send(Box<conversation::outgoing::Completed>),
-    Answer(Box<conversation::outgoing::Answered>),
     Status(Box<crate::membership::status_update::Outcome>),
     /// Core agreed that the person at the board may change a member's digest.
     Digest(Box<digest::Granted>),
@@ -459,27 +458,6 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             ))));
         }
         Request::Cron(request) => cronboard::act(core, request),
-        Request::Reply {
-            me,
-            squad,
-            request,
-            from,
-            text,
-        } => match send::answer_or_talk(core, &squad, &me, &request, &from, &text) {
-            send::AnswerOrTalk::Answer(outcome) => outcome
-                .map(|()| format!("Replied to {from}."))
-                .map_err(|error| error.message),
-            send::AnswerOrTalk::Talk(outcome) => {
-                return Ok(ActionOutcome::Send(Box::new(
-                    conversation::outgoing::Completed {
-                        ticket: None,
-                        outcome,
-                        what: "Message".into(),
-                        to: from,
-                    },
-                )));
-            }
-        },
     };
     outcome.map(ActionOutcome::Message)
 }
@@ -960,12 +938,7 @@ fn session(
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
                 let jumped = jump && outcome.is_ok();
-                if sends
-                    && !matches!(
-                        &outcome,
-                        Ok(ActionOutcome::Send(_) | ActionOutcome::Answer(_))
-                    )
-                {
+                if sends && !matches!(&outcome, Ok(ActionOutcome::Send(_))) {
                     app.finish_draft(outcome.is_ok());
                 }
                 match outcome {
@@ -988,7 +961,6 @@ fn session(
                         app.finished_workspace_preferences(preferences, message);
                     }
                     Ok(ActionOutcome::Send(completed)) => app.finished_send(*completed),
-                    Ok(ActionOutcome::Answer(completed)) => app.finished_answer(*completed),
                     Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                     Err(error) => app.finished(Err(error)),
                 }
@@ -2380,54 +2352,6 @@ print(json.dumps(out))
 
     /// A stand-in core that logs each call: `answer` succeeds, anything else
     /// fails, so the test proves the board needs no other core command.
-    fn logging_core(name: &str) -> (Core, std::path::PathBuf, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("squad-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let log = dir.join("calls");
-        let fake = dir.join("tmt");
-        crate::test_support::write_ready_executable(
-            &fake,
-            &format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n\
-                 case \"$1\" in\n\
-                 answer) echo '{{\"status\":\"submitted\",\"requestId\":\"q1\"}}' ;;\n\
-                 *) echo '{{\"error\":{{\"code\":\"X_NOT_FOUND\",\"message\":\"Exchange was not found.\"}}}}'; exit 3 ;;\n\
-                 esac\n",
-                log.display()
-            ),
-        );
-        (Core::at(fake), log, dir)
-    }
-
-    /// The board's `r` is one `tmt answer` call: core selects and proves the
-    /// request, so no receipt passes through Squad (#512).
-    #[test]
-    fn the_board_answers_through_tmt_answer_without_a_receipt() {
-        let (core, log, dir) = logging_core("answer");
-        let reply = |text: &str| {
-            execute(
-                &core,
-                Request::Reply {
-                    me: "ben".into(),
-                    squad: "product".into(),
-                    request: "q1".into(),
-                    from: "alice".into(),
-                    text: text.into(),
-                },
-            )
-        };
-        assert_eq!(reply("-use postgres"), Ok("Replied to alice.".into()));
-        assert_eq!(
-            std::fs::read_to_string(&log).unwrap(),
-            "answer --identity ben --request q1 --json -- alice -use postgres\n",
-            "one call, no x show and no receipt"
-        );
-        assert_eq!(reply("  "), Err("Nothing to send.".into()));
-        assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1);
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
     fn snapshot_event(snapshot: Snapshot) -> BoardEvent {
         BoardEvent::Snapshot {
             cancellation: crate::runner::Cancellation::default(),

@@ -95,38 +95,6 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         Job::Recovery(task) => BoardEvent::Recovery(super::recovery::load::complete(core, task)),
         Job::Discovery(task) => BoardEvent::Discovery(super::discovery::load::complete(core, task)),
         Job::Send { request, ticket } => {
-            if let Request::Reply {
-                me,
-                squad,
-                request,
-                from,
-                text,
-            } = request
-            {
-                let outcome =
-                    match crate::send::answer_or_talk(core, &squad, &me, &request, &from, &text) {
-                        crate::send::AnswerOrTalk::Talk(outcome) => super::ActionOutcome::Send(
-                            Box::new(super::conversation::outgoing::Completed {
-                                ticket: Some(ticket),
-                                outcome,
-                                what: "Message".into(),
-                                to: from,
-                            }),
-                        ),
-                        crate::send::AnswerOrTalk::Answer(outcome) => super::ActionOutcome::Answer(
-                            Box::new(super::conversation::outgoing::Answered {
-                                ticket,
-                                outcome,
-                                to: from,
-                            }),
-                        ),
-                    };
-                return BoardEvent::Acted {
-                    jump: false,
-                    sends: true,
-                    outcome: Ok(outcome),
-                };
-            }
             let mut outcome = execute(core, request);
             if let Ok(super::ActionOutcome::Send(completed)) = &mut outcome {
                 completed.ticket = Some(ticket);
