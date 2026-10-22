@@ -88,7 +88,9 @@ impl super::app::App {
                     .key
                     .as_ref()
                     .is_some_and(|key| key.same_source(&quote.key))
-                && reply.body.get(quote.range.clone()) == Some(quote.text.as_str())
+                && reply.body.get(quote.range.clone()).is_some_and(|source| {
+                    source == quote.text || super::composer::normalized_quote(source) == quote.text
+                })
         })
     }
 
@@ -154,7 +156,7 @@ impl super::app::App {
         {
             return Attachment::Opened {
                 effect,
-                reason: "Quote could not be added; not attached.",
+                reason: "Quote exceeds the 1 MiB attachment limit; not attached.",
             };
         }
         self.remember_draft();

@@ -25,7 +25,7 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
             "exact **raw** 漢字 e\u{301}\n\x1b[31m"
         };
         let mut app = source_reader(source);
-        let expected = app
+        let mut expected = app
             .row_details
             .reader
             .as_ref()
@@ -37,6 +37,9 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
             .unwrap();
         assert_eq!(expected.text, source);
         assert_eq!(expected.range, 0..source.len());
+        if case == "boundary" {
+            expected.text = "exact source ending in CR".into();
+        }
         if case == "changed" {
             app.view.as_mut().unwrap().replies[0]["requestId"] = json!("r2");
         } else if matches!(case, "limit" | "boundary") {
@@ -69,7 +72,7 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
                     Some("The response source changed; reopen it before annotating.")
                 );
             }
-            "limit" | "boundary" => {
+            "limit" => {
                 assert!(app.row_details.reader.is_none());
                 let input = app.input.as_ref().unwrap();
                 assert!(input.text.folds().is_empty());
@@ -83,7 +86,7 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
                 );
                 assert_eq!(
                     app.notice.as_deref(),
-                    Some("Quote could not be added; not attached.")
+                    Some("Quote exceeds the 1 MiB attachment limit; not attached.")
                 );
             }
             _ => {
@@ -94,8 +97,19 @@ fn reader_attachment_preserves_effect_notice_quote_and_limit_behavior() {
                         .unwrap()
                         .exact_quotes()
                         .collect::<Vec<_>>(),
-                    [expected]
+                    [expected.clone()]
                 );
+                if case == "boundary" {
+                    assert_eq!(
+                        app.input.as_ref().unwrap().quoted_message(),
+                        "kept draft\n> exact source ending in CR\n"
+                    );
+                    let target = app.conversation_target().unwrap();
+                    assert!(app.response_quote_current(
+                        &super::super::row_detail::Target::Row(target),
+                        &expected,
+                    ));
+                }
                 assert_eq!(app.notice.as_deref(), Some("existing notice"));
                 assert_eq!(
                     app.input.as_ref().unwrap().draft_key.as_ref().unwrap().1,
@@ -451,10 +465,19 @@ fn exact_and_literal_quotes_expand_in_place_with_the_existing_formats() {
     app.paste("answer two");
     let input = app.input.as_ref().unwrap();
     assert_eq!(input.text.folds().len(), 2);
-    assert_eq!(input.exact_quotes().next().unwrap().text, raw);
-    assert_eq!(input.literal_quotes()[0].text, literal);
+    let exact = input.exact_quotes().next().unwrap();
+    assert_eq!(exact.text, "exact **raw**\n漢字");
+    assert_eq!(exact.range, 0..raw.len());
+    assert_eq!(
+        input.literal_quotes()[0].text,
+        format!("{}\nsecond line", "語".repeat(250))
+    );
+    assert_eq!(
+        app.view.as_ref().unwrap().replies[0]["response"].as_str(),
+        Some(raw)
+    );
     let expected = format!(
-        "[product · worker]\n> exact **raw**\r\n> 漢字\n>\nanswer one\n> \"{}…\"\nanswer two",
+        "[product · worker]\n> exact **raw**\n> 漢字\nanswer one\n> \"{}…\"\nanswer two",
         "語".repeat(199)
     );
     assert!(

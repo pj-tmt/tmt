@@ -965,18 +965,8 @@ fn preview_footer_omits_one_terminal_break_and_keeps_other_blank_lines() {
                     .join(separator)
                     + &separator.repeat(terminal_breaks);
                 key(&mut app, KeyCode::Enter);
-                let before_admission = app.input.as_ref().unwrap().clone();
                 if quote {
                     app.add_chat_quote("worker".into(), raw.clone());
-                    if separator == "\r" && terminal_breaks > 0 {
-                        // Adding LF after the source CR would join across the
-                        // fold boundary; this source must be refused atomically.
-                        let after = app.input.as_ref().unwrap();
-                        assert!(after.text == before_admission.text);
-                        assert_eq!(after.inline_quotes, before_admission.inline_quotes);
-                        assert!(app.notice.as_deref().unwrap().contains("draft unchanged"));
-                        continue;
-                    }
                 } else {
                     app.paste(&raw);
                 }
@@ -1015,9 +1005,19 @@ fn preview_footer_omits_one_terminal_break_and_keeps_other_blank_lines() {
                     painted.contains(&format!("of {rows} ·")),
                     "separator={separator:?}, terminal breaks={terminal_breaks}, quote={quote}: {painted}"
                 );
+                assert!(painted.contains(&format!("{rows} lines")));
                 let preview = app.current_paste_preview().unwrap();
                 assert_eq!(preview.scroll.borrow().content(), rows);
-                assert_eq!(preview.text.as_str(), raw);
+                let expected = if quote {
+                    (1..=30)
+                        .map(|line| format!("source line {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                        + &"\n".repeat(terminal_breaks.saturating_sub(1))
+                } else {
+                    raw.clone()
+                };
+                assert_eq!(preview.text.as_str(), expected);
                 assert!(app.input.as_ref().unwrap().text == before);
             }
         }
@@ -1037,7 +1037,11 @@ fn quote_preview_retains_full_source_at_narrow_width_without_editing() {
         key(&mut app, KeyCode::Up);
         app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
         assert!(app.paste_preview_shown());
-        assert_eq!(app.current_paste_preview().unwrap().text.as_str(), raw);
+        let expected = (0..30)
+            .map(|n| format!("full question {n} 漢字"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(app.current_paste_preview().unwrap().text.as_str(), expected);
         let before = app.input.as_ref().unwrap().text.clone();
         assert!(!draw(&mut app, width, 36));
         key(&mut app, KeyCode::PageDown);

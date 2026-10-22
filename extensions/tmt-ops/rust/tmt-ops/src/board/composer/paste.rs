@@ -442,15 +442,24 @@ impl App {
             ),
             None => {
                 let text = preview.text.as_str();
-                let (chars, lines) = counts(text);
+                let (chars, lines) = if preview.quote {
+                    // Admission already removed the terminal break. Any final
+                    // empty line here is meaningful quoted content.
+                    (text.chars().count(), text.split('\n').count())
+                } else {
+                    counts(text)
+                };
                 let line_unit = if lines == 1 { "line" } else { "lines" };
                 // A terminal break ends the last content line; further blank
                 // lines remain visible. Retained source and send bytes stay exact.
-                let shown = text
-                    .strip_suffix("\r\n")
-                    .or_else(|| text.strip_suffix('\n'))
-                    .or_else(|| text.strip_suffix('\r'))
-                    .unwrap_or(text);
+                let shown = if preview.quote {
+                    text
+                } else {
+                    text.strip_suffix("\r\n")
+                        .or_else(|| text.strip_suffix('\n'))
+                        .or_else(|| text.strip_suffix('\r'))
+                        .unwrap_or(text)
+                };
                 (
                     shown.into(),
                     format!(

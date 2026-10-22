@@ -1,5 +1,5 @@
 //! Shared row-message framing. Callers own admission,
-//! source identity and byte ranges. Exact row framing preserves every source
+//! source identity and byte ranges. Exact row framing preserves every admitted
 //! byte; compact chat insertion has an explicit character bound and no authority.
 
 /// The retained row-annotation prefix, including its comment separator.

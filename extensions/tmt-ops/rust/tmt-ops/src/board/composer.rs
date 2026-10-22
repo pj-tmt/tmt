@@ -10,7 +10,7 @@ use super::app::{App, Compose, Input, RowTarget};
 mod chat_quotes;
 pub(super) mod files;
 pub(super) mod paste;
-pub(super) use chat_quotes::QuoteSource;
+pub(super) use chat_quotes::{QuoteSource, normalized_quote};
 
 type DraftKey = (String, String);
 static EMPTY_QUOTES: BTreeMap<u64, QuoteSource> = BTreeMap::new();

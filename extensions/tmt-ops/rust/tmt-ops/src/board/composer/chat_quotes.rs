@@ -15,9 +15,21 @@ pub(in crate::board) enum QuoteSource {
     },
 }
 
+fn line_breaks(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+pub(in crate::board) fn normalized_quote(text: &str) -> String {
+    let mut text = line_breaks(text);
+    if text.ends_with('\n') {
+        text.pop();
+    }
+    text
+}
+
 fn excerpt(text: &str) -> String {
     let raw: String = text.chars().take(120).collect();
-    let mut text = super::super::notes::single_line(&raw);
+    let mut text = super::super::notes::single_line(&line_breaks(&raw));
     if text.chars().count() > 60 {
         text = text.chars().take(59).collect::<String>() + "…";
     }
@@ -27,7 +39,8 @@ fn excerpt(text: &str) -> String {
 impl Input {
     /// Insert after the current logical line. A retained fold is one unit even
     /// when its source contains newlines; no insertion can split that source.
-    pub(in crate::board) fn insert_quote(&mut self, text: &str, source: QuoteSource) -> bool {
+    pub(in crate::board) fn insert_quote(&mut self, raw: &str, source: QuoteSource) -> bool {
+        let text = normalized_quote(raw);
         if text.is_empty() {
             return false;
         }
@@ -97,11 +110,11 @@ impl Input {
             }
             QuoteSource::Exact { .. } => "response".into(),
         };
-        let label = format!("Quote · {author}: {} ×", excerpt(text));
+        let label = format!("Quote · {author}: {} ×", excerpt(raw));
         // Work on a copy so even an unexpected grapheme-boundary refusal is atomic.
         let mut editor = self.text.clone();
         if !editor.replace_range(end..end, prefix, limit)
-            || !editor.insert_folded(text, label, limit)
+            || !editor.insert_folded(&text, label, limit)
         {
             return false;
         }
@@ -113,7 +126,7 @@ impl Input {
         else {
             return false;
         };
-        if !editor.insert("\n", limit) || !editor.folds().iter().any(|fold| fold.id == id) {
+        if !editor.insert("\n", limit) {
             return false;
         }
         self.text = editor;
@@ -192,7 +205,7 @@ impl App {
             return effect;
         };
         if !input.insert_quote(&text, QuoteSource::Literal { author }) {
-            return self.say("Quote could not be added; draft unchanged.");
+            return self.say("Quote exceeds the 1 MiB attachment limit; draft unchanged.");
         }
         self.remember_draft();
         self.workspace_focus_conversation();

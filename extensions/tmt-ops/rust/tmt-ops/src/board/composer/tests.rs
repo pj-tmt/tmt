@@ -1497,7 +1497,7 @@ fn capture_inline_quote_caret_demo() {
 }
 
 #[test]
-fn inline_quotes_keep_unicode_crlf_and_admit_three_answers_in_order() {
+fn inline_quotes_normalize_their_breaks_and_keep_existing_draft_crlf() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = app();
     open(&mut app, "auth-fix");
@@ -1516,7 +1516,7 @@ fn inline_quotes_keep_unicode_crlf_and_admit_three_answers_in_order() {
     app.add_chat_quote("worker".into(), "first\r\nquestion".into());
     assert_eq!(
         app.input.as_ref().unwrap().text.as_str(),
-        "漢字 e\u{301}\nfirst\r\nquestion\n\r\nlater\r\n"
+        "漢字 e\u{301}\nfirst\nquestion\n\r\nlater\r\n"
     );
     app.paste("answer one");
     app.add_chat_quote("worker".into(), "second".into());
@@ -1557,9 +1557,17 @@ fn inline_quote_refusal_retains_exact_source_caret_selection_and_folds() {
 }
 
 #[test]
-fn a_joining_terminal_break_refuses_the_quote_without_losing_the_draft() {
+fn terminal_cr_quotes_normalize_and_keep_the_existing_draft() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    for source in ["joining CR\r", "meaningful blank row\r\r"] {
+    for (source, normalized, excerpt) in [
+        ("joining CR\r", "joining CR", "joining CR"),
+        ("first\r\nsecond\r", "first\nsecond", "first second"),
+        (
+            "meaningful blank row\r\r",
+            "meaningful blank row\n",
+            "meaningful blank row",
+        ),
+    ] {
         let mut app = app();
         open(&mut app, "auth-fix");
         app.add_chat_quote("worker".into(), "held quote".into());
@@ -1572,10 +1580,21 @@ fn a_joining_terminal_break_refuses_the_quote_without_losing_the_draft() {
         let before = app.input.as_ref().unwrap().clone();
         app.add_chat_quote("worker".into(), source.into());
         let after = app.input.as_ref().unwrap();
-        assert!(after.text == before.text);
-        assert_eq!(after.inline_quotes, before.inline_quotes);
+        assert_eq!(
+            after.text.as_str(),
+            format!("{}\n{normalized}\n", before.text.as_str())
+        );
+        assert_eq!(after.text.folds().len(), 2);
+        assert_eq!(after.inline_quotes.len(), 2);
+        assert_eq!(after.text.folds()[0], before.text.folds()[0]);
+        let fold = &after.text.folds()[1];
+        assert_eq!(&after.text.as_str()[fold.source.clone()], normalized);
+        assert_eq!(after.text.cursor(), after.text.as_str().len());
         assert_eq!(after.draft_key, before.draft_key);
-        assert!(app.notice.as_deref().unwrap().contains("draft unchanged"));
+        assert_eq!(
+            after.quoted_message(),
+            format!("> \"held quote\"\nmy text\n> \"{excerpt}\"\n")
+        );
     }
 }
 
@@ -1588,7 +1607,7 @@ fn a_quote_ending_in_a_break_is_still_one_visible_caret_line() {
     app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
     app.add_chat_quote("worker".into(), "second".into());
     let input = app.input.as_ref().unwrap();
-    assert_eq!(input.text.as_str(), "first\r\n\nsecond\n\n");
+    assert_eq!(input.text.as_str(), "first\nsecond\n\n");
     let layout = input.text.layout(100);
     assert_eq!(layout.lines.len(), 4);
     assert!(layout.lines[layout.cursor.0].cells.is_empty());
