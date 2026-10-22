@@ -55,7 +55,7 @@ const port: ManagementPort = {
       // New and replacement links carry the captured role and a one-time secret.
       artifact: link
         ? {
-            linkId: link.linkId,
+            linkId: '22222222-2222-4222-8222-222222222222',
             seed: 'A'.repeat(43),
             space: 'a'.repeat(32),
             root: 'A'.repeat(43),
