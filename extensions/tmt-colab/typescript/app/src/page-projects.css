@@ -70,6 +70,12 @@
     display: none;
   }
 }
+/* Above the picker's hidden anchor, which sits over the first control of the header. */
+.page-header-pin {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+}
 .page-header-projects-status {
   position: absolute;
   inline-size: 1px;

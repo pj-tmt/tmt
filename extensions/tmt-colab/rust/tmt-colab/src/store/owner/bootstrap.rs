@@ -256,6 +256,12 @@ impl OwnerTransaction<'_> {
             .execute("DELETE FROM page_titles WHERE page=?", [page])?;
         Ok(())
     }
+    /// An archive, like a delete, takes the page's pin away; unarchiving does not restore it.
+    pub(crate) fn drop_page_pin(&self, page: &str) -> Result<()> {
+        self.tx
+            .execute("DELETE FROM page_pins WHERE page=?", [page])?;
+        Ok(())
+    }
     /// The title rows still valid for their page: a row whose progress key is no longer the page's
     /// is stale and left out. Holding no row is never an error; the caller shows its own fallback.
     pub fn page_titles(&self) -> Result<std::collections::BTreeMap<String, String>> {
@@ -502,8 +508,22 @@ impl OwnerTransaction<'_> {
             .iter()
             .map(|id| serde_json::json!({"pageId":id,"deleted":!pages.contains_key(id)}))
             .collect();
+        // Pins are display-only too (contract: Pins): `pinned: true` on a pinned page that is not
+        // archived, and those pages lead the list in pin order.
+        let pins: Vec<String> = self
+            .pins()?
+            .into_iter()
+            .filter(|id| pages.get(id).is_some_and(|page| page["archived"] != true))
+            .collect();
+        let mut lead = Vec::with_capacity(pins.len());
+        for id in &pins {
+            if let Some(mut page) = pages.remove(id) {
+                page["pinned"] = serde_json::json!(true);
+                lead.push(page);
+            }
+        }
         Ok(
-            serde_json::json!({"pageIds":page_ids,"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"projects":self.projects()?,"pages":pages.into_values().collect::<Vec<_>>()}),
+            serde_json::json!({"pageIds":page_ids,"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"projects":self.projects()?,"pages":lead.into_iter().chain(pages.into_values()).collect::<Vec<_>>()}),
         )
     }
 }

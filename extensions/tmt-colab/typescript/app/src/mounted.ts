@@ -151,6 +151,10 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       const client = managementClient;
       return managed(client, () => client.manageProject(change));
     },
+    setPinned(pageId, pinned) {
+      const client = managementClient;
+      return managed(client, () => client.setPinned(pageId, pinned));
+    },
   };
   clearRecovery(mount);
   const owner = {
@@ -244,6 +248,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
                     expiresAtMs: policy.expiresAtMs,
                     warnings: policy.warnings,
                     projects: page.projects,
+                    ...(page.pinned ? { pinned: true } : {}),
                     summary: page.summary,
                   };
                 }),

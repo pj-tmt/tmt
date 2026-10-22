@@ -450,6 +450,15 @@ impl Registration {
         self.engine
             .set_projects(&mut self.store, &self.keyring, changes)
     }
+    pub fn set_pinned(
+        &mut self,
+        page: &str,
+        pinned: bool,
+    ) -> std::result::Result<tmt_colab_model::statement::Head, crate::transitions::TransitionError>
+    {
+        self.engine
+            .set_pinned(&mut self.store, &self.keyring, page, pinned)
+    }
     pub fn manage_project(
         &mut self,
         change: &crate::projects::Change,

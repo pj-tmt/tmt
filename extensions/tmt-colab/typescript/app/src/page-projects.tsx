@@ -1,9 +1,10 @@
-import { BrowserMenu } from '@tmt/browser-ui/react';
-import { Tag } from 'lucide-react';
+import { BrowserIconAction, BrowserMenu } from '@tmt/browser-ui/react';
+import { Pin, PinOff, Tag } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { rememberPages, rememberedPages } from './quick-switcher-source.js';
 import { NewProjectDialog, projectFailureText, type ProjectWriting } from './project-dialogs.js';
 import { pageTitle } from './page-index.js';
+import { pinFailureText } from './pins.js';
 import { applyProjectChanges, projectCounts, withProject } from './projects.js';
 import { text } from './strings.js';
 import type { PageSummary, PageTransport, SpaceHome } from './transport.js';
@@ -92,6 +93,7 @@ export function PageProjects({
   const [failure, setFailure] = useState<string>();
   const [saved, setSaved] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [pinning, setPinning] = useState(false);
   // The picker opens once its data is here: this counts those openings, not the requests.
   const [opened, setOpened] = useState(0);
   // A new transport (a refreshed session) is read through, never a reason to read the list again.
@@ -182,6 +184,20 @@ export function PageProjects({
     setFailure(outcome.failure === undefined ? undefined : projectFailureText(outcome.failure));
     setSaved(outcome.failure === undefined);
   }
+  /** Pins the page to the top of Home, or takes the pin away; the owner list is read again after. */
+  async function togglePin() {
+    if (pinning) return;
+    setPinning(true);
+    try {
+      await port!.setPinned(page.id, !page.pinned);
+      setFailure(undefined);
+      setSaved(false);
+      await load();
+    } catch (error) {
+      setFailure(pinFailureText(error));
+    }
+    setPinning(false);
+  }
   return (
     <>
       <span className="page-header-projects">
@@ -219,6 +235,20 @@ export function PageProjects({
             create={() => setCreating(true)}
           />
         </span>
+        {/* A page the owner list does not name, or an archived one, has nothing to pin. */}
+        {known?.some((candidate) => candidate.id === pageId) && !page.archived && (
+          <span className="page-header-pin">
+            <BrowserIconAction
+              type="button"
+              variant="text"
+              label={page.pinned ? t.unpinPage(pageTitle(page)) : t.pinPage(pageTitle(page))}
+              icon={page.pinned ? <PinOff /> : <Pin />}
+              pressed={page.pinned === true}
+              busy={pinning}
+              onActivate={() => void togglePin()}
+            />
+          </span>
+        )}
         {failure !== undefined && (
           <span className="page-attention" data-attention="projects" role="alert">
             <span aria-hidden="true">△</span>

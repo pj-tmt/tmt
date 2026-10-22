@@ -183,3 +183,11 @@
     transparent
   );
 }
+
+/* A pinned row shows it without hover: a small mark before its state word. */
+.page-pinned-mark {
+  display: inline-flex;
+  margin-inline-end: 6px;
+  vertical-align: middle;
+  color: var(--tmt-ui-color-text-muted);
+}

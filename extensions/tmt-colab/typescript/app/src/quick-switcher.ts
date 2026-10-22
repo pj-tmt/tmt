@@ -40,8 +40,8 @@ const recency = (page: PageSummary, opened: ReadonlyMap<string, number>) =>
  * every `labels` name must be carried, any one of `authors` is the creator, and each free-text word
  * must appear in the title, a label or the creator (ignoring case). Archived pages are not offered.
  *
- * Without free text, pages with a proposal awaiting you (`summary.waiting`) come first, then the
- * most recently opened or updated. With free text, match strength comes first (its weakest word),
+ * Without free text, pinned pages come first (in the order given), then pages with a proposal awaiting
+ * you (`summary.waiting`), then the most recently opened or updated. With free text, match strength comes first (its weakest word),
  * then waiting, then recency. Ties break by title, then ID.
  */
 export function rankPages(
@@ -51,8 +51,14 @@ export function rankPages(
   { exclude, limit = SWITCHER_RESULTS }: RankOptions = {},
 ): SwitcherResult[] {
   const words = fold(query.text).split(/\s+/).filter(Boolean);
-  const ranked: { result: SwitcherResult; strength: number; waiting: boolean; at: number }[] = [];
-  for (const page of pages) {
+  const ranked: {
+    result: SwitcherResult;
+    strength: number;
+    pin: number;
+    waiting: boolean;
+    at: number;
+  }[] = [];
+  for (const [index, page] of pages.entries()) {
     if (page.archived || page.id === exclude) continue;
     const labels = page.projects ?? [];
     const author = page.summary?.author;
@@ -72,6 +78,8 @@ export function rankPages(
     ranked.push({
       result: { page, ...(words.length ? { matched: STRENGTHS[strength] } : {}) },
       strength,
+      // Pinned pages lead only when nothing was typed: a pin never hides a better match.
+      pin: !words.length && page.pinned ? index : Infinity,
       waiting: page.summary?.waiting === true,
       at: recency(page, opened),
     });
@@ -79,6 +87,7 @@ export function rankPages(
   ranked.sort(
     (a, b) =>
       a.strength - b.strength ||
+      (a.pin === b.pin ? 0 : a.pin - b.pin) ||
       Number(b.waiting) - Number(a.waiting) ||
       (a.at === b.at ? 0 : a.at === -Infinity ? 1 : b.at === -Infinity ? -1 : b.at - a.at) ||
       pageTitle(a.result.page).localeCompare(pageTitle(b.result.page), 'en') ||

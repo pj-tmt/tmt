@@ -838,6 +838,21 @@ export const text = {
         count === 1 ? 'was' : 'were'
       } skipped.`,
     nothingToChange: 'Nothing to change.',
+    pinPage: (title: string) => `Pin ${title} to the top`,
+    unpinPage: (title: string) => `Unpin ${title}`,
+    pinned: (title: string) => `Pinned “${title}”.`,
+    unpinned: (title: string) => `Unpinned “${title}”.`,
+    pinItem: 'Pin to top',
+    unpinItem: 'Unpin',
+    /** Told under the control that was refused. */
+    pinFull: 'At most 20 pages can be pinned. Unpin one first.',
+    pinFailures: {
+      DENIED: 'This device is not allowed to pin pages. Reopen your paired session.',
+      EXPIRED: 'The request expired. Try again.',
+      INVALID: 'The owner refused this pin. An archived page cannot be pinned.',
+      UNAVAILABLE: 'The owner cannot do this now. Nothing was changed.',
+      UNKNOWN: 'The result is unknown: the pin may have changed. Reload the list to see.',
+    },
     archiveItem: 'Archive…',
     restoreItem: 'Restore…',
     deleteItem: 'Delete…',

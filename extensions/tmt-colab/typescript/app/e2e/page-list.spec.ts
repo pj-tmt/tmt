@@ -148,6 +148,69 @@ test('typing project: suggests names, Enter takes one, Enter again applies free 
   expect(new URL(page.url()).hash).not.toContain('project');
 });
 
+test('a pin leads the list in pin order, an unpin puts the page back, and a refusal is told', async ({
+  page,
+}) => {
+  await mount(page);
+  const order = async () => (await titles(page).allTextContents()).map((title) => title.trim());
+  const before = await order();
+  const [first, second] = [before[2], before[1]];
+  const pin = (title: string, name: 'Pin' | 'Unpin') =>
+    rows(page)
+      .filter({ hasText: title })
+      .getByRole('button', { name: new RegExp(`^${name} `) });
+  await pin(first, 'Pin').click();
+  await expect(pin(first, 'Unpin')).toHaveAttribute('aria-pressed', 'true');
+  await pin(second, 'Pin').click();
+  await expect(pin(second, 'Unpin')).toBeVisible();
+  expect((await order()).slice(0, 2)).toEqual([first, second]);
+  expect(await page.evaluate(() => window.__pinRequests)).toEqual([
+    { pageId: expect.any(String), pinned: true },
+    { pageId: expect.any(String), pinned: true },
+  ]);
+  await pin(first, 'Unpin').click();
+  await expect(pin(first, 'Pin')).toHaveAttribute('aria-pressed', 'false');
+  expect((await order())[0]).toBe(second);
+  // The owner refuses a pin over its limit: the list is unchanged and the words say what to do.
+  await page.evaluate(() => (window.__pinRefusal = 'CAPACITY'));
+  await pin(first, 'Pin').click();
+  await expect(app(page).getByRole('alert')).toContainText('At most 20 pages can be pinned');
+  await expect(pin(first, 'Pin')).toHaveAttribute('aria-pressed', 'false');
+});
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`pinned rows lead the list and stay in one scroll axis at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      for (const title of ['Gamma notes', 'Beta review'])
+        await rows(page)
+          .filter({ hasText: title })
+          .getByRole('button', { name: new RegExp(`^Pin ${title}`) })
+          .click();
+      await expect(titles(page).first()).toHaveText('Gamma notes');
+      await expect(rows(page).nth(1)).toContainText('Beta review');
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({ path: await capturePath(`4356-pinned-list-${width}-${theme}.png`) });
+      await page.evaluate(() => (window.__pinRefusal = 'CAPACITY'));
+      await rows(page)
+        .filter({ hasText: 'Alpha plan' })
+        .getByRole('button', { name: /^Pin Alpha plan/ })
+        .click();
+      await expect(app(page).getByRole('alert')).toContainText('Unpin one first');
+      await page.screenshot({ path: await capturePath(`4356-pin-refused-${width}-${theme}.png`) });
+    });
+
 test('a row shows the creator, the comment count and a proposal waiting for you', async ({
   page,
 }) => {

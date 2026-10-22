@@ -129,9 +129,15 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
         auth::management_input(&request).is_err(),
         "a page request names a page"
     );
+    // A pin is display-only and names its own page, like page.projects.
+    request.operation = "page.pin";
+    assert!(
+        auth::management_input(&request).is_err(),
+        "a space-scope page names no page to pin"
+    );
     request.page = page;
     request.expected_revision = "1";
-    for display_only in ["page.projects", "project.manage"] {
+    for display_only in ["page.projects", "project.manage", "page.pin"] {
         assert!(auth::operation(display_only).is_err());
         assert!(auth::management_operation(display_only).is_ok());
         assert!(tmt_colab_model::payload::decode(display_only, b"{}").is_err());
