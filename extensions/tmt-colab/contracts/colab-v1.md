@@ -5031,7 +5031,7 @@ their codes. An older schema with a
 known migration path returns `COLAB_STORE_OUTDATED`: "The running Colab service is
 older than this CLI." Its next action is "Run tmt colab stop, then tmt colab serve --background."
 A schema newer than this binary returns `COLAB_STORE_NEWER`: "This space was
-saved by a newer Colab." Its next action is "Run tmt upgrade, then try again."
+saved by a newer Colab." (with a copy to go back to, see Copy before a migration) Its next action is "Run tmt upgrade, then try again."
 Human output uses a separate styled `hint:` line for those sentences. JSON uses
 ordered runnable commands in its top-level `next` array:
 `["tmt colab stop", "tmt colab serve --background"]` for an
@@ -5045,6 +5045,21 @@ The reserved management socket's unsuccessful response body is the exact textual
 management code with its corresponding HTTP status. The CLI maps that existing
 wire directly; malformed, mismatched or interrupted replies are unknown outcomes,
 with captured correlation and no offline fallback.
+
+**Copy before a migration (#4280).** `Store::open` copies an existing store before the first step of
+a migration that will run, once, while it holds the writer lock: `space.db.pre-v<N>.bak` beside the
+store, N the schema it is leaving, owner-only (0600), written as a `.partial` file that is synced and
+renamed, then the directory is synced. A second upgrade from the same schema replaces that copy; after a
+committed migration only the two copies at the newest schemas stay. A store with no schema yet and one
+already current make none, and `Store::read` and `Store::write_existing` never migrate, so never copy.
+If the copy cannot be written the migration does not run and the store is untouched:
+`COLAB_STORE_BACKUP_FAILED`, "Colab could not save a backup of this space before updating it.
+Nothing was changed.", with the hint "Free disk space or fix the permissions of the Colab data folder, then try again."
+A copy is store data (it holds epoch secrets) and stays in the private data root. Recovery is manual:
+when a store is newer than this build, the `COLAB_STORE_NEWER` refusal names the newest copy at a schema
+this build supports, "This space was saved by a newer Colab. Run tmt upgrade to open it. To stay on
+this version instead, stop Colab and replace space.db with the backup from before that update
+(<path>); changes made since then are lost.", and is unchanged when there is none. No command restores a copy.
 
 ### Projects (#3747)
 

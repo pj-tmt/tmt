@@ -718,19 +718,31 @@ fn confirm_cloud_copy(pilot: &Pilot, page: &str, after_ms: u64) -> u64 {
         .unwrap();
     now + after_ms
 }
-/// Waits, bounded, until the store holds `count` page-title rows: the serve folds every page once at
-/// start and records its title, so a test that compares the store's bytes waits for that first.
+/// Waits, bounded, until `count` page-title rows are current for their page: the serve folds every
+/// page without a fresh title once at start and records it, so a test that compares the store's
+/// bytes waits for that first. A row left by an earlier serve counts only while the page has not
+/// moved since (the key mirrors the store's head-less page progress: epoch, receipts, checkpoints).
 fn wait_for_title_rows(database: &std::path::Path, count: i64) {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let rows: i64 = rusqlite::Connection::open(database)
             .unwrap()
-            .query_row("SELECT count(*) FROM page_titles", [], |row| row.get(0))
+            .query_row(
+                "SELECT count(*) FROM page_titles t JOIN pages p ON p.page=t.page
+                 WHERE t.progress = p.epoch || ':0:'
+                     || (SELECT count(*) FROM receipts r WHERE r.page=p.page AND r.epoch=p.epoch) || ':'
+                     || (SELECT count(*) FROM checkpoints c WHERE c.page=p.page AND c.epoch=p.epoch)",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         if rows >= count {
             return;
         }
-        assert!(Instant::now() < deadline, "{rows} title rows of {count}");
+        assert!(
+            Instant::now() < deadline,
+            "{rows} current title rows of {count}"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -1409,6 +1421,13 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
     assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
     assert_eq!(pilot.call(&["ls", "--json"])["pages"][0]["pageId"], PAGE);
     pilot.stop();
+    // The serve copied the older store, byte for byte and owner-only, before it migrated it.
+    let copy = tmt_colab::store::backup_path(&db, 4);
+    assert_eq!(fs::read(&copy).unwrap(), before);
+    assert_eq!(
+        fs::metadata(&copy).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     let conn = rusqlite::Connection::open(&db).unwrap();
     assert_eq!(
         conn.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))

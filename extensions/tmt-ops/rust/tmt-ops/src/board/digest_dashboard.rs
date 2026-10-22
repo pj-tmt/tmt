@@ -1,5 +1,6 @@
 //! Existing-data Digest view. Acquisition, effects, scrolls and terminal diffing
 //! remain with their existing owners; this module projects already-held values.
+mod allowance;
 mod metrics;
 mod model;
 mod render;
@@ -88,9 +89,6 @@ pub(super) fn summary(app: &crate::board::app::App) -> String {
         .collect();
     model::summary(&app.labels, Some(&identities))
 }
-pub(super) use model::{
-    compact_savings_caption, percent_text, savings_caption, savings_start, savings_value, usd_text,
-};
 pub(super) use render::{details_clock_mark, render};
 
 #[cfg(test)]

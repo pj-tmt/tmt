@@ -657,7 +657,7 @@ fn too_new_schema_has_a_typed_fault_and_preserves_the_database() {
     let before = fs::read(&path).unwrap();
     assert!(matches!(
         Store::open(&layout).err().unwrap().downcast_ref::<Fault>(),
-        Some(Fault::UnsupportedSchema(99))
+        Some(Fault::UnsupportedSchema(99, _))
     ));
     assert_eq!(fs::read(path).unwrap(), before);
 }

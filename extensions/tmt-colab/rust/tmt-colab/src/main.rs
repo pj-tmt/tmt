@@ -1354,11 +1354,11 @@ mod tests {
         }
         // Upgrade is a core-owned command, covered by its existing printed-command guard.
         assert_eq!(
-            tmt_colab::store::Fault::UnsupportedSchema(99).hint(),
+            tmt_colab::store::Fault::UnsupportedSchema(99, None).hint(),
             Some("Run tmt upgrade, then try again.")
         );
         assert_eq!(
-            tmt_colab::store::Fault::UnsupportedSchema(99).next(),
+            tmt_colab::store::Fault::UnsupportedSchema(99, None).next(),
             Some(&["tmt upgrade"][..])
         );
     }

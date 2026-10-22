@@ -282,6 +282,7 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
     app.apply(snapshot);
     app.set_limits(vec![
         Standing {
+            rates: Default::default(),
             provider: Provider::named("claude"),
             latest: Some(Reading {
                 observed_at_ms: NOW - 60_000,
@@ -298,6 +299,7 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
             trend: Some(Trend::Up),
         },
         Standing {
+            rates: Default::default(),
             provider: Provider::named("codex"),
             latest: Some(Reading {
                 observed_at_ms: NOW - 60_000,
@@ -357,6 +359,7 @@ fn captures() -> Value {
                 "agents-state-sorted",
                 "agents-header-hover",
                 "digest",
+                "digest-allowance",
                 "empty",
                 "pool",
                 "dense",

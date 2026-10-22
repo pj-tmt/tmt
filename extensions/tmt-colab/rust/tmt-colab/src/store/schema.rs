@@ -1,6 +1,7 @@
 //! Append-only schema history. Never edit a migration after it ships.
 use super::{Fault, StoreResult};
 use rusqlite::{Connection, TransactionBehavior};
+use std::path::{Path, PathBuf};
 
 const MIGRATIONS: &[&str] = &[
     // Schema 1: original opaque ciphertext store.
@@ -142,13 +143,31 @@ const MIGRATIONS: &[&str] = &[
     "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
+/// How many pre-update copies stay: the newest by the schema they were taken at, so two upgrades in
+/// a row still leave a way back past the first.
+const COPIES_KEPT: usize = 2;
 
 pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {
     let version: u32 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
     if version > CURRENT_VERSION {
-        return Err(Fault::UnsupportedSchema(version));
+        // The newest copy at a schema this build can open is the way back to it.
+        let copy = store_path(connection).and_then(|store| {
+            copies(&store)
+                .into_iter()
+                .find(|(schema, _)| *schema <= CURRENT_VERSION)
+                .map(|(_, copy)| copy)
+        });
+        return Err(Fault::UnsupportedSchema(version, copy));
     }
     Ok(version)
+}
+
+/// The store file behind `connection`; none for an in-memory database.
+fn store_path(connection: &Connection) -> Option<PathBuf> {
+    connection
+        .path()
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
 }
 
 pub(super) fn check_read_version(connection: &Connection) -> StoreResult<()> {
@@ -161,13 +180,92 @@ pub(super) fn check_read_version(connection: &Connection) -> StoreResult<()> {
 
 pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
+    let path = store_path(connection);
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     // Recheck after acquiring the writer lock: another opener may have migrated.
     let version = check_version(&tx)?;
+    // An existing store is copied once before the first step. The writer lock is held and the
+    // journal mode is DELETE, so the file is complete and nothing can change it. A failed copy stops
+    // here, with the store untouched; a fresh store (version 0) holds nothing to keep.
+    let copied = match &path {
+        Some(store) if version > 0 && version < CURRENT_VERSION => {
+            backup(store, version)?;
+            true
+        }
+        _ => false,
+    };
     for (index, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", (index + 1) as u32)?;
     }
     tx.commit()?;
+    if let (true, Some(store)) = (copied, &path) {
+        // The migration is committed: failing to tidy an old copy must not fail the open.
+        for (_, old) in copies(store).into_iter().skip(COPIES_KEPT) {
+            let _ = std::fs::remove_file(old);
+        }
+    }
     Ok(())
+}
+
+/// Where the copy of a store taken before migrating it from schema `version` lives: next to the
+/// store, in the same private data root.
+pub fn backup_path(store: &Path, version: u32) -> PathBuf {
+    let mut name = store.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".pre-v{version}.bak"));
+    store.with_file_name(name)
+}
+
+/// Every pre-update copy next to `store` as (schema it was taken at, path), newest schema first.
+fn copies(store: &Path) -> Vec<(u32, PathBuf)> {
+    let (Some(directory), Some(name)) = (store.parent(), store.file_name()) else {
+        return Vec::new();
+    };
+    let prefix = format!("{}.pre-v", name.to_string_lossy());
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(u32, PathBuf)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let file = entry.file_name().into_string().ok()?;
+            let digits = file.strip_prefix(&prefix)?.strip_suffix(".bak")?;
+            let schema: u32 = digits.parse().ok()?;
+            // Only the exact name `backup_path` writes: no sign, no leading zero.
+            (schema.to_string() == digits).then(|| (schema, entry.path()))
+        })
+        .collect();
+    found.sort_by_key(|(schema, _)| std::cmp::Reverse(*schema));
+    found
+}
+
+/// Writes the copy owner-only and durably, through a partial file renamed into place, replacing an
+/// older copy at the same schema. Any failure leaves no partial file and is a [`Fault::Backup`].
+fn backup(store: &Path, version: u32) -> StoreResult<()> {
+    use std::{fs, io, os::unix::fs::OpenOptionsExt};
+    let target = backup_path(store, version);
+    let mut partial_name = target.file_name().unwrap_or_default().to_os_string();
+    partial_name.push(".partial");
+    let partial = target.with_file_name(partial_name);
+    let write = || -> io::Result<()> {
+        match fs::remove_file(&partial) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+        let mut source = fs::File::open(store)?;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits())
+            .open(&partial)?;
+        io::copy(&mut source, &mut file)?;
+        file.sync_all()?;
+        fs::rename(&partial, &target)?;
+        fs::File::open(target.parent().unwrap_or(Path::new(".")))?.sync_all()
+    };
+    write().map_err(|error| {
+        let _ = std::fs::remove_file(&partial);
+        Fault::Backup(error)
+    })
 }
