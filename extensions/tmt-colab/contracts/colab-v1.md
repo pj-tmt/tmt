@@ -49,7 +49,15 @@ After sync hello, an `object` frame carries the current sync scope, a generated
 `discard`, `verify`, `read`, `history`, `historynext` or `historycancel`. Responses
 are correlated `object-result` frames in that same scope, containing only `ok` or
 `error`. Eight outstanding requests are allowed per peer; queue failure is a bare
-unavailable response and never a retry. Missing channels do not activate storage.
+unavailable response and never a retry. Missing channels do not activate storage. A
+connection upgraded without an origin (Remote's object setup missed its budget) has no peer
+object handle: every object request on it answers the typed `no-object-channel`, while its page
+sync is unaffected. Only that case does; any other missing handle (no channel client behind a
+valid origin, or an origin that is not a UUID) stays the bare `unavailable`, which a reconnect
+cannot fix. The app reconnects once per attachment attempt, through its ordinary
+connection-loss path and no earlier than Remote's 1 s cool-down after the refusal; a repeat is a
+typed refusal that keeps the unsent message. A page that never attaches never reconnects for
+this.
 An immutable absolute deadline includes queueing, callbacks, I/O and final delivery.
 No late data is disclosed; a possibly effected mutation answers unknown. A sent
 callback timeout ends its generation rather than leaving outstanding authority.

@@ -251,6 +251,7 @@ export const text = {
   attachRefused: {
     'too-large': 'Too large to store.',
     unavailable: 'Storage is unavailable.',
+    'no-object-channel': 'Storage is not ready yet. Try again.',
     denied: 'Not allowed on this page.',
     capacity: 'Storage is full.',
     invalid: 'Could not be stored.',

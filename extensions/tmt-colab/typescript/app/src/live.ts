@@ -108,6 +108,7 @@ export class Live implements PageBinding {
       own: () => this.#admitted.own ?? {},
       connection: () => this.#current,
       settled: () => this.#settled(),
+      reopen: (from) => this.#reopenForObjects(from),
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () =>
         !this.#closed && !this.#error && !this.#opening?.pending && this.#discussionVerified,
@@ -583,6 +584,16 @@ export class Live implements PageBinding {
     if (this.#closed || this.#error || c !== this.#connection || !c.objects.hasUnseenCut())
       return c;
     this.#failed(new Error('RESYNC_REQUIRED'));
+    return this.#current;
+  }
+  /** A connection the serve named as having no object channel goes through the same path as a
+   * lost one: the writer, its pending appends and the drafts stay, and catch-up admits the
+   * replacement. One call reopens at most once, and only when `from` is still the connection in
+   * force; the caller decides what a replacement that is still without a channel means. */
+  async #reopenForObjects(from: Connection): Promise<Connection> {
+    if (!this.#closed && !this.#error && from === this.#connection) {
+      this.#failed(new Error('RESYNC_REQUIRED'));
+    }
     return this.#current;
   }
   async export(): Promise<ExportBundle> {
