@@ -125,6 +125,7 @@ export function NeedsYouHeader({
           <DropdownMenuContent
             className="needs-you-header-menu"
             align="end"
+            collisionPadding={8}
             onFocusCapture={() => {
               menuFocus.current = true;
             }}
@@ -211,7 +212,7 @@ export function NeedsYouHeader({
                                   {agentNames(item).length > 0 && (
                                     <>
                                       <span className="tmt-ui-visually-hidden"> · </span>
-                                      <AgentList names={agentNames(item)} />
+                                      <AgentList names={agentNames(item)} mark={false} />
                                     </>
                                   )}
                                   {item.kind === 'answer' && item.questionCount && (

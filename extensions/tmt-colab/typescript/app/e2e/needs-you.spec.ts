@@ -282,6 +282,17 @@ for (const width of [1440, 390])
         'Confirm the scope',
       ]);
       await expect(menu.locator('.needs-you-header-agent').first()).toContainText('Agent 1');
+      // The avatar names the agent once: the second line keeps the name's text without the robot icon.
+      await expect(menu.locator('.agent-chip-name')).toHaveText(['Agent 1', 'Agent 1', 'Agent 1']);
+      await expect(menu.locator('.agent-chip-mark')).toHaveCount(0);
+      // The open menu keeps at least 8px from both edges of the window, also on a phone where the
+      // trigger sits near the left edge.
+      const edges = await menu.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return { left: box.left, right: innerWidth - box.right };
+      });
+      expect(edges.left).toBeGreaterThanOrEqual(8);
+      expect(edges.right).toBeGreaterThanOrEqual(8);
       await capture(page, `needs-you-menu-${width}-${theme}`);
       await menu.getByRole('menuitem', { name: 'Read the summary · Agent 1' }).click();
       const markRead = root

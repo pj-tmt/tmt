@@ -123,8 +123,10 @@ shared count chip (`browserUiClasses.countChip` with the boxed `count`, `data-to
 and a chevron), whose menu is the existing `DropdownMenu`. Through 640px the visible label is
 `[N] ▾`, with `Needs you: N` as its accessible name. A menu row is the shared `BrowserAvatar`
 (decorative, size `s`, the first named agent's initials; a row with no agent keeps the room), the
-title on the first line and the agents, then an answer's question count, on the second; each line
-is one ellipsized line and the row's accessible name stays `title · agents`. At zero nothing shows: only a one-pixel, visually
+title on the first line and the agent names (the avatar already shows the agent, so no icon), then
+an answer's question count, on the second; each line is one ellipsized line and the row's
+accessible name stays `title · agents`. The open menu keeps 8px from every edge of the window
+(`collisionPadding`). At zero nothing shows: only a one-pixel, visually
 hidden element labelled `✓ Nothing waits` remains. When the list empties while the menu is open
 (keyboard focus inside it), that element takes focus (`tabindex=-1`, not a Tab stop) instead of the
 body, and keeps it across the header's remount while the page layers reparse; focus elsewhere,
