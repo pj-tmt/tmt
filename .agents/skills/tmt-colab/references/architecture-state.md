@@ -866,8 +866,16 @@ only a chapter of the dashboard opens one. Opening pushes a history entry; closi
 window opened steps back, and one that arrived by link only drops the parameter. The drawer returns
 focus to the trigger (or the chapter title after a reload). `withViewTransition` wraps open and close
 in the browser's view transition when it exists and motion is not reduced. The panel shows the chapter
-details' `needs` and `latest` as text and links to the page, the passage and the anchor; it holds no
-live page session, because a second app instance would race the first on the same own stream.
+details' `needs` and `latest` as text and links to the page, the passage and the anchor, and holds no
+page session of its own. Its first action, "Decide here", swaps that body for the page itself
+(`EmbeddedPage` in `router.tsx` renders `OpenPage` with `embedded`, the same component the page route
+renders): the compact bar of the page's header actions and status, the work band and the document. It
+is panel state, not the address, so Back still closes the panel; "← Summary" goes back. The page
+opens through the same transport call as the route and the panel owns that one live binding, closing it
+when it leaves the page (summary, full page, Esc), so a page never holds two on the same own stream
+and a second app instance is never needed. The embedded page's drawers and menus stay the app's
+modal, viewport-level dialogs (top layer; Esc closes the topmost only); its `PageEnvironment` writes
+no tab title or thread fragment and its `PageRouting` has no home link or crumb.
 
 The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
 filled by the same bounded hint read as the list); a failed read keeps every page as a link in the

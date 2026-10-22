@@ -4,7 +4,7 @@ import { useHomeSpace } from './home-space.js';
 import { ReadingDetailsQueue, type ReadingDetails } from './reading-details.js';
 import type { Shell } from './shell.js';
 import { shellCells } from './shell-grid.js';
-import { ChapterPanel } from './shell-panel.js';
+import { ChapterPanel, type EmbedPage } from './shell-panel.js';
 import { detailPageIds, shellModel, startOfDay } from './shell-model.js';
 import {
   ShellChapter,
@@ -29,9 +29,16 @@ const t = text.shellPage;
  * the order and each chapter's passage are computed here from the space list and the owner chapter
  * details (`shell-model.ts`); items are links to their source pages and carry no content of their
  * own. A page with no admitted value says so instead of drawing nothing. */
-export function ShellPage({ shell }: { shell: Shell | undefined }) {
+export function ShellPage({
+  shell,
+  embed,
+}: {
+  shell: Shell | undefined;
+  /** Hosts the chapter's page itself in its panel; absent where the app cannot (no panel). */
+  embed?: EmbedPage;
+}) {
   return shell ? (
-    <ShellContent shell={shell} />
+    <ShellContent shell={shell} embed={embed} />
   ) : (
     <div className="shell-page">
       <p className="shell-state" role="status">
@@ -41,7 +48,7 @@ export function ShellPage({ shell }: { shell: Shell | undefined }) {
   );
 }
 
-function ShellContent({ shell }: { shell: Shell }) {
+function ShellContent({ shell, embed }: { shell: Shell; embed: EmbedPage | undefined }) {
   const { transport } = rootRoute.useRouteContext();
   const [home, setHome] = useState<SpaceHome | 'failed' | undefined>();
   useEffect(() => {
@@ -67,6 +74,7 @@ function ShellContent({ shell }: { shell: Shell }) {
       shell={shell}
       home={home === 'failed' ? { title: '', pages: [] } : home}
       failed={home === 'failed'}
+      embed={embed}
     />
   );
 }
@@ -103,7 +111,17 @@ function useWide(): boolean {
   return wide;
 }
 
-function ShellBody({ shell, home, failed }: { shell: Shell; home: SpaceHome; failed: boolean }) {
+function ShellBody({
+  shell,
+  home,
+  failed,
+  embed,
+}: {
+  shell: Shell;
+  home: SpaceHome;
+  failed: boolean;
+  embed: EmbedPage | undefined;
+}) {
   const { pages, hints } = useHomeSpace(home);
   const [now] = useState(() => Date.now());
   const today = startOfDay(now);
@@ -217,6 +235,7 @@ function ShellBody({ shell, home, failed }: { shell: Shell; home: SpaceHome; fai
               now={now}
               onDismiss={closePanel}
               onOpen={remember(opened.pageId)}
+              embed={embed}
             />
           )}
         </>

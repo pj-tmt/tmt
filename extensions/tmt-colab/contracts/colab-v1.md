@@ -2738,8 +2738,10 @@ page's latest comment, else the item note). From 900 px a chapter's "Open to dec
 beside the dashboard (the app's drawer: Esc, a click outside or Close dismisses it) listing what waits on
 that page and its latest comment, with the page and passage links; narrower, it opens the page. The
 panel is the page route's `open` search parameter (a page ID, dropped when it is not a chapter of the
-dashboard), so Back, Forward, a reload and a pasted link keep it; it changes nothing and is never state of
-the shell. The page never marks a reading read. List/search use its
+dashboard), so Back, Forward, a reload and a pasted link keep it; the summary it shows changes nothing and
+is never state of the shell. "Decide here" replaces that summary with the page itself, opened as the page
+route opens it (one live page session, released when the panel leaves the page); it is panel state, not
+part of the address, and the page there acts as the page does. The page never marks a reading read. List/search use its
 title and needs-you counts do not treat dashboard references as authored questions or pending readings. No Today
 integration or migration of older collection data exists. Native and browser
 consume the shared `shell-v1.json` vectors.
