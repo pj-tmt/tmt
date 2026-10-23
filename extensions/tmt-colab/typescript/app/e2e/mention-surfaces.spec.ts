@@ -71,19 +71,23 @@ async function appearance(composer: Locator) {
   });
 }
 for (const width of [1440, 390])
-  for (const theme of ['light', 'dark'] as const) {
-    test(`identical composers and four review states on all surfaces: ${width} ${theme}`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await page.emulateMedia({ colorScheme: theme });
-      await page.addInitScript((theme) => {
-        document.documentElement.dataset.theme = theme;
-      }, theme);
-      const directory = process.env.COLAB_MENTION_CAPTURE_DIR ?? captureDirectory();
-      mkdirSync(directory, { recursive: true });
-      const proof: Record<string, unknown> = {};
-      for (const state of ['default', 'multi', 'unknown', 'checking']) {
+  for (const theme of ['light', 'dark'] as const)
+    for (const state of ['default', 'multi', 'unknown', 'checking']) {
+      test(`identical composers on all surfaces: ${state} ${width} ${theme}`, async ({
+        page,
+      }, testInfo) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme });
+        await page.addInitScript((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        const root = process.env.COLAB_MENTION_CAPTURE_DIR ?? captureDirectory();
+        // Repeats can share a worker run; each keeps its own copy of the same captures.
+        const directory = testInfo.repeatEachIndex
+          ? `${root}/repeat-${testInfo.repeatEachIndex}`
+          : root;
+        mkdirSync(directory, { recursive: true });
+        const proof: Record<string, unknown> = {};
         let baseline: Awaited<ReturnType<typeof appearance>> | undefined;
         for (const surface of ['chat', 'thread', 'annotate']) {
           const window = await open(page, surface, state === 'checking');
@@ -132,7 +136,9 @@ for (const width of [1440, 390])
           proof[name] = current;
           await page.screenshot({ path: `${directory}/${name}.png` });
         }
-      }
-      writeFileSync(`${directory}/${width}-${theme}-parity.json`, JSON.stringify(proof, null, 2));
-    });
-  }
+        writeFileSync(
+          `${directory}/${width}-${theme}-${state}-parity.json`,
+          JSON.stringify(proof, null, 2),
+        );
+      });
+    }
