@@ -28,6 +28,7 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { text } from './strings.js';
 import {
   echoLanded,
@@ -776,16 +777,24 @@ export function ThreadWindow({
           status?.controllable &&
           !thread.deleted ? (
             <div className="discussion-footer">
-              <BrowserAction
+              {/* A quiet action: the shared action with a mark, not underlined link text. */}
+              <button
                 type="button"
-                variant="text"
-                label={thread.resolved ? text.threadReopen : text.threadResolve}
-                busy={busy}
+                className={ui.action}
+                data-variant="text"
                 disabled={blocked}
-                onActivate={(event) => {
-                  if (event.isTrusted) changeStatus(!thread.resolved);
+                aria-disabled={busy || undefined}
+                aria-busy={busy || undefined}
+                onClick={(event) => {
+                  if (busy) event.preventDefault();
+                  else if (event.isTrusted) changeStatus(!thread.resolved);
                 }}
-              />
+              >
+                {thread.resolved ? <RotateCcw aria-hidden /> : <CircleCheck aria-hidden />}
+                <span className={ui.actionLabel}>
+                  {thread.resolved ? text.threadReopen : text.threadResolve}
+                </span>
+              </button>
             </div>
           ) : undefined
         }

@@ -1641,6 +1641,44 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread[data-layout='discussion'] .conversation-composer {
   background: var(--tmt-ui-surface-sheet);
 }
+/* The position (n / N) ends the drawer heading, next to Close, as on the website. */
+.tmt-ui-drawer[data-panel='comments'] .tmt-ui-drawer-heading {
+  flex: 1;
+  justify-content: space-between;
+}
+/* The reply composer is a visible field: the shared field fill and edge around the input. */
+.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field,
+.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-surface[data-accessory] {
+  background: var(--tmt-ui-surface-field);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+}
+.comment-thread[data-layout='discussion']
+  .annotation-compose
+  .rich-input-surface[data-accessory]
+  .rich-input-field {
+  background: transparent;
+  border: 0;
+}
+.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
+  padding: var(--tmt-ui-host-field-padding);
+}
+.comment-thread[data-layout='discussion']
+  .annotation-compose
+  .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible),
+.comment-thread[data-layout='discussion']
+  .annotation-compose
+  .rich-input-field:not(.rich-input-surface .rich-input-field):focus-visible {
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-focus);
+}
+.discussion-footer .tmt-ui-action {
+  text-decoration: none;
+}
+.discussion-footer .tmt-ui-action svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
 .discussion-footer {
   display: flex;
   padding-top: 12px;
