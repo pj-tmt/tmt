@@ -42,6 +42,11 @@ impl Plan {
     }
 
     #[cfg(test)]
+    pub(super) fn test_reads_sent(&self) -> bool {
+        self.sent
+    }
+
+    #[cfg(test)]
     pub(super) fn test_wrong_sender(mut self) -> Self {
         self.key.sender = "another sender".into();
         self

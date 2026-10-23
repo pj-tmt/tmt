@@ -37,6 +37,19 @@ pub(in crate::board) fn capture_case(scene: &str, look: Look, width: u16, height
         .unwrap();
     app.refresh_sent();
     app.conversation.borrow_mut().refresh_pane_output();
+    if scene == "conversation-refreshing" {
+        // The read has outlasted the spinner delay at the oracle's clock.
+        let identity = (
+            app.view.as_ref().unwrap().me_id.clone(),
+            crate::board::app::workspace::tests::MEMBER.to_owned(),
+        );
+        app.conversation
+            .borrow_mut()
+            .sessions
+            .get_mut(&identity)
+            .unwrap()
+            .set_refreshing_since(1_791_600_000_000 - 1_000);
+    }
     if scene == "conversation-refreshed" {
         // The completed read includes a new final; it appends to, rather than
         // overwrites, the earlier held conversation.
