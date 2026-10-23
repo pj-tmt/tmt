@@ -163,6 +163,9 @@ pub(super) struct Account<'a> {
     /// Versions installed before the upgrade, by product name (`cli` for the CLI).
     pub before: Option<&'a BTreeMap<String, String>>,
     pub skills: &'a Value,
+    /// The command that repeats this invocation; the first line of `Next:` after a component
+    /// failed, so the retry is never a guess.
+    pub repeat: Option<&'a str>,
     pub followups: Followups<'a>,
 }
 
@@ -197,8 +200,18 @@ pub(super) fn write(
     }
     table.write(output, terminal)?;
     let mut next = Next::default();
+    let retry = account.repeat.filter(|_| {
+        account
+            .products
+            .iter()
+            .skip(1)
+            .any(|row| row["status"] == "failed")
+    });
+    if let Some(repeat) = retry {
+        next.required(repeat);
+    }
     for row in account.products.iter().skip(1) {
-        extension_details(output, terminal, row, &mut next)?;
+        extension_details(output, terminal, row, retry.is_some(), &mut next)?;
     }
     let current = shown
         .iter()
@@ -239,8 +252,11 @@ fn extension_details(
     output: &mut impl Write,
     terminal: Terminal,
     row: &Value,
+    retrying: bool,
     next: &mut Next,
 ) -> io::Result<()> {
+    // The generic `tmt upgrade` retry is the repeated invocation's job once that is known.
+    let generic = |hint: &str| retrying && hint == "tmt upgrade";
     if row["status"] == "failed" {
         message::error(
             output,
@@ -264,6 +280,7 @@ fn extension_details(
     if let Some(hint) = row["details"]["restartHint"]
         .as_str()
         .or_else(|| row["error"]["suggestion"].as_str())
+        && !generic(hint)
     {
         next.required(hint);
     }
@@ -279,7 +296,7 @@ fn extension_details(
             }
         }
         _ => {
-            if let Some(hint) = row["hint"].as_str() {
+            if let Some(hint) = row["hint"].as_str().filter(|hint| !generic(hint)) {
                 next.required(hint);
             }
         }
@@ -313,15 +330,18 @@ fn summary(
     } else {
         Mark::Done
     };
-    if updated > 0 {
-        parts.push(format!("Updated {updated}"));
-    } else if failed == 0 && declined == 0 && pinned == 0 {
-        parts.push("Up to date".into());
-    } else if failed == 0 {
-        parts.push("Nothing changed".into());
-    }
     if failed > 0 {
+        // What went wrong leads; what still worked follows.
         parts.push(format!("{failed} failed"));
+        if updated > 0 {
+            parts.push(format!("updated {updated}"));
+        }
+    } else if updated > 0 {
+        parts.push(format!("Updated {updated}"));
+    } else if declined == 0 && pinned == 0 {
+        parts.push("Up to date".into());
+    } else {
+        parts.push("Nothing changed".into());
     }
     if declined > 0 {
         parts.push(format!("{declined} waiting for approval"));
@@ -352,9 +372,19 @@ fn summary(
     writeln!(
         output,
         "{} {}",
-        terminal.paint(mark.token(), mark.symbol()),
+        like_the_table(terminal, mark)?,
         parts.join(" · ")
     )
+}
+
+/// A mark painted the way the table paints its cells, so the summary's `✓` and the table's are
+/// one colour in every terminal (the table and `Terminal::paint` encode a token differently).
+fn like_the_table(terminal: Terminal, mark: Mark) -> io::Result<String> {
+    let mut cell = Table::new(&[Column::Fixed]).indent(0);
+    cell.row([Cell::styled(mark.symbol(), mark.token())]);
+    let mut bytes = Vec::new();
+    cell.write(&mut bytes, terminal)?;
+    Ok(String::from_utf8_lossy(&bytes).trim_end().to_owned())
 }
 
 fn skills_changed(skills: &Value) -> bool {

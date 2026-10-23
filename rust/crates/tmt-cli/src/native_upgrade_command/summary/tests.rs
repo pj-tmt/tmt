@@ -25,6 +25,7 @@ fn account<'a>(
         skipped_pinned: false,
         before: Some(before),
         skills,
+        repeat: None,
         followups: Followups {
             required: &[],
             optional: &[],
@@ -70,7 +71,7 @@ fn three_changed_components_make_one_table_one_summary_and_one_next_list() {
         required: &required,
         optional: &["The previous installation at /x is kept."],
         conflict_hints: vec!["User-owned skill preserved: mv a b".into()],
-        reload_hint: Some("reload or restart your agent"),
+        reload_hint: Some("Reload or restart your agent"),
     };
     assert_eq!(
         render(&shown),
@@ -83,7 +84,7 @@ fn three_changed_components_make_one_table_one_summary_and_one_next_list() {
          \x20 Pane option cutover unavailable: boom\n\
          \x20 User-owned skill preserved: mv a b\n\
          \x20 The previous installation at /x is kept.\n\
-         \x20 reload or restart your agent\n"
+         \x20 Reload or restart your agent\n"
     );
 }
 
@@ -93,10 +94,10 @@ fn the_reload_hint_follows_only_a_skill_that_changed() {
     let versions = versions();
     for (skills, hinted) in [(skills(false), false), (skills(true), true)] {
         let mut shown = account(&products, &skills, &versions);
-        shown.followups.reload_hint = Some("reload or restart your agent");
+        shown.followups.reload_hint = Some("Reload or restart your agent");
         let text = render(&shown);
         assert_eq!(
-            text.contains("reload or restart your agent"),
+            text.contains("Reload or restart your agent"),
             hinted,
             "{text}"
         );
@@ -135,16 +136,20 @@ fn a_failed_component_keeps_its_error_and_the_others_their_result() {
         changed("remote", "0.1.0-alpha.9"),
     ];
     let (versions, skills) = (versions(), skills(true));
+    let mut shown = account(&products, &skills, &versions);
+    shown.repeat = Some("tmt upgrade --channel alpha --yes");
     assert_eq!(
-        render(&account(&products, &skills, &versions)),
+        render(&shown),
         "  tmt     5.0.0-alpha.40 → 5.0.0-alpha.41  ✓ updated\n\
          \x20 ops     0.1.0-alpha.88                   ✗ failed\n\
          \x20 remote  0.1.0-alpha.8 → 0.1.0-alpha.9    ✓ updated\n\
          error: ops: EXTENSION_UPGRADE_FAILED: refused\n\
-         ✗ Updated 2 · 1 failed · skills refreshed\n\
+         ✗ 1 failed · updated 2 · skills refreshed\n\
          Next:\n\
-         \x20 tmt upgrade\n"
+         \x20 tmt upgrade --channel alpha --yes\n"
     );
+    // Without a known invocation the row's own retry hint stands in.
+    assert!(render(&account(&products, &skills, &versions)).ends_with("Next:\n  tmt upgrade\n"));
 }
 
 #[test]
@@ -276,4 +281,25 @@ fn strip_ansi(text: &str) -> String {
         }
     }
     out
+}
+
+#[test]
+fn the_summary_mark_and_the_table_mark_are_one_colour() {
+    let products = [changed("cli", "5.0.0-alpha.41")];
+    let (versions, skills) = (versions(), skills(true));
+    let mut bytes = Vec::new();
+    let colour = Terminal {
+        color: true,
+        width: None,
+        theme: None,
+    };
+    write(&mut bytes, colour, &account(&products, &skills, &versions)).unwrap();
+    let text = String::from_utf8(bytes).unwrap();
+    let escape_before = |at: usize| text[..at].rsplit('\u{1b}').next().unwrap().to_owned();
+    let marks: Vec<_> = text
+        .match_indices('✓')
+        .map(|(at, _)| escape_before(at))
+        .collect();
+    assert_eq!(marks.len(), 2, "{text:?}");
+    assert_eq!(marks[0], marks[1], "{text:?}");
 }

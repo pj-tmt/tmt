@@ -125,6 +125,7 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
             Some(Failure::new("NATIVE_UPGRADE_FAILED", "CLI failed", 7)),
             true,
             &Prior {
+                repeat: "tmt upgrade".into(),
                 ran_from_moved_prefix: false,
                 versions: BTreeMap::new(),
             },
@@ -197,4 +198,22 @@ fn skill_failure_is_a_warning_with_partial_publication_and_the_cause() {
     );
     let report = super::skill_outcome(Ok(json!({"refreshed":[],"skipped":[],"conflicts":[]})));
     assert_eq!(report["status"], "current");
+}
+
+#[test]
+fn the_repeated_command_carries_every_flag_the_invocation_had() {
+    assert_eq!(
+        repeat_command(None, None, false, false, false),
+        "tmt upgrade"
+    );
+    assert_eq!(
+        repeat_command(
+            Some(Channel::Alpha),
+            Some("5.0.0-alpha.8"),
+            true,
+            true,
+            true
+        ),
+        "tmt upgrade --channel alpha --to 5.0.0-alpha.8 --unpin --yes --allow-schema-ahead"
+    );
 }

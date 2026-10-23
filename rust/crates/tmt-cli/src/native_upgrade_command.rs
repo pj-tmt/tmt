@@ -51,6 +51,7 @@ pub fn execute_with_schema_consent(
     };
     let current = std::env::current_exe().ok();
     let prior = Prior {
+        repeat: repeat_command(channel, exact, unpin, yes, allow_schema_ahead),
         ran_from_moved_prefix: current
             .as_deref()
             .is_some_and(native_install::in_moved_prefix),
@@ -138,8 +139,37 @@ pub fn execute_with_schema_consent(
 /// What the upgrade started from: where it ran and which versions were installed, for the
 /// table's `from → to`.
 struct Prior {
+    /// The command that repeats this invocation.
+    repeat: String,
     ran_from_moved_prefix: bool,
     versions: BTreeMap<String, String>,
+}
+
+/// The command line that repeats this invocation, for the retry after a component failed.
+fn repeat_command(
+    channel: Option<Channel>,
+    exact: Option<&str>,
+    unpin: bool,
+    yes: bool,
+    allow_schema_ahead: bool,
+) -> String {
+    let mut command = String::from("tmt upgrade");
+    if let Some(channel) = channel {
+        command.push_str(&format!(" --channel {}", channel.as_str()));
+    }
+    if let Some(exact) = exact {
+        command.push_str(&format!(" --to {exact}"));
+    }
+    for (set, flag) in [
+        (unpin, " --unpin"),
+        (yes, " --yes"),
+        (allow_schema_ahead, " --allow-schema-ahead"),
+    ] {
+        if set {
+            command.push_str(flag);
+        }
+    }
+    command
 }
 
 /// The installed version of the CLI and of every installed extension, by product name.
@@ -231,6 +261,7 @@ fn finish(
             named: &named_hints,
             database: database.as_ref(),
             before: Some(&prior.versions),
+            repeat: Some(&prior.repeat),
         },
         mode,
     )
@@ -346,6 +377,8 @@ struct Notices<'a> {
     database: Option<&'a Value>,
     /// Versions installed before the upgrade, by product name.
     before: Option<&'a BTreeMap<String, String>>,
+    /// The command that repeats this invocation.
+    repeat: Option<&'a str>,
 }
 
 fn publish_products_with_hints(
@@ -361,6 +394,7 @@ fn publish_products_with_hints(
         named: named_hints,
         database,
         before,
+        repeat,
     } = notices;
     let failure = failure.map(|mut failure| {
         if let Some(report) = report {
@@ -438,12 +472,13 @@ fn publish_products_with_hints(
                 skipped_pinned: report.is_some_and(|report| report.skipped_pinned),
                 before,
                 skills: &document["skills"],
+                repeat,
                 followups: summary::Followups {
                     required: &required,
                     optional: &optional,
                     conflict_hints,
                     reload_hint: reload.then_some(
-                        "reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
+                        "Reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
                     ),
                 },
             },
@@ -538,7 +573,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[("{version}", "0.2.0")],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
+        "Reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill",
         &[""],
         &[],
     ),
