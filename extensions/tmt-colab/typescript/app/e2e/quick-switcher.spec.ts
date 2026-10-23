@@ -255,3 +255,76 @@ test('a Shadow DOM editor in the real frame retains its own search shortcut', as
   await expect(dialog(page)).toHaveCount(0);
   expect((await proof(page)).pageReads).toEqual(['c0000001-1111-4111-8111-000000000001']);
 });
+
+for (const width of [1586, 390]) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`website search composition and canonical project filter ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 992 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await control(page).click();
+      const search = dialog(page);
+      await expect(search.locator('.quick-switcher-search-mark')).toBeVisible();
+      await expect(search.locator('.quick-switcher-file')).toHaveCount(3);
+      await expect(search.locator('.quick-switcher-shortcuts')).toHaveText(/Navigate.*Open.*Close/);
+      const input = search.getByRole('combobox', { name: 'Search pages', exact: true });
+      await input.fill('brief');
+      await search.getByRole('button', { name: 'Filter search by project', exact: true }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'design', exact: true }).click();
+      await expect(search.locator('[data-project-filter="design"]')).toBeVisible();
+      await expect(input).toContainText('brief');
+      await expect(options(page)).toHaveCount(1);
+      await expect(options(page).first()).toContainText('Alpha brief');
+      await expect(options(page).first().locator('.quick-switcher-meta')).toHaveText(
+        'design · Ada',
+      );
+      await search.getByRole('button', { name: 'Filter search by project', exact: true }).click();
+      await page.getByRole('menuitemradio', { name: 'All projects', exact: true }).click();
+      await expect(search.locator('[data-project-filter]')).toHaveCount(0);
+      await expect(input).toContainText('brief');
+      await input.focus();
+      await page.keyboard.press('ControlOrMeta+A');
+      await page.keyboard.press('Backspace');
+      await expect(options(page)).toHaveCount(3);
+      const geometry = await search.evaluate((node) => {
+        const active = node.querySelector<HTMLElement>('[role="option"][data-active="true"]')!;
+        const style = getComputedStyle(active);
+        return {
+          pageOverflow: document.documentElement.scrollWidth > innerWidth,
+          dialogOverflow: node.scrollWidth > node.clientWidth,
+          border: parseFloat(style.borderTopWidth),
+          radius: parseFloat(style.borderTopLeftRadius),
+        };
+      });
+      expect(geometry).toEqual({
+        pageOverflow: false,
+        dialogOverflow: false,
+        border: 1,
+        radius: expect.any(Number),
+      });
+      expect(geometry.radius).toBeGreaterThan(0);
+      await search.getByRole('button', { name: 'Close Search pages', exact: true }).click();
+      await expect(control(page)).toBeFocused();
+    });
+  }
+}
+
+for (const [platform, hint] of [
+  ['MacIntel', '⌘K'],
+  ['Win32', 'Ctrl K'],
+] as const) {
+  test(`search and header use the same platform hint ${platform}`, async ({ page }) => {
+    await page.addInitScript((platform) => {
+      Object.defineProperty(navigator, 'platform', { get: () => platform });
+    }, platform);
+    await mount(page);
+    await expect(control(page).locator('kbd')).toHaveText(hint);
+    await control(page).click();
+    await expect(dialog(page).locator('.quick-switcher-shortcut')).toHaveText(hint);
+  });
+}

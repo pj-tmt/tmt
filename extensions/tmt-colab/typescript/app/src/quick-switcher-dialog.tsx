@@ -1,4 +1,4 @@
-import { BrowserDialog } from '@tmt/browser-ui/react';
+import { BrowserDialog, BrowserMenu } from '@tmt/browser-ui/react';
 import {
   useCallback,
   useEffect,
@@ -8,19 +8,21 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { FileText, Folder, Search } from 'lucide-react';
 import { Listbox } from './components/listbox.js';
 import { projectCounts, authorCounts } from './projects.js';
 import {
   PageListSearch,
   editFromSearch,
   searchFromEdit,
+  toggleProject,
   type SearchEdit,
 } from './page-list-search.js';
 import { pageTitle } from './page-index.js';
 import { rankPages } from './quick-switcher.js';
 import { useSwitcherSource } from './quick-switcher-source.js';
 import { QuickSwitcherContext, useQuickSwitcher } from './quick-switcher-context.js';
-import { admitsSwitcherShortcut } from './quick-switcher-key.js';
+import { admitsSwitcherShortcut, usesCommandKey } from './quick-switcher-key.js';
 import { text } from './strings.js';
 import type { PageTransport } from './transport.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
@@ -162,6 +164,19 @@ export function QuickSwitcherHost({
         focusFallback={() => control.current}
         restoreFocus={restoring.current}
         onDismiss={() => setOpen(false)}
+        actions={
+          <div className="quick-switcher-shortcuts">
+            <span>
+              <kbd>↑ ↓</kbd> {t.navigate}
+            </span>
+            <span>
+              <kbd>↵</kbd> {t.open}
+            </span>
+            <span>
+              <kbd>esc</kbd> {t.close}
+            </span>
+          </div>
+        }
       >
         <div ref={inputHost}>
           <Listbox
@@ -178,18 +193,21 @@ export function QuickSwitcherHost({
               const row = results.find(({ page }) => page.id === value)!.page;
               return (
                 <>
-                  <span className="quick-switcher-title">{pageTitle(row)}</span>
-                  <span className="quick-switcher-meta">
-                    {row.summary?.author && <span>{row.summary.author}</span>}
-                    {(row.projects ?? []).map((label) => (
-                      <span key={label}>{label}</span>
-                    ))}
-                    {row.summary?.waiting && (
-                      <span className="page-waiting">
-                        <span aria-hidden="true">◆</span> {text.pageList.waitingForYou}
-                      </span>
-                    )}
+                  <FileText className="quick-switcher-file" aria-hidden="true" />
+                  <span className="quick-switcher-copy">
+                    <span className="quick-switcher-title">{pageTitle(row)}</span>
+                    <span className="quick-switcher-meta">
+                      {[
+                        ...(row.projects ?? []),
+                        ...(row.summary?.author ? [row.summary.author] : []),
+                      ].join(' · ')}
+                    </span>
                   </span>
+                  {row.summary?.waiting && (
+                    <span className="page-waiting quick-switcher-waiting">
+                      <span aria-hidden="true">◆</span> {text.pageList.waitingForYou}
+                    </span>
+                  )}
                 </>
               );
             }}
@@ -197,32 +215,74 @@ export function QuickSwitcherHost({
               open: results.length > 0,
               onOpenChange() {},
               render: (trigger) => (
-                <PageListSearch
-                  edit={edit}
-                  onChange={setEdit}
-                  resetKey={resetKey}
-                  projects={source.state === 'ready' ? projectCounts(source.pages) : []}
-                  authors={source.state === 'ready' ? authorCounts(source.pages) : []}
-                  onApply={setEdit}
-                  onClear={() => setOpen(false)}
-                  placeholder={t.placeholder}
-                  resultTrigger={trigger}
-                  onUnhandledKeyDown={(event) => {
-                    if (event.key === 'Escape') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      if (
-                        event.repeat ||
-                        event.altKey ||
-                        event.metaKey ||
-                        event.ctrlKey ||
-                        event.shiftKey
-                      )
-                        return;
-                      setOpen(false);
-                    } else trigger.onKeyDown?.(event);
-                  }}
-                />
+                <>
+                  <div className="quick-switcher-search">
+                    <Search className="quick-switcher-search-mark" aria-hidden="true" />
+                    <PageListSearch
+                      edit={edit}
+                      onChange={setEdit}
+                      resetKey={resetKey}
+                      projects={source.state === 'ready' ? projectCounts(source.pages) : []}
+                      authors={source.state === 'ready' ? authorCounts(source.pages) : []}
+                      onApply={setEdit}
+                      onClear={() => setOpen(false)}
+                      placeholder={t.placeholder}
+                      resultTrigger={trigger}
+                      onUnhandledKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (
+                            event.repeat ||
+                            event.altKey ||
+                            event.metaKey ||
+                            event.ctrlKey ||
+                            event.shiftKey
+                          )
+                            return;
+                          setOpen(false);
+                        } else trigger.onKeyDown?.(event);
+                      }}
+                    />
+                  </div>
+                  <div className="quick-switcher-filter">
+                    <Folder aria-hidden="true" />
+                    <BrowserMenu
+                      label={t.projectFilter}
+                      triggerText={
+                        filter.projects.length ? filter.projects.join(', ') : t.allProjects
+                      }
+                      items={[
+                        {
+                          key: '',
+                          label: t.allProjects,
+                          role: 'menuitemradio',
+                          checked: filter.projects.length === 0,
+                        },
+                        ...(source.state === 'ready' ? projectCounts(source.pages) : []).map(
+                          ({ name }) => ({
+                            key: name,
+                            label: name,
+                            role: 'menuitemcheckbox' as const,
+                            checked: filter.projects.includes(name),
+                          }),
+                        ),
+                      ]}
+                      onSelect={(name, event) => {
+                        if (!event.isTrusted) return;
+                        setEdit(
+                          name
+                            ? toggleProject(edit, name)
+                            : editFromSearch([], filter.q, filter.authors),
+                        );
+                      }}
+                    />
+                    <kbd className="quick-switcher-shortcut">
+                      {usesCommandKey() ? '⌘K' : 'Ctrl K'}
+                    </kbd>
+                  </div>
+                  <div className="quick-switcher-rule" />
+                </>
               ),
             }}
           />
