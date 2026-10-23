@@ -1388,7 +1388,13 @@ renameSync(output+'.tmp',output);
 
       // Leave the draft, then the search filter, before quitting.
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture((current) => current.includes('Nothing sent.'), shell.pane);
+      await fixture.waitForCapture(
+        (current) => current.includes('Esc clear filter') && /hello there\s+×/.test(current),
+        shell.pane
+      );
+      expect(screen(), 'closing a draft must not deny the existing send').not.toContain(
+        'Nothing sent.'
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture((current) => !current.includes('Esc clear filter'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
@@ -1513,7 +1519,13 @@ renameSync(output+'.tmp',output);
       await fixture.waitForCapture((current) => /first question\s+×/.test(current), shell.pane);
 
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
-      await fixture.waitForCapture((current) => current.includes('Nothing sent.'), shell.pane);
+      await fixture.waitForCapture(
+        (current) => current.includes('Esc clear filter') && /first question\s+×/.test(current),
+        shell.pane
+      );
+      expect(screen(), 'closing a draft must not deny the existing send').not.toContain(
+        'Nothing sent.'
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture((current) => !current.includes('Esc clear filter'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
