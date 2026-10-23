@@ -290,8 +290,8 @@
   color: var(--c-text);
 }
 .files-add input[type='file']:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
 }
 .files-add .attachment-tray {
   width: 100%;
