@@ -73,8 +73,8 @@ fn rename_freezes_uuid_literal_expected_name_and_requires_visible_review_once() 
         "no geometry grants a write"
     );
     let screen = paint(&app, 160, 36).join("\n");
-    assert!(screen.contains(MEMBER));
-    assert!(screen.contains("\" Worker \" → \" --literal-name \""));
+    assert!(screen.contains("tmt mv ' Worker ' ' --literal-name '"));
+    assert!(screen.contains("Stops if the name changed first."));
     app.workspace.selected = Some(OpsTarget::Pool);
     let Effect::Act(Request::WorkspaceOperation(Change::RenameMember(request))) =
         app.workspace_confirm()
@@ -185,6 +185,11 @@ fn resize_and_stale_pointer_revoke_apply_until_exact_target_is_visible() {
     assert_eq!(app.overlay_event(&pointer), Some(Effect::None));
     assert_eq!(app.workspace_confirm(), Effect::None);
     paint(&app, 60, 8);
+    assert!(
+        app.workspace_form.as_ref().unwrap().controls.get()[1].is_some(),
+        "the concise review fits in full"
+    );
+    paint(&app, 12, 8);
     assert_eq!(app.workspace_confirm(), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
 }

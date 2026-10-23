@@ -528,10 +528,14 @@ list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AG
 (name) and STATE (attention). The sorted word shows `↑` or `↓` (`^`, `v` in ASCII);
 on TOK the mark takes the blank cell before the word. A click changes only the saved
 order, never the selection or a message.
-In Agents, `p` pins/unpins a squad. `n`
-creates a squad, `m` manages a squad or assigns a member, `x` removes only the
-selected membership, `D` opens Digest and `c` opens Timers. The compact footer omits Digest, Manage, Create, Remove and Details;
-these actions remain in Help and the Actions menu with their effective keys.
+In Agents, `p` pins/unpins a squad. `N`
+creates a squad, `m` manages a squad or assigns a member, and `x` leaves only the
+selected squad membership. On member rows the footer offers `r rename`, `m move`,
+`R resume` and `d remove`, using effective bindings and dropping whole hints at
+narrow widths. `d` is a copy-only retirement review: stop the agent first and
+recheck the displayed name before running the copied command. Retirement does
+not stop the agent or close its window. `n new` and member `S switch tool` are not
+available yet. `D` opens Digest and `c` opens Timers outside a modal.
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
 Outside an editor or modal, `w` opens saved workspace snapshots on every tab;
@@ -840,10 +844,12 @@ supplied usage facts and timers. Agents uses a 47% list in Side layout; Auto sta
 below 120 columns and uses a single focused pane when the usable budgets do not fit.
 The table reserves one range/total/more row. Add a member, set or
 clear its lead, rename it, pin it or open Timers through the named controls or
-Manage. `n` creates from a name, optional lead and explicit members. Assign offers
+Manage. `N` creates from a name, optional lead and explicit members. Assign offers
 add (keep every membership) or move (remove the selected source only after the
 destination add is confirmed). Common pool offers add only.
 
+Rename and assignment reviews show the human CLI equivalents. Rename still
+executes the UUID/expected-name check; `c` copies its displayed command.
 Management reviews freeze exact room/identity UUIDs and revisions, show timer
 impact and start on Cancel. Tab reaches the scrollable read region and Apply;
 clipped or stale Apply controls cannot submit. Pending prevents repeated applies.

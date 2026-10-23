@@ -1322,7 +1322,7 @@ fn removal_review_is_scrollable_frozen_and_cancel_is_the_initial_action() {
     let screen = paint(&app, 80, 24).join("\n");
     assert!(screen.contains("Source timers to pause: unknown"));
     assert!(screen.contains("identity, process, history"));
-    assert!(screen.contains("Remove membership"));
+    assert!(screen.contains("Leave squad"));
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, &app))
@@ -1331,7 +1331,7 @@ fn removal_review_is_scrollable_frozen_and_cancel_is_the_initial_action() {
     let label: String = (confirm.x..confirm.right())
         .map(|x| terminal.backend().buffer()[(x, confirm.y)].symbol())
         .collect();
-    assert_eq!(label, " Remove membership ");
+    assert_eq!(label, " Leave squad ");
     let frozen = app.workspace_form.as_ref().unwrap().operation.clone();
     app.workspace.selected = Some(OpsTarget::Pool);
     assert_eq!(app.workspace_form.as_ref().unwrap().operation, frozen);
@@ -1392,7 +1392,7 @@ fn short_terminal_review_uses_the_screen_and_scrolls_the_frozen_operation() {
     let mut app = board();
     app.workspace_begin(Kind::Remove);
     let first = paint(&app, 60, 8).join("\n");
-    assert!(first.contains("Remove membership"));
+    assert!(first.contains("Leave squad"));
     assert!(first.contains("From squad"), "{first}");
     key(&mut app, KeyCode::Tab);
     key(&mut app, KeyCode::Down);
@@ -1569,7 +1569,7 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     );
     app.workspace.query.clear();
     app.workspace.filter = crate::board::workspace::AgentsFilter::All;
-    assert_eq!(key(&mut app, KeyCode::Char('n')), Effect::None);
+    assert_eq!(key(&mut app, KeyCode::Char('N')), Effect::None);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Create);
 }
 #[test]
@@ -2204,7 +2204,7 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         assert_eq!(app.focused_pane(), Some(Pane::Rows));
         let lines = paint(&app, width, 36);
         assert!(
-            lines[lines.len() - 2].contains("j host"),
+            lines[lines.len() - 2].contains("r rename"),
             "{width}: {:?}",
             lines.last()
         );
@@ -5941,4 +5941,4 @@ fn agents_group_glyphs_use_core_activity_and_room_attention_instead_of_task_stat
         );
     }
 }
-mod review_modal;
+pub(in crate::board) mod review_modal;

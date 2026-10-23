@@ -117,6 +117,15 @@ partial `≥` counts take precedence over the redundant totals-unknown suffix an
 named layer caption. Conversation admission and shared marker publication belong
 to [the reply owner](board-notebooks.md#replies-and-verification).
 
+Member CRUD uses the existing frozen `workspace::manage` review and ordered
+worker effects. Rename keeps Core's identity/name CAS; assignment keeps admitted
+room revisions and destination-before-source ordering. `remove-member` is a
+copy-only review until Core stop is available: it freezes the displayed name
+(the public `rm` operand), offers no mutation or foreground handoff, and warns to
+stop and recheck the name first. Displayed CLI equivalents quote only words needing shell protection;
+Ops never executes a shell. CRUD modal bounds leave two body cells per edge,
+wrap commands, and keep the existing clipped-control and default-Cancel rules.
+
 ## Shell, geometry and input
 
 `board::shell` owns Agents and Digest selection. Agents uses one list with three

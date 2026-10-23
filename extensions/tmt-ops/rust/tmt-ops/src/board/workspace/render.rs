@@ -1135,6 +1135,12 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
     draft.controls.set([None, None]);
     let look = app.look();
     let short = body.height < 8;
+    let crud = matches!(
+        draft.kind,
+        super::manage::Kind::RenameMember
+            | super::manage::Kind::Assign
+            | super::manage::Kind::RemoveMember
+    );
     let modal = Modal {
         title: draft.title(),
         placement: if short {
@@ -1144,7 +1150,32 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         },
     };
     let bounds = if short { frame.area() } else { body };
-    let probe = modal.areas(bounds, [80, 26], true, false);
+    // CRUD dialogs keep two cells of body margin on every edge at 80 and 150.
+    // The shared Modal still owns chrome and interior geometry.
+    let areas_for = |height: u16| {
+        if crud && !short {
+            let width = 80.min(bounds.width.saturating_sub(4));
+            let height = height.min(bounds.height.saturating_sub(4));
+            Modal {
+                title: draft.title(),
+                placement: Placement::Body,
+            }
+            .areas(
+                Rect::new(
+                    bounds.x + (bounds.width - width) / 2,
+                    bounds.y + (bounds.height - height) / 2,
+                    width,
+                    height,
+                ),
+                [width, height],
+                true,
+                false,
+            )
+        } else {
+            modal.areas(bounds, [80, height], true, false)
+        }
+    };
+    let probe = areas_for(26);
     let text = match &draft.stage {
         Stage::Fields => app
             .input
@@ -1189,7 +1220,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         .saturating_add(editor_rows)
         .saturating_add(4)
         .min(26) as u16;
-    let areas = modal.areas(bounds, [80, demand_height], true, false);
+    let areas = areas_for(demand_height);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
     app.input_band.set(Some(areas.outer));
     if draft.stage == Stage::Fields {
@@ -1232,7 +1263,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 Line::styled(line.clone(), look.role(*role)),
             );
         }
-        if areas.position.height > 0 {
+        if areas.position.height > 0 && scroll.limit() > 0 {
             strip::paint_left(
                 frame.buffer_mut(),
                 areas.position,
@@ -1259,11 +1290,20 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         .map(String::as_str)
         .or(Some("cancel"));
     if draft.stage == Stage::Review {
-        let apply_label = draft
-            .operation
-            .as_ref()
-            .map(|operation| operation.confirm_label())
-            .unwrap_or_default();
+        let removal = draft.kind == super::manage::Kind::RemoveMember;
+        let apply_label = if removal {
+            if draft.removal_command().is_some() {
+                "Copy command"
+            } else {
+                ""
+            }
+        } else {
+            draft
+                .operation
+                .as_ref()
+                .map(|operation| operation.confirm_label())
+                .unwrap_or_default()
+        };
         let apply_enabled = !apply_label.is_empty()
             && areas.content.height > 1
             && (draft.kind != super::manage::Kind::RenameMember
@@ -1309,11 +1349,19 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 hint,
                 Line::styled(
                     whole_hints(
-                        &[
-                            ("Esc", "cancel"),
-                            ("Enter", "select"),
-                            ("Tab", "read/actions"),
-                        ],
+                        if draft.review_command().is_some() {
+                            &[
+                                ("c", "copy command"),
+                                ("Esc", "cancel"),
+                                ("Enter", "select"),
+                            ]
+                        } else {
+                            &[
+                                ("Esc", "cancel"),
+                                ("Enter", "select"),
+                                ("Tab", "read/actions"),
+                            ]
+                        },
                         hint.width,
                     ),
                     look.role(Role::Muted),

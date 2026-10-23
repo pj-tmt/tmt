@@ -352,6 +352,25 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         first.push(("⏎".into(), word));
         seen.push(action.verb);
     }
+    if tab == crate::board::shell::OpsTab::Agents {
+        for (action, preferred, word) in [
+            (Ui::RenameMember, "r", "rename"),
+            (Ui::MoveMembership, "m", "move"),
+            (Ui::MemberSession, "R", "resume"),
+            (Ui::RemoveMember, "d", "remove"),
+            (Ui::RemoveMembership, "x", "leave squad"),
+            (Ui::CreateSquad, "N", "create squad"),
+        ] {
+            let member = app.workspace_selected_member().is_some();
+            if (action == Ui::CreateSquad) == member {
+                continue;
+            }
+            if let Some(key) = find(Verb::Ui(action), preferred) {
+                first.push((key_label(&key).into(), word.into()));
+                seen.push(Verb::Ui(action));
+            }
+        }
+    }
     for (verb, preferred, word) in [
         (Verb::Talk, "t", "chat"),
         (Verb::Copy, "y", "copy"),
