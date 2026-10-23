@@ -51,7 +51,7 @@ pub(in crate::board) fn case(scene: &str, look: crate::look::Look) -> App {
         },
         "new-member-template-reset"=>{c.notice=Some("Launch template reset to Core default. Member draft kept.".into());},
         "new-member-settings"=>{c.destination=Destination::Settings;c.stage=Stage::Hosts;},
-        "new-member-pending"=>c.stage=Stage::Launching,
+        "new-member-pending"=>{c.review=Some(c.draft.review(c.loaded.as_ref().unwrap()).unwrap());c.stage=Stage::Launching;},
         "new-member-success"=>c.stage=Stage::Result("Created new-worker in product.".into()),
         "new-member-partial"=>c.stage=Stage::Result("Created new-worker in Common pool; squad add failed: The displayed squad changed.\nRepair after checking: tmt ops sq add --squad product -- 33333333-3333-4333-8333-333333333333".into()),
         "new-member-refused"=>c.notice=Some("That identity already exists; choose a new name.".into()),

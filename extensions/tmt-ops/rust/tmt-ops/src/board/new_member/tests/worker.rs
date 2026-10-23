@@ -162,3 +162,28 @@ fn core_lookup_refuses_a_canonical_alias_missing_from_the_display_name_match() {
     );
     assert!(!f.root.join("launches").exists());
 }
+
+#[test]
+fn human_executable_uses_only_the_first_executable_tmt_on_path() {
+    let f = Fixture::new();
+    let first = f.root.join("first");
+    let second = f.root.join("second");
+    std::fs::create_dir(&first).unwrap();
+    std::fs::create_dir(&second).unwrap();
+    std::fs::write(first.join("tmt"), "not executable").unwrap();
+    std::os::unix::fs::symlink(f.core.executable(), second.join("tmt")).unwrap();
+    let path = std::env::join_paths([&first, &second]).unwrap();
+    assert_eq!(
+        load::display_executable(f.core.executable(), Some(&path)),
+        "tmt"
+    );
+    crate::test_support::write_ready_executable(&first.join("tmt"), "#!/bin/sh\nexit 0\n");
+    assert_eq!(
+        load::display_executable(f.core.executable(), Some(&path)),
+        f.core.executable().to_str().unwrap()
+    );
+    assert_eq!(
+        load::display_executable(f.core.executable(), None),
+        f.core.executable().to_str().unwrap()
+    );
+}

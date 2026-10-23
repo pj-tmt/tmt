@@ -9,6 +9,74 @@ fn safe(text: &str) -> String {
     super::super::notes::sanitize(&tmt_cli_style::table::escape(text))
 }
 impl Controller {
+    fn body_lines(&self) -> Vec<String> {
+        match &self.stage {
+            Stage::Review => self.review.as_ref().map(|r| r.lines()).unwrap_or_default(),
+            Stage::Saving => vec![
+                "Saving launch template…".into(),
+                "Member draft kept.".into(),
+            ],
+            Stage::Launching => self
+                .review
+                .as_ref()
+                .map(|r| {
+                    vec![format!(
+                        "Starting {} in {} / {}…",
+                        r.name, r.host, r.session
+                    )]
+                })
+                .unwrap_or_default(),
+            Stage::Result(text) => text.lines().map(str::to_owned).collect(),
+            _ => vec![],
+        }
+    }
+    fn preview_lines(&self, width: u16) -> Vec<String> {
+        self.loaded
+            .as_ref()
+            .and_then(|loaded| self.draft.review(loaded).ok())
+            .map(|review| {
+                let mut text = vec![
+                    "Will run · e edit template".to_owned(),
+                    crate::launch::line(&review.display.command),
+                ];
+                if review.room.is_some() {
+                    text.push(review.copy().split_once('\n').unwrap().1.into());
+                }
+                text.iter()
+                    .flat_map(|line| super::super::notes::wrap(&safe(line), usize::from(width)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    fn content_height(&self, width: u16) -> usize {
+        match self.stage {
+            Stage::Form if self.loaded.is_some() => {
+                let preview = self.preview_lines(width);
+                if preview.is_empty() {
+                    if self.draft.saved {
+                        15
+                    } else {
+                        15 + super::super::notes::wrap(
+                            "Temporary agents stay in Common pool; choose Saved to join a squad.",
+                            usize::from(width),
+                        )
+                        .len()
+                    }
+                } else {
+                    (if self.draft.saved { 16 } else { 18 }) + preview.len()
+                }
+            }
+            Stage::Form | Stage::Hosts if self.loaded.is_none() => 1,
+            Stage::Hosts => 2 + self.loaded.as_ref().map_or(0, |l| l.hosts.len()),
+            Stage::Template => 2 + self.template.layout(width).lines.len(),
+            _ => self
+                .body_lines()
+                .iter()
+                .map(|line| super::super::notes::wrap(&safe(line), usize::from(width)).len())
+                .sum::<usize>()
+                .max(1),
+        }
+    }
     pub fn render(&self, frame: &mut Frame, app: &App, look: Look, body: Rect) {
         self.fields.borrow_mut().clear();
         self.controls.set([None, None]);
@@ -16,14 +84,27 @@ impl Controller {
         let title = match self.stage {
             Stage::Template => "Launch template",
             Stage::Hosts => "Launch templates",
-            Stage::Review => "Create member",
             _ => "New member",
         };
         let modal = Modal {
             title: title.into(),
             placement: Placement::Center,
         };
-        let areas = modal.areas(body, [100, 29], true, true);
+        let unavailable = self.loaded.is_none() && matches!(self.stage, Stage::Form | Stage::Hosts);
+        let status = self.notice.is_some() && !unavailable;
+        let probe = modal.areas(body, [100, 29], true, status);
+        let demand = self.content_height(probe.content.width);
+        let areas = modal.areas(
+            body,
+            [
+                100,
+                demand
+                    .saturating_add(4 + usize::from(status))
+                    .min(usize::from(u16::MAX)) as u16,
+            ],
+            true,
+            status,
+        );
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
         app.input_band.set(Some(areas.outer));
         let content = areas.content;
@@ -39,19 +120,19 @@ impl Controller {
         };
         match &self.stage {
             Stage::Form => {
-                paint("Create an agent in a new host window.", 0, Role::Muted);
                 if self.loaded.is_none() {
                     paint(
                         if self.notice.is_some() {
-                            "Host templates unavailable · close and reopen to retry"
+                            "Host templates unavailable. Close and reopen to retry."
                         } else {
                             "Loading host templates…"
                         },
-                        2,
+                        0,
                         Role::Muted,
                     );
                     complete = false;
                 } else {
+                    paint("Create an agent in a new host window.", 0, Role::Muted);
                     for (index, label) in model::LABELS.iter().enumerate() {
                         let y = 2 + index * 2;
                         paint(label, y, Role::Muted);
@@ -185,42 +266,25 @@ impl Controller {
                             }
                         }
                     }
-                    if let Some(loaded) = &self.loaded
-                        && let Ok(review) = self.draft.review(loaded)
-                    {
-                        let mut text = vec![
-                            "Will run · e edit template".to_owned(),
-                            crate::launch::line(&review.command),
-                        ];
-                        if review.room.is_some() {
-                            text.push(review.copy().split_once('\n').unwrap().1.into());
-                        }
-                        let lines: Vec<_> = text
-                            .iter()
-                            .flat_map(|line| {
-                                super::super::notes::wrap(&safe(line), usize::from(content.width))
-                            })
-                            .collect();
-                        for (index, line) in lines.iter().enumerate() {
-                            let y = if self.draft.saved { 16 } else { 18 } + index;
-                            if y < usize::from(content.height) {
-                                strip::paint_left(
-                                    frame.buffer_mut(),
-                                    Rect::new(content.x, content.y + y as u16, content.width, 1),
-                                    Line::styled(line.clone(), look.role(Role::Muted)),
-                                );
-                            }
+                    for (index, line) in self.preview_lines(content.width).iter().enumerate() {
+                        let y = if self.draft.saved { 16 } else { 18 } + index;
+                        if y < usize::from(content.height) {
+                            strip::paint_left(
+                                frame.buffer_mut(),
+                                Rect::new(content.x, content.y + y as u16, content.width, 1),
+                                Line::styled(line.clone(), look.role(Role::Muted)),
+                            );
                         }
                     }
                 }
             }
             Stage::Hosts => {
-                paint(
-                    "Host templates · Enter edit · Ctrl-R in the editor resets",
-                    0,
-                    Role::Muted,
-                );
                 if let Some(loaded) = &self.loaded {
+                    paint(
+                        "Host templates · Enter edit · Ctrl-R in the editor resets",
+                        0,
+                        Role::Muted,
+                    );
                     for (index, host) in loaded.hosts.iter().enumerate() {
                         let selected = host.name == self.draft.fields[4].as_str();
                         paint(
@@ -242,11 +306,11 @@ impl Controller {
                 } else {
                     paint(
                         if self.notice.is_some() {
-                            "Host templates unavailable · close and reopen to retry"
+                            "Host templates unavailable. Close and reopen to retry."
                         } else {
                             "Loading host templates…"
                         },
-                        2,
+                        0,
                         Role::Muted,
                     );
                     complete = false;
@@ -284,21 +348,8 @@ impl Controller {
                     frame.set_cursor_position(cursor);
                 }
             }
-            stage => {
-                let text = match stage {
-                    Stage::Review => self.review.as_ref().map(|r| r.lines()).unwrap_or_default(),
-                    Stage::Saving => vec![
-                        "Saving launch template…".into(),
-                        "Member draft kept.".into(),
-                    ],
-                    Stage::Launching => vec![
-                        "Creating member…".into(),
-                        "Waiting for the launch outcome and a new bound UUID.".into(),
-                        "No automatic retry or window close.".into(),
-                    ],
-                    Stage::Result(text) => text.lines().map(str::to_owned).collect(),
-                    _ => vec![],
-                };
+            _ => {
+                let text = self.body_lines();
                 let lines: Vec<_> = text
                     .iter()
                     .flat_map(|line| {
@@ -328,7 +379,9 @@ impl Controller {
                 }
             }
         }
-        if let Some(notice) = &self.notice {
+        if let Some(notice) = &self.notice
+            && !unavailable
+        {
             strip::paint_left(
                 frame.buffer_mut(),
                 areas.status,
@@ -336,7 +389,9 @@ impl Controller {
             );
         }
         let (cancel, apply, focus) = match self.stage {
+            Stage::Form if unavailable => ("Cancel", "", 0),
             Stage::Form => ("Cancel", "Review", self.focus.saturating_sub(7)),
+            Stage::Hosts if unavailable => ("Close", "", 0),
             Stage::Hosts => ("Close", "Edit template", 1),
             Stage::Review => (
                 "Cancel",
@@ -351,7 +406,10 @@ impl Controller {
             Stage::Launching | Stage::Saving => ("", "", 0),
             Stage::Result(_) => ("Close", "", 0),
         };
-        complete &= content.height >= if self.stage == Stage::Form { 22 } else { 3 };
+        complete &= body.height >= 10;
+        if matches!(self.stage, Stage::Form | Stage::Hosts) {
+            complete &= usize::from(content.height) >= demand;
+        }
         let buttons = [
             super::super::buttons::Button::secondary(cancel)
                 .focused(focus == 0 && (self.stage != Stage::Form || self.focus >= 7))
@@ -360,15 +418,23 @@ impl Controller {
                 .focused(focus == 1)
                 .enabled(complete && !apply.is_empty()),
         ];
+        let buttons = &buttons[..if apply.is_empty() {
+            usize::from(!cancel.is_empty())
+        } else {
+            2
+        }];
         let hits = super::super::buttons::paint(
             app,
             frame.buffer_mut(),
             areas.footer,
-            &buttons,
+            buttons,
             Align::Left,
             Some(super::super::app::Overlay::NewMember),
         );
-        self.controls.set([hits[0], hits[1].filter(|_| complete)]);
+        self.controls.set([
+            hits.first().copied().flatten(),
+            hits.get(1).copied().flatten().filter(|_| complete),
+        ]);
         self.readable.set(complete);
         let start = hits
             .iter()
@@ -379,6 +445,7 @@ impl Controller {
             .saturating_add(1)
             .min(areas.footer.right());
         let hint = match self.stage {
+            Stage::Form | Stage::Hosts if unavailable => "Esc close",
             Stage::Form => "Tab next · Space choose · e template · Esc cancel",
             Stage::Template => "Ctrl-R reset · Esc back",
             Stage::Review => "c copy · e template · PgDn read · Esc back",

@@ -5,7 +5,7 @@ use crate::board::app::workspace::tests::board;
 use crate::{config::Config, core::SquadError};
 use serde_json::json;
 fn loaded() -> Loaded {
-    Loaded{hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"herdr","state":"ok","launch":null},{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}}]})).unwrap(),config:Config::read(std::env::temp_dir().join(format!("ops-new-member-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into()}
+    Loaded{hosts:crate::launch::hosts(&json!({"version":1,"hosts":[{"host":"herdr","state":"ok","launch":null},{"host":"tmux","state":"builtin","launch":{"argv":["host","{session}","{command}"],"placeholders":["session","command"]}}]})).unwrap(),config:Config::read(std::env::temp_dir().join(format!("ops-new-member-missing-{}",crate::id::new_v4().unwrap()))).unwrap(),executable:"/tool/tmt".into(),display_executable:"tmt".into()}
 }
 #[test]
 fn pool_defaults_to_first_eligible_published_host_and_common_not_running() {
@@ -41,11 +41,7 @@ fn null_template_copies_both_lines_without_a_launch_or_creation() {
     }
     let review = draft.review(&loaded()).unwrap();
     assert!(review.outer.is_none());
-    assert!(
-        review
-            .copy()
-            .starts_with("/tool/tmt run --save new-worker codex")
-    );
+    assert!(review.copy().starts_with("tmt run --save new-worker codex"));
     if review.room.is_some() {
         assert_eq!(review.copy().lines().count(), 2);
         assert!(review.copy().contains("ops sq add"));
@@ -233,13 +229,13 @@ fn defaults_deduplicate_members_and_choose_observed_model_only_within_the_tool()
 }
 
 #[test]
-fn copy_uses_the_exact_reviewed_host_argv_with_no_reconstruction() {
+fn copy_uses_the_reviewed_human_host_command() {
     let app = form();
     let c = app.new_member.as_ref().unwrap();
     let review = c.draft.review(c.loaded.as_ref().unwrap()).unwrap();
     assert_eq!(
         review.copy().lines().next().unwrap(),
-        crate::launch::line(review.outer.as_ref().unwrap())
+        crate::launch::line(review.display.outer.as_ref().unwrap())
     );
 }
 
@@ -260,4 +256,79 @@ fn host_selector_cycles_without_typing_over_its_published_value() {
     );
     key(&mut app, KeyCode::Char('e'));
     assert_eq!(app.new_member.as_ref().unwrap().stage, Stage::Template);
+}
+
+#[test]
+fn reviewed_commands_display_path_alias_without_changing_execution() {
+    let app = form();
+    let c = app.new_member.as_ref().unwrap();
+    let review = c.draft.review(c.loaded.as_ref().unwrap()).unwrap();
+    assert_eq!(review.command[0], "/tool/tmt");
+    assert!(
+        review
+            .outer
+            .as_ref()
+            .unwrap()
+            .last()
+            .unwrap()
+            .starts_with("/tool/tmt run")
+    );
+    assert!(review.copy().contains("tmt run"));
+    assert!(!review.copy().contains("/tool/tmt"));
+    let mut different = loaded();
+    different.display_executable = different.executable.clone();
+    assert!(
+        c.draft
+            .review(&different)
+            .unwrap()
+            .copy()
+            .contains("/tool/tmt")
+    );
+}
+
+#[test]
+fn dialogs_use_compact_content_and_the_approved_copy() {
+    let _ui = crate::runner::forbid_commands();
+    for width in [80, 150] {
+        for scene in captures::SCENES {
+            let app = captures::case(scene, crate::look::Look::default());
+            let text = paint(&app, width, 43);
+            assert!(!text.contains("Create member"), "{scene}");
+            let c = app.new_member.as_ref().unwrap();
+            let area = app.input_band.get().unwrap();
+            match *scene {
+                "new-member-loading" | "new-member-load-failed" => {
+                    assert!(!text.contains("Review"), "{scene}");
+                    assert!(!text.contains("Tab next"), "{scene}");
+                    assert!(c.controls.get()[1].is_none());
+                    assert!(area.height <= 6, "{scene}: {area:?}");
+                    if *scene == "new-member-load-failed" {
+                        assert!(
+                            text.contains("Host templates unavailable. Close and reopen to retry.")
+                        );
+                        assert!(!text.contains("No launch attempted"));
+                    }
+                }
+                "new-member-copy-only" | "new-member-copy-temporary" => {
+                    let lines = c.review.as_ref().unwrap().lines();
+                    assert_eq!(lines[0], "Copy only · herdr has no launch template.");
+                    assert!(text.contains("Run in your terminal"));
+                    assert!(!text.contains("Will run"));
+                    assert!(area.height < 20, "{scene}: {area:?}");
+                }
+                "new-member-review" => {
+                    assert!(text.contains("Opens with"));
+                    assert!(!text.contains("/tool/tmt"));
+                    assert!(area.height < 20, "{area:?}");
+                }
+                "new-member-pending" => {
+                    assert!(text.contains("Starting new-worker in tmux / common…"));
+                    assert!(!text.contains("UUID"));
+                    assert!(!text.contains("retry"));
+                    assert!(area.height <= 6, "{area:?}");
+                }
+                _ => {}
+            }
+        }
+    }
 }

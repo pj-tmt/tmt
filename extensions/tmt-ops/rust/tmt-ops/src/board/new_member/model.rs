@@ -23,14 +23,21 @@ pub(in crate::board) struct Review {
     pub command: Vec<String>,
     pub outer: Option<Vec<String>>,
     pub room: Option<RoomTarget>,
+    pub(super) display: Box<Display>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Display {
+    pub command: Vec<String>,
+    pub outer: Option<Vec<String>>,
 }
 impl Review {
     pub fn copy(&self) -> String {
-        let mut text = crate::launch::line(self.outer.as_ref().unwrap_or(&self.command));
+        let mut text =
+            crate::launch::line(self.display.outer.as_ref().unwrap_or(&self.display.command));
         if let Some(room) = &self.room {
             text.push('\n');
             text.push_str(&crate::launch::line(&[
-                self.command[0].clone(),
+                self.display.command[0].clone(),
                 "ops".into(),
                 "sq".into(),
                 "add".into(),
@@ -58,14 +65,22 @@ impl Review {
                     .as_ref()
                     .map_or("Common pool", |room| room.name.as_str())
             ),
-            "Will run".into(),
-            crate::launch::line(&self.command),
+            if self.outer.is_some() {
+                "Will run"
+            } else {
+                "Run in your terminal"
+            }
+            .into(),
+            crate::launch::line(&self.display.command),
         ];
-        if let Some(outer) = &self.outer {
-            text.push("Host launch argv".into());
+        if let Some(outer) = &self.display.outer {
+            text.push("Opens with".into());
             text.push(crate::launch::line(outer));
         } else {
-            text.push("Copy only · this host has no launch template.".into());
+            text.insert(
+                0,
+                format!("Copy only · {} has no launch template.", self.host),
+            );
         }
         if self.room.is_some() {
             text.push("After the identity exists · squad add".into());
@@ -248,7 +263,14 @@ impl Draft {
         let probe = ["host", "{session}", "{command}"].map(str::to_owned);
         crate::launch::fill(&probe, session, &crate::launch::line(&command))?;
         let outer = argv
-            .map(|argv| crate::launch::fill(&argv, session, &crate::launch::line(&command)))
+            .as_ref()
+            .map(|argv| crate::launch::fill(argv, session, &crate::launch::line(&command)))
+            .transpose()?;
+        let mut display_command = command.clone();
+        display_command[0] = loaded.display_executable.clone();
+        let display_outer = argv
+            .as_ref()
+            .map(|argv| crate::launch::fill(argv, session, &crate::launch::line(&display_command)))
             .transpose()?;
         Ok(Review {
             name: name.into(),
@@ -257,6 +279,10 @@ impl Draft {
             command,
             outer,
             room,
+            display: Box::new(Display {
+                command: display_command,
+                outer: display_outer,
+            }),
         })
     }
 }

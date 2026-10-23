@@ -50,6 +50,7 @@ pub(super) struct Loaded {
     pub hosts: Vec<crate::launch::Host>,
     pub config: Config,
     pub executable: String,
+    pub display_executable: String,
 }
 pub(super) enum Outcome {
     Loaded(Box<Loaded>),
@@ -61,6 +62,27 @@ pub(super) enum Outcome {
 }
 fn unavailable(text: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_LAUNCH_UNAVAILABLE", text)
+}
+// Resolve the first executable on PATH on the worker, never during input or paint.
+pub(super) fn display_executable(selected: &Path, search: Option<&std::ffi::OsStr>) -> String {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let on_path = search.and_then(|search| {
+        std::env::split_paths(search)
+            .map(|directory| directory.join("tmt"))
+            .find(|path| {
+                std::fs::metadata(path)
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
+    });
+    let same = on_path
+        .and_then(|path| std::fs::metadata(path).ok())
+        .zip(std::fs::metadata(selected).ok())
+        .is_some_and(|(a, b)| a.dev() == b.dev() && a.ino() == b.ino());
+    if same {
+        "tmt".into()
+    } else {
+        selected.to_string_lossy().into_owned()
+    }
 }
 fn read(core: &Core) -> Result<Loaded, SquadError> {
     let hosts = crate::launch::hosts(&core.json(&["host", "templates"])?).map_err(unavailable)?;
@@ -74,6 +96,10 @@ fn read(core: &Core) -> Result<Loaded, SquadError> {
         hosts,
         config: Config::load(core)?,
         executable,
+        display_executable: display_executable(
+            core.executable(),
+            std::env::var_os("PATH").as_deref(),
+        ),
     })
 }
 pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {

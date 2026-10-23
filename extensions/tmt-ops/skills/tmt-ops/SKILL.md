@@ -534,7 +534,7 @@ selected squad membership. On member rows the footer offers `r rename`, `m move`
 `R resume` and `d remove`, using effective bindings and dropping whole hints at
 narrow widths. `d` is a copy-only retirement review: stop the agent first and
 recheck the displayed name before running the copied command. Retirement does
-not stop the agent or close its window. `n new` and member `S switch tool` are not
+not stop the agent or close its window. Member `S switch tool` is not
 available yet. `D` opens Digest and `c` opens Timers outside a modal.
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
@@ -553,7 +553,8 @@ remain editable. Defaults use public observations in the selected squad, with th
 model chosen only within the selected tool. Outside a squad, with no location/session, Host starts
 at the first `builtin`/`ok` published host with a launch template, and Session at
 `common`. Review shows the selected session and literal commands; Cancel is selected
-first. Temporary locks Squad to Common pool; returning to Saved restores the prior
+first. Display and Copy use `tmt` when PATH resolves to the board's Core executable,
+otherwise its full path; execution keeps the exact executable. Temporary locks Squad to Common pool; returning to Saved restores the prior
 squad. No existing identity is reused deliberately, and Core rechecks every launch.
 A failed or uncertain launch keeps the draft; never retry before checking public
 state. A created member whose squad add fails remains visible in Common pool with

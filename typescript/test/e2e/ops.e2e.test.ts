@@ -359,7 +359,7 @@ renameSync(output+'.tmp',output);
       expect(durableState(fixture)).toEqual(before);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitForCapture(
-        (screen) => screen.includes('Create member') && screen.includes('Host launch argv'),
+        (screen) => screen.includes('New member') && screen.includes('Opens with'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
