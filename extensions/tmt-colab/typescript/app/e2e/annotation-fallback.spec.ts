@@ -99,12 +99,16 @@ for (const width of [1440, 390])
       const markers = frame.locator('.annotation-number');
       await expect(markers).toHaveCount(1);
       await expect(markers).toHaveText('+12');
-      // The marker is placed in a later frame than its text: wait until it has a box to measure.
-      await expect(markers).toBeVisible();
-      const box = await markers.evaluate((node) => node.getBoundingClientRect().toJSON());
-      // The `+12` pill: 24 px tall, wider than it is tall.
-      expect(box.height).toBe(24);
-      expect(box.width).toBeGreaterThan(24);
+      // The marker is placed in a later frame than its text, and a layout pass can draw it again:
+      // measure until the settled box shows the `+12` pill, 24 px tall and wider than it is tall.
+      await expect
+        .poll(() =>
+          markers.evaluate((node) => {
+            const { height, width } = node.getBoundingClientRect();
+            return { height, wide: width > 24 };
+          }),
+        )
+        .toEqual({ height: 24, wide: true });
       await markers.click();
       await expect(host).toHaveAttribute('data-list-opened', '1');
       await expect(host).not.toHaveAttribute('data-opened');
