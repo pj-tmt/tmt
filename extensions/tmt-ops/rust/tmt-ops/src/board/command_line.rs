@@ -1,47 +1,10 @@
-//! Human display/copy of literal argv. Ops never executes these shell strings.
-use std::{ffi::OsStr, os::unix::fs::MetadataExt, os::unix::fs::PermissionsExt, path::Path};
-
-pub(super) fn command_line(words: &[&str]) -> String {
-    words
-        .iter()
-        .map(|word| {
-            if !word.is_empty()
-                && word
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&byte))
-            {
-                (*word).to_owned()
-            } else {
-                format!("'{}'", word.replace('\'', "'\\''"))
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Resolve on a worker, never during paint. Only the first executable on PATH
-/// can stand for the selected Core executable; a later match is shadowed.
-pub(super) fn executable_word(executable: &Path, search: Option<&OsStr>) -> String {
-    let selected = std::fs::metadata(executable).ok();
-    let first = search
-        .into_iter()
-        .flat_map(std::env::split_paths)
-        .map(|directory| directory.join("tmt"))
-        .filter_map(|candidate| std::fs::metadata(candidate).ok())
-        .find(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0);
-    if selected
-        .zip(first)
-        .is_some_and(|(a, b)| a.dev() == b.dev() && a.ino() == b.ino())
-    {
-        "tmt".into()
-    } else {
-        executable.to_string_lossy().into_owned()
-    }
-}
+//! Board aliases for the shared literal command display and PATH resolver.
+pub(super) use crate::launch::{display_executable as executable_word, line as command_line};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn words_are_literal_with_only_shell_sensitive_values_quoted() {

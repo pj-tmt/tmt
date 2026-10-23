@@ -38,6 +38,7 @@ mod keycap;
 mod lane;
 mod limits;
 mod member_session;
+mod new_member;
 pub(crate) use limits::history::document as limits_history;
 mod conversation_notes;
 mod markdown;
@@ -143,6 +144,7 @@ pub(in crate::board) enum BoardEvent {
     Checklist(checklist::load::Completed),
     Discovery(discovery::load::Completed),
     MemberSession(member_session::Completed),
+    NewMember(new_member::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -751,6 +753,11 @@ fn session(
                 dirty = true;
                 app.finished_recovery(completed)
             }
+            Ok(BoardEvent::NewMember(completed)) => {
+                app.in_flight = app.in_flight.saturating_sub(1);
+                dirty = true;
+                app.finished_new_member(completed)
+            }
             Ok(BoardEvent::MemberSession(completed)) => {
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
@@ -1165,6 +1172,10 @@ fn session(
             }
             Effect::Checklist(task) => checklist(task),
             Effect::Recovery(task) => submit(app, lane::Job::Recovery(task)),
+            Effect::NewMember(task) => {
+                app.in_flight += 1;
+                io(lane::Job::NewMember(task));
+            }
             Effect::MemberSession(task) => {
                 app.in_flight += 1;
                 io(lane::Job::MemberSession(task));

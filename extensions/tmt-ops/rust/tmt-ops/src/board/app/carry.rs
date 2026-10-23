@@ -77,6 +77,7 @@ impl App {
             || self.cron_list.is_some()
             || self.checklist_shown()
             || self.recovery.as_ref().is_some_and(|c| c.blocks_reload())
+            || self.new_member.is_some()
             || self.member_session.is_some()
             || self.discovery.as_ref().is_some_and(|c| c.reload_blocked())
             || self.discovered_uuid.is_some()

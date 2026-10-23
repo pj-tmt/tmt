@@ -55,6 +55,12 @@ fn config_picks(settings: &BoardSettings) -> Vec<Pick> {
             hint: "Enter open",
         },
         Pick {
+            id: "launch-templates",
+            name: "Launch templates…",
+            value: String::new(),
+            hint: "Enter edit",
+        },
+        Pick {
             id: "theme",
             name: "Theme",
             value: theme,
@@ -2219,7 +2225,11 @@ pub(in crate::board) mod tests {
         // No meter: no token window row.
         assert_eq!(
             names(&f),
-            [("Actions…", String::new()), ("Theme", "auto".to_owned())]
+            [
+                ("Actions…", String::new()),
+                ("Launch templates…", String::new()),
+                ("Theme", "auto".to_owned())
+            ]
         );
         assert_eq!(
             f.app
@@ -2266,12 +2276,12 @@ pub(in crate::board) mod tests {
         ));
         f.app.open_settings(config()).unwrap();
         let before = f.app.token_window.label().to_owned();
-        assert_eq!(names(&f)[2], ("Token window", before.clone()));
+        assert_eq!(names(&f)[3], ("Token window", before.clone()));
         select(&mut f, "pick:window");
         cycle_window(&mut f);
         let after = f.app.token_window.label().to_owned();
         assert_ne!(before, after);
-        assert_eq!(names(&f)[2], ("Token window", after));
+        assert_eq!(names(&f)[3], ("Token window", after));
         assert!(f.app.settings.is_some(), "cycling keeps the menu open");
         // The window is durable; opening another edit does not publish its draft.
         let saved_window = std::fs::read_to_string(&f.path).unwrap();

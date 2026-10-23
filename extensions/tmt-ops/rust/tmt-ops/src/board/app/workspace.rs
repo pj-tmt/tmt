@@ -595,6 +595,7 @@ impl App {
                     action.verb,
                     Verb::Ui(
                         OpsUiAction::AgentsFilter
+                            | OpsUiAction::NewMember
                             | OpsUiAction::DiscoverAgents
                             | OpsUiAction::RenameMember
                             | OpsUiAction::RemoveMember
@@ -1083,6 +1084,7 @@ impl App {
                 return self.workspace_save(next);
             }
             MemberSession => return self.open_member_session(),
+            NewMember => return self.open_new_member(),
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),
@@ -1305,6 +1307,7 @@ impl App {
         use crate::board::shell::OpsInputOwner;
         let overlay = self.overlay();
         let editing = match overlay {
+            Some(Overlay::NewMember) => true,
             Some(Overlay::Workspace) => self.input.is_some(),
             Some(Overlay::Settings) => self
                 .settings
@@ -1531,6 +1534,11 @@ impl App {
             key: String::new(),
             label: "Bindings · j presets".into(),
             choice: Choice::HostAction,
+        });
+        entries.push(MenuEntry {
+            key: String::new(),
+            label: "Launch templates…".into(),
+            choice: Choice::LaunchTemplates,
         });
         for (label, action) in [
             ("Theme", "theme"),

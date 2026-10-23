@@ -11,18 +11,19 @@ description: Build and verify the Ops extension (`tmt-ops`, the board, notebook,
 The interactive board acquires the global workspace once and selects its
 Agents or Digest destination through `shell::OpsShell`.
 
-| Module                | Responsibility                                               |
-| --------------------- | ------------------------------------------------------------ |
-| `shell`               | Scoped destination selection, outside editors and overlays   |
-| `workspace::observe`  | Roster, room and document projection from one acquisition    |
-| `workspace::render`   | Dense tree, clipped hits, squad detail and management dialog |
-| `workspace::manage`   | Frozen management operations and guarded effects             |
-| `app::workspace`      | UUID selection, effective bindings and workspace routing     |
-| `conversation`        | Shared selected-agent response, source and follow state      |
-| `view::waiting`       | WP1 composer and completion geometry                         |
-| `view::header/footer` | Summary, meters and effective action hints                   |
-| `home::limits/paint`  | Existing Usage-band quota presentation over held data        |
-| `view::overlays`      | Shared overlay dispatch                                      |
+| Module                | Responsibility                                                  |
+| --------------------- | --------------------------------------------------------------- |
+| `shell`               | Scoped destination selection, outside editors and overlays      |
+| `workspace::observe`  | Roster, room and document projection from one acquisition       |
+| `workspace::render`   | Dense tree, clipped hits, squad detail and management dialog    |
+| `workspace::manage`   | Frozen management operations and guarded effects                |
+| `new_member`          | Async new-member form, frozen host launch and bound-UUID result |
+| `app::workspace`      | UUID selection, effective bindings and workspace routing        |
+| `conversation`        | Shared selected-agent response, source and follow state         |
+| `view::waiting`       | WP1 composer and completion geometry                            |
+| `view::header/footer` | Summary, meters and effective action hints                      |
+| `home::limits/paint`  | Existing Usage-band quota presentation over held data           |
+| `view::overlays`      | Shared overlay dispatch                                         |
 
 `board/row_detail.rs` owns the shared in-place detail projection and renderer,
 expansion reconciliation, worker-acquired reply cache and read-only full-reply

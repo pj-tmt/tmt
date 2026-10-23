@@ -141,11 +141,27 @@ impl Template {
     }
 
     pub fn fill_parameters(&self, parameters: Parameters<'_>) -> Result<String, String> {
+        self.fill_with(|field| parameters.resolve(field).map(Cow::into_owned))
+    }
+
+    /// Host templates declare whole-word slots; every other word is opaque,
+    /// including shell braces and host format expressions.
+    pub fn whole_word(text: &str, slots: &[&str]) -> Self {
+        match slots.iter().find(|slot| text == format!("{{{slot}}}")) {
+            Some(slot) => Self(vec![Part::Field((*slot).into())]),
+            None => Self(vec![Part::Text(text.into())]),
+        }
+    }
+
+    pub fn fill_with(
+        &self,
+        mut resolve: impl FnMut(&str) -> Result<String, String>,
+    ) -> Result<String, String> {
         let mut out = String::new();
         for part in &self.0 {
             match part {
                 Part::Text(text) => out.push_str(text),
-                Part::Field(field) => out.push_str(&parameters.resolve(field)?),
+                Part::Field(field) => out.push_str(&resolve(field)?),
             }
         }
         Ok(out)
