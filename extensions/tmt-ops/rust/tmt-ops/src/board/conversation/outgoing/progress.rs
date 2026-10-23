@@ -17,6 +17,11 @@ pub(super) enum Progress {
     Working {
         since_ms: u64,
     },
+    /// Core reports `working` for the send; its own words are painted, and only the
+    /// leading mark takes the spinner frame.
+    Stated {
+        since_ms: u64,
+    },
     Finished {
         at_ms: u64,
     },
@@ -74,6 +79,7 @@ impl Progress {
         let unknown = || format!("✓ sent · {name}'s activity is not reported");
         match self {
             Self::Sent => "✓ sent".into(),
+            Self::Stated { .. } => working_glyph.into(),
             Self::Working { since_ms } if since_ms <= now_ms => {
                 let seconds = (now_ms - since_ms) / 1000;
                 format!(

@@ -15,12 +15,22 @@ const LIFETIME: Duration = Duration::from_secs(4);
 #[derive(Default)]
 pub(super) struct Clock {
     deadline: Option<Instant>,
+    /// A progress notice stays hidden until this core time: a job that is done by then
+    /// paints nothing.
+    visible_ms: Option<u64>,
     pub failed: bool,
 }
 impl Clock {
     pub fn start(&mut self, now: Instant, failed: bool) {
         self.deadline = Some(now + LIFETIME);
+        self.visible_ms = None;
         self.failed = failed;
+    }
+    pub fn hold_until(&mut self, visible_ms: u64) {
+        self.visible_ms = Some(visible_ms);
+    }
+    pub fn hidden_until(&self, now_ms: u64) -> Option<u64> {
+        self.visible_ms.filter(|visible| now_ms < *visible)
     }
     pub fn expired(&self, now: Instant) -> bool {
         self.deadline.is_some_and(|deadline| now >= deadline)
@@ -130,6 +140,35 @@ mod tests {
         assert!(clock.expired(now + Duration::from_secs(6)));
         clock.clear();
         assert!(!clock.failed && !clock.expired(now + Duration::from_secs(60)));
+    }
+    #[test]
+    fn a_progress_notice_is_hidden_until_the_spinner_delay_and_a_result_shows_at_once() {
+        let mut app = crate::board::app::App::new(None);
+        let delay = crate::board::view::SPINNER_DELAY.as_millis() as u64;
+        let now = 1_791_600_000_000;
+        crate::status::with_now_ms(now, || {
+            app.set_progress("Copying…".into());
+            assert_eq!(app.shown_notice(), None, "a fast job paints nothing");
+            assert!(app.notice.is_some(), "the notice is held, not dropped");
+        });
+        crate::status::with_now_ms(now + delay - 1, || assert_eq!(app.shown_notice(), None));
+        crate::status::with_now_ms(now + delay, || {
+            assert_eq!(app.shown_notice(), Some("Copying…"));
+        });
+        crate::status::with_now_ms(now, || {
+            app.set_notice(Some("Copied.".into()), false);
+            assert_eq!(app.shown_notice(), Some("Copied."), "a result is immediate");
+            app.set_progress("Saving…".into());
+            app.set_notice(None, false);
+            assert_eq!(app.shown_notice(), None);
+            app.set_progress("Saving…".into());
+            app.set_notice(Some("✗ failed".into()), true);
+            assert_eq!(
+                app.shown_notice(),
+                Some("✗ failed"),
+                "a failure is immediate"
+            );
+        });
     }
     #[test]
     fn notices_use_observed_names_and_never_unresolved_identity_ids() {

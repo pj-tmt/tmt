@@ -45,6 +45,15 @@ pub(super) enum Job {
 }
 
 impl Job {
+    /// Whether the user is waiting on this job. Quiet work, and a choice saved with no
+    /// overlay open, shows no progress; its failure still shows.
+    pub fn shows_progress(&self) -> bool {
+        !matches!(
+            self,
+            Self::Recovery(_) | Self::TokenWindow(_) | Self::ViewState(_) | Self::ReadMarkers(_)
+        )
+    }
+
     /// What the board shows until the job's event arrives.
     pub fn progress(&self) -> &'static str {
         match self {
@@ -191,3 +200,15 @@ impl Lane {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+
+    #[test]
+    fn only_jobs_the_user_waits_on_show_progress() {
+        assert!(Job::Act(Request::Back).shows_progress());
+        assert!(Job::Open(Opening::Settings).shows_progress());
+        assert!(!Job::TokenWindow("1h".into()).shows_progress());
+    }
+}

@@ -412,7 +412,14 @@ fn core_text_changes_reach_live_and_restored_chat_without_local_activity_inferen
                 let session = state.sessions.values_mut().next().unwrap();
                 session.observe_progress("night-2", None, NOW, true);
                 assert_eq!(session.outgoing[0].status(), format!("⠹ {text}"));
-                assert!(session.outgoing[0].feedback_clock.is_none());
+                // Core's words stay the status; only the leading working mark moves.
+                assert!(matches!(
+                    session.outgoing[0]
+                        .feedback_clock
+                        .as_ref()
+                        .map(|c| c.progress),
+                    Some(crate::board::conversation::outgoing::progress::Progress::Stated { .. })
+                ));
                 assert!(session.outgoing[0].capture.is_some());
             }
             let live = board_frame(&app, 160, 51);

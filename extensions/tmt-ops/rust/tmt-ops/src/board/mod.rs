@@ -589,8 +589,8 @@ fn session(
         }
         // Recovery's pending task owns its progress and retained result inside
         // the modal. Do not leave a second stale progress notice on the board.
-        if !matches!(job, lane::Job::Recovery(_)) {
-            app.set_notice(Some(job.progress().to_owned()), false);
+        if job.shows_progress() {
+            app.set_progress(job.progress().to_owned());
         }
         app.in_flight += 1;
         io(job);
