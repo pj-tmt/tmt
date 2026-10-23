@@ -527,45 +527,20 @@ describe('native dependency notices selection', () => {
       'key: colab-chrome-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}'
     );
     expect(chrome).toContain('uses: actions/cache/restore@v4');
+    expect(chrome).toContain('PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/colab-chrome-browsers');
     expect(chrome).toContain(
       "if: github.ref == 'refs/heads/main' && steps.browsers.outputs.cache-hit != 'true'"
     );
     expect(chrome).toContain('retention-days: 7');
-    // Chromium's system packages go through the bounded apt action, never `--with-deps`' own
-    // unbounded apt-get update. The list is Playwright's `ubuntu24.04-x64` tools + chromium set for
-    // the pinned version; a version bump must refresh the list here and in the job together.
-    const playwright = JSON.parse(
-      readFileSync(
-        new URL('../../../extensions/tmt-colab/typescript/app/package.json', import.meta.url),
-        'utf8'
-      )
-    ).devDependencies['@playwright/test'];
-    expect(playwright).toBe('1.63.0');
     expect(chrome).not.toContain('--with-deps');
     expect(chrome).toContain('runs-on: ubuntu-24.04');
     expect(chrome).toContain('timeout-minutes: 10');
-    const packages = [
-      ...(
-        chrome.match(
-          /uses: \.\/\.github\/actions\/apt-install\n {8}with:\n {10}packages: >-\n((?: {12}.+\n)+)/
-        )?.[1] ?? ''
-      )
-        .split(/\s+/)
-        .filter(Boolean),
-    ];
-    expect(packages).toEqual([
-      ...['xvfb', 'fonts-noto-color-emoji', 'fonts-unifont', 'libfontconfig1', 'libfreetype6'],
-      ...['xfonts-cyrillic', 'xfonts-scalable', 'fonts-liberation', 'fonts-ipafont-gothic'],
-      ...['fonts-wqy-zenhei', 'fonts-tlwg-loma-otf', 'fonts-freefont-ttf'],
-      ...['libasound2t64', 'libatk-bridge2.0-0t64', 'libatk1.0-0t64', 'libatspi2.0-0t64'],
-      ...['libcairo2', 'libcups2t64', 'libdbus-1-3', 'libdrm2', 'libgbm1', 'libglib2.0-0t64'],
-      ...['libnspr4', 'libnss3', 'libpango-1.0-0', 'libx11-6', 'libxcb1', 'libxcomposite1'],
-      ...['libxdamage1', 'libxext6', 'libxfixes3', 'libxkbcommon0', 'libxrandr2'],
-    ]);
+    expect(chrome).toContain('uses: ./.github/actions/install-chromium-deps');
+    expect(chrome).not.toContain('packages: >-');
     expect(chrome).toContain(
       'run: pnpm --filter @tmt/colab-app exec playwright install chromium\n'
     );
-    expect(chrome.indexOf('actions/apt-install')).toBeLessThan(
+    expect(chrome.indexOf('actions/install-chromium-deps')).toBeLessThan(
       chrome.indexOf('playwright install chromium')
     );
     expect(chrome).toContain("COLAB_CHROME_REQUIRED: '1'");
@@ -594,6 +569,40 @@ describe('native dependency notices selection', () => {
       'utf8'
     );
     expect(spec).toContain("process.env.COLAB_CHROME_REQUIRED === '1'");
+  });
+  it('pins Chromium system packages once through the shared bounded apt action', () => {
+    const helper = readFileSync(
+      new URL('../../../.github/actions/install-chromium-deps/action.yml', import.meta.url),
+      'utf8'
+    );
+    // One list for Playwright's pinned ubuntu24.04-x64 tools and Chromium dependencies.
+    const playwright = JSON.parse(
+      readFileSync(
+        new URL('../../../extensions/tmt-colab/typescript/app/package.json', import.meta.url),
+        'utf8'
+      )
+    ).devDependencies['@playwright/test'];
+    expect(playwright).toBe('1.63.0');
+    expect(helper).toContain('using: composite');
+    expect(helper.match(/uses: /g)).toHaveLength(1);
+    const packages = [
+      ...(
+        helper.match(
+          /uses: \.\/\.github\/actions\/apt-install\n {6}with:\n {8}packages: >-\n((?: {10}.+\n)+)/
+        )?.[1] ?? ''
+      )
+        .split(/\s+/)
+        .filter(Boolean),
+    ];
+    expect(packages).toEqual([
+      ...['xvfb', 'fonts-noto-color-emoji', 'fonts-unifont', 'libfontconfig1', 'libfreetype6'],
+      ...['xfonts-cyrillic', 'xfonts-scalable', 'fonts-liberation', 'fonts-ipafont-gothic'],
+      ...['fonts-wqy-zenhei', 'fonts-tlwg-loma-otf', 'fonts-freefont-ttf'],
+      ...['libasound2t64', 'libatk-bridge2.0-0t64', 'libatk1.0-0t64', 'libatspi2.0-0t64'],
+      ...['libcairo2', 'libcups2t64', 'libdbus-1-3', 'libdrm2', 'libgbm1', 'libglib2.0-0t64'],
+      ...['libnspr4', 'libnss3', 'libpango-1.0-0', 'libx11-6', 'libxcb1', 'libxcomposite1'],
+      ...['libxdamage1', 'libxext6', 'libxfixes3', 'libxkbcommon0', 'libxrandr2'],
+    ]);
   });
 });
 
@@ -2083,9 +2092,11 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-colab/typescript/colab-client/src/index.ts',
     'design/browser-ui/src/static.css',
     '.github/workflows/colab-browser.yml',
+    '.github/actions/install-chromium-deps/action.yml',
     'typescript/pnpm-lock.yaml',
   ])('selects the advisory Colab app component suite for %s', (file) => {
     expect(selectColabApp([file])).toBe(true);
+    expect(selectColabChrome([file])).toBe(true);
     expect(selectColabApp(['DEVELOPMENT.md', file])).toBe(true);
   });
 
@@ -3524,9 +3535,10 @@ describe('required CI gate', () => {
     );
     expect(app).toContain('permissions:\n      contents: read');
     expect(app).toContain('pnpm --filter @tmt/colab-app --fail-if-no-match test:browser');
-    expect(app).toContain('playwright install --with-deps chromium');
-    // Whole-file shards balance the one single-worker suite (#3618): none cancels another, and each keeps
-    // its own concurrency group and evidence.
+    expect(app).toContain('uses: ./.github/actions/install-chromium-deps');
+    expect(app).toContain('playwright install chromium');
+    expect(app).not.toContain('--with-deps');
+    // Whole-file shards retain separate concurrency groups and evidence; none cancels another.
     expect(app).toContain('fail-fast: false');
     expect(app).toContain('shard: [1, 2, 3, 4, 5, 6]');
     expect(app).toContain(
