@@ -46,6 +46,8 @@ pub mod passthrough;
 pub mod private_file;
 #[cfg(unix)]
 pub mod process;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub mod pty;
 #[cfg(unix)]
 mod release_http;
 #[cfg(unix)]

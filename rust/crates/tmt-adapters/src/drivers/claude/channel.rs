@@ -3,6 +3,7 @@
 //! `contracts/claude-channel-v1.md` owns the behavior and the mapping below.
 
 use crate::{
+    private_file::{directory_is_private, ensure_private_directory},
     process::{
         CommandRequest, CommandRunner, UnixCommandRunner,
         ps::query_ps,
@@ -522,33 +523,6 @@ impl ChannelEnrollment for Lease {
                 let _ = fs::remove_file(socket_path(&self.directory, &self.binding_id));
             }
         });
-    }
-}
-
-fn directory_is_private(directory: &Path) -> bool {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    fs::symlink_metadata(directory).is_ok_and(|metadata| {
-        metadata.is_dir()
-            && metadata.uid() == nix::unistd::geteuid().as_raw()
-            && metadata.permissions().mode() & 0o077 == 0
-    })
-}
-
-/// The endpoint directory is created owner-only and must stay so: a record or
-/// socket another user could write is no evidence.
-fn ensure_private_directory(directory: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(directory)?;
-    if directory_is_private(directory) {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "the channel directory must be an owner-only directory",
-        ))
     }
 }
 

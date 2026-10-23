@@ -80,6 +80,14 @@ pub enum Invocation {
         generation: String,
         directory: std::path::PathBuf,
     },
+    /// The hidden supervisor of one built-in-host member.
+    PtyServe {
+        directory: std::path::PathBuf,
+        id: String,
+        cols: u16,
+        rows: u16,
+        program: Vec<std::ffi::OsString>,
+    },
     Resume {
         name: Option<String>,
         driver: Option<String>,
