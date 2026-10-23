@@ -61,6 +61,8 @@ const fragments = await Promise.all(
     'pager',
     'status-tile',
     'state-mark',
+    'card',
+    'meter',
     'list',
     'command',
     'drawer',

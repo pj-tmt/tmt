@@ -38,6 +38,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A passive chip carries no remove control, so its label is padded the same on both sides. */
+.tmt-ui-chip-label:only-child {
+  padding: 0 6px;
+}
 .tmt-ui-chip > .tmt-ui-icon-action {
   align-self: stretch;
 }

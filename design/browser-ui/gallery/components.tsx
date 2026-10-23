@@ -438,6 +438,16 @@ export function ChipsSection() {
           )
         }
       </Pair>
+      <Pair
+        title="Passive chip"
+        note="A label for a state that is not an action: the chip without a remove control, padded the same on both sides."
+      >
+        {() => (
+          <span className="tmt-ui-chip">
+            <span className="tmt-ui-chip-label">Not connected</span>
+          </span>
+        )}
+      </Pair>
       <Pair title="BrowserChips" note="Live: press ＋ to open the real add popup.">
         {() => (
           <Cells>
