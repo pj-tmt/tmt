@@ -365,8 +365,7 @@ impl Session {
                 // Core's words are the status; a `working` mark alone moves.
                 entry.feedback_clock = matches!(
                     &entry.outcome,
-                    Some(Ok(accepted)) if accepted.message_state_label.as_deref()
-                        .is_some_and(|label| label.starts_with("⠹ "))
+                    Some(Ok(accepted)) if accepted.working
                 )
                 .then(|| FeedbackClock {
                     progress: progress::Progress::Stated {
@@ -709,9 +708,11 @@ impl Session {
                     changed = true;
                 }
                 if let Some(Ok(accepted)) = &mut entry.outcome
-                    && accepted.message_state_label != send.message_state_label
+                    && (accepted.message_state_label != send.message_state_label
+                        || accepted.working != send.working)
                 {
                     accepted.message_state_label = send.message_state_label.clone();
+                    accepted.working = send.working;
                     entry.feedback_clock = None;
                     changed = true;
                 }

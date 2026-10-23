@@ -86,6 +86,7 @@ pub(crate) fn chat(
     if let Ok(detail) = crate::requests::show_request(core, &result.request) {
         result.message_state_label = crate::requests::message_state_label(&detail);
         result.can_send_now = crate::requests::can_send_now(&detail);
+        result.working = crate::requests::is_working(&detail);
     }
     Ok(result)
 }
@@ -125,6 +126,7 @@ fn accepted(
         disposition,
         message_state_label: None,
         can_send_now: false,
+        working: false,
         passthrough,
         fallback: reason.map(str::to_owned),
         warning: None,

@@ -365,6 +365,12 @@ pub(crate) fn can_send_now(item: &Value) -> bool {
     item["messageState"]["canSendNow"] == true
 }
 
+/// Whether Core says the agent is working on this message. The state, never the mark text,
+/// selects the motion.
+pub(crate) fn is_working(item: &Value) -> bool {
+    item["messageState"]["state"] == "working"
+}
+
 /// Reads one request's detail through `requests.show`, which acknowledges
 /// nothing.
 pub fn show_request(core: &Core, id: &str) -> Result<Value, SquadError> {

@@ -35,6 +35,8 @@ pub struct Accepted {
     pub message_state_label: Option<String>,
     /// Core's `canSendNow` for that state, read in the same document as the label.
     pub can_send_now: bool,
+    /// Core's `messageState.state == "working"`, read in the same document as the label.
+    pub working: bool,
     /// Core accepted this as typed pane input, not a request notice.
     pub passthrough: bool,
     /// A capability-based request fallback, rendered beside its composer.
@@ -66,6 +68,7 @@ impl Accepted {
             disposition,
             message_state_label: crate::requests::message_state_label(document),
             can_send_now: crate::requests::can_send_now(document),
+            working: crate::requests::is_working(document),
             passthrough: false,
             fallback: None,
             warning: None,

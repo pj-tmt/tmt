@@ -899,6 +899,7 @@ fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
                 passthrough: false,
                 message_state_label: None,
                 can_send_now: false,
+                working: false,
                 fallback: None,
                 warning: None,
             }),
@@ -1007,6 +1008,7 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
             passthrough: false,
             message_state_label: None,
             can_send_now: false,
+            working: false,
             fallback: None,
             warning: None,
         }),
@@ -1184,6 +1186,37 @@ fn reduced_motion_and_no_color_keep_static_glyph_and_live_elapsed_text() {
             assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
             let screen = crate::status::with_now_ms(SENT + 1_000, || board_frame(&app, 148, 51));
             assert!(screen.contains("⠹ worker is working · 0:01"), "{screen}");
+        }
+    });
+}
+
+#[test]
+fn the_working_clock_follows_cores_state_not_the_mark_text_of_its_words() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        // (Core state, Core's words, whether the motion runs)
+        for (state, words, moves) in [
+            ("unknown_state", "⠹ lookalike words", false),
+            ("delivered", "⠹ lookalike words", false),
+            ("working", "worker is on it", true),
+            ("working", "⠹ lookalike words", true),
+        ] {
+            let mut app = fixture();
+            let fake = Fake::new(
+                json!({"requestId":"req-state","status":"sent",
+                    "messageState":{"state":state,"reason":{"text":words}}}),
+                false,
+            );
+            let completed = send(&mut app, &fake, "ask the worker");
+            finish(&mut app, completed);
+            let mut conversation = app.conversation.borrow_mut();
+            let session = conversation.sessions.values_mut().next().unwrap();
+            session.observe_progress("worker", None, NOW, true);
+            assert_eq!(
+                session.outgoing[0].feedback_clock.is_some(),
+                moves,
+                "{state}: {words}"
+            );
         }
     });
 }
@@ -2025,6 +2058,7 @@ fn a_restored_send_is_dropped_once_a_live_entry_has_the_same_request() {
         capture: None,
         message_state_label: None,
         can_send_now: false,
+        working: false,
     };
     session.sent = vec![sent("req-live"), sent("req-old")];
     let restored: Vec<_> = session.restored_sends().map(|send| &send.request).collect();
