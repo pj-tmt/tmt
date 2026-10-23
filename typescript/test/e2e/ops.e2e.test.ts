@@ -411,7 +411,13 @@ renameSync(output+'.tmp',output);
       expect(
         squad.sections.flatMap((section) => section.rows).some((entry) => entry.id === created.id)
       ).toBe(true);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', 'q']);
+      // Observe the modal closing before q; an adjacent Escape+q can be Alt-q.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture(
+        (screen) => !screen.includes('New member') && screen.includes('new-worker'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture(
         (screen) => screen.includes('NEW_MEMBER_BOARD_EXIT=0'),
         shell.pane
