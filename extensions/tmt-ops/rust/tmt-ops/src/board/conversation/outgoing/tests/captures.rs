@@ -906,6 +906,10 @@ fn sends_scene(restored: bool, specs: &[Spec]) -> App {
                 to: "worker".into(),
             },
         );
+        if spec.failed {
+            // The kept draft is cleared, as a person would, so the next message starts empty.
+            app.input.as_mut().unwrap().text.clear();
+        }
         app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.notice = None;
     }
