@@ -51,7 +51,8 @@ pub enum Exit {
 pub enum Eviction {
     /// Another client asked for sole use.
     TakenOver,
-    /// It did not read output fast enough; the program is never made to wait.
+    /// It read none of the output waiting for it for too long. Until then its backlog
+    /// pauses the program, so a slow client slows the program rather than losing output.
     TooSlow,
 }
 
