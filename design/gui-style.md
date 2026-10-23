@@ -335,6 +335,11 @@ An opaque, shadow-free sheet with the shared thin edge and the control radius.
   `NoticeCard` (`notice-card.tsx`).
 - **Item card:** a page in the page list: icon, title, short ID, audience tag,
   expiry, actions row.
+- **Group card:** `tmt-ui-card`, one subject per card (a Digest provider, a chart): a head
+  (sentence-case title, optional muted note) over the body. Facts inside it are bare status tiles
+  (label over value, no tile box, a dot only for a tone), never a box in a box; tile chrome is for a
+  page-level row such as Ops. A read-only measure is a `tmt-ui-meter` placed directly under the
+  value it measures, coloured by its chart series.
 - Basis: own.
 
 ### Chip
@@ -344,7 +349,8 @@ inline flex). Kinds: **status** (mark plus word), **filter** (a toggle button, a
 **count** (a label and a boxed number such as `Needs you 5`: `BrowserCountChip`, or a
 `BrowserMenu` count trigger with a chevron that opens its list; the attention tone is
 for work that waits on the reader). Static chips are rounded outlines; interactive
-ones are buttons with a focus edge. Height 20 px, filter
+ones are buttons with a focus edge. A **passive** chip (label only, no remove control) names a
+state that is not an action, such as `Not connected`. Height 20 px, filter
 24 px. Basis: own.
 
 ### BrowserChips
