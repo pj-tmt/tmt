@@ -62,11 +62,19 @@ pub(super) fn run_bound(
         save,
         channel,
     } = request;
-    let moving = resume.is_some_and(|resume| resume.move_running);
+    let switching = resume.and_then(|resume| resume.driver);
+    let moving = resume.is_some_and(|resume| resume.move_running || resume.driver.is_some());
     let mut registry = RuntimeRegistry::first_party();
     let existing = storage
         .find_identity(&normalize_name(name))
         .map_err(storage_failure)?;
+    if switching.is_some() && existing.is_none() {
+        return Err(Failure::new(
+            "NAME_NOT_FOUND",
+            "The identity to switch does not exist; no agent was stopped or launched.",
+            3,
+        ));
+    }
     if resume.is_some()
         && !moving
         && let Some(identity) = &existing
@@ -150,10 +158,26 @@ pub(super) fn run_bound(
             Ok(preferences)
         })
         .map_err(storage_failure)?;
-    let mut launch = select_command(&mut registry, name, command, resume, &preferences)?;
+    let selected_preferences = super::switch_driver::selection(&preferences, switching)?;
+    let mut launch = select_command(
+        &mut registry,
+        RunRequest {
+            name,
+            command,
+            ..request
+        },
+        &selected_preferences,
+    )?;
     let preset = existing
         .as_ref()
-        .map(|identity| tmt_adapters::runtime::launch_preset::read(storage, &identity.id))
+        .map(|identity| match launch.resumed.as_ref() {
+            Some(session) => tmt_adapters::runtime::launch_preset::read_for_session(
+                storage,
+                &identity.id,
+                session,
+            ),
+            None => Ok(None),
+        })
         .transpose()
         .map_err(storage_failure)?
         .flatten();
@@ -213,12 +237,32 @@ pub(super) fn run_bound(
         .as_ref()
         .and_then(|harness| registry.lifecycle(harness))
         .unwrap_or(&NoLifecycle);
+    if switching.is_some()
+        && launch.resumed.is_none()
+        && !lifecycle.resume_settings(&mut launch.command, options)
+    {
+        return Err(Failure::new(
+            "RESUME_SETTINGS_INVALID",
+            "The driver cannot use the selected launch settings; no new agent was launched.",
+            1,
+        ));
+    }
+    let before_handoff = launch.command.clone();
+    if switching.is_some()
+        && !lifecycle.initial_message(&mut launch.command, "TMT driver-switch handoff")
+    {
+        return Err(Failure::new(
+            "RESUME_UNSUPPORTED",
+            "The selected driver cannot accept a handoff as first input; no new agent was launched.",
+            1,
+        ));
+    }
     // Policy is selected once; the driver only advertises its Default choice.
     let remembered_channel = launch
         .resumed
         .as_ref()
-        .filter(|session| preferences.preferred_harness.as_ref() == Some(&session.harness))
-        .and(preferences.channel);
+        .filter(|session| selected_preferences.preferred_harness.as_ref() == Some(&session.harness))
+        .and(selected_preferences.channel);
     let mode = if settings.experimental_channel {
         super::channel::resume_mode(channel, launch.resumed.is_some(), remembered_channel)
     } else {
@@ -226,9 +270,31 @@ pub(super) fn run_bound(
     };
     let remember_channel =
         launch.resumed.is_none() || channel != crate::invocation::ChannelMode::Default;
-    let mut channel = preflight(&registry, mode, claim.as_ref(), &launch.command, paths)
-        .map_err(|error| channel_preflight_failure(error, channel, mode, name))?;
+    let mut channel =
+        preflight(&registry, mode, claim.as_ref(), &launch.command, paths).map_err(|error| {
+            if let Some(driver) = switching
+                && channel == crate::invocation::ChannelMode::Default
+                && mode == crate::invocation::ChannelMode::Required
+            {
+                error.suggestion(super::switch_driver::channel_retry(request, driver))
+            } else {
+                channel_preflight_failure(error, channel, mode, name)
+            }
+        })?;
+    if let Some(driver) = switching
+        && channel.channel.is_some()
+    {
+        return Err(super::switch_driver::channel_refusal(request, driver));
+    }
     host.resolve_servers(storage).map_err(endpoint_failure)?;
+    let mut handoff_request = |binding: &Binding| {
+        super::switch_driver::request(
+            existing.as_ref().expect("existing switch identity"),
+            binding,
+            paths,
+            settings,
+        )
+    };
     let moved = if moving {
         super::move_session::move_binding(
             storage,
@@ -240,13 +306,53 @@ pub(super) fn run_bound(
                     .as_ref()
                     .expect("a selected resume has an existing identity"),
                 preferences: &preferences,
-                lifecycle,
+                lifecycle: preferences
+                    .remembered
+                    .as_ref()
+                    .and_then(|session| registry.lifecycle(&session.harness))
+                    .unwrap_or(&NoLifecycle),
+                switching: switching.is_some(),
+                handoff: if switching.is_some() {
+                    Some(&mut handoff_request)
+                } else {
+                    None
+                },
             },
             effect,
         )?
     } else {
         None
     };
+    if switching.is_some() {
+        *effect = if moved.is_some() {
+            LaunchEffect::BoundHere
+        } else {
+            LaunchEffect::OldEnded
+        };
+        let identity = existing
+            .as_ref()
+            .expect("an explicit switch has an identity");
+        let handoff = super::switch_driver::context(storage, paths, identity)?;
+        launch.command = before_handoff;
+        if !lifecycle.initial_message(&mut launch.command, &handoff) {
+            return Err(Failure::new(
+                "RESUME_UNSUPPORTED",
+                "The driver refused the handoff; no new agent was launched.",
+                1,
+            ));
+        }
+        if let Some(session) = preferences.remembered.as_ref()
+            && let Some(preset) = tmt_adapters::runtime::launch_preset::read_for_session(
+                storage,
+                &identity.id,
+                session,
+            )
+            .map_err(storage_failure)?
+        {
+            tmt_adapters::runtime::launch_preset::retain(storage, &identity.id, &preset)
+                .map_err(storage_failure)?;
+        }
+    }
     let bound = if let Some(bound) = moved {
         Ok(bound)
     } else if auto_named {
@@ -346,6 +452,9 @@ pub(super) fn run_bound(
         .is_err()
     {
         diagnostic("identity bound, but its cosmetic badge could not be updated.");
+    }
+    if let Some(driver) = switching {
+        super::switch_driver::activate(storage, binding, &selected_preferences, driver)?;
     }
     let mut hooks_installed = match &launch.resumed {
         Some(session) => Registry::builtin()
@@ -458,19 +567,32 @@ pub(super) fn run_bound(
         .chain(lease.environment().iter().cloned())
         .chain(std::iter::once(("TMT_AGENT".into(), "1".into())))
         .collect::<Vec<_>>();
-    let captured_preset = (launch.resumed.is_none())
-        .then(|| {
-            owner.as_ref().and_then(|owner| {
-                tmt_adapters::runtime::launch_preset::LaunchPreset::capture(
-                    &launch.command,
-                    &registry,
-                    &binding.id,
-                    owner,
-                    |key| std::env::var(key).ok(),
-                )
-            })
+    let captured_preset = if switching.is_some() && launch.resumed.is_some() {
+        replay.zip(owner.as_ref()).map(|(preset, owner)| {
+            super::switch_driver::rebound_preset(
+                preset,
+                binding,
+                owner,
+                launch.resumed.as_ref().unwrap(),
+                lifecycle,
+                options,
+            )
         })
-        .flatten();
+    } else {
+        (launch.resumed.is_none())
+            .then(|| {
+                owner.as_ref().and_then(|owner| {
+                    tmt_adapters::runtime::launch_preset::LaunchPreset::capture(
+                        &launch.command,
+                        &registry,
+                        &binding.id,
+                        owner,
+                        |key| std::env::var(key).ok(),
+                    )
+                })
+            })
+            .flatten()
+    };
     let child =
         InteractiveChild::start_with(&planned.executable, &planned.args, &child_environment)
             .map_err(|error| {
@@ -490,8 +612,8 @@ pub(super) fn run_bound(
         {
             diagnostic("could not record the bounded launch preset; this command keeps running.");
         }
-    } else if launch.resumed.is_none() {
-        // A fresh launch without a record must not reuse an older launcher.
+    } else if launch.resumed.is_none() || switching.is_some() {
+        // A fresh or explicit switch launch without a record must not reuse an older launcher.
         if tmt_adapters::runtime::launch_preset::clear(storage, &binding.identity_id).is_err() {
             diagnostic("could not clear the previous launch preset; this command keeps running.");
         }
@@ -532,8 +654,8 @@ pub(super) fn run_bound(
             }
             // A confirmed spawn remembers the pure driver claim even when
             // the process exits before live admission. It never writes a
-            // session (hooks own that), but a session another driver
-            // remembered is dropped: one identity has one current runtime.
+            // session (hooks own that); another driver's record becomes
+            // inactive while this identity still has one current runtime.
             if let Some(harness) = &claim {
                 let mut preferences = records.session_preferences(&binding.identity_id)?;
                 preferences.launched(harness);

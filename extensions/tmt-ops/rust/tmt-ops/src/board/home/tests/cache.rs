@@ -41,13 +41,68 @@ fn forget(app: &App) {
 fn builds(app: &App) -> usize {
     app.view.as_ref().unwrap().derived.borrow().home.builds()
 }
+/// Names what differs, so a failure shows the cause instead of two whole buffers.
+fn difference(held: &Capture, rebuilt: &Capture) -> Option<String> {
+    if held == rebuilt {
+        return None;
+    }
+    let mut out = String::new();
+    let (area, cells) = (held.buffer.area, held.buffer.content());
+    for y in 0..area.height {
+        let row = |capture: &Capture| -> String {
+            (0..area.width)
+                .map(|x| capture.buffer[(x, y)].symbol().to_owned())
+                .collect()
+        };
+        let (a, b) = (row(held), row(rebuilt));
+        if a != b {
+            out += &format!("row {y} held   : {a}\nrow {y} rebuilt: {b}\n");
+        }
+    }
+    let styled = cells
+        .iter()
+        .zip(rebuilt.buffer.content())
+        .filter(|(a, b)| a.symbol() == b.symbol() && a.style() != b.style())
+        .count();
+    out += &format!("{styled} cells differ only in style\n");
+    for (name, a, b) in [
+        ("hits", &held.hits, &rebuilt.hits),
+        ("actions", &held.actions, &rebuilt.actions),
+        ("input", &held.input, &rebuilt.input),
+    ] {
+        if a != b {
+            out += &format!("{name} held   : {a}\n{name} rebuilt: {b}\n");
+        }
+    }
+    if held.starts != rebuilt.starts {
+        out += &format!("starts {:?} vs {:?}\n", held.starts, rebuilt.starts);
+    }
+    Some(out)
+}
 fn agrees(app: &App, width: u16, transition: &str) {
     let held = capture(app, width);
     forget(app);
-    assert_eq!(held, capture(app, width), "{transition} at {width}");
+    let rebuilt = capture(app, width);
+    if let Some(difference) = difference(&held, &rebuilt) {
+        panic!("{transition} at {width}\n{difference}");
+    }
 }
 fn press(app: &mut App, code: KeyCode) {
     app.key(KeyEvent::new(code, KeyModifiers::NONE));
+}
+
+#[test]
+fn a_disagreement_names_the_row_and_the_table_that_differ() {
+    let app = board();
+    let held = capture(&app, 80);
+    let mut rebuilt = capture(&app, 80);
+    assert_eq!(difference(&held, &rebuilt), None);
+    rebuilt.buffer[(0, 3)].set_symbol("#");
+    rebuilt.hits.push('!');
+    let text = difference(&held, &rebuilt).expect("a changed cell is a difference");
+    assert!(text.contains("row 3 held"), "{text}");
+    assert!(text.contains("hits held"), "{text}");
+    assert!(!text.contains("row 4 "), "{text}");
 }
 
 #[test]

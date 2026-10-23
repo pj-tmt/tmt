@@ -83,6 +83,52 @@ pub(super) fn prepare(
             }
         })?)
     };
+    if let Some(expected) = &input.expected_binding {
+        use tmt_core::binding::BindingRepository;
+        let matches = storage
+            .with_binding_transaction::<_, StorageError>(|records| {
+                Ok(records
+                    .entry_by_id(&expected.identity_id)?
+                    .and_then(|entry| entry.binding)
+                    .is_some_and(|current| {
+                        current.id == expected.id
+                            && current.server == expected.server
+                            && current.pane_id == expected.pane_id
+                            && current.pane_pid == expected.pane_pid
+                            && current.session.key == expected.session.key
+                            && current.session.launch_owner == expected.session.launch_owner
+                    }))
+            })
+            .map_err(|error| {
+                Failure::new(
+                    "IDENTITY_ERROR",
+                    "Could not recheck the handoff attachment.",
+                    1,
+                )
+                .caused_by(error)
+            })?;
+        // The name may have been renamed/reused while resolving it. Pin the
+        // resolved recipient as well as the stored attachment before sending.
+        let recipient_matches = recipient
+            .as_ref()
+            .is_some_and(|identity| identity.id == expected.identity_id)
+            && observed
+                .as_ref()
+                .and_then(|value| value.binding.as_ref())
+                .is_some_and(|binding| binding.id == expected.id);
+        if !matches
+            || !recipient_matches
+            || input
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return Err(Failure::new(
+                "IDENTITY_CONFLICT",
+                "The handoff attachment changed or its time budget ended; nothing was sent.",
+                5,
+            ));
+        }
+    }
     let (originator, sender) =
         identity_context::optional(storage, host, input.originator.as_deref())?.map_or(
             (Originator::Unknown, "unknown".to_owned()),

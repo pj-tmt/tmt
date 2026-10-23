@@ -134,6 +134,7 @@ function expectNativeSchema(
     },
     { version: 60, name: "keep the turn output a person's passthrough message earned" },
     { version: 61, name: "record how long a digest rule keeps a member's oldest held message" },
+    { version: 62, name: 'retain an inactive resume record per driver' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -150,6 +151,7 @@ function expectNativeSchema(
       'identity_metadata',
       'identity_status',
       'identity_session_preferences',
+      'identity_resume_records',
       'office_local_blocks',
       'office_local_worlds',
       'office_local_profiles',
@@ -212,6 +214,20 @@ function expectNativeSchema(
         'provider_session_id',
         'driver_state',
         'driver_state_version',
+        'stale_at_ms',
+        'resume_pending_at_ms',
+        'channel',
+      ],
+    ],
+    [
+      'identity_resume_records',
+      [
+        'identity_id',
+        'harness',
+        'runtime_mode',
+        'provider_session_id',
+        'driver_state_version',
+        'driver_state',
         'stale_at_ms',
         'resume_pending_at_ms',
         'channel',
@@ -280,6 +296,24 @@ function expectNativeSchema(
       dflt_value: null,
     });
   }
+  const retained = table(migrated, 'identity_resume_records');
+  expect(retained.foreignKeys).toEqual([
+    {
+      id: 0,
+      seq: 0,
+      table: 'identities',
+      from: 'identity_id',
+      to: 'id',
+      on_update: 'NO ACTION',
+      on_delete: 'CASCADE',
+      match: 'NONE',
+    },
+  ]);
+  expect(retained.indexes).toHaveLength(1);
+  expect(retained.indexes[0]).toMatchObject({ unique: 1, origin: 'pk', partial: 0 });
+  expect(
+    retained.indexes[0]!.columns.filter((column) => column.key === 1).map((column) => column.name)
+  ).toEqual(['identity_id', 'harness']);
   const snapshots = table(migrated, 'office_whiteboard_snapshots');
   const images = table(migrated, 'office_whiteboard_snapshot_images');
   expect(images.columns[0]).toMatchObject({ name: 'snapshot_id', type: 'TEXT', notnull: 1, pk: 1 });

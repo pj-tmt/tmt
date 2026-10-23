@@ -54,6 +54,7 @@ fn same_interface_rebind_retains_runtime_observation_and_preferences() {
         }),
     };
     let preferences = SessionPreferences {
+        retained: Vec::new(),
         channel: None,
         preferred_harness: Some(HarnessId::new("codex").unwrap()),
         remembered: Some(RememberedSession {

@@ -363,6 +363,10 @@ fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
         ),
         ("run_command/resume.rs", crate::run_command::RESUME_HINTS),
         ("run_command/run.rs", crate::run_command::RUN_HINTS),
+        (
+            "run_command/switch_driver.rs",
+            crate::run_command::SWITCH_HINTS,
+        ),
         ("setup_command.rs", crate::setup_command::PRINTED_HINTS),
         (
             "setup_command/guided.rs",

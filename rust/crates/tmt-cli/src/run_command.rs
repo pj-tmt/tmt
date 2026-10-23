@@ -28,11 +28,12 @@ mod channel;
 mod move_session;
 mod resume;
 mod run;
+mod switch_driver;
 
 use run::run_bound;
 
 #[cfg(test)]
-use resume::{failure_is_trustworthy, select_command};
+use resume::failure_is_trustworthy;
 #[cfg(test)]
 use tmt_adapters::runtime::RuntimeRegistry;
 #[cfg(test)]
@@ -46,7 +47,9 @@ struct Launch {
 
 /// `tmt resume <name>` and its `tmt run --resume <name>` alias.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Resume {
+pub struct Resume<'a> {
+    /// Explicit driver selection also owns the stop/move path.
+    pub driver: Option<&'a str>,
     /// Try a session marked stale once more.
     pub retry: bool,
     /// Stop the exact old agent before moving this identity to the caller pane.
@@ -119,6 +122,7 @@ enum LaunchEffect {
     NotLaunched,
     OldStopped,
     BoundHere,
+    OldEnded,
     Launched,
 }
 
@@ -127,7 +131,7 @@ struct RunRequest<'a> {
     name: &'a str,
     options: &'a tmt_adapters::runtime::launch_preset::LaunchSettings,
     command: &'a [OsString],
-    resume: Option<Resume>,
+    resume: Option<Resume<'a>>,
     save: bool,
     /// The launcher's channel policy for this launch.
     channel: crate::invocation::ChannelMode,
@@ -156,7 +160,7 @@ fn incarnation(pid: u32) -> Option<ProcessIncarnation> {
 pub fn execute(
     name: &str,
     command: &[OsString],
-    resume: Option<Resume>,
+    resume: Option<Resume<'_>>,
     save: bool,
     channel: crate::invocation::ChannelMode,
 ) -> io::Result<u8> {
@@ -175,7 +179,7 @@ pub fn execute(
 
 pub fn resume_with_options(
     name: &str,
-    resume: Resume,
+    resume: Resume<'_>,
     options: &tmt_adapters::runtime::launch_preset::LaunchSettings,
     channel: crate::invocation::ChannelMode,
 ) -> io::Result<u8> {
@@ -195,13 +199,28 @@ pub fn resume_with_options(
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     // This invocation-local fact reports effects; it grants no admission authority.
     let mut effect = LaunchEffect::NotLaunched;
-    run_observed(request, &mut effect).map_err(|error| {
-        if request.resume.is_some_and(|resume| resume.move_running) {
-            move_session::launch_failure(error, request.name, effect)
-        } else {
-            error
-        }
-    })
+    run_observed(request, &mut effect).map_err(|error| launch_failure(error, request, effect))
+}
+
+fn launch_failure(error: Failure, request: RunRequest<'_>, effect: LaunchEffect) -> Failure {
+    if !request
+        .resume
+        .is_some_and(|resume| resume.move_running || resume.driver.is_some())
+    {
+        return error;
+    }
+    // Preserve a refusal's actionable remedy instead of replacing it with a
+    // retry that repeats the same refusal or acts on a different driver's record.
+    let remedy = error.suggestion_text().map(str::to_owned);
+    let error = move_session::launch_failure(error, request.name, effect);
+    if let Some(driver) = request.resume.and_then(|resume| resume.driver) {
+        error.suggestion(remedy.unwrap_or_else(|| {
+            let retry = switch_driver::retry(request, driver);
+            format!("Inspect the old and caller panes before retrying: {retry}")
+        }))
+    } else {
+        error
+    }
 }
 
 fn run_observed(request: RunRequest<'_>, effect: &mut LaunchEffect) -> Result<u8, Failure> {
@@ -269,6 +288,8 @@ pub(crate) use resume::PRINTED_HINTS as RESUME_HINTS;
 
 #[cfg(test)]
 pub(crate) use run::PRINTED_HINTS as RUN_HINTS;
+#[cfg(test)]
+pub(crate) use switch_driver::PRINTED_HINTS as SWITCH_HINTS;
 
 #[cfg(test)]
 mod tests {
@@ -381,6 +402,11 @@ mod tests {
                 "tmt resume --move -- '-Saved agent'",
             ),
             (
+                LaunchEffect::OldEnded,
+                "The old agent has ended. No new agent was launched",
+                "tmt resume --move -- '-Saved agent'",
+            ),
+            (
                 LaunchEffect::OldStopped,
                 "The old agent was stopped. No new agent was launched",
                 "tmt resume -- '-Saved agent'",
@@ -417,6 +443,7 @@ mod tests {
 
     fn preferences(harness: &str, mode: &str, session: &str) -> SessionPreferences {
         SessionPreferences {
+            retained: Vec::new(),
             channel: None,
             preferred_harness: Some(HarnessId::new(harness).unwrap()),
             remembered: Some(RememberedSession {
@@ -431,10 +458,32 @@ mod tests {
     }
 
     const SESSION: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    const RESUME: Option<Resume> = Some(Resume {
+    const RESUME: Option<Resume<'static>> = Some(Resume {
+        driver: None,
         retry: false,
         move_running: false,
     });
+
+    fn select_command(
+        registry: &mut RuntimeRegistry,
+        name: &str,
+        command: &[OsString],
+        resume: Option<Resume<'_>>,
+        preferences: &SessionPreferences,
+    ) -> Result<Launch, Failure> {
+        super::resume::select_command(
+            registry,
+            RunRequest {
+                name,
+                command,
+                resume,
+                save: false,
+                options: &Default::default(),
+                channel: crate::invocation::ChannelMode::Default,
+            },
+            preferences,
+        )
+    }
 
     fn refused(result: Result<Launch, Failure>) -> (String, String) {
         let error = result.err().expect("resume must not launch");
@@ -542,6 +591,7 @@ mod tests {
             "Ann",
             &[],
             Some(Resume {
+                driver: None,
                 retry: true,
                 move_running: false,
             }),

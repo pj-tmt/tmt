@@ -25,7 +25,7 @@ pub fn execute(
     show: bool,
     forget_launch: bool,
     forget: bool,
-    resume: crate::run_command::Resume,
+    resume: crate::run_command::Resume<'_>,
     options: tmt_adapters::runtime::launch_preset::LaunchSettings,
     channel: crate::invocation::ChannelMode,
 ) -> io::Result<u8> {

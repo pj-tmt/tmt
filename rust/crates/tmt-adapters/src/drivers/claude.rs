@@ -399,6 +399,11 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         true
     }
 
+    fn initial_message(&self, command: &mut crate::runtime::RuntimeCommand, message: &str) -> bool {
+        command.args.extend(["--".into(), message.into()]);
+        true
+    }
+
     fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
         caller_session::coordinates(
             std::env::var_os("CLAUDE_CODE_SESSION_ID").as_deref(),

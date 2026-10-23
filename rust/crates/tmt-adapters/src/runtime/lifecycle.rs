@@ -161,6 +161,12 @@ pub trait RuntimeLifecycle {
         settings.model.is_none() && settings.effort.is_none()
     }
 
+    /// Compose an explicit switch handoff as the first input. Unsupported
+    /// drivers refuse before the old agent is asked or stopped.
+    fn initial_message(&self, _command: &mut super::RuntimeCommand, _message: &str) -> bool {
+        false
+    }
+
     fn caller_session(&self) -> Option<CallerSession> {
         None
     }

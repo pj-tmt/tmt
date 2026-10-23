@@ -545,6 +545,12 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     state,
                     state_primary_width,
                     tokens,
+                    session: match &row.target {
+                        OpsTarget::Member { identity_id, .. } => {
+                            safe(&app.member_session_evidence(identity_id).compact())
+                        }
+                        _ => String::new(),
+                    },
                     model: model.clone(),
                     timers: timers.map(|count| count.total),
                     selected,

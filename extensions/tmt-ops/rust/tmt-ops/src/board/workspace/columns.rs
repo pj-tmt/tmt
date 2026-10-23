@@ -98,6 +98,7 @@ pub enum AgentsField {
     Agent,
     Model,
     State,
+    Session,
     Tokens,
     Cron,
 }
@@ -108,6 +109,7 @@ impl AgentsField {
             Self::Agent => "SQUAD / AGENT",
             Self::Model => "MODEL / NOW",
             Self::State => "STATE",
+            Self::Session => "HOST / SESSION",
             Self::Tokens => crate::config::TokRange::Hour.caption(),
             Self::Cron => match glyphs {
                 crate::board::overview::cron_counts::GlyphSet::Unicode => "◷",
@@ -119,6 +121,7 @@ impl AgentsField {
         match self {
             Self::Agent => 25,
             Self::State => 16,
+            Self::Session => 20,
             Self::Tokens => 7,
             Self::Cron => 4,
             Self::Model => 12,
@@ -201,6 +204,7 @@ impl AgentsLayout {
             let mut fields = vec![
                 AgentsField::Agent,
                 AgentsField::State,
+                AgentsField::Session,
                 AgentsField::Tokens,
                 AgentsField::Cron,
                 AgentsField::Model,
@@ -213,7 +217,12 @@ impl AgentsLayout {
                         .map(|f| f.gap())
                         .sum::<u16>()
             };
-            for optional in [AgentsField::Model, AgentsField::Cron, AgentsField::Tokens] {
+            for optional in [
+                AgentsField::Session,
+                AgentsField::Model,
+                AgentsField::Cron,
+                AgentsField::Tokens,
+            ] {
                 if demand(&fields) <= width {
                     break;
                 }
