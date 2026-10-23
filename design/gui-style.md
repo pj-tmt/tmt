@@ -79,7 +79,9 @@ name and a visible tooltip.
   indicator). It holds on three conditions: every field has a visible label (a
   select shows its value and a chevron instead), its fill (`surface.field`)
   differs from the surface behind it, and its focus and invalid states keep the
-  strong edge.
+  strong edge. The leaf's design audit (`controlBoundaries`) skips fields by name
+  for the border check and fails a field that fills like its surface or has no
+  visible label or value.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows
@@ -666,7 +668,9 @@ days`); exact time on hover.
   fast or base duration. Under `prefers-reduced-motion` every duration is 0 ms, so
   a change is instant. A leaving layer is inert: it takes no pointer input and
   hands its Escape to the layer under it. The LoaderCircle spin (see
-  [Transient states](#transient-states)) stops under the same preference.
+  [Transient states](#transient-states)) stops under the same preference. The
+  leaf's browser test (`design/browser-ui/e2e/overlay-motion.spec.ts`) asserts the
+  mounted-as-closed exit and the instant reduced-motion path.
 
 ## Transient states
 

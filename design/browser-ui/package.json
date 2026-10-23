@@ -20,9 +20,10 @@
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write",
     "check:generated": "node scripts/generate-static-css.mjs --check && node scripts/generate-ui-css.mjs --check && node scripts/generate-brand.mjs --check",
-    "check": "pnpm check:generated && tsc --noEmit && vp lint --config vitest.config.ts --deny-warnings --react-plugin src test gallery scripts/generate-ui-css.mjs scripts/ui-source-policy.mjs && vp fmt --config vitest.config.ts --check .",
+    "check": "pnpm check:generated && tsc --noEmit && vp lint --config vitest.config.ts --deny-warnings --react-plugin src test gallery e2e playwright.config.ts scripts/generate-ui-css.mjs scripts/ui-source-policy.mjs && vp fmt --config vitest.config.ts --check .",
     "test": "vp test run --config vitest.config.ts",
-    "gallery": "vp dev --config vite.gallery.config.ts"
+    "gallery": "vp dev --config vite.gallery.config.ts",
+    "test:browser": "vp exec playwright test"
   },
   "peerDependencies": {
     "react": "19.2.8",
@@ -44,7 +45,8 @@
     "@types/node": "^25.0.3",
     "typescript": "^5.3.0",
     "vite-plus": "1.0.0",
-    "tailwindcss": "4.3.3"
+    "tailwindcss": "4.3.3",
+    "@playwright/test": "1.63.0"
   },
   "dependencies": {
     "clsx": "2.1.1",

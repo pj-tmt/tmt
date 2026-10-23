@@ -97,6 +97,18 @@ means skipped; no required name changes. It restores caches without saving, exce
 Chromium on main. Both Colab chrome and component jobs use `install-chromium-deps`,
 the one pinned Chromium package list through the bounded apt action; browser downloads stay separate.
 
+`browser-ui` runs the design gallery's six computed-style audits and overlay motion checks
+in Chromium, with seeded negative controls. `browser_ui` selects `design/browser-ui/**`,
+`design/tokens/**` and the closed CI/tooling/workspace inputs in `ci-scope.mjs`; a tooling
+guard follows the gallery's local import graph and refuses inputs outside that selector.
+PR and merge-group diffs select it independently of native scope; main-full and weekly/manual
+full runs also select it. Unrelated product-only changes and cache seeds do not. It uses the
+same pinned Chromium cache and bounded system-package installation as `colab-chrome`.
+The existing `Native package matrix` requires selected success (unselected means skipped),
+and complete-main includes it; no required-check name changes. Only synthetic gallery
+failure traces are retained, for seven days. The leaf remains developer tooling, with no
+product or tmux fixture.
+
 ## Trusted main verification
 
 Each main push selects full CI only after a bounded read admits its SHA as current
