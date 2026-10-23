@@ -133,11 +133,28 @@ fn sanitized_shape(value: &Value, depth: usize, nodes: &mut usize) -> Value {
                 "message",
                 "details",
             ];
-            let rows:Vec<_>=fields.iter().take(if depth<6 {8}else{0}).map(|(name,value)| json!({"field":if known.contains(&name.as_str()){name.as_str()}else{"<other>"},"shape":sanitized_shape(value,depth+1)})).collect();
+            let rows: Vec<_> = fields
+                .iter()
+                .take(if depth < 6 { 8 } else { 0 })
+                .map(|(name, value)| {
+                    let field = if known.contains(&name.as_str()) {
+                        name.as_str()
+                    } else {
+                        "<other>"
+                    };
+                    let shape = sanitized_shape(value, depth + 1, nodes);
+                    json!({"field":field,"shape":shape})
+                })
+                .collect();
             json!({"type":"object","fields":fields.len(),"members":rows})
         }
         Value::Array(values) => {
-            json!({"type":"array","length":values.len(),"items":values.iter().take(if depth<6{2}else{0}).map(|v|sanitized_shape(v,depth+1)).collect::<Vec<_>>()})
+            let items: Vec<_> = values
+                .iter()
+                .take(if depth < 6 { 2 } else { 0 })
+                .map(|value| sanitized_shape(value, depth + 1, nodes))
+                .collect();
+            json!({"type":"array","length":values.len(),"items":items})
         }
         Value::String(text) => json!({"type":"string","bytes":text.len()}),
         Value::Number(_) => json!({"type":"number"}),
@@ -151,6 +168,14 @@ fn shape_evidence_contains_no_provider_identifier_token_or_carrier_values() {
     let shape = sanitized_shape(&value, 0, &mut 64).to_string();
     assert!(!shape.contains("SECRET"));
     assert!(shape.contains("bytesValue"));
+    let mut deep = Value::Null;
+    for _ in 0..100 {
+        deep = json!({"document":deep});
+    }
+    assert!(
+        sanitized_shape(&deep, 0, &mut 64).to_string().len() < 2048,
+        "diagnostic traversal remains bounded"
+    );
 }
 struct Wire {
     http: ProductionHttp,
