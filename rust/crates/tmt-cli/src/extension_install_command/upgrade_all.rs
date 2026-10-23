@@ -66,6 +66,7 @@ pub(crate) fn ask(plan: &Plan, yes: bool, mode: OutputMode) -> Result<bool, Fail
         mode,
         &question(&plan.pending),
         "No extension changes made.",
+        true,
     )
 }
 
