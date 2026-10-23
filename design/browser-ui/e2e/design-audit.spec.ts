@@ -64,6 +64,8 @@ const frames: [string, string][] = [
   ['dialog', ''],
   ['drawer', ''],
   ['drawer', '&width=wide'],
+  ['source', ''],
+  ['source', '&busy=true'],
   ['menu', ''],
   ['notifications', ''],
   ['shell', ''],

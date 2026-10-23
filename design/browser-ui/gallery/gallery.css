@@ -364,3 +364,12 @@
   align-items: center;
   gap: var(--tmt-ui-space-s);
 }
+
+/* The Source demo owns its editor layout; its controls and header are the real leaf. */
+.gallery-source-editor {
+  flex: 1;
+  width: 100%;
+  min-height: calc(var(--tmt-ui-space-2xl) * 4);
+  box-sizing: border-box;
+  font-family: var(--tmt-ui-font-mono);
+}

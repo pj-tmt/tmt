@@ -181,6 +181,9 @@ which builds the reserved mark slot an Action carries. Busy keeps the control's 
 it sets `aria-busy` and `aria-disabled`, not native `disabled`, and the click
 handler fences activation and cancels a busy submit's form submission. `disabled`
 keeps the native disabled styling and wins over busy, without a mark.
+Every Action variant keeps its idle fill and ink while busy under hover, press or
+keyboard focus; the independent focus frame stays visible. Busy does not introduce
+native disable or an appearance prop.
 Disabled/busy blocks callback delivery. A supplied disabled reason
 requires its stable ID and remains visible. `onActivate` receives the original
 React MouseEvent from native button click, including keyboard-generated click;
@@ -414,6 +417,11 @@ fills the available width. The opaque surface has one 1px edge, `radius-l` corne
 overlay shadow, and slides from its edge with the base motion (see Motion). Its scrim covers the header and iframe: a first outside
 press dismisses only, a second press acts on the uncovered control. Browser-only
 `scrim` starts at black 12% light / 32% dark.
+
+Optional `headerActions` renders host-owned controls immediately before Close in DOM
+and keyboard order, with shared spacing. Omitted, it adds no element or layout change;
+footer `actions` is separate. Header actions retain their own labels, busy/admission
+state and effects. The leaf does not infer saving or change dismissal/focus ownership.
 
 The host supplies `open`, title/caption, children and `onDismiss(reason, event)`.
 It owns busy admission, drafts, attempts and commands. An optional `notice` slot

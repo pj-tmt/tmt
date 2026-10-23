@@ -308,6 +308,56 @@ function DrawerFrame({ params }: { params: URLSearchParams }) {
   );
 }
 
+/** Source presentation only: Save records one local activation and remains busy. */
+function SourceFrame({ params }: { params: URLSearchParams }) {
+  const [open, setOpen] = useState(params.get('open') !== 'false');
+  const [busy, setBusy] = useState(params.get('busy') === 'true');
+  const [activations, setActivations] = useState(0);
+  const save = (
+    <BrowserAction
+      type="button"
+      variant="primary"
+      label="Save"
+      busy={busy}
+      onActivate={() => {
+        setActivations((count) => count + 1);
+        setBusy(true);
+      }}
+    />
+  );
+  return (
+    <div data-source-activations={activations}>
+      <BrowserAction
+        type="button"
+        variant="text"
+        label="Open source"
+        onActivate={() => setOpen(true)}
+      />
+      <BrowserDrawer
+        open={open}
+        title="Source"
+        width="wide"
+        headerActions={params.has('legacy') ? undefined : save}
+        actions={params.has('legacy') ? save : undefined}
+        onDismiss={() => setOpen(false)}
+      >
+        <p>
+          <span id="gallery-source-label">Page source</span>. Edit this sample HTML. This gallery
+          never saves a page.
+        </p>
+        <textarea
+          className="tmt-ui-field-control gallery-source-editor"
+          aria-labelledby="gallery-source-label"
+          spellCheck={false}
+          defaultValue={
+            '<section>\n  <h1>Navigation proposal</h1>\n  <p>One sidebar, less friction.</p>\n</section>'
+          }
+        />
+      </BrowserDrawer>
+    </div>
+  );
+}
+
 function MenuFrame() {
   // A menu ignores the value it mounts with; the next value opens it once.
   const [request, setRequest] = useState(0);
@@ -370,6 +420,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <DialogFrame />;
     case 'drawer':
       return <DrawerFrame params={params} />;
+    case 'source':
+      return <SourceFrame params={params} />;
     case 'menu':
       return <MenuFrame />;
     case 'notifications':
@@ -445,6 +497,7 @@ export function OverlaysSection() {
     <Section id="overlays">
       <FramePair title="BrowserDialog" frame="dialog" height={360} />
       <FramePair title="BrowserDrawer" frame="drawer" height={420} />
+      <FramePair title="BrowserDrawer · host header Save" frame="source" height={420} />
     </Section>
   );
 }
