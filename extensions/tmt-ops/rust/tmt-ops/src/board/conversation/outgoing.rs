@@ -284,18 +284,38 @@ impl Session {
             .filter_map(|entry| entry.reply.as_ref())
     }
 
+    /// Where each live send's answer goes: one turn can answer several sends.
+    fn answer_places(&self) -> Vec<super::answer_order::Place> {
+        super::answer_order::place(
+            &self
+                .outgoing
+                .iter()
+                .map(|entry| super::answer_order::Probe {
+                    at_ms: entry.started_ms,
+                    capture: entry.capture.as_ref(),
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
     pub(super) fn grouped_feedback(
         &self,
         sequence: u64,
         width: usize,
         look: Look,
     ) -> Option<Vec<ratatui::text::Line<'static>>> {
-        let entry = self
+        let index = self
             .outgoing
             .iter()
-            .find(|entry| entry.ticket.sequence == sequence)?;
+            .position(|entry| entry.ticket.sequence == sequence)?;
+        let status = self.outgoing[index].status();
+        let status = if self.answer_places()[index].answered_below {
+            super::answer_order::answered_below(&status)
+        } else {
+            status
+        };
         Some(super::super::markdown::wrap_styled(
-            super::super::exchange_view::feedback_content(&entry.status(), look),
+            super::super::exchange_view::feedback_content(&status, look),
             width,
         ))
     }
@@ -693,7 +713,9 @@ impl Session {
         }
         self.authored_lines.clear();
         self.compact_separators.clear();
-        for entry in &self.outgoing {
+        let places = self.answer_places();
+        for (index, entry) in self.outgoing.iter().enumerate() {
+            let place = &places[index];
             if let Some(question) = &entry.lead_in {
                 push_question(
                     &mut text,
@@ -727,15 +749,32 @@ impl Session {
                     },
                 );
                 text.push_str("\n\n");
-                push_literal(&mut text, &entry.status());
+                let status = entry.status();
+                push_literal(
+                    &mut text,
+                    &if place.answered_below {
+                        super::answer_order::answered_below(&status)
+                    } else {
+                        status
+                    },
+                );
             }
-            if let Some(capture) = &entry.capture
-                && !matches!(
-                    capture,
-                    crate::board::row_detail::Capture::Pending
-                        | crate::board::row_detail::Capture::Bound
-                )
-            {
+            // The group's answer follows its last send; the first send's own answer is painted
+            // there, not under itself.
+            let own = entry.capture.as_ref().filter(|capture| {
+                !place.hoisted
+                    && !place.mate
+                    && !matches!(
+                        capture,
+                        crate::board::row_detail::Capture::Pending
+                            | crate::board::row_detail::Capture::Bound
+                    )
+            });
+            let held = place
+                .answers
+                .iter()
+                .filter_map(|answered| self.outgoing[*answered].capture.as_ref());
+            for capture in own.into_iter().chain(held) {
                 text.push_str("\n\n");
                 text.push_str(&capture.markdown());
             }

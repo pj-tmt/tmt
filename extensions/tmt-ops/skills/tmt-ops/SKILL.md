@@ -794,7 +794,10 @@ never triggers a resend. Status changes remain separate and acknowledge nothing.
 from the row's Actions menu (or an authored `update-status` binding); the form
 reuses the existing preview, permission and conflict checks.
 
-Captured answers appear under their message as `turn output`, never a reply.
+Captured answers appear under their message as `turn output`, never a reply. When you
+send more messages while the agent is still working on the first, one turn answers them
+all and Core binds it to the first only: the board then paints that answer under the last
+of those messages, and the earlier ones read `✓ delivered · answered below`.
 Delivery lines use Core's `messageState.reason.text` verbatim, beside a mark from
 Core's state and its supplied countdown; activity and capture
 state never replace that wording. Older Core or an unavailable observation keeps

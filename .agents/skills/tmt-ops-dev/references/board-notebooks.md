@@ -118,7 +118,12 @@ local label. The same `messageState.canSendNow` of the newest own message drives
 chip on the conversation's footer row, with `Ctrl-S` (an authored binding wins outside the
 editor): one `tmt send-now` per press as the person, the chip disabled until Core answers, and
 the notice is Core's sentence or the re-read state label, never local wording. Answered captures show bounded safe Markdown as `turn output` (with
-Core's truncation flag), and `no_answer` names the missing output. A bound turn has
+Core's truncation flag), and `no_answer` names the missing output. One turn can answer several sends
+(typed into the pane while it worked): Core binds the final to the first, so
+`conversation/answer_order.rs` groups every later send with no capture of its own that was
+sent before the answered turn settled, paints the answer after the group's last send and
+appends ` · answered below` to the earlier ones' `✓ delivered`; live entries and restored
+sends use the same placement. A bound turn has
 no local ten-minute expiry. Captures never become ordinary replies or exact response attachments;
 no pane observation decides capture or settlement. A pane observation is paired once with an answered capture in that exact
 sender/recipient conversation, using identical provider, raw text and truncation
