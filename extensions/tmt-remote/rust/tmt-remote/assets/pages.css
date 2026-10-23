@@ -448,17 +448,24 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
-.ops-no-results {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--tmt-ui-space-s);
-}
 .ops-empty,
 .ops-foot {
   margin: 0;
   padding: 16px;
   color: var(--tmt-ui-color-secondary);
+}
+.ops-no-results {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tmt-ui-space-m);
+  padding: calc(var(--tmt-ui-space-xl) * 2) var(--tmt-ui-space-xl);
+  text-align: center;
+}
+.ops-no-results > svg {
+  width: var(--tmt-ui-space-xl);
+  height: var(--tmt-ui-space-xl);
 }
 .ops-foot > .tmt-ui-state-mark {
   width: 8px;

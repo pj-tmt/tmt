@@ -5451,7 +5451,7 @@ var FILTERS = [
 ];
 /** Below this width the page has no room for the detail card: a selection opens the drawer. */
 var DRAWER_WIDTH = "(max-width: 1050px)";
-/** A sentence that stands where a table would, with its icon. */
+/** The filtered table’s empty state, below its retained column headings. */
 function noResults(text) {
 	const node = el("p", "ops-empty ops-no-results");
 	node.append(createIcon("search"), text);
@@ -5676,7 +5676,17 @@ function agentsView() {
 			}
 			table.append(body);
 		}
-		scroll.replaceChildren(shown ? table : board.agents.length ? noResults("No agents match your filters.") : el("p", "ops-empty", "No agents yet."));
+		if (!shown && board.agents.length) {
+			const body = el("tbody");
+			const row = el("tr");
+			const cell = el("td");
+			cell.colSpan = 5;
+			cell.append(noResults("No agents match your filters."));
+			row.append(cell);
+			body.append(row);
+			table.append(body);
+		}
+		scroll.replaceChildren(board.agents.length ? table : el("p", "ops-empty", "No agents yet."));
 	}
 	function renderDetail() {
 		const agent = board?.agents.find((item) => keyOf(item) === state.selected);

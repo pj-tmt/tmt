@@ -1059,6 +1059,15 @@ test.describe('the Ops route on the owner read', () => {
     await search.fill('nobody');
     await expect(section.locator('.ops-no-results')).toHaveText('No agents match your filters.');
     await expect(section.locator('.ops-no-results svg')).toBeVisible();
+    await expect(section.getByRole('columnheader', { name: 'Agent', exact: true })).toBeVisible();
+    await expect(section.getByRole('columnheader', { name: 'Current work' })).toBeVisible();
+    const empty = section.locator('tbody .ops-no-results');
+    await expect(empty).toHaveCSS('flex-direction', 'column');
+    await expect(empty).toHaveCSS('align-items', 'center');
+    const headBox = await section.locator('thead').boundingBox();
+    const emptyBox = await empty.boundingBox();
+    expect(emptyBox!.y).toBeGreaterThanOrEqual(headBox!.y + headBox!.height);
+    await expect(search).toBeFocused();
     await search.fill('');
     // The first agent that needs the person is selected on load, so the panel is never empty.
     const detail = page.locator('#ops-detail');
