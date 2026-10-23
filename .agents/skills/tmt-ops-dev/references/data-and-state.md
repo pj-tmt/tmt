@@ -258,10 +258,19 @@ projects its typed results/errors. The board consumes the same typed service dir
   validation. Create and Delete change inventory; other item writes do not. Delete drops
   content and retains only room/checklist/item UUIDs and deletion revision, without purge
   or UUID reuse. Completion and archive are independent.
-- `store` keeps each room's version 1 JSON document as the `checklist` document keyed by the
+- `store` keeps each room's version 2 JSON document as the `checklist` document keyed by the
   canonical room UUID in the [Ops state database](#ops-state-database). The document has
   `version`, `roomId`, `checklistId`, `inventoryRevision`, ordered live `items` and minimal
-  `deleted` tombstones. It persists no copied membership, actor authority or operation ledger.
+  `deleted` tombstones. Each item also stores `addedBy`/`addedAtMs` and
+  `lastChangedBy`/`lastChangedAtMs` (an identity UUID and Unix ms; each pair is both null or
+  both set). `Service::apply` builds the stamp from the admitted actor and `status::now_ms`
+  and hands it to `model::apply`; a request has no such field. Create sets both pairs; a
+  change that moves the item's revision sets `lastChanged*`; reorder and delete stamp no
+  item, and a no-op stamps nothing. Version 1 (before provenance) still decodes, with every
+  stamp null (unknown, never guessed). Reads create and rewrite nothing, so the first
+  successful write stores version 2; the previous release's `items.json` import arrives as
+  version 1 and migrates the same way. An Ops binary that only knows version 1 refuses a
+  version 2 document (unsupported, no repair). It persists no copied membership, actor authority or operation ledger.
   Read/list/show create nothing and distinguish absent, empty and filtered-empty results
   from errors. Unsupported/corrupt data and unsafe files fail closed without repair. A
   candidate is written inside the database transaction and `before_publish` (the service's
@@ -269,7 +278,7 @@ projects its typed results/errors. The board consumes the same typed service dir
 - A conversation list (`--member`) is a second key of the same `checklist` kind,
   `<room-uuid>/<member-uuid>` (both canonical UUIDs, so it cannot equal a room key), with an
   optional `memberId` in its document that must equal the key's second half like `roomId` does.
-  Room documents carry no `memberId`, so their bytes are unchanged and no migration exists. Its
+  Room documents carry no `memberId`. Its
   one checklist UUID is derived from the pair (`Id::conversation_checklist`), so a caller never
   supplies it. `resolve_member` runs once in the adapter (UUID through `references.resolve`,
   which also finds a retired identity; a name through `identity show`, active only); the service
