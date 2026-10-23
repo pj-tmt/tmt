@@ -219,27 +219,6 @@ body:not(:has(.tmt-ui-shell)) {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-header-action-size);
 }
-.usage-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-.usage-table th,
-.usage-table td {
-  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  text-align: right;
-}
-.usage-table th:first-child {
-  text-align: left;
-}
-.usage-table thead th {
-  color: var(--tmt-ui-color-secondary);
-  font-weight: 600;
-}
-.usage-table td {
-  font-family: var(--tmt-ui-font-mono);
-}
 /* Digest: the team's usage at a glance. Flat sheets with rule borders, square, no shadows; it uses
    the shell's content width and its rows stack to one column under 900 px. */
 .tmt-page.digest {
@@ -266,47 +245,6 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-controls .usage-note {
   margin: 0;
 }
-.digest-badge {
-  display: inline-block;
-  margin: 0;
-  padding: 0 var(--tmt-ui-space-s);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  background: var(--tmt-ui-surface-paper);
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-header-action-size);
-  line-height: 1.6;
-  white-space: nowrap;
-}
-.digest-badge[hidden] {
-  display: none;
-}
-.digest-segments {
-  display: inline-flex;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.digest-segment {
-  min-width: 3.5em;
-  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-m);
-  border: 0;
-  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--tmt-ui-color-text);
-  font: inherit;
-  cursor: pointer;
-}
-.digest-segment:first-child {
-  border-left: 0;
-}
-.digest-segment[aria-selected='true'],
-.digest-segment[aria-pressed='true'] {
-  background: var(--tmt-ui-surface-selection);
-  color: var(--tmt-ui-color-selected-text);
-  font-weight: 600;
-}
-.digest-segment:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
-}
 .digest-sections {
   display: grid;
   gap: var(--tmt-ui-space-xl);
@@ -317,31 +255,6 @@ body:not(:has(.tmt-ui-shell)) {
   align-items: start;
   gap: var(--tmt-ui-space-xl);
   min-width: 0;
-}
-.digest-card {
-  display: grid;
-  align-content: start;
-  gap: var(--tmt-ui-space-l);
-  min-width: 0;
-  padding: var(--tmt-ui-space-xl);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  background: var(--tmt-ui-surface-sheet);
-}
-.digest-card-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--tmt-ui-space-m);
-}
-.digest-card-title {
-  margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
-}
-.digest-card-meta {
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-header-action-size);
 }
 /* A chart's caption is the card's muted subtitle: sentence case, not an eyebrow. */
 .digest-card .tmt-ui-chart-title {
@@ -355,13 +268,24 @@ body:not(:has(.tmt-ui-shell)) {
   margin-top: 0;
 }
 .digest-card .usage-note,
-.digest-card .usage-table {
+.digest-card .tmt-ui-table {
   margin: 0;
 }
-.digest-card .usage-table {
+.digest-card .tmt-ui-table {
   display: block;
   max-width: 100%;
   overflow-x: auto;
+}
+.digest-card .tmt-ui-action {
+  justify-self: start;
+}
+/* A column heading or a figure keeps its word whole; the leaf table would break it anywhere. */
+.digest-card .tmt-ui-table th,
+.digest-card .tmt-ui-table td {
+  overflow-wrap: normal;
+}
+.digest-card .tmt-ui-disclosure[data-divided] {
+  margin-top: 0;
 }
 .digest-provider-body {
   display: grid;
@@ -374,56 +298,13 @@ body:not(:has(.tmt-ui-shell)) {
   gap: var(--tmt-ui-space-s);
   align-content: start;
 }
-.digest-provider-figure p {
-  margin: 0;
-}
-.digest-big {
-  font-size: 2.5rem;
-  font-weight: 600;
-  line-height: 1.1;
-}
-.digest-big-label {
-  color: var(--tmt-ui-color-secondary);
-}
-.digest-meter {
-  height: 12px;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  background: var(--tmt-ui-surface-paper);
-}
-.digest-meter-fill {
-  width: calc(var(--digest-fill) * 1%);
-  height: 100%;
-}
-.digest-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0;
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.digest-stat {
-  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-m) 0;
-  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.digest-stat:first-child {
-  padding-left: 0;
-  border-left: 0;
-}
-.digest-stat dt {
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-header-action-size);
-}
-.digest-stat dd {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-}
 .digest-bar {
   display: block;
   width: calc(var(--digest-bar) * 1%);
   min-width: 4px;
   height: 10px;
 }
-.usage-table td:has(.digest-bar) {
+.tmt-ui-table td:has(.digest-bar) {
   width: 40%;
   text-align: left;
 }
@@ -440,23 +321,6 @@ body:not(:has(.tmt-ui-shell)) {
 }
 /* A text button: its inset focus frame gets room from the padding, which the margin offsets so
    the text lines up with the card. */
-.digest-more {
-  justify-self: start;
-  margin: 0 -4px;
-  padding: 2px 4px;
-  border: 0;
-  background: none;
-  color: var(--tmt-ui-color-link);
-  font: inherit;
-  cursor: pointer;
-}
-.digest-more:hover {
-  text-decoration: underline;
-}
-.digest-more:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
-}
 .digest-gaps {
   display: grid;
   margin: 0;
@@ -478,21 +342,6 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-gap-source {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-header-action-size);
-}
-.digest-method {
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
-}
-.digest-method summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-.digest-method summary:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
-}
-.digest-method p {
-  margin: var(--tmt-ui-space-s) 0 0;
 }
 @media (min-width: 900px) {
   .digest-row-providers,
@@ -535,8 +384,89 @@ body:not(:has(.tmt-ui-shell)) {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.ops-section .tmt-ui-status-tiles {
-  margin-bottom: 24px;
+/* The agents page: the table and the selected agent side by side, stacked when narrow. */
+.tmt-page.ops {
+  width: min(100% - 64px, 87.5rem);
+}
+@media (max-width: 760px) {
+  .tmt-page.ops {
+    width: min(100% - 32px, 87.5rem);
+  }
+}
+.ops-agents-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ops-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 17.375rem;
+  gap: 16px;
+  align-items: stretch;
+}
+.ops-agents-tools {
+  display: flex;
+  flex: 1 1 32rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+/* The tabs are a size container: they take a width of their own. */
+.ops-agents-tools .tmt-ui-tabs {
+  flex: 0 1 32rem;
+}
+.ops-agents-tools .tmt-ui-search-field {
+  width: 11rem;
+}
+.ops-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+.ops-detail > .tmt-ui-card-head,
+.ops-detail > .tmt-ui-facts {
+  padding-bottom: 16px;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.ops-detail-label {
+  margin: 0 0 4px;
+  color: var(--tmt-ui-color-secondary);
+}
+.ops-detail-block p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ops-detail-note {
+  margin: auto 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-empty,
+.ops-foot {
+  margin: 0;
+  padding: 16px;
+  color: var(--tmt-ui-color-secondary);
+}
+.ops-foot {
+  padding: 0;
+}
+@media (max-width: 1050px) {
+  .ops-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .ops-detail {
+    display: none;
+  }
+  .ops-agents-tools .tmt-ui-tabs,
+  .ops-agents-tools .tmt-ui-search-field {
+    flex: 1 1 100%;
+    width: 100%;
+  }
 }
 /* The state marks share one box; the column keeps every name on one edge. */
 .ops-section .tmt-ui-list-leading {

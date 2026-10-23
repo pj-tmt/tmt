@@ -12,6 +12,10 @@ export interface BrowserHeaderProps {
   headingSuffix?: ReactNode;
   /** `none` renders the title as a styled block, for a sample that must stay out of the page's heading outline. */
   headingLevel?: 'h1' | 'none';
+  /** `false` draws no heading at all (no empty `h1`): the page's own hero names the page. The
+   * header landmark keeps `<product> · <title>` as its accessible name, and a caption, if any,
+   * describes it; status and actions render as before. `title` stays required for that name. */
+  titleVisible?: boolean;
   /** The header sits in the shell's bar, where the rail already names the module: no brand is
    * drawn, and the product name stays in the header's accessible name (`Colab · <title>`). */
   inShell?: boolean;
@@ -36,6 +40,7 @@ export function BrowserHeader({
   headingPrefix,
   headingSuffix,
   headingLevel = 'h1',
+  titleVisible = true,
   inShell = false,
   status,
   actions,
@@ -55,20 +60,23 @@ export function BrowserHeader({
     <header
       className={c.header}
       ref={headerRef}
-      aria-label={inShell ? `${productLabel} · ${title}` : undefined}
+      aria-label={inShell || !titleVisible ? `${productLabel} · ${title}` : undefined}
+      aria-describedby={!titleVisible && caption !== undefined ? captionId : undefined}
       {...(disclosure ? { [disclosure.attribute]: disclosure.open } : {})}
     >
       {leading}
       {!inShell && <div className={c.brand}>{brandLink ? brandLink(brand) : brand}</div>}
       <div className={c.heading}>
         {headingPrefix}
-        <Title
-          className={c.title}
-          title={title}
-          aria-describedby={caption !== undefined ? captionId : undefined}
-        >
-          {title}
-        </Title>
+        {titleVisible && (
+          <Title
+            className={c.title}
+            title={title}
+            aria-describedby={caption !== undefined ? captionId : undefined}
+          >
+            {title}
+          </Title>
+        )}
         {headingSuffix !== undefined && <div className={c.headingSuffix}>{headingSuffix}</div>}
         {caption !== undefined && (
           <div className={c.caption} id={captionId} title={caption}>

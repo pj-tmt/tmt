@@ -280,6 +280,17 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             generation: text(m, "generation").expect("required generation"),
             directory: text(m, "directory").expect("required directory").into(),
         },
+        ["__pty-serve"] => Invocation::PtyServe {
+            directory: text(m, "directory").expect("required directory").into(),
+            id: text(m, "id").expect("required id"),
+            cols: *m.get_one::<u16>("cols").expect("required columns"),
+            rows: *m.get_one::<u16>("rows").expect("required rows"),
+            program: m
+                .get_many::<OsString>("program")
+                .expect("required program")
+                .cloned()
+                .collect(),
+        },
         ["__reply-notice-worker"] => Invocation::ReplyNoticeWorker {
             batch_id: text(m, "batch-id").expect("required batch ID"),
             log_id: text(m, "log-id").expect("required log ID"),

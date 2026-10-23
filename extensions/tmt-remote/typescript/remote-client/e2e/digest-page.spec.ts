@@ -227,7 +227,7 @@ test('the sample report paints every card once, in the reference order, with the
     'Cost per merged PR',
     'Machine',
   ]);
-  await expect(page.locator('#digest-missing .digest-gap .digest-badge')).toHaveText([
+  await expect(page.locator('#digest-missing .digest-gap .tmt-ui-chip-label')).toHaveText([
     'Not connected',
     'Not connected',
     'Not connected',
@@ -259,16 +259,16 @@ test('the Absolute/Share control swaps the stacked chart for a 100 % one and rea
   await open(page);
   const chart = page.locator('#digest-tokens .tmt-ui-chart');
   await expect(chart.locator('.tmt-ui-chart-title')).toHaveText('Tokens by seat');
-  await expect(page.getByRole('button', { name: 'Absolute' })).toHaveAttribute(
-    'aria-pressed',
+  await expect(page.getByRole('tab', { name: 'Absolute' })).toHaveAttribute(
+    'aria-selected',
     'true',
   );
-  await page.getByRole('button', { name: 'Share' }).click();
+  await page.getByRole('tab', { name: 'Share' }).click();
   await expect(chart.locator('.tmt-ui-chart-title')).toHaveText('Share of tokens by seat');
   await expect(chart.locator('.tmt-ui-chart-readout')).toContainText('%');
-  await expect(page.getByRole('button', { name: 'Share' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: 'Absolute' })).toHaveAttribute(
-    'aria-pressed',
+  await expect(page.getByRole('tab', { name: 'Share' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Absolute' })).toHaveAttribute(
+    'aria-selected',
     'false',
   );
 });
@@ -361,18 +361,33 @@ test('each provider card shows its allowance, meter, history chart and pace cell
   const cards = page.locator('#digest-allowance .digest-provider');
   await expect(cards).toHaveCount(2);
   const claude = page.locator('#digest-provider-claude');
-  await expect(claude.locator('.digest-big')).toHaveText('26%');
-  await expect(claude.locator('.digest-big-label')).toHaveText('allowance left');
-  await expect(claude.locator('.digest-card-meta')).toContainText('Resets in');
-  await expect(claude.locator('.digest-stat dt')).toHaveText(['Elapsed', 'Pace', 'Resets in']);
-  await expect(claude.locator('.digest-stat dd').nth(1)).toHaveText(/pts$/);
+  await expect(claude.locator('[data-size="hero"]')).toHaveText('26%');
+  await expect(claude.locator('.tmt-ui-status-tile-label')).toHaveText([
+    'Allowance left',
+    'Elapsed',
+    'Pace',
+    'Resets in',
+  ]);
+  await expect(claude.locator('.tmt-ui-card-meta')).toContainText('Resets in');
+  await expect(claude.locator('.tmt-ui-status-tile-value').nth(2)).toHaveText(/pts$/);
   await expect(claude.locator('.tmt-ui-chart')).toHaveCount(1);
+  // Inside a card the facts are bare (no tile box), and only the allowance carries a dot: its
+  // series colour. The meter sits directly under the allowance number.
+  const tileBoxes = await claude
+    .locator('.tmt-ui-status-tile')
+    .evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).borderTopWidth));
+  expect(tileBoxes).toEqual(['0px', '0px', '0px', '0px']);
+  await expect(claude.locator('.tmt-ui-status-tile-dot')).toHaveCount(1);
+  const hero = (await claude.locator('[data-size="hero"]').boundingBox())!;
+  const bar = (await claude.locator('.tmt-ui-meter').boundingBox())!;
+  expect(bar.y).toBeGreaterThanOrEqual(hero.y + hero.height);
+  expect(bar.y - (hero.y + hero.height)).toBeLessThan(24);
   // The meter fills to the percent left, in the provider's own hue (not the chart's first one).
-  const meter = (await claude.locator('.digest-meter').boundingBox())!;
-  const fill = (await claude.locator('.digest-meter-fill').boundingBox())!;
+  const meter = (await claude.locator('.tmt-ui-meter').boundingBox())!;
+  const fill = (await claude.locator('.tmt-ui-meter-fill').boundingBox())!;
   expect(Math.abs(fill.width / meter.width - 0.26)).toBeLessThan(0.03);
   const hues = await page
-    .locator('.digest-meter-fill')
+    .locator('.tmt-ui-meter-fill')
     .evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).backgroundColor));
   expect(new Set(hues).size).toBe(2);
 });
@@ -516,7 +531,7 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await page.clock.install();
   const errors = await open(page, '?refresh', { width: 390, height: 900 });
   const reads = () => page.evaluate(() => window.digestReads);
-  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('26%');
+  await expect(page.locator('#digest-provider-claude [data-size="hero"]')).toHaveText('26%');
   const matrix = page.locator('#digest-exchange').getByRole('region', { name: /^Messages, last / });
   await matrix.evaluate((node) => {
     node.scrollLeft = 100;
@@ -526,7 +541,7 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   expect(await reads()).toBe(1);
   // A reader's place: the Share choice and a marker on the token card must survive a refresh
   // that found nothing new.
-  await page.getByRole('button', { name: 'Share' }).click();
+  await page.getByRole('tab', { name: 'Share' }).click();
   await page.locator('#digest-tokens').evaluate((node) => node.setAttribute('data-kept', 'yes'));
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(2);
@@ -535,8 +550,8 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   // The third read has less allowance left: the cards repaint, and Share is still the choice.
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(3);
-  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('10%');
-  await expect(page.getByRole('button', { name: 'Share' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#digest-provider-claude [data-size="hero"]')).toHaveText('10%');
+  await expect(page.getByRole('tab', { name: 'Share' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#digest-tokens .tmt-ui-chart-title')).toHaveText(
     'Share of tokens by seat',
   );
@@ -544,7 +559,7 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   // the panel is not emptied.
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(4);
-  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('10%');
+  await expect(page.locator('#digest-provider-claude [data-size="hero"]')).toHaveText('10%');
   await expect(page.locator('#digest-tokens')).toBeVisible();
   await expect(page.locator('#usage-note')).toContainText('Your machine did not answer');
   await expect(page.locator('#usage-note')).toContainText('Showing the last report, read at');
@@ -553,7 +568,7 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await expect.poll(reads).toBe(5);
   await expect(page.locator('#usage-note')).toContainText('Usage preview');
   await expect(page.locator('#usage-note')).not.toContainText('Showing the last report');
-  await expect(page.locator('#digest-provider-claude .digest-big')).toHaveText('10%');
+  await expect(page.locator('#digest-provider-claude [data-size="hero"]')).toHaveText('10%');
   // Leaving the route stops the reads.
   await page.evaluate(() => window.digestRoute.abort());
   await page.clock.fastForward(300_000);

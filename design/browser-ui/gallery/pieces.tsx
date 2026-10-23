@@ -11,6 +11,7 @@ import {
   BrowserStatusTiles,
   type BrowserMenuItem,
 } from '../src/react.js';
+import { shellIconNodes, type ShellIcon } from '../src/shell-icons.js';
 import { Cell, Cells, Pair, Section, noop } from './kit.js';
 
 const needsYou: BrowserMenuItem[] = [
@@ -218,6 +219,21 @@ export function ChoiceSection() {
                 ))}
               </BrowserChoiceGroup>
             </Cell>
+            <Cell label="with a key hint">
+              <BrowserChoiceGroup legend="Pick with a digit key">
+                {flavours.map(([label], index) => (
+                  <BrowserChoice
+                    key={label}
+                    type="radio"
+                    name={`hint-${theme}`}
+                    label={label}
+                    hint={String(index + 1)}
+                    checked={picked === label}
+                    onChange={() => setPicked(label)}
+                  />
+                ))}
+              </BrowserChoiceGroup>
+            </Cell>
             <Cell label="hover" pin="hover">
               <BrowserChoice type="radio" name={`hover-${theme}`} label="Compact rail" />
             </Cell>
@@ -235,6 +251,7 @@ export function ChoiceSection() {
                 name={`off-${theme}`}
                 label="Compact rail"
                 description="Not available on this page."
+                hint="4"
                 disabled
               />
             </Cell>
@@ -385,6 +402,275 @@ export function StatusTileSection() {
               </div>
             </Cell>
           </Cells>
+        )}
+      </Pair>
+    </Section>
+  );
+}
+
+/** The flat card with a head, bare facts and a meter, and the meter at its ends. */
+export function CardSection() {
+  return (
+    <Section id="card">
+      <Pair
+        title="tmt-ui-card"
+        note="A flat sheet that groups one subject: a head (title, optional note) over its body. Facts inside it are bare tiles; the meter is a read-only measure coloured by a chart series."
+      >
+        {() => (
+          <Cells>
+            <Cell label="card with bare facts and a meter">
+              <div style={{ width: 'min(100%, 28rem)' }}>
+                <section className="tmt-ui-card" aria-labelledby="gallery-card-title">
+                  <div className="tmt-ui-card-head">
+                    <h3 className="tmt-ui-card-title" id="gallery-card-title">
+                      Claude
+                    </h3>
+                    <span className="tmt-ui-card-meta">Resets in 3d 4h</span>
+                  </div>
+                  <dl className="tmt-ui-status-tiles" data-bare="">
+                    <div className="tmt-ui-status-tile">
+                      <dt className="tmt-ui-status-tile-label">Allowance left</dt>
+                      <dd
+                        className="tmt-ui-status-tile-value"
+                        data-numeric="count"
+                        data-size="hero"
+                      >
+                        <span
+                          className="tmt-ui-status-tile-dot tmt-ui-chart-s1"
+                          aria-hidden="true"
+                        />
+                        72%
+                      </dd>
+                    </div>
+                  </dl>
+                  <div
+                    className="tmt-ui-meter"
+                    role="img"
+                    aria-label="72% of the weekly allowance left"
+                  >
+                    <div
+                      className="tmt-ui-meter-fill tmt-ui-chart-s1"
+                      style={{ ['--tmt-ui-meter-fill' as string]: 72 }}
+                    />
+                  </div>
+                  <dl className="tmt-ui-status-tiles" data-bare="">
+                    <div className="tmt-ui-status-tile">
+                      <dt className="tmt-ui-status-tile-label">Elapsed</dt>
+                      <dd className="tmt-ui-status-tile-value" data-numeric="count">
+                        41%
+                      </dd>
+                    </div>
+                    <div className="tmt-ui-status-tile">
+                      <dt className="tmt-ui-status-tile-label">Pace</dt>
+                      <dd className="tmt-ui-status-tile-value" data-numeric="count">
+                        +4.2 pts
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              </div>
+            </Cell>
+            <Cell label="meter: empty, half, full">
+              <div style={{ display: 'grid', gap: '0.75rem', width: 'min(100%, 20rem)' }}>
+                {[0, 50, 100].map((fill) => (
+                  <div key={fill} className="tmt-ui-meter" role="img" aria-label={`${fill}% left`}>
+                    <div
+                      className="tmt-ui-meter-fill tmt-ui-chart-s2"
+                      style={{ ['--tmt-ui-meter-fill' as string]: fill }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </Cell>
+          </Cells>
+        )}
+      </Pair>
+    </Section>
+  );
+}
+
+function Glyph({ name }: { name: ShellIcon }) {
+  return (
+    <svg className="tmt-ui-glyph" viewBox="0 0 24 24" aria-hidden="true">
+      {shellIconNodes[name].map(([tag, attributes], index) =>
+        tag === 'path' ? <path key={index} {...attributes} /> : null,
+      )}
+    </svg>
+  );
+}
+
+const agentRows = [
+  ['tmt-lead', 'diamond', 'waiting', 'Needs you', 'Review transport plan', 'opus'],
+  ['core-1', 'dot', 'working', 'Working', 'Verify request lifecycle', 'sol'],
+  ['core-3', 'unknown', '', 'Unknown', '', 'sonnet'],
+] as const;
+
+/** The pieces of a read-only overview page: headline, count strip, banner, facts and a grouped table. */
+export function OverviewSection() {
+  return (
+    <Section id="overview">
+      <Pair title="Page head and count strip" stacked>
+        {() => (
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <header className="tmt-ui-page-head" style={{ margin: 0 }}>
+              <h2 className="tmt-ui-page-title">Your team, in sync.</h2>
+              <p className="tmt-ui-page-subtitle">A clear view of every squad and agent.</p>
+            </header>
+            <div className="tmt-ui-stats" role="group" aria-label="Agents by state">
+              <div className="tmt-ui-stat">
+                <Glyph name="users" />
+                <div>
+                  <p className="tmt-ui-stat-value">
+                    <span className="tmt-ui-stat-number">6</span> agents
+                  </p>
+                  <p className="tmt-ui-stat-caption">Total in workspace</p>
+                </div>
+              </div>
+              <div className="tmt-ui-stat" data-tone="working">
+                <span className="tmt-ui-state-mark" data-shape="dot" aria-hidden="true" />
+                <div>
+                  <p className="tmt-ui-stat-value">
+                    <span className="tmt-ui-stat-number">3</span> working
+                  </p>
+                  <p className="tmt-ui-stat-caption">Actively running</p>
+                </div>
+              </div>
+              <div className="tmt-ui-stat" data-tone="waiting">
+                <span className="tmt-ui-state-mark" data-shape="diamond" aria-hidden="true" />
+                <div>
+                  <p className="tmt-ui-stat-value">
+                    <span className="tmt-ui-stat-number">1</span> needs you
+                  </p>
+                  <p className="tmt-ui-stat-caption">Requires attention</p>
+                </div>
+              </div>
+              <div className="tmt-ui-stat" data-tone="muted">
+                <span className="tmt-ui-state-mark" data-shape="ring" aria-hidden="true" />
+                <div>
+                  <p className="tmt-ui-stat-value">
+                    <span className="tmt-ui-stat-number">1</span> offline
+                  </p>
+                  <p className="tmt-ui-stat-caption">Not running</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Pair>
+      <Pair title="Banner and facts" stacked>
+        {() => (
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <section className="tmt-ui-banner" data-tone="waiting">
+              <div className="tmt-ui-banner-head">
+                <Glyph name="triangle-alert" />
+                <span>1 agent needs your attention</span>
+                <button type="button" className="tmt-ui-action" data-variant="text">
+                  <span className="tmt-ui-action-label">View all</span>
+                  <Glyph name="chevron-right" />
+                </button>
+              </div>
+              <button type="button" className="tmt-ui-banner-row">
+                <span
+                  className="tmt-ui-state-mark"
+                  data-shape="diamond"
+                  data-tone="waiting"
+                  aria-hidden="true"
+                />
+                <span>tmt-lead</span>
+                <span>
+                  <span className="tmt-ui-state-mark" data-shape="diamond" aria-hidden="true" />
+                  Needs you
+                </span>
+                <span>Approve transport plan</span>
+                <span>Continue after review</span>
+                <Glyph name="chevron-right" />
+              </button>
+            </section>
+            <dl className="tmt-ui-facts" style={{ maxWidth: '20rem' }}>
+              <dt>Name</dt>
+              <dd>core-1</dd>
+              <dt>Squad</dt>
+              <dd>tmt-core</dd>
+              <dt>State</dt>
+              <dd>Working</dd>
+            </dl>
+          </div>
+        )}
+      </Pair>
+      <Pair title="Table in a flush card, with a group, a chosen row and state chips" stacked>
+        {() => (
+          <section className="tmt-ui-card" data-flush="">
+            <div className="tmt-ui-card-head">
+              <h3 className="tmt-ui-card-title">Agents</h3>
+              <div className="tmt-ui-search-field">
+                <Glyph name="search" />
+                <input
+                  type="search"
+                  className="tmt-ui-field-control"
+                  placeholder="Filter agents"
+                  aria-label="Filter agents"
+                />
+              </div>
+            </div>
+            <div className="tmt-ui-table-scroll">
+              <table className="tmt-ui-table" data-roomy="">
+                <thead>
+                  <tr>
+                    <th scope="col">Agent</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Current work</th>
+                    <th scope="col" data-compact-hide="">
+                      Model
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="tmt-ui-table-group">
+                    <th colSpan={4} scope="colgroup">
+                      <button
+                        type="button"
+                        className="tmt-ui-table-group-toggle"
+                        aria-expanded="true"
+                      >
+                        <Glyph name="chevron-down" />
+                        tmt-core
+                        <span className="tmt-ui-table-group-count">· 3 agents</span>
+                      </button>
+                    </th>
+                  </tr>
+                  {agentRows.map(([name, shape, tone, word, work, model], index) => (
+                    <tr key={name} data-selected={index === 1 ? '' : undefined}>
+                      <td>
+                        <button type="button" className="tmt-ui-table-select">
+                          <span
+                            className="tmt-ui-state-mark"
+                            data-shape={shape}
+                            aria-hidden="true"
+                          />
+                          {name}
+                        </button>
+                      </td>
+                      <td>
+                        <span className="tmt-ui-chip" data-tone={tone || undefined}>
+                          <span
+                            className="tmt-ui-state-mark"
+                            data-shape={shape}
+                            aria-hidden="true"
+                          />
+                          <span className="tmt-ui-chip-label">{word}</span>
+                        </span>
+                      </td>
+                      <td>
+                        {work || '—'}
+                        <span className="tmt-ui-table-compact-meta">{model}</span>
+                      </td>
+                      <td data-compact-hide="">{model}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
       </Pair>
     </Section>

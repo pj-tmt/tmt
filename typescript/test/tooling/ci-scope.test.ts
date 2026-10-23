@@ -10,6 +10,8 @@ import {
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { tmpdir } from 'node:os';
+import ts from 'typescript';
+import { imports } from '../support/source-imports.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
@@ -45,6 +47,7 @@ import {
   selectColabFirestore,
   selectColabHarness,
   selectColabChrome,
+  selectBrowserUi,
   selectColabHosted,
   selectNativeNotices,
 } from '../../scripts/ci-scope.mjs';
@@ -179,6 +182,7 @@ describe('complete trusted-main verification', () => {
       'remote_firestore',
       'colab_firestore',
       'colab_chrome',
+      'browser_ui',
       'native_sync_emulator',
     ]) {
       const needs = completeNeeds();
@@ -1943,6 +1947,7 @@ describe('CI diff and command integration', () => {
         colab_hosted: 'false',
         colab_hosted_emulator: 'false',
         colab_chrome: 'false',
+        browser_ui: 'false',
         native_scope: 'ops',
         native_notices: 'false',
         remote_firestore: 'false',
@@ -2544,6 +2549,12 @@ esac
       expect(chromeQueue.evidence).toContain('Colab cross-screen chrome spec selection');
       expect(select(['full']).outputs.colab_chrome).toBe('false');
       expect(select(['seed']).outputs.colab_chrome).toBe('false');
+      git(['checkout', '--quiet', '--detach', base]);
+      const galleryHead = commit('design/browser-ui/gallery/main.tsx', 'gallery');
+      expect(select(['merge-group', galleryHead]).outputs.browser_ui).toBe('true');
+      expect(select([base, galleryHead]).outputs.browser_ui).toBe('true');
+      expect(select(['full']).outputs.browser_ui).toBe('true');
+      expect(select(['seed']).outputs.browser_ui).toBe('false');
       git(['checkout', '--quiet', '--detach', base]);
       commit('extensions/tmt-colab/typescript/app/src/style.css', 'browser');
       const browserTip = commit(
@@ -4090,5 +4101,167 @@ describe('hosted producer/reader emulator workflow wiring', () => {
     expect(action).not.toMatch(
       /continue-on-error|\|\| true|secrets\.|GH_TOKEN|GITHUB_TOKEN|docker|retry-command/
     );
+  });
+});
+
+describe('browser UI gallery gate', () => {
+  it('selects the complete leaf and closed shared build inputs without unrelated products', () => {
+    for (const input of [
+      'design/browser-ui/gallery/main.tsx',
+      'design/browser-ui/e2e/design-audit.spec.ts',
+      'design/tokens/browser.css',
+      '.github/workflows/ci.yml',
+      'typescript/scripts/ci-scope.mjs',
+      'typescript/scripts/ci-scope.d.mts',
+      'typescript/test/tooling/ci-scope.test.ts',
+      'typescript/pnpm-lock.yaml',
+      'typescript/pnpm-workspace.yaml',
+      'typescript/package.json',
+      'typescript/scripts/lint-config.mjs',
+      '.github/actions/setup-tooling/action.yml',
+      '.github/actions/apt-install/action.yml',
+      '.github/actions/install-chromium-deps/action.yml',
+    ])
+      expect(selectBrowserUi([input]), input).toBe(true);
+    for (const input of [
+      'site/src/main.tsx',
+      'extensions/tmt-colab/typescript/app/src/router.tsx',
+      'extensions/tmt-remote/rust/tmt-remote/src/main.rs',
+      'README.md',
+    ])
+      expect(selectBrowserUi([input]), input).toBe(false);
+    expect(selectBrowserUi([])).toBe(false);
+    for (const result of ['failure', 'cancelled', 'skipped', ''])
+      expect(ciGatePasses('true', [result])).toBe(false);
+    expect(ciGatePasses('true', [])).toBe(false);
+    expect(ciGatePasses('true', ['success'])).toBe(true);
+    expect(ciGatePasses('false', ['skipped'])).toBe(true);
+  });
+
+  it('selects main and scheduled/manual full runs, but never cache-only seeds', () => {
+    const output = (mode: string) => {
+      let text = '';
+      runCiScope([mode], {
+        cwd: '/unused',
+        stdout: {
+          write: (value: string) => {
+            text += value;
+          },
+        },
+        stderr: { write() {} },
+      });
+      return Object.fromEntries(
+        text
+          .trim()
+          .split('\n')
+          .map((line) => line.split('='))
+      );
+    };
+    expect(output('main-full').browser_ui).toBe('true');
+    expect(output('full').browser_ui).toBe('true');
+    expect(output('seed').browser_ui).toBe('false');
+  });
+
+  it('keeps every local non-test gallery import within the selector', () => {
+    const root = fileURLToPath(new URL('../../../', import.meta.url));
+    const seen = new Set<string>();
+    const outside: string[] = [];
+    const visit = (file: string) => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const relative = path.relative(root, file).split(path.sep).join('/');
+      if (!selectBrowserUi([relative])) {
+        outside.push(relative);
+        return;
+      }
+      const text = readFileSync(file, 'utf8');
+      const edges = /\.[cm]?[jt]sx?$/.test(file)
+        ? imports(file, text)
+        : file.endsWith('.css')
+          ? [...text.matchAll(/@import\s+(?:url\()?['"]([^'"]+)['"]/g)].map((m) => m[1])
+          : file.endsWith('.html')
+            ? [...text.matchAll(/(?:src|href)=["']([^"']+)["']/g)].map((m) => m[1])
+            : [];
+      for (const edge of edges) {
+        if (edge.startsWith('node:') || /^(?:https?:|data:|#)/.test(edge)) continue;
+        const clean = edge.split('?')[0];
+        if (!clean.startsWith('.') && !clean.startsWith('/')) {
+          // Code quality runs the tooling tests before installing the leaf. Registry packages
+          // are covered by the selected manifest/lockfile, not by ambient node_modules links.
+          let home = path.dirname(file);
+          while (!ts.sys.fileExists(path.join(home, 'package.json')) && home !== root)
+            home = path.dirname(home);
+          const manifest = JSON.parse(readFileSync(path.join(home, 'package.json'), 'utf8'));
+          const name = clean.startsWith('@')
+            ? clean.split('/').slice(0, 2).join('/')
+            : clean.split('/')[0];
+          const pin = {
+            ...manifest.dependencies,
+            ...manifest.devDependencies,
+            ...manifest.peerDependencies,
+          }[name];
+          expect(typeof pin, `undeclared package ${edge} in ${relative}`).toBe('string');
+          // A new local/workspace package needs an explicit graph edge, never a registry escape.
+          expect(pin, `local package ${edge} needs selector coverage`).not.toMatch(
+            /^(?:workspace:|file:|link:)/
+          );
+          continue;
+        }
+        const resolved = ts.resolveModuleName(
+          clean,
+          file,
+          { moduleResolution: ts.ModuleResolutionKind.Bundler },
+          ts.sys
+        ).resolvedModule;
+        const target =
+          resolved?.resolvedFileName ??
+          (clean.startsWith('/')
+            ? path.join(root, 'design/browser-ui/gallery', clean)
+            : path.resolve(path.dirname(file), clean));
+        visit(target);
+      }
+    };
+    visit(path.join(root, 'design/browser-ui/gallery/index.html'));
+    visit(path.join(root, 'design/browser-ui/vite.gallery.config.ts'));
+    expect(seen.size).toBeGreaterThan(20);
+    expect(outside).toEqual([]);
+    // A future relative import cannot silently add an unselected product input.
+    expect(selectBrowserUi(['extensions/tmt-colab/typescript/app/src/router.tsx'])).toBe(false);
+  });
+
+  it('uses the existing Chromium install verbatim and gates the selected job', () => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const job = (name: string) =>
+      ci.split(`\n  ${name}:\n`)[1]?.split(/\n {2}[a-z0-9-]+:\n/)[0] ?? '';
+    const browser = job('browser-ui');
+    const chrome = job('colab-chrome');
+    const chromiumSteps = (text: string) =>
+      text.slice(
+        text.indexOf('      - name: Point Playwright'),
+        text.indexOf('      - name: Install pinned Rust toolchain')
+      );
+    expect(browser).toContain("needs.changes.outputs.browser_ui == 'true'");
+    expect(browser).toContain('runs-on: ubuntu-24.04');
+    expect(browser).toContain('timeout-minutes: 15');
+    expect(browser).toContain('test:browser --workers=2');
+    expect(browser).toContain('retention-days: 7');
+    expect(browser).not.toContain('continue-on-error');
+    const browserSteps = browser.slice(
+      browser.indexOf('      - name: Point Playwright'),
+      browser.indexOf('      - name: Run design gallery audits')
+    );
+    // The only package-specific directory/filter substitutions are outside the installer logic.
+    expect(
+      browserSteps
+        .replaceAll('design/browser-ui', 'extensions/tmt-colab/typescript/app')
+        .replaceAll('@tmt/browser-ui', '@tmt/colab-app')
+    ).toBe(chromiumSteps(chrome));
+    const gate = job('native-install-gate');
+    expect(gate).toMatch(/needs:[\s\S]*browser-ui,/);
+    expect(gate).toContain('BROWSER_UI_SELECTED: ${{ needs.changes.outputs.browser_ui }}');
+    expect(gate).toContain('BROWSER_UI_RESULT: ${{ needs.browser-ui.result }}');
+    expect(gate).toContain('gate "$BROWSER_UI_SELECTED" "$BROWSER_UI_RESULT"');
+    expect(job('complete-main')).toContain('      - browser-ui\n');
+    expect(MAIN_FULL_JOBS).toContain('browser-ui');
   });
 });

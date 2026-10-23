@@ -208,7 +208,6 @@ test('page-list links preserve native modified activation without changing this 
   }
   for (const options of [
     { modifiers: ['ControlOrMeta'] },
-    { modifiers: ['Shift'] },
     { button: 'middle' as const },
   ] satisfies NonNullable<Parameters<typeof link.click>[0]>[]) {
     const opened = context.waitForEvent('page');
@@ -221,4 +220,42 @@ test('page-list links preserve native modified activation without changing this 
   }
   await link.press('Enter');
   await expect(page.locator('.tmt-ui-header h1')).toHaveText('Beta review');
+});
+
+test('page-list Shift-click keeps the href and leaves navigation to the browser', async ({
+  page,
+}) => {
+  await mount(page);
+  await input(page).press('Escape');
+  const link = page.locator('.pages').getByRole('link', { name: 'Beta review', exact: true });
+  const source = page.url();
+  await expect(link).toHaveAttribute('href', /#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+  const shifted = await link.evaluateHandle((anchor) => {
+    const observation = { event: null as MouseEvent | null };
+    const capture = (event: MouseEvent) => {
+      if (!(event.target instanceof Node) || !anchor.contains(event.target)) return;
+      // Keep the native event itself; read defaultPrevented only after click dispatch completes.
+      observation.event = event;
+      document.removeEventListener('click', capture, true);
+    };
+    document.addEventListener('click', capture, true);
+    return observation;
+  });
+  await link.click({ modifiers: ['Shift'] });
+  expect(
+    await shifted.evaluate(
+      ({ event }) =>
+        event && {
+          trusted: event.isTrusted,
+          shift: event.shiftKey,
+          button: event.button,
+          cancelable: event.cancelable,
+          prevented: event.defaultPrevented,
+        },
+    ),
+  ).toEqual({ trusted: true, shift: true, button: 0, cancelable: true, prevented: false });
+  await expect(link).toHaveAttribute('href', /#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+  expect(page.url()).toBe(source);
+  expect((await reads(page)).pageReads).toEqual([]);
+  await shifted.dispose();
 });

@@ -88,6 +88,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
         "tmt-host-grammar",
         "rust/crates/tmt-host-grammar/Cargo.toml",
     ),
+    (
+        "tmt-pty-protocol",
+        "rust/crates/tmt-pty-protocol/Cargo.toml",
+    ),
     ("tmt-ops", "extensions/tmt-ops/rust/tmt-ops/Cargo.toml"),
     (
         "tmt-digest",

@@ -95,6 +95,36 @@ export function HeaderSection() {
         )}
       </Pair>
       <Pair
+        title="BrowserHeader, title hidden"
+        note="The page's hero names the page: no heading is drawn, the landmark keeps its name. First the default, then the hidden title."
+        stacked
+      >
+        {(theme) => (
+          <div className="gallery-stack">
+            {[true, false].map((titleVisible) => (
+              <BrowserHeader
+                key={String(titleVisible)}
+                productLabel="Colab"
+                title="Pages"
+                titleVisible={titleVisible}
+                inShell
+                captionId={`header-hidden-${theme}-${titleVisible}`}
+                status={<span>◆ 2 need you</span>}
+                actions={
+                  <BrowserIconAction
+                    type="button"
+                    variant="text"
+                    label="Settings"
+                    icon={<Settings />}
+                    onActivate={noop}
+                  />
+                }
+              />
+            ))}
+          </div>
+        )}
+      </Pair>
+      <Pair
         title="BrowserHeader, long title"
         note="A title longer than its room truncates; the suffix keeps its width."
         stacked
@@ -438,6 +468,16 @@ export function ChipsSection() {
           )
         }
       </Pair>
+      <Pair
+        title="Passive chip"
+        note="A label for a state that is not an action: the chip without a remove control, padded the same on both sides."
+      >
+        {() => (
+          <span className="tmt-ui-chip">
+            <span className="tmt-ui-chip-label">Not connected</span>
+          </span>
+        )}
+      </Pair>
       <Pair title="BrowserChips" note="Live: press ＋ to open the real add popup.">
         {() => (
           <Cells>
@@ -557,12 +597,23 @@ const tabs: BrowserTab[] = [
   },
 ];
 
-function TabsDemo({ theme, variant }: { theme: Theme; variant: 'boxed' | 'flush' }) {
+function TabsDemo({
+  theme,
+  variant,
+  counts = false,
+  wrap = false,
+}: {
+  theme: Theme;
+  variant: 'boxed' | 'flush' | 'flat';
+  counts?: boolean;
+  wrap?: boolean;
+}) {
   const [selected, setSelected] = useState('pages');
-  const scoped = tabs.map((tab) => ({
+  const scoped = tabs.map((tab, index) => ({
     ...tab,
-    tabId: `${variant}-${theme}-${tab.tabId}-tab`,
-    panelId: `${variant}-${theme}-${tab.panelId}-panel`,
+    ...(counts ? { count: [6, 1, 3][index] } : {}),
+    tabId: `${variant}-${wrap ? 'wrap' : 'scroll'}-${theme}-${tab.tabId}-tab`,
+    panelId: `${variant}-${wrap ? 'wrap' : 'scroll'}-${theme}-${tab.panelId}-panel`,
   }));
   return (
     <BrowserTabs
@@ -571,6 +622,7 @@ function TabsDemo({ theme, variant }: { theme: Theme; variant: 'boxed' | 'flush'
       selected={selected}
       status="1/4 answered"
       variant={variant}
+      wrap={wrap}
       onSelect={(id) => setSelected(id)}
     >
       {(tab) => <p className="gallery-panel">{tab.label} panel</p>}
@@ -586,6 +638,16 @@ export function TabsSection() {
       </Pair>
       <Pair title="BrowserTabs · flush">
         {(theme) => <TabsDemo theme={theme} variant="flush" />}
+      </Pair>
+      <Pair title="BrowserTabs · flat, with counts">
+        {(theme) => <TabsDemo theme={theme} variant="flat" counts />}
+      </Pair>
+      <Pair title="BrowserTabs · flat, wrapping" stacked>
+        {(theme) => (
+          <div className="gallery-narrow">
+            <TabsDemo theme={theme} variant="flat" counts wrap />
+          </div>
+        )}
       </Pair>
     </Section>
   );

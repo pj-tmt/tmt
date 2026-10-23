@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
 import { rgb, tokens } from './tokens.js';
+import { expectAnswered } from './question-line.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -124,7 +125,7 @@ test('the header opens the next unanswered question without changing its retaine
   await expect(panel.locator('.question-card:visible').getByRole('radio').first()).toBeFocused();
   await panel.getByLabel('One column', { exact: true }).check();
   await panel.getByRole('button', { name: /^Send/ }).click();
-  await expect(panel.locator('.question-line').first()).toContainText('Answered: One column');
+  await expectAnswered(panel.locator('.question-line').first(), 'One column');
   await expect(trigger).toBeVisible();
   // Answer text arrives before the Send footer and disclosure settle; wait for collapse before
   // clicking Q2. Group Send includes every prepared answer, so only now start its retained draft.
@@ -576,7 +577,7 @@ test('separate placements count as one pending group and the menu names its rema
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'true');
   await page.getByLabel('Keep it', { exact: true }).check();
   await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   await expect(trigger).toBeVisible();
   const records = await run(page, 'discussionProof');
   await trigger.click();

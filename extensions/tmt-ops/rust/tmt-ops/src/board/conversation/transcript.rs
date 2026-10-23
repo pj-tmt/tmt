@@ -299,6 +299,15 @@ impl Session {
             reader,
         } = &self.transcript_context;
         let sends: Vec<_> = self.restored_sends().collect();
+        let places = super::answer_order::place(
+            &sends
+                .iter()
+                .map(|send| super::answer_order::Probe {
+                    at_ms: send.at_ms,
+                    capture: send.capture.as_ref(),
+                })
+                .collect::<Vec<_>>(),
+        );
         if self.finals.is_empty()
             && sends.is_empty()
             && (!enabled
@@ -462,22 +471,37 @@ impl Session {
                             }));
                             append(super::super::exchange_view::body(line, look), vec![], None);
                         }
+                        let place = &places[index];
                         if let Some(text) = &send.message_state_label {
+                            let text = if place.answered_below {
+                                super::answer_order::answered_below(text)
+                            } else {
+                                text.clone()
+                            };
                             for line in markdown::wrap_styled(
-                                super::super::exchange_view::feedback_content(text, look),
+                                super::super::exchange_view::feedback_content(&text, look),
                                 width.saturating_sub(3).max(1),
                             ) {
                                 append(super::super::exchange_view::body(line, look), vec![], None);
                             }
                         }
-                        if let Some(capture) = &send.capture
-                            && (send.message_state_label.is_none()
-                                || !matches!(
-                                    capture,
-                                    super::super::row_detail::Capture::Pending
-                                        | super::super::row_detail::Capture::Bound
-                                ))
-                        {
+                        // The group's answer follows its last send; the first send's own answer is
+                        // painted there, not under itself.
+                        let own = send.capture.as_ref().filter(|capture| {
+                            !place.hoisted
+                                && !place.mate
+                                && (send.message_state_label.is_none()
+                                    || !matches!(
+                                        capture,
+                                        super::super::row_detail::Capture::Pending
+                                            | super::super::row_detail::Capture::Bound
+                                    ))
+                        });
+                        let held = place
+                            .answers
+                            .iter()
+                            .filter_map(|answered| sends[*answered].capture.as_ref());
+                        for capture in own.into_iter().chain(held) {
                             let content = markdown::render_conversation_with_members(
                                 &capture.markdown(),
                                 width.saturating_sub(3).max(1),

@@ -296,7 +296,7 @@ Agents holds the whole workspace: a full-width Usage band (global usage and prov
 limits) above two columns. The left column lists squads, agents or pinned ones; the
 right column shows the selected target as Talk (the conversation) or Measure (TOK in the saved range,
 STATE, DIGEST and TIMERS cells, the soonest timers, the Digest table and who talks to
-whom). `f` cycles the left chips Squads / Agents / Pinned and `t` toggles Talk / Measure;
+whom). `f` cycles the left chips Squads / Agents / Pinned and `M` toggles Talk / Measure;
 both controls sit on their pane's top rule. The shell attention bar stays global.
 Digest keeps the same identity context and existing Core-owned policy controls. A
 squad's theme applies to Agents/Digest.
@@ -816,7 +816,10 @@ never triggers a resend. Status changes remain separate and acknowledge nothing.
 from the row's Actions menu (or an authored `update-status` binding); the form
 reuses the existing preview, permission and conflict checks.
 
-Captured answers appear under their message as `turn output`, never a reply.
+Captured answers appear under their message as `turn output`, never a reply. When you
+send more messages while the agent is still working on the first, one turn answers them
+all and Core binds it to the first only: the board then paints that answer under the last
+of those messages, and the earlier ones read `✓ delivered · answered below`.
 Delivery lines use Core's `messageState.reason.text` verbatim, beside a mark from
 Core's state and its supplied countdown; activity and capture
 state never replace that wording. Older Core or an unavailable observation keeps

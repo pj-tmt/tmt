@@ -26,6 +26,8 @@ import {
   CountChipSection,
   PagerSection,
   StatusTileSection,
+  CardSection,
+  OverviewSection,
 } from './pieces.js';
 
 /** Every gallery section, in the order of `sections` (covered.ts). */
@@ -48,6 +50,8 @@ export function GallerySections() {
       <ChoiceSection />
       <PagerSection />
       <StatusTileSection />
+      <CardSection />
+      <OverviewSection />
       <MenusSection />
       <TabsSection />
       <ListSection />

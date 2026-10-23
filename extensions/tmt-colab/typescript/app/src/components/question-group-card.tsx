@@ -510,61 +510,64 @@ export function QuestionGroupCard({
       {sendable && (
         <>
           <div className="question-group-send">
-            <BrowserChips
-              onOpenChange={modalPresence}
-              label="Answer recipients"
-              items={recipients.map((agent) => ({
-                id: recipientId(agent),
-                label: `@${agent.agentName}`,
-                content: <AgentChip name={agent.agentName} />,
-                removeLabel: `Remove @${agent.agentName}`,
-              }))}
-              options={options}
-              query={query}
-              onQueryChange={setQuery}
-              addLabel="Add recipient"
-              searchLabel="Find an agent"
-              emptyText={resolvingDefaults ? '' : 'No agents match.'}
-              maxItems={MESSAGE_RECIPIENT_LIMIT}
-              limitText="At most 8"
-              statusText={
-                directory.state === 'failed'
-                  ? text.messageAgentsUnavailable
-                  : directory.state === 'loading' && ask && !resolvingDefaults
-                    ? text.messageAgentsChecking
-                    : undefined
-              }
-              disabled={disabled}
-              addDisabled={directory.state !== 'ready'}
-              focusFallback={() => section.current}
-              onAdd={(id, event) => {
-                if (!event.isTrusted || disabled || recipients.length >= MESSAGE_RECIPIENT_LIMIT)
-                  return;
-                const matches =
-                  agents?.filter(
-                    (agent) => recipientId(agent) === id && agent.online === 'online',
-                  ) ?? [];
-                if (matches.length !== 1 || recipients.some((agent) => recipientId(agent) === id))
-                  return;
-                setRecipientState((previous) => ({
-                  recipients: [...previous.recipients, matches[0]],
-                  initialized: true,
-                }));
-                setQuery('');
-              }}
-              onRemove={(id, event) => {
-                if (!event.isTrusted || disabled) return;
-                setRecipientState((previous) => ({
-                  recipients: previous.recipients.filter((agent) => recipientId(agent) !== id),
-                  initialized: true,
-                }));
-              }}
-            />
+            <div className="question-recipients">
+              <span className="question-goes-to">{text.questionGoesTo}</span>
+              <BrowserChips
+                onOpenChange={modalPresence}
+                label="Answer recipients"
+                items={recipients.map((agent) => ({
+                  id: recipientId(agent),
+                  label: `@${agent.agentName}`,
+                  content: <AgentChip name={agent.agentName} />,
+                  removeLabel: `Remove @${agent.agentName}`,
+                }))}
+                options={options}
+                query={query}
+                onQueryChange={setQuery}
+                addLabel="Add recipient"
+                searchLabel="Find an agent"
+                emptyText={resolvingDefaults ? '' : 'No agents match.'}
+                maxItems={MESSAGE_RECIPIENT_LIMIT}
+                limitText="At most 8"
+                statusText={
+                  directory.state === 'failed'
+                    ? text.messageAgentsUnavailable
+                    : directory.state === 'loading' && ask && !resolvingDefaults
+                      ? text.messageAgentsChecking
+                      : undefined
+                }
+                disabled={disabled}
+                addDisabled={directory.state !== 'ready'}
+                focusFallback={() => section.current}
+                onAdd={(id, event) => {
+                  if (!event.isTrusted || disabled || recipients.length >= MESSAGE_RECIPIENT_LIMIT)
+                    return;
+                  const matches =
+                    agents?.filter(
+                      (agent) => recipientId(agent) === id && agent.online === 'online',
+                    ) ?? [];
+                  if (matches.length !== 1 || recipients.some((agent) => recipientId(agent) === id))
+                    return;
+                  setRecipientState((previous) => ({
+                    recipients: [...previous.recipients, matches[0]],
+                    initialized: true,
+                  }));
+                  setQuery('');
+                }}
+                onRemove={(id, event) => {
+                  if (!event.isTrusted || disabled) return;
+                  setRecipientState((previous) => ({
+                    recipients: previous.recipients.filter((agent) => recipientId(agent) !== id),
+                    initialized: true,
+                  }));
+                }}
+              />
+            </div>
             <BrowserAction
               label={`${sendLabel} · to ${audience || 'thread only'}`}
               visibleLabel={sendLabel}
               type="button"
-              variant="text"
+              variant="primary"
               busy={resolvingDefaults}
               disabled={
                 disabled ||
@@ -680,6 +683,7 @@ export function QuestionGroupCard({
                           (row.answer ? (answerOf(row.question, row.answer.body) ?? '') : undefined)
                         }
                         pending={row.echo !== undefined}
+                        eyebrow={blockRows.length === 1}
                         expanded={open}
                         panelId={panelId}
                         onToggle={() => onToggle(row.question.id)}
@@ -730,21 +734,24 @@ export function QuestionGroupCard({
                             !/^[1-9]$/.test(event.key)
                           )
                             return;
+                          // A digit picks a row from anywhere in the card except a text field; on a
+                          // choice itself it moves the pick and the focus together.
                           const target = event.target as HTMLElement;
                           if (
                             target.closest(
-                              'input,textarea,[contenteditable],[role="combobox"],[role="listbox"]',
+                              'input:not([type="radio"],[type="checkbox"]),textarea,[contenteditable],[role="combobox"],[role="listbox"]',
                             )
                           )
                             return;
                           const option = [
                             ...event.currentTarget.querySelectorAll<HTMLInputElement>(
-                              `[data-choice-index="${event.key}"] input`,
+                              `input[data-choice-index="${event.key}"]`,
                             ),
                           ].find((input) => !input.disabled && !input.closest('[hidden]'));
                           if (option) {
                             event.preventDefault();
                             option.click();
+                            if (target instanceof HTMLInputElement) option.focus();
                           }
                         }}
                       >

@@ -1,0 +1,38 @@
+/* A flat sheet that groups one subject: a head (title, optional note or control) over its body. */
+.tmt-ui-card {
+  box-sizing: border-box;
+  display: grid;
+  align-content: start;
+  gap: var(--tmt-ui-space-l);
+  min-width: 0;
+  padding: var(--tmt-ui-space-xl);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-m);
+}
+.tmt-ui-card-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.tmt-ui-card-meta {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+}
+/* A card whose content runs edge to edge, such as a table: the head keeps its own padding. */
+.tmt-ui-card[data-flush] {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.tmt-ui-card[data-flush] > .tmt-ui-card-head {
+  padding: var(--tmt-ui-space-l) var(--tmt-ui-space-xl);
+}

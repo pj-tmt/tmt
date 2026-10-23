@@ -296,7 +296,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             (",", "settings"),
             ("c", "timers"),
             ("R", "member-session"),
-            ("t", "talk-measure"),
+            ("M", "talk-measure"),
             ("N", "create-squad"),
             ("u", "usage-controls"),
             ("esc", "clear-scope"),
@@ -1112,7 +1112,7 @@ mod tests {
     }
 
     #[test]
-    fn factory_t_switches_talk_and_measure_outside_readers_and_authored_t_keeps_its_precedence() {
+    fn factory_measure_key_is_unique_outside_readers_and_t_is_unbound() {
         for scope in [
             OpsKeyScope::Squad,
             OpsKeyScope::Member,
@@ -1120,11 +1120,31 @@ mod tests {
             OpsKeyScope::Reader,
         ] {
             let factory = config("").workspace_keys(scope, None, None).unwrap();
+            assert!(!factory.bindings.contains_key("t"), "{scope:?}");
+            let measure_keys: Vec<_> = factory
+                .bindings
+                .iter()
+                .filter(|(_, action)| action.text == "talk-measure")
+                .map(|(key, _)| key.as_str())
+                .collect();
             if scope.is_reader() {
-                assert!(!factory.bindings.contains_key("t"), "{scope:?}");
+                assert!(!factory.bindings.contains_key("M"), "{scope:?}");
+                assert!(measure_keys.is_empty(), "{scope:?}");
             } else {
-                assert_eq!(factory.bindings["t"].text, "talk-measure", "{scope:?}");
+                assert_eq!(factory.bindings["M"].text, "talk-measure", "{scope:?}");
+                assert_eq!(measure_keys, ["M"], "{scope:?}");
             }
+        }
+    }
+
+    #[test]
+    fn authored_t_keeps_global_host_and_section_precedence() {
+        for scope in [
+            OpsKeyScope::Squad,
+            OpsKeyScope::Member,
+            OpsKeyScope::Pool,
+            OpsKeyScope::Reader,
+        ] {
             let configured = config("[bind]\nt='talk'\n[bind.tmux]\nt='copy'\n");
             assert_eq!(
                 configured

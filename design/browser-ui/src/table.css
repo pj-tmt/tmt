@@ -34,3 +34,99 @@
 .tmt-ui-table[data-numeric] td {
   font-family: var(--tmt-ui-font-mono);
 }
+/* In a card the table runs edge to edge: roomy cells, scrolling inside its own region. */
+/* Positioned, so visually hidden text in a header cell is clipped here, not at the page. */
+.tmt-ui-table-scroll {
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.tmt-ui-table[data-roomy] {
+  min-width: 36rem;
+}
+.tmt-ui-table[data-roomy] th,
+.tmt-ui-table[data-roomy] td {
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-l);
+  border-bottom-color: var(--tmt-ui-surface-rule-soft);
+  vertical-align: middle;
+}
+.tmt-ui-table[data-roomy] thead th {
+  border-bottom-color: var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: normal;
+}
+/* Under the compact width a roomy table keeps no minimum: a column marked `data-compact-hide` is
+   dropped and its facts move to a `tmt-ui-table-compact-meta` line under the row's main cell, so the
+   table never scrolls sideways. */
+.tmt-ui-table-compact-meta {
+  display: none;
+}
+@media (max-width: __compact-max-width__) {
+  .tmt-ui-table[data-roomy] {
+    min-width: 0;
+  }
+  .tmt-ui-table[data-roomy] th,
+  .tmt-ui-table[data-roomy] td {
+    padding: var(--tmt-ui-space-m) var(--tmt-ui-space-s);
+  }
+  .tmt-ui-table [data-compact-hide] {
+    display: none;
+  }
+  .tmt-ui-table-compact-meta {
+    display: block;
+    color: var(--tmt-ui-color-secondary);
+    font-size: var(--tmt-ui-caption-size);
+  }
+}
+.tmt-ui-table-group th {
+  background: var(--tmt-ui-surface-paper);
+  font-weight: 600;
+}
+.tmt-ui-table-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.tmt-ui-table-group-toggle:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.tmt-ui-table-group-toggle[aria-expanded='false'] > .tmt-ui-glyph {
+  transform: rotate(-90deg);
+}
+.tmt-ui-table-group-count {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: normal;
+}
+/* The selected row is a tint inside a full rounded frame in the selection tone. The frame is the
+   row's outline, which follows its radius, not borders on its cells. */
+.tmt-ui-table tr[data-selected] {
+  border-radius: var(--tmt-ui-radius);
+  outline: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-selection-edge);
+  outline-offset: calc(var(--tmt-ui-rule-width) * -1);
+  background: var(--tmt-ui-surface-selection);
+}
+.tmt-ui-table-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.tmt-ui-table-select:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}

@@ -1319,13 +1319,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   border: 0;
   background: transparent;
 }
-.comment-thread .conversation-avatar {
-  width: 18px;
-  height: 18px;
-  margin-right: 4px;
-  background: transparent;
-  color: var(--tmt-ui-color-text);
-}
 .comment-thread .conversation-body {
   margin-top: calc(var(--conversation-gap) / 2);
 }
@@ -1534,9 +1527,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--c-muted);
   font-size: 12px;
 }
-.proposal-card .conversation-turn .conversation-avatar {
-  color: var(--c-text);
-}
 .proposal-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1625,17 +1615,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--c-muted);
 }
 
-.conversation-avatar {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  vertical-align: middle;
-  margin-right: 6px;
-  color: var(--c-paper);
-}
-
 .question-card {
   color: var(--tmt-ui-color-text);
   background: transparent;
@@ -1694,63 +1673,72 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   flex-wrap: wrap;
   gap: 12px;
 }
-.question-group-send > .tmt-ui-chips {
+.question-recipients {
+  display: flex;
+  align-items: center;
   flex: 1 1 240px;
+  gap: 8px;
+  min-width: 0;
+}
+.question-goes-to {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.question-recipients > .tmt-ui-chips {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .question-group-send > .tmt-ui-action {
   margin-left: auto;
-  padding-inline: 0;
 }
 .question-shared-ask {
   font-size: 13px;
   color: var(--tmt-ui-color-secondary);
 }
-.question-card fieldset {
-  border: 0;
-  padding: 0;
-  margin: 12px 0;
+/* The kind line, the instruction and the choices of an open question, as on the concept website: a
+   quiet kind line, the instruction in the ink, and the choices in one wrapped row. */
+.question-kind {
+  margin: 0 0 4px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.question-card .tmt-ui-choices {
+  gap: 0 20px;
+  margin: 0 0 8px;
+}
+.question-card .tmt-ui-choices-legend {
+  margin-bottom: 8px;
+  color: var(--tmt-ui-color-text);
+  font-size: 1em;
+  font-weight: 500;
+}
+/* The row is the tap target: it carries its own spacing, so no dead gap sits between two rows. */
+.question-card .tmt-ui-choice {
+  align-items: center;
+  padding-block: 8px;
 }
 .question-controls > .tmt-ui-action[data-variant='text'] {
   padding-inline: 0;
-}
-.question-card fieldset label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0;
-  padding: 12px;
-  border: 1px solid var(--tmt-ui-color-edge);
-  cursor: pointer;
-}
-.question-card .question-option[data-selected='true'] {
-  color: var(--tmt-ui-color-link);
-  border-color: var(--tmt-ui-color-link);
-  background: var(--tmt-ui-surface-selection);
-}
-.question-option input {
-  accent-color: var(--tmt-ui-color-link);
-}
-.question-option-key {
-  order: 1;
-  margin-left: auto;
-  color: var(--tmt-ui-color-secondary);
-  font-size: 12px;
-  min-width: 12px;
 }
 .question-text {
   display: grid;
   gap: 6px;
   margin: 12px 0;
 }
+.question-text > label {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
 .question-text input,
 .question-text textarea {
   width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  color: inherit;
-  background: var(--c-sheet);
-  border: 1px solid var(--c-rule);
-  padding: 8px;
+}
+/* The Other field is one row that grows with what is written. */
+.question-text textarea[rows='1'] {
+  resize: none;
+  field-sizing: content;
+  max-height: 9em;
 }
 /* An answer's tray wraps and scrolls inside, as a thread's does, so a narrow card never scrolls
    sideways. */

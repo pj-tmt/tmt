@@ -13,7 +13,7 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── product ─────────────────────────────────────── 1 member ──",
+      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  M  Talk   Measure  ── product ─────────────────────────────────────── 1 member ──",
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ lead — · — · room product",
       " ▸ Common pool                                   —    —                    │",
       " ▾ product                ●                      —    —   —                │── Board ───────────────────────────────────────────────────────────────────────────",
@@ -27,8 +27,8 @@
       "                                                                           │",
       "                                                                           │── Exchanges with you ──────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ No current recipient observed.",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -48,7 +48,7 @@
       "  SQUAD / AGENT ↑         STATE            HOST / SESSION        TOK 1h   ◷    MODEL / NOW",
       " ▾ product                ●                                           —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                                        1 squad · 1 agent",
-      "─  t  Talk   Measure  ── product ─────────────────────────────────────────────────────── 1 member ──",
+      "─  M  Talk   Measure  ── product ─────────────────────────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       "── Board ───────────────────────────────────────────────────────────────────────────────────────────",
@@ -59,8 +59,8 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       "",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
     ]
   },
   {
@@ -80,7 +80,7 @@
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
       " ▾ product                ●                      —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                    1 squad · 1 agent",
-      "─  t  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
+      "─  M  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       "── Board ───────────────────────────────────────────────────────────────────────",
@@ -91,8 +91,8 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────",
       " No current recipient observed.",
       "",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
     ]
   },
   {
@@ -109,7 +109,7 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
+      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  M  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
       " ▸ Common pool                                   —    —                    │",
       " ▾ product                ●                      —    —   —                │ link —",
@@ -123,8 +123,8 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  v reader  j host  p pin",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  v reader  j host  p pin",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -144,7 +144,7 @@
       "  SQUAD / AGENT ↑         STATE            HOST / SESSION        TOK 1h   ◷    MODEL / NOW",
       "   └ worker               ● working        — · unavailable            —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
-      "─  t  Talk   Measure  ── worker ─────────────────────────────────────────────────────── ● working ──",
+      "─  M  Talk   Measure  ── worker ─────────────────────────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       " link —",
@@ -155,8 +155,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  v reader",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  v reader  j host",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
     ]
   },
   {
@@ -176,7 +176,7 @@
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
       "   └ worker               ● working              —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
-      "─  t  Talk   Measure  ── worker ─────────────────────────────────── ● working ──",
+      "─  M  Talk   Measure  ── worker ─────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       " link —",
@@ -187,8 +187,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
     ]
   },
   {
@@ -205,7 +205,7 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── product ─────────────────────────────────────── 1 member ──",
+      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  M  Talk   Measure  ── product ─────────────────────────────────────── 1 member ──",
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ lead — · — · room product",
       " ▸ Common pool                                   —    —                    │",
       " ▾ product                ●                      —    —   —                │── Board ───────────────────────────────────────────────────────────────────────────",
@@ -219,8 +219,8 @@
       "                                                                           │",
       "                                                                           │── Exchanges with you ──────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ No current recipient observed.",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -237,7 +237,7 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━  /  Search  ━┬─  t  Talk   Measure  ── product ─────── 1 member ──",
+      "▸━ f  Squads   Agents   Pinned  ━  /  Search  ━┬─  M  Talk   Measure  ── product ─────── 1 member ──",
       "  SQUAD / AGENT ↑              STATE           │ lead — · — · room product",
       " ▸ Common pool                                 │",
       " ▾ product                     ●               │── Board ───────────────────────────────────────────",
@@ -251,8 +251,8 @@
       "                                               │",
       "                                               │── Exchanges with you ──────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                     │ No current recipient observed.",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
     ]
   },
   {
@@ -272,7 +272,7 @@
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
       " ▾ product                ●                      —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                    1 squad · 1 agent",
-      "─  t  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
+      "─  M  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       "── Board ───────────────────────────────────────────────────────────────────────",
@@ -283,8 +283,8 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────",
       " No current recipient observed.",
       "",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
     ]
   },
   {
@@ -301,7 +301,7 @@
       "                                                                                                                                                  TOK  % of all",
       "          No token observations yet                                                                                                                 —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  t  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
+      "▸━ f  Squads   Agents   Pinned  ━━━━━━━━  /  Search                       ━┬─  M  Talk   Measure  ── worker ─────────────────────────────────────── ● working ──",
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW      │ product · member · — · — · tmux",
       " ▸ Common pool                                   —    —                    │",
       " ▾ product                ●                      —    —   —                │ link —",
@@ -315,8 +315,8 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  v reader  j host  p pin",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  v reader  j host  p pin",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -333,7 +333,7 @@
       "                                                                                      TOK  % of all",
       "          No token observations yet                                                     —         —",
       "",
-      "▸━ f  Squads   Agents   Pinned  ━  /  Search  ━┬─  t  Talk   Measure  ── worker ─────── ● working ──",
+      "▸━ f  Squads   Agents   Pinned  ━  /  Search  ━┬─  M  Talk   Measure  ── worker ─────── ● working ──",
       "  SQUAD / AGENT ↑              STATE           │ product · member · — · — · tmux",
       " ▸ Common pool                                 │",
       " ▾ product                     ●               │ link —",
@@ -347,8 +347,8 @@
       "                                               │",
       "                                               │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                     ⏎  Alt+⏎  @",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  v reader",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  v reader  j host",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
     ]
   },
   {
@@ -368,7 +368,7 @@
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
       "   └ worker               ● working              —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
-      "─  t  Talk   Measure  ── worker ─────────────────────────────────── ● working ──",
+      "─  M  Talk   Measure  ── worker ─────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       " link —",
@@ -379,8 +379,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
     ]
   },
   {
@@ -400,7 +400,7 @@
       "  SQUAD / AGENT ↑         STATE            HOST / SESSION        TOK 1h   ◷    MODEL / NOW",
       " ▾ product                ●                                           —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                                                                                                    1 squad · 1 agent",
-      "─  t  Talk   Measure  ── product ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 member ──",
+      "─  M  Talk   Measure  ── product ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       "── Board ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
@@ -411,8 +411,8 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       "",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -432,7 +432,7 @@
       "  SQUAD / AGENT ↑         STATE            HOST / SESSION        TOK 1h   ◷    MODEL / NOW",
       " ▾ product                ●                                           —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                                        1 squad · 1 agent",
-      "─  t  Talk   Measure  ── product ─────────────────────────────────────────────────────── 1 member ──",
+      "─  M  Talk   Measure  ── product ─────────────────────────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       "── Board ───────────────────────────────────────────────────────────────────────────────────────────",
@@ -443,8 +443,8 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       "",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
     ]
   },
   {
@@ -464,7 +464,7 @@
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
       " ▾ product                ●                      —    —   —",
       " 2–2 / 3 rows  ·  1 more ↓                                    1 squad · 1 agent",
-      "─  t  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
+      "─  M  Talk   Measure  ── product ─────────────────────────────────── 1 member ──",
       " lead — · — · room product",
       "",
       "── Board ───────────────────────────────────────────────────────────────────────",
@@ -475,8 +475,8 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────",
       " No current recipient observed.",
       "",
-      " ↑↓ select  ←→ fold  ⏎ inspect  n new  N create squad  p pin  H Hide squad",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ inspect  N create squad  p pin  H Hide squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
     ]
   },
   {
@@ -496,7 +496,7 @@
       "  SQUAD / AGENT ↑         STATE            HOST / SESSION        TOK 1h   ◷    MODEL / NOW",
       "   └ worker               ● working        — · unavailable            —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                                                                                                    1 squad · 1 agent",
-      "─  t  Talk   Measure  ── worker ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────── ● working ──",
+      "─  M  Talk   Measure  ── worker ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       " link —",
@@ -507,8 +507,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  a note  v reader  j host  p pin",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  a note  v reader  j host  p pin",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  , settings  ? help  q quit"
     ]
   },
   {
@@ -528,7 +528,7 @@
       "  SQUAD / AGENT ↑         STATE            HOST / SESSION        TOK 1h   ◷    MODEL / NOW",
       "   └ worker               ● working        — · unavailable            —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                                        1 squad · 1 agent",
-      "─  t  Talk   Measure  ── worker ─────────────────────────────────────────────────────── ● working ──",
+      "─  M  Talk   Measure  ── worker ─────────────────────────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       " link —",
@@ -539,8 +539,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove  x leave squad  v reader",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  f filter  u chart  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad  v reader  j host",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  f filter  u chart  ? help  q quit"
     ]
   },
   {
@@ -560,7 +560,7 @@
       "  SQUAD / AGENT ↑         STATE             TOK 1h   ◷    MODEL / NOW",
       "   └ worker               ● working              —    —   —",
       " 3–3 / 3 rows  ·  0 more ↓                                    1 squad · 1 agent",
-      "─  t  Talk   Measure  ── worker ─────────────────────────────────── ● working ──",
+      "─  M  Talk   Measure  ── worker ─────────────────────────────────── ● working ──",
       " product · member · — · — · tmux",
       "",
       " link —",
@@ -571,8 +571,8 @@
       "",
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓ select  ←→ fold  ⏎ chat  n new  r rename  m move  R resume  d remove",
-      " Tab panes  w snapshots  / search  t talk/measure  c timers  ? help  q quit"
+      " ↑↓ select  ←→ fold  ⏎ chat  r rename  m move  R resume  d remove  x leave squad",
+      " Tab panes  w snapshots  / search  M talk/measure  c timers  ? help  q quit"
     ]
   }
 ]

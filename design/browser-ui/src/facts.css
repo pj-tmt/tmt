@@ -1,0 +1,18 @@
+/* Name and value pairs about one subject, such as a selected row's details. */
+.tmt-ui-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--tmt-ui-space-m) var(--tmt-ui-space-l);
+  margin: 0;
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+  font-size: var(--tmt-ui-header-action-size);
+  line-height: 1.4;
+}
+.tmt-ui-facts dt {
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

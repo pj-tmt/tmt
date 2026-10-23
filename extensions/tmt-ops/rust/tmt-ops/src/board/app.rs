@@ -300,7 +300,7 @@ pub enum Choice {
         anchor: ratatui::layout::Rect,
     },
     AgentsFilter(super::workspace::AgentsFilter),
-    /// A click on a Talk/Measure chip selects that pane; the `t` key toggles.
+    /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),
@@ -792,6 +792,8 @@ pub struct App {
     pub(super) references: super::inventory::Inventory,
     /// Lane jobs submitted whose events have not arrived.
     pub(super) in_flight: usize,
+    /// The running versions, read once on the lane; none until then or when unreadable.
+    pub(in crate::board) versions: Option<super::versions::Versions>,
     /// Current-frame inline band, reserved by the row painter.
     pub(super) input_band: std::cell::Cell<Option<ratatui::layout::Rect>>,
     /// Current-frame editor geometry; cleared before paint and on resize.

@@ -4,6 +4,7 @@ import { text } from '../src/strings.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { pageAction } from '../test/page-actions.js';
 import { rgb, tokens } from './tokens.js';
+import { expectAnswered } from './question-line.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -48,8 +49,8 @@ test('drafts survive disclosure changes; one group Send and verified answers sur
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   await send.press('Enter');
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
-  await expect(rows.first()).toContainText('Answered: Change it');
-  await expect(rows.nth(1)).toContainText('Answered: Keep this draft 3');
+  await expectAnswered(rows.first(), 'Change it');
+  await expectAnswered(rows.nth(1), 'Keep this draft 3');
   const before: readonly ThreadView[] = await run(page, 'discussionProof');
   expect(before).toHaveLength(2);
   expect(before.every((thread) => thread.comments.length === 1)).toBe(true);
@@ -80,7 +81,7 @@ test('drafts survive disclosure changes; one group Send and verified answers sur
   await activeCard(page).getByRole('button', { name: 'Change answer' }).click();
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await restored.getByRole('button', { name: /^Send 1 answer/ }).click();
-  await expect(restored.locator('.question-line').first()).toContainText('Answered: Keep it');
+  await expectAnswered(restored.locator('.question-line').first(), 'Keep it');
   await expect(restored.locator('.question-line').first()).toHaveAttribute(
     'aria-expanded',
     'false',
@@ -112,7 +113,7 @@ for (const [width, theme] of [
     await group
       .getByRole('button', { name: 'Send 1 answer · to @Agent 1, @Agent 2', exact: true })
       .click();
-    await expect(group.locator('.question-line').first()).toContainText('Answered: Keep it');
+    await expectAnswered(group.locator('.question-line').first(), 'Keep it');
     await run(page, 'saveQuestionPage');
     await page.reload();
     await run(page, 'mount', { restoreQuestionPage: true, holdQuestionDirectory: true });
@@ -169,7 +170,7 @@ for (const outcome of ['empty', 'failed'] as const) {
       'Stays on the page, no one is asked',
     );
     await send.click();
-    await expect(group.locator('.question-line').first()).toContainText('Answered: Keep it');
+    await expectAnswered(group.locator('.question-line').first(), 'Keep it');
     expect((await run(page, 'proof')).sends).toHaveLength(0);
     expect(await run(page, 'discussionProof')).toHaveLength(1);
   });
@@ -183,7 +184,7 @@ test('explicitly removing seeded recipients keeps comment-only Send', async ({ p
   const send = group.getByRole('button', { name: 'Send 1 answer · to thread only', exact: true });
   await expect(send).toBeEnabled();
   await send.click();
-  await expect(group.locator('.question-line').first()).toContainText('Answered: Keep it');
+  await expectAnswered(group.locator('.question-line').first(), 'Keep it');
   expect((await run(page, 'proof')).sends).toHaveLength(0);
 });
 
@@ -312,7 +313,7 @@ test('a successful local callback cannot supply a verified answer or close the q
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   // The answer stands at once on its folded line as an echo that no record backs: the count does
   // not move, and no status step is spelled out.
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
   await expect(rows.first()).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByText(/Sending…|waiting for the verified view/)).toHaveCount(0);
@@ -324,7 +325,7 @@ test('a successful local callback cannot supply a verified answer or close the q
   await expect(group.locator('.question-compact-heading')).toHaveText(
     'Questions from Agent 1 · 1 of 2 waiting',
   );
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   await expect(rows.first()).not.toHaveAttribute('aria-disabled');
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
   await expect(group.locator('.question-compact-heading')).toHaveText(
@@ -345,11 +346,11 @@ test('a delayed verified answer preserves a question the reader explicitly opene
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   await expect(rows.first()).toHaveAttribute('aria-disabled', 'true');
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   await rows.nth(2).click();
   await activeCard(page).getByLabel('Your answer', { exact: true }).fill('A newer local draft.');
   await run(page, 'releaseQuestionView');
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   await expect(group.locator('.question-compact-heading')).toHaveText(
     'Questions from Agent 1 · 2 of 3 waiting',
   );
@@ -375,7 +376,7 @@ test('an echo on the folded line is replaced in place by the verified answer, no
   await expect(card.locator('.question-status')).toHaveCount(0);
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   // Send folds the card to its answered line; focus stays on that line, not the page.
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
   await expect(rows.first()).toBeFocused();
   await expect(page.locator('.question-card:visible')).toHaveCount(0);
@@ -399,7 +400,7 @@ test('an echo on the folded line is replaced in place by the verified answer, no
   );
   await expect(rows.first()).not.toHaveAttribute('aria-disabled');
   await expect(rows.first().locator('.comment-echo-mark')).toHaveCount(0);
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   expect(await measure()).toEqual(echoed);
   await rows.first().click();
   await expect(card.locator('.question-answer > p')).toHaveText('Keep it');
@@ -422,7 +423,7 @@ test('an answer verified within 0.4 s never shows the pending mark', async ({ pa
   });
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
-  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expectAnswered(rows.first(), 'Keep it');
   await page.waitForTimeout(600);
   expect(
     await page.evaluate(() => (window as unknown as { markSeen: { mark: boolean } }).markSeen.mark),
@@ -442,7 +443,7 @@ for (const width of [1440, 390])
         // The block is Colab's layer over the author's page: the sheet of the scheme the page paints
         // (#4081), whatever the app theme, with a light rule; what it holds adds no surface of its own.
         const scheme = darkPage ? 'dark' : 'light';
-        await expect(block).toHaveCSS('outline-width', '1px');
+        await expect(block).toHaveCSS('border-top-width', '1px');
         await expect(
           page.locator('.page-cards', { has: page.locator('[data-question-group]') }).first(),
         ).toHaveAttribute('data-theme', scheme);
@@ -451,8 +452,8 @@ for (const width of [1440, 390])
           'background-color',
           rgb(tokens.browser.surface.sheet[scheme]),
         );
-        await expect(block).toHaveCSS('outline-color', rgb(tokens.browser.surface.rule[scheme]));
-        await expect(block).toHaveCSS('border-top-width', '0px');
+        await expect(block).toHaveCSS('border-top-color', rgb(tokens.browser.surface.rule[scheme]));
+        await expect(block).toHaveCSS('border-left-width', '0px');
         for (const surface of [
           activeCard(page).locator('.question-controls'),
           group.locator('.question-group-footer'),
@@ -504,10 +505,12 @@ for (const width of [1440, 390])
         await capture('waiting');
         await activeCard(page).getByLabel('Keep it', { exact: true }).check();
         const send = group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ });
-        await expect(send).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-        await expect(send).toHaveCSS('text-decoration-line', 'underline');
+        // Send is the group's one primary action: the accent fill, not an underlined link.
+        await expect(send).toHaveAttribute('data-variant', 'primary');
+        await expect(send).toHaveCSS('background-color', rgb(tokens.browser.color.accent[scheme]));
+        await expect(send).toHaveCSS('text-decoration-line', 'none');
         await send.click();
-        await expect(rows.first()).toContainText('Answered: Keep it');
+        await expectAnswered(rows.first(), 'Keep it');
         await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
         await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
         const threads: readonly ThreadView[] = await run(page, 'discussionProof');
@@ -601,7 +604,7 @@ for (const width of [1440, 1024, 390])
           async () => {
             const fab = await floating.boundingBox();
             const controls = await group
-              .locator('.question-option, .question-group-footer button')
+              .locator('.tmt-ui-choice, .question-group-footer button')
               .all();
             const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
             return (
@@ -625,7 +628,7 @@ for (const width of [1440, 1024, 390])
         await page.screenshot({ path: `${captures}/container-footer-${width}-${theme}.png` });
       }
       // Hit the far edge that the old FAB covered, not only the radio at the left.
-      const lastOption = group.locator('.question-option').last();
+      const lastOption = group.locator('.tmt-ui-choice').last();
       const option = await lastOption.boundingBox();
       expect(option).not.toBeNull();
       await lastOption.click({ position: { x: option!.width - 2, y: option!.height - 2 } });
@@ -636,7 +639,7 @@ for (const width of [1440, 1024, 390])
       await expect(page.getByRole('combobox', { name: 'Find an agent' })).toBeVisible();
       await page.getByRole('combobox', { name: 'Find an agent' }).press('Escape');
       await send.click();
-      await expect(group.locator('.question-line').first()).toContainText('Answered: Keep it');
+      await expectAnswered(group.locator('.question-line').first(), 'Keep it');
     });
   }
 

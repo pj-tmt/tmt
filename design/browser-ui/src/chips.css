@@ -38,6 +38,37 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A passive chip carries no remove control, so its label is padded the same on both sides. */
+.tmt-ui-chip-label:only-child {
+  padding: 0 6px;
+}
+/* A state chip: a mark and its word on the state's soft surface. */
+.tmt-ui-chip[data-tone] {
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  padding: 2px var(--tmt-ui-space-m);
+  border-color: transparent;
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-chip[data-tone] > .tmt-ui-chip-label {
+  padding: 0;
+}
+.tmt-ui-chip[data-tone='working'] {
+  background: var(--tmt-ui-surface-working-soft);
+  color: var(--tmt-ui-color-working);
+}
+.tmt-ui-chip[data-tone='waiting'] {
+  background: var(--tmt-ui-surface-waiting-soft);
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-chip[data-tone='blocked'] {
+  background: var(--tmt-ui-surface-blocked-soft);
+  color: var(--tmt-ui-color-blocked);
+}
+.tmt-ui-chip[data-tone='review'] {
+  background: var(--tmt-ui-surface-review-soft);
+  color: var(--tmt-ui-color-review);
+}
 .tmt-ui-chip > .tmt-ui-icon-action {
   align-self: stretch;
 }

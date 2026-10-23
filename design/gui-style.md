@@ -77,9 +77,12 @@ name and a visible tooltip.
   edge, an exception to the 3:1 non-text contrast the check-style controls meet
   (WCAG 1.4.11; the `edge` color on an unchecked checkbox or radio, a toggle's
   indicator). It holds on three conditions: every field has a visible label (a
-  select shows its value and a chevron instead), its fill (`surface.field`)
+  select shows its value and a chevron instead, a search field its placeholder
+  beside a magnifier), its fill (`surface.field`)
   differs from the surface behind it, and its focus and invalid states keep the
-  strong edge.
+  strong edge. The leaf's design audit (`controlBoundaries`) skips fields by name
+  for the border check and fails a field that fills like its surface or has no
+  visible label or value.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows
@@ -99,7 +102,8 @@ shadcn manner (code copied into our package, not a themed dependency).
 The one sticky row on every screen: TMT mark, product word and plain screen
 title on the left, without a default divider; status group, then light actions on
 the right. Use the same height, type and order across screens. Actions that do not fit overflow into More;
-status remains visible as mark plus word.
+status remains visible as mark plus word. A page whose hero is its heading (the Colab page
+list) draws no title in the header: the header keeps its accessible name, and the hero is the page's `h1`.
 
 - Colab owner pages and space home are the exception to the leading mark: neutral
   `◉ local · <backend name>` (`local` when absent), Colab, `/`, title and muted
@@ -320,8 +324,9 @@ The strip scrolls horizontally without wrapping or animation; selection and resi
 keep the selected tab visible without moving the page. A label wider than the strip
 truncates while retaining its full accessible name. Use the existing state roles,
 a 1px strip rule with the control radius and the selection fill on the selected tab,
-which uses strong neutral text (flush: a straight 2px accent underline). State marks retain
-their own roles.
+which uses strong neutral text (flush: a straight 2px accent underline; flat: no strip frame,
+the selected tab is a filled, edged pill, optionally wrapping into rows). A count is a small muted number after the label.
+State marks retain their own roles.
 The leaf's [Tabs contract](browser-ui/README.md#controlled-input-contracts)
 owns React/static inputs and panel lifetimes. Basis: own.
 
@@ -335,6 +340,18 @@ An opaque, shadow-free sheet with the shared thin edge and the control radius.
   `NoticeCard` (`notice-card.tsx`).
 - **Item card:** a page in the page list: icon, title, short ID, audience tag,
   expiry, actions row.
+- **Group card:** `tmt-ui-card`, one subject per card (a Digest provider, a chart): a head
+  (sentence-case title, optional muted note) over the body. Facts inside it are bare status tiles
+  (label over value, no tile box, a dot only for a tone), never a box in a box; tile chrome is for a
+  page-level row. A read-only measure is a `tmt-ui-meter` placed directly under the
+  value it measures, coloured by its chart series.
+- **Overview page:** a page of live state (Ops Agents) reads top to bottom as a page head
+  (`tmt-ui-page-head`), one `tmt-ui-stats` strip of counts (a count in the display face, its
+  word, a caption), a `tmt-ui-banner` for what waits on the reader (hidden at zero), then the
+  flush-card table and a facts card for the selected row (one row is always selected: the reader's choice, else the first
+  that needs them, else the first). Counts and states are always a mark and
+  a word. What the reader sets (filter, search, collapsed groups, selection) stays across a refresh.
+  A page that is read-only shows no row menu.
 - Basis: own.
 
 ### Chip
@@ -344,7 +361,8 @@ inline flex). Kinds: **status** (mark plus word), **filter** (a toggle button, a
 **count** (a label and a boxed number such as `Needs you 5`: `BrowserCountChip`, or a
 `BrowserMenu` count trigger with a chevron that opens its list; the attention tone is
 for work that waits on the reader). Static chips are rounded outlines; interactive
-ones are buttons with a focus edge. Height 20 px, filter
+ones are buttons with a focus edge. A **passive** chip (label only, no remove control) names a
+state that is not an action, such as `Not connected`. Height 20 px, filter
 24 px. Basis: own.
 
 ### BrowserChips
@@ -538,8 +556,11 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 - Chat and threads share `ConversationTurn` structure and history ownership, and one
   turn look: a message sits directly on its surface, with no card fill, border or rule,
   whoever wrote it. The author line is the Chat meta style in both: the person or agent
-  name in semibold sans, then the muted time. A person's turn in a thread keeps its
-  small avatar. The thread's own `THREAD` and `OPEN` header may stay mono.
+  name in semibold sans, then the muted time. A turn in a thread, a person's or an agent's,
+  leads with the shared `BrowserAvatar` (decorative, size `s`, the author's initials) before the
+  author line, so an agent's name there is the chip's text without its robot; a working agent
+  keeps the robot with its dot. Chat has no avatar and keeps the chip's robot. The thread's own
+  `THREAD` and `OPEN` header may stay mono.
 - An agent reply looks the same running or finished: no edge or colour per driver
   and no driver word. A running turn shows only the
   chip's own working state. The verified `runningDriver` never selects a
@@ -623,6 +644,31 @@ An inline panel that expands under a row to show more without leaving the list
 full inner width, its own collapse action as the last line. One open at a time.
 Basis: own.
 
+### Question item
+
+A question is the concept website's question block (route `#/colab/page/ops-ui`, built from the
+numbered concept 40 where the website lacks it): one band, the page sheet between two 1px rules with
+no side rule and no radius. A line is a `?` glyph in a disc, an eyebrow `Q&A · <agent>` over the
+title, the state (`◆` and `Needs your answer` in the waiting colour, or a check and `Answered` in the
+secondary colour) and a chevron; an answered line shows the recorded answer under the title. The open
+band's fields start in the heading's column: a kind line and an instruction over the choices in one
+wrapped row, the `Other` field under the row once Other is picked, then a rule and a `Goes to` row
+(recipient chips, add) that ends with the group's one primary action, `Send answer` / `Send answers`;
+`Retry`, `Change answer` and `Open reply` stay text actions. A group of several questions is one band
+with one heading, its rows separated by the same rule, and one Send. It differs from the website only
+where the product does more or the tokens decide: recipient chips replace plain text, the type scale
+and the opaque sheet follow the tokens, a multiple or text question has its own control, and the
+primary reads `Send answer` because the answer is sent at once (the website's `Review answer` has no
+shipped step).
+
+A question card's choices are the shared `BrowserChoice` rows in a `BrowserChoiceGroup` (legend
+`Choose one answer, or write your own.` or its multiple form, drawn under the kind line), the `Other` row
+last, in one wrapped line. The digit keys 1 to 9 pick a row from anywhere in the card except a text
+field, and the focus follows the pick when it starts on a choice; no row draws a key cap. Each control declares its key
+(`aria-keyshortcuts`) and shows it in its hint, and is named by its label alone. A row carries its
+own vertical spacing so the whole row is the tap target, with no gap between two rows. Shared row
+metrics stay owned by the [browser leaf](browser-ui/README.md).
+
 ### Proposal item
 
 Colab renders authenticated proposals as parent-owned cards: title, body,
@@ -666,7 +712,9 @@ days`); exact time on hover.
   fast or base duration. Under `prefers-reduced-motion` every duration is 0 ms, so
   a change is instant. A leaving layer is inert: it takes no pointer input and
   hands its Escape to the layer under it. The LoaderCircle spin (see
-  [Transient states](#transient-states)) stops under the same preference.
+  [Transient states](#transient-states)) stops under the same preference. The
+  leaf's browser test (`design/browser-ui/e2e/overlay-motion.spec.ts`) asserts the
+  mounted-as-closed exit and the instant reduced-motion path.
 
 ## Transient states
 

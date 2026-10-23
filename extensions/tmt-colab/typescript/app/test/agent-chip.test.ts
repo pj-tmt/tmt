@@ -41,6 +41,20 @@ it('marks a working agent with a static dot and its words, never a spinner', () 
   }
 });
 
+it('leaves the idle icon out beside an avatar but keeps the working dot', () => {
+  const idle = render({ name: 'Studio agent', mark: false });
+  expect(idle).not.toContain('lucide-bot');
+  expect(idle).not.toContain('agent-chip-mark');
+  expect(idle).toContain('<span class="agent-chip-name">Studio agent</span>');
+  const working = render({ name: 'Studio agent', mark: false, activity: 'working' });
+  expect(working).toContain('lucide-bot');
+  expect(working).toContain('data-working');
+  expect(working).toContain('agent-chip-state');
+  expect(
+    renderToStaticMarkup(createElement(AgentList, { names: ['alpha', 'beta'], mark: false })),
+  ).not.toContain('lucide-bot');
+});
+
 it('keeps the machine as a muted suffix and the state as data', () => {
   const markup = render({
     name: '@Agent 1',

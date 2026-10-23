@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { pageAction } from '../test/page-actions.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { destination, id } from '../test/ask-fixtures.js';
+import { expectAnswered } from './question-line.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -85,7 +86,7 @@ test('a lone question folds to its answered line, without Send, while its public
   await recorded(page, 1);
   // The card folds at Send, the answer standing on its line while the Ask is held.
   const line = group.locator('.question-line');
-  await expect(line).toContainText('Answered: Keep it');
+  await expectAnswered(line, 'Keep it');
   await expect(line).toHaveAttribute('aria-expanded', 'false');
   await expect(send).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
@@ -315,7 +316,7 @@ for (const recordBeforeFail of [false, true]) {
       await expect(card(page).locator('.question-answer > p')).toHaveText('Keep it');
     else {
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
-      await expect(group.locator('.question-line').first()).toContainText('Needs you');
+      await expect(group.locator('.question-line').first()).toContainText('Needs your answer');
     }
     await card(page).getByRole('button', { name: 'Retry', exact: true }).click();
     await recorded(page, recordBeforeFail ? 4 : 3);
@@ -607,7 +608,7 @@ for (const [width, theme] of [
         'Could not confirm this answer. Your draft is kept for the next Send.',
       );
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
-      await expect(group.locator('.question-line').first()).toContainText('Needs you');
+      await expect(group.locator('.question-line').first()).toContainText('Needs your answer');
       await capture('comment-unconfirmed');
       await remount({ count: 3, darkPage }, { prepareFailures: 1 });
       await answerThree(page, group);

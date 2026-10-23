@@ -429,7 +429,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     };
     let mut choices = vec![
         (Verb::Ui(Ui::Search), "/", search_word),
-        (Verb::Ui(Ui::TalkMeasure), "t", "talk/measure"),
+        (Verb::Ui(Ui::TalkMeasure), "M", "talk/measure"),
         (Verb::Ui(Ui::Timers), "c", "timers"),
         (Verb::Ui(Ui::AgentsFilter), "f", "filter"),
         (Verb::Ui(Ui::SavingsUnit), "$", "unit"),

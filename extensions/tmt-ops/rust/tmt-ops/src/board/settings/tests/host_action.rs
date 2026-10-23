@@ -13,6 +13,29 @@ fn open(f: &mut Fixture, board_pane: Option<&str>) {
 }
 
 #[test]
+fn bindings_inventory_shows_measure_default_and_preserves_authored_t() {
+    for (bindings, expected_t) in [
+        ("", Value::Null),
+        ("[bind]\nt='talk-measure'\n", json!("talk-measure")),
+    ] {
+        let mut f = fixture("measure-bindings", bindings);
+        open(&mut f, Some("%9"));
+        let entries = &f.app.settings.as_ref().unwrap().settings.entries;
+        let measure = entries.iter().find(|entry| entry.key == "bind.M").unwrap();
+        assert_eq!(measure.value, json!("talk-measure"));
+        assert_eq!(measure.source, "workspace default");
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.key == "bind.t")
+                .unwrap()
+                .value,
+            expected_t
+        );
+    }
+}
+
+#[test]
 fn preset_preview_cancel_save_and_reopen_use_one_config_owner() {
     let mut f = fixture("host-preset", "[bind]\nj='jump'\no='open {pr_link}'\n");
     open(&mut f, Some("%9"));

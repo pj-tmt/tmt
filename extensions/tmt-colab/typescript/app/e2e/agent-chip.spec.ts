@@ -26,6 +26,18 @@ const dot = (mark: Locator) =>
     return { width, height, top, right, backgroundColor };
   });
 
+test('beside an avatar the idle chip is the name alone and a working one keeps its dot', async ({
+  page,
+}) => {
+  const host = await mountFixture(page);
+  const idle = host.locator('[data-row=beside-avatar-idle] .agent-chip');
+  const working = host.locator('[data-row=beside-avatar-working] .agent-chip');
+  await expect(idle.locator('.agent-chip-name')).toHaveText('Atlas');
+  await expect(idle.locator('.agent-chip-mark')).toHaveCount(0);
+  await expect(working.locator('.agent-chip-mark[data-working]')).toBeVisible();
+  await expect(working.locator('.agent-chip-state')).toHaveText(', working');
+});
+
 test('a working agent keeps its robot and gains a static dot; nothing animates', async ({
   page,
 }) => {
@@ -124,6 +136,6 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       const host = await mountFixture(page);
-      await expect(host.locator('.agent-chip')).toHaveCount(8);
+      await expect(host.locator('.agent-chip')).toHaveCount(10);
       await host.screenshot({ path: capturePath(`3712-agent-chip-${width}-${theme}.png`) });
     });

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/tmt-sys", "crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli-style", "crates/tmt-tui", "crates/tmt-invoke", "crates/tmt-extension-state", "crates/tmt-extension-serve", "crates/tmt-extension-objects", "crates/tmt-command-output", "crates/tmt-driver-protocol", "../drivers/herdr/rust/tmt-driver-herdr", "crates/tmt-host-grammar", "crates/tmt-cli", "../extensions/tmt-ops/rust/tmt-ops", "../extensions/tmt-digest/rust/tmt-digest", "../extensions/tmt-remote/rust/tmt-remote", "../extensions/tmt-colab/rust/tmt-colab", "../extensions/tmt-colab/rust/tmt-colab-model", "crates/tmt-test-support", "crates/tmt-release-tool"]
+members = ["crates/tmt-sys", "crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli-style", "crates/tmt-tui", "crates/tmt-invoke", "crates/tmt-extension-state", "crates/tmt-extension-serve", "crates/tmt-extension-objects", "crates/tmt-command-output", "crates/tmt-driver-protocol", "crates/tmt-pty-protocol", "../drivers/herdr/rust/tmt-driver-herdr", "crates/tmt-host-grammar", "crates/tmt-cli", "../extensions/tmt-ops/rust/tmt-ops", "../extensions/tmt-digest/rust/tmt-digest", "../extensions/tmt-remote/rust/tmt-remote", "../extensions/tmt-colab/rust/tmt-colab", "../extensions/tmt-colab/rust/tmt-colab-model", "crates/tmt-test-support", "crates/tmt-release-tool"]
 resolver = "3"
 
 [workspace.package]
@@ -41,6 +41,7 @@ flate2 = { version = "=1.1.10", default-features = false, features = ["rust_back
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2"] }
 tmt-core = { path = "crates/tmt-core" }
 tmt-host-grammar = { path = "crates/tmt-host-grammar" }
+tmt-pty-protocol = { path = "crates/tmt-pty-protocol" }
 tmt-colab-model = { path = "../extensions/tmt-colab/rust/tmt-colab-model" }
 tmt-adapters = { path = "crates/tmt-adapters" }
 tmt-command-output = { path = "crates/tmt-command-output" }

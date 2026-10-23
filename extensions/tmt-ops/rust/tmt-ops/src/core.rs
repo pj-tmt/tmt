@@ -166,6 +166,22 @@ impl Core {
             .success)
     }
 
+    /// The installed `tmt` version, from `tmt --version`; `None` when it cannot be read.
+    pub(crate) fn cli_version(&self) -> Option<String> {
+        let finished = self
+            .finish(
+                &["--version".into()],
+                b"",
+                TIMEOUT,
+                tmt_invoke::EnvironmentPolicy::Inherit,
+            )
+            .ok()?;
+        finished
+            .success
+            .then(|| version_of(&finished.stdout))
+            .flatten()
+    }
+
     /// `resume --show` emits JSON itself and rejects the generic --json flag.
     pub(crate) fn resume_show(&self, identity: &str) -> Result<Value, SquadError> {
         self.call_within(
@@ -472,6 +488,17 @@ fn executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)
         .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+/// The bare version `tmt --version` prints, or `tmt <version>`; anything else is unknown.
+fn version_of(stdout: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(stdout).ok()?.trim();
+    let version = text.strip_prefix("tmt ").unwrap_or(text);
+    let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+');
+    (version.starts_with(|c: char| c.is_ascii_digit())
+        && version.len() <= 64
+        && version.chars().all(plain))
+    .then(|| version.to_owned())
 }
 
 #[cfg(test)]

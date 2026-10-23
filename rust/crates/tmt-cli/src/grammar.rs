@@ -153,6 +153,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
         .hide(true),
     )
     .subcommand(launch::channel_server())
+    .subcommand(launch::pty_server())
     .subcommand(requests::request_observer())
     .subcommand(requests::reply_notice_worker())
     .subcommand(

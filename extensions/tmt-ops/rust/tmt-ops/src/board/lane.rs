@@ -43,6 +43,8 @@ pub(super) enum Job {
     TokenWindow(String),
     ViewState(super::view_state::Writer),
     ReadMarkers(super::unread::publish::Writer),
+    /// Read the running versions once, at start.
+    Versions,
 }
 
 impl Job {
@@ -51,7 +53,11 @@ impl Job {
     pub fn shows_progress(&self) -> bool {
         !matches!(
             self,
-            Self::Recovery(_) | Self::TokenWindow(_) | Self::ViewState(_) | Self::ReadMarkers(_)
+            Self::Recovery(_)
+                | Self::TokenWindow(_)
+                | Self::ViewState(_)
+                | Self::ReadMarkers(_)
+                | Self::Versions
         )
     }
 
@@ -61,6 +67,7 @@ impl Job {
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
             Self::ReadMarkers(_) => "Saving read markers…",
+            Self::Versions => "Reading the versions…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::MemberSession(_) => "Loading session…",
             Self::NewMember(_) => "Preparing or creating member…",
@@ -79,6 +86,7 @@ impl Job {
 pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
         Job::ReadMarkers(writer) => BoardEvent::ReadMarkersPublished(writer.publish(core)),
+        Job::Versions => BoardEvent::VersionsRead(super::versions::Versions::read(core)),
         Job::Jump {
             member,
             seen,

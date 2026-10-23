@@ -1,6 +1,6 @@
-//! `t` switches the Agents tab's right column between Talk and Measure.
+//! `M` switches the Agents tab's right column between Talk and Measure.
 use super::*;
-use crate::board::shell::{OpsTab, RightTab};
+use crate::board::shell::RightTab;
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -11,20 +11,73 @@ fn press(app: &mut App, code: KeyCode) -> Effect {
 }
 
 #[test]
-fn t_switches_between_talk_and_measure_and_measure_shows_the_lower_modules() {
-    let mut app = board();
-    app.shell.tab = OpsTab::Agents;
-    assert_eq!(app.right_tab, RightTab::Talk);
-    let talk = paint(&app, 160, 40).join("\n");
-    assert!(!talk.contains("Digest by agent"), "{talk}");
-    assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
-    assert_eq!(app.right_tab, RightTab::Measure);
-    let measure = paint(&app, 160, 40).join("\n");
-    assert!(measure.contains("TOK 1h"), "{measure}");
-    assert!(measure.contains("STATE"), "{measure}");
-    assert!(measure.contains("Timers"), "{measure}");
-    press(&mut app, KeyCode::Char('t'));
-    assert_eq!(app.right_tab, RightTab::Talk);
+fn measure_key_switches_both_scopes_and_t_stays_inert() {
+    for target in [
+        OpsTarget::Squad(ROOM.into()),
+        OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        },
+    ] {
+        let mut app = board();
+        app.workspace.selected = Some(target);
+        app.workspace_reconcile();
+        assert_eq!(app.right_tab, RightTab::Talk);
+        let talk = paint(&app, 160, 40).join("\n");
+        assert!(!talk.contains("Digest by agent"), "{talk}");
+        assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
+        assert_eq!(app.right_tab, RightTab::Talk);
+        assert!(app.input.is_none(), "unbound t never opens a composer");
+        assert_eq!(press(&mut app, KeyCode::Char('M')), Effect::None);
+        assert_eq!(app.right_tab, RightTab::Measure);
+        let measure = paint(&app, 160, 40).join("\n");
+        assert!(measure.contains("TOK 1h"), "{measure}");
+        assert!(measure.contains("STATE"), "{measure}");
+        assert!(measure.contains("Timers"), "{measure}");
+        app.key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
+        assert_eq!(app.right_tab, RightTab::Talk);
+    }
+}
+
+#[test]
+fn measure_hints_and_help_follow_defaults_and_authored_keys() {
+    for (bindings, key) in [("", "M"), ("[bind]\nM='copy'\nt='talk-measure'\n", "t")] {
+        let mut app = board();
+        let path = std::env::temp_dir().join(format!(
+            "ops-measure-key-{}.toml",
+            crate::id::new_v4().unwrap()
+        ));
+        std::fs::write(&path, bindings).unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
+        let text = paint(&app, 160, 40).join("\n");
+        assert!(text.contains(&format!("{key}  Talk   Measure")), "{text}");
+        let hints = crate::board::view::footer::agents_hints(&app, 500).unwrap();
+        assert!(hints.contains(&format!("{key} talk/measure")), "{hints}");
+        let help = crate::board::help::model(&app).value();
+        let entry = help["sections"][0]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == format!("binding-{key}"))
+            .unwrap();
+        assert_eq!(entry["keys"], key);
+        assert_eq!(
+            entry["description"],
+            "switch the right column between Talk and Measure"
+        );
+        press(&mut app, KeyCode::Char(key.chars().next().unwrap()));
+        assert_eq!(app.right_tab, RightTab::Measure);
+    }
 }
 
 fn click(app: &mut App, tab: RightTab) {
