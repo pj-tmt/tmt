@@ -92,6 +92,20 @@ fn press(app: &mut App, code: KeyCode) {
 }
 
 #[test]
+fn a_disagreement_names_the_row_and_the_table_that_differ() {
+    let app = board();
+    let held = capture(&app, 80);
+    let mut rebuilt = capture(&app, 80);
+    assert_eq!(difference(&held, &rebuilt), None);
+    rebuilt.buffer[(0, 3)].set_symbol("#");
+    rebuilt.hits.push('!');
+    let text = difference(&held, &rebuilt).expect("a changed cell is a difference");
+    assert!(text.contains("row 3 held"), "{text}");
+    assert!(text.contains("hits held"), "{text}");
+    assert!(!text.contains("row 4 "), "{text}");
+}
+
+#[test]
 fn current_workspace_frames_match_after_discarding_held_header_strips() {
     for width in [160, 100, 80, 60] {
         let mut app = board();
