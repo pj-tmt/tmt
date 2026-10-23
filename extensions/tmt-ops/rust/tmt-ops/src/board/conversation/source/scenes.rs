@@ -69,7 +69,7 @@ fn full_row_near_middle(buffer: &ratatui::buffer::Buffer, area: ratatui::layout:
     (0..area.height)
         .map(|offset| {
             // Alternate below and above the middle: 0, +1, -1, +2, -2, ...
-            let step = (offset + 1) / 2;
+            let step = offset.div_ceil(2);
             if offset % 2 == 1 {
                 middle + step
             } else {
