@@ -2,8 +2,8 @@
 
 **Implementation status:** the local door and its signed agent operations are shipped; Colab page
 sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
-through Firestore or Cloudflare remain proposals. The native cloud encryption library and automatic
-key renewal are implemented; they enable no transport or agent access by themselves.
+through Firestore have an emulator-only native driver; production enrollment and Core activation remain
+pending. Cloudflare remains proposed. Native encryption and automatic key renewal enable no access by themselves.
 Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
 This document owns host-driver authentication, local device identity/grants, wire values, operations,
 the extension channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
@@ -2202,9 +2202,10 @@ an origin is `established` or `closed`.
 
 Message framing, authentication and admission are scoped to their host driver. The `local` door and extension
 stores are implemented, as are Firestore extension declarations, deployment and sealed-document
-sync for Colab page sharing. The cloud **agent operation** bindings, admission service and runtime
-conformance below remain **proposals, not implemented**. The native encryption library and its
-automatic key lifecycle are implemented independently of a transport. Their specification
+sync for Colab page sharing. The native Firestore **agent operation** binding below is emulator-only;
+invite/join and the final Core command alignment do not ship here. The admission-service proposal and
+historical cloud conformance remain superseded. Native encryption and its automatic key lifecycle
+are independent of production enrollment. Their specification
 never enables agent access; the [historical conformance material](#proposal-cloud-conformance) is retained
 under the [superseded-authentication note](#superseded-cloud-authentication-proposal), not a shipped Firestore gate.
 Cloudflare remains proposed. Extension/page authority never substitutes for a local paired operation grant.
@@ -2212,8 +2213,72 @@ Cloudflare remains proposed. Extension/page authority never substitutes for a lo
 | Backend      | Mapping                                                                                                                                                                             |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `local`      | [Loopback HTTP](#transport-binding-loopback-http), mounted extension routes and WebSocket relay; state under the data root.                                                         |
-| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Proposed agent operations:** encrypted inboxes, owner-machine responses and device-scoped checkpoints. |
+| `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Emulator-only agent binding:** encrypted inboxes, owner responses and peer checkpoints; no production enrollment. |
 | `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                    |
+
+### Native Firestore agent binding (emulator only)
+
+`cloud_inbox` carries `cloud-hpke-v1` envelopes through the common `MessageService`, operation owner,
+Store and journal. Firebase Auth/Rules admits access to `/m/<machineId>`, separate from every `/x/`
+extension root. Confirmed native peer keys authenticate encrypted application content, not a second
+Firestore login or local browser pairing ceremony. Scope, agent allowlist, hold, current revocation and
+Core effect uncertainty retain their existing owners; cloud ingress never receives owner-browser powers.
+A verified cloud request does not require the local door's ephemeral window, session or receive-time
+freshness. That local gate is unchanged. Cloud timestamps must instead be within 60 seconds of the
+carrier document's output-only provider `createTime`; offline owner wake-up is not the freshness clock.
+An unprocessed carrier expires after `journal::RECOVERY` (30 days), with `REMOTE_CLOUD_MESSAGE_EXPIRED`.
+
+Inbox and response paths are `/m/<machineId>/peers/<peerId>/inbox/<operationId>` and the corresponding
+`responses/<operationId>`. A document contains exactly `peerId`, ciphertext `carrier` bytes and server
+`createdAt`. The operation ID is a lowercase UUIDv4. There is no chunking, manifest, plaintext fallback
+or provider-side operation authority. One carrier fits `firestore_limits::DOCUMENT_PAYLOAD_BYTES`;
+`limits::CLOUD_ENVELOPE_BYTES` is the largest conservative envelope cap below that bound. The prepared
+message cap also reserves worst-case JSON escaping/base64. Oversize refuses as
+`REMOTE_CLOUD_MESSAGE_TOO_LARGE` before a write. Rules admit only the registered Firebase uid in its
+peer inbox, the receiving owner in responses, exact fields/size and create-only storage. Neither writer
+may update a carrier. Senders never delete. The receiving owner removes retained inbox/response pairs
+after journal retention; the one transport table is pruned only after that cleanup. Test fixtures alone
+seed machine/peer registrations; this does not activate the namespace in a real deploy or add a bootstrap shortcut.
+
+The driver uses ordinary Auth, HTTP, cancellation and the persistent project budget shared with native
+sealed-document sync. One machine-scoped inbox query, one document per provider page, covers all native
+peers. Its checkpoint is one provider create-time value per peer with a 120-second overlap; only a full
+bounded reconciliation advances it. The existing journal handles repeated IDs and effects. Store/serve
+lease ownership is unchanged: one additive `cloud_transport` table freezes exact request bytes/digest,
+response ciphertext and publication attempt before HTTP. An ambiguous create is observed at that same
+ID, never automatically re-posted or resealed. Changed bytes under an ID refuse. A duplicate returns
+only frozen response ciphertext. Context secrets stay in memory for the bounded in-flight call; after
+sender restart, observe the original request ID, then use a fresh signed `operation.show` request and
+new HPKE context to read the original journal outcome. The old encrypted response remains unread until
+owner retention. Recovery never repeats the dispatch effect or reuses the lost context's key/nonce.
+
+The emulator fixture composes the finite driver with the lease-owning message service and cancellation;
+it persists no process-specific subscription. The driver is not reachable in production until #4538
+(enrollment) and #4536 (UUID-pinned identity query) land. #4538 will wire it at
+`serve::native_factory::ProjectOwner::prepare`, sharing that owner's Auth/runtime, budget and cancel/join
+lifecycle. No inert registration hook or provider probe is installed now. Production serve without an
+enrolled cloud peer starts no inbox polling and spends no cloud budget.
+Cadence reuses native polling, clamped to 5 seconds minimum and 60 seconds maximum including jitter.
+An empty idle query is conservatively charged 1 read plus 2 Rules lookups: 4,320 modeled reads/day/machine,
+8.64% of Spark's 50,000 reads/day. This is modeled billing, not emulator wire counts or observed project
+headroom. All traffic, including recovery, goes through the same guard; Auth/Rules/budget refusal never
+causes a mutation retry. Reopening the same Store resumes the checkpoint without a user step.
+
+The provisional public boundary is `tmt remote message --json`, one bounded version-1 JSON document
+on stdin/stdout. `cloud_command` owns its schema: request `{version,remote,requestId,createdAtMs,from:{id,name},
+target:{id,name},message}`, with required nullable `remote`; answer `{version,state,remote}` and optional
+fixed `reason`. States are `sent`, `held`, `refused`, `unconfirmed`, `unavailable`. Core owns preparation,
+receipts and retention; `createdAtMs` is the immutable original creation time in integer milliseconds,
+identical on every repeat. A request at least `journal::RECOVERY` old refuses with
+`REMOTE_CLOUD_MESSAGE_EXPIRED` before any write; a future time beyond the 60-second skew bound refuses.
+A repeat must retain the exact prepared bytes, including creation time, sender and expected name.
+A changed creation time conflicts with its frozen outbox row. The existing maintenance pass prunes
+sender outbox rows only past RECOVERY plus clock skew; it adds no tombstone ledger or context secret. Nonzero exit carries a JSON error code. Explicit/default/local selection never silently changes
+backend. The final schema/argv is aligned at Core's separate slice. Until the real UUID-pinned
+`identity show` exists, production cloud delivery refuses with `REMOTE_CLOUD_UPGRADE_REQUIRED`;
+tests inject the fake public Core boundary. Never fall back to name-addressed `check`. Expected name is
+retained with frozen native intent and checked before a Core effect; it is not a caller-chosen role.
+Invite/join, production enrollment and real-provider acceptance remain separate epic slices.
 
 ### Superseded cloud authentication proposal
 
@@ -2370,8 +2435,8 @@ operation object through relay credentials, a namespace alias or a Worker fragme
 ### End-to-end operation encryption
 
 **Implemented library and key lifecycle:** native machine-to-machine descriptor sign/verify,
-request seal/open and request-bound responses. Transport, Firestore agent operations, invite/join,
-Core dispatch and browser interoperability remain proposals.
+request seal/open and request-bound responses. The native Firestore driver is emulator-only;
+production invite/join, final Core activation and browser interoperability remain separate work.
 Browser enrollment remains deferred to its existing proposal.
 Edge admission remains deferred; never add another Firestore authentication gate.
 
@@ -2398,7 +2463,10 @@ replace the trust root or authorize a key downgrade.
 The machine atomically persists a new key/revision before advertising it and refuses retired key
 IDs for new carriers. Keys are valid for 30 days and renew automatically 7 days before expiry,
 on serve start and the existing door maintenance callback, without a new worker or timer. Previous
-unexpired keys remain usable through their signed expiry; expired keys never admit new traffic.
+keys remain available until signed expiry plus `journal::RECOVERY`, only to open a carrier whose
+trusted provider `createTime` fell inside that descriptor's validity. A carrier created after expiry
+refuses. Advertising and sending still require a currently valid descriptor. Three retained keys
+cover the 30-day lifetime, 7-day renewal lead and 30-day recovery bound; old two-key v1 rings read unchanged.
 An owner offline past expiry renews before cloud traffic on its next serve start. A sender given an
 expired descriptor receives retryable `REMOTE_CLOUD_DESCRIPTOR_EXPIRED`; neither side needs a user
 step. Failed renewal preserves the prior admitted state and fails cloud crypto closed at expiry,
@@ -2444,16 +2512,15 @@ The client verifies the pinned machine signature, request binding, AEAD and encl
 response before interpreting any state.
 
 The library exposes consuming response contexts: each produces exactly one response ciphertext,
-frozen before publication by the future transport owner. The following are deferred transport
-requirements, not shipped runtime behavior. Before reopening an adopted carrier, its journal owner
+frozen before publication by the native emulator transport owner. Production activation is separate. Before reopening an adopted carrier, its journal owner
 must return the frozen response rather than construct another sealer for changed plaintext; consuming
 contexts do not provide a persistent replay ledger. Identical transport retransmission returns only those frozen bytes; a changed response, recovered receipt or
 later notification uses a fresh request/control context. A lost context requires fresh signed
 session/ID-based recovery, never reuse of a key/nonce with new plaintext. Asynchronous state arrives
 inside responses to fresh subscribe controls; log entries keep their machine signatures.
 Clients retain context secrets only for the bounded in-flight request and discard them on
-completion or abandoned observation. The future transport must freeze the encrypted response durably before
-publishing it and never regenerates different bytes under that context after a crash. Transport
+completion or abandoned observation. The transport freezes encrypted responses durably before
+publishing them and never regenerates different bytes under that context after a crash. Transport
 recovery expires within the existing journal retention/capacity; expired ciphertext is unavailable,
 not permission to resend. Core final retention and journal ownership are unchanged.
 
@@ -2462,8 +2529,8 @@ bytes. A carrier reserves 8 KiB for its bounded header/metadata and has a 65-byt
 encapsulation; the conservative wire cap is
 `4 * ceil((N + 16) / 3) + 4 * ceil(65 / 3) + 8192`. The binding advertises N for
 each request/response class before allocating or uploading; insufficient provider capacity refuses.
-Batch responses retain the existing bounded subscription policy. Ciphertext chunks never change
-this total cap. IDs, operation names, origin, sizes, timing, key revisions and traffic remain
+Batch responses retain the existing bounded subscription policy. The native Firestore binding has
+one document per carrier and no chunks. IDs, operation names, origin, sizes, timing, key revisions and traffic remain
 visible; content secrecy is not metadata secrecy or protection from a compromised app host.
 
 ### Extension backend declarations

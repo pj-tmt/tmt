@@ -38,6 +38,64 @@ impl MessageService {
         self.handle(BindingAction::Ack, origin, envelope)
     }
 
+    pub(crate) fn cloud(
+        &self,
+        action: BindingAction,
+        verified: crate::cloud_inbox::Verified,
+    ) -> Result<Vec<u8>, crate::error::RemoteError> {
+        let message = verified.message().clone();
+        match self.sessions.admit_cloud(action, verified) {
+            Ok(permit) => self.execute(action, permit),
+            Err(error) => self.sessions.cloud_response(
+                &message,
+                &json!({"error":{"code":error.code,"message":"Remote request refused."}}),
+            ),
+        }
+    }
+    fn execute(
+        &self,
+        action: BindingAction,
+        permit: crate::admission::MessagePermit,
+    ) -> Result<Vec<u8>, crate::error::RemoteError> {
+        let result = match action {
+            BindingAction::Subscribe => permit.subscribe(),
+            BindingAction::Ack => permit.ack(),
+            BindingAction::Append if self.operations.is_some() => self
+                .operations
+                .as_ref()
+                .expect("operation owner")
+                .append(&permit),
+            BindingAction::Append => {
+                let now = crate::pairing::now_ms()?;
+                permit
+                    .with_store(|store| {
+                        store.record_refusal(&permit.grant, &permit.message, "REMOTE_CLOSED", now)
+                    })
+                    .and_then(|_| {
+                        permit.response(&json!({"error": {
+                            "code": "REMOTE_CLOSED",
+                            "message": "Remote application operations are not enabled."
+                        }}))
+                    })
+            }
+        };
+        result.or_else(|error| {
+            let now = crate::pairing::now_ms()?;
+            let audit = permit.with_store(|store| {
+                store.record_refusal(&permit.grant, &permit.message, &error.code, now)
+            });
+            let error = audit.err().unwrap_or(error);
+            let mut payload = json!({"error": {
+                "code": error.code,
+                "message": "Remote request refused."
+            }});
+            if let Some(limit) = error.limit {
+                payload["error"]["limit"] = json!(limit);
+            }
+            permit.response(&payload)
+        })
+    }
+
     fn handle(
         &self,
         action: BindingAction,
@@ -48,52 +106,7 @@ impl MessageService {
             .sessions
             .admit(action, origin, envelope, self.input_limit)
         {
-            Ok(permit) => {
-                let result = match action {
-                    BindingAction::Subscribe => permit.subscribe(),
-                    BindingAction::Ack => permit.ack(),
-                    BindingAction::Append if self.operations.is_some() => self
-                        .operations
-                        .as_ref()
-                        .expect("operation owner")
-                        .append(&permit),
-                    BindingAction::Append => {
-                        let now = crate::pairing::now_ms().map_err(|_| Closed)?;
-                        permit
-                            .with_store(|store| {
-                                store.record_refusal(
-                                    &permit.grant,
-                                    &permit.message,
-                                    "REMOTE_CLOSED",
-                                    now,
-                                )
-                            })
-                            .and_then(|_| {
-                                permit.response(&json!({"error": {
-                                    "code": "REMOTE_CLOSED",
-                                    "message": "Remote application operations are not enabled."
-                                }}))
-                            })
-                    }
-                };
-                result
-                    .or_else(|error| {
-                        let now = crate::pairing::now_ms()?;
-                        let audit = permit.with_store(|store| {
-                            store.record_refusal(&permit.grant, &permit.message, &error.code, now)
-                        });
-                        let error = audit.err().unwrap_or(error);
-                        let mut payload = json!({"error": {
-                            "code": error.code,
-                            "message": "Remote request refused."
-                        }});
-                        if let Some(limit) = error.limit {
-                            payload["error"]["limit"] = json!(limit);
-                        }
-                        permit.response(&payload)
-                    })
-                    .map_err(|_| Closed)
-            }
+            Ok(permit) => self.execute(action, permit).map_err(|_| Closed),
             Err(MessageRefusal::Signed(response)) => Ok(response),
             Err(MessageRefusal::Unauthenticated) => Err(Closed),
         }

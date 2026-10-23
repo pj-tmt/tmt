@@ -89,8 +89,8 @@ struct WriteKey {
 }
 pub struct NativeRuntime {
     http: Arc<dyn Http + Send + Sync>,
-    pub(super) clock: Arc<dyn Clock + Send + Sync>,
-    pub(super) jitter: Arc<dyn Jitter + Send + Sync>,
+    pub(crate) clock: Arc<dyn Clock + Send + Sync>,
+    pub(crate) jitter: Arc<dyn Jitter + Send + Sync>,
     budget: Arc<dyn NativeBudgetPort>,
     pub(super) caps: Mutex<Caps>,
     exhausted: Mutex<Option<ExhaustedEvidence>>,
@@ -247,105 +247,24 @@ impl Consumer {
         cost: u64,
         io: &IoBudget<'_>,
     ) -> Result<Option<crate::firebase_auth::Response>, SyncError> {
-        self.check(io)?;
         self.runtime
-            .budget
-            .usage(&self.context.identity().project)?;
-        if let Some(refusal) = self.runtime.provider_refusal()? {
-            return Err(SyncError::BudgetExhausted(refusal));
-        }
-        let token = self
-            .context
-            .auth()
-            .token(io)
+            .send(
+                RestCall {
+                    identity: self.context.identity(),
+                    auth: self.context.auth(),
+                    model: &self.model,
+                    closed: &self.closed,
+                    retry_after_ms: &self.retry_after_ms,
+                    response_limit: limits::NATIVE_SYNC_PAGE_BYTES,
+                    before_commit: None,
+                    operation,
+                    url,
+                    body,
+                    cost,
+                },
+                io,
+            )
             .await
-            .map_err(|_| SyncError::Unavailable)?;
-        self.check(io)?;
-        if token.identity != *self.context.identity() {
-            return Err(SyncError::Denied);
-        }
-        if token.expires_at_ms <= self.runtime.clock.now().wall_ms || token.token.is_empty() {
-            return Err(SyncError::Unavailable);
-        }
-        match self.runtime.budget.charge(
-            &self.context.identity().project,
-            &self.model,
-            cost,
-            self.runtime.clock.now(),
-        )? {
-            Decision::Refuse(r) => return Err(SyncError::BudgetExhausted(r)),
-            Decision::Allow | Decision::Warn => {}
-        }
-        self.check(io)?;
-        let remaining = io
-            .deadline
-            .saturating_duration_since(Instant::now())
-            .as_millis();
-        let deadline = self
-            .runtime
-            .clock
-            .now()
-            .monotonic_ms
-            .saturating_add(u64::try_from(remaining).unwrap_or(u64::MAX));
-        let request = Request::firestore(
-            operation,
-            url,
-            body,
-            token.token,
-            limits::NATIVE_SYNC_PAGE_BYTES,
-        );
-        let cancel = CallCancellation {
-            caller: io.cancelled,
-            closed: &self.closed,
-            project: &self.runtime.stopped,
-        };
-        let response = self.runtime.http.send(&request, deadline, &cancel);
-        if let Ok(response) = &response {
-            if response.status == 429 || response.status >= 500 {
-                self.retry_after_ms.store(
-                    self.runtime
-                        .clock
-                        .now()
-                        .monotonic_ms
-                        .saturating_add(response.retry_after_ms.unwrap_or(0)),
-                    Ordering::SeqCst,
-                );
-            }
-            if response.status == 429
-                && response.body.len() <= limits::NATIVE_SYNC_PAGE_BYTES
-                && wire::strict_json(&response.body)
-                    .is_some_and(|v| v["error"]["status"] == "RESOURCE_EXHAUSTED")
-            {
-                let (outcome, evidence) = classify_provider_exhausted(
-                    ProviderExhausted {
-                        mutation: operation == Operation::Commit,
-                    },
-                    self.runtime.clock.now().wall_ms,
-                );
-                *self
-                    .runtime
-                    .exhausted
-                    .lock()
-                    .map_err(|_| SyncError::Unavailable)? = Some(evidence);
-                return match outcome {
-                    ExhaustedOutcome::Unknown => Ok(None),
-                    ExhaustedOutcome::Refused(r) => Err(SyncError::BudgetExhausted(r)),
-                };
-            }
-        }
-        // After invoking a write, every lost/cancelled/malformed reply may hide an effect.
-        let late = self.runtime.clock.now().monotonic_ms >= deadline;
-        if operation == Operation::Commit {
-            if late || self.check(io).is_err() {
-                return Ok(None);
-            }
-            return Ok(response.ok());
-        }
-        self.check(io)?;
-        if late {
-            return Err(SyncError::Deadline);
-        }
-        response.map(Some).map_err(|_| SyncError::Unavailable)
     }
     pub(super) fn parse_document(
         &self,
@@ -732,5 +651,131 @@ impl Drop for WritePermit {
         if let Ok(mut caps) = self.runtime.caps.lock() {
             caps.writes.remove(&self.key);
         }
+    }
+}
+
+/// One HTTP/Auth/budget owner for extension documents and native machine carriers.
+pub(crate) struct RestCall<'a> {
+    pub identity: &'a crate::sealed_sync::AuthIdentity,
+    pub auth: &'a dyn crate::sealed_sync::AuthPort,
+    pub model: &'a Model,
+    pub closed: &'a AtomicBool,
+    pub retry_after_ms: &'a AtomicU64,
+    pub before_commit: Option<Box<dyn FnOnce() -> Result<bool, SyncError> + Send + 'a>>,
+    pub response_limit: usize,
+    pub operation: Operation,
+    pub url: String,
+    pub body: Vec<u8>,
+    pub cost: u64,
+}
+impl NativeRuntime {
+    pub(crate) async fn send(
+        &self,
+        call: RestCall<'_>,
+        io: &IoBudget<'_>,
+    ) -> Result<Option<crate::firebase_auth::Response>, SyncError> {
+        let RestCall {
+            identity,
+            auth,
+            model,
+            closed,
+            retry_after_ms,
+            response_limit,
+            before_commit,
+            operation,
+            url,
+            body,
+            cost,
+        } = call;
+        let check_call = || {
+            if closed.load(Ordering::SeqCst) {
+                return Err(SyncError::Cancelled);
+            }
+            self.check()?;
+            check(io)
+        };
+        check_call()?;
+        self.budget.usage(&identity.project)?;
+        if let Some(refusal) = self.provider_refusal()? {
+            return Err(SyncError::BudgetExhausted(refusal));
+        }
+        let token = auth.token(io).await.map_err(|_| SyncError::Unavailable)?;
+        check_call()?;
+        if token.identity != *identity {
+            return Err(SyncError::Denied);
+        }
+        if token.expires_at_ms <= self.clock.now().wall_ms || token.token.is_empty() {
+            return Err(SyncError::Unavailable);
+        }
+        match self
+            .budget
+            .charge(&identity.project, model, cost, self.clock.now())?
+        {
+            Decision::Refuse(r) => return Err(SyncError::BudgetExhausted(r)),
+            Decision::Allow | Decision::Warn => {}
+        }
+        check_call()?;
+        let remaining = io
+            .deadline
+            .saturating_duration_since(Instant::now())
+            .as_millis();
+        let deadline = self
+            .clock
+            .now()
+            .monotonic_ms
+            .saturating_add(u64::try_from(remaining).unwrap_or(u64::MAX));
+        let request = Request::firestore(operation, url, body, token.token, response_limit);
+        let cancel = CallCancellation {
+            caller: io.cancelled,
+            closed,
+            project: &self.stopped,
+        };
+        if let Some(claim) = before_commit
+            && !claim()?
+        {
+            return Ok(None);
+        }
+        let response = self.http.send(&request, deadline, &cancel);
+        if let Ok(response) = &response {
+            if response.status == 429 || response.status >= 500 {
+                retry_after_ms.store(
+                    self.clock
+                        .now()
+                        .monotonic_ms
+                        .saturating_add(response.retry_after_ms.unwrap_or(0)),
+                    Ordering::SeqCst,
+                );
+            }
+            if response.status == 429
+                && response.body.len() <= response_limit
+                && wire::strict_json(&response.body)
+                    .is_some_and(|v| v["error"]["status"] == "RESOURCE_EXHAUSTED")
+            {
+                let (outcome, evidence) = classify_provider_exhausted(
+                    ProviderExhausted {
+                        mutation: operation == Operation::Commit,
+                    },
+                    self.clock.now().wall_ms,
+                );
+                *self.exhausted.lock().map_err(|_| SyncError::Unavailable)? = Some(evidence);
+                return match outcome {
+                    ExhaustedOutcome::Unknown => Ok(None),
+                    ExhaustedOutcome::Refused(r) => Err(SyncError::BudgetExhausted(r)),
+                };
+            }
+        }
+        // After invoking a write, every lost/cancelled/malformed reply may hide an effect.
+        let late = self.clock.now().monotonic_ms >= deadline;
+        if operation == Operation::Commit {
+            if late || check_call().is_err() {
+                return Ok(None);
+            }
+            return Ok(response.ok());
+        }
+        check_call()?;
+        if late {
+            return Err(SyncError::Deadline);
+        }
+        response.map(Some).map_err(|_| SyncError::Unavailable)
     }
 }

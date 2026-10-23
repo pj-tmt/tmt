@@ -1079,7 +1079,7 @@ fn last_use_migration_preserves_preexisting_grants_and_unknown_time() {
     f.store
         .connection
         .execute_batch(
-            "DROP TABLE device_last_use; DELETE FROM _migrations WHERE name='device_last_use';",
+            "DROP TABLE cloud_transport; DROP TABLE device_last_use; DELETE FROM _migrations WHERE name IN ('device_last_use','cloud_transport');",
         )
         .unwrap();
     f.store.connection = Connection::open_in_memory().unwrap();

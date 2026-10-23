@@ -104,3 +104,8 @@ counter companions or preparation reads are part of a sealed-document append: it
 is one write plus its resource's Rules lookups; the continuing member log append above uses four (five after another link-mate). The shipped modeled
 page-share guard remains a guard, not a hint or aggregate project enforcement.
 Native polling/read costs are in [door and discovery](door-and-discovery.md#native-firestore-sign-in-and-transport); this payload profile adds none.
+
+The native agent inbox is an [emulator-only binding](../../../../contracts/remote-channel-v1.md#native-firestore-agent-binding-emulator-only).
+Its polling and carrier calls reuse the native project guard. That contract owns the idle-read model;
+qualification records actual HTTP read/commit counts separately from modeled Rules-dependent reads.
+Production enrollment and the Core UUID query are separate activation dependencies.

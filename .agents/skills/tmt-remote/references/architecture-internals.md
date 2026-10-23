@@ -10,7 +10,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
 | `cloud_hpke`, `cloud_keys`                       | Fixed native HPKE descriptors/carriers and consuming response contexts; private Document keyring renewed at serve startup and existing Site maintenance; no transport, peer authority or replay ledger                                              |
 | `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits                                                                                                                                         |
-| `message`                                        | Local signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                      |
+| `message`                                        | Common signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                     |
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
 | `journal`, `budgets`, `audit`                    | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                                                 |
 | `operations`, `approval`                         | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                                                          |
@@ -270,9 +270,22 @@ and `crypto` verification; only its carrier uses `hpke` and `aes-gcm`. Request a
 are single-use values. `cloud_keys` publishes admitted state only after Document succeeds, preserving
 its prior admitted keyring on uncertainty. Its named bounds live in `limits`; the existing Site
 maintenance callback renews without adding a worker and a failure never stops local pairing.
-No Firestore agent driver, cloud admission service or cross-person pairing ships with this library.
+`cloud_inbox` is the emulator-only native carrier driver: `document` admits provider fields/createTime;
+`provider` reuses `NativeRuntime` Auth/HTTP/budget; `ingress` alone constructs a verified hand-off into
+`MessageService`; `driver` reconciles one machine query with peer checkpoints; `sender` freezes before
+HTTP and recovers a lost context with a fresh signed ID lookup. `store` uses the authoritative Store
+connection/lease and existing journal effect owner, never a second replay ledger. `cloud_command`
+owns the provisional public JSON schema; the production UUID query remains refused until Core's seam
+is agreed. Cross-person enrollment and production activation stay separate; `serve::native_factory::ProjectOwner::prepare`
+is the future composition point. No cloud poll starts in production now. The contract owns all bounds.
 
 `tests/cloud_hpke.rs` pins RFC 9180 A.3.1; `tests/fixtures/cloud-hpke-reference.mjs` independently
 checks application framing/signatures/AAD/response bytes only, without implementing HPKE.
 Run it with Node and the focused Rust `cloud_` tests. `cloud-hpke-v1.json` contains public test keys
 and frozen pre-change v1 descriptor/keyring bytes, not a historical release fixture.
+
+The explicit native carrier qualification is `cargo test -p tmt-remote --features test-emulator --test
+cloud_inbox_emulator -- --ignored --nocapture` from `rust/`, in an Infra-approved emulator slot with
+both emulator hosts set to loopback and the fixture's `demo-cloud-inbox` project. It has no real-provider
+fallback; without the explicit feature the test contains no executable case. Fixture setup alone seeds
+registrations. The maintained ordinary-user driver uses `ProductionHttp`, common admission and the journal.
