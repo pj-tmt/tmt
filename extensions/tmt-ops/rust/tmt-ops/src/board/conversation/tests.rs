@@ -1937,7 +1937,35 @@ fn a_moved_cursor_reads_once_and_shows_the_spinner_only_after_the_delay() {
     assert!(has_spinner(&shown), "{shown}");
     assert!(!shown.contains("refreshing"));
     assert!(shown.contains("Held response"), "held content never moves");
+
     assert!(app.conversation_read().unwrap().test_reads_sent());
+}
+
+#[test]
+fn the_response_rule_carries_the_same_delayed_spinner() {
+    let mut app = settled_workspace();
+    app.observe_cursor(Some(5));
+    let now = 1_791_600_000_000;
+    let delay = crate::board::view::SPINNER_DELAY.as_millis() as u64;
+    let rule_at = |at: u64| {
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        crate::status::with_now_ms(at, || {
+            terminal
+                .draw(|frame| render(frame, &app, frame.area()))
+                .unwrap();
+        });
+        frame_words(terminal.backend().buffer())
+    };
+    let early = rule_at(now);
+    assert!(early.contains("Response · "), "{early}");
+    assert!(
+        !early.contains("refreshing") && !has_spinner(&early),
+        "{early}"
+    );
+    let late = rule_at(now + delay);
+    assert!(late.contains("Response · "), "{late}");
+    assert!(late.contains(" · ⠹"), "{late}");
+    assert!(!late.contains("refreshing"));
 }
 
 #[test]
