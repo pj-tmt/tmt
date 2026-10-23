@@ -188,7 +188,7 @@ export function opsSection(board: OpsBoard, section: Section): HTMLElement[] {
       list(
         board.schedules.map((schedule) =>
           row(
-            'target',
+            'clock',
             'neutral',
             schedule.what || schedule.id,
             [schedule.squad, schedule.owner].filter(Boolean).join(' · '),

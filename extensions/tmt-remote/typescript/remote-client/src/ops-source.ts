@@ -14,15 +14,15 @@ export type AgentState =
   | 'offline'
   | 'idle-alert'
   | 'unknown';
-export type AgentMark = 'dot' | 'ring' | 'dashed' | 'target' | 'diamond' | 'cross';
+export type AgentMark = 'dot' | 'ring' | 'dashed' | 'clock' | 'diamond' | 'cross' | 'unknown';
 export const AGENT_STATES: Record<AgentState, { mark: AgentMark; word: string; tone: string }> = {
   working: { mark: 'dot', word: 'Working', tone: 'working' },
   idle: { mark: 'dashed', word: 'Idle', tone: 'neutral' },
   'needs-you': { mark: 'diamond', word: 'Needs you', tone: 'waiting' },
   blocked: { mark: 'cross', word: 'Blocked', tone: 'blocked' },
   offline: { mark: 'ring', word: 'Offline', tone: 'neutral' },
-  'idle-alert': { mark: 'target', word: 'Idle alert', tone: 'neutral' },
-  unknown: { mark: 'ring', word: 'Unknown', tone: 'neutral' },
+  'idle-alert': { mark: 'clock', word: 'Idle alert', tone: 'neutral' },
+  unknown: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
 };
 
 export interface OpsAgent {

@@ -544,7 +544,7 @@ state, a React component.
   large in the display face (about 24px, `data-numeric`), muted at `0`, so a row of tiles keeps its
   shape. Static hosts set `data-numeric` (`count` or `zero`) on the value.
 - **State mark.** `tmt-ui-state-mark` is a mark drawn in one 12px box, chosen by `data-shape`
-  (`dot`, `ring`, `dashed`, `target`, `diamond`, `cross`), in the colour of the text around it. Every
+  (`dot`, `ring`, `dashed`, `clock`, `diamond`, `cross`, `unknown`), in the colour of the text around it. Every
   mark has the same footprint whatever font a glyph would fall back to; the state word beside it
   carries the meaning, so the mark is `aria-hidden`.
 

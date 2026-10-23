@@ -363,7 +363,7 @@ export function StatusTileSection() {
             </Cell>
             <Cell label="state marks (one 12px box each)">
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
-                {['dot', 'ring', 'dashed', 'target', 'diamond', 'cross'].map((shape) => (
+                {['dot', 'ring', 'dashed', 'clock', 'diamond', 'cross', 'unknown'].map((shape) => (
                   <span
                     key={shape}
                     style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}

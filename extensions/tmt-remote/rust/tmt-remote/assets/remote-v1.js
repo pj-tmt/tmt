@@ -5005,12 +5005,12 @@ var AGENT_STATES = {
 		tone: "neutral"
 	},
 	"idle-alert": {
-		mark: "target",
+		mark: "clock",
 		word: "Idle alert",
 		tone: "neutral"
 	},
 	unknown: {
-		mark: "ring",
+		mark: "unknown",
 		word: "Unknown",
 		tone: "neutral"
 	}
@@ -5242,7 +5242,7 @@ function opsSection(board, section) {
 	if (section === "schedules") {
 		if (board.schedules === null) return [sentence("Your machine could not read the timers. Run `tmt ops ui` to see them.")];
 		if (!board.schedules.length) return [sentence("No timers are set.")];
-		return [list(board.schedules.map((schedule) => row$1("target", "neutral", schedule.what || schedule.id, [schedule.squad, schedule.owner].filter(Boolean).join(" · "), schedule.when, schedule.id)))];
+		return [list(board.schedules.map((schedule) => row$1("clock", "neutral", schedule.what || schedule.id, [schedule.squad, schedule.owner].filter(Boolean).join(" · "), schedule.when, schedule.id)))];
 	}
 	return [sentence(notInBrowser("The Ops settings page", "tmt ops ui"))];
 }

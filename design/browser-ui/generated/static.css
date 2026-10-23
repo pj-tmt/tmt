@@ -1829,10 +1829,24 @@ svg.tmt-ui-mark {
   border: 1.5px dashed currentColor;
   border-radius: var(--tmt-ui-radius-pill);
 }
-.tmt-ui-state-mark[data-shape='target'] {
+
+.tmt-ui-state-mark[data-shape='clock'] {
   border: 1.5px solid currentColor;
   border-radius: var(--tmt-ui-radius-pill);
-  background: radial-gradient(circle, currentColor 0 24%, transparent 26%);
+  background:
+    linear-gradient(currentColor, currentColor) 50% 10% / 1.5px 45% no-repeat,
+    linear-gradient(currentColor, currentColor) 68% 50% / 40% 1.5px no-repeat;
+}
+
+.tmt-ui-state-mark[data-shape='unknown'] {
+  display: inline-grid;
+  place-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: var(--tmt-ui-radius-pill);
+  font: 700 calc(var(--tmt-ui-caption-size) * 0.75) / 1 var(--tmt-ui-font-body);
+}
+.tmt-ui-state-mark[data-shape='unknown']::after {
+  content: '?';
 }
 .tmt-ui-state-mark[data-shape='diamond'] {
   background: currentColor;

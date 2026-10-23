@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { AGENT_STATES } from '../src/ops-source.js';
 
 /**
  * The one TMT web app as a host (#3937): conditions the door and the shell must keep, against a
@@ -895,6 +896,22 @@ test.describe('the Ops route on the owner read', () => {
         ]),
       );
     expect(new Set(boxes.map((box) => box.join('x')))).toEqual(new Set(['12x12']));
+    // Each state's own mark, and the timer's clock, keep that box too.
+    const shapes = [...Object.values(AGENT_STATES).map((state) => state.mark), 'clock'];
+    const drawn = await page.evaluate((names) => {
+      const host = document.querySelector('#ops-section')!;
+      const sizes = names.map((shape) => {
+        const mark = document.createElement('span');
+        mark.className = 'tmt-ui-state-mark';
+        mark.dataset.shape = shape;
+        host.append(mark);
+        const box = mark.getBoundingClientRect();
+        mark.remove();
+        return `${box.width}x${box.height}`;
+      });
+      return sizes;
+    }, shapes);
+    expect(new Set(drawn)).toEqual(new Set(['12x12']));
     // The board by urgency: Needs you, Blocked, Offline, Working; Idle has no tile; a tile at 0
     // stays, muted.
     const tiles = page.locator('#ops-section .tmt-ui-status-tile');
