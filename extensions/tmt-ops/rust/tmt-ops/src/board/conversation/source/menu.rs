@@ -7,13 +7,12 @@ use ratatui::{
     layout::{Position, Rect},
     style::Style,
     text::Line,
-    widgets::{Block, Clear},
 };
 use tmt_cli_style::{Role, grid::Align};
-use tmt_tui::components::strip;
+use tmt_tui::components::{Modal, Placement, strip};
 use unicode_width::UnicodeWidthStr;
 
-const TITLE: &str = " Selection ";
+const TITLE: &str = "Selection";
 const HINT: &str = "Esc clears";
 /// Each entry is its key cell, then its word; the key cell marks the Enter default with `›`.
 const ENTRIES: [(Entry, &str, &str); 2] =
@@ -62,7 +61,8 @@ fn width() -> u16 {
         .chain([HINT.width()])
         .max()
         .unwrap_or(0);
-    (lines + 4).max(TITLE.width() + 2) as u16
+    // The title sits in the top border with a space on each side.
+    (lines + 4).max(TITLE.width() + 4) as u16
 }
 
 /// Two borders, one line per entry and the hint.
@@ -107,13 +107,19 @@ pub(super) fn paint(
     let bounds = place(pane, frame.area(), end, first)?;
     let look = app.look();
     let dim = look.role(Role::Dim);
-    frame.render_widget(Clear, bounds);
-    let block = Block::bordered()
-        .border_style(dim)
-        .title(TITLE)
-        .title_style(dim);
-    let inner = block.inner(bounds);
-    frame.render_widget(block, bounds);
+    // The modal clears the cells under the box and draws its titled square border.
+    let modal = Modal {
+        title: TITLE.into(),
+        placement: Placement::Body,
+    };
+    let areas = modal.areas(bounds, [bounds.width, bounds.height], false, false);
+    modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+    let inner = Rect::new(
+        bounds.x + 1,
+        bounds.y + 1,
+        bounds.width - 2,
+        bounds.height - 2,
+    );
     let mut lines = Vec::new();
     for (index, (_, key, word)) in ENTRIES.iter().enumerate() {
         let line = Rect::new(inner.x, inner.y + index as u16, inner.width, 1);
@@ -164,7 +170,7 @@ mod tests {
     #[test]
     fn the_box_is_as_wide_as_its_widest_line_and_holds_every_entry() {
         assert_eq!((width(), height()), (14, 5));
-        assert!(TITLE.width() as u16 + 2 <= width());
+        assert!(TITLE.width() as u16 + 4 <= width());
     }
 
     #[test]
