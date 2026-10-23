@@ -10,7 +10,7 @@ use tmt_core::{
 
 pub(super) fn prepare(
     storage: &mut Storage,
-    host: &Host,
+    sender: identity_context::Sender,
     input: &Input,
     settings: &Settings,
     interrupt: Option<&Interrupt>,
@@ -129,18 +129,17 @@ pub(super) fn prepare(
             ));
         }
     }
-    let (originator, sender) =
-        identity_context::optional(storage, host, input.originator.as_deref())?.map_or(
-            (Originator::Unknown, "unknown".to_owned()),
-            |identity| {
-                let originator = if input.originator.is_some() {
-                    Originator::Explicit(identity.id)
-                } else {
-                    Originator::Verified(identity.id)
-                };
-                (originator, identity.name)
-            },
-        );
+    let (originator, sender) = identity_context::optional(storage, sender)?.map_or(
+        (Originator::Unknown, "unknown".to_owned()),
+        |identity| {
+            let originator = if input.originator.is_some() {
+                Originator::Explicit(identity.id)
+            } else {
+                Originator::Verified(identity.id)
+            };
+            (originator, identity.name)
+        },
+    );
     let (request_id, attempt_id) = request_ids();
     let mut correlation = Correlation {
         data_dir: data_dir.to_path_buf(),

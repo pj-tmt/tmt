@@ -13,7 +13,7 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    host::CallerEnvironment,
+    host::Host,
     storage::{Storage, StorageError},
 };
 use tmt_core::{
@@ -160,7 +160,7 @@ fn run(request: IdentityRequest) -> Result<Report, Failure> {
             "Could not complete the identity operation.",
         )
     })?;
-    let pending = operation(&mut storage, request, selector, changes);
+    let pending = operation(&mut storage, &paths, request, selector, changes);
     after_cleanup(pending, || storage.close())
 }
 
@@ -181,12 +181,18 @@ fn shown(storage: &Storage, identity: Identity) -> Result<Report, Failure> {
 /// A delivery-time check of one UUID against the name its caller last saw. The UUID is never
 /// looked up as a name: a retired or reassigned identity is a change, not a miss, and nothing
 /// is cached for the caller.
-fn pinned(storage: &mut Storage, id: &str, expected: &str) -> Result<Report, Failure> {
+fn pinned(
+    storage: &mut Storage,
+    paths: &ConfigPaths,
+    id: &str,
+    expected: &str,
+) -> Result<Report, Failure> {
     let changed = |reason: String| Failure::new("IDENTITY_CHANGED", reason, 5);
     let identity = identity_context::pinned_identity(storage, id, expected)?;
     // Presence is read as `tmt ls <name>` reads it, so a host that cannot answer is "unknown",
-    // never a reason to refuse an identity that still has its name.
-    let host = crate::caller_context::host(&CallerEnvironment::current())?;
+    // never a reason to refuse an identity that still has its name. A named
+    // operation never selects the caller's host (#4449).
+    let host = Host::for_stored_bindings(paths);
     let presence = match binding::name_presence(storage, &mut host.session(), &identity.name) {
         Ok(observed) if observed.identity.id == id => observed.presence.as_str(),
         Ok(_) | Err(BindingError::NameNotFound(_)) => {
@@ -205,6 +211,7 @@ fn pinned(storage: &mut Storage, id: &str, expected: &str) -> Result<Report, Fai
 
 fn operation(
     storage: &mut Storage,
+    paths: &ConfigPaths,
     request: IdentityRequest,
     selector: Option<identity_context::Selector>,
     changes: Option<identity_metadata::MetadataChanges>,
@@ -225,7 +232,7 @@ fn operation(
         IdentityRequest::Show {
             name: Some(name),
             expect_name: Some(expected),
-        } => pinned(storage, &name, &expected),
+        } => pinned(storage, paths, &name, &expected),
         IdentityRequest::Show {
             name: Some(name), ..
         } => {
@@ -574,6 +581,12 @@ fn document(report: &Report) -> serde_json::Value {
 
 pub(crate) fn list_document(paths: &ConfigPaths) -> Result<serde_json::Value, Failure> {
     let mut storage = Storage::open(&paths.database).map_err(unavailable)?;
-    let pending = operation(&mut storage, IdentityRequest::List(Vec::new()), None, None);
+    let pending = operation(
+        &mut storage,
+        paths,
+        IdentityRequest::List(Vec::new()),
+        None,
+        None,
+    );
     after_cleanup(pending, || storage.close()).map(|report| document(&report))
 }

@@ -16,7 +16,7 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    host::CallerEnvironment,
+    host::Host,
     process::{CommandRunner, UnixCommandRunner},
     remote_message::{self, RemoteMessage, RemoteMessageOutcome},
     reply_receipt::encode_route_receipt,
@@ -143,6 +143,9 @@ fn run(
     budget: Duration,
 ) -> Result<Report, Failure> {
     validate(input)?;
+    // As in a local talk, only an implicit sender selects the caller's host,
+    // before storage opens.
+    let selected = identity_context::sender(input.originator.as_deref(), &Host::for_caller)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -154,6 +157,7 @@ fn run(
     })?;
     let result = send(
         &mut storage,
+        selected,
         input,
         settings,
         program.as_os_str(),
@@ -192,34 +196,32 @@ fn validate(input: &Input) -> Result<(), Failure> {
 
 fn send(
     storage: &mut Storage,
+    selected: identity_context::Sender,
     input: &Input,
     settings: &Settings,
     program: &OsStr,
     runner: &dyn CommandRunner,
     budget: Duration,
 ) -> Result<Report, Failure> {
-    let host = crate::caller_context::host(&CallerEnvironment::current())?;
-    let (originator, sender) =
-        identity_context::optional(storage, &host, input.originator.as_deref())?
-            .map(|identity| {
-                let originator = if input.originator.is_some() {
-                    Originator::Explicit(identity.id.clone())
-                } else {
-                    Originator::Verified(identity.id.clone())
-                };
-                (originator, identity)
-            })
-            .ok_or_else(|| {
-                Failure::new(
-                    "REMOTE_SENDER_REQUIRED",
-                    "A Remote message needs a confirmed sender; no message was sent.",
-                    1,
-                )
-                .suggestion(
-                    "Run it from an agent pane, or pass --identity with an existing identity."
-                        .into(),
-                )
-            })?;
+    let (originator, sender) = identity_context::optional(storage, selected)?
+        .map(|identity| {
+            let originator = if input.originator.is_some() {
+                Originator::Explicit(identity.id.clone())
+            } else {
+                Originator::Verified(identity.id.clone())
+            };
+            (originator, identity)
+        })
+        .ok_or_else(|| {
+            Failure::new(
+                "REMOTE_SENDER_REQUIRED",
+                "A Remote message needs a confirmed sender; no message was sent.",
+                1,
+            )
+            .suggestion(
+                "Run it from an agent pane, or pass --identity with an existing identity.".into(),
+            )
+        })?;
     let (target_id, target_name) = match &input.expect_name {
         Some(name) => (Some(input.target.clone()), name.clone()),
         None => (None, input.target.clone()),

@@ -12,9 +12,10 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::ConfigPaths,
     host::{
-        ActionError, CallerEnvironment, FocusError, Host, Invoker, OperationOptions, PaneSwap,
-        SwapDirection,
+        ActionError, CallerEnvironment, ClientView, FocusError, Host, Invoker, OperationOptions,
+        PaneSwap, SwapDirection,
     },
+    process::{CommandRunner, UnixCommandRunner},
     storage::Storage,
 };
 use tmt_core::{
@@ -198,11 +199,7 @@ fn run(
 /// Resolves the invoker's client exactly as a focus would, without switching
 /// anything or opening storage.
 pub fn client(mode: OutputMode) -> io::Result<u8> {
-    let view = match invoker().and_then(|invoker| {
-        crate::caller_context::host(&CallerEnvironment::current())?
-            .invoker_client(&invoker, OperationOptions::default())
-            .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
-    }) {
+    let view = match invoker().and_then(|invoker| client_view(&invoker, UnixCommandRunner)) {
         Ok(view) => view,
         Err(error) => return error.publish(mode),
     };
@@ -219,6 +216,20 @@ pub fn client(mode: OutputMode) -> io::Result<u8> {
         )?;
     }
     Ok(0)
+}
+
+/// The invoker's own client. The selection approves no driver, so it reads
+/// only the invoker's tmux server, or the built-in pty pane that names the
+/// caller. A selection read that fails to clean up is `CLEANUP_ERROR`, as in
+/// every caller-scoped operation; a failed tmux read is the command's error.
+fn client_view<R: CommandRunner + Clone>(
+    invoker: &Invoker,
+    runner: R,
+) -> Result<ClientView, Failure> {
+    Host::for_caller_with(&CallerEnvironment::current(), runner)
+        .map_err(crate::caller_context::selection_failed)?
+        .invoker_client(invoker, OperationOptions::default())
+        .map_err(|error| pane_failure(error, invoker.pane.as_deref().unwrap_or_default()))
 }
 
 pub fn execute(target: String, into: Option<SwapDirection>, mode: OutputMode) -> io::Result<u8> {
@@ -276,4 +287,69 @@ pub fn execute(target: String, into: Option<SwapDirection>, mode: OutputMode) ->
         )?;
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client_view;
+    use std::{cell::RefCell, ffi::OsStr, rc::Rc};
+    use tmt_adapters::{
+        host::Invoker,
+        process::{CommandError, CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner},
+    };
+
+    /// Records each program and its arguments, and fails every command
+    /// without running it: a program that does not exist answers.
+    #[derive(Clone, Default)]
+    struct Recorded(Rc<RefCell<Vec<Call>>>);
+
+    /// A program and its arguments.
+    type Call = (String, Vec<String>);
+
+    impl CommandRunner for Recorded {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            self.0.borrow_mut().push((
+                request.program.to_string_lossy().into_owned(),
+                request
+                    .args
+                    .iter()
+                    .map(|arg| arg.to_string_lossy().into_owned())
+                    .collect(),
+            ));
+            UnixCommandRunner.execute(CommandRequest {
+                program: OsStr::new("/nonexistent/tmt-focus-test"),
+                args: &[],
+                ..request
+            })
+        }
+    }
+
+    /// `focus --client` reads only the invoker's tmux server: no caller host
+    /// is selected, and a failed tmux read is the command's error (#4449).
+    #[test]
+    fn the_client_lookup_reads_only_the_invokers_tmux_server() {
+        let socket = std::env::temp_dir()
+            .join(format!("tmt-focus-client-{}.sock", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+        let invoker = Invoker {
+            socket: socket.clone(),
+            pane: Some("%1".into()),
+            session: None,
+        };
+        let runner = Recorded::default();
+        let failure = client_view(&invoker, runner.clone()).expect_err("the tmux read fails");
+        assert_eq!(failure.status, 1);
+        assert_eq!(failure.document()["error"]["code"], "RECONCILIATION_FAILED");
+        let calls = runner.0.borrow();
+        assert!(!calls.is_empty());
+        for (program, args) in calls.iter() {
+            assert!(program.ends_with("tmux"), "{program} {args:?}");
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair[0] == "-S" && pair[1] == socket),
+                "{args:?}"
+            );
+        }
+    }
 }

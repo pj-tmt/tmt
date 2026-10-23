@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
     dispatch::encode_receipt,
-    host::CallerEnvironment,
+    host::Host,
     request_runtime::wall_time_ms,
     storage::{DispatchError, Storage},
 };
@@ -68,6 +68,8 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
     .load()
     .map_err(Failure::from)?
     .settings;
+    // Only an implicit sender selects the caller's host, before storage opens.
+    let sender = identity_context::sender(identity.as_deref(), &Host::for_caller)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -89,18 +91,16 @@ fn run(operation: RoomOperation) -> Result<DispatchReceipt, Failure> {
                 1,
             ));
         }
-        let originator = identity_context::optional(
-            &mut storage,
-            &crate::caller_context::host(&CallerEnvironment::current())?,
-            identity.as_deref(),
-        )?
-        .map_or(Originator::Unknown, |sender| {
-            if identity.is_some() {
-                Originator::Explicit(sender.id)
-            } else {
-                Originator::Verified(sender.id)
-            }
-        });
+        let originator = identity_context::optional(&mut storage, sender)?.map_or(
+            Originator::Unknown,
+            |sender| {
+                if identity.is_some() {
+                    Originator::Explicit(sender.id)
+                } else {
+                    Originator::Verified(sender.id)
+                }
+            },
+        );
         storage
             .dispatch_request(
                 DispatchInput {

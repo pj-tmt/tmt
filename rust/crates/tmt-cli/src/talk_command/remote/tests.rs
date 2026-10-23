@@ -50,9 +50,14 @@ impl Setup {
         serde_json::from_str(&fs::read_to_string(self.root.join("stdin")).unwrap()).unwrap()
     }
 
+    /// Every sender here is explicit, so the caller's host is never selected.
     fn send(&mut self, input: &Input, program: &Path) -> Result<Report, Failure> {
+        let selected = identity_context::sender(input.originator.as_deref(), &|_| {
+            panic!("an explicit sender selects no host")
+        })?;
         send(
             &mut self.storage,
+            selected,
             input,
             &Settings::default(),
             program.as_os_str(),

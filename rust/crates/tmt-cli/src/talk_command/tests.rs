@@ -1,5 +1,6 @@
 use super::*;
 use crate::delivery::Delivery;
+use tmt_adapters::host::CallerEnvironment;
 use tmt_adapters::storage::{StorageError, StorageErrorCode};
 use tmt_core::request::WakeState;
 
@@ -222,4 +223,77 @@ fn unverified_delivery_reports_no_live_input_and_recipient_recovery_in_json() {
             .unwrap()
             .contains("tmt resume 'Team Lead' there")
     );
+}
+
+fn request_from(originator: Option<&str>) -> Input {
+    Input {
+        expected_binding: None,
+        deadline: None,
+        target: "bob".into(),
+        message: "hello".into(),
+        originator: originator.map(str::to_owned),
+        options: TalkOptions {
+            urgent: false,
+            passthrough: false,
+            digest_kind: tmt_core::request::digest::DigestKind::Fyi,
+            room: None,
+            force: false,
+            detach: true,
+            delay_seconds: None,
+            timeout_seconds: None,
+            no_preamble: false,
+        },
+    }
+}
+
+/// An implicit originator selects the caller's host before storage opens; a
+/// selection read that fails to clean up sends nothing (#4449).
+#[test]
+fn an_implicit_sender_whose_selection_fails_cleanup_sends_nothing_and_opens_no_store() {
+    use crate::caller_context::testing::{Private, Selections};
+    let private = Private::new("talk-implicit");
+    let selections = Selections::default();
+    let select = |environment: &CallerEnvironment| selections.select(environment);
+    let failure = run(
+        request_from(None),
+        private.paths(),
+        Settings::default(),
+        None,
+        OutputMode { json: true },
+        &select,
+    )
+    .err()
+    .expect("a cleanup failure");
+    assert_eq!(failure.status, 1);
+    assert_eq!(failure.document()["error"]["code"], "CLEANUP_ERROR");
+    assert_eq!(selections.calls(), 1);
+    assert!(!private.paths().database.exists());
+}
+
+/// An explicit originator is read from storage alone: the caller's host is
+/// never selected, so its failed cleanup cannot stop the request.
+#[test]
+fn an_explicit_sender_never_selects_the_caller_host() {
+    use crate::caller_context::testing::{Private, Selections};
+    let private = Private::new("talk-explicit");
+    let paths = private.paths();
+    let mut storage = Storage::open(&paths.database).unwrap();
+    tmt_core::identity::create_or_resolve(&mut storage, "bob", tmt_core::identity::Lifetime::Saved)
+        .unwrap();
+    storage.close().unwrap();
+    let selections = Selections::default();
+    let select = |environment: &CallerEnvironment| selections.select(environment);
+    let failure = run(
+        request_from(Some("alice")),
+        paths,
+        Settings::default(),
+        None,
+        OutputMode { json: true },
+        &select,
+    )
+    .err()
+    .expect("the sender is missing");
+    assert_eq!(failure.code, "NAME_NOT_FOUND");
+    assert!(failure.message.contains("alice"), "{}", failure.message);
+    assert_eq!(selections.calls(), 0);
 }

@@ -1,7 +1,11 @@
 //! Compose runtime evidence before allowing implicit host attribution.
 
+#[cfg(test)]
+pub(crate) mod testing;
+
 use crate::output::Failure;
 use tmt_adapters::{
+    config::ConfigPaths,
     drivers::Registry,
     host::{CallerEnvironment, Host, HostError},
 };
@@ -48,6 +52,42 @@ pub fn selection_failed(error: HostError) -> Failure {
         1,
     )
     .caused_by(error)
+}
+
+/// How a command selects the caller's host: [`Host::for_caller`] in a
+/// command, a test's own selection in a test, so the test runs no real read.
+pub type SelectCaller<'a> = &'a dyn Fn(&CallerEnvironment) -> Result<Host, HostError>;
+
+/// What a command takes from its process: the caller's host selection and
+/// its configuration paths. A test passes its own, so it runs no real
+/// selection and opens only a private store.
+#[derive(Clone, Copy)]
+pub struct Composition<'a> {
+    pub select: SelectCaller<'a>,
+    pub config: &'a dyn Fn() -> Result<ConfigPaths, Failure>,
+}
+
+impl Composition<'_> {
+    pub fn process() -> Composition<'static> {
+        Composition {
+            select: &Host::for_caller,
+            config: &discovered,
+        }
+    }
+
+    /// Only a caller-scoped operation selects the caller's host. A selection
+    /// read that fails to clean up stops it with `CLEANUP_ERROR` (#4449).
+    pub fn caller(&self, environment: &CallerEnvironment) -> Result<Host, Failure> {
+        (self.select)(environment).map_err(selection_failed)
+    }
+
+    pub fn paths(&self) -> Result<ConfigPaths, Failure> {
+        (self.config)()
+    }
+}
+
+fn discovered() -> Result<ConfigPaths, Failure> {
+    ConfigPaths::discover().map_err(Failure::from)
 }
 
 /// Explicit identity and endpoint selectors do not use implicit host evidence.

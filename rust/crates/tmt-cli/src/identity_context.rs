@@ -2,6 +2,7 @@
 
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
+    caller_context::SelectCaller,
     output::{Failure, identity_missing},
 };
 use tmt_adapters::{
@@ -81,12 +82,9 @@ pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
     if let Some(name) = explicit {
         return Ok(Selector::Explicit(name.to_owned()));
     }
-    select(
-        &crate::caller_context::host(&CallerEnvironment::current())?,
-        None,
-        false,
-    )?
-    .ok_or_else(required_failure)
+    caller_pane(&Host::for_caller, false)?
+        .map(|(_, pane)| Selector::Pane(pane))
+        .ok_or_else(required_failure)
 }
 
 /// Only a pane selector discovers the caller's host; durable selectors read
@@ -100,25 +98,39 @@ pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Fa
     .ok_or_else(required_failure)
 }
 
-pub fn optional(
-    storage: &mut Storage,
-    host: &Host,
-    explicit: Option<&str>,
-) -> Result<Option<Identity>, Failure> {
-    match select(host, explicit, true)? {
-        Some(selector) => selected(storage, || Ok(host), selector),
-        None => Ok(None),
+/// An optional identity, chosen before storage opens. Only an implicit
+/// selection discovers the caller's host; a durable name reads storage alone.
+pub enum Sender {
+    Explicit(String),
+    Pane(Box<Host>, String),
+    Anonymous,
+}
+
+pub fn sender(explicit: Option<&str>, select: SelectCaller<'_>) -> Result<Sender, Failure> {
+    if let Some(name) = explicit {
+        return Ok(Sender::Explicit(name.to_owned()));
+    }
+    Ok(match caller_pane(select, true)? {
+        Some((host, pane)) => Sender::Pane(Box::new(host), pane),
+        None => Sender::Anonymous,
+    })
+}
+
+pub fn optional(storage: &mut Storage, sender: Sender) -> Result<Option<Identity>, Failure> {
+    match sender {
+        Sender::Explicit(name) => explicit(storage, &name).map(Some),
+        Sender::Pane(host, pane) => selected(storage, || Ok(&*host), Selector::Pane(pane)),
+        Sender::Anonymous => Ok(None),
     }
 }
 
-fn select(
-    host: &Host,
-    explicit: Option<&str>,
+/// The caller's host and its pane, or no pane.
+fn caller_pane(
+    select: SelectCaller<'_>,
     allow_anonymous: bool,
-) -> Result<Option<Selector>, Failure> {
-    if let Some(name) = explicit {
-        return Ok(Some(Selector::Explicit(name.to_owned())));
-    }
+) -> Result<Option<(Host, String)>, Failure> {
+    let environment = CallerEnvironment::current();
+    let host = select(&environment).map_err(crate::caller_context::selection_failed)?;
     if let Err(error) = crate::caller_context::require_independent_host() {
         // Anonymous delivery remains valid, but must not acquire the identity
         // of an unrelated conversation through the shared host's pane.
@@ -138,9 +150,15 @@ fn select(
             Err(error)
         };
     }
-    host.caller_pane(&CallerEnvironment::current())
-        .map(|pane| pane.map(Selector::Pane))
-        .map_err(endpoint_failure)
+    let pane = host.caller_pane(&environment).map_err(endpoint_failure)?;
+    Ok(pane.map(|pane| (host, pane)))
+}
+
+fn explicit(storage: &mut Storage, name: &str) -> Result<Identity, Failure> {
+    let selected = storage.resolve_identity(name).map_err(|error| {
+        Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
+    })?;
+    selected.ok_or_else(|| identity_missing(name))
 }
 
 fn selected<H: std::borrow::Borrow<Host>>(
@@ -166,13 +184,7 @@ fn selected<H: std::borrow::Borrow<Host>>(
             }
             Ok(Some(identity))
         }
-        Selector::Explicit(name) => {
-            let selected = storage.resolve_identity(&name).map_err(|error| {
-                Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
-                    .caused_by(error)
-            })?;
-            selected.ok_or_else(|| identity_missing(&name)).map(Some)
-        }
+        Selector::Explicit(name) => explicit(storage, &name).map(Some),
         Selector::Pane(pane) => {
             let host = host()?;
             let host = host.borrow();

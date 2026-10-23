@@ -65,10 +65,16 @@ pub fn admitted_at(paths: Result<&ConfigPaths, &crate::config::ConfigError>) -> 
 /// read approves nothing. A first-party driver is the one the running
 /// release ships (`registry::current_first_party`), or none.
 pub fn approved() -> Vec<registry::DriverRecord> {
-    count_approval_read();
     let Ok(paths) = ConfigPaths::discover() else {
+        count_approval_read();
         return Vec::new();
     };
+    approved_at(&paths)
+}
+
+/// [`approved`] for the configuration paths a command already resolved.
+pub fn approved_at(paths: &ConfigPaths) -> Vec<registry::DriverRecord> {
+    count_approval_read();
     let records = registry::read(&paths.global_dir).unwrap_or_default();
     let tmt = std::env::current_exe().ok();
     records

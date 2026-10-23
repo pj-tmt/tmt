@@ -586,6 +586,13 @@ impl Host {
         Self::for_server_with(server, UnixCommandRunner).with_drivers(external::approved())
     }
 
+    /// A handle for an operation on stored bindings alone, such as a named
+    /// remove or a listing: each binding is probed on its own host, with the
+    /// drivers approved under `paths`, so no caller host is selected (#4449).
+    pub fn for_stored_bindings(paths: &crate::config::ConfigPaths) -> Self {
+        Self::of(HostKind::Tmux, UnixCommandRunner).with_drivers(external::approved_at(paths))
+    }
+
     /// The host whose syntax an explicit pane target uses; text that no host
     /// reads as a target is resolved by name elsewhere.
     pub fn for_target(target: &str) -> Self {

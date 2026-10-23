@@ -4,10 +4,13 @@
 #[cfg(test)]
 mod guarded_tests;
 mod presentation;
+#[cfg(test)]
+mod selection_tests;
 mod session;
 
 use crate::{
     binding_error::{binding_failure, endpoint_failure},
+    caller_context::Composition,
     invocation::{Invocation, ListScope, OutputMode},
     output::{Failure, after_cleanup},
 };
@@ -134,16 +137,25 @@ fn labeled_caller_pane(
     }))
 }
 
+/// The pane a request acts on, and the caller's host when that pane is the
+/// caller's own. Only a caller-scoped request selects the caller's host; an
+/// explicit target or a name never does (#4449).
+struct Preflight {
+    pane: Option<ResolvedPane>,
+    caller: Option<Host>,
+}
+
 /// `listed_pane`: whether `ls <text>` addresses a pane, decided once by
 /// [`listed_target`] before any host is resolved.
 fn preflight(
     request: &Invocation,
-    host: &Host,
+    composition: Composition<'_>,
     environment: &CallerEnvironment,
     listed_pane: bool,
-) -> Result<Option<ResolvedPane>, Failure> {
+) -> Result<Preflight, Failure> {
     let target = match request {
         Invocation::BindMarked { .. } => {
+            let host = composition.caller(environment)?;
             let target = host
                 .marked_pane(environment, OperationOptions::default())
                 .map_err(endpoint_failure)?
@@ -155,12 +167,15 @@ fn preflight(
                     )
                     .suggestion("Mark the intended pane in tmux, then retry.".into())
                 })?;
-            return Ok(Some(ResolvedPane {
-                id: target.pane_id.clone(),
-                label: target.pane_id.clone(),
-                frozen: Some(target),
-                target: None,
-            }));
+            return Ok(Preflight {
+                pane: Some(ResolvedPane {
+                    id: target.pane_id.clone(),
+                    label: target.pane_id.clone(),
+                    frozen: Some(target),
+                    target: None,
+                }),
+                caller: Some(host),
+            });
         }
         Invocation::Bind {
             pane: Some(pane),
@@ -187,14 +202,19 @@ fn preflight(
             ..
         } => {
             // `--here` is caller-scoped like `whoami`: it needs a tmux pane.
+            let host = composition.caller(environment)?;
             crate::caller_context::require_independent_host()?;
-            return labeled_caller_pane(host, environment, || {
+            let pane = labeled_caller_pane(&host, environment, || {
                 Failure::new(
                     "PANE_NOT_FOUND",
                     "`tmt ls --here` needs a tmux pane, and this is not one.",
                     3,
                 )
                 .suggestion("Run it inside tmux, or drop --here to list every agent.".into())
+            })?;
+            return Ok(Preflight {
+                pane,
+                caller: Some(host),
             });
         }
         Invocation::Bind { pane: None, .. } | Invocation::Whoami | Invocation::Unbind => {
@@ -202,18 +222,23 @@ fn preflight(
                 Invocation::Bind { name, .. } => Some(name.as_str()),
                 _ => None,
             };
+            let host = composition.caller(environment)?;
             crate::caller_context::require_independent_host_for(name)?;
-            return labeled_caller_pane(host, environment, || {
+            let pane = labeled_caller_pane(&host, environment, || {
                 Failure::new(
                     "PANE_NOT_FOUND",
                     "Not running inside a resolvable tmux pane.",
                     3,
                 )
+            })?;
+            return Ok(Preflight {
+                pane,
+                caller: Some(host),
             });
         }
         _ => None,
     };
-    target
+    let pane = target
         .map(|target| {
             Host::for_target(target)
                 .resolve_target(target, OperationOptions::default())
@@ -232,7 +257,8 @@ fn preflight(
                     target: Some(target.to_owned()),
                 })
         })
-        .transpose()
+        .transpose()?;
+    Ok(Preflight { pane, caller: None })
 }
 
 fn open_storage(paths: &ConfigPaths) -> Result<Storage, Failure> {
@@ -256,7 +282,10 @@ struct ListedTarget {
     opened: Option<(ConfigPaths, Storage)>,
 }
 
-fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
+fn listed_target(
+    request: &Invocation,
+    composition: Composition<'_>,
+) -> Result<ListedTarget, Failure> {
     let target = match request {
         Invocation::List {
             target: Some(target),
@@ -275,7 +304,7 @@ fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
             opened: None,
         });
     }
-    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let paths = composition.paths()?;
     let storage = open_storage(&paths)?;
     let pane = tmt_core::identity::addresses_pane(&storage, target).map_err(|error| {
         Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
@@ -286,20 +315,36 @@ fn listed_target(request: &Invocation) -> Result<ListedTarget, Failure> {
     })
 }
 
-fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failure> {
+fn run(
+    request: Invocation,
+    composition: Composition<'_>,
+) -> Result<(Report, Option<AgentNameOutcome>), Failure> {
     let environment = CallerEnvironment::current();
-    let caller = crate::caller_context::host(&environment)?;
-    let listed = listed_target(&request)?;
-    let pane = preflight(&request, &caller, &environment, listed.pane)?;
-    // An explicit target's own host observes it; stored bindings are always
-    // probed on theirs.
-    let host = match pane.as_ref().and_then(|pane| pane.target.as_deref()) {
-        Some(target) => Host::for_target(target),
-        None => caller,
-    };
+    let listed = listed_target(&request, composition)?;
+    let Preflight { pane, caller } = preflight(&request, composition, &environment, listed.pane)?;
     let (paths, storage) = match listed.opened {
         Some((paths, storage)) => (paths, Some(storage)),
-        None => (ConfigPaths::discover().map_err(Failure::from)?, None),
+        None => (composition.paths()?, None),
+    };
+    // An explicit target's own host observes it, and the caller's own pane is
+    // on the caller's host. Stored bindings are always probed on theirs, so a
+    // named operation selects no caller host.
+    let (host, ranked) = match (
+        pane.as_ref().and_then(|pane| pane.target.as_deref()),
+        caller,
+    ) {
+        (Some(target), _) => (Host::for_target(target), false),
+        (None, Some(caller)) => (caller, true),
+        // A global listing uses the caller's host only to list the caller's
+        // server first. A failed selection lists without that order and
+        // guesses no host.
+        (None, None) if matches!(request, Invocation::List { target: None, .. }) => {
+            match composition.caller(&environment) {
+                Ok(caller) => (caller, true),
+                Err(_) => (Host::for_stored_bindings(&paths), false),
+            }
+        }
+        (None, None) => (Host::for_stored_bindings(&paths), false),
     };
     let badge = if matches!(
         request,
@@ -337,7 +382,7 @@ fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failur
             &mut endpoint,
             request,
             pane,
-            host.selected_server(&environment),
+            host.selected_server(&environment).filter(|_| ranked),
         )
     });
     let pending = operated.and_then(|mut report| {
@@ -719,7 +764,7 @@ fn operation(
 }
 
 pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
-    let (report, agent_name) = match run(request) {
+    let (report, agent_name) = match run(request, Composition::process()) {
         Ok(ran) => ran,
         Err(error) => return error.publish(mode),
     };

@@ -8,6 +8,7 @@ pub(crate) mod remote;
 mod tests;
 
 use crate::{
+    caller_context::SelectCaller,
     invocation::{Invocation, OutputMode, TalkOptions},
     output::{Failure, after_cleanup},
 };
@@ -18,7 +19,7 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    host::{CallerEnvironment, Host},
+    host::Host,
     interrupt::Interrupt,
     request_runtime::wall_time_ms,
     storage::{Storage, StorageError},
@@ -563,7 +564,11 @@ fn run(
     settings: Settings,
     interrupt: Option<&Interrupt>,
     mode: OutputMode,
+    select: SelectCaller<'_>,
 ) -> Result<Report, Failure> {
+    // Only an implicit originator selects the caller's host, before storage
+    // opens; the recipient's own host delivers.
+    let sender = crate::identity_context::sender(input.originator.as_deref(), select)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -573,10 +578,8 @@ fn run(
             "Could not open request storage; no message was sent.",
         )
     })?;
-    // The originator is caller-scoped; the recipient's own host delivers.
-    let host = crate::caller_context::host(&CallerEnvironment::current())?;
     let mut cleanup_correlation = None;
-    let pending = preparation::prepare(&mut storage, &host, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
+    let pending = preparation::prepare(&mut storage, sender, &input, &settings, interrupt, &paths.global_dir).and_then(|mut prepared| {
         cleanup_correlation = Some(prepared.correlation.clone());
         if !mode.json && !input.options.detach && !input.options.force && let Some(previous) = &prepared.previous_request_id {
             let mut stderr = tmt_cli_style::stream::stderr();
@@ -650,6 +653,7 @@ pub(crate) fn request_handoff(
         settings.clone(),
         Some(&interrupt),
         OutputMode { json: true },
+        &Host::for_caller,
     ) {
         Ok(_) => Ok(()),
         Err(error) if error.code == "INTERRUPTED" => Err(error),
@@ -714,7 +718,14 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
             }
         }
     };
-    match run(input, paths, settings, interrupt.as_ref(), mode) {
+    match run(
+        input,
+        paths,
+        settings,
+        interrupt.as_ref(),
+        mode,
+        &Host::for_caller,
+    ) {
         Ok(report) => presentation::publish(report, mode),
         Err(error) => error.publish(mode),
     }
