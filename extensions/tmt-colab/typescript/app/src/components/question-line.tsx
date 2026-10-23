@@ -1,5 +1,5 @@
 import { BusyMark, useBusyMark } from '@tmt/browser-ui/react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { forwardRef } from 'react';
 import { questionText, type Question } from '../questions.js';
 import { text } from '../strings.js';
@@ -14,19 +14,19 @@ export const QuestionLine = forwardRef<
     answer?: string;
     /** The answer is sent but no verified record backs it yet: the line is folded and inert. */
     pending?: boolean;
+    /** Names the asking agent above the title; a group's heading already names it. */
+    eyebrow?: boolean;
     expanded: boolean;
     panelId: string;
     onToggle(): void;
     onMove?(direction: -1 | 1): void;
   }
 >(function QuestionLine(
-  { question, answer, pending = false, expanded, panelId, onToggle, onMove },
+  { question, answer, pending = false, eyebrow = true, expanded, panelId, onToggle, onMove },
   ref,
 ) {
-  const state =
-    answer !== undefined
-      ? text.questionLine.answered(questionText(answer))
-      : text.questionLine.waiting;
+  const summary = answer === undefined ? undefined : questionText(answer);
+  const state = summary === undefined ? text.questionLine.waiting : text.questionLine.answered;
   // The shared busy-mark delay: an answer verified within it never shows the mark.
   const marked = useBusyMark(pending);
   return (
@@ -34,8 +34,8 @@ export const QuestionLine = forwardRef<
       type="button"
       ref={ref}
       className="question-line"
-      data-state={answer !== undefined ? 'answered' : 'waiting'}
-      aria-label={`${question.title}, ${state}`}
+      data-state={summary !== undefined ? 'answered' : 'waiting'}
+      aria-label={`${question.title}, ${summary === undefined ? state : `${state}: ${summary}`}`}
       aria-expanded={expanded}
       aria-controls={panelId}
       aria-disabled={pending || undefined}
@@ -58,22 +58,33 @@ export const QuestionLine = forwardRef<
         }
       }}
     >
-      <span className="question-line-mark" aria-hidden="true">
-        {pending && marked ? (
-          <span className="comment-echo-mark" data-shown="true">
-            <BusyMark />
-          </span>
-        ) : answer !== undefined ? (
-          '✓'
-        ) : (
-          '◆'
+      <span className="question-line-icon" aria-hidden="true">
+        ?
+      </span>
+      <span className="question-line-heading">
+        {eyebrow && (
+          <span className="question-line-eyebrow">{text.questionLine.eyebrow(question.agent)}</span>
         )}
+        <span className="question-line-title">{question.title}</span>
       </span>
-      <span className="question-line-title">{question.title}</span>
-      <span className="question-line-state">{state}</span>
+      <span className="question-line-state">
+        <span className="question-line-mark" aria-hidden="true">
+          {pending && marked ? (
+            <span className="comment-echo-mark" data-shown="true">
+              <BusyMark />
+            </span>
+          ) : summary !== undefined ? (
+            <Check size={13} />
+          ) : (
+            '◆'
+          )}
+        </span>
+        <span>{state}</span>
+      </span>
       <span className="question-line-chevron" aria-hidden="true">
-        {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </span>
+      {summary !== undefined && <span className="question-line-answer">{summary}</span>}
     </button>
   );
 });

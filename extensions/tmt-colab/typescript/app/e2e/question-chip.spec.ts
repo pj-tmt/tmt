@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
 import { captureDirectory } from './captures.js';
+import { expectAnswered } from './question-line.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -46,7 +47,7 @@ test('existing chip-form markup becomes compact rows and opening pushes followin
   await expect(rows).toHaveCount(2);
   await expect(page.getByRole('tab')).toHaveCount(0);
   await expect(rows.first()).toContainText('Which list version?');
-  await expect(rows.first()).toContainText('Needs you');
+  await expect(rows.first()).toContainText('Needs your answer');
   await expect(frame(page).locator('tmt-questions')).toBeHidden();
   await settled(page);
   const closed = await afterTop(page);
@@ -107,8 +108,8 @@ test('verified answers close the rows and stay openable after reload', async ({ 
   await panel(page)
     .getByRole('button', { name: /^Send 2 answers/ })
     .press('Enter');
-  await expect(rows.first()).toContainText('Answered: Side categories');
-  await expect(rows.nth(1)).toContainText('Answered: Fade them');
+  await expectAnswered(rows.first(), 'Side categories');
+  await expectAnswered(rows.nth(1), 'Fade them');
   await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'false');
   await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(2);
   await run(page, 'saveQuestionPage');
@@ -116,8 +117,8 @@ test('verified answers close the rows and stay openable after reload', async ({ 
   await run(page, 'mount');
   await run(page, 'restoreQuestionPage');
   const restored = page.locator('.question-line');
-  await expect(restored.first()).toContainText('Answered: Side categories');
-  await expect(restored.nth(1)).toContainText('Answered: Fade them');
+  await expectAnswered(restored.first(), 'Side categories');
+  await expectAnswered(restored.nth(1), 'Fade them');
   await expect(restored.first()).toHaveAttribute('aria-expanded', 'false');
   await restored.first().click();
   await expect(card(page).getByRole('button', { name: 'Change answer' })).toBeVisible();
@@ -190,7 +191,7 @@ for (const [width, theme] of [
     await panel(page)
       .getByRole('button', { name: /^Send 2 answers/ })
       .press('Enter');
-    await expect(rows.first()).toContainText('Answered: Side categories');
+    await expectAnswered(rows.first(), 'Side categories');
     await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'false');
     await settled(page);
     await neutralText();

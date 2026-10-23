@@ -636,13 +636,28 @@ Basis: own.
 
 ### Question item
 
-A question card's choices are the shared `BrowserChoice` rows in a `BrowserChoiceGroup`
-(legend `Choose one` or `Choose any that apply`), the `Other` row last. Each row ends with
-the digit that picks it as a key cap, hidden from assistive technology: the digit keys 1 to 9
-pick a row while focus is on the card but not on an input, and the control is named by its label alone. A row
-carries its own vertical spacing so the whole row is the tap target, with no gap between two
-rows. `Other` opens its own text field under the list. Shared row metrics stay owned by the
-[browser leaf](browser-ui/README.md).
+A question is the concept website's question block (route `#/colab/page/ops-ui`, built from the
+numbered concept 40 where the website lacks it): one band, the page sheet between two 1px rules with
+no side rule and no radius. A line is a `?` glyph in a disc, an eyebrow `Q&A · <agent>` over the
+title, the state (`◆` and `Needs your answer` in the waiting colour, or a check and `Answered` in the
+secondary colour) and a chevron; an answered line shows the recorded answer under the title. The open
+band's fields start in the heading's column: a kind line and an instruction over the choices in one
+wrapped row, the `Other` field under the row once Other is picked, then a rule and a `Goes to` row
+(recipient chips, add) that ends with the group's one primary action, `Send answer` / `Send answers`;
+`Retry`, `Change answer` and `Open reply` stay text actions. A group of several questions is one band
+with one heading, its rows separated by the same rule, and one Send. It differs from the website only
+where the product does more or the tokens decide: recipient chips replace plain text, the type scale
+and the opaque sheet follow the tokens, a multiple or text question has its own control, and the
+primary reads `Send answer` because the answer is sent at once (the website's `Review answer` has no
+shipped step).
+
+A question card's choices are the shared `BrowserChoice` rows in a `BrowserChoiceGroup` (legend
+`Choose one answer, or write your own.` or its multiple form, drawn under the kind line), the `Other` row
+last, in one wrapped line. The digit keys 1 to 9 pick a row from anywhere in the card except a text
+field, and the focus follows the pick when it starts on a choice; no row draws a key cap. Each control declares its key
+(`aria-keyshortcuts`) and shows it in its hint, and is named by its label alone. A row carries its
+own vertical spacing so the whole row is the tap target, with no gap between two rows. Shared row
+metrics stay owned by the [browser leaf](browser-ui/README.md).
 
 ### Proposal item
 
