@@ -14,8 +14,36 @@ const VECTORS: &str = concat!(
 );
 const NAMESPACE: &str = "digest";
 
-pub(super) fn vectors() -> Value {
+/// The supplier's frozen vectors, read from the one file every Ops test shares.
+pub(crate) fn vectors() -> Value {
     serde_json::from_slice(&fs::read(VECTORS).expect("the supplier's vectors")).unwrap()
+}
+
+/// The first frozen status response, the base every savings scenario starts from.
+pub(crate) fn status_document() -> Value {
+    vectors()["status"][0]["response"].clone()
+}
+
+/// One member's complete, gap-free `context-input-avoided-v1` estimate.
+pub(crate) fn savings(window: &str, from_ms: u64, through_ms: u64, tokens: u64) -> Value {
+    json!({"method":"context-input-avoided-v1", "window":window,
+        "fromMs":from_ms, "throughMs":through_ms, "estimatedInputTokensAvoided":tokens,
+        "complete":true, "gap":null})
+}
+
+/// [`status_document`] with `savings` on its members in order, one `(fromMs, throughMs, tokens)`
+/// each; members beyond `values` keep none.
+pub(crate) fn with_savings(window: &str, values: &[(u64, u64, u64)]) -> Value {
+    let mut document = status_document();
+    for (row, (from, through, tokens)) in document["members"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .zip(values)
+    {
+        row["savings"] = savings(window, *from, *through, *tokens);
+    }
+    document
 }
 
 struct Scratch(PathBuf);
@@ -186,14 +214,14 @@ fn unknown_additive_fields_are_ignored() {
 #[test]
 fn a_ready_source_is_delivered_once_and_never_read_twice_at_the_same_time() {
     let scratch = Scratch::new();
-    scratch.status(&vectors()["status"][0]["response"]);
+    scratch.status(&status_document());
     let core = scratch.fake(&format!(
         "echo start >> '{0}/trace'; sleep 0.05; echo end >> '{0}/trace'",
         scratch.0.display()
     ));
     let (reader, received) = reader(&core, quick());
     let supplied = next(&received);
-    let mixed = parse(NAMESPACE, &vectors()["status"][0]["response"]).unwrap();
+    let mixed = parse(NAMESPACE, &status_document()).unwrap();
     let id = mixed.keys().next().unwrap();
     assert_eq!(
         supplied
@@ -233,7 +261,7 @@ fn a_changed_answer_is_delivered_again() {
 #[test]
 fn one_read_supplies_labels_and_typed_status_and_numeric_changes_are_delivered() {
     let scratch = Scratch::new();
-    let mut document = vectors()["status"][0]["response"].clone();
+    let mut document = status_document();
     scratch.status(&document);
     let timing = Timing {
         every: Duration::from_secs(3600),
@@ -268,7 +296,7 @@ fn one_read_supplies_labels_and_typed_status_and_numeric_changes_are_delivered()
 
 #[test]
 fn invalid_typed_status_does_not_invent_fields_or_discard_valid_generic_labels() {
-    let mut document = vectors()["status"][0]["response"].clone();
+    let mut document = status_document();
     document["members"][0]["heldCount"] = json!("unknown");
     let snapshot = Snapshot::parse(NAMESPACE, &document).unwrap();
     assert!(snapshot.digest.is_none());
@@ -278,7 +306,7 @@ fn invalid_typed_status_does_not_invent_fields_or_discard_valid_generic_labels()
 #[test]
 fn a_slow_source_is_cut_at_the_deadline_and_delivers_nothing() {
     let scratch = Scratch::new();
-    scratch.status(&vectors()["status"][0]["response"]);
+    scratch.status(&status_document());
     let core = scratch.fake("sleep 30");
     let timing = Timing {
         deadline: Duration::from_millis(100),
@@ -416,7 +444,7 @@ fn dropping_the_reader_stops_the_thread() {
 
 #[test]
 fn only_the_mode_chip_carries_an_action_in_the_mixed_snapshot() {
-    let rows = parse(NAMESPACE, &vectors()["status"][0]["response"]).unwrap();
+    let rows = parse(NAMESPACE, &status_document()).unwrap();
     for labels in rows.values() {
         assert!(labels[0].action.is_some(), "{labels:?}");
         assert!(labels[1..].iter().all(|label| label.action.is_none()));
@@ -453,15 +481,12 @@ fn an_action_ops_will_not_offer_leaves_its_label_display_only() {
 #[test]
 fn a_savings_window_change_reuses_the_one_reader_and_its_source_argv() {
     let scratch = Scratch::new();
-    scratch.status(&vectors()["status"][0]["response"]);
+    scratch.status(&status_document());
     let timing = Timing {
         every: Duration::from_secs(3600),
         ..quick()
     };
-    let mut week = vectors()["status"][0]["response"].clone();
-    week["members"][0]["savings"] = json!({"method":"context-input-avoided-v1", "window":"7d",
-        "fromMs":100, "throughMs":1000, "estimatedInputTokensAvoided":42,
-        "complete":true,"gap":null});
+    let week = with_savings("7d", &[(100, 1000, 42)]);
     fs::write(scratch.path("week.json"), week.to_string()).unwrap();
     let before = format!(
         "if [ \"$*\" = 'digest status --window 7d --json' ]; then cat '{}'; exit 0; fi",
@@ -503,13 +528,7 @@ fn a_savings_window_change_reuses_the_one_reader_and_its_source_argv() {
 #[test]
 fn a_window_change_discards_the_previous_inflight_estimate_before_delivery() {
     let scratch = Scratch::new();
-    let doc = |window: &str, tokens: u64| {
-        let mut value = vectors()["status"][0]["response"].clone();
-        value["members"][0]["savings"] = json!({"method":"context-input-avoided-v1", "window":window,
-            "fromMs":100, "throughMs":1000, "estimatedInputTokensAvoided":tokens,
-            "complete":true,"gap":null});
-        value
-    };
+    let doc = |window: &str, tokens: u64| with_savings(window, &[(100, 1000, tokens)]);
     scratch.status(&doc("24h", 10));
     fs::write(scratch.path("late.json"), doc("24h", 999).to_string()).unwrap();
     fs::write(scratch.path("week.json"), doc("7d", 42).to_string()).unwrap();
@@ -574,7 +593,7 @@ fi
 #[test]
 fn a_restored_window_is_used_on_the_first_read_without_a_default_probe() {
     let scratch = Scratch::new();
-    scratch.status(&vectors()["status"][0]["response"]);
+    scratch.status(&status_document());
     let before = format!(
         "if [ \"$*\" = 'digest status --window 7d --json' ]; then cat '{}'; exit 0; fi",
         scratch.path("status.json").display()

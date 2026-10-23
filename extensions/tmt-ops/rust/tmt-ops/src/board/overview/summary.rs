@@ -111,12 +111,7 @@ mod tests {
 
     #[test]
     fn digest_intersects_the_roster_and_stale_counts_are_unknown() {
-        let vectors: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../tmt-digest/contracts/vectors/status-v1.json"
-        )))
-        .unwrap();
-        let document = &vectors["status"][0]["response"];
+        let document = &crate::labels::tests::status_document();
         let id = document["members"][0]["identityId"].as_str().unwrap();
         let mut snapshot = OpsWorkspaceSnapshot::default();
         snapshot.roster.members.insert(
@@ -174,12 +169,7 @@ mod tests {
     const THIRD: &str = "10000000-0000-4000-8000-000000000003";
 
     fn savings_document(window: &str, tokens: &[(&str, u64)]) -> serde_json::Value {
-        let vectors: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../tmt-digest/contracts/vectors/status-v1.json"
-        )))
-        .unwrap();
-        let mut document = vectors["status"][0]["response"].clone();
+        let mut document = crate::labels::tests::status_document();
         let rows: Vec<_> = document["members"]
             .as_array()
             .unwrap()
@@ -189,11 +179,7 @@ mod tests {
                     .iter()
                     .find(|(id, _)| Some(*id) == row["identityId"].as_str())?;
                 let mut row = row.clone();
-                row["savings"] = serde_json::json!({
-                    "method": "context-input-avoided-v1", "window": window,
-                    "fromMs": 0, "throughMs": 1000,
-                    "estimatedInputTokensAvoided": avoided, "complete": true, "gap": null
-                });
+                row["savings"] = crate::labels::tests::savings(window, 0, 1000, *avoided);
                 Some(row)
             })
             .collect();
