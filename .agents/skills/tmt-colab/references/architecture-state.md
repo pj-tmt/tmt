@@ -692,7 +692,7 @@ rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a dra
 applies it, and a row's project button or a token removal applies at once. `stage:` is a third suggestion kind that
 is never a token (below). A row's `summary` (the contract's
 Page summary section; `bootstrap.ts` validates it, including the work row and parent, and holds
-`AUTHOR_BYTES` and the 2 MiB `DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
+`AUTHOR_BYTES` and the 2 MiB `DISCOVERY_BYTES`) feeds the separate creator, updated and comment-count metadata and the
 `◆ Needs you` mark, and the `by:` filter and free text read the creator; a page without a
 summary shows only what the list already knows, with no placeholder. The Needs you tab (a chip
 in a list without tabs) sets `needs=true` in that search and keeps the
@@ -709,16 +709,24 @@ verification: projects are display-only and the reply is only checked for shape)
 frame names `SPACE_SCOPE_PAGE`. The space's project names reach the list as `SpaceHome.projects`
 (the discovery reply's top-level `projects`), so an empty project shows in the page menu and the manager. Management controls (the Archived tab,
 row actions, project dialogs) render only when the transport has `management`; a reader
-keeps search, sort and filters because `projects` arrive in `/api/pages`. The list has no project
-chip row: projects scope from the module menu and filter by `project:` in the search, whose
+keeps search, sort and filters because `projects` arrive in `/api/pages`. The project-scope pills and module menu share the route scope and its device-local preference; `project:` in the search narrows inside it. Search
 suggestions count the pages the tab shows, while the manage dialog counts every page in the project
 and says how many of them are archived.
 
-The list is one screen with no hero (the header's title is `Pages`; the rail names the module): a fixed top block
-holds the search, Sort and `+ New page` (`new-page-dialog.tsx`: the browser creates no page, so it
-gives the `tmt colab page create` command with `CopyCommand`) and the view tabs; only `.page-list-scroll` scrolls, and `useShownRows` (`page-list-rows.ts`) draws 50 rows and 50 more
-each time the count line (`Showing N of M`) comes within a screen of the list's end. Under 480px the
-block is two lines: the controls, then the tabs as one line that scrolls sideways.
+The list follows the concept website’s `/#/colab/pages` composition: a hero with New page, the owner's actual pinned pages in pin order,
+then view tabs, project-scope pills, search and Sort, then the list. `page-list-items.tsx`
+owns display-only pinned cards and rows; Home retains filtering, selection and all write lifetimes.
+Pins wrap after three on a wide screen and stack on compact screens; no pins means no card block.
+Project membership remains plural and neutral; missing summaries never become a fabricated stage.
+Wide rows have Title, Project, Stage, Updated, Author and Access columns, with comment counts
+under the title; compact rows stack the same metadata without sideways overflow. Only the tab
+strip may scroll horizontally. The `New page` action (`new-page-dialog.tsx`) still gives the
+`tmt colab page create` command with `CopyCommand`; the browser creates no page.
+The list fills the shell content pane. Rows scroll in `.page-list-scroll`; tall wrapped pin groups
+or compact controls may also scroll the containing home vertically so every control stays reachable.
+`useShownRows` (`page-list-rows.ts`) draws 50 rows and 50 more each time the count line
+(`Showing N of M`) comes within a screen of the list's end. Selection and its header checkbox
+operate on the current matching pages, including rows not yet drawn.
 
 The views are the tabs All, Needs you, Discussion, In progress, Done and Archived, in that order
 (`BrowserTabs variant="flush"`); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
@@ -734,8 +742,8 @@ assignees from `summary.work`, the rest counted); an empty stage tab names its s
 In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
 `Reading page details…` while `useSummaryFill` is still reading (at most 15 re-reads) and a page in
 the scope has not reported, so a cold start never claims a tab is empty. A page waiting on the viewer
-shows `◆ Needs you · N`: only the ◆ is the waiting colour (the Needs you tab's mark), so the
-word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
+shows `◆ Needs you · N`: the badge uses the waiting colour for both the ◆ and its readable word/count, so
+the state remains explicit without colour. The row's actions (open in a new tab, projects, archive, the ⋯
 menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer
 and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. `Home` owns the open `ManagePage` dialog and its captured page ID/title above the rows: a list refresh that removes a row, including the last page after deletion, does not discard its pending request. Explicit Close or leaving the list ends that dialog. Archive and
 delete confirm in `PageOperationDialog` and run `runPageOperation` (`page-operations.ts`): the four
@@ -753,7 +761,7 @@ state; confirmed cloud expiry remains the result of a confirmed publication, not
 Each row has a leading checkbox (`BrowserListRow`'s `leading` slot) when the transport has
 `management`. The selection is a set of page IDs in `Home`; what counts is the selected pages the
 list shows now, so a tab, scope or filter that hides one drops it. While one exists `BulkBar`
-(`bulk-bar.tsx`) takes the search row's place (the draft survives in `Home`): add to or remove from
+(`bulk-bar.tsx`) appears below the search/scope controls (the draft survives in `Home`): add to or remove from
 a project (`withProject` per page and `applyProjectChanges` batches of `PROJECT_REQUEST_PAGES`; a
 page already in eight projects is skipped and said so), `Archive…` (not in the Archived tab) and
 `Delete…`. Under 480px (`useMedia`) the bar is one row: the count, an `Actions` menu with the same

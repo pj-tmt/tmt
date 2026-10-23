@@ -1,11 +1,9 @@
-import { HomeTitleLink } from './home-titles.js';
 import { rereadInPlace, useSummaryFill } from './home-fill.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import {
   BrowserAction,
   BrowserIconAction,
   BrowserList,
-  BrowserListRow,
   BrowserMenu,
   BrowserTabs,
   BrowserCheckbox,
@@ -47,7 +45,7 @@ import {
 import { AUTHOR_BYTES } from './bootstrap.js';
 import { HeaderSlot } from './header-slot.js';
 import { ProjectMenuActionsSlot } from './project-menu-actions.js';
-import { inScope, knownScope } from './project-scope.js';
+import { inScope, knownScope, writeScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
 import { runPageOperations, type PageOperation } from './page-operations.js';
@@ -56,7 +54,7 @@ import { usePageListKeys } from './page-list-keys.js';
 import { useShownRows } from './page-list-rows.js';
 import { BulkBar } from './bulk-bar.js';
 import { NewPageDialog } from './new-page-dialog.js';
-import { pageTitle, pageUpdate } from './page-index.js';
+import { pageTitle } from './page-index.js';
 import {
   editFromSearch,
   PageListSearch,
@@ -64,7 +62,7 @@ import {
   toggleProject,
   type SearchEdit,
 } from './page-list-search.js';
-import { PageWork } from './page-work.js';
+import { PageListItem, PinnedPages } from './page-list-items.js';
 import { RetentionHint } from './retention-hint.js';
 import { useScrollEdges } from './scroll-edges.js';
 import { text } from './strings.js';
@@ -249,43 +247,6 @@ function PageArchiveAction({ page, operate }: { page: PageSummary; operate(): vo
   );
 }
 
-/** `by <creator> · updated · N comments`: each part only when the page has it. */
-function PageMetadata({
-  author,
-  comments,
-  updated,
-}: {
-  author?: string;
-  comments?: number;
-  updated: ReturnType<typeof pageUpdate>;
-}) {
-  const parts = [
-    author ? (
-      <span key="author" className="page-author">
-        {t.byAuthor(author)}
-      </span>
-    ) : null,
-    updated.dateTime ? (
-      <time
-        key="updated"
-        dateTime={updated.dateTime}
-        title={updated.absolute}
-        aria-label={`${text.lastUpdated}: ${updated.label}`}
-      >
-        {updated.label}
-      </time>
-    ) : (
-      <span key="updated">{updated.label}</span>
-    ),
-    comments === undefined ? null : (
-      <span key="comments" className="page-comments">
-        {t.commentCount(comments)}
-      </span>
-    ),
-  ].filter((part) => part !== null);
-  return <span className="page-metadata">{parts}</span>;
-}
-
 /**
  * A stage tab with no page. While the list is still reading the pages' tasks it says so instead of
  * claiming the tab is empty; an empty In progress names where pages without tasks are and offers
@@ -331,7 +292,7 @@ function StageEmpty({
 
 export function Home() {
   const space = homeRoute.useLoaderData();
-  const { transport } = rootRoute.useRouteContext();
+  const { transport, space: spaceId } = rootRoute.useRouteContext();
   const slot = useContext(HeaderSlot);
   const offerProjectActions = useContext(ProjectMenuActionsSlot);
   const search = homeRoute.useSearch();
@@ -613,36 +574,116 @@ export function Home() {
     filter.authors.length > 0 ||
     filter.text !== '' ||
     filter.needsYou;
+  const controls = (
+    <div className="page-list-controls">
+      <div className="page-scope-filters" aria-label={t.projectScopes}>
+        {[undefined, ...projectNames].map((name) => (
+          <button
+            key={name === undefined ? 'all-projects' : `project:${name}`}
+            type="button"
+            className="project-filter-button"
+            aria-label={name === undefined ? t.allProjects : t.scopeTo(name)}
+            aria-pressed={scope === name}
+            onClick={(event) => {
+              if (!event.isTrusted) return;
+              writeScope(spaceId, name);
+              setSearch({ scope: name });
+            }}
+          >
+            <span className="page-scope-name">{name ?? t.allProjects}</span>
+            <span className="project-count">
+              {
+                inScope(
+                  homePages.filter((page) => !page.archived),
+                  name,
+                ).length
+              }
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="page-list-search">
+        <PageListSearch
+          edit={edit}
+          onChange={setEdit}
+          resetKey={resetKey}
+          projects={counts}
+          authors={authors}
+          stages={HOME_STAGES.map((name) => ({
+            name,
+            count: name === 'all' ? activeInScope.length : stages[name],
+          }))}
+          onStage={(stage) => chooseView(stage as HomeStage)}
+          onApply={apply}
+          onClear={() => {
+            if (!filtered && edit.value === '' && edit.tokens.length === 0) {
+              (document.activeElement as HTMLElement | null)?.blur();
+              return;
+            }
+            replaceDraft(editFromSearch([], ''));
+            if (filter.needsYou && !port) setSearch({ needs: undefined });
+          }}
+        />
+      </div>
+      <BrowserMenu
+        label={t.sort}
+        valueLabel={sortLabel}
+        items={(['updated', 'title'] as const).map((key) => ({
+          key,
+          label: t.sortOptions[key],
+          role: 'menuitemradio' as const,
+          checked: sort === key,
+        }))}
+        onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
+      />
+    </div>
+  );
+  const newPageAction = (
+    <BrowserAction
+      type="button"
+      variant="primary"
+      label={t.newPage}
+      visibleLabel={t.newPageVisible}
+      onActivate={() => setNewPage(true)}
+    />
+  );
   const content = (
     <>
-      {/* Projects filter from the module menu and `project:` in the search; a list without tabs
-          (no management port) keeps Needs you here, as the one chip. */}
-      {showNeeds && !port && (
-        <ul className="project-filters" aria-label={t.filters}>
-          <li>
-            <button
-              type="button"
-              className="project-filter-button needs-filter-button"
-              data-needs-filter
-              aria-pressed={filter.needsYou}
-              aria-label={t.needsYouFilter(waiting)}
-              onClick={(event) => {
-                if (event.isTrusted) setSearch({ needs: filter.needsYou ? undefined : true });
-              }}
-            >
-              <span>
-                <span className="needs-filter-mark" aria-hidden="true">
-                  ◆
-                </span>{' '}
-                {t.needsYou}
-              </span>
-              <span className="project-count" aria-hidden="true">
-                {waiting}
-              </span>
-            </button>
-          </li>
-        </ul>
-      )}
+      {controls}
+      {chosen.length > 0 ? (
+        <BulkBar
+          count={chosen.length}
+          projects={projectNames}
+          carried={projectNames.filter((name) =>
+            chosen.some((page) => page.projects?.includes(name)),
+          )}
+          archiving={!archived}
+          onAdd={(name) => void changeProject(name, true)}
+          onRemove={(name) => void changeProject(name, false)}
+          onNewProject={() => setDialog({ kind: 'new', initial: chosen.map((page) => page.id) })}
+          onArchive={() => setOperation({ kind: 'page.archive', pages: chosen })}
+          onDelete={() => setOperation({ kind: 'page.delete', pages: chosen })}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      ) : null}
+
+      {showNeeds && !port ? (
+        <button
+          type="button"
+          className="project-filter-button needs-filter-button"
+          data-needs-filter
+          aria-pressed={filter.needsYou}
+          aria-label={t.needsYouFilter(waiting)}
+          onClick={(event) => {
+            if (event.isTrusted) setSearch({ needs: filter.needsYou ? undefined : true });
+          }}
+        >
+          <span className="needs-filter-mark" aria-hidden="true">
+            ◆
+          </span>
+          {t.needsYou} {waiting}
+        </button>
+      ) : null}
       <p
         className="page-list-status"
         role={status?.failed ? 'alert' : 'status'}
@@ -652,43 +693,51 @@ export function Home() {
       </p>
       {pages.length ? (
         <div className="page-list-scroll" ref={listScroll}>
-          <BrowserList label={text.pages} className="pages">
-            {pages.slice(0, drawn).map((p) => {
-              const updated = pageUpdate(p.lastUpdateAtMs, now);
-              return (
-                <BrowserListRow
-                  key={p.id}
-                  data-page-id={p.id}
-                  data-selected={selectedIds.has(p.id) ? '' : undefined}
-                  leading={
-                    port ? (
-                      <BrowserCheckbox
-                        aria-label={t.selectPage(pageTitle(p))}
-                        checked={selectedIds.has(p.id)}
-                        onChange={() => toggleSelected(p.id)}
-                      />
-                    ) : undefined
-                  }
-                  title={
-                    <>
-                      {p.pinned && !p.archived ? (
-                        // Display only: the pin button beside the row says it, with its state.
-                        <span className="page-pinned-mark" aria-hidden="true">
-                          <Pin size={14} />
-                        </span>
-                      ) : null}
-                      <HomeTitleLink page={p} hints={titleHints} scope={scope} />
-                      {p.summary?.work ? <PageWork work={p.summary.work} /> : null}
-                      {p.summary?.waiting ? (
-                        <span className="page-waiting" data-waiting>
-                          <span className="page-waiting-mark" aria-hidden="true">
-                            ◆
-                          </span>{' '}
-                          {t.waitingForYou}
-                          {p.summary.needsYou > 0 ? ` · ${p.summary.needsYou}` : ''}
-                        </span>
-                      ) : null}
-                      {p.projects?.length ? (
+          <div className="page-list-table">
+            <div className="page-list-columns">
+              <span>
+                {port ? (
+                  <BrowserCheckbox
+                    aria-label={t.selectAllPages}
+                    checked={pages.length > 0 && chosen.length === pages.length}
+                    indeterminate={chosen.length > 0 && chosen.length < pages.length}
+                    onChange={(event) =>
+                      setSelectedIds(
+                        event.target.checked ? new Set(pages.map((page) => page.id)) : new Set(),
+                      )
+                    }
+                  />
+                ) : null}
+              </span>
+              <span>{t.titleColumn}</span>
+              <span>{t.projectColumn}</span>
+              <span>{t.stageColumn}</span>
+              <span>{t.updatedColumn}</span>
+              <span>{t.authorColumn}</span>
+              <span>{t.accessColumn}</span>
+              <span />
+            </div>
+            <BrowserList label={text.pages} className="pages">
+              {pages.slice(0, drawn).map((p) => {
+                return (
+                  <PageListItem
+                    key={p.id}
+                    page={p}
+                    hints={titleHints}
+                    scope={scope}
+                    now={now}
+                    selected={selectedIds.has(p.id)}
+                    leading={
+                      port ? (
+                        <BrowserCheckbox
+                          aria-label={t.selectPage(pageTitle(p))}
+                          checked={selectedIds.has(p.id)}
+                          onChange={() => toggleSelected(p.id)}
+                        />
+                      ) : undefined
+                    }
+                    projects={
+                      p.projects?.length ? (
                         <ul className="page-projects" aria-label={t.projects}>
                           {p.projects.map((name) => (
                             <li key={name}>
@@ -705,62 +754,50 @@ export function Home() {
                             </li>
                           ))}
                         </ul>
-                      ) : null}
-                    </>
-                  }
-                  metadata={
-                    <PageMetadata
-                      author={p.summary?.author}
-                      comments={p.summary?.comments}
-                      updated={updated}
-                    />
-                  }
-                  state={
-                    p.archived
-                      ? text.archived
-                      : p.sharing === 'private'
-                        ? text.private
-                        : text.shared
-                  }
-                  actions={
-                    port ? (
-                      <>
-                        <OpenInNewTabAction page={p} />
-                        <PagePinAction
-                          page={p}
-                          busy={pinning === p.id}
-                          toggle={() => void togglePin(p)}
-                        />
-                        <PageProjectsMenu
-                          page={p}
-                          openRequest={
-                            projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
-                          }
-                          names={projectNames}
-                          toggle={(page, name) => void toggleOnPage(page, name)}
-                          create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
-                        />
-                        <PageArchiveAction
-                          page={p}
-                          operate={() =>
-                            setOperation({
-                              kind: p.archived ? 'page.unarchive' : 'page.archive',
-                              pages: [p],
-                            })
-                          }
-                        />
-                        <PageListActions
-                          page={p}
-                          manage={() => setManagedPage({ id: p.id, title: p.title })}
-                          operate={(kind, page) => setOperation({ kind, pages: [page] })}
-                        />
-                      </>
-                    ) : undefined
-                  }
-                />
-              );
-            })}
-          </BrowserList>
+                      ) : null
+                    }
+                    actions={
+                      port ? (
+                        <>
+                          <span className="page-row-shortcuts">
+                            <OpenInNewTabAction page={p} />
+                            <PagePinAction
+                              page={p}
+                              busy={pinning === p.id}
+                              toggle={() => void togglePin(p)}
+                            />
+                            <PageProjectsMenu
+                              page={p}
+                              openRequest={
+                                projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
+                              }
+                              names={projectNames}
+                              toggle={(page, name) => void toggleOnPage(page, name)}
+                              create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
+                            />
+                            <PageArchiveAction
+                              page={p}
+                              operate={() =>
+                                setOperation({
+                                  kind: p.archived ? 'page.unarchive' : 'page.archive',
+                                  pages: [p],
+                                })
+                              }
+                            />
+                          </span>
+                          <PageListActions
+                            page={p}
+                            manage={() => setManagedPage({ id: p.id, title: p.title })}
+                            operate={(kind, page) => setOperation({ kind, pages: [page] })}
+                          />
+                        </>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
+            </BrowserList>
+          </div>
           <p className="page-list-count" data-page-list-count>
             {t.showing(Math.min(drawn, pages.length), pages.length)}
           </p>
@@ -805,74 +842,31 @@ export function Home() {
   );
   return (
     <section className="home" data-page-list ref={section}>
-      {chosen.length > 0 ? (
-        <BulkBar
-          count={chosen.length}
-          projects={projectNames}
-          carried={projectNames.filter((name) =>
-            chosen.some((page) => page.projects?.includes(name)),
-          )}
-          archiving={!archived}
-          onAdd={(name) => void changeProject(name, true)}
-          onRemove={(name) => void changeProject(name, false)}
-          onNewProject={() => setDialog({ kind: 'new', initial: chosen.map((page) => page.id) })}
-          onArchive={() => setOperation({ kind: 'page.archive', pages: chosen })}
-          onDelete={() => setOperation({ kind: 'page.delete', pages: chosen })}
-          onClear={() => setSelectedIds(new Set())}
-        />
-      ) : (
-        <div className="page-list-controls">
-          <div className="page-list-search">
-            <PageListSearch
-              edit={edit}
-              onChange={setEdit}
-              resetKey={resetKey}
-              projects={counts}
-              authors={authors}
-              stages={HOME_STAGES.map((name) => ({
-                name,
-                count: name === 'all' ? activeInScope.length : stages[name],
-              }))}
-              onStage={(stage) => chooseView(stage as HomeStage)}
-              onApply={apply}
-              onClear={() => {
-                // Escape on an empty search leaves it, so the list's keys work from the page again.
-                if (!filtered && edit.value === '' && edit.tokens.length === 0) {
-                  (document.activeElement as HTMLElement | null)?.blur();
-                  return;
-                }
-                replaceDraft(editFromSearch([], ''));
-                // With tabs, Needs you is a tab and clearing the search leaves it.
-                if (filter.needsYou && !port) setSearch({ needs: undefined });
-              }}
-            />
-          </div>
-          <BrowserMenu
-            label={t.sort}
-            valueLabel={sortLabel}
-            items={(['updated', 'title'] as const).map((key) => ({
-              key,
-              label: t.sortOptions[key],
-              role: 'menuitemradio' as const,
-              checked: sort === key,
-            }))}
-            onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
-          />
-          <BrowserAction
-            type="button"
-            variant="primary"
-            label={t.newPage}
-            visibleLabel={t.newPageVisible}
-            onActivate={() => setNewPage(true)}
-          />
+      <header className="page-list-hero">
+        <div>
+          <h1>{scope ?? t.heroTitle}</h1>
+          <p>{t.heroBody}</p>
         </div>
-      )}
+        {newPageAction}
+      </header>
+      <PinnedPages
+        pages={
+          port && !archived
+            ? inScope(
+                homePages.filter((page) => page.pinned && !page.archived),
+                scope,
+              )
+            : []
+        }
+        hints={titleHints}
+        scope={scope}
+      />
       <NewPageDialog open={newPage} onClose={() => setNewPage(false)} />
       {port ? (
         <div className="page-stage-tabs" ref={tabsHost}>
           <BrowserTabs
             label={t.views}
-            variant="flush"
+            variant="boxed"
             tabs={viewTabs}
             selected={view}
             onSelect={(id) => chooseView(id as HomeView)}

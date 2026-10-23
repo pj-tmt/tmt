@@ -256,6 +256,20 @@ and foreign not checked), Add remote (door address and remote link), catalog
 confirmation with a collision and nothing addable, remove confirmation, and the
 Remote module menu's four row states and unreachable-page notice.
 
+### Colab Pages
+
+The space list follows the concept website `/#/colab/pages`: hero with New page,
+pinned-page cards, state strip, project scope, search/sort and the page list. Numbered
+concept 17 is the fallback only for states absent from that website. Actual pins keep owner order, wrap after three
+on wide screens and stack on compact screens; absent pins leave no empty section.
+Projects use neutral token colours and keep every membership. Stage, creator, time and
+progress show only available metadata; no missing summary becomes a false zero or stage.
+
+Wide rows separate title, projects, stage, updated, author and access; compact rows stack
+these without horizontal page overflow. Rows with divider rules remain square inside the
+fully bordered rounded list frame. Selection, keyboard actions, incremental rendering and
+management refusals retain their product owners. The tab strip is the only horizontal scroller.
+
 ### Quick switcher
 
 Colab's **Search pages** header action and Cmd/Ctrl+K open a modal
