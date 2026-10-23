@@ -131,6 +131,16 @@ gradient ids.
 Notice tone, visible state label, mark and announcement are explicit. No state,
 health, permission or recovery inference occurs. Marks are decorative because
 visible state words carry their meaning.
+Optional `variant="tinted"` puts waiting, working, review and blocked notices on their existing
+soft tone surfaces; muted stays on the sheet. Static hosts set the data-tinted presence attribute
+only for tinted notices and omit it for neutral. The default `neutral` keeps the existing markup
+and sheet surface. Both retain the full neutral rule and radius: there is no dedicated tone-edge
+token. Title, announcement, mark and state words remain independent inputs. Hosts compose
+`BrowserCommand` in the body or actions slot and retain copying, feedback and command lifetime.
+Tinted captions and state words keep their size and weight but use primary ink for contrast
+on every soft surface; decorative marks retain their tone colour.
+The gallery's `?frame=notice&theme=light|dark` renders the same Notice examples in isolation
+for command focus and contrast checks, without unrelated overlay-demo iframe focus owners.
 
 Field requires stable `controlId`, distinct IDs for rendered description/error,
 and an explicit `renderControl` that spreads exactly the supplied ID, class and

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Copy, Plus, Settings, Trash2 } from 'lucide-react';
+import { Copy, Plus, Settings, Trash2, TriangleAlert } from 'lucide-react';
 import {
   BrandLockup,
   BrandMark,
@@ -15,6 +15,7 @@ import {
   BrowserListRow,
   BrowserMenu,
   BrowserNotice,
+  type BrowserNoticeProps,
   BrowserTabs,
   BrowserToggle,
   busyMarkDelayMs,
@@ -738,11 +739,11 @@ export function ListSection() {
   );
 }
 
-function CommandDemo() {
+function CommandDemo({ text = 'tmt upgrade --channel alpha --yes' }: { text?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <BrowserCommand
-      text="tmt upgrade --channel alpha --yes"
+      text={text}
       action={
         <BrowserIconAction
           type="button"
@@ -780,36 +781,56 @@ const tones: [BrowserNoticeTone, string, string][] = [
   ['muted', '○', 'Idle'],
 ];
 
+function NoticeTones({ variant }: { variant?: BrowserNoticeProps['variant'] }) {
+  return (
+    <div className="gallery-stack">
+      {tones.map(([tone, mark, word]) => (
+        <BrowserNotice
+          key={tone}
+          headingLevel="none"
+          tone={tone}
+          variant={variant}
+          announcement="none"
+          mark={mark}
+          stateLabel={word}
+          eyebrow="Colab"
+          title={`${word}: this page`}
+          body="The owner's browser shows this notice with the explicit words for its state."
+          actions={
+            tone === 'blocked' ? (
+              <BrowserAction type="button" variant="primary" label="Retry" onActivate={noop} />
+            ) : undefined
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
 export function NoticeSection() {
   return (
     <Section id="notice">
-      <Pair title="BrowserNotice tones">
+      <Pair title="BrowserNotice tones">{() => <NoticeTones />}</Pair>
+      <Pair title="BrowserNotice tinted tones">{() => <NoticeTones variant="tinted" />}</Pair>
+      <Pair
+        title="BrowserNotice tinted with command"
+        note="The example host owns local copy feedback. Notice does not start work or infer availability."
+      >
         {() => (
-          <div className="gallery-stack">
-            {tones.map(([tone, mark, word]) => (
-              <BrowserNotice
-                key={tone}
-                headingLevel="none"
-                tone={tone}
-                announcement="none"
-                mark={mark}
-                stateLabel={word}
-                eyebrow="Colab"
-                title={`${word}: this page`}
-                body="The owner's browser shows this notice with the explicit words for its state."
-                actions={
-                  tone === 'blocked' ? (
-                    <BrowserAction
-                      type="button"
-                      variant="primary"
-                      label="Retry"
-                      onActivate={noop}
-                    />
-                  ) : undefined
-                }
-              />
-            ))}
-          </div>
+          <BrowserNotice
+            tone="waiting"
+            variant="tinted"
+            announcement="none"
+            mark={<TriangleAlert />}
+            stateLabel="CLI managed"
+            title="Colab settings are not in the browser yet."
+            body="Use the command below on your machine to view or change them."
+            actions={
+              <div style={{ width: '100%' }}>
+                <CommandDemo text="tmt colab settings" />
+              </div>
+            }
+          />
         )}
       </Pair>
     </Section>

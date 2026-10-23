@@ -3,6 +3,7 @@ import { browserUiClasses as c } from './static';
 import type { BrowserAnnouncement, BrowserNoticeTone } from './static';
 export interface BrowserNoticeProps {
   tone: BrowserNoticeTone;
+  variant?: 'neutral' | 'tinted';
   announcement: BrowserAnnouncement;
   mark: ReactNode;
   stateLabel: string;
@@ -15,6 +16,7 @@ export interface BrowserNoticeProps {
 }
 export function BrowserNotice({
   tone,
+  variant = 'neutral',
   announcement,
   mark,
   stateLabel,
@@ -29,6 +31,7 @@ export function BrowserNotice({
     <section
       className={c.notice}
       data-tone={tone}
+      data-tinted={variant === 'tinted' ? '' : undefined}
       role={announcement === 'none' ? undefined : announcement}
     >
       {eyebrow !== undefined && <div className={c.noticeEyebrow}>{eyebrow}</div>}

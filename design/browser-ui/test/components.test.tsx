@@ -141,6 +141,28 @@ describe('presentation contracts', () => {
       ),
     ).toContain('role="status"');
   });
+  it('keeps neutral Notice markup unchanged and tinted presentation independent of tone and announcement', () => {
+    for (const tone of ['waiting', 'working', 'review', 'blocked', 'muted'] as const) {
+      for (const announcement of ['none', 'status', 'alert'] as const) {
+        const render = (variant?: 'neutral' | 'tinted') =>
+          renderToStaticMarkup(
+            <BrowserNotice
+              tone={tone}
+              variant={variant}
+              announcement={announcement}
+              mark="◆"
+              stateLabel="Host state"
+              title="Host title"
+              body="Host body"
+            />,
+          );
+        const neutral = render();
+        expect(render('neutral')).toBe(neutral);
+        expect(neutral).not.toContain('data-tinted');
+        expect(render('tinted').replace(' data-tinted=""', '')).toBe(neutral);
+      }
+    }
+  });
   it('passes exactly the stable control association and drops absent error IDs', () => {
     const seen: unknown[] = [];
     const renderControl = (

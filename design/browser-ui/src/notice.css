@@ -9,6 +9,18 @@
   opacity: 1;
   font-family: var(--tmt-ui-font-body);
 }
+.tmt-ui-notice[data-tinted][data-tone='waiting'] {
+  background: var(--tmt-ui-surface-waiting-soft);
+}
+.tmt-ui-notice[data-tinted][data-tone='working'] {
+  background: var(--tmt-ui-surface-working-soft);
+}
+.tmt-ui-notice[data-tinted][data-tone='review'] {
+  background: var(--tmt-ui-surface-review-soft);
+}
+.tmt-ui-notice[data-tinted][data-tone='blocked'] {
+  background: var(--tmt-ui-surface-blocked-soft);
+}
 .tmt-ui-notice-mark {
   display: flex;
   align-items: center;
@@ -36,6 +48,10 @@
   font: var(--tmt-ui-eyebrow-weight)
     var(--tmt-ui-eyebrow-size)/var(--tmt-ui-host-eyebrow-line-height) var(--tmt-ui-font-mono);
   letter-spacing: var(--tmt-ui-eyebrow-tracking);
+}
+/* Captions and state words need AA on soft surfaces; decorative marks retain their tone. */
+.tmt-ui-notice[data-tinted] :is(.tmt-ui-notice-eyebrow, .tmt-ui-notice-mark > :last-child) {
+  color: var(--tmt-ui-color-text);
 }
 .tmt-ui-notice-heading {
   margin: var(--tmt-ui-notice-heading-gap) 0;
