@@ -84,7 +84,7 @@ impl Descriptor {
         now: u64,
         previous: Option<&VerifiedDescriptor>,
     ) -> Result<VerifiedDescriptor> {
-        let descriptor: Self = decode(bytes, 4096)?;
+        let descriptor: Self = decode(bytes, crate::limits::CLOUD_DESCRIPTOR_BYTES)?;
         require(descriptor.machine_id == pin.machine_id)?;
         crypto::verify_signature(
             pin.authentication_key,
@@ -109,7 +109,7 @@ impl Descriptor {
         Ok(verified)
     }
     pub(crate) fn read_retained(bytes: &[u8], pin: Pin<'_>) -> Result<VerifiedDescriptor> {
-        let descriptor: Self = decode(bytes, 4096)?;
+        let descriptor: Self = decode(bytes, crate::limits::CLOUD_DESCRIPTOR_BYTES)?;
         Self::verify(bytes, pin, descriptor.not_before_ms, None)
     }
     pub(crate) fn public(&self) -> Result<<SuiteKem as Kem>::PublicKey> {
@@ -168,6 +168,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(verified.bytes(), bytes);
+        let oversized = vec![b' '; crate::limits::CLOUD_DESCRIPTOR_BYTES + 1];
+        assert!(matches!(
+            Descriptor::verify(
+                &oversized,
+                Pin {
+                    machine_id: "11111111-1111-4111-8111-111111111111",
+                    authentication_key: &public
+                },
+                1_800_000_000_000,
+                None
+            ),
+            Err(Error::Bounds)
+        ));
+
         let input = verified.descriptor.input().unwrap();
         let hex: String = input.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, v["descriptorInput"]);

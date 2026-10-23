@@ -6,6 +6,7 @@ pub const CLOUD_KEY_LIFETIME_MS: u64 = 30 * 86_400_000;
 pub const CLOUD_KEY_RENEW_LEAD_MS: u64 = 7 * 86_400_000;
 pub const CLOUD_KEY_CHECK_MS: u64 = 60_000;
 pub const CLOUD_KEYRING_BYTES: usize = 16 * 1024;
+pub const CLOUD_DESCRIPTOR_BYTES: usize = 4 * 1024;
 pub const CLOUD_KEYRING_KEYS: usize = 2;
 
 /// Fixed native Auth defaults. Policy settings and Keychain are later work.
