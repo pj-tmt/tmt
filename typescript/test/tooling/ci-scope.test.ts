@@ -2,6 +2,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   renameSync,
   symlinkSync,
@@ -1613,7 +1614,7 @@ describe('remote Rust retains full CI coverage', () => {
     expect(step).toContain("if: inputs.scope == 'full'");
     expect(step).toContain('working-directory: rust');
     const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
-    const root = mkdtempSync(path.join(tmpdir(), 'tmt-remote-ci-'));
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tmt-remote-ci-')));
     try {
       // Execute the committed shell and actual inventory helper with bounded fake Cargo/nextest.
       // Native execution failure is independently guarded by the partition aggregate tests.
@@ -1629,6 +1630,15 @@ describe('remote Rust retains full CI coverage', () => {
         reason: 'compiler-artifact',
         profile: { test: true },
         executable,
+      });
+      const example = path.join(root, 'rust/target/debug/examples/fixture-example');
+      mkdirSync(path.dirname(example), { recursive: true });
+      writeExecutable(example, '#!/bin/sh\nexit 0\n', 0o755);
+      const examples = JSON.stringify({
+        reason: 'compiler-artifact',
+        profile: { test: false },
+        target: { kind: ['example'] },
+        executable: example,
       });
       const suites = {
         'rust-suites': {
@@ -1662,6 +1672,7 @@ printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
   'test --locked -p tmt-remote -- --list') printf '%s\\n' "$DISCOVERY"; exit "$LIST_STATUS" ;;
   'test --locked --workspace --no-run --message-format=json') printf '%s\\n' "$BUILD"; exit "$TEST_STATUS" ;;
+  'build --locked --workspace --examples --message-format=json') printf '%s\\n' "$EXAMPLES" ;;
 esac
 `,
         0o755
@@ -1676,6 +1687,7 @@ esac
             PATH: `${root}:${process.env.PATH}`,
             CALLS: path.join(root, 'calls'),
             BUILD: build,
+            EXAMPLES: examples,
             RUNNER_TEMP: path.join(root, 'temp'),
             K: '2',
             DISCOVERY: fixture.discovery,
@@ -1689,6 +1701,14 @@ esac
       const expected = ['test --locked -p tmt-remote -- --list'];
       if (fixture.status === 0 || fixture.testStatus !== 0)
         expected.push('test --locked --workspace --no-run --message-format=json');
+      if (fixture.status === 0) {
+        expected.push('build --locked --workspace --examples --message-format=json');
+        expect(
+          JSON.parse(
+            readFileSync(path.join(root, 'temp/workspace-proof/runtime-files.json'), 'utf8')
+          )
+        ).toEqual(['debug/examples/fixture-example']);
+      }
       expect(calls).toEqual(expected);
       const phases = JSON.parse(
         readFileSync(path.join(root, 'temp/workspace-proof/phases.json'), 'utf8')
