@@ -580,6 +580,7 @@ const BROWSER_UI_INPUTS = new Set([
   '.github/workflows/ci.yml',
   '.github/actions/setup-tooling/action.yml',
   '.github/actions/apt-install/action.yml',
+  '.github/actions/install-chromium-deps/action.yml',
   'typescript/scripts/ci-scope.mjs',
   'typescript/scripts/ci-scope.d.mts',
   'typescript/test/tooling/ci-scope.test.ts',

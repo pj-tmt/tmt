@@ -4120,6 +4120,7 @@ describe('browser UI gallery gate', () => {
       'typescript/scripts/lint-config.mjs',
       '.github/actions/setup-tooling/action.yml',
       '.github/actions/apt-install/action.yml',
+      '.github/actions/install-chromium-deps/action.yml',
     ])
       expect(selectBrowserUi([input]), input).toBe(true);
     for (const input of [

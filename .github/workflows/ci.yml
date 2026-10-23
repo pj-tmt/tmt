@@ -348,7 +348,7 @@ jobs:
       - name: Install frozen gallery tooling
         working-directory: typescript
         run: pnpm --filter @tmt/browser-ui... --fail-if-no-match install --frozen-lockfile --ignore-scripts
-      # Same Chromium steps as colab-chrome until Infra's single-owner helper (#4434) lands.
+      # Share Chromium dependencies and cache policy with colab-chrome.
       - name: Point Playwright at a restorable browser directory
         run: echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/colab-chrome-browsers" >> "$GITHUB_ENV"
       - name: Read pinned Playwright version
@@ -361,18 +361,7 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: colab-chrome-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-      # Playwright's with-deps installer runs its own unbounded apt-get update. The same packages go
-      # through the bounded shared action instead: Playwright 1.63.0's `ubuntu24.04-x64` tools and
-      # Chromium dependencies (refresh the list, and the test that pins it, when that version moves).
-      - uses: ./.github/actions/apt-install
-        with:
-          packages: >-
-            xvfb fonts-noto-color-emoji fonts-unifont libfontconfig1 libfreetype6 xfonts-cyrillic
-            xfonts-scalable fonts-liberation fonts-ipafont-gothic fonts-wqy-zenhei fonts-tlwg-loma-otf
-            fonts-freefont-ttf libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64
-            libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3
-            libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3
-            libxkbcommon0 libxrandr2
+      - uses: ./.github/actions/install-chromium-deps
       - name: Install Chromium
         working-directory: typescript
         run: pnpm --filter @tmt/browser-ui exec playwright install chromium
