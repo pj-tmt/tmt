@@ -5,7 +5,7 @@
     "native-release.yml": {
       "plan": {
         "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:plan"],
-        "sha256": "0ccfb2098f9124a45cc77d3f57ac824a368a4c2135db41b91a2de832a1bc6d7b",
+        "sha256": "54c21fa5fafa1c21df7bc41dcd6bbbf786550237945c878b075fd7e68c58ed4e",
         "releaseOnly": "Preparation and draft/recovery admission are main-only: this job resolves live draft and release state that cannot exist before publication. Tagless preparation itself runs before merge through the release rehearsal, which skips this planning."
       },
       "bundle": {
@@ -1054,8 +1054,11 @@
             "output": "native_scope",
             "value": "full"
           },
-          "coverage": "policy",
-          "tests": ["typescript/test/tooling/release-workflow.test.ts"]
+          "coverage": "runtime",
+          "tests": [
+            "typescript/test/tooling/read-stdin.test.ts",
+            "typescript/test/tooling/plan-release-builds.test.ts"
+          ]
         }
       ]
     }

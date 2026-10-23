@@ -70,6 +70,11 @@ Keep the `release` Environment restricted to main. The cut job uses its scoped
 workflow token for draft visibility, creation and native dispatch; it requires no
 release-PR App token. Normal primary review, pinned-head checks and queue protection remain required.
 
+The native build planner and host safety hook share a byte-oriented stdin reader
+(#4443): 64 KiB reads, one UTF-8 decode at EOF, and a 90 s deadline for retrying
+`EAGAIN` on non-blocking pipes. EOF ends input; other descriptor errors propagate
+through each caller's existing error path. Planning uses the shared Node pin.
+
 The persistent `release-version-injection.yml` PR check proves CLI, Ops, Remote and Colab on
 four native hosts. Callers provide pinned Node through `setup-tooling`, selecting
 x64 for Intel verification. `.github/actions/inject-release-version` consumes that

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
-import { runWithNonblockingStdin } from '../support/nonblocking-stdin';
+import { runWithNonblockingStdin } from '../support/nonblocking-stdin.js';
 import {
   BUNDLE_ASSET,
   FAILURE_ASSET,

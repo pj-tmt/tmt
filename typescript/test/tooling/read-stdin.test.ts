@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
-import { runWithNonblockingStdin } from '../support/nonblocking-stdin';
+import { runWithNonblockingStdin } from '../support/nonblocking-stdin.js';
 
 const reader = new URL('../../scripts/read-stdin.mjs', import.meta.url).href;
 const read = `import {readStdinUtf8} from ${JSON.stringify(reader)};`;
@@ -37,7 +37,10 @@ describe('synchronous stdin reader', () => {
     expect(result.stdout).toBe('EAGAIN');
   });
 
-  it.each(['', '雪🧪'.repeat(20_000)])('ends at normal EOF without losing bytes', (input) => {
+  it.each([
+    { label: 'empty', input: '' },
+    { label: 'unicode', input: '雪🧪'.repeat(20_000) },
+  ])('ends at normal EOF without losing bytes ($label)', ({ input }) => {
     const result = spawnSync(
       process.execPath,
       ['--input-type=module', '--eval', `${read}process.stdout.write(readStdinUtf8());`],

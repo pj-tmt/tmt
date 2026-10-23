@@ -1,0 +1,38 @@
+name: Stdin reader proof
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/stdin-reader-proof.yml'
+      - 'typescript/scripts/prove-stdin-reader.mjs'
+permissions:
+  contents: read
+jobs:
+  proof:
+    name: Live planner red then green / Node 26
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      # Read existing drafts; no API mutation or release dispatch is performed.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.12.1
+      - name: Compare the old and fixed planners on the live producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TMT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          ulimit -c 0
+          node typescript/scripts/prove-stdin-reader.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stdin-reader-proof
+          path: stdin-reader-proof/
+          retention-days: 1
+          if-no-files-found: error
