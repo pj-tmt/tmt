@@ -170,7 +170,12 @@ fn management_review_renders_the_frame_title_once() {
 #[test]
 fn short_review_fits_while_overflow_keeps_its_scroll_and_height_cap() {
     let app = review(Kind::RenameMember, rename_operation("worker"));
-    draw(&app, 160, 36);
+    let buffer = draw(&app, 160, 36);
+    let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+    assert!(
+        !text.contains("Read ·"),
+        "a fitted body has no read-position line"
+    );
     let draft = app.workspace_form.as_ref().unwrap();
     let scroll = draft.scroll.borrow();
     assert_eq!(scroll.limit(), 0);
@@ -206,6 +211,15 @@ fn short_review_fits_while_overflow_keeps_its_scroll_and_height_cap() {
             .map(|c| c.symbol())
             .collect::<String>()
             .contains("Retained result line 79")
+    );
+    assert!(
+        buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .contains("Read ·"),
+        "overflow retains its position line"
     );
     assert_eq!(long.workspace_confirm(), Effect::None);
 }

@@ -1263,7 +1263,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 Line::styled(line.clone(), look.role(*role)),
             );
         }
-        if areas.position.height > 0 {
+        if areas.position.height > 0 && scroll.limit() > 0 {
             strip::paint_left(
                 frame.buffer_mut(),
                 areas.position,
