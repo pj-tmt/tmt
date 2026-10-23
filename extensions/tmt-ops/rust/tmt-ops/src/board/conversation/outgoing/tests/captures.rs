@@ -896,6 +896,7 @@ fn sends_scene(restored: bool, specs: &[Spec]) -> App {
                 passthrough: true,
                 message_state_label: Some("✓ delivered".into()),
                 can_send_now: false,
+                working: false,
                 fallback: None,
                 warning: None,
             })
