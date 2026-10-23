@@ -848,7 +848,8 @@ Manage. `N` creates from a name, optional lead and explicit members. Assign offe
 add (keep every membership) or move (remove the selected source only after the
 destination add is confirmed). Common pool offers add only.
 
-Rename and assignment reviews show the exact public API request or commands.
+Rename and assignment reviews show the human CLI equivalents. Rename still
+executes the UUID/expected-name check; `c` copies its displayed command.
 Management reviews freeze exact room/identity UUIDs and revisions, show timer
 impact and start on Cancel. Tab reaches the scrollable read region and Apply;
 clipped or stale Apply controls cannot submit. Pending prevents repeated applies.

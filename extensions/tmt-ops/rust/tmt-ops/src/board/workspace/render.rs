@@ -1349,7 +1349,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 hint,
                 Line::styled(
                     whole_hints(
-                        if removal {
+                        if draft.review_command().is_some() {
                             &[
                                 ("c", "copy command"),
                                 ("Esc", "cancel"),

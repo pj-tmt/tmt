@@ -748,26 +748,10 @@ fn captures() -> Value {
                 }
             }
         }
-        for (look_name, look) in looks() {
-            for scene in crate::board::app::workspace::tests::review_modal::CRUD_SCENES {
-                for width in [80, 150] {
-                    for height in [43, 8] {
-                        let app =
-                            crate::board::app::workspace::tests::review_modal::crud_capture_case(
-                                scene, look,
-                            );
-                        frames.push(capture_frame(
-                            &app,
-                            scene,
-                            look_name,
-                            width,
-                            height,
-                            &mut styles,
-                        ));
-                    }
-                }
-            }
-        }
+        frames.extend(crud_frames(
+            crate::board::app::workspace::tests::review_modal::CRUD_SCENES,
+            &mut styles,
+        ));
         let styles = styles
             .0
             .into_iter()
@@ -775,6 +759,58 @@ fn captures() -> Value {
             .collect::<BTreeMap<_, _>>();
         json!({"styles": styles, "frames": frames})
     })
+}
+
+fn crud_frames(scenes: &[&str], styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in scenes {
+            for width in [80, 150] {
+                for height in [43, 8] {
+                    let app = crate::board::app::workspace::tests::review_modal::crud_capture_case(
+                        scene, look,
+                    );
+                    frames.push(capture_frame(&app, scene, look_name, width, height, styles));
+                }
+            }
+        }
+    }
+    frames
+}
+
+#[test]
+#[ignore = "exports only the revised CRUD dialog scenes; never records fixtures"]
+fn dump_crud_dialog_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let captured = crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut styles = Styles::default();
+        let frames = crud_frames(
+            &[
+                "crud-rename-review",
+                "crud-rename-pending",
+                "crud-move-fields",
+                "crud-move-review",
+                "crud-move-success",
+                "crud-move-refused",
+                "crud-move-partial",
+                "crud-remove",
+                "crud-remove-copied",
+                "crud-remove-long",
+            ],
+            &mut styles,
+        );
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles":styles,"frames":frames})
+    });
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&captured).unwrap() + "\n",
+    )
+    .unwrap();
 }
 
 #[test]

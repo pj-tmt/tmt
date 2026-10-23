@@ -258,7 +258,7 @@ impl Draft {
             Kind::RenameMember => "Rename agent".into(),
             Kind::RemoveMember => "Remove member".into(),
             Kind::Remove => format!("Leave squad · {name}"),
-            Kind::Assign => "Add/move membership".into(),
+            Kind::Assign => "Move to squad".into(),
         }
     }
     pub fn removal_command(&self) -> Option<String> {
@@ -269,13 +269,33 @@ impl Draft {
             .filter(|member| !member.name.is_empty() && !member.name.chars().any(char::is_control))
             .map(|member| command_line(&["tmt", "rm", "--force", "--", &member.name]))
     }
+    pub fn review_command(&self) -> Option<String> {
+        if self.kind == Kind::RemoveMember {
+            return self.removal_command();
+        }
+        let Change::RenameMember(request) = self.operation.as_ref()? else {
+            return None;
+        };
+        if [&request.expected_name, &request.name]
+            .iter()
+            .any(|word| word.is_empty() || word.chars().any(char::is_control))
+        {
+            return None;
+        }
+        // TODO(#4579): display the UUID once Core mv accepts it; execution keeps its CAS.
+        let mut words = vec!["tmt", "mv"];
+        if request.expected_name.starts_with('-') || request.name.starts_with('-') {
+            words.push("--");
+        }
+        words.extend([request.expected_name.as_str(), request.name.as_str()]);
+        Some(command_line(&words))
+    }
     pub fn review(&self) -> String {
         if self.kind == Kind::RemoveMember {
             let member = self.member.as_ref().expect("admitted selected member");
             return format!(
-                "Remove {} · ID {}\nStop the agent first, then recheck that this name still belongs to this identity.\nRetirement does not stop the agent or close its window.\nConversation history and notes are kept.\nCore stop is not available. Copy only; nothing runs from this dialog.\nCommand:\n{}",
+                "Remove {}\n\nStop the agent first; this only retires the identity and does not close its window.\nRecheck that the name still belongs to this agent before running the command.\nConversation history and notes are kept.\n\n{}",
                 member.name,
-                member.id,
                 self.removal_command()
                     .unwrap_or_else(|| "Unavailable: name cannot be copied safely.".into()),
             );
@@ -288,27 +308,11 @@ impl Draft {
         };
         let room =
             |room: &RoomTarget| format!("{} · {} · revision {}", room.name, room.id, room.revision);
-        if let Some(Change::RenameMember(request)) = &self.operation {
-            let name = |name: &str| {
-                if name.is_empty() || name.trim() != name {
-                    format!("{name:?}")
-                } else {
-                    name.to_owned()
-                }
-            };
-            let envelope = serde_json::json!({
-                "version": 1, "operation": "identity.rename", "input": request.input()
-            });
-            let command = format!(
-                "printf '%s' {} | {}",
-                shell_word(&envelope.to_string()),
-                command_line(&["tmt", "api"])
-            );
+        if matches!(self.operation, Some(Change::RenameMember(_))) {
             return format!(
-                "{} → {}\nMemberships, history, drafts and timers stay with this agent.\nFails safely if someone renames it first.\nID {}\nWill run:\n{command}",
-                name(&request.expected_name),
-                name(&request.name),
-                request.identity_id,
+                "{}\n\nStops if the name changed first.",
+                self.review_command()
+                    .unwrap_or_else(|| "Unavailable: name cannot be copied safely.".into())
             );
         }
         let mut lines = vec![];
@@ -373,9 +377,15 @@ impl Draft {
                 member,
                 move_member,
             }) => {
-                lines.push(format!("Member: {}", identity(member)));
-                lines.push(format!("Destination: {}", room(destination)));
-                lines.push("Public commands (guarded destination add before source leave):".into());
+                let name = self
+                    .identities
+                    .get(member)
+                    .map_or(member.as_str(), |member| member.name.as_str());
+                let source_name = source
+                    .as_ref()
+                    .map_or("Common pool", |room| room.name.as_str());
+                lines.push(format!("{name}: {source_name} → {}", destination.name));
+                lines.push(String::new());
                 lines.push(command_line(&[
                     "tmt",
                     "ops",
@@ -398,17 +408,15 @@ impl Draft {
                         member,
                     ]));
                 }
-                if *move_member {
-                    if let Some(source) = source {
-                        lines.push(format!("Remove from source: {}", room(source)));
+                lines.push(String::new());
+                lines.push(
+                    if *move_member {
+                        "History, drafts and timers stay; source timers pause until resumed."
+                    } else {
+                        "History, drafts and timers stay."
                     }
-                    lines.push("The source membership is removed only after the destination addition is confirmed. History and session draft stay with the identity.".into());
-                    self.timer_review(&mut lines);
-                } else {
-                    lines.push(
-                        "Add only: every existing membership and timer stays unchanged.".into(),
-                    );
-                }
+                    .into(),
+                );
             }
             None => {}
         }
@@ -453,7 +461,15 @@ impl Draft {
 }
 /// Display/copy only: each word is literal, never passed to a shell by Ops.
 fn shell_word(word: &str) -> String {
-    format!("'{}'", word.replace('\'', "'\\''"))
+    if !word.is_empty()
+        && word
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&byte))
+    {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
 }
 fn command_line(words: &[&str]) -> String {
     words
@@ -586,10 +602,10 @@ impl App {
                     && !key
                         .modifiers
                         .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-                    && draft.kind == Kind::RemoveMember
+                    && draft.review_command().is_some()
                     && draft.stage == Stage::Review =>
             {
-                Some(self.workspace_copy_removal())
+                Some(self.workspace_copy_command())
             }
             Event::Key(key) if editing => {
                 self.update_mentions();
@@ -933,12 +949,12 @@ impl App {
         });
         self.workspace_form_next()
     }
-    fn workspace_copy_removal(&self) -> Effect {
+    fn workspace_copy_command(&self) -> Effect {
         let Some(text) = self
             .workspace_form
             .as_ref()
-            .filter(|draft| draft.kind == Kind::RemoveMember && draft.stage == Stage::Review)
-            .and_then(Draft::removal_command)
+            .filter(|draft| draft.stage == Stage::Review)
+            .and_then(Draft::review_command)
         else {
             return Effect::None;
         };
@@ -959,7 +975,7 @@ impl App {
                 .as_ref()
                 .is_some_and(|draft| draft.controls.get()[1].is_some())
             {
-                self.workspace_copy_removal()
+                self.workspace_copy_command()
             } else {
                 Effect::None
             };

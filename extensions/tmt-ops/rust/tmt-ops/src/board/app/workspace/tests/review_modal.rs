@@ -213,9 +213,9 @@ fn short_review_fits_while_overflow_keeps_its_scroll_and_height_cap() {
 fn hints_drop_whole_phrases_after_whole_controls_at_narrow_and_normal_widths() {
     for (width, expected) in [
         (24, ""),
-        (60, "Esc cancel · Enter select"),
-        (100, "Esc cancel · Enter select · Tab read/actions"),
-        (160, "Esc cancel · Enter select · Tab read/actions"),
+        (60, "c copy command · Esc cancel"),
+        (100, "c copy command · Esc cancel · Enter select"),
+        (160, "c copy command · Esc cancel · Enter select"),
     ] {
         let app = review(Kind::RenameMember, rename_operation("worker"));
         let buffer = draw(&app, width, 36);
@@ -351,7 +351,7 @@ fn remove_member_is_copy_only_cancel_default_and_frozen_to_the_displayed_name() 
         let text = paint(&app, width, 43).join("\n");
         assert!(text.contains("Remove member"));
         assert!(text.contains("Stop the agent first"));
-        assert!(text.contains("'rm' '--force' '--' 'worker'"));
+        assert!(text.contains("tmt rm --force -- worker"));
         assert!(text.contains("Copy command"));
         assert!(!text.contains("'stop'"));
     }
@@ -359,7 +359,7 @@ fn remove_member_is_copy_only_cancel_default_and_frozen_to_the_displayed_name() 
     let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Char('c')) else {
         panic!("copy only; no workspace operation or foreground exec")
     };
-    assert!(text.ends_with("'rm' '--force' '--' 'worker'"));
+    assert!(text.ends_with("tmt rm --force -- worker"));
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     assert!(app.workspace_form.is_none(), "initial Enter cancels");
 }
@@ -411,7 +411,7 @@ fn crud_reviews_wrap_with_body_margins_and_keep_clipped_mutations_disabled() {
                         .as_ref()
                         .unwrap()
                         .review()
-                        .contains("identity.rename")
+                        .contains("tmt mv worker worker-two")
                 );
             }
             app.invalidate_frame_geometry();
@@ -569,4 +569,66 @@ fn member_footer_uses_effective_crud_bindings_and_never_advertises_future_action
     let text = paint(&app, 150, 43).join("\n");
     assert!(text.contains("z remove"));
     assert!(!text.contains("d remove"));
+}
+
+#[test]
+fn rename_review_copies_the_human_equivalent_without_changing_the_cas() {
+    let mut app = crud_capture_case("crud-rename-review", crate::look::Look::default());
+    let draft = app.workspace_form.as_ref().unwrap();
+    let before = draft.operation.clone();
+    let text = draft.review();
+    assert!(text.contains("tmt mv worker worker-two"));
+    assert!(text.contains("Stops if the name changed first."));
+    assert!(!text.contains("printf"));
+    assert!(!text.contains("identity.rename"));
+    paint(&app, 80, 43);
+    let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Char('c')) else {
+        panic!("copy equivalent command");
+    };
+    assert_eq!(text, "tmt mv worker worker-two");
+    assert_eq!(app.workspace_form.as_ref().unwrap().operation, before);
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
+    let Effect::Act(Request::WorkspaceOperation(operation)) = app.workspace_confirm() else {
+        panic!("CAS remains the executable operation");
+    };
+    assert_eq!(Some(operation), before);
+}
+
+#[test]
+fn move_review_is_human_sized_with_internal_ids_only_in_the_commands() {
+    let app = crud_capture_case("crud-move-review", crate::look::Look::default());
+    let draft = app.workspace_form.as_ref().unwrap();
+    assert_eq!(draft.title(), "Move to squad");
+    assert_eq!(
+        draft.review(),
+        format!(
+            "worker: product → platform\n\ntmt ops sq add --squad platform -- {MEMBER}\ntmt ops sq rm --squad product -- {MEMBER}\n\nHistory, drafts and timers stay; source timers pause until resumed."
+        )
+    );
+}
+
+#[test]
+fn rename_command_quotes_only_shell_sensitive_values_and_protects_option_operands() {
+    for (old, new, expected) in [
+        ("worker", "worker-two", "tmt mv worker worker-two"),
+        (
+            "worker's-name",
+            "new name",
+            "tmt mv 'worker'\\''s-name' 'new name'",
+        ),
+        ("-worker", "new", "tmt mv -- -worker new"),
+        (
+            "worker",
+            "$(touch marker)",
+            "tmt mv worker '$(touch marker)'",
+        ),
+    ] {
+        let mut app = review(Kind::RenameMember, rename_operation(old));
+        let draft = app.workspace_form.as_mut().unwrap();
+        let Some(Change::RenameMember(request)) = draft.operation.as_mut() else {
+            unreachable!()
+        };
+        request.name = new.into();
+        assert_eq!(draft.review_command().as_deref(), Some(expected));
+    }
 }
