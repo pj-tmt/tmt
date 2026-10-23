@@ -1028,7 +1028,7 @@ test('a scoped project with no page says so, and the scope names it', async ({ p
   await fromScopeMenu(page, 'New project…');
   const dialog = app(page).getByRole('dialog', { name: 'New project' });
   await dialog.getByRole('textbox', { name: 'Project name' }).fill('backlog');
-  await dialog.getByRole('button', { name: 'Create' }).click();
+  await dialog.getByRole('button', { name: 'Create project' }).click();
   await expect(dialog).toHaveCount(0);
   await scopeTo(page, 'backlog');
   await expect(scopeTrigger(page, 'backlog')).toBeVisible();
@@ -1091,7 +1091,7 @@ test('a ninth project is refused before any request', async ({ page }) => {
     await page.getByRole('menuitem', { name: 'New project…' }).click();
     await app(page).getByRole('textbox', { name: 'Project name' }).fill(name);
     await app(page).getByRole('checkbox', { name: 'Alpha plan', exact: true }).check();
-    await app(page).getByRole('button', { name: 'Create' }).click();
+    await app(page).getByRole('button', { name: 'Create project' }).click();
     await expect(app(page).getByRole('dialog')).toHaveCount(0);
   }
   expect((await requests(page)).length).toBe(6);
@@ -1108,10 +1108,17 @@ test('a new project needs only a name; ticked pages land in it in one request', 
   await mount(page);
   await fromScopeMenu(page, 'New project…');
   const dialog = app(page).getByRole('dialog', { name: 'New project' });
-  const create = dialog.getByRole('button', { name: 'Create' });
-  await expect(create).toBeDisabled();
-  await expect(dialog).toContainText('Optional: tick the pages to put in it.');
+  const create = dialog.getByRole('button', { name: 'Create project' });
+  await expect(create).toBeEnabled();
+  await expect(dialog).toContainText('Create an empty project, or select its first pages.');
   const name = dialog.getByRole('textbox', { name: 'Project name' });
+  await create.click();
+  await expect(name).toBeFocused();
+  expect(await name.evaluate((input) => (input as HTMLInputElement).validity.valueMissing)).toBe(
+    true,
+  );
+  expect(await requests(page)).toEqual([]);
+  expect(await manageRequests(page)).toEqual([]);
   await name.fill(' bad');
   await expect(dialog).toContainText('Use single spaces inside the name');
   await name.fill('design');
@@ -1144,9 +1151,9 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   await page.evaluate(() => {
     window.__failManage = true;
   });
-  await dialog.getByRole('button', { name: 'Create' }).click();
+  await dialog.getByRole('button', { name: 'Create project' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Projects were not saved');
-  await dialog.getByRole('button', { name: 'Create' }).click();
+  await dialog.getByRole('button', { name: 'Create project' }).click();
   await expect(dialog).toHaveCount(0);
   expect(await manageRequests(page)).toEqual([
     { action: 'create', name: 'backlog' },
@@ -1181,7 +1188,7 @@ test('a new project save in flight vetoes Cancel, Escape and Close, then closes 
   await page.evaluate(() => {
     window.__holdManage = true;
   });
-  await dialog.getByRole('button', { name: 'Create' }).click();
+  await dialog.getByRole('button', { name: 'Create project' }).click();
   await expect.poll(() => page.evaluate(() => typeof window.__releaseManage)).toBe('function');
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   await page.keyboard.press('Escape');
@@ -1203,10 +1210,11 @@ test('rename is one request for every page in the project, archived included, an
 }) => {
   await mount(page, 'bulk');
   await fromScopeMenu(page, 'Manage projects…');
-  const dialog = app(page).getByRole('dialog', { name: 'Manage projects' });
+  // Management replaces its drawer with a confirmation, then returns to the same owner.
+  const dialog = app(page).getByRole('dialog');
   await expect(dialog).toContainText('old');
   await dialog.getByRole('button', { name: 'Rename old' }).click();
-  await dialog.getByRole('textbox', { name: 'New name' }).fill('current');
+  await dialog.getByRole('textbox', { name: 'Project name' }).fill('current');
   // The count names every page, the archived one included.
   await expect(dialog).toContainText('Rename old to current on 131 pages (1 archived).');
   await page.evaluate(() => {
@@ -1222,7 +1230,7 @@ test('rename is one request for every page in the project, archived included, an
     { action: 'rename', name: 'old', to: 'current' },
   ]);
   expect(await requests(page)).toEqual([]);
-  await dialog.getByRole('button', { name: 'Done' }).click();
+  await dialog.getByRole('button', { name: 'Close Manage projects' }).click();
   // The menu caps its count at 99+.
   await expect(menuProject(page, 'current')).toHaveText(/^current\s*99\+$/);
 });
@@ -1230,9 +1238,10 @@ test('rename is one request for every page in the project, archived included, an
 test('renaming onto an existing project says it merges', async ({ page }) => {
   await mount(page);
   await fromScopeMenu(page, 'Manage projects…');
-  const dialog = app(page).getByRole('dialog', { name: 'Manage projects' });
+  // Management replaces its drawer with a confirmation, then returns to the same owner.
+  const dialog = app(page).getByRole('dialog');
   await dialog.getByRole('button', { name: 'Rename ops' }).click();
-  await dialog.getByRole('textbox', { name: 'New name' }).fill('design');
+  await dialog.getByRole('textbox', { name: 'Project name' }).fill('design');
   await expect(dialog).toContainText(
     'A project named design already exists. Merge ops into design? 1 page moves; nothing is deleted.',
   );
@@ -1240,7 +1249,7 @@ test('renaming onto an existing project says it merges', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
   await expect(dialog.getByRole('status')).toHaveText('Project updated.');
   expect(await manageRequests(page)).toEqual([{ action: 'rename', name: 'ops', to: 'design' }]);
-  await dialog.getByRole('button', { name: 'Done' }).click();
+  await dialog.getByRole('button', { name: 'Close Manage projects' }).click();
   await expect(menuProject(page, 'design')).toHaveText(/^design\s*3/);
   await expect(menuProject(page, 'ops')).toHaveCount(0);
 });
@@ -1248,9 +1257,12 @@ test('renaming onto an existing project says it merges', async ({ page }) => {
 test('delete removes the project in one request and keeps the pages', async ({ page }) => {
   await mount(page);
   await fromScopeMenu(page, 'Manage projects…');
-  const dialog = app(page).getByRole('dialog', { name: 'Manage projects' });
+  // Management replaces its drawer with a confirmation, then returns to the same owner.
+  const dialog = app(page).getByRole('dialog');
   // The list shows the active pages (2 are in design); the dialog counts the archived one too.
-  await expect(dialog.locator('.project-manage li').first()).toContainText('3 pages · 1 archived');
+  await expect(dialog.locator('.project-manage li').first()).toContainText(
+    '2 active pages · 1 archived',
+  );
   await expect(dialog.locator('.project-manage li').nth(1)).toContainText('ops');
   await dialog.getByRole('button', { name: 'Delete design' }).click();
   await expect(dialog).toContainText(
@@ -1258,7 +1270,7 @@ test('delete removes the project in one request and keeps the pages', async ({ p
   );
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(dialog.getByRole('status')).toHaveText('Project updated.');
-  await dialog.getByRole('button', { name: 'Done' }).click();
+  await dialog.getByRole('button', { name: 'Close Manage projects' }).click();
   await expect(app(page).getByRole('button', { name: /^design/ })).toHaveCount(0);
   await expect(titles(page)).toHaveCount(4);
   expect(await manageRequests(page)).toEqual([{ action: 'delete', name: 'design' }]);
@@ -1360,9 +1372,9 @@ for (const width of [1440, 390])
       await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-manage-${width}-${theme}.png`) });
       // Renaming onto an existing project says the two merge.
-      const manager = app(page).getByRole('dialog', { name: 'Manage projects' });
+      const manager = app(page).getByRole('dialog');
       await manager.getByRole('button', { name: 'Rename ops' }).click();
-      await manager.getByRole('textbox', { name: 'New name' }).fill('design');
+      await manager.getByRole('textbox', { name: 'Project name' }).fill('design');
       await expect(manager).toContainText('A project named design already exists.');
       await page.screenshot({ path: await capturePath(`2588-merge-${width}-${theme}.png`) });
     });

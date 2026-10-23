@@ -271,6 +271,18 @@ fully bordered rounded list frame. Selection, keyboard actions, incremental rend
 management refusals retain their product owners. The shared flat state tabs show muted numeric
 counts and wrap on compact screens; the hero owns the heading and the shell bar keeps only tools.
 
+### Colab Projects
+
+The space-level project manager follows the concept website's Manage projects drawer:
+introductory copy, separate bordered project cards with name/count and Rename/Delete actions,
+and New project below them. New project has the name field, a divider and an Initial pages
+selection, with file marks and right-aligned Cancel/Create project actions. Archived choices
+remain explicitly labeled; project mutations disclose their full affected scope.
+
+Rename and delete use a centered shared dialog that replaces the manager and returns to its
+card action on cancel. This preserves the one-overlay rule instead of the website's stacked
+surfaces. The shared regular drawer owns geometry; products never override its internal width.
+
 ### Quick switcher
 
 Colab's **Search pages** header action and Cmd/Ctrl+K open a modal

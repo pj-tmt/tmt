@@ -903,6 +903,7 @@ export function Home() {
             open={dialog?.kind === 'manage'}
             pages={space.pages}
             projects={projectCounts(space.pages, space.projects)}
+            onNewProject={() => setDialog({ kind: 'new', initial: [] })}
             writing={writing}
             onClose={() => setDialog(undefined)}
           />

@@ -1,6 +1,24 @@
+/* Documented host metric inputs; shared controls keep their own presentation and focus. */
+.project-surface {
+  --tmt-ui-host-action-size: 12px;
+  --tmt-ui-host-action-line-height: 1.35;
+  --tmt-ui-host-action-padding: 9px 13px;
+  --tmt-ui-host-field-label-size: 11px;
+  --tmt-ui-host-field-padding: 10px 12px;
+}
+.project-manage-actions,
+.project-footer {
+  --tmt-ui-host-action-size: 11px;
+  --tmt-ui-host-action-padding: 7px 10px;
+}
 .project-form {
   display: grid;
-  gap: 12px;
+  gap: 16px;
+}
+.project-divider {
+  height: 1px;
+  background: var(--tmt-ui-surface-rule);
+  margin: 4px 0;
 }
 .project-pages {
   margin: 0;
@@ -13,8 +31,13 @@
   font-weight: 600;
 }
 .project-hint {
-  margin: 4px 0 8px;
+  margin: 0;
   color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+}
+.project-pages .project-hint {
+  margin: 8px 0 12px;
+  font-size: 11px;
 }
 .project-pages ul,
 .project-manage {
@@ -25,51 +48,59 @@
 .project-pages ul {
   max-height: 40dvh;
   overflow-y: auto;
-  border: 1px solid var(--tmt-ui-color-edge);
 }
 .project-pages li {
-  padding: 6px 8px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
 .project-pages .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  font-size: 11px;
 }
-.project-pages li:last-child {
-  border-bottom: 0;
+.project-pages .checkbox-label > svg {
+  flex: none;
+  color: var(--tmt-ui-color-secondary);
+}
+.project-pages .checkbox-label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-manage {
+  display: grid;
+  gap: 12px;
 }
 .project-manage li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 18px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-l);
+}
+.project-manage-row {
+  display: flex;
   align-items: center;
-  gap: 4px 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  justify-content: space-between;
+  gap: 12px;
 }
 .project-manage-text {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 12px;
+  display: grid;
+  gap: 6px;
   min-width: 0;
 }
 .project-manage-name {
-  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .project-manage-count {
   color: var(--tmt-ui-color-secondary);
+  font-size: 10px;
 }
 .project-manage-actions {
   display: flex;
   align-items: center;
+  flex: none;
   gap: 8px;
-}
-@media (max-width: 480px) {
-  .project-manage li {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 .project-actions {
   display: flex;
@@ -78,11 +109,18 @@
   gap: 8px;
 }
 .project-footer {
-  margin-top: 16px;
+  justify-content: flex-start;
+  margin-top: 4px;
 }
 .project-error {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 .project-error[data-tone='ok'] {
   color: var(--tmt-ui-color-secondary);
+}
+@media (max-width: 480px) {
+  .project-manage-row {
+    flex-wrap: wrap;
+  }
 }
