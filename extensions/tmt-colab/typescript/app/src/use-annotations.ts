@@ -5,7 +5,7 @@ import { usePageEnvironment } from './page-environment.js';
 import type { mountRenderer } from './renderer.js';
 import type { SelectionRect } from './renderer.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
-import type { PageBinding, PageSnapshot, PageView, PageTransport } from './transport.js';
+import type { PageBinding, PageSnapshot, PageTransport } from './transport.js';
 
 /** What the annotation window needs from the page's panels: it closes and selects threads. */
 interface AnnotationPanels {
@@ -24,7 +24,6 @@ export function useAnnotations({
   snapshot,
   transport,
   binding,
-  latest,
   renderer,
   host,
   panels,
@@ -32,8 +31,6 @@ export function useAnnotations({
   snapshot: PageSnapshot;
   transport: PageTransport;
   binding: RefObject<PageBinding | undefined>;
-  /** The newest view the page holds. */
-  latest: RefObject<PageView>;
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   host: RefObject<HTMLDivElement | null>;
   panels: AnnotationPanels;
@@ -201,30 +198,6 @@ export function useAnnotations({
       previous ? { ...previous, thread: ref, restored: undefined } : previous,
     );
   }
-  function openAnchoredThread(ref: DiscussionRef) {
-    if (annotationBusy.current || statusBusy.current) return;
-    const thread = latest.current.threads?.find(
-      (value) => value.ref.writer === ref.writer && value.ref.id === ref.id && !value.deleted,
-    );
-    if (!thread?.anchor) return;
-    closeRef.current(false);
-    binding.current?.markThreadStatusSeen?.(ref);
-    renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
-    const rectangle = renderer.current?.anchorRectangle(`${ref.writer}:${ref.id}`);
-    if (!rectangle) {
-      openThread(ref);
-      return;
-    }
-    setAnnotation({
-      key: crypto.randomUUID(),
-      selector: structuredClone(thread.anchor),
-      rectangle,
-      thread: ref,
-      restored: drafts.current.get(`${ref.writer}:${ref.id}`),
-    });
-    panelsRef.current.clear();
-  }
-
   /** The renderer reports the selection (or that it cleared). */
   function onSelection(
     quote: QuoteSelector | null | undefined,
@@ -263,6 +236,5 @@ export function useAnnotations({
     onSelection,
     openThread,
     continueAnnotation,
-    openAnchoredThread,
   };
 }

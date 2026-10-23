@@ -39,7 +39,7 @@ async function open(page: Page, surface: 'chat' | 'thread', width: number, theme
   await expect(host.locator('.status')).toContainText('Live');
   if (surface === 'thread') {
     await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
-    await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'anchored');
+    await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'discussion');
     return page.getByTestId('comment-thread');
   }
   await (await pageAction(host, 'Chat')).click();

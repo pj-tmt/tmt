@@ -86,20 +86,21 @@ async function twoThreads(page: Page) {
   await expect(marker(page, 1)).toBeVisible();
 }
 
-test('a window switched to another thread starts from that thread’s own place', async ({
+test('a Discussion view switched to another thread starts from that thread’s own place', async ({
   page,
 }) => {
   // The control: the second thread opened with nothing before it.
   await twoThreads(page);
   await marker(page, 1).click();
   const control = await place(page.getByTestId('comment-thread'));
-  // A reply lifted the first thread's window; the switch must not carry that over.
+  // A reply lifted the first thread's Discussion view; the switch must not carry that over.
   await twoThreads(page);
   await marker(page, 0).click();
   const first = page.getByTestId('comment-thread');
   await expect(first.getByTestId('comment-entry')).toHaveCount(1);
   await run(page, 'largePageReply', 0);
   await expect(first.getByTestId('comment-entry')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
   await marker(page, 1).click();
   await expect(page.getByTestId('comment-thread')).toHaveAttribute(
     'data-thread-id',

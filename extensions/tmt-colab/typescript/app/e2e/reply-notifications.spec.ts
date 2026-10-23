@@ -90,7 +90,7 @@ test('Chat activation opens its existing Drawer and reveals the exact reply rath
   await expect(cards(page)).toHaveCount(0);
 });
 
-test('Thread activation opens the canonical anchored window and quote without creating a conversation', async ({
+test('Thread activation opens the canonical Discussion view and quote without creating a conversation', async ({
   page,
 }) => {
   await mount(page);
@@ -104,7 +104,7 @@ test('Thread activation opens the canonical anchored window and quote without cr
   await cards(page).getByRole('button', { name: 'Open Thread', exact: true }).click();
   const thread = page.getByTestId('comment-thread');
   await expect(thread).toBeVisible();
-  await expect(thread).toHaveAttribute('data-layout', 'anchored');
+  await expect(thread).toHaveAttribute('data-layout', 'discussion');
   await expect(thread.locator('.thread-state').first()).toHaveAttribute(
     'title',
     'Exact selected text',
@@ -373,17 +373,14 @@ test('typing focus and caret survive arrivals; hidden-document resume announces 
     Object.assign(window, { notificationHidden: false });
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  // The active anchored window also holds the queue after document visibility resumes.
+  // The open Discussion view also holds the queue after document visibility resumes.
   await expect(live(page)).toHaveText('');
   await expect(page.locator('.tmt-ui-notifications')).not.toBeVisible();
   await expect(field).toBeFocused();
   await expect(field).toHaveText('Retained unsent draft');
   expect(await field.getAttribute('id')).toBe(identity);
   expect(await caret()).toEqual(selection);
-  await page
-    .getByTestId('comment-thread')
-    .getByRole('button', { name: 'Collapse thread', exact: true })
-    .click();
+  await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
   await expect(live(page)).toContainText('New reply during hidden document');
   await run(page, 'repeat');
   const events = await page.evaluate(
@@ -525,20 +522,14 @@ for (const [width, theme] of [
     await run(page, 'arrive', { destination: 'Chat', body: 'Held while reading the thread' });
     await expect(page.locator('.tmt-ui-notifications')).not.toBeVisible();
     await expect(live(page)).toHaveText('');
-    await page
-      .getByTestId('comment-thread')
-      .getByRole('button', { name: 'Collapse thread', exact: true })
-      .click();
+    await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
     await expect(cards(page)).toHaveCount(3);
-    // Reply 203 was already waiting before activation; opening the window
-    // holds that entry rather than changing its original place in the FIFO.
-    await expect(cards(page)).toContainText([
-      'Chat reply 200',
-      'Chat reply 202',
-      'Thread reply 203',
-    ]);
-    await expect(page.locator('.tmt-ui-notification-waiting')).toHaveText('2 more waiting');
-    await expect(live(page)).toContainText('Thread reply 203');
+    // Reply 203 belongs to the thread the Discussion view displayed, so reading it settled that
+    // entry; the Chat replies keep their original order and the held one waits behind them.
+    await expect(cards(page)).toContainText(['Chat reply 200', 'Chat reply 202', 'Chat reply 204']);
+    await expect(page.locator('.tmt-ui-notification-waiting')).toHaveText('1 more waiting');
+    await expect(live(page)).toContainText('Chat reply 204');
+    await expect(live(page)).not.toContainText('Thread reply 203');
     await expect(live(page)).not.toContainText('Chat reply 200');
     await expect(live(page)).not.toContainText('Chat reply 202');
   });

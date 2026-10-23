@@ -457,31 +457,33 @@ for (const width of [1440, 390]) {
       await input.fill('@Agent 1 Exact unsent draft retained on collapse.');
       await page.getByRole('heading', { name: 'Unrelated live title', exact: true }).click();
       await expect(dialog).toHaveCount(0);
-      // Reopening via the associated marker restores the thread, quote and bound mention.
+      // The associated marker opens the thread's Discussion view with its quote, draft and bound mention.
       const marker = page
         .frameLocator('#ask-page-fixture iframe')
         .locator(`[data-colab-thread$="${threadId}"]`);
       await marker.click();
-      await expect(thread).toHaveAttribute('data-thread-id', threadId!);
-      await expect(input).toHaveText('@Agent 1 Exact unsent draft retained on collapse.', {
+      const drawer = page.locator('.tmt-ui-drawer[open]');
+      const discussion = drawer.getByTestId('comment-thread');
+      await expect(discussion).toHaveAttribute('data-thread-id', threadId!);
+      await expect(discussion).toHaveAttribute('data-layout', 'discussion');
+      const reply = discussion.getByRole('combobox', { name: 'Message', exact: true });
+      await expect(reply).toHaveText('@Agent 1 Exact unsent draft retained on collapse.', {
         useInnerText: true,
       });
-      await expect(dialog.locator('.annotation-hint[role="status"]')).toContainText(
+      await expect(discussion.locator('.annotation-hint[role="status"]')).toContainText(
         'Asks Agent 1.',
       );
       await expect
         .poll(() =>
-          thread
+          discussion
             .locator('.thread-messages')
             .evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop),
         )
         .toBeLessThanOrEqual(1);
-      await expect(thread.locator('.thread-state')).toHaveAttribute('title', 'Exact selected text');
-      await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
-      const box = (await dialog.boundingBox())!;
-      expect(box.x).toBeGreaterThanOrEqual(8);
-      expect(box.x + box.width).toBeLessThanOrEqual(width - 8);
-      expect(box.y + box.height).toBeLessThanOrEqual(892);
+      await expect(discussion.locator('.thread-state')).toHaveAttribute(
+        'title',
+        'Exact selected text',
+      );
       const frameText = await page
         .frameLocator('#ask-page-fixture iframe')
         .locator('body')
@@ -490,22 +492,10 @@ for (const width of [1440, 390]) {
       expect(frameText).not.toContain('Exact associated agent reply');
       expect(frameText).not.toContain('Exact unsent draft');
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reopened.png` });
-      const resolve = thread.getByRole('button', { name: text.threadResolveAction, exact: true });
-      await resolve.focus();
-      await resolve.press('Tab');
-      const close = thread.getByRole('button', { name: text.threadCollapse, exact: true });
-      await expect(close).toBeFocused();
-      await expect(close.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeVisible();
-      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-header-focus.png` });
-      await resolve.click();
-      await expect(dialog).toHaveCount(0);
-      await panel(page, 'comments');
-      await page.getByRole('tab', { name: text.threadResolved, exact: true }).click();
-      await page.getByTestId('annotation-row').click();
-      const details = page.getByTestId('comment-thread');
       const state = page.getByTestId('discussion-state');
+      await discussion.getByRole('button', { name: 'Resolve', exact: true }).click();
       await expect(state).toContainText(text.threadResolved);
-      await details.getByRole('button', { name: text.threadReopen, exact: true }).click();
+      await discussion.getByRole('button', { name: text.threadReopen, exact: true }).click();
       await expect(state).toHaveText(text.discussionOpen);
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });

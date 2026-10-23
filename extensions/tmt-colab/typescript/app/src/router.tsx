@@ -1422,12 +1422,10 @@ function OpenPage({
     onSelection,
     openThread,
     continueAnnotation,
-    openAnchoredThread,
   } = useAnnotations({
     snapshot,
     transport,
     binding,
-    latest,
     renderer,
     host,
     panels: {
@@ -1507,6 +1505,9 @@ function OpenPage({
   escapeAnnotation.current = () => {
     if (panel === 'chat') {
       if (!chatBusy.current) close();
+    } else if (panel === 'comments') {
+      // A send or status change in flight holds the open Discussion, as Chat holds its busy send.
+      if (!discussedThread || !statusBusy.current) close();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };
@@ -1617,7 +1618,7 @@ function OpenPage({
         const thread = latest.current.threads?.find(
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
         );
-        if (thread) openAnchoredThread(thread.ref);
+        if (thread) openThread(thread.ref);
       },
       onOpenList: () => {
         if (annotationRef.current) closeRef.current(false);
@@ -1655,12 +1656,14 @@ function OpenPage({
       threadTotal,
     );
   }, [state, anchoredThreads, annotation, threadTotal]);
-  // The passage of the thread whose window is open takes the page's selected look; a window for a new
+  // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.
   const openThreadId = annotation?.thread
     ? `${annotation.thread.writer}:${annotation.thread.id}`
-    : null;
+    : discussedThread
+      ? activeThread
+      : null;
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.select(openThreadId);
@@ -1720,7 +1723,7 @@ function OpenPage({
           showThread(`${event.thread.writer}:${event.thread.id}`);
         }
         return !!target;
-      } else if (event.thread) openAnchoredThread(event.thread);
+      } else if (event.thread) openThread(event.thread);
       else return false;
       return true;
     },
@@ -2210,7 +2213,10 @@ function OpenPage({
             : undefined
         }
         panel="comments"
-        onDismiss={() => close()}
+        onDismiss={(reason) => {
+          if (reason === 'close') close();
+          else escapeAnnotation.current();
+        }}
       >
         {discussionPending && !liveError && (
           <p role="status" className="discussion-pending">

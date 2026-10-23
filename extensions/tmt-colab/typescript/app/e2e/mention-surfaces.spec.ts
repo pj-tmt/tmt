@@ -89,7 +89,7 @@ for (const width of [1440, 390])
         mkdirSync(directory, { recursive: true });
         const proof: Record<string, unknown> = {};
         let baseline: Awaited<ReturnType<typeof appearance>> | undefined;
-        for (const surface of ['chat', 'thread', 'annotate']) {
+        for (const surface of ['chat', 'annotate', 'thread']) {
           const window = await open(page, surface, state === 'checking');
           const composer = window.getByTestId('annotation-compose');
           const input = composer.getByRole('combobox', { name: 'Message', exact: true });
@@ -130,8 +130,10 @@ for (const width of [1440, 390])
           await expect(input).toHaveCSS('border-radius', tokens.browser.metric.radius);
           await expect(input).toHaveCSS('box-shadow', 'none');
           const current = await appearance(composer);
-          if (surface === 'thread') baseline = current;
-          else if (surface === 'annotate') expect(current).toEqual(baseline);
+          if (surface === 'annotate') baseline = current;
+          // The Discussion view follows the v2 concept: a four-line visible field and the word Reply
+          // in place of the icon Send; its status line stays the shared one.
+          else if (surface === 'thread') expect(current.status).toEqual(baseline!.status);
           const name = `${surface}-${width}-${theme}-${state}`;
           proof[name] = current;
           await page.screenshot({ path: `${directory}/${name}.png` });

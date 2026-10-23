@@ -9,18 +9,16 @@ async function run(page: Page, method: string, argument?: unknown) {
     { fixture, method, argument },
   );
 }
-async function mount(page: Page, surface: 'thread' | 'chat') {
+// An existing thread opens as the Discussion view in the Comments drawer, whose single scroller
+// comments-panel-scroll.spec.ts covers; the history scroller here is Chat's.
+async function mount(page: Page) {
   await page.goto('/');
-  await run(page, 'mount', { history: surface });
+  await run(page, 'mount', { history: 'chat' });
   const host = page.locator('#ask-page-fixture');
   await expect(host.locator('.status')).toContainText('Live');
-  if (surface === 'thread') {
-    await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
-  } else {
-    const toggle = await pageAction(host, 'Chat');
-    await toggle.click();
-  }
-  const window = page.getByTestId(surface === 'thread' ? 'comment-thread' : 'chat-panel');
+  const toggle = await pageAction(host, 'Chat');
+  await toggle.click();
+  const window = page.getByTestId('chat-panel');
   await expect(window).toBeVisible();
   return window;
 }
@@ -44,13 +42,13 @@ async function caret(input: Locator) {
 
 for (const width of [1440, 390]) {
   for (const theme of ['light', 'dark'] as const) {
-    for (const surface of ['chat', 'thread'] as const) {
+    for (const surface of ['chat'] as const) {
       test(`${surface} preserves reading and follows arrivals at ${width} ${theme}`, async ({
         page,
       }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ colorScheme: theme });
-        const window = await mount(page, surface);
+        const window = await mount(page);
         const history = window.locator('.conversation-messages');
         const jump = window.getByRole('button', { name: 'New messages', exact: true });
         const input = window.getByRole('combobox', { name: 'Message', exact: true });
@@ -154,7 +152,7 @@ for (const width of [1440, 390]) {
       test(`${surface} scroll captures at ${width} ${theme}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ colorScheme: theme });
-        const window = await mount(page, surface);
+        const window = await mount(page);
         const history = window.locator('.conversation-messages');
         await scroll(history, 'bottom');
         await page.screenshot({
@@ -173,11 +171,11 @@ for (const width of [1440, 390]) {
   }
 }
 
-test('thread follows a layout clamp and viewport shrink before the queued scroll', async ({
+test('Chat follows a layout clamp and viewport shrink before the queued scroll', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  const window = await mount(page, 'thread');
+  const window = await mount(page);
   const history = window.locator('.conversation-messages');
   const layout = await history.evaluate((node) => {
     const content = node.firstElementChild as HTMLElement;
@@ -210,10 +208,10 @@ test('thread follows a layout clamp and viewport shrink before the queued scroll
   await expect(window.getByRole('button', { name: 'New messages', exact: true })).toHaveCount(0);
 });
 
-for (const surface of ['chat', 'thread'] as const) {
+for (const surface of ['chat'] as const) {
   test(`${surface} bottom threshold, resize and reopen`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    const window = await mount(page, surface);
+    const window = await mount(page);
     const history = window.locator('.conversation-messages');
     const jump = window.getByRole('button', { name: 'New messages', exact: true });
     for (const offset of [24, 25]) {
@@ -243,28 +241,11 @@ for (const surface of ['chat', 'thread'] as const) {
     await run(page, 'scrollArrival');
     await expect(jump).toBeVisible();
     await scroll(history, 0);
-    await (surface === 'chat' ? page : window)
-      .getByRole('button', {
-        name: surface === 'chat' ? 'Close Chat' : 'Collapse thread',
-        exact: true,
-      })
-      .click();
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await expect(window).not.toBeVisible();
-    if (surface === 'chat') {
-      const host = page.locator('#ask-page-fixture');
-      const toggle = await pageAction(host, 'Chat');
-      await toggle.click();
-    } else {
-      // Unread arrivals held by the active window now resume. Dismiss them
-      // through their real controls before reopening via the covered marker;
-      // notification activation deliberately reveals a different exact turn.
-      const dismiss = page.getByRole('button', { name: 'Dismiss Thread reply', exact: true });
-      await expect(dismiss).toHaveCount(2);
-      await dismiss.first().click();
-      await dismiss.first().click();
-      await expect(dismiss).toHaveCount(0);
-      await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
-    }
+    const host = page.locator('#ask-page-fixture');
+    const toggle = await pageAction(host, 'Chat');
+    await toggle.click();
     await expect(window).toBeVisible();
     await expect.poll(() => distance(history)).toBeLessThanOrEqual(1);
     await expect(jump).toHaveCount(0);

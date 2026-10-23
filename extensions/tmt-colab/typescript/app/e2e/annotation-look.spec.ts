@@ -27,7 +27,8 @@ async function expectRuleEdge(panel: Locator, theme: 'light' | 'dark') {
     await expect(panel).toHaveCSS(`border-${side}-color`, rule[theme]);
   }
   // Inner dividers are fine; a child must not repeat the edge on a side that touches the panel's own.
-  const children = panel.locator(':scope > *');
+  // A composer's suggestion list floats inside its dialog with its own edge; it is not part of the panel's frame.
+  const children = panel.locator(':scope > :not(.tmt-listbox-options)');
   const count = await children.count();
   for (const side of ['left', 'right'])
     for (const child of await children.all())
@@ -134,7 +135,8 @@ for (const width of [1440, 390])
         'outline-color',
         rgb(tokens.browser.color['annotation-rule-selected'][theme]),
       );
-      await expectRuleEdge(page.locator('.annotation-popover'), theme);
+      // A marker opens the thread's Discussion view in the drawer, which draws the shared edge.
+      await expectRuleEdge(page.locator('.tmt-ui-drawer[open]'), theme);
       await expect(thread.locator('.annotation-number')).toHaveText('1');
       const human = thread.locator('.conversation-turn[data-turn-role="user"]');
       const agent = thread.locator('.conversation-turn[data-turn-role="agent"]');
@@ -154,12 +156,14 @@ for (const width of [1440, 390])
       await expect(human).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await expect(human.locator('.conversation-body .agent-chip')).toHaveCount(2);
       await page.screenshot({ path: `${captures}/annotation-thread-${width}-${theme}.png` });
-      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: 'Close Discussion', exact: true }).click();
       await expect.poll(selectedPassages).toBeNull();
       await expect(frame.locator('.annotation-number[data-colab-selected]')).toHaveCount(0);
       const comments = await pageAction(app, 'Comments');
       await comments.click();
       const panel = page.getByTestId('comments-panel');
+      // Comments reopens on the thread that was open; All comments is the list.
+      await panel.getByRole('button', { name: 'All comments', exact: true }).click();
       // The Comments drawer floats too; the shared drawer already draws the same edge.
       await expectRuleEdge(page.locator('.tmt-ui-drawer[open]'), theme);
       // The numbers are split between the Open and Resolved views (the open thread shows in both).
@@ -360,10 +364,28 @@ for (const width of [1440, 1024, 390])
       };
       await run(page, 'mount', options);
       await run(page, 'annotationLook');
-      const marker = page
-        .frameLocator('#ask-page-fixture iframe')
-        .locator('[data-colab-thread]')
-        .filter({ hasText: /^1$/ });
+      const frame = page.frameLocator('#ask-page-fixture iframe');
+      // The annotation window (a new selection) is the composer the other surfaces match.
+      await frame.locator('#selected').evaluate((node) => {
+        const range = node.ownerDocument.createRange();
+        range.selectNodeContents(node);
+        const selection = node.ownerDocument.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.getByTestId('selection-ask').click();
+      const annotationWindow = page.getByTestId('annotation-window');
+      await expect(annotationWindow).toBeVisible();
+      const popover = page.locator('.annotation-popover');
+      await expect(popover).not.toHaveAttribute('data-leader');
+      expect(await popover.evaluate((node) => getComputedStyle(node, '::before').content)).toBe(
+        'none',
+      );
+      const annotationComposer = await sharedComposer(annotationWindow);
+      await page.keyboard.press('Escape');
+      await expect(annotationWindow).toHaveCount(0);
+      // A marker opens the thread's Discussion view; its number circle and agent byline are shared.
+      const marker = frame.locator('[data-colab-thread]').filter({ hasText: /^1$/ });
       await marker.click();
       const thread = page.getByTestId('comment-thread');
       await expect(thread).toBeVisible();
@@ -411,12 +433,6 @@ for (const width of [1440, 1024, 390])
           };
         }),
       ).toEqual({ children: 0, before: 'none', after: 'none' });
-      const popover = page.locator('.annotation-popover');
-      await expect(popover).not.toHaveAttribute('data-leader');
-      expect(await popover.evaluate((node) => getComputedStyle(node, '::before').content)).toBe(
-        'none',
-      );
-      const annotationComposer = await sharedComposer(thread);
       const annotationByline = await sharedAgentByline(thread, 'avatar');
       await page.screenshot({ path: `${captures}/unified-annotation-${width}-${theme}.png` });
       await page.keyboard.press('Escape');
