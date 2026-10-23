@@ -156,11 +156,12 @@
   min-width: 0;
   max-width: 100%;
 }
+/* More columns lie to the right: the region fades into the sheet instead of ending on a rule. */
 .tmt-ui-chart-matrix-edge {
   position: absolute;
   inset: 0 0 0 auto;
-  width: var(--tmt-ui-space-xs);
-  background: var(--tmt-ui-color-edge);
+  width: var(--tmt-ui-space-xl);
+  background: linear-gradient(to right, transparent, var(--tmt-ui-surface-sheet));
   pointer-events: none;
 }
 .tmt-ui-chart-scroll {

@@ -551,6 +551,17 @@ state, a React component.
   (`dot`, `ring`, `dashed`, `clock`, `diamond`, `cross`, `unknown`), in the colour of the text around it. Every
   mark has the same footprint whatever font a glyph would fall back to; the state word beside it
   carries the meaning, so the mark is `aria-hidden`.
+- **Bare status tiles.** `data-bare` on `tmt-ui-status-tiles` drops each tile's border, fill and
+  padding for use inside a card: a label over a value, no box in a box. The dot appears only when a
+  tile carries a tone. `data-size='hero'` on a numeric value sets it at the page's first-read size
+  (about 40px).
+- **Card.** `tmt-ui-card` is a flat sheet that groups one subject: `tmt-ui-card-head` (the
+  `tmt-ui-card-title` and an optional `tmt-ui-card-meta`) over the body. Static only.
+- **Meter.** `tmt-ui-meter` is a read-only measure; its fill's width is `--tmt-ui-meter-fill`
+  (0-100) and its colour comes from a chart series class (`tmt-ui-chart-sN`). Give it `role="img"`
+  and a label that states the value.
+- **Passive chip.** A `tmt-ui-chip` whose label is its only child carries no remove control and is
+  padded the same on both sides: a label for a state that is not an action.
 
 ## Isolated shadcn foundation (Slice1)
 

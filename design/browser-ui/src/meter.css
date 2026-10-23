@@ -1,0 +1,16 @@
+/* A read-only measure: a track and a fill of `--tmt-ui-meter-fill` percent. The fill takes its
+   colour from a chart series class, so it matches the series it stands for. */
+.tmt-ui-meter {
+  --tmt-ui-meter-fill: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  height: 12px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
+}
+.tmt-ui-meter-fill {
+  width: calc(var(--tmt-ui-meter-fill) * 1%);
+  height: 100%;
+  background: var(--tmt-ui-color-secondary);
+}

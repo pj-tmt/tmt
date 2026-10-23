@@ -1692,6 +1692,12 @@ var browserUiClasses = Object.freeze({
 	statusTileValue: "tmt-ui-status-tile-value",
 	statusTileDot: "tmt-ui-status-tile-dot",
 	stateMark: "tmt-ui-state-mark",
+	card: "tmt-ui-card",
+	cardHead: "tmt-ui-card-head",
+	cardTitle: "tmt-ui-card-title",
+	cardMeta: "tmt-ui-card-meta",
+	meter: "tmt-ui-meter",
+	meterFill: "tmt-ui-meter-fill",
 	notifications: "tmt-ui-notifications",
 	notification: "tmt-ui-notification",
 	notificationStatus: "tmt-ui-notification-status",
@@ -3354,7 +3360,7 @@ var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"t
 var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Ops</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/digest.html?raw
-var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page usage digest\">\n      <div class=\"digest-head\">\n        <p class=\"digest-subtitle\">Your team's usage, at a glance.</p>\n        <div class=\"digest-controls\">\n          <span id=\"usage-badge\" class=\"digest-badge\" hidden></span>\n          <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n          <div id=\"usage-ranges\" class=\"digest-segments\" role=\"tablist\" aria-label=\"Range\"></div>\n        </div>\n      </div>\n      <div id=\"usage-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n        <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Digest</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page usage digest\">\n      <div class=\"digest-head\">\n        <p class=\"digest-subtitle\">Your team's usage, at a glance.</p>\n        <div class=\"digest-controls\">\n          <span id=\"usage-badge\" class=\"tmt-ui-chip\" hidden><span class=\"tmt-ui-chip-label\"></span></span>\n          <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n          <div class=\"tmt-ui-tabs-header\">\n            <div id=\"usage-ranges\" class=\"tmt-ui-tab-list\" role=\"tablist\" aria-label=\"Range\"></div>\n          </div>\n        </div>\n      </div>\n      <div id=\"usage-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n        <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n      </div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-math.ts
 /**
@@ -4574,12 +4580,12 @@ function el(name, className, text) {
 }
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
 function card(id, title, body, options = {}) {
-	const node = el("section", options.className ? `digest-card ${options.className}` : "digest-card");
+	const node = el("section", options.className ? `${browserUiClasses.card} digest-card ${options.className}` : `${browserUiClasses.card} digest-card`);
 	node.id = id;
 	node.setAttribute("aria-labelledby", `${id}-title`);
-	const heading = el("h2", "digest-card-title", title);
+	const heading = el("h2", browserUiClasses.cardTitle, title);
 	heading.id = `${id}-title`;
-	const head = el("div", "digest-card-head");
+	const head = el("div", browserUiClasses.cardHead);
 	head.append(heading);
 	if (options.actions) head.append(options.actions);
 	node.append(head, ...body);
@@ -4591,7 +4597,8 @@ function row$2(className, ...cards) {
 	return node;
 }
 function table(head, rows) {
-	const node = el("table", "usage-table");
+	const node = el("table", browserUiClasses.table);
+	node.dataset.numeric = "";
 	const header = el("tr");
 	for (const text of head) {
 		const cell = el("th", void 0, text);
@@ -4617,14 +4624,17 @@ function table(head, rows) {
 	node.append(body);
 	return node;
 }
-/** A segmented control of buttons; `aria-pressed` marks the active one. */
-function segments(label, options, initial, change) {
-	const group = el("div", "digest-segments");
-	group.setAttribute("role", "group");
-	group.setAttribute("aria-label", label);
+/** The leaf's boxed tabs as a two-way choice for one panel; `aria-selected` marks the active one. */
+function tabChoice(label, controls, options, initial, change) {
+	const header = el("div", browserUiClasses.tabsHeader);
+	const list = el("div", browserUiClasses.tabList);
+	list.setAttribute("role", "tablist");
+	list.setAttribute("aria-label", label);
 	const buttons = options.map((option) => {
-		const button = el("button", "digest-segment", option.text);
+		const button = el("button", browserUiClasses.tab, option.text);
 		button.type = "button";
+		button.setAttribute("role", "tab");
+		button.setAttribute("aria-controls", controls);
 		button.addEventListener("click", () => {
 			sync(option.value);
 			change(option.value);
@@ -4635,34 +4645,63 @@ function segments(label, options, initial, change) {
 		};
 	});
 	const sync = (active) => {
-		for (const { button, value } of buttons) button.setAttribute("aria-pressed", String(value === active));
+		for (const { button, value } of buttons) button.setAttribute("aria-selected", String(value === active));
 	};
 	sync(initial);
-	group.append(...buttons.map(({ button }) => button));
+	list.append(...buttons.map(({ button }) => button));
+	header.append(list);
+	return header;
+}
+/** One numeric fact as the leaf's status tile: a label over a large value. Inside a card the tiles
+* are bare (`data-bare` on the group); `series` adds a dot in that chart series' colour, `hero` sets
+* the value at the page's first-read size. A tile without a tone draws no dot. */
+function tile(label, value, options = {}) {
+	const node = el("div", browserUiClasses.statusTile);
+	const term = el("dt", browserUiClasses.statusTileLabel, label);
+	const figure = el("dd", browserUiClasses.statusTileValue);
+	figure.dataset.numeric = value === "0" ? "zero" : "count";
+	if (options.hero) figure.dataset.size = "hero";
+	if (options.series !== void 0) {
+		const dot = el("span", `${browserUiClasses.statusTileDot} tmt-ui-chart-s${options.series}`);
+		dot.setAttribute("aria-hidden", "true");
+		figure.append(dot);
+	}
+	figure.append(value);
+	node.append(term, figure);
+	return node;
+}
+/** A passive label for a state that is not an action: the leaf's chip without a remove control. */
+function passiveChip(text) {
+	const node = el("span", browserUiClasses.chip);
+	node.append(el("span", browserUiClasses.chipLabel, text));
+	return node;
+}
+/** A group of bare tiles for use inside a card. */
+function bareTiles(...tiles) {
+	const group = el("dl", browserUiClasses.statusTiles);
+	group.dataset.bare = "";
+	group.append(...tiles);
 	return group;
 }
 function providerCard(view, nowMs) {
 	const resets = view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs);
-	const meter = el("div", "digest-meter");
+	const meter = el("div", browserUiClasses.meter);
 	meter.setAttribute("role", "img");
 	meter.setAttribute("aria-label", `${view.leftPercent}% of the weekly allowance left`);
-	const fill = el("div", `digest-meter-fill tmt-ui-chart-s${view.style}`);
-	fill.style.setProperty("--digest-fill", String(Math.max(0, Math.min(100, view.leftPercent))));
+	const fill = el("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${view.style}`);
+	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, view.leftPercent))));
 	meter.append(fill);
 	const figure = el("div", "digest-provider-figure");
-	figure.append(el("p", "digest-big", `${view.leftPercent}%`), el("p", "digest-big-label", "allowance left"), meter);
+	figure.append(bareTiles(tile("Allowance left", `${view.leftPercent}%`, {
+		hero: true,
+		series: view.style
+	})), meter);
 	const history = view.chart ? createSeriesChart(view.chart) : el("p", "usage-note", "The weekly history is not served yet; this shows the latest window.");
-	const stat = (label, value) => {
-		const cell = el("div", "digest-stat");
-		cell.append(el("dt", void 0, label), el("dd", void 0, value));
-		return cell;
-	};
-	const stats = el("dl", "digest-stats");
-	stats.append(stat("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), stat("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), stat("Resets in", resets));
+	const stats = bareTiles(tile("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), tile("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), tile("Resets in", resets));
 	const body = el("div", "digest-provider-body");
 	body.append(figure, history);
 	return card(`digest-provider-${view.line || "account"}`, view.provider, [body, stats], {
-		actions: el("span", "digest-card-meta", `Resets in ${resets}`),
+		actions: el("span", browserUiClasses.cardMeta, `Resets in ${resets}`),
 		className: "digest-provider"
 	});
 }
@@ -4688,7 +4727,8 @@ function tokensCard(doc, scale) {
 	draw();
 	body.append(host);
 	if (data.partial) body.append(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
-	const control = segments("Scale", [{
+	host.id = "digest-tokens-chart";
+	const control = tabChoice("Scale", host.id, [{
 		value: "absolute",
 		text: "Absolute"
 	}, {
@@ -4745,7 +4785,8 @@ function rankingCard(doc) {
 	const body = [host];
 	if (view.partial) body.push(el("p", "usage-note", "* Partial: some of this range has no data for the seat."));
 	if (view.other) {
-		const toggle = el("button", "digest-more");
+		const toggle = el("button", browserUiClasses.action);
+		toggle.dataset.variant = "text";
 		toggle.type = "button";
 		toggle.setAttribute("aria-controls", host.id);
 		const sync = (all) => {
@@ -4808,10 +4849,13 @@ function coverageCard() {
 	const list = el("dl", "digest-gaps");
 	for (const [term, source] of gaps) {
 		const line = el("div", "digest-gap");
-		line.append(el("dt", void 0, term), el("dd", "digest-badge", "Not connected"), el("dd", "digest-gap-source", source));
+		const status = el("dd");
+		status.append(passiveChip("Not connected"));
+		line.append(el("dt", void 0, term), status, el("dd", "digest-gap-source", source));
 		list.append(line);
 	}
-	const method = el("details", "digest-method");
+	const method = el("details", browserUiClasses.disclosure);
+	method.dataset.divided = "";
 	method.id = "digest-method";
 	method.append(el("summary", void 0, "Method & caveats"), ...[
 		"Tokens are input plus output as Core reports them; cached input is part of input and is not counted again.",
@@ -4837,13 +4881,14 @@ function digestPage(source = digestSource, signal) {
 	const note = document.getElementById("usage-note");
 	const badge = document.getElementById("usage-badge");
 	if (!tabs || !panel || !note || !badge) return;
+	const badgeLabel = badge.querySelector(`.${browserUiClasses.chipLabel}`);
 	let current = USAGE_RANGES[0];
 	let generation = 0;
 	let shown = "";
 	let good;
 	const scale = { share: false };
 	const buttons = USAGE_RANGES.map((range) => {
-		const button = el("button", "digest-segment", range);
+		const button = el("button", browserUiClasses.tab, range);
 		button.type = "button";
 		button.setAttribute("role", "tab");
 		button.setAttribute("aria-controls", "usage-panel");
@@ -4863,7 +4908,7 @@ function digestPage(source = digestSource, signal) {
 		shown = fingerprint(report);
 		good = void 0;
 		badge.hidden = true;
-		badge.textContent = "";
+		badgeLabel.textContent = "";
 		if (report.unavailable || !report.document) {
 			panel.replaceChildren();
 			return notAvailable(note, report.unavailable ?? "Usage is not available.");
@@ -4872,7 +4917,7 @@ function digestPage(source = digestSource, signal) {
 		const doc = report.document;
 		const activityBlock = activityCard(doc);
 		panel.replaceChildren(allowanceRow(doc), row$2("digest-row-burn", tokensCard(doc, scale), rankingCard(doc)), ...activityBlock ? [activityBlock] : [], row$2("digest-row-coverage", exchangeCard(doc), coverageCard()));
-		if (report.sample) badge.textContent = "Sample data";
+		if (report.sample) badgeLabel.textContent = "Sample data";
 		badge.hidden = !report.sample;
 		ordinaryNote(report);
 	}

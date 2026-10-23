@@ -24,6 +24,12 @@ export const browserUiClasses = Object.freeze({
   statusTileValue: 'tmt-ui-status-tile-value',
   statusTileDot: 'tmt-ui-status-tile-dot',
   stateMark: 'tmt-ui-state-mark',
+  card: 'tmt-ui-card',
+  cardHead: 'tmt-ui-card-head',
+  cardTitle: 'tmt-ui-card-title',
+  cardMeta: 'tmt-ui-card-meta',
+  meter: 'tmt-ui-meter',
+  meterFill: 'tmt-ui-meter-fill',
 
   notifications: 'tmt-ui-notifications',
   notification: 'tmt-ui-notification',

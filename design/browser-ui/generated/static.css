@@ -1770,6 +1770,13 @@ svg.tmt-ui-mark {
   background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
 }
+
+.tmt-ui-status-tiles[data-bare] .tmt-ui-status-tile {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
 .tmt-ui-status-tile-label {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
@@ -1783,6 +1790,9 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-status-tile-value[data-numeric] {
   font: 600 1.5rem / 1.1 var(--tmt-ui-font-display);
+}
+.tmt-ui-status-tile-value[data-numeric][data-size='hero'] {
+  font-size: 2.5rem;
 }
 .tmt-ui-status-tile-value[data-numeric='zero'] {
   color: var(--tmt-ui-color-secondary);
@@ -1868,6 +1878,50 @@ svg.tmt-ui-mark {
     36% 50%,
     0 14%
   );
+}
+
+.tmt-ui-card {
+  box-sizing: border-box;
+  display: grid;
+  align-content: start;
+  gap: var(--tmt-ui-space-l);
+  min-width: 0;
+  padding: var(--tmt-ui-space-xl);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+}
+.tmt-ui-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-m);
+}
+.tmt-ui-card-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.tmt-ui-card-meta {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-header-action-size);
+}
+
+.tmt-ui-meter {
+  --tmt-ui-meter-fill: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  height: 12px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-paper);
+}
+.tmt-ui-meter-fill {
+  width: calc(var(--tmt-ui-meter-fill) * 1%);
+  height: 100%;
+  background: var(--tmt-ui-color-secondary);
 }
 
 .tmt-ui-list {
@@ -2952,6 +3006,10 @@ svg.tmt-ui-mark {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.tmt-ui-chip-label:only-child {
+  padding: 0 6px;
+}
 .tmt-ui-chip > .tmt-ui-icon-action {
   align-self: stretch;
 }
@@ -3284,11 +3342,12 @@ svg.tmt-ui-mark {
   min-width: 0;
   max-width: 100%;
 }
+
 .tmt-ui-chart-matrix-edge {
   position: absolute;
   inset: 0 0 0 auto;
-  width: var(--tmt-ui-space-xs);
-  background: var(--tmt-ui-color-edge);
+  width: var(--tmt-ui-space-xl);
+  background: linear-gradient(to right, transparent, var(--tmt-ui-surface-sheet));
   pointer-events: none;
 }
 .tmt-ui-chart-scroll {
