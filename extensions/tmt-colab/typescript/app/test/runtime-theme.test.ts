@@ -67,14 +67,13 @@ it('drops the default palette and shadows and takes the radius, focus and fonts 
     `outline: ${tokens.browser.metric['focus-width']} solid var(--color-focus);`,
   );
   expect(theme).toContain('outline-offset: 0;');
-  // Only the system part of each stack: the leading quoted web family cannot load in the frame.
+  // Preserve a system stack and omit any legacy leading quoted web family.
   for (const [name, utility] of [
     ['body', 'sans'],
     ['mono', 'mono'],
     ['display', 'display'],
   ] as const) {
     const stack: string = tokens.font[name].stack;
-    expect(stack).toMatch(/^"[^"]+",/);
     const system = stack.replace(/^"[^"]+",\s*/, '').replaceAll('"', "'");
     expect(theme).toContain(`--font-${utility}: ${system};`);
   }
@@ -95,7 +94,16 @@ it('refuses a token set it cannot map', () => {
   const noFocus = clone();
   delete noFocus.browser.color.focus;
   expect(() => buildTheme(noFocus)).toThrow(/focus/);
-  const noWebFont = clone();
-  noWebFont.font.mono.stack = 'ui-monospace, monospace';
-  expect(() => buildTheme(noWebFont)).toThrow(/font\.mono/);
+});
+
+it('accepts system font stacks and strips legacy web families without adding font requests', () => {
+  const fixture = structuredClone(tokens);
+  fixture.font.body.stack = 'Inter, -apple-system, system-ui, "Segoe UI", sans-serif';
+  fixture.font.display.stack = '"Legacy Web", system-ui, sans-serif';
+  fixture.font.mono.stack = 'ui-monospace, monospace';
+  const css: string = buildTheme(fixture);
+  expect(css).toContain("--font-sans: Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;");
+  expect(css).toContain('--font-display: system-ui, sans-serif;');
+  expect(css).toContain('--font-mono: ui-monospace, monospace;');
+  expect(css).not.toMatch(/Legacy Web|@font-face|url\(/);
 });

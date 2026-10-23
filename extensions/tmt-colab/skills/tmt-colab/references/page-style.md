@@ -38,7 +38,7 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
     --sheet: #ffffff;
     --edge: #d4dfdb;
     --waiting: #8a5a08;
-    --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --body: Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --size: 14px;
     --heading: 28px;
