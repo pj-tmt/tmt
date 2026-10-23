@@ -698,3 +698,125 @@ fn an_unavailable_pane_refresh_keeps_the_owned_turn_output_and_reconciles_again(
         assert!(!frame.contains("Recent pane output unavailable"), "{frame}");
     });
 }
+
+const TURN_REQUESTS: [&str; 3] = [
+    "req_61111111-1111-4111-8111-111111111111",
+    "req_62222222-2222-4222-8222-222222222222",
+    "req_63333333-3333-4333-8333-333333333333",
+];
+const TURN_TEXTS: [&str; 3] = [
+    "first question about cpu",
+    "second question about the night",
+    "third question about the gui seat",
+];
+const TURN_ANSWER: &str = "One answer to all three questions.";
+
+/// Oracle scenes: three direct sends answered by one turn, live and restored.
+pub(in crate::board) const ONE_TURN_SCENES: [&str; 2] = ["chat-one-turn", "chat-one-turn-restored"];
+
+pub(in crate::board) fn one_turn_scene(scene: &str, look: Look, now: u64) -> App {
+    let mut app = one_turn_for_three_sends(scene.ends_with("-restored"), now);
+    app.view.as_mut().unwrap().look = look;
+    board_frame(&app, 160, 60);
+    app
+}
+
+/// Three direct sends, the last two typed while the agent worked on the first; one turn answered
+/// them all, so Core bound it to the first only.
+fn one_turn_for_three_sends(restored: bool, now: u64) -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    let view = app.view.as_mut().unwrap();
+    view.me = Some("you".into());
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
+    // Prepared 120 s, 90 s and 70 s ago; the turn settled 1 s ago.
+    let sent = [now - 120_000, now - 90_000, now - 70_000];
+    for index in 0..3 {
+        let (ticket, _) =
+            crate::status::with_now_ms(sent[index], || begin(&mut app, TURN_TEXTS[index]));
+        finish(
+            &mut app,
+            Completed {
+                ticket: Some(ticket),
+                outcome: Ok(Accepted {
+                    request: TURN_REQUESTS[index].into(),
+                    disposition: Disposition::Sent,
+                    passthrough: true,
+                    message_state_label: Some("✓ delivered".into()),
+                    can_send_now: false,
+                    fallback: None,
+                    warning: None,
+                }),
+                what: "Message".into(),
+                to: "worker".into(),
+            },
+        );
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.notice = None;
+    }
+    board_frame(&app, 160, 60);
+    let owner = app.conversation_finals().unwrap();
+    let send = |index: usize, passthrough: serde_json::Value| {
+        json!({
+            "requestId": TURN_REQUESTS[index], "preparedAtMs": sent[index],
+            "text": TURN_TEXTS[index], "truncated": false, "mode": "passthrough",
+            "messageState": {"state": "delivered", "reason": {"text": "delivered"}},
+            "passthrough": passthrough
+        })
+    };
+    app.apply_sent(
+        crate::board::home_leads::SentKey {
+            sender: owner.sender,
+            agent: owner.agent,
+        },
+        Ok(vec![
+            send(
+                0,
+                json!({"state":"answered","boundAtMs":now - 119_000,"settledAtMs":now - 1_000,
+                    "answer":{"text":TURN_ANSWER,"truncated":false,"provider":"claude","endedMs":now - 1_000}}),
+            ),
+            send(1, json!({"state":"no_answer"})),
+            send(2, json!({"state":"no_answer"})),
+        ]),
+    );
+    if restored {
+        let mut state = app.conversation.borrow_mut();
+        let session = state.sessions.values_mut().next().unwrap();
+        session.outgoing.clear();
+        session.refresh_outgoing();
+    }
+    app
+}
+
+#[test]
+fn one_turn_that_answered_three_sends_paints_its_answer_under_the_last_in_live_and_restored_chat() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        for restored in [false, true] {
+            let app = one_turn_for_three_sends(restored, NOW);
+            // The first frame prepares the new text; the second paints it.
+            board_frame(&app, 160, 60);
+            let frame = board_frame(&app, 160, 60);
+            let at = |needle: &str| {
+                frame
+                    .find(needle)
+                    .unwrap_or_else(|| panic!("restored={restored}: {needle:?} missing\n{frame}"))
+            };
+            assert_eq!(
+                frame.matches(TURN_ANSWER).count(),
+                1,
+                "restored={restored}: the answer paints once\n{frame}"
+            );
+            assert!(
+                at(TURN_TEXTS[0]) < at(TURN_TEXTS[1])
+                    && at(TURN_TEXTS[1]) < at(TURN_TEXTS[2])
+                    && at(TURN_TEXTS[2]) < at(TURN_ANSWER),
+                "restored={restored}: the answer follows the last send\n{frame}"
+            );
+            assert_eq!(
+                frame.matches("delivered · answered below").count(),
+                2,
+                "restored={restored}: the first two sends point at the answer, the last carries it\n{frame}"
+            );
+        }
+    });
+}

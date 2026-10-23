@@ -19,6 +19,7 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
+mod answer_order;
 mod copy;
 pub(in crate::board) mod exchange;
 mod history;
