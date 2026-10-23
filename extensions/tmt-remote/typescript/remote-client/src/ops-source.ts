@@ -4,7 +4,8 @@
  * on `OpsSource`; this module turns the read's allowlisted projection into the page's rows.
  */
 import { ownerRead, type OwnerReadAnswer, type OwnerReadReason } from './owner-reads.js';
-/** The shared state marks (c5ccd17a §4): always a mark and a word. */
+/** The shared state marks (c5ccd17a §4): always a mark and a word. The mark is a leaf shape
+ * (`tmt-ui-state-mark`), the same box for every state. */
 export type AgentState =
   | 'working'
   | 'idle'
@@ -13,14 +14,15 @@ export type AgentState =
   | 'offline'
   | 'idle-alert'
   | 'unknown';
-export const AGENT_STATES: Record<AgentState, { mark: string; word: string; tone: string }> = {
-  working: { mark: '●', word: 'Working', tone: 'working' },
-  idle: { mark: '◌', word: 'Idle', tone: 'neutral' },
-  'needs-you': { mark: '◆', word: 'Needs you', tone: 'waiting' },
-  blocked: { mark: '✗', word: 'Blocked', tone: 'blocked' },
-  offline: { mark: '○', word: 'Offline', tone: 'neutral' },
-  'idle-alert': { mark: '◷', word: 'Idle alert', tone: 'neutral' },
-  unknown: { mark: '?', word: 'Unknown', tone: 'neutral' },
+export type AgentMark = 'dot' | 'ring' | 'dashed' | 'clock' | 'diamond' | 'cross' | 'unknown';
+export const AGENT_STATES: Record<AgentState, { mark: AgentMark; word: string; tone: string }> = {
+  working: { mark: 'dot', word: 'Working', tone: 'working' },
+  idle: { mark: 'dashed', word: 'Idle', tone: 'neutral' },
+  'needs-you': { mark: 'diamond', word: 'Needs you', tone: 'waiting' },
+  blocked: { mark: 'cross', word: 'Blocked', tone: 'blocked' },
+  offline: { mark: 'ring', word: 'Offline', tone: 'neutral' },
+  'idle-alert': { mark: 'clock', word: 'Idle alert', tone: 'neutral' },
+  unknown: { mark: 'unknown', word: 'Unknown', tone: 'neutral' },
 };
 
 export interface OpsAgent {

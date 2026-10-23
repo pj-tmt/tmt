@@ -335,6 +335,7 @@ var browserUiClasses = Object.freeze({
 	statusTileLabel: "tmt-ui-status-tile-label",
 	statusTileValue: "tmt-ui-status-tile-value",
 	statusTileDot: "tmt-ui-status-tile-dot",
+	stateMark: "tmt-ui-state-mark",
 	notifications: "tmt-ui-notifications",
 	notification: "tmt-ui-notification",
 	notificationStatus: "tmt-ui-notification-status",

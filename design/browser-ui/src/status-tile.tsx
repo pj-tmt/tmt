@@ -12,14 +12,24 @@ export interface BrowserStatusTileProps {
   value: string;
   /** The dot's colour; the value text carries the meaning. */
   tone?: BrowserStatusTone;
+  /** The value is a count: set large in the display face, muted at `0` so a row of tiles keeps its shape. */
+  numeric?: boolean;
 }
 
 /** One read-only fact: a small label over a dot and a value, such as `Page` over `● Available`. */
-export function BrowserStatusTile({ label, value, tone = 'muted' }: BrowserStatusTileProps) {
+export function BrowserStatusTile({
+  label,
+  value,
+  tone = 'muted',
+  numeric,
+}: BrowserStatusTileProps) {
   return (
     <div className={c.statusTile} data-tone={tone}>
       <dt className={c.statusTileLabel}>{label}</dt>
-      <dd className={c.statusTileValue}>
+      <dd
+        className={c.statusTileValue}
+        data-numeric={numeric ? (value === '0' ? 'zero' : 'count') : undefined}
+      >
         <span className={c.statusTileDot} aria-hidden="true" />
         {value}
       </dd>

@@ -535,3 +535,11 @@ body:not(:has(.tmt-ui-shell)) {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+.ops-section .tmt-ui-status-tiles {
+  margin-bottom: 24px;
+}
+/* The state marks share one box; the column keeps every name on one edge. */
+.ops-section .tmt-ui-list-leading {
+  justify-content: center;
+  min-width: 1.25em;
+}
