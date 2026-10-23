@@ -153,7 +153,11 @@ impl Raw {
     }
 
     fn send(&mut self, bytes: &[u8]) {
-        (&self.stream).write_all(bytes).unwrap();
+        match (&self.stream).write_all(bytes) {
+            // A supervisor that refuses answers and closes without reading.
+            Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
+            sent => sent.unwrap(),
+        }
     }
 
     /// The next frame, or `None` once the supervisor closed the connection.
@@ -349,6 +353,25 @@ fn clients_beyond_the_limit_are_refused() {
     raw.send(&ClientMessage::Hello { version: VERSION }.encode());
     assert_eq!(raw.next(), Some(ServerMessage::Refused(Refusal::Full)));
     assert_eq!(attached.len(), MAX_CLIENTS);
+}
+
+#[test]
+fn a_refusal_is_reported_even_when_the_supervisor_closed_before_the_hello() {
+    let (client, mut supervisor) = UnixStream::pair().unwrap();
+    client.set_write_timeout(Some(WAIT)).unwrap();
+    supervisor
+        .write_all(&ServerMessage::Refused(Refusal::Full).encode())
+        .unwrap();
+    drop(supervisor);
+    let error = Connection::handshake(client).err().expect("refused");
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
+    assert!(error.to_string().contains("Full"), "{error}");
+
+    // Without a refusal to read, the failed Hello is what is reported.
+    let (client, supervisor) = UnixStream::pair().unwrap();
+    drop(supervisor);
+    let error = Connection::handshake(client).err().expect("closed");
+    assert_eq!(error.kind(), io::ErrorKind::BrokenPipe, "{error}");
 }
 
 #[test]

@@ -36,13 +36,25 @@ impl Connection {
         validate(directory, id)?;
         let stream = UnixStream::connect(socket_path(directory, id))?;
         stream.set_write_timeout(Some(WRITE_DEADLINE))?;
+        Self::handshake(stream)
+    }
+
+    pub(super) fn handshake(stream: UnixStream) -> io::Result<Self> {
         let mut connection = Self {
             stream,
             decoder: Decoder::new(),
             size: Size::new(1, 1).map_err(invalid)?,
         };
-        connection.send(&ClientMessage::Hello { version: VERSION })?;
-        match connection.receive(HANDSHAKE)? {
+        // A supervisor that refuses answers and closes without reading, so the
+        // Hello can find the socket closed; the refusal it left is still there.
+        let sent = connection.send(&ClientMessage::Hello { version: VERSION });
+        let answer = connection.receive(HANDSHAKE);
+        if let Err(error) = sent
+            && !matches!(answer, Ok(Some(ServerMessage::Refused(_))))
+        {
+            return Err(error);
+        }
+        match answer? {
             Some(ServerMessage::Welcome { version, size }) if version == VERSION => {
                 connection.size = size;
                 Ok(connection)
