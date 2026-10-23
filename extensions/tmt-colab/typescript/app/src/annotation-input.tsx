@@ -96,7 +96,8 @@ export function AnnotationInput({
   showCancel?: boolean;
   committed(ref: DiscussionRef): void;
 }) {
-  const chat = useContext(ConversationPresentation) === 'chat';
+  const presentation = useContext(ConversationPresentation);
+  const chat = presentation === 'chat';
   // With an echo host, the composer clears as the echo appears; a send that fails before it
   // is recorded leaves a failed row that holds the draft until Retry or Edit.
   const echoHost = useContext(MessageEchoContext);
@@ -606,12 +607,16 @@ export function AnnotationInput({
             cancel();
         }}
       />
-      {!chat && anchor && (
-        <p className="annotation-anchor-note" title={quote}>
-          Attached to this sentence
-        </p>
+      {!chat && (
+        <div className="annotation-note-line">
+          {anchor && (
+            <p className="annotation-anchor-note" title={quote}>
+              Attached to this sentence
+            </p>
+          )}
+          {!showCreatorHint && recipientHint}
+        </div>
       )}
-      {!chat && !showCreatorHint && recipientHint}
       <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
         {discussion?.attachments && (
           <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
@@ -672,7 +677,11 @@ export function AnnotationInput({
             }}
           />
         )}
-        <BrowserIconAction {...sendActionProps} icon={<ArrowRight />} />
+        {presentation === 'discussion' ? (
+          <BrowserAction {...sendActionProps} visibleLabel={text.discussionReply} />
+        ) : (
+          <BrowserIconAction {...sendActionProps} icon={<ArrowRight />} />
+        )}
       </div>
       <CommentSendFailures
         failures={failures}

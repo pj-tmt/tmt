@@ -151,7 +151,25 @@ test('a row opens the Discussion view: status line, title, passage, turns, reply
   await expect(quote.locator('.annotation-number')).toHaveText('1');
   await expect(quote.locator('q')).toHaveText('Exact selected text');
   await expect(thread.getByTestId('comment-entry')).toHaveCount(1);
-  await expect(thread.getByRole('combobox', { name: 'Message', exact: true })).toBeVisible();
+  const reply = thread.getByRole('combobox', { name: 'Message', exact: true });
+  await expect(reply).toBeVisible();
+  // The reply field is the website's: four lines, flush with the content column's edges, and one row
+  // under it with the note at the start and the word Reply at the end.
+  const column = (await thread.locator('.discussion-title').boundingBox())!;
+  const field = (await thread.locator('.annotation-compose .rich-input-field').boundingBox())!;
+  const line = await reply.evaluate((node) => Number.parseFloat(getComputedStyle(node).lineHeight));
+  expect(Math.abs(field.height - 4 * line)).toBeLessThanOrEqual(1);
+  expect(Math.abs(field.x - column.x)).toBeLessThanOrEqual(1);
+  const note = (await thread.locator('.annotation-note-line').boundingBox())!;
+  const send = thread.getByRole('button', { name: /^Send(?: · to .+)?$/ });
+  await expect(send).toHaveText('Reply');
+  const sendBox = (await send.boundingBox())!;
+  expect(sendBox.y).toBeGreaterThanOrEqual(field.y + field.height);
+  expect(Math.abs(sendBox.y + sendBox.height / 2 - (note.y + note.height / 2))).toBeLessThanOrEqual(
+    sendBox.height / 2,
+  );
+  expect(note.x).toBeLessThan(sendBox.x);
+  expect(Math.abs(sendBox.x + sendBox.width - (field.x + field.width))).toBeLessThanOrEqual(1);
   // The footer is last, under the reply composer; Resolve flips the status line and offers Reopen.
   const footer = thread.locator('.discussion-footer');
   const [composerBox, footerBox] = [

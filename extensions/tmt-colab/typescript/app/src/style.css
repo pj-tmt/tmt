@@ -1663,6 +1663,37 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
   padding: var(--tmt-ui-host-field-padding);
 }
+/* The reply area is the website's: a four-line field flush with the content column, and one row
+   under it with the note at the start and Reply at the end. */
+.annotation-note-line {
+  display: contents;
+}
+.comment-thread[data-layout='discussion'] .conversation-composer {
+  padding-inline: 0;
+}
+.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
+  min-height: 4lh;
+}
+.comment-thread[data-layout='discussion'] .annotation-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+.comment-thread[data-layout='discussion'] .annotation-compose > * {
+  grid-column: 1 / -1;
+}
+.comment-thread[data-layout='discussion'] .annotation-compose > .annotation-note-line {
+  display: block;
+  grid-column: 1;
+  grid-row: 2;
+}
+.comment-thread[data-layout='discussion']
+  .annotation-compose
+  > .annotation-status-row:not([data-creator-toggle]) {
+  grid-column: 2;
+  grid-row: 2;
+}
 .comment-thread[data-layout='discussion']
   .annotation-compose
   .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible),

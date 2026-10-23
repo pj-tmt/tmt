@@ -355,6 +355,7 @@ export const text = {
   threadResolveAction: 'Resolve thread',
   threadCollapse: 'Collapse thread',
   allComments: 'All comments',
+  discussionReply: 'Reply',
   discussionOpen: 'Open discussion',
   discussionPosition: (number: number, total: number) => `${number} / ${total}`,
   threadShowInPage: 'Show in the page',

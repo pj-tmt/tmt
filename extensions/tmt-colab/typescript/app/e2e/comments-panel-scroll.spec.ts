@@ -156,10 +156,10 @@ for (const width of [1440, 390])
         'tmt-ui-drawer-body',
       ]);
 
-      // At rest the input shows two lines and the footer reads as one line.
+      // At rest the reply field shows four lines (the website's) and the note shares one row with Reply.
       const line = await lineHeight(field);
       const rest = (await field.boundingBox())!.height;
-      expect(Math.abs(rest - 2 * line)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rest - 4 * line)).toBeLessThanOrEqual(1);
       const note = composer.locator('.annotation-anchor-note');
       const hint = composer.locator('.annotation-hint');
       await expect(note).toHaveText('Attached to this sentence');

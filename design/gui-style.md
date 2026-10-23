@@ -697,7 +697,9 @@ empty state per view; its header count combines unresolved ordinary threads and 
 proposals. Selecting a row opens that thread's Discussion view in the drawer: a status line
 (`Needs you`, `Open discussion` or `Resolved by X`) with `All comments`, the title, the quoted
 passage with its number and a `Show in the page` arrow, the turns, the reply composer and a footer
-rule with `Resolve` or `Reopen`.
+rule with `Resolve` or `Reopen`. The reply composer is a four-line field flush with the content
+column, with one row under it: the note (`Attached to this sentence · Posts as a comment.`) at the
+start and the primary `Reply` at the end.
 
 The [Colab proposal contract](../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns decision states, placement, admission and failure behavior. Page HTML

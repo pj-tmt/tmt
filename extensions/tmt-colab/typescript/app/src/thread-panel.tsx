@@ -17,6 +17,7 @@ import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { captureConversation, conversationAsks } from './thread-store.js';
 import { ConversationWindow } from './components/conversation-window.js';
+import { ConversationPresentation } from './components/conversation-presentation.js';
 import { conversationRecordKey } from './conversation-record-key.js';
 import { threadNotificationDestination } from './reply-notification-context.js';
 import { MarkdownText } from './components/markdown-text.js';
@@ -809,24 +810,28 @@ export function ThreadWindow({
               : thread &&
                 !thread.deleted &&
                 binding && (
-                  <AnnotationInput
-                    connectionPresentation={connectionPresentation}
-                    recoveryRequired={connectionPresentation?.phase === 'reconnecting'}
-                    archived={archived}
-                    creationRecipient={creationRecipient}
-                    binding={ask}
-                    discussion={binding}
-                    anchor={thread.anchor}
-                    thread={thread}
-                    asks={asks}
-                    title={title}
-                    blocked={blocked || busy}
-                    initialEdit={initialEdit}
-                    onDraft={(_value, edit) => onDraft?.(edit)}
-                    onBusy={onBusy}
-                    cancel={close}
-                    committed={() => {}}
-                  />
+                  <ConversationPresentation
+                    value={layout === 'discussion' ? 'discussion' : 'thread'}
+                  >
+                    <AnnotationInput
+                      connectionPresentation={connectionPresentation}
+                      recoveryRequired={connectionPresentation?.phase === 'reconnecting'}
+                      archived={archived}
+                      creationRecipient={creationRecipient}
+                      binding={ask}
+                      discussion={binding}
+                      anchor={thread.anchor}
+                      thread={thread}
+                      asks={asks}
+                      title={title}
+                      blocked={blocked || busy}
+                      initialEdit={initialEdit}
+                      onDraft={(_value, edit) => onDraft?.(edit)}
+                      onBusy={onBusy}
+                      cancel={close}
+                      committed={() => {}}
+                    />
+                  </ConversationPresentation>
                 )}
           </MessageEchoContext>
         }
