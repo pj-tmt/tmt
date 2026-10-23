@@ -34,3 +34,95 @@
 .tmt-ui-table[data-numeric] td {
   font-family: var(--tmt-ui-font-mono);
 }
+/* In a card the table runs edge to edge: roomy cells, scrolling inside its own region. */
+/* Positioned, so visually hidden text in a header cell is clipped here, not at the page. */
+.tmt-ui-table-scroll {
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.tmt-ui-table[data-roomy] {
+  min-width: 36rem;
+}
+.tmt-ui-table[data-roomy] th,
+.tmt-ui-table[data-roomy] td {
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-l);
+  border-bottom-color: var(--tmt-ui-surface-rule-soft);
+  vertical-align: middle;
+}
+.tmt-ui-table[data-roomy] thead th {
+  border-bottom-color: var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: normal;
+}
+.tmt-ui-table-group th {
+  background: var(--tmt-ui-surface-paper);
+  font-weight: 600;
+}
+.tmt-ui-table-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.tmt-ui-table-group-toggle:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.tmt-ui-table-group-toggle[aria-expanded='false'] > .tmt-ui-glyph {
+  transform: rotate(-90deg);
+}
+.tmt-ui-table-group-count {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: normal;
+}
+/* The selected row is a full rounded frame in the selection tone over its tint: each cell draws its
+   own sides and the first and last round their outer corners, which a collapsed table cannot do,
+   so a roomy table keeps separate borders. */
+.tmt-ui-table[data-roomy] {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.tmt-ui-table tr[data-selected] > td {
+  border-block: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-selection-edge);
+  background: var(--tmt-ui-surface-selection);
+}
+.tmt-ui-table[data-roomy] tr[data-selected] > td {
+  padding-top: calc(var(--tmt-ui-space-m) - var(--tmt-ui-rule-width));
+}
+.tmt-ui-table[data-roomy] tr[data-selected] > td:first-child {
+  padding-inline-start: calc(var(--tmt-ui-space-l) - var(--tmt-ui-rule-width));
+}
+.tmt-ui-table tr[data-selected] > td:first-child {
+  border-inline-start: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-selection-edge);
+  border-start-start-radius: var(--tmt-ui-radius);
+  border-end-start-radius: var(--tmt-ui-radius);
+}
+.tmt-ui-table tr[data-selected] > td:last-child {
+  border-inline-end: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-selection-edge);
+  border-start-end-radius: var(--tmt-ui-radius);
+  border-end-end-radius: var(--tmt-ui-radius);
+}
+.tmt-ui-table-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.tmt-ui-table-select:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}

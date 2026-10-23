@@ -879,18 +879,21 @@ test.describe('the Ops route on the owner read', () => {
     const { page } = await openApp('/ops', async (page) => {
       reads = await stub(page, [board, changed]);
     });
-    const rows = page.locator('#ops-section .tmt-ui-list-row');
+    const rows = page.locator('#ops-section tbody tr:not(.tmt-ui-table-group)');
+    await expect(page.locator('#ops-section .tmt-ui-page-title')).toHaveText('Your team, in sync.');
     await expect(rows).toHaveCount(2);
-    // Lead first: the name over what it works on, the model and the state word beside it.
-    await expect(rows.nth(0).locator('.tmt-ui-list-label')).toHaveText('tmt-lead');
-    await expect(rows.nth(0).locator('.tmt-ui-list-description')).toHaveText('review');
-    await expect(rows.nth(0).locator('.tmt-ui-list-state')).toHaveText('Working');
-    await expect(rows.nth(1).locator('.tmt-ui-state-mark')).toHaveAttribute('data-shape', 'ring');
-    await expect(rows.nth(1).locator('.tmt-ui-list-state')).toHaveText('Offline');
-    await expect(rows.nth(1)).toContainText('Waiting on you: approve the plan');
+    // Lead first: the name with its mark, the state as a chip, what it works on, the model.
+    await expect(rows.nth(0).locator('.tmt-ui-table-select')).toHaveText('tmt-lead');
+    await expect(rows.nth(0).locator('.tmt-ui-chip')).toHaveText('Working');
+    await expect(rows.nth(0)).toContainText('review');
+    await expect(rows.nth(1).locator('.tmt-ui-state-mark').first()).toHaveAttribute(
+      'data-shape',
+      'ring',
+    );
+    await expect(rows.nth(1).locator('.tmt-ui-chip').first()).toContainText('Offline');
     // Every mark is drawn in one box, whatever the state.
-    const boxes = await rows
-      .locator('.tmt-ui-state-mark')
+    const boxes = await page
+      .locator('#ops-section .tmt-ui-state-mark')
       .evaluateAll((marks) =>
         marks.map((mark) => [
           mark.getBoundingClientRect().width,
@@ -914,38 +917,28 @@ test.describe('the Ops route on the owner read', () => {
       return sizes;
     }, shapes);
     expect(new Set(drawn)).toEqual(new Set(['12x12']));
-    // The board by urgency: Needs you, Blocked, Offline, Working; Idle has no tile; a tile at 0
-    // stays, muted.
-    const tiles = page.locator('#ops-section .tmt-ui-status-tile');
-    await expect(tiles.locator('.tmt-ui-status-tile-label')).toHaveText([
-      'Needs you',
-      'Blocked',
-      'Offline',
-      'Working',
+    // One strip: all agents, then each state (idle and idle alert count as Idle); a count at 0
+    // stays. The vector's offline agent waits on the person, and offline wins.
+    const stats = page.locator('#ops-section .tmt-ui-stat');
+    await expect(stats.locator('.tmt-ui-stat-value')).toHaveText([
+      '2 agents',
+      '1 working',
+      '0 needs you',
+      '0 blocked',
+      '0 idle',
+      '1 offline',
+      '0 unknown',
     ]);
-    // The vector's offline agent waits on the person, and offline wins (the row shows Offline).
-    await expect(tiles.locator('.tmt-ui-status-tile-value')).toHaveText(['0', '0', '1', '1']);
-    for (const index of [0, 1]) {
-      await expect(tiles.nth(index)).toHaveAttribute('data-tone', 'muted');
-      await expect(tiles.nth(index).locator('.tmt-ui-status-tile-value')).toHaveAttribute(
-        'data-numeric',
-        'zero',
-      );
-    }
-    await expect(tiles.nth(3)).toHaveAttribute('data-tone', 'working');
-    await expect(tiles.nth(3).locator('.tmt-ui-status-tile-value')).toHaveAttribute(
-      'data-numeric',
-      'count',
-    );
-    await expect(tiles.nth(3).locator('.tmt-ui-status-tile-value')).toHaveCSS(
+    await expect(stats.nth(1)).toHaveAttribute('data-tone', 'working');
+    await expect(stats.nth(1).locator('.tmt-ui-stat-number')).toHaveCSS(
       'font-family',
       /Bricolage Grotesque/,
     );
-    await expect(page.locator('#ops-section h2')).toHaveText('tmt-core · lead tmt-lead');
+    // Nobody needs the person, so there is no attention banner.
+    await expect(page.locator('#ops-section .tmt-ui-banner')).toHaveCount(0);
+    await expect(page.locator('#ops-section .tmt-ui-table-group-toggle')).toContainText('tmt-core');
     // The next read, five seconds on, repaints only what changed.
-    await expect(rows.nth(0).locator('.tmt-ui-list-description')).toHaveText('merge', {
-      timeout: 8000,
-    });
+    await expect(rows.nth(0)).toContainText('merge', { timeout: 8000 });
     await page.goto(`${origin}/ops#schedules`);
     await expect(page.locator('#ops-section .tmt-ui-list-row')).toContainText('Hourly pass');
     await page.goto(`${origin}/ops#settings`);
@@ -960,6 +953,105 @@ test.describe('the Ops route on the owner read', () => {
     await page.close();
   });
 
+  test('filters, searches, groups and selects agents, and keeps them across a refresh', async () => {
+    const agent = (name: string, squad: string, extra: Record<string, unknown> = {}) => ({
+      id: `id-${name}`,
+      name,
+      squad,
+      role: name.endsWith('lead') ? 'lead' : 'member',
+      presence: 'active',
+      waitingOnYou: 0,
+      model: 'sonnet',
+      ...extra,
+    });
+    const squads = ['tmt-core', 'tmt-ux'].map((name) => ({ name, layout: 'team' }));
+    const agents = [
+      agent('core-1', 'tmt-core', { pending: 'approve the plan', waitingOnYou: 1, task: '#12' }),
+      agent('tmt-lead', 'tmt-core', { stateTone: 'working', task: 'review' }),
+      agent('core-3', 'tmt-core'),
+      agent('ux-lead', 'tmt-ux', { stateTone: 'dim' }),
+      agent('ux-1', 'tmt-ux', { presence: 'offline' }),
+    ];
+    const first = { version: 1, state: 'ok', squads, agents, timers: [], truncated: false };
+    const changed = structuredClone(first);
+    Object.assign(changed.agents[1]!, { task: 'merge' });
+    const { page } = await openApp('/ops', async (page) => {
+      await stub(page, [first, changed]);
+    });
+    const section = page.locator('#ops-section');
+    const rows = section.locator('tbody tr:not(.tmt-ui-table-group)');
+    await expect(rows).toHaveCount(5);
+    // Squads in board order, each lead first.
+    await expect(rows.locator('.tmt-ui-table-select')).toHaveText([
+      'tmt-lead',
+      'core-1',
+      'core-3',
+      'ux-lead',
+      'ux-1',
+    ]);
+    // Idle and unknown have their own counts.
+    await expect(section.locator('.tmt-ui-stat-value')).toHaveText([
+      '5 agents',
+      '1 working',
+      '1 needs you',
+      '0 blocked',
+      '1 idle',
+      '1 offline',
+      '1 unknown',
+    ]);
+    // What needs the person is above the table; View all filters to it.
+    const banner = section.locator('.tmt-ui-banner');
+    await expect(banner).toContainText('1 agent needs your attention');
+    await expect(banner.locator('.tmt-ui-banner-row')).toContainText(['core-1']);
+    await banner.getByRole('button', { name: 'View all' }).click();
+    await expect(section.getByRole('tab', { name: 'Needs you' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['core-1']);
+    await section.getByRole('tab', { name: 'Idle' }).click();
+    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['ux-lead']);
+    await section.getByRole('tab', { name: 'Unknown' }).click();
+    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['core-3']);
+    await section.getByRole('tab', { name: 'All' }).click();
+    // Search matches the name, squad or work.
+    const search = section.getByRole('searchbox', { name: 'Filter agents' });
+    await search.fill('ux');
+    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['ux-lead', 'ux-1']);
+    await search.fill('nobody');
+    await expect(section).toContainText('No agents match.');
+    await search.fill('');
+    // The first agent that needs the person is selected on load, so the panel is never empty.
+    const detail = page.locator('#ops-detail');
+    await expect(detail.locator('dd').first()).toHaveText('core-1');
+    await expect(section.locator('.tmt-ui-table-select', { hasText: 'core-1' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    // A squad collapses to its header; the pressed agent fills the detail panel.
+    const toggle = section.locator('.tmt-ui-table-group-toggle', { hasText: 'tmt-ux' });
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(rows).toHaveCount(3);
+    await section.getByRole('button', { name: 'tmt-lead' }).click();
+    await expect(detail.locator('dd').first()).toHaveText('tmt-lead');
+    await expect(detail).toContainText('review');
+    // The search, the collapsed squad and the selection survive the next read, five seconds on.
+    await search.fill('tmt-lead');
+    await expect(detail).toContainText('merge', { timeout: 8000 });
+    await expect(search).toHaveValue('tmt-lead');
+    await expect(rows.locator('.tmt-ui-table-select')).toHaveText(['tmt-lead']);
+    await expect(rows.first()).toHaveAttribute('data-selected', '');
+    await search.fill('');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(rows).toHaveCount(3);
+    // Pressing the selected agent again keeps it selected.
+    await section.getByRole('button', { name: 'tmt-lead' }).click();
+    await expect(detail.locator('dd').first()).toHaveText('tmt-lead');
+    await expect(rows.first()).toHaveAttribute('data-selected', '');
+    await page.close();
+  });
+
   test('a door that stops answering mid-route is retried, never a reason to pair again', async () => {
     let down = false;
     const { page } = await openApp('/ops', async (page) => {
@@ -969,7 +1061,7 @@ test.describe('the Ops route on the owner read', () => {
         down ? route.abort('connectionrefused') : route.fallback(),
       );
     });
-    const rows = page.locator('#ops-section .tmt-ui-list-row');
+    const rows = page.locator('#ops-section tbody tr:not(.tmt-ui-table-group)');
     await expect(rows).toHaveCount(2);
     down = true;
     await expect(page.locator('#ops-note')).toHaveText(

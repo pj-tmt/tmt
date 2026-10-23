@@ -1,3 +1,4 @@
+import { shellIconNodes, type ShellIcon } from './shell-icons.js';
 export const browserUiClasses = Object.freeze({
   chips: 'tmt-ui-chips',
   chip: 'tmt-ui-chip',
@@ -31,6 +32,24 @@ export const browserUiClasses = Object.freeze({
   cardMeta: 'tmt-ui-card-meta',
   meter: 'tmt-ui-meter',
   meterFill: 'tmt-ui-meter-fill',
+  glyph: 'tmt-ui-glyph',
+  pageHead: 'tmt-ui-page-head',
+  pageTitle: 'tmt-ui-page-title',
+  pageSubtitle: 'tmt-ui-page-subtitle',
+  stats: 'tmt-ui-stats',
+  stat: 'tmt-ui-stat',
+  statValue: 'tmt-ui-stat-value',
+  statNumber: 'tmt-ui-stat-number',
+  statCaption: 'tmt-ui-stat-caption',
+  banner: 'tmt-ui-banner',
+  bannerHead: 'tmt-ui-banner-head',
+  bannerRow: 'tmt-ui-banner-row',
+  facts: 'tmt-ui-facts',
+  tableScroll: 'tmt-ui-table-scroll',
+  tableGroup: 'tmt-ui-table-group',
+  tableGroupToggle: 'tmt-ui-table-group-toggle',
+  tableGroupCount: 'tmt-ui-table-group-count',
+  tableSelect: 'tmt-ui-table-select',
 
   notifications: 'tmt-ui-notifications',
   notification: 'tmt-ui-notification',
@@ -75,6 +94,7 @@ export const browserUiClasses = Object.freeze({
   field: 'tmt-ui-field',
   fieldLabel: 'tmt-ui-field-label',
   fieldControl: 'tmt-ui-field-control',
+  searchField: 'tmt-ui-search-field',
   fieldDescription: 'tmt-ui-field-description',
   fieldError: 'tmt-ui-field-error',
   action: 'tmt-ui-action',
@@ -222,4 +242,18 @@ export function createActionMark(doc: Document = document): HTMLElement {
   mark.dataset.busy = 'false';
   mark.append(createBusyMark(doc));
   return mark;
+}
+
+/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
+export function createIcon(name: ShellIcon, doc: Document = document): SVGSVGElement {
+  const svg = doc.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', browserUiClasses.glyph);
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const [tag, attributes] of shellIconNodes[name]) {
+    const node = doc.createElementNS(SVG, tag);
+    for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+    svg.append(node);
+  }
+  return svg;
 }

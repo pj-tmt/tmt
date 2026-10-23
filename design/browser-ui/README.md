@@ -554,7 +554,8 @@ state, a React component.
   large in the display face (about 24px, `data-numeric`), muted at `0`, so a row of tiles keeps its
   shape. Static hosts set `data-numeric` (`count` or `zero`) on the value.
 - **State mark.** `tmt-ui-state-mark` is a mark drawn in one 12px box, chosen by `data-shape`
-  (`dot`, `ring`, `dashed`, `clock`, `diamond`, `cross`, `unknown`), in the colour of the text around it. Every
+  (`dot`, `ring`, `dashed`, `clock`, `diamond`, `cross`, `unknown`), in the colour of the text around it
+  (`data-tone` of `working`, `waiting`, `blocked` or `muted` sets it where that text is not the state's). Every
   mark has the same footprint whatever font a glyph would fall back to; the state word beside it
   carries the meaning, so the mark is `aria-hidden`.
 - **Bare status tiles.** `data-bare` on `tmt-ui-status-tiles` drops each tile's border, fill and
@@ -566,6 +567,30 @@ state, a React component.
 - **Meter.** `tmt-ui-meter` is a read-only measure; its fill's width is `--tmt-ui-meter-fill`
   (0-100) and its colour comes from a chart series class (`tmt-ui-chart-sN`). Give it `role="img"`
   and a label that states the value.
+- **Glyph.** `createIcon(name)` returns a `tmt-ui-glyph`: a line icon from the shell's icon set,
+  drawn in the colour of its text and hidden from assistive tech.
+- **Page head.** `tmt-ui-page-head` holds a `tmt-ui-page-title` (the display face, the page's
+  first read) over a `tmt-ui-page-subtitle`. Static only.
+- **Stats strip.** `tmt-ui-stats` is one bordered strip of `tmt-ui-stat` cells: a mark or glyph, a
+  `tmt-ui-stat-value` (a `tmt-ui-stat-number` in the display face, then its word) and a
+  `tmt-ui-stat-caption`. A cell's `data-tone` (`working`, `waiting`, `blocked`, `muted`) colours its
+  mark. Cells grow to fill their row, so a wrapped strip has no empty cell.
+- **Banner.** `tmt-ui-banner` (`data-tone='waiting'` for what needs the reader) is a tinted band: a
+  `tmt-ui-banner-head` (glyph, title, one quiet action) over one `tmt-ui-banner-row` button per item
+  (mark, name, state word, detail, note, chevron). Under the compact width a row keeps the mark, name
+  and state, with the detail on a second line. Static only.
+- **Search field.** `tmt-ui-search-field` wraps a `tmt-ui-field-control` (`type=search`) with a
+  magnifier glyph at its start. Static only.
+- **Facts.** `tmt-ui-facts` is a description list of short terms over values, for the properties of
+  one selected thing. Static only.
+- **Grouped, selectable table.** Inside a `tmt-ui-table-scroll` (the table scrolls there, never the
+  page), `data-roomy` on the table gives it a minimum width and roomy cells; `tmt-ui-table-group`
+  rows hold a `tmt-ui-table-group-toggle` button (`aria-expanded`, the chevron turns) and a
+  `tmt-ui-table-group-count`; `data-selected` on a row draws a tint and a full rounded frame in the selection tone (a roomy table
+  keeps separate borders so its cells can round the frame's corners); `tmt-ui-table-select` is the button
+  in a row's first cell that selects it (`aria-pressed`). A card with `data-flush` runs the table
+  edge to edge. A state chip is a `tmt-ui-chip` with `data-tone` (`working`, `waiting`, `blocked`,
+  `review`, or none for neutral): a mark and its word on the state's soft surface.
 - **Passive chip.** A `tmt-ui-chip` whose label is its only child carries no remove control and is
   padded the same on both sides: a label for a state that is not an action.
 

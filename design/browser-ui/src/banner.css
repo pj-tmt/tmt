@@ -1,0 +1,86 @@
+/* What needs the reader, above the work: a tinted band with a title and one row per item. */
+.tmt-ui-banner {
+  overflow: hidden;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-banner[data-tone='waiting'] {
+  border-color: color-mix(in srgb, var(--tmt-ui-color-waiting) 30%, var(--tmt-ui-surface-rule));
+  background: var(--tmt-ui-surface-waiting-soft);
+}
+.tmt-ui-banner-head {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-xl);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+  font-size: var(--tmt-ui-header-action-size);
+  font-weight: 600;
+}
+.tmt-ui-banner[data-tone='waiting'] .tmt-ui-banner-head > .tmt-ui-glyph {
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-banner-head > .tmt-ui-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  margin-inline-start: auto;
+  color: var(--tmt-ui-color-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.tmt-ui-banner-row > .tmt-ui-glyph:last-child {
+  width: 1rem;
+  height: 1rem;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-banner-row {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(6rem, 0.8fr) 7rem minmax(8rem, 2fr) minmax(6rem, 1fr) auto;
+  gap: var(--tmt-ui-space-l);
+  align-items: center;
+  width: 100%;
+  padding: var(--tmt-ui-space-m) var(--tmt-ui-space-xl);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--tmt-ui-header-action-size);
+  text-align: left;
+  cursor: pointer;
+}
+.tmt-ui-banner-row:hover {
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-ui-banner-row:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(var(--tmt-ui-focus-width) * -1);
+}
+.tmt-ui-banner-row > :nth-child(3) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-ui-banner[data-tone='waiting'] .tmt-ui-banner-row > :nth-child(3) {
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-banner-row > :nth-child(5) {
+  color: var(--tmt-ui-color-secondary);
+}
+@media (max-width: __compact-max-width__) {
+  .tmt-ui-banner-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .tmt-ui-banner-row > :nth-child(4) {
+    grid-column: 2 / -1;
+    color: var(--tmt-ui-color-secondary);
+  }
+  .tmt-ui-banner-row > :nth-child(5),
+  .tmt-ui-banner-row > :nth-child(6) {
+    display: none;
+  }
+}
