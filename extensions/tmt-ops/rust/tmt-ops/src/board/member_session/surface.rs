@@ -74,7 +74,7 @@ impl Controller {
             _ => None,
         })
     }
-    fn notes(&self) -> Vec<String> {
+    fn notes(&self, app: &App) -> Vec<String> {
         let OpsTarget::Member { identity_id, .. } = &self.task.target else {
             unreachable!()
         };
@@ -95,7 +95,10 @@ impl Controller {
         if let Some(Err(error)) = &self.loaded {
             evidence.error = Some(error.message.clone());
         }
-        lines.extend(evidence.lines(crate::status::now_ms()));
+        lines.extend(evidence.lines(
+            crate::status::now_ms(),
+            app.member_last_activity(identity_id),
+        ));
         match &self.loaded {
             None => {
                 lines.push("Loading session… you can cancel while the public read finishes.".into())
@@ -113,14 +116,14 @@ impl Controller {
         }
         lines
     }
-    pub fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
+    pub fn render(&self, frame: &mut Frame, app: &App, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<tmt_tui::components::surface::Template<()>> = OnceLock::new();
         let template = TEMPLATE.get_or_init(|| {
             picker_surface::compile(FILE, MARKUP, picker_surface::schema(&["cursor", "label"]))
         });
         let mut ui = self.ui.borrow_mut();
         ui.reconcile(self.list_rows());
-        let notes: Vec<_> = self.notes().iter().map(|s| safe(s)).collect();
+        let notes: Vec<_> = self.notes(app).iter().map(|s| safe(s)).collect();
         let projected_notes: Vec<_> = notes
             .iter()
             .enumerate()

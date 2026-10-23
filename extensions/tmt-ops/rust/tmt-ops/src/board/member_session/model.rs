@@ -2,6 +2,7 @@
 use crate::board::{app::App, workspace::OpsTarget};
 use serde_json::Value;
 
+/// Stable session observations fence the task; changing activity is painted live.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::board) struct Evidence {
     pub host: Option<String>,
@@ -11,22 +12,16 @@ pub(in crate::board) struct Evidence {
     pub session: Option<String>,
     pub stale: Option<bool>,
     pub support: Option<String>,
-    pub last_ms: Option<u64>,
     pub error: Option<String>,
 }
 fn text(value: &Value) -> Option<String> {
     value.as_str().filter(|v| !v.is_empty()).map(str::to_owned)
 }
 impl Evidence {
-    pub fn from_agent(
-        agent: Option<&crate::board::inventory::Agent>,
-        error: Option<&str>,
-        last_ms: Option<u64>,
-    ) -> Self {
+    pub fn from_agent(agent: Option<&crate::board::inventory::Agent>, error: Option<&str>) -> Self {
         let Some(agent) = agent else {
             return Self {
                 error: Some(error.unwrap_or("Member observation unavailable").into()),
-                last_ms,
                 ..Self::default()
             };
         };
@@ -43,7 +38,6 @@ impl Evidence {
                 _ => None,
             },
             support: text(&v["driverSupport"]),
-            last_ms,
             error: error.map(str::to_owned),
         }
     }
@@ -65,7 +59,7 @@ impl Evidence {
             }
         )
     }
-    pub fn lines(&self, now_ms: u64) -> Vec<String> {
+    pub fn lines(&self, now_ms: u64, last_ms: Option<u64>) -> Vec<String> {
         let mut lines = vec![format!(
             "Host: {}",
             self.host.as_deref().unwrap_or("unavailable")
@@ -96,7 +90,7 @@ impl Evidence {
         }
         lines.push(format!(
             "Last activity: {}",
-            self.last_ms.map_or_else(
+            last_ms.map_or_else(
                 || "unavailable".into(),
                 |at| format!("{} ago", crate::requests::age(now_ms, at))
             )
@@ -109,15 +103,15 @@ impl Evidence {
 }
 impl App {
     pub(in crate::board) fn member_session_evidence(&self, id: &str) -> Evidence {
-        let last_ms = self
-            .workspace_snapshot()
-            .and_then(|s| s.roster.members.get(id))
-            .and_then(|m| m.activity.last_ms);
         Evidence::from_agent(
             self.references.agents.get(id),
             self.references.error.as_deref(),
-            last_ms,
         )
+    }
+    pub(in crate::board) fn member_last_activity(&self, id: &str) -> Option<u64> {
+        self.workspace_snapshot()
+            .and_then(|s| s.roster.members.get(id))
+            .and_then(|m| m.activity.last_ms)
     }
     pub(super) fn session_target_matches(&self, target: &OpsTarget, evidence: &Evidence) -> bool {
         let OpsTarget::Member { identity_id, .. } = target else {

@@ -134,6 +134,81 @@ fn confirmation_requires_current_complete_paint_and_refuses_a_named_draft_or_eff
     assert_eq!(command.args, ["resume", "--", MEMBER]);
 }
 #[test]
+fn activity_refresh_keeps_the_move_confirmation_but_session_changes_fence_it() {
+    fn refresh(app: &mut App, last_ms: u64) {
+        let fresh = remembered();
+        let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+        snapshot.references = app.references.clone();
+        snapshot.tabs = app.tabs.clone();
+        snapshot.view = Ok(fresh.view.unwrap());
+        snapshot
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .members
+            .get_mut(MEMBER)
+            .unwrap()
+            .activity
+            .last_ms = Some(last_ms);
+        app.apply(snapshot);
+    }
+    let now = crate::status::now_ms();
+    let mut app = remembered();
+    load(&mut app);
+    assert!(paint(&app, 160, 36).contains("Last activity: 1h ago"));
+    refresh(&mut app, now - 60_000);
+    assert!(
+        matches!(app.member_session.as_ref().unwrap().loaded, Some(Ok(_))),
+        "ordinary activity refresh must keep the loaded observation"
+    );
+    assert!(
+        paint(&app, 160, 36).contains("Last activity: 1m ago"),
+        "activity is painted from the current snapshot, not the held task"
+    );
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    for elapsed in [30_000, 10_000, 0] {
+        refresh(&mut app, now - elapsed);
+        paint(&app, 160, 36);
+        let c = app.member_session.as_ref().unwrap();
+        assert!(
+            c.confirmation.is_some() && c.readable.get(),
+            "a working member's activity must not invalidate Move"
+        );
+    }
+    key(&mut app, KeyCode::Down);
+    assert!(matches!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Foreground(_)
+    ));
+
+    for (field, value) in [
+        ("session", json!("replacement-session")),
+        ("driver", json!("claude")),
+        ("staleAtMs", json!(now)),
+    ] {
+        let mut app = remembered();
+        load(&mut app);
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Enter);
+        paint(&app, 160, 36);
+        app.references.agents.get_mut(MEMBER).unwrap().parameters["resume"][field] = value;
+        refresh(&mut app, now);
+        let c = app.member_session.as_ref().unwrap();
+        assert!(
+            c.confirmation.is_none() && matches!(c.loaded, Some(Err(_))),
+            "changed {field} must still invalidate the held confirmation"
+        );
+        assert!(app.foreground.is_none());
+    }
+}
+
+#[test]
 fn reopen_selection_or_memory_change_fences_old_reads_and_confirmations() {
     let mut app = remembered();
     let Effect::MemberSession(old) = app.open_member_session() else {

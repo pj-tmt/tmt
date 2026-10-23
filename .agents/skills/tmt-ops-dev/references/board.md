@@ -81,7 +81,9 @@ selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.
 
 `board/member_session` owns the selected member's public host/session projection and
-Session dialog. It reuses the global identity inventory and typed activity; its bounded
+Session dialog. It reuses the global identity inventory and typed activity. The target
+and resume-relevant observations fence a held confirmation; activity is read live
+from the current snapshot and does not invalidate it. Its bounded
 `resume --show -- UUID` read runs on the ordered action lane (that command already
 emits JSON and rejects `--json`). A remembered full-driver session is described as
 checked on launch, never promised resumable. Missing, stale, basic or failed evidence

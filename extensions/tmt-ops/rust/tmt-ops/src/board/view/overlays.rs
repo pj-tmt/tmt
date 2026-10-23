@@ -6,7 +6,7 @@ use ratatui::{Frame, layout::Rect};
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
     app.peek_areas.clear();
     if let Some(session) = &app.member_session {
-        session.render(frame, look, body);
+        session.render(frame, app, look, body);
     }
     if let Some(recovery) = &app.recovery
         && recovery.active

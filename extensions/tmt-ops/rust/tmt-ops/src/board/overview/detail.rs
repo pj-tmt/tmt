@@ -244,10 +244,10 @@ impl App {
                 }
             }
         }
-        lines.extend(
-            self.member_session_evidence(identity_id)
-                .lines(crate::status::now_ms()),
-        );
+        lines.extend(self.member_session_evidence(identity_id).lines(
+            crate::status::now_ms(),
+            self.member_last_activity(identity_id),
+        ));
         lines.extend(self.quote_provenance(identity_id));
         self.monitor_details = Some(Details {
             target: row.target.clone(),
