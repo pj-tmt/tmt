@@ -98,3 +98,28 @@ for (const [frame, params] of frames)
       expect(await textAtSurfaceEdge(page, 'body')).toEqual([]);
       expect((await controlRadii(page, 'body')).off).toEqual([]);
     });
+
+for (const width of [1440, 390])
+  test(`heatmaps use wide short token-radius bars and retain keyboard tips at ${width}`, async ({
+    page,
+  }) => {
+    await gallery(page, width);
+    const maps = page.locator('.tmt-ui-chart[data-layout="heatmap"]');
+    await expect(maps).toHaveCount(4);
+    for (const map of await maps.all()) {
+      const cell = map.locator('.tmt-ui-chart-slot:not(.tmt-ui-chart-slot-none)').first();
+      await cell.scrollIntoViewIfNeeded();
+      const box = (await cell.boundingBox())!;
+      expect(box.width / box.height).toBeGreaterThanOrEqual(1.9);
+      await expect(cell).toHaveCSS('border-radius', '6px');
+      await cell.focus();
+      await cell.dispatchEvent('pointerleave');
+      await expect(map.locator('.tmt-ui-chart-tip')).toBeVisible();
+      await page.keyboard.press('ArrowRight');
+      expect(
+        await map
+          .locator('.tmt-ui-chart-slot')
+          .evaluateAll((nodes) => nodes.some((node) => node === document.activeElement)),
+      ).toBe(true);
+    }
+  });

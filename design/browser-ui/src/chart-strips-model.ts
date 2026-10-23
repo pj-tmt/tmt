@@ -12,8 +12,11 @@ export interface StripRow {
 
 export interface StripsOptions {
   title: string;
+  /** Full-width rectangular cells with optional column labels, for an activity heatmap. */
+  layout?: 'heatmap';
+  labels?: readonly string[];
   rows: readonly StripRow[];
-  /** Squares per row; keep it at or under about 48. */
+  /** Slots per row; keep it at or under about 48. */
   slotCount: number;
   /** The time range a slot covers, for its tip ("14:00–15:00"). */
   slotRange: (index: number) => string;

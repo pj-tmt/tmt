@@ -185,3 +185,14 @@ injected tier/quota from private recorded evidence and never claim provider acce
 Unchanged access and Firestore projections do not repaint on unrelated draft input. Short polite
 slots announce only changed settled states; the layer lists, budget and Details stay outside
 those live regions. Presentation equality never suppresses signed reads or authority checks.
+
+## Digest presentation
+
+`digest-page` derives the allowance rows, combined token chart and seat legend, activity and
+message views, and coverage/method footer from `DigestSource`. Provider history and method
+stay disclosures. The page owns range, scale, expanded legend and disclosure state; changed
+reports restore open disclosures and summary focus, while unchanged reads retain the existing
+DOM and scroll position. Failed refreshes retain the last good report for that range; an
+unavailable newly selected range does not display the preceding range's observations. The
+route signal owns refresh cleanup. The presentation does not change report decoding, owner
+reads, allowance accounting or persistence.

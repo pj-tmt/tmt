@@ -140,13 +140,13 @@ for (const [name, size] of [
         expect(Math.abs(b.y - a.y), `${right} on the same row`).toBeLessThan(2);
       };
       await beside('#digest-provider-claude', '#digest-provider-gpt');
-      await beside('#digest-tokens', '#digest-ranking');
-      await beside('#digest-exchange', '#digest-missing');
+      await beside('#digest-tokens .digest-token-chart', '#digest-ranking');
+      await beside('#digest-activity', '#digest-exchange');
     } else {
       // One column on a phone: each card below the one before.
       const first = (await page.locator('#digest-provider-claude').boundingBox())!;
       const second = (await page.locator('#digest-provider-gpt').boundingBox())!;
-      expect(second.y).toBeGreaterThan(first.y + first.height - 1);
+      expect(Math.abs(second.y - first.y)).toBeLessThan(1);
     }
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -155,7 +155,10 @@ for (const [name, size] of [
     if (name === '390') {
       await page.getByRole('tab', { name: '30d' }).click();
       await expect(
-        page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
+        page
+          .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
+          .first()
+          .locator('.tmt-ui-chart-slot'),
       ).toHaveCount(30);
       const fits = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -167,7 +170,10 @@ for (const [name, size] of [
         });
       await page.getByRole('tab', { name: '24h' }).click();
       await expect(
-        page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
+        page
+          .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
+          .first()
+          .locator('.tmt-ui-chart-slot'),
       ).toHaveCount(24);
       await page.getByRole('tab', { name: '24h' }).click();
     }
@@ -183,22 +189,22 @@ for (const [name, size] of [
   });
 }
 
-test('hovering the plot shows a tip with every series, five hues and a neutral Other', async ({
+test('hovering a large-fleet plot names the seven leading seats and neutral Other', async ({
   page,
 }) => {
-  await open(page);
+  await open(page, '?seats=24');
   const plot = page.locator('#digest-tokens .tmt-ui-chart-plot');
   const tip = page.locator('#digest-tokens .tmt-ui-chart-tip');
   await expect(tip).toBeHidden();
   const box = (await plot.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await expect(tip).toBeVisible();
-  await expect(tip.locator('.tmt-ui-chart-tip-row')).toHaveCount(6);
+  await expect(tip.locator('.tmt-ui-chart-tip-row')).toHaveCount(8);
   await expect(tip).toContainText('Other');
   const fills = await tip
     .locator('.tmt-ui-chart-swatch')
     .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor));
-  expect(new Set(fills).size).toBe(6);
+  expect(new Set(fills).size).toBe(8);
   await page.mouse.move(box.x - 40, box.y - 40);
   await expect(tip).toBeHidden();
 });
@@ -207,13 +213,11 @@ test('the sample report paints every card once, in the reference order, with the
   page,
 }) => {
   const errors = await open(page);
-  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(7);
+  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(5);
   const headings = await page.locator('#digest-sections h2').allTextContents();
   expect(headings).toEqual([
-    'Claude',
-    'OpenAI',
+    'Allowance',
     'Token usage',
-    'Last 24h by seat',
     'Activity by seat',
     'Messages between seats',
     'Data coverage',
@@ -225,9 +229,9 @@ test('the sample report paints every card once, in the reference order, with the
     'Throughput',
     'Gates and queue',
     'Cost per merged PR',
-    'Machine',
+    'Machine load',
   ]);
-  await expect(page.locator('#digest-missing .digest-gap .tmt-ui-chip-label')).toHaveText([
+  await expect(page.locator('#digest-missing .digest-gap dd')).toHaveText([
     'Not connected',
     'Not connected',
     'Not connected',
@@ -239,17 +243,14 @@ test('the sample report paints every card once, in the reference order, with the
   await expect(method).not.toHaveAttribute('open', '');
   await method.locator('summary').click();
   await expect(method.locator('p').first()).toBeVisible();
-  // The ranking's inline bars take the chart's series colours; the leader's bar is the longest.
-  const bars = page.locator('#digest-ranking .digest-bar');
-  await expect(bars).toHaveCount(6);
-  const widths = await bars.evaluateAll((nodes) =>
-    nodes.map((n) => n.getBoundingClientRect().width),
-  );
-  expect(widths[0]).toBeGreaterThanOrEqual(Math.max(...widths) - 0.5);
-  const colours = await bars.evaluateAll((nodes) =>
-    nodes.map((n) => getComputedStyle(n).backgroundColor),
-  );
-  expect(new Set(colours).size).toBe(6);
+  // The legend rows use the same series hues as the chart, beside it inside one card.
+  const dots = page.locator('#digest-ranking .tmt-ui-status-tile-dot');
+  await expect(dots).toHaveCount(6);
+  expect(
+    new Set(
+      await dots.evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).backgroundColor)),
+    ).size,
+  ).toBe(6);
   expect(errors).toEqual([]);
 });
 
@@ -295,35 +296,38 @@ test('the plot reads each hour from the keyboard and names every series in its l
   );
 });
 
-test('the matrix keeps self blank, a known none as a dot and counts only talk and reply', async ({
+test('the matrix marks self with a dash and a known none as zero and counts only talk and reply', async ({
   page,
 }) => {
   await open(page);
   const rows = page.locator('#digest-exchange tbody tr');
   expect(await rows.count()).toBeGreaterThan(3);
-  await expect(rows.first().locator('td.tmt-ui-chart-cell-self')).toHaveText('');
+  await expect(rows.first().locator('td.tmt-ui-chart-cell-self')).toHaveText('—');
   const text = await page.locator('#digest-exchange tbody').innerText();
-  expect(text).toContain('·');
+  expect(await rows.locator('td').allTextContents()).toContain('0');
   expect(text).not.toContain('99');
 });
 
-test('the activity strips are square slots: 24 hourly, 7 daily, 30 daily, with a tip and a legend', async ({
+test('the activity heatmap has short bar cells: 24 hourly, 7 daily, 30 daily, with dates and keyboard tips', async ({
   page,
 }) => {
   await open(page);
-  const rows = page.locator('#digest-activity .tmt-ui-chart-strip-row:has(.tmt-ui-chart-strip)');
+  const rows = page.locator('#digest-activity .tmt-ui-chart-strip-row:has(.tmt-ui-chart-slot)');
   await expect(rows).toHaveCount(6);
   const cells = page
-    .locator('#digest-activity .tmt-ui-chart-strip')
+    .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
     .first()
     .locator('.tmt-ui-chart-slot');
   await expect(cells).toHaveCount(24);
   const box = (await cells.first().boundingBox())!;
-  expect(Math.abs(box.width - box.height)).toBeLessThan(0.5);
+  expect(box.width / box.height).toBeGreaterThanOrEqual(1.9);
   // Squares grow to fill the card (12 to 40 px); never past 40.
   expect(box.width).toBeGreaterThan(12);
   expect(box.width).toBeLessThanOrEqual(40.5);
-  const strip = (await page.locator('#digest-activity .tmt-ui-chart-strip').first().boundingBox())!;
+  const strip = (await page
+    .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
+    .first()
+    .boundingBox())!;
   const column = (await page.locator('#digest-activity .tmt-ui-chart-strips').boundingBox())!;
   // The row spans the card's strip column unless 40 px squares already fill 24 slots.
   expect(strip.width).toBeGreaterThan(Math.min(column.width * 0.9, 24 * 40 - 1) - 100);
@@ -342,64 +346,58 @@ test('the activity strips are square slots: 24 hourly, 7 daily, 30 daily, with a
   await expect(cells.nth(6)).toBeFocused();
   await expect(
     page.locator('#digest-activity .tmt-ui-chart-strip-legend .tmt-ui-chart-slot'),
-  ).toHaveCount(5);
+  ).toHaveCount(0);
   await page.getByRole('tab', { name: '7d' }).click();
   await expect(
-    page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
+    page
+      .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
+      .first()
+      .locator('.tmt-ui-chart-slot'),
   ).toHaveCount(7);
   await page.getByRole('tab', { name: '30d' }).click();
   await expect(
-    page.locator('#digest-activity .tmt-ui-chart-strip').first().locator('.tmt-ui-chart-slot'),
+    page
+      .locator('#digest-activity .tmt-ui-chart-strip:has(>.tmt-ui-chart-slot)')
+      .first()
+      .locator('.tmt-ui-chart-slot'),
   ).toHaveCount(30);
-  await expect(page.locator('#digest-ranking h2')).toHaveText('Last 30d by seat');
+  await expect(page.locator('#digest-tokens .digest-total-label')).toContainText('30d');
 });
 
-test('each provider card shows its allowance, meter, history chart and pace cells', async ({
+test('one allowance card holds meter rows and collapsed provider history and pace', async ({
   page,
 }) => {
   await open(page);
-  const cards = page.locator('#digest-allowance .digest-provider');
-  await expect(cards).toHaveCount(2);
+  await expect(page.locator('#digest-allowance .digest-provider')).toHaveCount(2);
   const claude = page.locator('#digest-provider-claude');
-  await expect(claude.locator('[data-size="hero"]')).toHaveText('26%');
+  await expect(claude.locator('.digest-provider-label')).toHaveText('Claude26% left');
+  const details = claude.locator('details');
+  await expect(details).not.toHaveAttribute('open');
+  await details.locator('summary').click();
   await expect(claude.locator('.tmt-ui-status-tile-label')).toHaveText([
-    'Allowance left',
     'Elapsed',
     'Pace',
     'Resets in',
   ]);
-  await expect(claude.locator('.tmt-ui-card-meta')).toContainText('Resets in');
-  await expect(claude.locator('.tmt-ui-status-tile-value').nth(2)).toHaveText(/pts$/);
-  await expect(claude.locator('.tmt-ui-chart')).toHaveCount(1);
-  // Inside a card the facts are bare (no tile box), and only the allowance carries a dot: its
-  // series colour. The meter sits directly under the allowance number.
-  const tileBoxes = await claude
-    .locator('.tmt-ui-status-tile')
-    .evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).borderTopWidth));
-  expect(tileBoxes).toEqual(['0px', '0px', '0px', '0px']);
-  await expect(claude.locator('.tmt-ui-status-tile-dot')).toHaveCount(1);
-  const hero = (await claude.locator('[data-size="hero"]').boundingBox())!;
-  const bar = (await claude.locator('.tmt-ui-meter').boundingBox())!;
-  expect(bar.y).toBeGreaterThanOrEqual(hero.y + hero.height);
-  expect(bar.y - (hero.y + hero.height)).toBeLessThan(24);
-  // The meter fills to the percent left, in the provider's own hue (not the chart's first one).
+  await expect(claude.locator('.tmt-ui-status-tile-value').nth(1)).toHaveText(/pts$/);
+  await expect(claude.locator('.tmt-ui-chart')).toBeVisible();
   const meter = (await claude.locator('.tmt-ui-meter').boundingBox())!;
   const fill = (await claude.locator('.tmt-ui-meter-fill').boundingBox())!;
   expect(Math.abs(fill.width / meter.width - 0.26)).toBeLessThan(0.03);
   const hues = await page
     .locator('.tmt-ui-meter-fill')
     .evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).backgroundColor));
-  expect(new Set(hues).size).toBe(2);
+  expect(new Set(hues).size).toBe(1);
 });
 
-test('a team of 24 lists the top 8, one Other row, a single partial note and Show all', async ({
+test('a team of 24 lists the top 7, one Other row, a single partial note and Show all', async ({
   page,
 }) => {
   const errors = await open(page, '?seats=24', { width: 1440, height: 900 });
   const ranking = page.locator('#digest-ranking');
   const names = ranking.locator('tbody th');
-  await expect(names).toHaveCount(9);
-  await expect(names.last()).toHaveText('Other (16 seats)');
+  await expect(names).toHaveCount(8);
+  await expect(names.last()).toHaveText('Other (17 seats)');
   await expect(ranking.locator('.usage-note')).toHaveText([
     '* Partial: some of this range has no data for the seat.',
   ]);
@@ -414,33 +412,33 @@ test('a team of 24 lists the top 8, one Other row, a single partial note and Sho
   await toggle.click();
   await expect(names).toHaveCount(24);
   await expect(ranking.getByText(/^Other \(/)).toHaveCount(0);
-  await ranking.getByRole('button', { name: 'Show top 8' }).click();
-  await expect(names).toHaveCount(9);
+  await ranking.getByRole('button', { name: 'Show top 7' }).click();
+  await expect(names).toHaveCount(8);
   // Cards keep their own height: the ranking does not stretch to the token chart's.
   const tokens = (await page.locator('#digest-tokens').boundingBox())!;
   const listed = (await ranking.boundingBox())!;
-  expect(Math.abs(tokens.y - listed.y)).toBeLessThan(2);
+  expect(listed.y).toBeGreaterThan(tokens.y);
+  expect(listed.x).toBeGreaterThan(tokens.x);
   expect(Math.abs(tokens.height - listed.height)).toBeGreaterThan(1);
   // Activity rows run in the ranking's order.
   await ranking.getByRole('button', { name: 'Show all 24 seats' }).click();
   const ranked = (await names.allTextContents()).map((name) => name.replace(/\*$/, ''));
   const rows = await page
-    .locator('#digest-activity .tmt-ui-chart-strip-row:has(.tmt-ui-chart-strip)')
+    .locator('#digest-activity .tmt-ui-chart-strip-row:has(.tmt-ui-chart-slot)')
     .evaluateAll((nodes) => nodes.map((node) => node.firstElementChild!.textContent!.trim()));
   expect(rows).toEqual(ranked);
   expect(errors).toEqual([]);
 });
 
-test('one provider fills the row, its figure beside its chart', async ({ page }) => {
+test('one provider shares the allowance card with its heading and retains its history', async ({
+  page,
+}) => {
   const errors = await open(page, '?one-provider', { width: 1440, height: 900 });
-  const card = page.locator('#digest-provider-gpt');
-  await expect(page.locator('#digest-allowance .digest-card')).toHaveCount(1);
-  const row = (await page.locator('#digest-allowance').boundingBox())!;
-  const box = (await card.boundingBox())!;
-  expect(Math.abs(box.width - row.width)).toBeLessThan(1);
-  const figure = (await card.locator('.digest-provider-figure').boundingBox())!;
-  const chart = (await card.locator('.digest-provider-body > :last-child').boundingBox())!;
-  expect(chart.x).toBeGreaterThan(figure.x + figure.width - 1);
+  const provider = page.locator('#digest-provider-gpt');
+  await expect(page.locator('#digest-allowance .digest-provider')).toHaveCount(1);
+  await expect(provider.locator('.tmt-ui-chart')).toBeHidden();
+  await provider.locator('summary').click();
+  await expect(provider.locator('.tmt-ui-chart')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -468,7 +466,7 @@ for (const [label, query] of [
 for (const width of [390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
     await open(page, '', { width, height: 900 });
-    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(7);
+    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(5);
     await page.waitForTimeout(200);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -531,7 +529,9 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await page.clock.install();
   const errors = await open(page, '?refresh', { width: 390, height: 900 });
   const reads = () => page.evaluate(() => window.digestReads);
-  await expect(page.locator('#digest-provider-claude [data-size="hero"]')).toHaveText('26%');
+  await expect(
+    page.locator('#digest-provider-claude .digest-provider-label > strong:last-child'),
+  ).toHaveText('26% left');
   const matrix = page.locator('#digest-exchange').getByRole('region', { name: /^Messages, last / });
   await matrix.evaluate((node) => {
     node.scrollLeft = 100;
@@ -550,7 +550,9 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   // The third read has less allowance left: the cards repaint, and Share is still the choice.
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(3);
-  await expect(page.locator('#digest-provider-claude [data-size="hero"]')).toHaveText('10%');
+  await expect(
+    page.locator('#digest-provider-claude .digest-provider-label > strong:last-child'),
+  ).toHaveText('10% left');
   await expect(page.getByRole('tab', { name: 'Share' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#digest-tokens .tmt-ui-chart-title')).toHaveText(
     'Share of tokens by seat',
@@ -559,7 +561,9 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   // the panel is not emptied.
   await page.clock.fastForward(60_000);
   await expect.poll(reads).toBe(4);
-  await expect(page.locator('#digest-provider-claude [data-size="hero"]')).toHaveText('10%');
+  await expect(
+    page.locator('#digest-provider-claude .digest-provider-label > strong:last-child'),
+  ).toHaveText('10% left');
   await expect(page.locator('#digest-tokens')).toBeVisible();
   await expect(page.locator('#usage-note')).toContainText('Your machine did not answer');
   await expect(page.locator('#usage-note')).toContainText('Showing the last report, read at');
@@ -568,7 +572,9 @@ test('the report refreshes once a minute and repaints only when it changed', asy
   await expect.poll(reads).toBe(5);
   await expect(page.locator('#usage-note')).toContainText('Usage preview');
   await expect(page.locator('#usage-note')).not.toContainText('Showing the last report');
-  await expect(page.locator('#digest-provider-claude [data-size="hero"]')).toHaveText('10%');
+  await expect(
+    page.locator('#digest-provider-claude .digest-provider-label > strong:last-child'),
+  ).toHaveText('10% left');
   // Leaving the route stops the reads.
   await page.evaluate(() => window.digestRoute.abort());
   await page.clock.fastForward(300_000);
@@ -586,7 +592,7 @@ for (const scheme of ['light', 'dark'] as const)
       const card = page.locator('#digest-exchange');
       const region = card.getByRole('region', { name: /^Messages, last / });
       await expect(region).toHaveAttribute('tabindex', '0');
-      await expect(card.locator('thead .tmt-ui-chart-matrix-column')).toHaveCount(25);
+      await expect(card.locator('thead .tmt-ui-chart-matrix-column')).toHaveCount(24);
       await expect(card.locator('tbody tr')).toHaveCount(24);
       await card.scrollIntoViewIfNeeded();
       const sender = card.locator('tbody th').first();
@@ -649,4 +655,83 @@ test('a fitting matrix has no edge cue and resize updates the overflow cue', asy
   await expect(edge).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(edge).toBeHidden();
+});
+
+test('refresh and range changes retain provider and method disclosures, legend expansion and summary focus', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await open(page, '?refresh&seats=24', { width: 1440, height: 900 });
+  const provider = page.locator('#digest-provider-claude-history');
+  const method = page.locator('#digest-method');
+  await provider.locator('summary').click();
+  await method.locator('summary').click();
+  await page.getByRole('button', { name: 'Show all 24 seats' }).click();
+  await page.getByRole('tab', { name: 'Share' }).click();
+  await provider.locator('summary').focus();
+  await page.clock.fastForward(60_000);
+  await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(2);
+  await page.clock.fastForward(60_000);
+  await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(3);
+  await expect(page.locator('#digest-provider-claude .digest-provider-label')).toContainText(
+    '10% left',
+  );
+  await expect(provider).toHaveAttribute('open', '');
+  await expect(method).toHaveAttribute('open', '');
+  await expect(provider.locator('summary')).toBeFocused();
+  await expect(page.locator('#digest-ranking tbody tr')).toHaveCount(24);
+  await expect(page.getByRole('tab', { name: 'Share' })).toHaveAttribute('aria-selected', 'true');
+  // A new range that cannot read must not show the old range's observations.
+  await page.getByRole('tab', { name: '7d' }).click();
+  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(0);
+  await expect(page.locator('#usage-note')).toContainText('Your machine did not answer');
+  await page.getByRole('tab', { name: '30d' }).click();
+  await expect(provider).toHaveAttribute('open', '');
+  await expect(method).toHaveAttribute('open', '');
+  await expect(page.locator('#digest-ranking tbody tr')).toHaveCount(24);
+  await expect(page.locator('#digest-tokens .digest-total-label')).toContainText('30d');
+  await expect(page.getByRole('tabpanel', { name: 'Share', exact: true })).toHaveAttribute(
+    'id',
+    'digest-tokens-chart',
+  );
+});
+
+test('stale allowance is named before its disclosure is opened', async ({ page }) => {
+  await open(page, '?stale-allowance');
+  for (const provider of await page.locator('.digest-provider').all()) {
+    await expect(provider.locator('.digest-provider-label')).toContainText('(stale)');
+    await expect(provider.locator('details')).not.toHaveAttribute('open');
+  }
+});
+
+test('unavailable seats make the reported total a lower bound and missing allowance stays explicit', async ({
+  page,
+}) => {
+  await open(page, '?missing-evidence');
+  await expect(page.locator('.digest-total-label')).toContainText('lower bound');
+  await expect(page.locator('#digest-tokens')).toContainText('Unavailable seats are not included');
+  await expect(page.locator('#digest-allowance')).toContainText(
+    'Some provider allowances are unavailable.',
+  );
+  await expect(page.locator('.digest-provider')).toHaveCount(0);
+  await expect(page.locator('#digest-allowance')).not.toContainText('No weekly window');
+});
+
+test('range keyboard focus follows the selection immediately and late reports cannot move it back', async ({
+  page,
+}) => {
+  await open(page, '?delayed-range');
+  await expect(page.locator('#digest-tokens')).toBeVisible();
+  await page.getByRole('tab', { name: '24h' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('tab', { name: '7d' })).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.digestPending)).toContain('7d');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('tab', { name: '30d' })).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.digestPending)).toContain('30d');
+  await page.evaluate(() => window.digestRelease('30d'));
+  await expect(page.locator('.digest-total-label')).toContainText('30d');
+  await page.evaluate(() => window.digestRelease('7d'));
+  await expect(page.locator('.digest-total-label')).toContainText('30d');
+  await expect(page.getByRole('tab', { name: '30d' })).toBeFocused();
 });

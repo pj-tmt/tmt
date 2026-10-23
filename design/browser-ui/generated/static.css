@@ -4023,6 +4023,27 @@ svg.tmt-ui-mark {
   background: color-mix(in srgb, var(--tmt-ui-color-series-1) 100%, var(--tmt-ui-surface-sheet));
 }
 
+.tmt-ui-chart[data-layout='heatmap'] {
+  --tmt-ui-color-series-1: var(--tmt-ui-color-accent);
+  --tmt-chart-strip-max: 100%;
+}
+.tmt-ui-chart[data-layout='heatmap'] .tmt-ui-chart-slot {
+  aspect-ratio: 3;
+  min-height: var(--tmt-ui-space-xs);
+  max-height: var(--tmt-ui-space-l);
+  border-radius: var(--tmt-ui-radius-s);
+}
+.tmt-ui-chart-strip-date {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+}
+
+.tmt-ui-chart[data-numeric] .tmt-ui-chart-cell {
+  background: color-mix(in srgb, var(--tmt-ui-color-accent) 6%, var(--tmt-ui-surface-sheet));
+  color: var(--tmt-ui-color-text);
+}
+
 .tmt-ui-section {
   display: grid;
   gap: var(--tmt-ui-space-s);

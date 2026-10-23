@@ -1,17 +1,14 @@
 /**
- * The Digest web view: the usage report as cards of charts and tables. The arrangement is the
- * team's usage at a glance: provider allowance (meter, weekly history, pace), who burns (tokens
- * over time beside the ranking), activity by seat, then who talks to whom beside the data the
- * read does not carry yet and the method. It depends only on `DigestSource`; the product source
- * says "not in the browser yet" until Core serves the read (#4325), and a sample source is only
- * ever passed in by tests, the gallery and dev.
+ * The Digest usage report follows the concept website: provider allowance rows, the token
+ * chart and seat legend, activity beside messages, and a coverage/method footer. It depends
+ * only on DigestSource; product data comes from the existing owner reads. Samples are injected
+ * by tests, the gallery and local development. Range and view state belong to this mounted page.
  */
 import {
   compactCount,
   createMatrix,
   createSeriesChart,
   createStrips,
-  stripsLegend,
   topLayers,
 } from '@tmt/browser-ui/chart';
 import { pageLoading } from './page-loading.js';
@@ -43,7 +40,7 @@ const REFRESH_MS = 60_000;
 export { compactCount as formatTokens };
 
 /** Distinct series a chart draws; the rest fold into one neutral `Other`. */
-const SERIES_KEPT = 5;
+const SERIES_KEPT = 7;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 const OTHER_STEP = 7;
 
@@ -58,12 +55,17 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+interface DigestViewState {
+  share: boolean;
+  allSeats: boolean;
+}
+
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
 function card(
   id: string,
   title: string,
   body: readonly Node[],
-  options: { actions?: Node; className?: string } = {},
+  options: { actions?: Node; className?: string; subtitle?: string } = {},
 ): HTMLElement {
   const node = el(
     'section',
@@ -74,7 +76,11 @@ function card(
   const heading = el('h2', ui.cardTitle, title);
   heading.id = `${id}-title`;
   const head = el('div', ui.cardHead);
-  head.append(heading);
+  if (options.subtitle) {
+    const title = el('div', 'digest-section-title');
+    title.append(heading, el('p', 'digest-subtitle', options.subtitle));
+    head.append(title);
+  } else head.append(heading);
   if (options.actions) head.append(options.actions);
   node.append(head, ...body);
   return node;
@@ -135,6 +141,16 @@ function tabChoice<T extends string>(
     button.type = 'button';
     button.setAttribute('role', 'tab');
     button.setAttribute('aria-controls', controls);
+    button.id = `${controls}-${option.value}`;
+    button.addEventListener('keydown', (event) => {
+      const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      event.preventDefault();
+      const index = buttons.findIndex((item) => item.value === option.value);
+      const next = buttons[(index + step + buttons.length) % buttons.length]!;
+      next.button.click();
+      next.button.focus();
+    });
     button.addEventListener('click', () => {
       sync(option.value);
       change(option.value);
@@ -142,8 +158,10 @@ function tabChoice<T extends string>(
     return { button, value: option.value };
   });
   const sync = (active: T) => {
-    for (const { button, value } of buttons)
+    for (const { button, value } of buttons) {
       button.setAttribute('aria-selected', String(value === active));
+      button.tabIndex = value === active ? 0 : -1;
+    }
   };
   sync(initial);
   list.append(...buttons.map(({ button }) => button));
@@ -151,33 +169,12 @@ function tabChoice<T extends string>(
   return header;
 }
 
-/** One numeric fact as the leaf's status tile: a label over a large value. Inside a card the tiles
- * are bare (`data-bare` on the group); `series` adds a dot in that chart series' colour, `hero` sets
- * the value at the page's first-read size. A tile without a tone draws no dot. */
-function tile(
-  label: string,
-  value: string,
-  options: { hero?: boolean; series?: number } = {},
-): HTMLElement {
+/** One numeric fact inside a provider's history disclosure. */
+function tile(label: string, value: string): HTMLElement {
   const node = el('div', ui.statusTile);
-  const term = el('dt', ui.statusTileLabel, label);
-  const figure = el('dd', ui.statusTileValue);
+  const figure = el('dd', ui.statusTileValue, value);
   figure.dataset.numeric = value === '0' ? 'zero' : 'count';
-  if (options.hero) figure.dataset.size = 'hero';
-  if (options.series !== undefined) {
-    const dot = el('span', `${ui.statusTileDot} tmt-ui-chart-s${options.series}`);
-    dot.setAttribute('aria-hidden', 'true');
-    figure.append(dot);
-  }
-  figure.append(value);
-  node.append(term, figure);
-  return node;
-}
-
-/** A passive label for a state that is not an action: the leaf's chip without a remove control. */
-function passiveChip(text: string): HTMLElement {
-  const node = el('span', ui.chip);
-  node.append(el('span', ui.chipLabel, text));
+  node.append(el('dt', ui.statusTileLabel, label), figure);
   return node;
 }
 
@@ -189,8 +186,14 @@ function bareTiles(...tiles: HTMLElement[]): HTMLElement {
   return group;
 }
 
-function providerCard(view: ProviderView, nowMs: number): HTMLElement {
-  const resets = view.stale ? 'stale' : resetsIn(view.resetsAtMs, nowMs);
+function providerRow(view: ProviderView, nowMs: number): HTMLElement {
+  const row = el('div', 'digest-provider');
+  row.id = `digest-provider-${view.line || 'account'}`;
+  const label = el('div', 'digest-provider-label');
+  label.append(
+    el('strong', undefined, view.provider),
+    el('strong', undefined, `${view.leftPercent}% left${view.stale ? ' (stale)' : ''}`),
+  );
   const meter = el('div', ui.meter);
   meter.setAttribute('role', 'img');
   meter.setAttribute('aria-label', `${view.leftPercent}% of the weekly allowance left`);
@@ -200,68 +203,100 @@ function providerCard(view: ProviderView, nowMs: number): HTMLElement {
     String(Math.max(0, Math.min(100, view.leftPercent))),
   );
   meter.append(fill);
-  const figure = el('div', 'digest-provider-figure');
-  figure.append(
-    bareTiles(tile('Allowance left', `${view.leftPercent}%`, { hero: true, series: view.style })),
-    meter,
+  const details = el('details', `${ui.disclosure} digest-provider-details`);
+  details.id = `${row.id}-history`;
+  const summary = el('summary', undefined, 'Weekly history and pace');
+  summary.id = `${details.id}-summary`;
+  details.append(summary);
+  details.append(
+    view.chart
+      ? createSeriesChart(view.chart)
+      : el(
+          'p',
+          'usage-note',
+          'The weekly history is not served yet; this shows the latest window.',
+        ),
   );
-  const history = view.chart
-    ? createSeriesChart(view.chart)
-    : el('p', 'usage-note', 'The weekly history is not served yet; this shows the latest window.');
-  const stats = bareTiles(
-    tile('Elapsed', view.elapsedPercent === null ? '—' : `${Math.round(view.elapsedPercent)}%`),
-    tile(
-      'Pace',
-      view.paceDeltaPoints === null
-        ? '—'
-        : `${view.paceDeltaPoints > 0 ? '+' : ''}${view.paceDeltaPoints.toFixed(1)} pts`,
+  details.append(
+    bareTiles(
+      tile('Elapsed', view.elapsedPercent === null ? '—' : `${Math.round(view.elapsedPercent)}%`),
+      tile(
+        'Pace',
+        view.paceDeltaPoints === null
+          ? '—'
+          : `${view.paceDeltaPoints > 0 ? '+' : ''}${view.paceDeltaPoints.toFixed(1)} pts`,
+      ),
+      tile('Resets in', view.stale ? 'stale' : resetsIn(view.resetsAtMs, nowMs)),
     ),
-    tile('Resets in', resets),
   );
-  const body = el('div', 'digest-provider-body');
-  body.append(figure, history);
-  return card(`digest-provider-${view.line || 'account'}`, view.provider, [body, stats], {
-    actions: el('span', ui.cardMeta, `Resets in ${resets}`),
-    className: 'digest-provider',
-  });
+  row.append(label, meter, details);
+  return row;
 }
 
 function allowanceRow(doc: UsageDocument): HTMLElement {
   const views = providers(doc);
-  const node = views.length
-    ? row('digest-row-providers', ...views.map((view) => providerCard(view, doc.observedAtMs)))
-    : row(
-        'digest-row-providers',
-        card('digest-provider-none', 'Allowance', [
-          el('p', 'usage-note', 'No weekly window has been observed yet.'),
-        ]),
-      );
+  const intro = el('div', 'digest-allowance-intro');
+  intro.append(
+    el('h2', ui.cardTitle, 'Allowance'),
+    el('p', 'digest-subtitle', 'Reported by each provider.'),
+  );
+  const node = el('section', `${ui.card} digest-card digest-allowance`);
   node.id = 'digest-allowance';
+  intro.querySelector('h2')!.id = 'digest-allowance-title';
+  node.setAttribute('aria-labelledby', 'digest-allowance-title');
+  node.dataset.providers = String(views.length);
+  node.append(intro, ...views.map((view) => providerRow(view, doc.observedAtMs)));
+  if (doc.limitsUnavailable.length)
+    node.append(el('p', 'usage-note', 'Some provider allowances are unavailable.'));
+  else if (!views.length)
+    node.append(el('p', 'usage-note', 'No weekly window has been observed yet.'));
   return node;
 }
 
-function tokensCard(doc: UsageDocument, scale: { share: boolean }): HTMLElement {
+function tokensCard(doc: UsageDocument, state: DigestViewState): HTMLElement {
   const data = tokenSeries(doc);
-  const body = el('div', 'digest-card-body');
+  const body = el('div', 'digest-token-grid');
+  const chart = el('div', 'digest-token-chart');
+  const rows = rankRows(doc);
+  const total = rows.reduce((sum, row) => sum + row.tokens, 0);
+  chart.append(
+    el(
+      'p',
+      'digest-total-label',
+      `Total${data.partial || doc.usage.unavailable.length > 0 || rows.some((row) => row.partial) ? ' (lower bound)' : ''} · ${doc.since}`,
+    ),
+    el('p', 'digest-total', rows.length ? compactCount(total) : '—'),
+  );
   const host = el('div');
   const draw = () => {
+    host.setAttribute(
+      'aria-labelledby',
+      `digest-tokens-chart-${state.share ? 'share' : 'absolute'}`,
+    );
     host.replaceChildren(
       createSeriesChart({
-        title: scale.share ? 'Share of tokens by seat' : 'Tokens by seat',
-        kind: scale.share ? 'share' : 'stack',
+        title: state.share ? 'Share of tokens by seat' : 'Tokens by seat',
+        kind: state.share ? 'share' : 'stack',
         x: data.x,
         series: topLayers(data.layers, SERIES_KEPT),
         empty: 'No token observations in this range.',
       }),
     );
+    const plot = host.querySelector<HTMLElement>('.tmt-ui-chart-plot');
+    if (plot) plot.id = 'digest-token-plot';
   };
   draw();
-  body.append(host);
+  chart.append(host);
+  body.append(chart, legendTable(doc, state));
   if (data.partial)
-    body.append(
+    chart.append(
       el('p', 'usage-note', 'Some buckets are incomplete: they are lower bounds, not errors.'),
     );
+  if (doc.usage.unavailable.length)
+    chart.append(el('p', 'usage-note', 'Unavailable seats are not included in this total.'));
   host.id = 'digest-tokens-chart';
+  host.setAttribute('role', 'tabpanel');
+  host.setAttribute('aria-label', 'Token usage scale');
   const control = tabChoice(
     'Scale',
     host.id,
@@ -269,13 +304,16 @@ function tokensCard(doc: UsageDocument, scale: { share: boolean }): HTMLElement 
       { value: 'absolute', text: 'Absolute' },
       { value: 'share', text: 'Share' },
     ],
-    scale.share ? 'share' : 'absolute',
+    state.share ? 'share' : 'absolute',
     (value) => {
-      scale.share = value === 'share';
+      state.share = value === 'share';
       draw();
     },
   );
-  return card('digest-tokens', 'Token usage', [body], { actions: control });
+  return card('digest-tokens', 'Token usage', [body], {
+    actions: control,
+    subtitle: 'A shared view, seat by seat.',
+  });
 }
 
 /** A seat's name on one line, the full name on hover, `*` after a partial one. */
@@ -286,47 +324,41 @@ function seatLabel(name: string, partial: boolean): HTMLElement {
   return node;
 }
 
-function rankingCard(doc: UsageDocument): HTMLElement {
+function legendTable(doc: UsageDocument, state: DigestViewState): HTMLElement {
   const rows = rankRows(doc);
-  const view = ranking(rows);
+  const view = ranking(rows, SERIES_KEPT);
   // The seats the token chart draws as hues keep that hue here; the rest share the neutral step.
   const hue = new Map(
     topLayers(tokenSeries(doc).layers, SERIES_KEPT)
       .filter((layer) => layer.key !== 'other')
-      .map((layer, at) => [layer.key, at]),
+      .map((layer, at) => [layer.key, at % 7]),
   );
-  const largest = Math.max(1, ...rows.map((entry) => entry.tokens));
-  const bar = (id: string, tokens: number) => {
-    const node = el('span', `digest-bar tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
-    node.style.setProperty('--digest-bar', String(Math.round((tokens / largest) * 100)));
-    node.setAttribute('aria-hidden', 'true');
-    return node;
-  };
-  if (!rows.length)
-    return card('digest-ranking', `Last ${doc.since} by seat`, [
-      el('p', 'usage-note', 'No seat has token observations in this range.'),
-    ]);
+  function legendSeat(id: string, name: string, partial: boolean): HTMLElement {
+    const label = el('span', 'digest-legend-seat');
+    const dot = el('span', `tmt-ui-status-tile-dot tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
+    dot.setAttribute('aria-hidden', 'true');
+    label.append(dot, seatLabel(name, partial));
+    return label;
+  }
   const host = el('div', 'digest-ranking-table');
   host.id = 'digest-ranking-rows';
   const draw = (all: boolean) => {
     const listed = all ? rows : view.top;
     const lines: (string | Node)[][] = listed.map((entry) => [
-      seatLabel(entry.name, entry.partial),
-      bar(entry.id, entry.tokens),
+      legendSeat(entry.id, entry.name, entry.partial),
+
       compactCount(entry.tokens),
       `${entry.share}%`,
     ]);
     if (!all && view.other)
       lines.push([
-        seatLabel(`Other (${view.other.seats} seats)`, false),
-        // The folded seats together can outweigh the leader: their share says it, not a bar.
-        '',
+        legendSeat('other', `Other (${view.other.seats} seats)`, false),
         compactCount(view.other.tokens),
         `${view.other.share}%`,
       ]);
-    host.replaceChildren(table(['Seat', '', 'Tokens', 'Share'], lines));
+    host.replaceChildren(table(['Seat', 'Tokens', 'Share'], lines));
   };
-  draw(false);
+  draw(state.allSeats);
   const body: Node[] = [host];
   if (view.partial)
     body.push(el('p', 'usage-note', '* Partial: some of this range has no data for the seat.'));
@@ -334,20 +366,25 @@ function rankingCard(doc: UsageDocument): HTMLElement {
     const toggle = el('button', ui.action);
     toggle.dataset.variant = 'text';
     toggle.type = 'button';
+    toggle.id = 'digest-ranking-toggle';
     toggle.setAttribute('aria-controls', host.id);
     const sync = (all: boolean) => {
       toggle.setAttribute('aria-expanded', String(all));
       toggle.textContent = all ? `Show top ${view.top.length}` : `Show all ${rows.length} seats`;
     };
-    sync(false);
+    sync(state.allSeats);
     toggle.addEventListener('click', () => {
       const all = toggle.getAttribute('aria-expanded') !== 'true';
+      state.allSeats = all;
       draw(all);
       sync(all);
     });
     body.push(toggle);
   }
-  return card('digest-ranking', `Last ${doc.since} by seat`, body);
+  const legend = el('div', 'digest-legend');
+  legend.id = 'digest-ranking';
+  legend.append(...body);
+  return legend;
 }
 
 function activityCard(doc: UsageDocument): HTMLElement | undefined {
@@ -362,41 +399,41 @@ function activityCard(doc: UsageDocument): HTMLElement | undefined {
     const start = view.starts[at]!;
     return hourly ? `${clock(start)}–${clock(start + 3_600_000)}` : day(start);
   };
-  return card(
-    'digest-activity',
-    'Activity by seat',
-    [
-      createStrips({
-        title: hourly
-          ? 'Tokens per hour, oldest on the left'
-          : 'Tokens per day, oldest on the left',
-        rows: view.rows,
-        slotCount: view.starts.length,
-        slotRange: range,
-        ends: hourly ? ['24 h ago', 'now'] : [`${view.starts.length} days ago`, 'today'],
-        legend: false,
-      }),
-      el(
-        'p',
-        'usage-note',
-        'Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet.',
+  return card('digest-activity', 'Activity by seat', [
+    createStrips({
+      layout: 'heatmap',
+      labels: view.starts.map((at, i) =>
+        view.starts.length <= 7 || i % (hourly ? 4 : 6) === 0
+          ? hourly
+            ? clock(at)
+            : new Date(at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })
+          : '',
       ),
-    ],
-    { actions: stripsLegend() },
-  );
+      title: `Relative token activity · ${hourly ? 'hourly' : 'daily'}`,
+      rows: view.rows,
+      slotCount: view.starts.length,
+      slotRange: range,
+      ends: hourly ? ['24 h ago', 'now'] : [`${view.starts.length} days ago`, 'today'],
+      legend: false,
+    }),
+  ]);
 }
 
 function exchangeCard(doc: UsageDocument): HTMLElement {
   const flow = exchange(doc);
+  const matrix = flow
+    ? createMatrix({
+        title: `Messages, last ${doc.since}`,
+        participants: flow.participants,
+        value: flow.value,
+        numeric: true,
+      })
+    : el('p', 'usage-note', 'Message traffic is not available in this read.');
+  const scroll = matrix.querySelector<HTMLElement>('.tmt-ui-chart-scroll');
+  if (scroll) scroll.id = 'digest-exchange-scroll';
   return card('digest-exchange', 'Messages between seats', [
-    flow
-      ? createMatrix({
-          title: `Messages, last ${doc.since}`,
-          participants: flow.participants,
-          value: flow.value,
-          sum: true,
-        })
-      : el('p', 'usage-note', 'Message traffic is not available in this read.'),
+    el('p', 'digest-subtitle', `Talk and reply messages · ${doc.since}`),
+    matrix,
   ]);
 }
 
@@ -421,15 +458,18 @@ function coverageCard(): HTMLElement {
   for (const [term, source] of gaps) {
     const line = el('div', 'digest-gap');
     const status = el('dd');
-    status.append(passiveChip('Not connected'));
-    line.append(el('dt', undefined, term), status, el('dd', 'digest-gap-source', source));
+    status.append(el('span', 'digest-subtitle', 'Not connected'));
+    line.append(el('dt', undefined, term === 'Machine' ? 'Machine load' : term), status);
+    line.title = source;
     list.append(line);
   }
   const method = el('details', ui.disclosure);
   method.dataset.divided = '';
   method.id = 'digest-method';
+  const summary = el('summary', undefined, 'Method & caveats');
+  summary.id = 'digest-method-summary';
   method.append(
-    el('summary', undefined, 'Method & caveats'),
+    summary,
     ...[
       'Tokens are input plus output as Core reports them; cached input is part of input and is not counted again.',
       'An incomplete bucket is a lower bound. A seat with no evidence for part of the range is marked partial, never shown as zero.',
@@ -437,6 +477,12 @@ function coverageCard(): HTMLElement {
       'Message counts include talk and reply only.',
     ].map((text) => el('p', 'usage-note', text)),
   );
+  const command = el('div', 'digest-method-command');
+  command.append(
+    el('span', undefined, 'Current data on your machine:'),
+    el('code', undefined, 'tmt digest usage report'),
+  );
+  method.append(command);
   return card('digest-missing', 'Data coverage', [list, method]);
 }
 
@@ -461,7 +507,14 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
   // The last good report on screen, for the range being shown.
   let good: DigestReport | undefined;
   // The token chart's Absolute/Share choice survives a refresh.
-  const scale = { share: false };
+  const state: DigestViewState = { share: false, allSeats: false };
+  const disclosures = new Map<string, boolean>();
+  let matrixLeft = 0;
+  function rememberView() {
+    for (const detail of panel!.querySelectorAll('details[id]'))
+      disclosures.set(detail.id, detail.hasAttribute('open'));
+    matrixLeft = document.getElementById('digest-exchange-scroll')?.scrollLeft ?? matrixLeft;
+  }
   const buttons = USAGE_RANGES.map((range) => {
     const button = el('button', ui.tab, range);
     button.type = 'button';
@@ -475,12 +528,17 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
       event.preventDefault();
       const next = USAGE_RANGES.indexOf(current) + step;
       const range = USAGE_RANGES[(next + USAGE_RANGES.length) % USAGE_RANGES.length]!;
-      void show(range).then(() => buttons[USAGE_RANGES.indexOf(range)]!.focus());
+      void show(range);
+      buttons[USAGE_RANGES.indexOf(range)]!.focus();
     });
     return button;
   });
   tabs.replaceChildren(...buttons);
   function paint(report: DigestReport) {
+    rememberView();
+    const focusId = panel!.contains(document.activeElement)
+      ? document.activeElement?.id
+      : undefined;
     shown = fingerprint(report);
     good = undefined;
     badge!.hidden = true;
@@ -494,10 +552,15 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
     const activityBlock = activityCard(doc);
     panel!.replaceChildren(
       allowanceRow(doc),
-      row('digest-row-burn', tokensCard(doc, scale), rankingCard(doc)),
-      ...(activityBlock ? [activityBlock] : []),
-      row('digest-row-coverage', exchangeCard(doc), coverageCard()),
+      tokensCard(doc, state),
+      row('digest-row-activity', ...(activityBlock ? [activityBlock] : []), exchangeCard(doc)),
+      coverageCard(),
     );
+    for (const detail of panel!.querySelectorAll<HTMLDetailsElement>('details[id]'))
+      detail.open = disclosures.get(detail.id) ?? false;
+    const scroll = document.getElementById('digest-exchange-scroll');
+    if (scroll) scroll.scrollLeft = matrixLeft;
+    if (focusId) document.getElementById(focusId)?.focus({ preventScroll: true });
     if (report.sample) badgeLabel.textContent = 'Sample data';
     badge!.hidden = !report.sample;
     ordinaryNote(report);
@@ -539,15 +602,15 @@ export function digestPage(source: DigestSource = digestSource, signal?: AbortSi
       button.setAttribute('aria-selected', String(selected));
       button.tabIndex = selected ? 0 : -1;
     }
+    rememberView();
     panel!.replaceChildren(pageLoading());
     const report = await source.report(range, signal);
     if (mine !== generation || signal?.aborted) return;
     paint(report);
   }
   void show(current);
-  // The usage read once a minute while the route is visible (the terminal Digest's cadence); the
-  // page repaints only when the report changed, so a reader's place stays. The timer runs once at
-  // once: that tick is the first read above, so it reads nothing.
+  // Refresh at the terminal Digest's cadence while mounted and visible. The initial read
+  // above already covers the first visible tick; unchanged reports keep the existing DOM.
   let first = true;
   if (signal)
     whileVisible(REFRESH_MS, signal, async () => {

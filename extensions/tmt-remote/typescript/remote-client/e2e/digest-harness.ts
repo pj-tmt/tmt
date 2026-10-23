@@ -1,18 +1,37 @@
 /** Test-only entry: the Digest page on its real markup, with the sample or the product source. */
 import { digestPage } from '../src/digest-page.js';
-import { mockDigestSource } from '../src/digest-mock.js';
+import { mockDocument } from '../src/digest-mock.js';
+import { sampleShape } from './digest-sample-source.js';
 import { digestSource as sampleSource } from './digest-sample-source.js';
-import { digestSource, type DigestSource } from '../src/digest-source.js';
+import { digestSource, type DigestSource, type UsageRange } from '../src/digest-source.js';
 
 const params = new URLSearchParams(location.search);
 declare global {
   interface Window {
     digestReads: number;
     digestRoute: AbortController;
+    digestPending: UsageRange[];
+    digestRelease(range: UsageRange): void;
   }
 }
 
-if (params.has('refresh')) {
+if (params.has('delayed-range')) {
+  window.digestRoute = new AbortController();
+  window.digestPending = [];
+  const releases = new Map<UsageRange, () => void>();
+  window.digestRelease = (range) => releases.get(range)?.();
+  const source: DigestSource = {
+    async report(range) {
+      if (range !== '24h')
+        await new Promise<void>((resolve) => {
+          releases.set(range, resolve);
+          window.digestPending.push(range);
+        });
+      return sampleSource.report(range);
+    },
+  };
+  digestPage(source, window.digestRoute.signal);
+} else if (params.has('refresh')) {
   // A source that counts its reads: the second read is the same report a minute later (only its
   // own clock moved), the third has less allowance left, the fourth cannot read, the fifth is the
   // third again. `route.abort()` stops the refresh.
@@ -27,8 +46,8 @@ if (params.has('refresh')) {
           sample: false,
           unavailable: 'Your machine did not answer. This page tries again shortly.',
         };
-      const report = await mockDigestSource.report(range);
-      const document = structuredClone(report.document!);
+      const report = { range, sample: true, document: mockDocument(range, sampleShape()) };
+      const document = structuredClone(report.document);
       document.observedAtMs += window.digestReads * 60_000;
       if (window.digestReads >= 3) for (const limit of document.limits) limit.usedPercent = 90;
       return { ...report, document };

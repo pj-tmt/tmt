@@ -131,6 +131,53 @@ export function ChartsSection() {
           />
         )}
       </Pair>
+      <Pair
+        title="Activity heatmap and numeric message matrix"
+        note="Mint bars and date columns retain keyboard tips and hollow missing cells; numeric matrices show known zero and a self dash."
+      >
+        {() => (
+          <>
+            <Mount
+              build={() =>
+                createStrips({
+                  title: 'Relative token activity · daily',
+                  layout: 'heatmap',
+                  labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                  rows: strips(6),
+                  slotCount: 7,
+                  slotRange: (at) => `Day ${at + 1}`,
+                  ends: ['oldest', 'latest'],
+                  legend: false,
+                })
+              }
+            />
+            <Mount
+              build={() =>
+                createStrips({
+                  title: 'Relative token activity · hourly',
+                  layout: 'heatmap',
+                  labels: Array.from({ length: 24 }, (_, at) => (at % 4 === 0 ? `${at}:00` : '')),
+                  rows: strips(6),
+                  slotCount: 24,
+                  slotRange,
+                  ends: ['oldest', 'latest'],
+                  legend: false,
+                })
+              }
+            />
+            <Mount
+              build={() =>
+                createMatrix({
+                  title: 'Numeric messages',
+                  participants: people,
+                  value: sentBetween,
+                  numeric: true,
+                })
+              }
+            />
+          </>
+        )}
+      </Pair>
       <Pair title="Empty states" note="No data is said plainly; nothing is drawn as zero.">
         {() => (
           <>

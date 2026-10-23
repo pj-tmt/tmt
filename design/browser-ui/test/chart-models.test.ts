@@ -204,3 +204,18 @@ it('every chart class a painter writes exists in the generated stylesheet', () =
     expect(css, name).toContain(`.${name}`);
   }
 });
+
+it('numeric matrices distinguish self, observed zero, nonzero and unavailable', () => {
+  const participants = ['a', 'b', 'c'].map((id) => ({ id, label: id }));
+  const values: Record<string, number | null> = { 'a>b': 0, 'a>c': 7, 'b>c': null };
+  const rows = matrixModel({
+    title: 'Messages',
+    numeric: true,
+    participants,
+    value: (from, to) => values[`${from}>${to}`],
+  }).rows;
+  expect(rows[0]!.cells.map((cell) => cell.text)).toEqual(['—', '0', '7']);
+  expect(rows[1]!.cells[2]!.text).toBe('—');
+  expect(rows[0]!.cells[1]!.label).toBe('a to b: 0');
+  expect(rows[1]!.cells[2]!.label).toBe('b to c: unavailable');
+});
