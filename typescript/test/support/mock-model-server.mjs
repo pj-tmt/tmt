@@ -210,9 +210,10 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
   };
   const server = createServer((request, response) => {
     requestsSeen++;
+    const pathname = (request.url ?? '').split('?')[0];
     const entry = {
       method: request.method ?? '',
-      path: (request.url ?? '').split('?')[0].slice(0, 128),
+      path: pathname.slice(0, 128),
       status: 0,
       bodyBytes: 0,
     };
@@ -248,19 +249,19 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
     if (requestsSeen > bounds.maxRequests)
       return refuse(429, 'MOCK_REQUEST_LIMIT', 'Request budget exhausted');
     if (failure) return refuse(409, 'MOCK_FAILED', 'An earlier request failed; inspect the census');
-    if (request.method === 'GET' && request.url === '/healthz') {
+    if (request.method === 'GET' && pathname === '/healthz') {
       entry.kind = 'health';
       send('{"ready":true}');
       return;
     }
     const protocol =
-      request.url === '/v1/messages'
+      pathname === '/v1/messages'
         ? 'messages'
-        : request.url === '/v1/responses'
+        : pathname === '/v1/responses'
           ? 'responses'
           : undefined;
     const sideRoutes = sides.filter(
-      (side) => side.method === request.method && side.path === request.url
+      (side) => side.method === request.method && side.path === pathname
     );
     if (request.method !== 'POST') {
       if (sideRoutes.length) return sendSide(sideRoutes[0], false);
@@ -271,7 +272,7 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
     if (
       request.headers.authorization !== `Bearer ${MOCK_MODEL_TOKEN}` &&
       !(
-        request.url?.startsWith('/v1/messages') && request.headers['x-api-key'] === MOCK_MODEL_TOKEN
+        pathname.startsWith('/v1/messages') && request.headers['x-api-key'] === MOCK_MODEL_TOKEN
       )
     )
       return refuse(401, 'MOCK_SYNTHETIC_AUTH_REQUIRED', 'Use only the fixture synthetic token');

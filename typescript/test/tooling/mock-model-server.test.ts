@@ -184,7 +184,7 @@ describe('bounded loopback model fixture', () => {
 
   it.each([
     ['HEAD', '/api/private?secret=not-recorded'],
-    ['POST', '/v1/messages?extra=true'],
+    ['POST', '/v1/undeclared?extra=true'],
     ['GET', '/v1/responses'],
     ['POST', '/v1/messages/count_tokens'],
   ])(
@@ -467,4 +467,17 @@ it('copies the script length and accepts omitted stream as non-streaming JSON', 
   expect(response.headers.get('content-type')).toBe('application/json');
   expect(await response.json()).toMatchObject({ status: 'completed' });
   expect(server.snapshot()).toMatchObject({ completedTurns: 1, plannedTurns: 1 });
+});
+
+it.each(['messages', 'responses'] as const)('matches %s by pathname when SDK query flags are present', async (protocol) => {
+  const server = await start([turn(protocol)]);
+  const response = await fetch(`${server.baseUrl}/v1/${protocol}?beta=true`, {
+    method: 'POST', headers: { authorization: `Bearer ${MOCK_MODEL_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body(protocol)), signal: AbortSignal.timeout(2000),
+  });
+  expect(response.status).toBe(200);
+  await response.text();
+  expect(server.snapshot()).toMatchObject({ completedTurns: 1 });
+  expect(server.snapshot().failure).toBeUndefined();
+  expect(server.snapshot().census[0].path).toBe(`/v1/${protocol}`);
 });
