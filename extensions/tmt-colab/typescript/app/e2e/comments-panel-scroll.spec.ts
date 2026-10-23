@@ -188,7 +188,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`comments-composer-${width}-${theme}.png`) });
     });
 
-test('the on-screen keyboard shrinks the Comments message area, not the composer', async ({
+test('the on-screen keyboard shrinks the Comments message area and the reply field, not the composer bar', async ({
   page,
 }) => {
   const { panel, scroller } = await openLongThread(page, 390, 'light');
@@ -201,7 +201,9 @@ test('the on-screen keyboard shrinks the Comments message area, not the composer
   await expect(field).toBeFocused();
   await expect.poll(() => pinned(composer, scroller)).toBe(true);
   const [bar, box] = await Promise.all([composer.boundingBox(), scroller.boundingBox()]);
-  expect(Math.abs(bar!.height - resting)).toBeLessThanOrEqual(1);
+  // The four-line reply field gives way to the compact two-line field in a short viewport.
+  const line = await lineHeight(field);
+  expect(Math.abs(resting - bar!.height - 2 * line)).toBeLessThanOrEqual(1);
   // The composer is fully on screen and messages keep room above it.
   expect(box!.height - bar!.height).toBeGreaterThan(100);
   // The last message stays reachable above the pinned composer.

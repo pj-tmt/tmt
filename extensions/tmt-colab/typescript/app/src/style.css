@@ -1671,8 +1671,12 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comment-thread[data-layout='discussion'] .conversation-composer {
   padding-inline: 0;
 }
-.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
-  min-height: 4lh;
+/* A short viewport (the on-screen keyboard, a landscape phone) keeps the compact two-line field,
+   so the messages keep their room. */
+@media (min-height: 561px) {
+  .comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
+    min-height: 4lh;
+  }
 }
 .comment-thread[data-layout='discussion'] .annotation-compose {
   display: grid;
