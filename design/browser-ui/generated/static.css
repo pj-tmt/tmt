@@ -1238,7 +1238,8 @@ svg.tmt-ui-mark {
     color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out),
     scale var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
 }
-.tmt-ui-action:active:not(:disabled):not([aria-busy='true']) {
+
+.tmt-ui-action:active:not(:disabled):where(:not([aria-busy='true'])) {
   scale: var(--tmt-ui-motion-scale);
 }
 
@@ -1248,8 +1249,10 @@ svg.tmt-ui-mark {
   color: var(--tmt-ui-color-on-accent);
   font-weight: 600;
 }
-.tmt-ui-action[data-variant='primary']:not(:disabled):not([aria-busy='true']):hover,
-.tmt-ui-action[data-variant='primary']:not(:disabled):not([aria-busy='true']):focus-visible {
+.tmt-ui-action[data-variant='primary']:not(:disabled):where(:not([aria-busy='true'])):hover,
+.tmt-ui-action[data-variant='primary']:not(:disabled):where(
+    :not([aria-busy='true'])
+  ):focus-visible {
   background: var(--tmt-ui-color-accent-strong);
 }
 
@@ -1273,8 +1276,8 @@ svg.tmt-ui-mark {
   background: transparent;
   text-decoration: none;
 }
-.tmt-ui-action[data-variant='ghost']:not(:disabled):not([aria-busy='true']):hover,
-.tmt-ui-action[data-variant='ghost']:not(:disabled):not([aria-busy='true']):focus-visible {
+.tmt-ui-action[data-variant='ghost']:not(:disabled):where(:not([aria-busy='true'])):hover,
+.tmt-ui-action[data-variant='ghost']:not(:disabled):where(:not([aria-busy='true'])):focus-visible {
   color: var(--tmt-ui-color-text);
 }
 
@@ -1292,15 +1295,17 @@ svg.tmt-ui-mark {
 .tmt-ui-action[data-variant='destructive'] .tmt-ui-action-mark {
   color: var(--tmt-ui-color-blocked);
 }
-.tmt-ui-action[data-variant='destructive']:not(:disabled):not([aria-busy='true']):hover,
-.tmt-ui-action[data-variant='destructive']:not(:disabled):not([aria-busy='true']):focus-visible {
+.tmt-ui-action[data-variant='destructive']:not(:disabled):where(:not([aria-busy='true'])):hover,
+.tmt-ui-action[data-variant='destructive']:not(:disabled):where(
+    :not([aria-busy='true'])
+  ):focus-visible {
   background: var(--tmt-ui-surface-blocked-soft);
 }
 .tmt-ui-action[data-variant='destructive']:focus-visible {
   border-color: var(--tmt-ui-color-focus-destructive);
 }
-.tmt-ui-action:not(:disabled):not([aria-busy='true']):hover,
-.tmt-ui-action:not(:disabled):not([aria-busy='true']):focus-visible {
+.tmt-ui-action:not(:disabled):where(:not([aria-busy='true'])):hover,
+.tmt-ui-action:not(:disabled):where(:not([aria-busy='true'])):focus-visible {
   background: var(--tmt-ui-surface-hover);
   box-shadow: none;
 }
