@@ -928,7 +928,6 @@ mod tests {
 
     #[test]
     fn strict_diagnostic_reply_keeps_fixed_codes_and_rejects_untrusted_evidence() {
-        use crate::error::DeployOperation;
         for (code, expected) in [
             ("provider-rejected", "REMOTE_DEPLOY_PROVIDER_REJECTED"),
             ("permission-denied", "REMOTE_DEPLOY_PERMISSION_DENIED"),
@@ -940,7 +939,10 @@ mod tests {
             let failure = parse_reply(&serde_json::to_vec(&raw).unwrap()).unwrap_err();
             let error = preflight_error(failure).remote_error();
             assert_eq!(error.code, expected);
-            assert_eq!(error.provider.unwrap().operation, DeployOperation::Fields);
+            assert_eq!(
+                error.json_value()["error"]["provider"]["operation"],
+                "fields"
+            );
             assert_eq!(error.json_value()["error"]["provider"], raw["provider"]);
         }
         for provider in [
