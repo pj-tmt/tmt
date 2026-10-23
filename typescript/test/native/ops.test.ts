@@ -6082,7 +6082,7 @@ describe('large board responsiveness', () => {
           return loads;
         };
         // Every switch paints at once from the acquired snapshot. A tab switch (1 Agents, 2 Digest)
-        // may start its own async fill afterwards; the Talk/Measure pane switch (t) loads nothing.
+        // may start its own async fill afterwards; the Talk/Measure pane switch (M) loads nothing.
         const switchTo = async (key: string, loads?: number) => {
           const before = tmux(['capture-pane', '-p', '-t', pane]);
           const pressed = Date.now();
@@ -6101,8 +6101,8 @@ describe('large board responsiveness', () => {
         await settle();
         await switchTo('1');
         const loads = await settle();
-        await switchTo('t', loads);
-        await switchTo('t', loads);
+        await switchTo('M', loads);
+        await switchTo('M', loads);
         // The board ends on q and its pane shell returns; only then does the server go.
         tmux(['send-keys', '-t', pane, 'q']);
         await vi.waitFor(
