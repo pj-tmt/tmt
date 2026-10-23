@@ -23,6 +23,8 @@ async function open(page: Page) {
     markers: page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
     row: page.getByTestId('annotation-row'),
     status: page.getByTestId('thread-row-status'),
+    // The Discussion view's status line, once a thread is open.
+    state: page.getByTestId('discussion-state'),
   };
 }
 const statusActions = async (page: Page) =>
@@ -31,16 +33,17 @@ const statusActions = async (page: Page) =>
 test('resolving hides the margin marker, Reopen restores it, and each click writes once', async ({
   page,
 }) => {
-  const { markers, row, status } = await open(page);
+  const { markers, row, status, state } = await open(page);
   await expect(markers).toHaveCount(1);
   await expect(status).toHaveText('1 comment');
   await row.click();
+  await expect(state).toHaveText('Open discussion');
   const thread = page.getByTestId('comment-thread');
   await thread.getByRole('button', { name: 'Resolve', exact: true }).click();
   await expect(thread.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
   await expect(markers).toHaveCount(0);
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
-  await expect(status).toHaveText('1 comment · Resolved by You');
+  await expect(state).toHaveText('Resolved by You');
   await expect(thread.getByText('Detached')).toHaveCount(0);
   expect(await statusActions(page)).toEqual(['status:resolve']);
   await thread.getByRole('button', { name: 'Reopen', exact: true }).click();
@@ -50,7 +53,7 @@ test('resolving hides the margin marker, Reopen restores it, and each click writ
 });
 
 test('an agent resolution stays unseen until the person opens the thread', async ({ page }) => {
-  const { toggle, markers, row, status } = await open(page);
+  const { toggle, markers, row, status, state } = await open(page);
   await run(page, 'agentResolves');
   await expect(markers).toHaveCount(0);
   await expect(toggle).toHaveAccessibleName(/New/);
@@ -61,7 +64,7 @@ test('an agent resolution stays unseen until the person opens the thread', async
   // Rendering and the open panel never acknowledge it.
   expect(await run(page, 'seenProof')).toBe(0);
   await row.click();
-  await expect(status).toHaveText('1 comment · Resolved by Atlas');
+  await expect(state).toHaveText('Resolved by Atlas');
   await expect(toggle).not.toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(1);
   await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-anchor', 'resolved');
@@ -74,7 +77,7 @@ test('a device without owner-member provenance gets no Resolve or Reopen control
   await run(page, 'nonOwnerDevice');
   await row.click();
   const thread = page.getByTestId('comment-thread');
-  await expect(thread.getByRole('button', { name: 'Close thread', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All comments', exact: true })).toBeVisible();
   await expect(thread.getByRole('button', { name: 'Resolve', exact: true })).toHaveCount(0);
   await run(page, 'agentResolves');
   await expect(thread.getByRole('button', { name: 'Reopen', exact: true })).toHaveCount(0);
@@ -103,11 +106,11 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   page,
 }) => {
   await setLook(page);
-  const { row, status } = await open(page);
+  const { row, state } = await open(page);
   await row.click();
   const thread = page.getByTestId('comment-thread');
   await expect(thread.getByTestId('comment-entry').first()).toBeVisible();
-  await expect(status).toHaveText('1 comment');
+  await expect(state).toHaveText('Open discussion');
   await capture(page, 'open');
   const open_ = await box(thread);
   await run(page, 'holdStatusOnce');
@@ -115,10 +118,9 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   // The write is held: the resolved summary is already there, at its final size.
   await expect(thread.locator('.resolved-summary')).toBeVisible();
   await expect(thread.getByTestId('comment-entry').first()).toBeHidden();
-  await expect(thread.getByText('Resolved', { exact: true })).toBeVisible();
-  // The Comments list row shows the same state in the same frame.
-  await expect(status).toHaveText('1 comment · Resolved');
-  await expect(row).toHaveAttribute('data-resolved', 'true');
+  // The status line shows the same state in the same frame.
+  await expect(state).toHaveText('Resolved');
+  await expect(state).toHaveAttribute('data-state', 'resolved');
   await capture(page, 'click-frame');
   const echoed = await box(thread);
   expect(echoed.height).toBeLessThan(open_.height);
@@ -126,7 +128,7 @@ test('Resolve shows the resolved thread in the click frame, and the record takes
   await run(page, 'releaseStatus');
   await expect(thread).toHaveAttribute('data-anchor', 'resolved');
   await expect(thread.locator('.resolved-summary')).toBeVisible();
-  await expect(status).toHaveText('1 comment · Resolved by You');
+  await expect(state).toHaveText('Resolved by You');
   // Focus stays on the control, which now offers Reopen.
   await expect(thread.getByRole('button', { name: 'Reopen', exact: true })).toBeFocused();
   const verified = await box(thread);
@@ -139,7 +141,7 @@ test('a Resolve that fails restores the open thread, reports at once and keeps f
   page,
 }) => {
   await setLook(page);
-  const { row, status } = await open(page);
+  const { row, state } = await open(page);
   await row.click();
   const thread = page.getByTestId('comment-thread');
   const open_ = await box(thread);
@@ -153,8 +155,8 @@ test('a Resolve that fails restores the open thread, reports at once and keeps f
     fixture,
   );
   await expect(thread.locator('.resolved-summary')).toHaveCount(0);
-  await expect(status).toHaveText('1 comment');
-  await expect(row).not.toHaveAttribute('data-resolved');
+  await expect(state).toHaveText('Open discussion');
+  await expect(state).toHaveAttribute('data-state', 'open');
   await expect(thread.getByRole('alert')).toBeVisible();
   await expect(thread.getByRole('button', { name: 'Resolve', exact: true })).toBeFocused();
   await capture(page, 'failed');

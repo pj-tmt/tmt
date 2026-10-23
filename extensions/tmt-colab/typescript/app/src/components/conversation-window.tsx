@@ -32,6 +32,7 @@ export function ConversationWindow({
   historyClassName = '',
   notice,
   composer,
+  footer,
   overlay,
   notificationDestination,
   children,
@@ -50,6 +51,8 @@ export function ConversationWindow({
   historyClassName?: string;
   notice?: ReactNode;
   composer?: ReactNode;
+  /** After the composer, and shown while the history is collapsed. */
+  footer?: ReactNode;
   overlay?: ReactNode;
   notificationDestination?: string;
 }) {
@@ -245,6 +248,7 @@ export function ConversationWindow({
           {composer}
         </div>
       )}
+      {footer}
       {overlay}
     </section>
   );

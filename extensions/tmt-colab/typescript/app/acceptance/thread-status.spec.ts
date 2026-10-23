@@ -77,7 +77,7 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     await view(second, 'Open');
     await expect(row2).toContainText(text.commentCount(1));
     await expect.poll(() => listing().threads[0].resolved).toBe(false);
-    await first.getByRole('button', { name: text.threadClose, exact: true }).click();
+    await first.getByRole('button', { name: text.allComments, exact: true }).click();
 
     // An agent resolves through the native CLI publication.
     const resolved = JSON.parse(
@@ -236,6 +236,7 @@ test('status states captured for the UX look', async () => {
     await expect(row2).toContainText(text.commentCount(1));
 
     // One more open thread (a page comment), then the agent resolves the first one.
+    await first.getByRole('button', { name: text.allComments, exact: true }).click();
     await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
     await first
       .getByRole('combobox', { name: 'Post comment', exact: true })
@@ -249,15 +250,20 @@ test('status states captured for the UX look', async () => {
     await shoot(second, 'agent-unseen', { header: true });
     await row2.click();
     const t2 = second.getByTestId('comment-thread').first();
-    await expect(t2).toContainText(text.threadResolvedBy(agent.name));
+    await expect(second.getByTestId('discussion-state')).toContainText(
+      text.threadResolvedBy(agent.name),
+    );
     await toggleCopy(second, `${text.comments} 1`, 'open-after-seen');
     await shoot(second, 'agent-seen');
     // Keyboard focus on the window's own controls.
     await second.keyboard.press('Shift');
-    for (const name of [text.threadReopen, text.threadClose]) {
-      await t2.getByRole('button', { name, exact: true }).focus();
+    for (const [name, area] of [
+      [text.threadReopen, t2.locator('.discussion-footer')],
+      [text.allComments, second.locator('.discussion-status')],
+    ] as const) {
+      await second.getByRole('button', { name, exact: true }).focus();
       await second.mouse.move(0, 899);
-      await t2.locator('.thread-bar').screenshot({
+      await area.screenshot({
         path: `${captureDir}/focus-${name === text.threadReopen ? 'reopen' : 'close'}.png`,
       });
     }

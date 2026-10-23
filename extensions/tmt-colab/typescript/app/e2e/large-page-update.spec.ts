@@ -66,7 +66,7 @@ test('a reply on a large page updates its thread and leaves the document alone',
   const drawer = page.locator('.tmt-ui-drawer[open]');
   await drawer.getByRole('button', { name: /^8 Comment on paragraph 7\./ }).click();
   await expect(
-    drawer.getByTestId('comment-thread').getByText('Comment on paragraph 7.'),
+    drawer.getByTestId('comment-entry').getByText('Comment on paragraph 7.'),
   ).toBeVisible();
   // Let the opening work settle, then count only what the reply causes.
   const before = await quiet(page);

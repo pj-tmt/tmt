@@ -1,7 +1,7 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
-import { Check, ChevronUp, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronUp, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
 import {
   BrowserAction,
   BrowserIconAction,
@@ -466,13 +466,23 @@ export function CommentExchange({
   );
 }
 
+/** The thread's title: a proposal's title, else the first line of its first comment. */
+export function threadTitle(thread: ThreadView) {
+  if (thread.deleted) return text.threadDeleted;
+  if (thread.proposal) return thread.proposal.title;
+  const first =
+    thread.comments.find((value) => !value.deleted && value.ref.writer === thread.ref.writer) ??
+    thread.comments.find((value) => !value.deleted);
+  return first?.body.split('\n')[0] || text.pageComments;
+}
+
 export type ThreadWindowProps = {
   number?: number;
   creationRecipient?: CreationRecipient;
   /** Absent until the first committed turn; the composer stays in this same window. */
   thread?: ThreadView;
   anchor?: QuoteSelector;
-  layout?: 'panel' | 'anchored';
+  layout?: 'panel' | 'anchored' | 'discussion';
   attached: boolean;
   anchorsChecked: boolean;
   selection: QuoteSelector | null;
@@ -499,6 +509,8 @@ export type ThreadWindowProps = {
    */
   pendingResolved?: boolean;
   onPendingResolved?(pending: boolean | undefined): void;
+  /** The discussion layout's passage arrow: show the thread's passage in the page. */
+  onShowInPage?(): void;
 };
 
 export function ThreadWindow({
@@ -527,6 +539,7 @@ export function ThreadWindow({
   onStatusChange,
   pendingResolved: parentPending,
   onPendingResolved,
+  onShowInPage,
 }: ThreadWindowProps) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false),
@@ -543,6 +556,7 @@ export function ThreadWindow({
     if (pendingResolved === thread?.resolved) setPendingResolved(undefined);
   }, [pendingResolved, thread?.resolved, setPendingResolved]);
   const collapsed = !!thread && !!shownResolved && !showResolved;
+  const discussion = layout === 'discussion';
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
   // A resolved thread leaves the page's marker set, so its attachment is not
@@ -608,6 +622,8 @@ export function ThreadWindow({
     <AttachmentDropPanel target="thread" active={!collapsed}>
       <ConversationWindow
         collapsed={collapsed}
+        hideHeader={discussion}
+        historyLabel={discussion ? text.discussion : undefined}
         summary={
           <div className="resolved-summary">
             <p>
@@ -712,6 +728,33 @@ export function ThreadWindow({
         }
         notice={
           <>
+            {discussion && thread && (
+              <>
+                <h3 className="discussion-title">{threadTitle(thread)}</h3>
+                {anchor && (
+                  <div className="discussion-quote thread-state" title={anchor.exact}>
+                    {number !== undefined && <span className="annotation-number">{number}</span>}
+                    <q>{anchor.exact}</q>
+                    {onShowInPage && (
+                      <BrowserIconAction
+                        type="button"
+                        variant="text"
+                        label={text.threadShowInPage}
+                        icon={<ArrowLeft />}
+                        onActivate={(event) => {
+                          if (event.isTrusted) onShowInPage();
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+                {tracked && (
+                  <span className="comment-status">
+                    {attached ? text.commentAnchored : text.commentDetached}
+                  </span>
+                )}
+              </>
+            )}
             {observationUnavailable && (
               <p role="status" className="annotation-hint">
                 {text.askObservationUnavailable}
@@ -724,6 +767,27 @@ export function ThreadWindow({
             )}
             {error && <p role="alert">{text.commentFailed}</p>}
           </>
+        }
+        footer={
+          discussion &&
+          thread &&
+          !archived &&
+          onStatusChange &&
+          status?.controllable &&
+          !thread.deleted ? (
+            <div className="discussion-footer">
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={thread.resolved ? text.threadReopen : text.threadResolve}
+                busy={busy}
+                disabled={blocked}
+                onActivate={(event) => {
+                  if (event.isTrusted) changeStatus(!thread.resolved);
+                }}
+              />
+            </div>
+          ) : undefined
         }
         messageIds={messageIds}
         ownWriter={binding?.deviceId}
@@ -861,6 +925,7 @@ export function ThreadPanel({
   onBusy,
   renderProposal,
   reopenProposal,
+  showInPage,
 }: {
   creationRecipient?: CreationRecipient;
   hideHeader?: boolean;
@@ -885,6 +950,8 @@ export function ThreadPanel({
   onBusy?(busy: boolean): void;
   renderProposal?(thread: ThreadView): ReactNode;
   reopenProposal?(thread: ThreadView): void;
+  /** The Discussion view's passage arrow. */
+  showInPage?(ref: DiscussionRef): void;
 }) {
   const numbers = suppliedNumbers ?? threadNumbers(threads);
   const [compose, setCompose] = useState(false);
@@ -907,15 +974,15 @@ export function ThreadPanel({
     return { thread, id, status, shownResolved, needsYou };
   });
   const matches = (row: (typeof rows)[number]) =>
-    row.id === active ||
-    (shownView === 'open'
+    shownView === 'open'
       ? !row.shownResolved
       : shownView === 'needs'
         ? row.needsYou
         : shownView === 'resolved'
           ? row.shownResolved
-          : !!row.thread.proposal);
+          : !!row.thread.proposal;
   const visibleRows = rows.filter(matches);
+  const discussed = active ? rows.find((row) => row.id === active) : undefined;
   const tab = (id: CommentsView, label: string, state?: BrowserTab['state']): BrowserTab => ({
     id,
     tabId: `${scope}-tab-${id}`,
@@ -935,6 +1002,80 @@ export function ThreadPanel({
     ),
     ...(hasProposals ? [tab('proposals', text.commentsViewProposals)] : []),
   ];
+  if (discussed) {
+    const { thread, id, status, shownResolved, needsYou } = discussed;
+    return (
+      <aside
+        className="comments-panel"
+        aria-label={text.discussion}
+        data-testid="comments-panel"
+        data-view="discussion"
+      >
+        <div className="discussion-status">
+          <span
+            className="discussion-state"
+            data-state={shownResolved ? 'resolved' : needsYou ? 'needs' : 'open'}
+            data-testid="discussion-state"
+          >
+            {shownResolved ? (
+              <Check aria-hidden />
+            ) : needsYou ? (
+              <span aria-hidden="true">◆</span>
+            ) : null}
+            {shownResolved
+              ? pending[id] !== undefined
+                ? text.threadResolved
+                : resolvedLabel(status)
+              : needsYou
+                ? text.needsYouWord
+                : text.discussionOpen}
+          </span>
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={text.allComments}
+            onActivate={(event) => {
+              if (event.isTrusted) select(null);
+            }}
+          />
+        </div>
+        {thread.proposal ? (
+          renderProposal?.(thread)
+        ) : (
+          <ThreadWindow
+            layout="discussion"
+            connectionPresentation={connectionPresentation}
+            archived={archived}
+            creationRecipient={creationRecipient}
+            thread={thread}
+            number={numbers.get(id)}
+            attached={resolved.includes(id)}
+            anchorsChecked={anchorsChecked}
+            selection={selection}
+            binding={binding}
+            ask={ask}
+            asks={asks}
+            title={title}
+            close={() => select(null)}
+            blocked={blocked}
+            initialEdit={draft?.(thread.ref)}
+            onDraft={(edit) => onDraft?.(thread.ref, edit)}
+            onBusy={onBusy}
+            status={status}
+            onStatusChange={onStatusChange && ((resolved) => onStatusChange(thread, resolved))}
+            pendingResolved={pending[id]}
+            onPendingResolved={(value) =>
+              setPending((previous) => {
+                const { [id]: _, ...rest } = previous;
+                return value === undefined ? rest : { ...rest, [id]: value };
+              })
+            }
+            onShowInPage={showInPage && thread.anchor ? () => showInPage(thread.ref) : undefined}
+          />
+        )}
+      </aside>
+    );
+  }
   return (
     <aside className="comments-panel" aria-label={text.comments} data-testid="comments-panel">
       {!hideHeader && (
@@ -1000,9 +1141,7 @@ export function ThreadPanel({
                     thread.comments.find(
                       (value) => !value.deleted && value.ref.writer === thread.ref.writer,
                     ) ?? thread.comments.find((value) => !value.deleted);
-                  const rowTitle = thread.deleted
-                    ? text.threadDeleted
-                    : (thread.proposal?.title ?? first?.body.split('\n')[0] ?? text.pageComments);
+                  const rowTitle = threadTitle(thread);
                   const quote = thread.proposal
                     ? `${text.proposalOpen} · ${thread.proposal.proposer.label}`
                     : thread.anchor?.exact;
@@ -1037,10 +1176,8 @@ export function ThreadPanel({
                           title={Array.from(first?.body.split('\n')[0] ?? '')
                             .slice(0, 32)
                             .join('')}
-                          aria-expanded={active === id}
                           onClick={(event) => {
-                            if (event.isTrusted)
-                              select(thread.proposal && active === id ? null : thread.ref);
+                            if (event.isTrusted) select(thread.ref);
                           }}
                         >
                           {numbers.get(id) !== undefined && (
@@ -1075,41 +1212,6 @@ export function ThreadPanel({
                             </span>
                           )}
                       </div>
-                      {active === id &&
-                        (thread.proposal ? (
-                          renderProposal?.(thread)
-                        ) : (
-                          <ThreadWindow
-                            connectionPresentation={connectionPresentation}
-                            archived={archived}
-                            creationRecipient={creationRecipient}
-                            thread={thread}
-                            number={numbers.get(id)}
-                            attached={resolved.includes(id)}
-                            anchorsChecked={anchorsChecked}
-                            selection={selection}
-                            binding={binding}
-                            ask={ask}
-                            asks={asks}
-                            title={title}
-                            close={() => select(null)}
-                            blocked={blocked}
-                            initialEdit={draft?.(thread.ref)}
-                            onDraft={(edit) => onDraft?.(thread.ref, edit)}
-                            onBusy={onBusy}
-                            status={status}
-                            onStatusChange={
-                              onStatusChange && ((resolved) => onStatusChange(thread, resolved))
-                            }
-                            pendingResolved={pending[id]}
-                            onPendingResolved={(value) =>
-                              setPending((previous) => {
-                                const { [id]: _, ...rest } = previous;
-                                return value === undefined ? rest : { ...rest, [id]: value };
-                              })
-                            }
-                          />
-                        ))}
                     </section>
                   );
                 })}

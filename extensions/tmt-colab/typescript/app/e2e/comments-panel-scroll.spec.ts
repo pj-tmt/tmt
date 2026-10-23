@@ -118,10 +118,19 @@ test('a message arriving in the Comments panel stays reachable and does not move
 
 const lineHeight = (node: Locator) =>
   node.evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
-/** The composer's bottom edge sits on the scroller's bottom edge (within a pixel). */
+/** The composer's bottom edge sits on the scroller's bottom edge (within a pixel), or, at the end
+ * of the scroll, on the top of the Resolve footer that follows it. */
 const pinned = async (composer: Locator, scroller: Locator) => {
-  const [bar, box] = await Promise.all([composer.boundingBox(), scroller.boundingBox()]);
-  return !!bar && !!box && Math.abs(bar.y + bar.height - (box.y + box.height)) <= 1;
+  const footer = scroller.locator('.discussion-footer');
+  const [bar, box, below] = await Promise.all([
+    composer.boundingBox(),
+    scroller.boundingBox(),
+    footer.boundingBox(),
+  ]);
+  if (!bar || !box) return false;
+  const edge = Math.abs(bar.y + bar.height - (box.y + box.height)) <= 1;
+  const onFooter = !!below && Math.abs(bar.y + bar.height - below.y) <= 1;
+  return edge || onFooter;
 };
 
 for (const width of [1440, 390])

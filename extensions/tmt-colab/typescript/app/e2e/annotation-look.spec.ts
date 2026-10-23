@@ -203,6 +203,7 @@ for (const width of [1440, 390])
         path: `${captures}/annotation-resolved-expanded-${width}-${theme}.png`,
       });
       await run(page, 'annotationLookDelete');
+      await panel.getByRole('button', { name: 'All comments', exact: true }).click();
       expect(await allNumbers()).toEqual(['1', '2', '3', '4']);
       await expect(markers).toHaveText(['1', '+2']);
       expect(

@@ -377,16 +377,18 @@ for (const [width, theme] of [
     await expect(header).toHaveAccessibleName('Discussion (2)');
     if (captureDir)
       await page.screenshot({ path: `${captureDir}/proposals-filter-${width}-${theme}.png` });
-    const foldedTitle = folded.getByTestId('annotation-row');
-    await foldedTitle.click();
-    await expect(foldedTitle).toHaveAttribute('aria-expanded', 'true');
-    await expect(folded.locator('.proposal-body')).toBeVisible();
+    // Opening the folded row shows its retained history in the Discussion view; All comments returns.
+    await folded.getByTestId('annotation-row').click();
+    await expect(panel.getByTestId('discussion-state')).toHaveText(/^Resolved/);
+    await expect(panel.locator('.proposal-body')).toBeVisible();
     await expect(header).toHaveAccessibleName('Discussion (2)');
-    await foldedTitle.click();
-    await expect(foldedTitle).toHaveAttribute('aria-expanded', 'false');
-    await expect(folded.locator('.proposal-body')).toHaveCount(0);
+    await panel.getByRole('button', { name: 'All comments', exact: true }).click();
+    await expect(panel.locator('.proposal-body')).toHaveCount(0);
+    // Reopening opens the proposal's Discussion view, where it can be decided again.
     await folded.getByRole('button', { name: 'Reopen', exact: true }).click();
     await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(panel.getByTestId('discussion-state')).toContainText('Needs you');
+    await panel.getByRole('button', { name: 'All comments', exact: true }).click();
     await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
     const row = panel
       .getByTestId('annotation-row')
@@ -398,7 +400,8 @@ for (const [width, theme] of [
     await expect(approved.locator('.proposal-state')).toHaveText('Approved');
     await approved.getByRole('button', { name: 'Resolve', exact: true }).click();
     await expect(header).toHaveAccessibleName('Discussion (3)');
-    await expect(approved).toHaveCount(0);
+    // Resolve folds the proposal: the panel is back on the list, with a folded row.
+    await expect(row).toHaveAttribute('data-resolved', 'true');
     await row
       .locator('..')
       .locator('..')
@@ -427,8 +430,8 @@ test('folded proposal keeps agent resolution unseen until its history is opened'
   await panel.getByRole('tab', { name: 'Proposals', exact: true }).click();
   expect(await run(page, 'seenProof')).toBe(0);
   await folded.getByTestId('annotation-row').click();
-  await expect(folded.getByTestId('thread-row-status')).toHaveText('Resolved by Atlas');
-  await expect(folded.locator('.proposal-body')).toBeVisible();
+  await expect(panel.getByTestId('discussion-state')).toHaveText('Resolved by Atlas');
+  await expect(panel.locator('.proposal-body')).toBeVisible();
   expect(await run(page, 'seenProof')).toBe(1);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
 });
