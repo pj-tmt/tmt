@@ -30,6 +30,18 @@ impl Versions {
             (self.ops != self.cli).then_some(self.ops.as_str()),
         )
     }
+
+    /// The short form of the CLI version, for a header with no room for the whole.
+    pub fn compact(&self) -> &str {
+        compact(&self.cli)
+    }
+}
+
+/// The short form of a version: its prerelease tail (`alpha.378` of `5.0.0-alpha.378`), or the
+/// plain version when it has none. Build metadata is never part of it.
+fn compact(version: &str) -> &str {
+    let version = version.split('+').next().unwrap_or(version);
+    version.split_once('-').map_or(version, |(_, tail)| tail)
 }
 
 #[cfg(test)]
@@ -93,10 +105,12 @@ pub(in crate::board) mod tests {
             row.starts_with(" ▚ TMT 5.0.0-alpha.378 · ops 0.1.0-alpha.4   OPS / UI"),
             "{row:?}"
         );
-        // The Snapshots control and the counts keep their room at 80 columns.
+        // At 80 columns the version wins over the Snapshots control; the counts stay.
         let row = first_row(&app, 80);
         assert!(
-            row.starts_with(" ▚ TMT   OPS / UI") && row.contains("Snapshots"),
+            row.starts_with(" ▚ TMT 5.0.0-alpha.378   OPS / UI")
+                && !row.contains("Snapshots")
+                && row.contains("1 online"),
             "{row:?}"
         );
         let help = crate::board::help::model(&app).value();
@@ -133,6 +147,19 @@ pub(in crate::board) mod tests {
         crate::test_support::write_ready_executable(&broken, "#!/bin/sh\nexit 1\n");
         assert_eq!(read(&Core::at(broken)), None);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_compact_form_is_the_prerelease_tail_or_the_plain_version() {
+        for (full, short) in [
+            ("5.0.0-alpha.378", "alpha.378"),
+            ("5.0.0-alpha.378+abc", "alpha.378"),
+            ("5.0.0-rc.1-x", "rc.1-x"),
+            ("5.0.0", "5.0.0"),
+            ("5.0.0+build.7", "5.0.0"),
+        ] {
+            assert_eq!(compact(full), short, "{full}");
+        }
     }
 
     #[test]

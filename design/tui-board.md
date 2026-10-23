@@ -138,8 +138,10 @@ use Waiting at 80% or more. The mark carries the installed `tmt` version, read
 once at start (`tmt --version`), muted, and the Ops build's own version after
 `· ops` when it differs; until it is read, or if it cannot be, the mark stands
 alone, and `?` Help lists both versions in full. At narrow widths the Ops
-version, the `tmt` version, weekly values, count words, the context window and
-`OPS / UI` yield in that order, as whole segments; the mark never yields.
+version, the Snapshots control, the full `tmt` version (to its prerelease tail,
+`alpha.378`, or the plain version), the compact version, weekly values, count
+words, the context window and `OPS / UI` yield in that order, as whole segments;
+the counts outrank the version, and the mark never yields.
 
 The dense tree keeps virtual Common pool first, then pinned squads and current
 sort order. Common pool means zero Ops squad memberships, proven by complete

@@ -73,10 +73,13 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
     use crate::action::{Action, OpsUiAction};
     let key = crate::board::keycap::key(app, OpsUiAction::WorkspaceSnapshots, "w");
     let label = crate::board::keycap::label(key.as_deref(), "Snapshots", false, app.look());
-    let (version, ops) = app.versions.as_ref().map_or((None, None), |versions| {
-        let (version, ops) = versions.named();
-        (Some(version), ops)
-    });
+    let (version, ops, compact) = app
+        .versions
+        .as_ref()
+        .map_or((None, None, None), |versions| {
+            let (version, ops) = versions.named();
+            (Some(version), ops, Some(versions.compact()))
+        });
     let control = crate::board::top_bar::paint_with_control(
         buffer,
         area,
@@ -84,6 +87,7 @@ fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now:
             layer: (app.view_layer.name() != "default").then(|| app.view_layer.name()),
             version,
             ops,
+            compact,
         },
         attention.as_ref(),
         Some(&observations),

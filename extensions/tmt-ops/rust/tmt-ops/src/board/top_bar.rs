@@ -103,6 +103,15 @@ impl Attention {
     }
 }
 
+/// How much of the running version a caption stage names.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Named {
+    WithOps,
+    Full,
+    Compact,
+    None,
+}
+
 #[cfg(test)]
 fn paint(
     buffer: &mut Buffer,
@@ -120,12 +129,14 @@ fn paint(
 }
 
 /// What the caption names after the mark: the named view layer and the running version,
-/// with the Ops build's own when it differs from the CLI's.
+/// with the Ops build's own when it differs from the CLI's, and the compact form the
+/// version shrinks to when the full one does not fit.
 #[derive(Clone, Copy, Default)]
 pub(in crate::board) struct Caption<'a> {
     pub layer: Option<&'a str>,
     pub version: Option<&'a str>,
     pub ops: Option<&'a str>,
+    pub compact: Option<&'a str>,
 }
 
 /// Paints the caption and attention strip. A control of `control_width` columns takes the right
@@ -138,6 +149,7 @@ pub(in crate::board) fn paint_with_control(
         layer,
         version,
         ops,
+        compact,
     }: Caption<'_>,
     attention: Option<&Attention>,
     observations: Option<&Observations<'_>>,
@@ -145,24 +157,36 @@ pub(in crate::board) fn paint_with_control(
     control_width: u16,
 ) -> Option<Rect> {
     // Whole semantic segments yield in the approved order. Never fit a partial
-    // percentage or token count into the space between the two owners. The Ops build's
-    // version yields first, then the CLI's, before any of them; the mark never does.
+    // percentage or token count into the space between the two owners. The version
+    // yields first, in this order: the Ops build's, the control, the full CLI version
+    // (to its compact form), the compact form; counts outrank it, and the mark never yields.
     let stages = [
-        (2, true, true, true, true),
-        (1, true, true, true, true),
-        (0, true, true, true, true),
-        (0, false, true, true, true),
-        (0, false, false, true, true),
-        (0, false, false, false, true),
-        (0, false, false, false, false),
+        (Named::WithOps, true, true, true, true, true),
+        (Named::Full, true, true, true, true, true),
+        (Named::Full, false, true, true, true, true),
+        (Named::Compact, false, true, true, true, true),
+        (Named::None, true, true, true, true, true),
+        (Named::None, true, false, true, true, true),
+        (Named::None, true, false, false, true, true),
+        (Named::None, true, false, false, false, true),
+        (Named::None, true, false, false, false, false),
     ];
-    for (index, (named, weekly, words, window, brand)) in stages.into_iter().enumerate() {
-        // A stage that names a version the caption has none of is the stage below it.
-        if (named == 2 && ops.is_none()) || (named > 0 && version.is_none()) {
-            continue;
-        }
-        let version = version.filter(|_| named > 0);
-        let ops = ops.filter(|_| named == 2);
+    for (index, (named, with_control, weekly, words, window, brand)) in
+        stages.into_iter().enumerate()
+    {
+        // A stage that names what the caption has none of is the stage below it.
+        let text = match (named, version, ops, compact) {
+            (Named::None, ..) => None,
+            (Named::WithOps, Some(version), Some(ops), _) => {
+                Some(format!(" {version} · ops {ops}"))
+            }
+            (Named::Full, Some(version), ..) => Some(format!(" {version}")),
+            (Named::Compact, Some(version), _, Some(compact)) if compact != version => {
+                Some(format!(" {compact}"))
+            }
+            _ => continue,
+        };
+        let control_width = if with_control { control_width } else { 0 };
         let right = attention.map(|value| {
             if words {
                 value.fitted(look, usize::from(area.width))
@@ -175,12 +199,10 @@ pub(in crate::board) fn paint_with_control(
                 .saturating_sub((line.width() as u16).saturating_add(2))
         });
         let mut caption = Line::from(vec![Span::styled(" ▚ TMT", look.role(Role::Text))]);
-        if let Some(version) = version {
-            let ops = ops.map(|ops| format!(" · ops {ops}")).unwrap_or_default();
-            caption.spans.push(Span::styled(
-                format!(" {version}{ops}"),
-                look.role(Role::Muted),
-            ));
+        if let Some(text) = &text {
+            caption
+                .spans
+                .push(Span::styled(text.clone(), look.role(Role::Muted)));
         }
         caption.spans.extend([
             Span::styled(if brand { "   " } else { "" }, look.role(Role::Text)),
@@ -197,7 +219,7 @@ pub(in crate::board) fn paint_with_control(
                     1,
                 )
             });
-        if version.is_some() && control_width > 0 && control.is_none() {
+        if text.is_some() && control_width > 0 && control.is_none() {
             continue;
         }
         if control.is_some() {
@@ -208,7 +230,7 @@ pub(in crate::board) fn paint_with_control(
                 .then(|| usize::from(left_width).saturating_sub(caption.width()));
             value.line(weekly, window, width, look)
         });
-        if version.is_some()
+        if text.is_some()
             && caption.width() + extra.as_ref().map_or(0, Line::width) > usize::from(left_width)
         {
             continue;
@@ -325,6 +347,8 @@ mod tests {
                 layer: None,
                 version: version.map(|(version, _)| version),
                 ops: version.and_then(|(_, ops)| ops),
+                compact: version
+                    .and_then(|(version, _)| version.split_once('-').map(|(_, tail)| tail)),
             },
             Some(&attention()),
             None,
@@ -353,7 +377,7 @@ mod tests {
             Caption {
                 layer: None,
                 version: Some("5.0.0"),
-                ops: None,
+                ..Caption::default()
             },
             None,
             None,
@@ -368,45 +392,57 @@ mod tests {
             "the mark keeps its role"
         );
     }
+    /// 0 Ops build and control, 1 version and control, 2 version alone, 3 compact, 4 none.
+    fn rank(text: &str, control: Option<Rect>) -> usize {
+        match (
+            text.contains("ops 0.1.0"),
+            text.contains("5.0.0-alpha.378"),
+            text.contains("alpha.378"),
+            control.is_some(),
+        ) {
+            (true, true, _, true) => 0,
+            (false, true, _, true) => 1,
+            (false, true, _, false) => 2,
+            (false, false, true, false) => 3,
+            (false, false, false, _) => 4,
+            other => panic!("not a stage: {other:?} {text:?}"),
+        }
+    }
     #[test]
-    fn the_version_yields_before_any_count_the_caption_or_the_control_and_the_mark_stays() {
-        let (mut shown, mut dropped, mut only_cli) = (0, 0, 0);
+    fn the_version_yields_in_order_before_the_counts_and_the_mark_stays() {
+        let mut stages = [0usize; 5];
+        let mut last = 0;
         for width in (14..=150).rev() {
-            for control in [0, 15] {
-                let (with, with_control) = top(width, Some(VERSION), control);
-                let (without, without_control) = top(width, None, control);
-                if with.contains("5.0.0-alpha.378") {
-                    shown += 1;
-                    only_cli += usize::from(!with.contains("ops 0.1.0"));
+            let (with, with_control) = top(width, Some(VERSION), 15);
+            let (without, _) = top(width, None, 15);
+            let rank = rank(&with, with_control);
+            assert!(
+                rank >= last,
+                "{width}: the stages only advance as the bar narrows"
+            );
+            (stages[rank], last) = (stages[rank] + 1, rank);
+            if rank < 4 {
+                // Counts, the caption and the mark keep their room while any version shows.
+                for word in ["online", "need you", "blocked", "OPS / UI"] {
                     assert_eq!(
-                        with_control.is_some(),
-                        without_control.is_some(),
-                        "{width}: the version never takes the control's room"
+                        with.contains(word),
+                        without.contains(word),
+                        "{width} {word}"
                     );
-                    for word in ["online", "need you", "blocked", "OPS / UI"] {
-                        assert_eq!(
-                            with.contains(word),
-                            without.contains(word),
-                            "{width} {word}"
-                        );
-                    }
-                } else {
-                    dropped += 1;
-                    assert_eq!(with, without, "{width}: a dropped version leaves no trace");
-                    assert_eq!(with_control, without_control, "{width}");
                 }
+                assert!(with.starts_with(" ▚ TMT"), "{width}: {with:?}");
+            } else {
                 assert_eq!(
-                    with.starts_with(" ▚ TMT"),
-                    without.starts_with(" ▚ TMT"),
-                    "{width}: the version never costs the mark: {with:?}"
+                    with.split_whitespace().collect::<Vec<_>>(),
+                    without.split_whitespace().collect::<Vec<_>>(),
+                    "{width}: a dropped version leaves no trace"
                 );
-                if width >= 60 {
-                    assert!(with.starts_with(" ▚ TMT"), "{width}: {with:?}");
-                }
             }
         }
-        assert!(shown > 0 && dropped > 0, "{shown} shown, {dropped} dropped");
-        assert!(only_cli > 0, "the Ops build yields before the CLI version");
+        assert!(
+            stages.iter().all(|count| *count > 0),
+            "every stage is reached: {stages:?}"
+        );
     }
     #[test]
     fn only_nonzero_attention_glyphs_use_state_colour() {
