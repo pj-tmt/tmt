@@ -2028,6 +2028,9 @@ fn a_moved_cursor_reads_once_and_shows_the_spinner_only_after_the_delay() {
 #[test]
 fn the_response_rule_carries_the_same_delayed_spinner() {
     let mut app = settled_workspace();
+    let view = app.view.as_mut().unwrap();
+    view.look = crate::look::Look::default();
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     app.observe_cursor(Some(5));
     let now = 1_791_600_000_000;
     let delay = crate::board::view::SPINNER_DELAY.as_millis() as u64;
@@ -2056,6 +2059,9 @@ fn the_response_rule_carries_the_same_delayed_spinner() {
 #[test]
 fn the_refresh_glyph_turns_on_the_shared_tick_and_holds_still_without_motion() {
     let mut app = settled_workspace();
+    let view = app.view.as_mut().unwrap();
+    view.look = crate::look::Look::default();
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     app.observe_cursor(Some(5));
     let start = 1_791_600_000_000;
     let after = start + crate::board::view::SPINNER_DELAY.as_millis() as u64;

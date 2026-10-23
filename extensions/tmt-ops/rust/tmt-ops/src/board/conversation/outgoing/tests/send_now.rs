@@ -302,6 +302,9 @@ fn the_working_state_mark_spins_with_the_shared_tick_and_other_marks_hold_still(
         ("delivered", "typed into the agent", false, false),
     ] {
         let mut app = crate::board::app::workspace::tests::board();
+        let view = app.view.as_mut().unwrap();
+        view.look = crate::look::Look::default();
+        view.home.as_mut().unwrap().workspace.squad_looks.clear();
         app.view
             .as_mut()
             .unwrap()
