@@ -77,7 +77,8 @@ name and a visible tooltip.
   edge, an exception to the 3:1 non-text contrast the check-style controls meet
   (WCAG 1.4.11; the `edge` color on an unchecked checkbox or radio, a toggle's
   indicator). It holds on three conditions: every field has a visible label (a
-  select shows its value and a chevron instead), its fill (`surface.field`)
+  select shows its value and a chevron instead, a search field its placeholder
+  beside a magnifier), its fill (`surface.field`)
   differs from the surface behind it, and its focus and invalid states keep the
   strong edge. The leaf's design audit (`controlBoundaries`) skips fields by name
   for the border check and fails a field that fills like its surface or has no
@@ -342,8 +343,15 @@ An opaque, shadow-free sheet with the shared thin edge and the control radius.
 - **Group card:** `tmt-ui-card`, one subject per card (a Digest provider, a chart): a head
   (sentence-case title, optional muted note) over the body. Facts inside it are bare status tiles
   (label over value, no tile box, a dot only for a tone), never a box in a box; tile chrome is for a
-  page-level row such as Ops. A read-only measure is a `tmt-ui-meter` placed directly under the
+  page-level row. A read-only measure is a `tmt-ui-meter` placed directly under the
   value it measures, coloured by its chart series.
+- **Overview page:** a page of live state (Ops Agents) reads top to bottom as a page head
+  (`tmt-ui-page-head`), one `tmt-ui-stats` strip of counts (a count in the display face, its
+  word, a caption), a `tmt-ui-banner` for what waits on the reader (hidden at zero), then the
+  flush-card table and a facts card for the selected row (one row is always selected: the reader's choice, else the first
+  that needs them, else the first). Counts and states are always a mark and
+  a word. What the reader sets (filter, search, collapsed groups, selection) stays across a refresh.
+  A page that is read-only shows no row menu.
 - Basis: own.
 
 ### Chip

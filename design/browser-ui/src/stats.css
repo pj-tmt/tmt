@@ -1,0 +1,69 @@
+/* One strip of counts: each cell a mark, a count with its word, and a caption. The cells are
+   separated by the strip's own rule showing through the gap, and each grows to fill its row, so a
+   wrapped strip keeps its dividers and has no empty cell. */
+.tmt-ui-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-rule-width);
+  margin: 0;
+  overflow: hidden;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-text);
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-stat {
+  flex: 1 1 9.5rem;
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-m);
+  min-width: 0;
+  padding: var(--tmt-ui-space-l);
+  background: var(--tmt-ui-surface-sheet);
+}
+.tmt-ui-stat > .tmt-ui-glyph {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-stat-value {
+  margin: 0;
+  font-size: var(--tmt-ui-header-title-size);
+  font-weight: 600;
+  line-height: 1.25;
+}
+.tmt-ui-stat-number {
+  font: 700 1.5rem / 1 var(--tmt-ui-font-display);
+}
+.tmt-ui-stat-caption {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-caption-line-height);
+}
+.tmt-ui-stat[data-tone='working'] > .tmt-ui-state-mark {
+  color: var(--tmt-ui-color-working);
+}
+.tmt-ui-stat[data-tone='waiting'] > .tmt-ui-state-mark {
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-stat[data-tone='blocked'] > .tmt-ui-state-mark {
+  color: var(--tmt-ui-color-blocked);
+}
+.tmt-ui-stat[data-tone='muted'] > .tmt-ui-state-mark {
+  color: var(--tmt-ui-color-secondary);
+}
+@media (max-width: __compact-max-width__) {
+  .tmt-ui-stat {
+    flex-basis: 7rem;
+    gap: var(--tmt-ui-space-s);
+    padding: var(--tmt-ui-space-m) var(--tmt-ui-space-s);
+  }
+  .tmt-ui-stat-value {
+    font-size: var(--tmt-ui-header-action-size);
+  }
+  .tmt-ui-stat-number {
+    font-size: 1.125rem;
+  }
+}
