@@ -959,7 +959,12 @@ pub(super) fn refused_start(
         return None;
     }
     if host.shared() {
-        return Some(Why::SharedRuntime);
+        // Existing exact-session routing may move a known thread from a gone
+        // embedded process to its shared server. The driver proposal and caller
+        // attribution still enforce that session; this grants no new adoption.
+        return (!(previous == RuntimeLiveness::Gone
+            && key.is_some_and(|key| key.provider_session.as_ref() == Some(event.session()))))
+        .then_some(Why::SharedRuntime);
     }
     if process.pid() == binding.pane_pid {
         return Some(Why::PaneProcess);

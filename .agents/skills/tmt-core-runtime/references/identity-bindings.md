@@ -264,9 +264,10 @@ delivery. They install and launch nothing.
   Running after provider end (including legacy Ended) only for an exact live process
   under the verified pane and an exact live launch owner when recorded, without
   rewriting storage; shared servers outside that ancestry remain unverified.
-- A hand-resumed SessionStart completes only the existing binding, using host-neutral
+- Adopting a new provider session through SessionStart completes only the existing binding, using host-neutral
   pane/process evidence, the recorded driver (or none), and a conclusively ended old
   session or process. Nested, shared, pane-process and unknown evidence refuse.
+  Existing exact-session shared-host hooks keep their attribution rule above.
   A bounded `BindingSessionState::start_refusal` records that refusal without changing
   admission or preferences; the binding/session/preferences CAS fences it. An admitted
   start clears it atomically; a replacement binding or retirement removes it. The

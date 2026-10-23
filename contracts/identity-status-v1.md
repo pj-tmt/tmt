@@ -175,7 +175,8 @@ A refused SessionStart in an existing bound pane records only the driver, provid
 session ID, bounded reason code and observation time, fenced to the exact binding.
 An admitted start clears it in the same CAS; rebind and retirement clear it with
 the binding. It never creates an identity, changes remembered preferences or
-permits adopting a nested, shared, pane-process or unverified provider. A hand
+permits adopting a nested, shared, pane-process or unverified provider. Existing
+exact-session shared-host routing is unchanged. A hand
 resume may complete that existing binding only for the same recorded driver (or
 none), after the old session ended or its exact process is conclusively gone,
 and with the new private main process verified under that pane by PID/start.

@@ -136,7 +136,6 @@ describe('durable identity lifecycle', { concurrent: false }, () => {
 
       expect(expectJsonResult(await fixture.runJsonCli(['unbind']))).toEqual({
         unbound: true,
-        session: { unbound: null },
         id: created.identity.id,
         name,
         pane: fixture.pane,

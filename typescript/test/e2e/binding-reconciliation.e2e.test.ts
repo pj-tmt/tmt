@@ -315,7 +315,6 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
 
       expect(expectJsonResult(await fixture.runJsonCli(['unbind']))).toEqual({
         unbound: true,
-        session: { unbound: null },
         id: initial.id,
         name: 'Alice',
         pane: fixture.pane,
