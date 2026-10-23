@@ -63,7 +63,7 @@ impl Controller {
                         .len()
                     }
                 } else {
-                    (if self.draft.saved { 16 } else { 18 }) + preview.len()
+                    (if self.draft.saved { 16 } else { 17 }) + preview.len()
                 }
             }
             Stage::Form | Stage::Hosts if self.loaded.is_none() => 1,
@@ -267,7 +267,7 @@ impl Controller {
                         }
                     }
                     for (index, line) in self.preview_lines(content.width).iter().enumerate() {
-                        let y = if self.draft.saved { 16 } else { 18 } + index;
+                        let y = if self.draft.saved { 16 } else { 17 } + index;
                         if y < usize::from(content.height) {
                             strip::paint_left(
                                 frame.buffer_mut(),
