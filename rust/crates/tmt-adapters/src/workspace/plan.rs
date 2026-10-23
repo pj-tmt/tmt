@@ -195,7 +195,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             document(&input).unwrap()["sessions"][0]["action"],
-            "skip_existing"
+            "name_in_use"
         );
         let runner = ScriptedRunner::default();
         runner.push_output(b"\0bad\n".to_vec(), Vec::new());

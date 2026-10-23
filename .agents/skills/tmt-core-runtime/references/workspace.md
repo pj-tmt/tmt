@@ -121,7 +121,8 @@ Malformed, unsupported, oversized or symlinked snapshots are refused unchanged.
 
 The version 1 plan contains the existing `snapshot` topology plus `sessions` and
 `panes` actions. A bounded read of current session names marks matching names
-`skip_existing`, absent names `create`, and uncertain observation `unknown`. A
+`name_in_use` (the restore then decides from the live session, see the
+[contract](../../../../contracts/workspace-v1.md)), absent names `create`, and uncertain observation `unknown`. A
 missing socket has no sessions. The tmux reader flags control-bearing names before
 newline framing and refuses malformed or unsupported output as uncertain; it never
 splits one name into multiple sessions. Literal Unicode names remain unchanged under
@@ -156,9 +157,13 @@ Historical IDs are correspondence keys, never live targets. Floating panes (tmux
 are set aside by `parse_saved_layout` before the strict tiled checks; restore applies
 the tiled tree only and reports each float skipped.
 
-The built-in tmux adapter owns a finite 30-second creation budget and native
-server-incarnation fencing. Matching live session names are skipped whole,
-including their windows and panes. New sessions use only returned native IDs;
+The built-in tmux adapter owns a finite creation budget (20 s plus 0.5 s per pane, at
+most two minutes, set by the CLI) and native server-incarnation fencing. `inspect_live`
+classifies each live session once (`LiveSession`: restored by this snapshot, fresh
+default, or in use) and the planner turns that into skip, merge into the fresh session, or
+create beside it; a session this snapshot restored is skipped whole, including its windows
+and panes. Every refusal names its cause and next step; none is a bare "evidence" error.
+New sessions use only returned native IDs;
 shared saved windows link only among invocation-created sessions. User panes
 pass no command and inherit tmux's `default-command`/`default-shell`, entering
 recorded directories checked before creation and read back afterwards. No saved
@@ -194,8 +199,8 @@ No pre-existing pane, window or session is removed or overwritten.
 `tmt workspace restore [<name>] [--socket PATH] [--json]` runs the same layout phase,
 then starts eligible panes through this executable's ordinary `tmt resume -- <name>`
 or generic external dispatch with the recorded literal TMT argv. Core adds no
-provider launch path or board grammar. A partial layout starts nothing; existing
-sessions are skipped whole. Shared panes and repeated identities start at most once.
+provider launch path or board grammar. A partial layout starts nothing; a session this
+snapshot already restored is skipped whole. Shared panes and repeated identities start at most once.
 
 Restore checks the snapshot name still names its original unretired UUID before
 starting resume. Renamed, replaced, missing, stale and sessionless identities need

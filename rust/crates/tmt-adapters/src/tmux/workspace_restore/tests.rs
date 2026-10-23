@@ -144,6 +144,7 @@ fn restore(tmux: &Tmux<Runner>) -> Restore<'_, Runner> {
         }),
         windows: HashMap::new(),
         panes: HashMap::new(),
+        cwd: HashMap::new(),
         outcome: LayoutRestore::default(),
         revival_panes: &[],
     }
@@ -278,6 +279,8 @@ fn successful_link_is_required_before_bootstrap_removal_and_failed_link_retains_
     tmux.runner
         .scripted
         .push_output(created_output(2, 4, 5, 1).into_bytes(), vec![]);
+    // The session is marked unfinished before anything is linked into it.
+    tmux.runner.scripted.push_output(Vec::new(), vec![]);
     tmux.runner
         .scripted
         .results
@@ -288,16 +291,18 @@ fn successful_link_is_required_before_bootstrap_removal_and_failed_link_retains_
         name: "workspace".into(),
         action: "partial".into(),
         native: None,
+        restored_as: None,
         retained_bootstrap: None,
     };
     assert!(
         owner
             .session(
                 &plan,
-                &saved.sessions[0],
+                "workspace",
                 None,
                 Some(1),
                 &links,
+                "1/$1",
                 &mut record
             )
             .is_err()
@@ -305,8 +310,18 @@ fn successful_link_is_required_before_bootstrap_removal_and_failed_link_retains_
     assert_eq!(record.native.as_deref(), Some("$2"));
     assert_eq!(record.retained_bootstrap.as_deref(), Some("%5"));
     let calls = tmux.runner.scripted.calls.borrow();
-    assert_eq!(calls.len(), 2);
-    let branch = &calls[1].args[calls[1].args.len() - 2];
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        &calls[1].args[calls[1].args.len() - 2],
+        &command(&[
+            "set-option".into(),
+            "-t".into(),
+            "$2".into(),
+            "@tmt.restored".into(),
+            "unfinished".into()
+        ])
+    );
+    let branch = &calls[2].args[calls[2].args.len() - 2];
     assert_eq!(
         branch,
         &command(&[
@@ -330,7 +345,7 @@ fn bootstrap_pid_or_process_mismatch_removes_nothing() {
     assert!(tmux.runner.scripted.calls.borrow().is_empty());
     tmux.runner.replaced.set(false);
     tmux.runner.scripted.push_output(
-        format!("%4{SEP}99{SEP}sh{SEP}/dev/tty{SEP}/bin/sh -i\n").into_bytes(),
+        format!("%4{SEP}99{SEP}/dev/tty{SEP}/bin/sh -i\n").into_bytes(),
         vec![],
     );
     assert!(owner.remove_bootstrap(&created).is_err());
@@ -345,7 +360,6 @@ fn bootstrap_pid_or_process_mismatch_removes_nothing() {
             [
                 "#{pane_id}",
                 "#{pane_pid}",
-                "#{pane_current_command}",
                 "#{pane_tty}",
                 "#{pane_start_command}"
             ]
@@ -424,7 +438,7 @@ fn bootstrap_with_a_different_start_command_is_retained_before_terminal_or_kill_
     let mut owner = restore(&tmux);
     let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
     tmux.runner.scripted.push_output(
-        format!("%4{SEP}20{SEP}sh{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
+        format!("%4{SEP}20{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
         vec![],
     );
     assert!(owner.remove_bootstrap(&created).is_err());
@@ -525,4 +539,160 @@ fn owned_window_layout_detection_is_fenced_and_precedes_application() {
             assert_eq!(calls.len(), 7);
         }
     }
+}
+
+fn live_row(
+    name: &str,
+    session: u64,
+    window: u64,
+    pane: u64,
+    agent: &str,
+    command: &str,
+    marker: &str,
+) -> String {
+    let control = u8::from(name.chars().any(char::is_control));
+    format!(
+        "{control}{SEP}{name}{SEP}${session}{SEP}{window}{SEP}%{pane}{SEP}{agent}{SEP}{command}{SEP}{marker}\n"
+    )
+}
+
+#[test]
+fn live_sessions_are_told_apart_by_what_is_in_them() {
+    let tmux = Tmux::new(Runner::default());
+    let owner = restore(&tmux);
+    let rows = [
+        // The server's fresh default: one window, one pane, nothing bound.
+        live_row("0", 0, 4, 0, "", "", ""),
+        // One pane, but an agent lives there.
+        live_row("agent", 1, 0, 1, "alice", "", ""),
+        // Two panes in one window.
+        live_row("split", 2, 0, 2, "", "", ""),
+        live_row("split", 2, 0, 3, "", "", ""),
+        // Made by a restore, whose marker is recorded under a new name.
+        live_row("work-restored", 3, 0, 4, "", "", "7/$1"),
+        // A name no saved session can share.
+        live_row("bad\nname", 4, 0, 5, "", "", ""),
+    ]
+    .concat();
+    tmux.runner.scripted.push_output(rows.into_bytes(), vec![]);
+    let live = owner.inspect_live().unwrap();
+    assert_eq!(
+        live.sessions,
+        vec![
+            LiveSession::Fresh {
+                name: "0".into(),
+                window_index: 4,
+            },
+            LiveSession::InUse("agent".into()),
+            LiveSession::InUse("split".into()),
+            LiveSession::Restored {
+                name: "work-restored".into(),
+                marker: "7/$1".into(),
+            },
+        ]
+    );
+    assert_eq!(live.fresh["0"], ("$0".to_owned(), "%0".to_owned()));
+}
+
+#[test]
+fn a_shapeless_session_list_is_refused_with_its_cause() {
+    let tmux = Tmux::new(Runner::default());
+    let owner = restore(&tmux);
+    tmux.runner
+        .scripted
+        .push_output(b"not\x1ffields\n".to_vec(), vec![]);
+    let error = owner.inspect_live().err().unwrap();
+    assert!(error.to_string().contains("unexpected"), "{error}");
+}
+
+#[test]
+fn a_missing_directory_falls_back_to_the_nearest_existing_parent() {
+    let directory = crate::test_support::TestDirectory::new();
+    let existing = directory.path.join("here");
+    std::fs::create_dir(&existing).unwrap();
+    let gone = existing.join("gone").join("deeper");
+    let gone = gone.to_str().unwrap();
+    assert_eq!(nearest_directory(gone), existing.to_str().unwrap());
+    // Nothing above exists but the root: home is next, then `/`.
+    let tmux = Tmux::new(Runner::default());
+    let mut owner = restore(&tmux);
+    owner.choose_cwd("%1", existing.to_str().unwrap());
+    owner.choose_cwd("%2", gone);
+    assert_eq!(owner.outcome.fallbacks.len(), 1);
+    assert_eq!(owner.outcome.fallbacks[0].pane, "%2");
+    assert_eq!(owner.outcome.fallbacks[0].wanted, gone);
+    assert_eq!(owner.outcome.fallbacks[0].used, existing.to_str().unwrap());
+    assert!(!nearest_directory("/no/such/place").is_empty());
+}
+
+#[test]
+fn a_directory_reached_through_a_link_is_the_same_directory() {
+    let directory = crate::test_support::TestDirectory::new();
+    let real = directory.path.join("real");
+    std::fs::create_dir(&real).unwrap();
+    let link = directory.path.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    assert!(same_directory(
+        link.to_str().unwrap(),
+        real.to_str().unwrap()
+    ));
+    assert!(!same_directory(
+        directory.path.to_str().unwrap(),
+        real.to_str().unwrap()
+    ));
+}
+
+#[test]
+fn a_failed_session_says_how_to_clear_what_it_left() {
+    let mut record = RestoredSession {
+        recorded: "$1".into(),
+        name: "work".into(),
+        action: "partial".into(),
+        native: None,
+        restored_as: None,
+        retained_bootstrap: None,
+    };
+    assert_eq!(partial_note(&record, false), "");
+    record.native = Some("$4".into());
+    assert!(partial_note(&record, false).contains("Session work ($4) was left part restored"));
+    record.restored_as = Some("work-restored".into());
+    assert!(partial_note(&record, false).contains("Session work-restored ($4)"));
+    // A merge never advises closing the user's own session, only the windows added to it.
+    let merged = partial_note(&record, true);
+    assert!(!merged.contains("close that session"), "{merged}");
+    assert!(merged.contains("work-restored"), "{merged}");
+}
+
+#[test]
+fn the_placeholder_shell_is_proven_without_its_name() {
+    // macOS reports `bash` for /bin/sh -i and Linux `sh` or `dash`: no name may be required.
+    let tmux = Tmux::new(Runner::default());
+    let mut owner = restore(&tmux);
+    let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+    let checks = bootstrap_checks(&created).join(" ");
+    assert!(!checks.contains("pane_current_command"), "{checks}");
+    for proof in [
+        "pane_pid",
+        "pane_start_command",
+        "session_id",
+        "window_id",
+        "window_panes",
+    ] {
+        assert!(checks.contains(proof), "{proof}: {checks}");
+    }
+    // The read-back asks for no shell name either, so a `bash` placeholder is the same as `sh`.
+    tmux.runner.scripted.push_output(
+        format!("%4{SEP}20{SEP}/dev/tty{SEP}/bin/sh user-script\n").into_bytes(),
+        vec![],
+    );
+    assert!(owner.remove_bootstrap(&created).is_err());
+    let calls = tmux.runner.scripted.calls.borrow();
+    assert!(
+        !calls[0]
+            .args
+            .iter()
+            .any(|arg| arg.contains("pane_current_command")),
+        "{:?}",
+        calls[0].args
+    );
 }

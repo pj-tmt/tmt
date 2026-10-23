@@ -67,15 +67,20 @@ pub enum TmuxFailure {
 #[derive(Debug)]
 pub struct TmuxError {
     pub kind: TmuxFailure,
-    message: &'static str,
+    message: std::borrow::Cow<'static, str>,
     cause: Option<CommandError>,
 }
 
 impl TmuxError {
     fn evidence(message: &'static str) -> Self {
+        Self::refusal(message)
+    }
+
+    /// A refusal that names its own cause, which may carry paths or counts.
+    fn refusal(message: impl Into<std::borrow::Cow<'static, str>>) -> Self {
         Self {
             kind: TmuxFailure::Evidence,
-            message,
+            message: message.into(),
             cause: None,
         }
     }
@@ -94,7 +99,7 @@ impl TmuxError {
         };
         Self {
             kind,
-            message,
+            message: message.into(),
             cause: Some(cause),
         }
     }
@@ -104,7 +109,7 @@ impl TmuxError {
     fn caller_budget(cause: CommandError) -> Self {
         Self {
             kind: TmuxFailure::Command,
-            message: CALLER_BUDGET_MESSAGE,
+            message: CALLER_BUDGET_MESSAGE.into(),
             cause: Some(cause),
         }
     }

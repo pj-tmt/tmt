@@ -3,6 +3,7 @@
 use crate::{invocation::OutputMode, output::Failure};
 use std::{
     io::{self, Write},
+    path::Path,
     time::{Duration, Instant},
 };
 use tmt_adapters::{config::ConfigPaths, host::Host, storage::Storage, workspace};
@@ -10,6 +11,42 @@ use tmt_core::workspace::{
     StoredIdentity, WorkspaceSnapshot,
     plan::{WorkspacePaneAction, restore_plan},
 };
+
+/// The last restore's report, in the TMT data directory. Each run replaces it.
+const LAST_REPORT: &str = "restore-last.json";
+const MAX_REPORT_BYTES: usize = 1024 * 1024;
+
+/// A large workspace gets more time than a small one: 20 s plus half a second per pane, at most
+/// two minutes. A fixed budget turned a long restore into a refusal that named no cause.
+fn layout_deadline(panes: usize) -> Instant {
+    let millis = (20_000 + 500 * panes as u64).min(120_000);
+    Instant::now() + Duration::from_millis(millis)
+}
+
+/// Writes the report and returns its path, or nothing when it cannot be written.
+fn write_report(paths: &ConfigPaths, document: &mut serde_json::Value) -> Option<String> {
+    let path = paths.global_dir.join(LAST_REPORT);
+    let mut bytes = serde_json::to_vec(document).ok()?;
+    if bytes.len() > MAX_REPORT_BYTES
+        && let Some(object) = document.as_object_mut()
+    {
+        for key in ["windows", "panes", "revival"] {
+            object.remove(key);
+        }
+        object.insert("truncated".into(), true.into());
+        bytes = serde_json::to_vec(document).ok()?;
+    }
+    tmt_adapters::private_file::replace(&path, &bytes).ok()?;
+    Some(path.display().to_string())
+}
+
+/// Every failure points at the report, so the full account is one path away.
+fn with_report(message: &str, report: Option<&str>) -> String {
+    match report {
+        Some(path) => format!("{}. Full report: {path}", message.trim_end_matches('.')),
+        None => message.to_owned(),
+    }
+}
 
 fn identities(
     paths: &ConfigPaths,
@@ -46,6 +83,11 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     ),
     crate::cli_style_tests::HintSpec::core(
         "needs you (stale conversation; tmt resume --retry -- {name})",
+        &[")"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "needs you (directory {dir} is missing; recreate it, then tmt resume -- {name})",
         &[")"],
         &[],
     ),
@@ -148,6 +190,34 @@ fn prepare(
             {
                 pane.status = "needs_you";
                 pane.message = "needs you (identity name changed; resume it explicitly)".into();
+                return pane;
+            }
+            // A pane that starts an agent keeps refusing a missing directory: the agent would
+            // run somewhere its work is not. Only this pane waits; the rest of the workspace
+            // restores and the report gives the exact retry.
+            if !Path::new(&saved.cwd).is_dir()
+                && matches!(
+                    planned.action,
+                    WorkspacePaneAction::RelaunchCommand | WorkspacePaneAction::Resumable
+                )
+            {
+                let dir = crate::output::shell_word(&saved.cwd);
+                pane.status = "needs_you";
+                pane.message = match &saved.command {
+                    Some(command) => format!(
+                        "needs you (directory {dir} is missing; recreate it, then run {})",
+                        command
+                            .argv
+                            .iter()
+                            .map(|word| crate::output::shell_word(word))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    ),
+                    None => format!(
+                        "needs you (directory {dir} is missing; recreate it, then tmt resume -- {name})",
+                        name = crate::output::shell_word(&pane.name)
+                    ),
+                };
                 return pane;
             }
             match planned.action {
@@ -300,8 +370,13 @@ pub fn execute(
     layout_only: bool,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    let context = crate::workspace_snapshot_command::context(socket);
+    let report_paths = context.as_ref().ok().map(|(paths, _, _)| paths.clone());
+    // A refusal before the host is touched already says what to do; only a restore that reached
+    // the server writes a failure report.
+    let reached_host = std::cell::Cell::new(false);
     let outcome: Result<_, Failure> = (|| {
-        let (paths, socket, host) = crate::workspace_snapshot_command::context(socket)?;
+        let (paths, socket, host) = context?;
         let document =
             workspace::saved::acquire_selected(&paths, &socket, name, expect).map_err(|error| {
                 crate::workspace_snapshot_command::failure(
@@ -395,12 +470,9 @@ pub fn execute(
             .filter(|pane| pane.argv.is_some())
             .map(|pane| pane.recorded.clone())
             .collect::<Vec<_>>();
+        reached_host.set(true);
         let mut result = host
-            .workspace_restore_layout(
-                &snapshot,
-                Instant::now() + Duration::from_secs(30),
-                &targets,
-            )
+            .workspace_restore_layout(&snapshot, layout_deadline(snapshot.panes.len()), &targets)
             .map_err(|error| {
                 Failure::new(
                     "WORKSPACE_RESTORE_UNAVAILABLE",
@@ -440,43 +512,96 @@ pub fn execute(
     })();
     let (socket, digest, generation, result, revival) = match outcome {
         Ok(result) => result,
-        Err(error) => return error.publish(mode),
+        Err(mut error) => {
+            let mut failed = serde_json::json!({"version": 1, "status": "failed",
+                "error": {"code": error.code, "message": error.message}});
+            let report = report_paths
+                .as_ref()
+                .filter(|_| reached_host.get())
+                .and_then(|paths| write_report(paths, &mut failed));
+            error.message = with_report(&error.message, report.as_deref());
+            return error.publish(mode);
+        }
     };
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     let partial = result.partial() || revival.iter().any(|pane| pane.failed);
+    let mut document = serde_json::json!({"version": 1, "socket": socket, "name": name.map(|name| name.as_str()), "generation": generation, "digest": digest, "layoutOnly": layout_only,
+        "status": if partial { "partial" } else { "completed" }, "sessions": result.sessions,
+        "windows": result.windows, "panes": result.panes, "fallbacks": result.fallbacks,
+        "failures": result.failures,
+        "revival": revival.iter().map(|pane| serde_json::json!({
+            "recorded": pane.recorded, "native": pane.native, "name": pane.name,
+            "status": pane.status, "message": pane.message})).collect::<Vec<_>>()});
+    let report = report_paths
+        .as_ref()
+        .and_then(|paths| write_report(paths, &mut document));
     if mode.json {
-        let mut document = serde_json::json!({"version": 1, "socket": socket, "name": name.map(|name| name.as_str()), "generation": generation, "digest": digest, "layoutOnly": layout_only,
-            "status": if partial { "partial" } else { "completed" }, "sessions": result.sessions,
-            "windows": result.windows, "panes": result.panes, "failures": result.failures});
-        if !layout_only || !revival.is_empty() {
-            document["revival"] = serde_json::json!(
-                revival
-                    .iter()
-                    .map(|pane| serde_json::json!({
-                "recorded": pane.recorded, "native": pane.native, "name": pane.name,
-                "status": pane.status, "message": pane.message}))
-                    .collect::<Vec<_>>()
-            );
+        document["report"] = report.into();
+        if layout_only && revival.is_empty() {
+            document.as_object_mut().expect("object").remove("revival");
         }
         writeln!(output, "{document}")?;
     } else {
-        let created = result
-            .sessions
-            .iter()
-            .filter(|session| session.action == "created")
-            .count();
-        let skipped = result
-            .sessions
-            .iter()
-            .filter(|session| session.action == "skip_existing")
-            .count();
-        writeln!(
-            output,
-            "Workspace on {socket}: {created} sessions created, {skipped} skipped{}.",
-            if partial { ", partial restore" } else { "" }
-        )?;
+        let count = |action: &str, beside: bool| {
+            result
+                .sessions
+                .iter()
+                .filter(|session| {
+                    session.action == action && session.restored_as.is_some() == beside
+                })
+                .count()
+        };
+        let mut line = format!(
+            "Workspace on {socket}: {} sessions created",
+            count("created", false)
+        );
+        if count("created", true) > 0 {
+            line.push_str(&format!(
+                ", {} restored beside a name in use",
+                count("created", true)
+            ));
+        }
+        if count("merged", true) > 0 {
+            line.push_str(&format!(
+                ", {} added to the fresh default session",
+                count("merged", true)
+            ));
+        }
+        line.push_str(&format!(
+            ", {} already restored",
+            count("skip_existing", false)
+        ));
+        if partial {
+            line.push_str(", partial restore");
+        }
+        writeln!(output, "{line}.")?;
+        // A name that was not simply recreated is always said, never left to be inferred.
+        for session in &result.sessions {
+            match (session.action.as_str(), session.restored_as.as_deref()) {
+                ("merged", Some(live)) => writeln!(
+                    output,
+                    "  {:?}: its windows were added to your session {live:?}, after your window",
+                    session.name
+                )?,
+                ("created", Some(alias)) => writeln!(
+                    output,
+                    "  {:?}: the name is in use, so it was restored as {alias:?}",
+                    session.name
+                )?,
+                _ => (),
+            }
+        }
+        for fallback in &result.fallbacks {
+            writeln!(
+                output,
+                "  Pane {} opened in {}: its recorded directory {} is missing",
+                fallback.pane, fallback.used, fallback.wanted
+            )?;
+        }
         for session in result.sessions.iter().filter(|_| layout_only) {
-            writeln!(output, "  {:?}: {}", session.name, session.action)?;
+            if session.restored_as.is_none() {
+                writeln!(output, "  {:?}: {}", session.name, session.action)?;
+            }
             if let Some(pane) = &session.retained_bootstrap {
                 writeln!(output, "    Bootstrap retained: {pane}")?;
             }
@@ -486,6 +611,9 @@ pub fn execute(
         }
         for failure in &result.failures {
             writeln!(output, "  {failure}")?;
+        }
+        if let Some(path) = report.as_deref().filter(|_| partial) {
+            writeln!(output, "  Full report: {path}")?;
         }
     }
     Ok(u8::from(partial))
@@ -525,7 +653,7 @@ mod tests {
                 top: 0,
                 width: 80,
                 height: 24,
-                cwd: "/cwd".into(),
+                cwd: "/".into(),
                 command: None,
                 identity: Some(WorkspaceIdentity {
                     id: "original".into(),
@@ -750,5 +878,96 @@ mod tests {
                 "literal '$()#{pid};\n"
             ]
         );
+    }
+
+    #[test]
+    fn an_agent_pane_with_a_missing_directory_waits_alone_with_the_exact_retry() {
+        let (mut saved, records) = input();
+        saved.panes[0].cwd = "/no/such/directory".into();
+        let resumed = &prepare(&saved, &records, "/selected/tmt")[0];
+        assert!(
+            resumed.argv.is_none(),
+            "no agent starts in a missing directory"
+        );
+        assert_eq!(resumed.status, "needs_you");
+        assert_eq!(
+            resumed.message,
+            "needs you (directory /no/such/directory is missing; recreate it, then tmt resume -- Original)"
+                .replace("/no/such/directory", "'/no/such/directory'")
+                .replace("''", "'")
+        );
+        saved.panes[0].command = Some(ExternalCommand {
+            argv: vec!["tmt".into(), "example".into(), "two words".into()],
+            owner: ProcessIncarnation::new(1, "old").unwrap(),
+        });
+        let command = &prepare(&saved, &records, "/selected/tmt")[0];
+        assert!(command.argv.is_none());
+        assert!(
+            command
+                .message
+                .ends_with("recreate it, then run tmt example 'two words')"),
+            "{}",
+            command.message
+        );
+        // An ordinary shell pane in a missing directory is not an agent: it restores in a fallback.
+        saved.panes[0].command = None;
+        saved.panes[0].identity = None;
+        let shell = &prepare(&saved, &records, "/selected/tmt")[0];
+        assert_eq!(shell.status, "skipped");
+    }
+
+    #[test]
+    fn a_large_workspace_gets_more_time_but_never_more_than_two_minutes() {
+        let seconds = |panes| {
+            layout_deadline(panes)
+                .duration_since(Instant::now())
+                .as_secs()
+        };
+        assert!((19..=20).contains(&seconds(0)));
+        assert!(seconds(65) >= 52, "20 s plus half a second a pane");
+        assert!(seconds(10_000) <= 120);
+    }
+
+    #[test]
+    fn the_report_is_private_replaced_each_run_and_named_by_every_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("tmt-restore-report-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = ConfigPaths {
+            global_dir: root.join("tmt"),
+            global_config: root.join("config"),
+            local_config: root.join("local"),
+            database: root.join("db"),
+        };
+        let first = write_report(&paths, &mut serde_json::json!({"status": "partial"})).unwrap();
+        assert!(first.ends_with("/restore-last.json"));
+        assert_eq!(
+            std::fs::metadata(&first).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        write_report(&paths, &mut serde_json::json!({"status": "completed"})).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&first).unwrap(),
+            r#"{"status":"completed"}"#
+        );
+        // Too large: the per-pane lists go, the verdict stays.
+        let mut large =
+            serde_json::json!({"status": "partial", "panes": ["x".repeat(MAX_REPORT_BYTES)]});
+        write_report(&paths, &mut large).unwrap();
+        let kept: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&first).unwrap()).unwrap();
+        assert_eq!(
+            kept,
+            serde_json::json!({"status": "partial", "truncated": true})
+        );
+        assert_eq!(
+            with_report(
+                "Could not restore workspace layout: no.",
+                Some("/x/restore-last.json")
+            ),
+            "Could not restore workspace layout: no. Full report: /x/restore-last.json"
+        );
+        assert_eq!(with_report("no", None), "no");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

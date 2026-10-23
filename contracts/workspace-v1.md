@@ -189,7 +189,18 @@ checksum. This changes only application bytes, never the saved document. Native 
 still come only from this invocation. Existing documents are not migrated.
 
 Preview and restoration keep the existing native incarnation, socket, layout,
-UUID and current-session fences. Existing sessions are skipped whole. Ordinary
+UUID and current-session fences. Restore never overwrites or silently skips a live
+session that has a saved session's name. A session this snapshot's restore made earlier
+(it carries the session option `@tmt.restored`, under any name) is kept whole, so a
+repeat changes nothing. The server's fresh default session (one window, one pane, no
+agent or command bound, no marker) takes the saved windows after its own window, which is
+never moved, renumbered, killed or deselected. Any other session in use leaves the saved
+one to be created as `<name>-restored` (then `-restored-2`, …). The report names each
+case. A recorded directory that no longer exists opens a plain pane in its nearest
+existing parent and is reported; a pane that would start an agent there waits as
+`needs_you` with the exact retry, and the rest of the workspace restores. Every run
+replaces `restore-last.json` in the TMT data directory (mode 0600), and every failure
+message names its path. Ordinary
 panes preserve the user's shell; full restore uses ordinary resume or generic
 external dispatch only in invocation-created panes. Missing, renamed, stale or
 sessionless identities need the user. Snapshot names never resurrect another
