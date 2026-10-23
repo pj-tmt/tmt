@@ -126,3 +126,67 @@ test('the Comments list is the website list: views, rows and an empty state per 
   await views.getByRole('tab', { name: 'Resolved', exact: true }).click();
   await expect(empty).toContainText('Resolved threads will appear here.');
 });
+
+test('a row opens the Discussion view: status line, title, passage, turns, reply, footer', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await run(page, 'mount');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await run(page, 'seedThread');
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+  const drawer = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
+  await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Comments');
+  await drawer.getByTestId('annotation-row').click();
+  // The list is replaced; the drawer reads Discussion with the thread's position.
+  await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Discussion');
+  await expect(drawer.locator('.tmt-ui-drawer-caption')).toHaveText('1 / 1');
+  await expect(drawer.getByTestId('annotation-row')).toHaveCount(0);
+  await expect(drawer.getByTestId('discussion-state')).toHaveText('Open discussion');
+  await expect(drawer.getByRole('button', { name: 'All comments', exact: true })).toBeVisible();
+  const thread = drawer.getByTestId('comment-thread');
+  await expect(thread.locator('.discussion-title')).not.toBeEmpty();
+  const quote = thread.locator('.discussion-quote');
+  await expect(quote.locator('.annotation-number')).toHaveText('1');
+  await expect(quote.locator('q')).toHaveText('Exact selected text');
+  await expect(thread.getByTestId('comment-entry')).toHaveCount(1);
+  const reply = thread.getByRole('combobox', { name: 'Message', exact: true });
+  await expect(reply).toBeVisible();
+  // The reply field is the website's: four lines, flush with the content column's edges, and one row
+  // under it with the note at the start and the word Reply at the end.
+  const column = (await thread.locator('.discussion-title').boundingBox())!;
+  const field = (await thread.locator('.annotation-compose .rich-input-field').boundingBox())!;
+  const line = await reply.evaluate((node) => Number.parseFloat(getComputedStyle(node).lineHeight));
+  expect(Math.abs(field.height - 4 * line)).toBeLessThanOrEqual(1);
+  expect(Math.abs(field.x - column.x)).toBeLessThanOrEqual(1);
+  const note = (await thread.locator('.annotation-note-line').boundingBox())!;
+  const send = thread.getByRole('button', { name: /^Send(?: · to .+)?$/ });
+  await expect(send).toHaveText('Reply');
+  const sendBox = (await send.boundingBox())!;
+  expect(sendBox.y).toBeGreaterThanOrEqual(field.y + field.height);
+  expect(Math.abs(sendBox.y + sendBox.height / 2 - (note.y + note.height / 2))).toBeLessThanOrEqual(
+    sendBox.height / 2,
+  );
+  expect(note.x).toBeLessThan(sendBox.x);
+  expect(Math.abs(sendBox.x + sendBox.width - (field.x + field.width))).toBeLessThanOrEqual(1);
+  // The footer is last, under the reply composer; Resolve flips the status line and offers Reopen.
+  const footer = thread.locator('.discussion-footer');
+  const [composerBox, footerBox] = [
+    await thread.locator('.conversation-composer').boundingBox(),
+    await footer.boundingBox(),
+  ];
+  expect(footerBox!.y).toBeGreaterThanOrEqual(composerBox!.y + composerBox!.height - 1);
+  await footer.getByRole('button', { name: 'Resolve', exact: true }).click();
+  await expect(drawer.getByTestId('discussion-state')).toContainText('Resolved');
+  await expect(footer.getByRole('button', { name: 'Reopen', exact: true })).toBeVisible();
+  // All comments returns to the list, and the drawer to Comments.
+  await drawer.getByRole('button', { name: 'All comments', exact: true }).click();
+  await expect(drawer.getByRole('heading', { level: 2 })).toHaveText('Comments');
+  await expect(drawer.getByRole('tablist', { name: 'Comment views' })).toBeVisible();
+  // Show in the page leaves the drawer for the passage.
+  await drawer.getByRole('tab', { name: 'Resolved', exact: true }).click();
+  await drawer.getByTestId('annotation-row').click();
+  await drawer.getByRole('button', { name: 'Show in the page', exact: true }).click();
+  await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
+});

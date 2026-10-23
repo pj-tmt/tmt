@@ -432,6 +432,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       }
     }
     expect(paints).toBeGreaterThan(0);
+    await first.getByRole('button', { name: text.allComments, exact: true }).click();
     await expect(first.getByTestId('annotation-row').first()).toHaveAttribute(
       'title',
       opening.split('\n')[0].slice(0, 32),
@@ -468,6 +469,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await first.locator('.tmt-ui-drawer[open] .tmt-ui-drawer-body').evaluate((node) => {
           node.scrollTop = 0;
         });
+        await first.getByRole('button', { name: text.allComments, exact: true }).click();
         await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-threads.png` });
         await first.locator(`[data-testid="annotation-row"][data-thread-id="${threadId}"]`).click();
         await expect(t1).toHaveAttribute('data-anchor', 'attached');
@@ -492,7 +494,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await first.evaluate(() => {
         document.documentElement.dataset.theme = 'light';
       });
-      await first.getByRole('button', { name: 'Close Comments', exact: true }).click();
+      await first.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
       await marker.click();
     }
     await first.setViewportSize({ width: 1440, height: 900 });
@@ -531,11 +533,13 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t1.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await expect(t2.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await expect(t2.getByRole('combobox')).toBeVisible();
+    await first.getByRole('button', { name: text.allComments, exact: true }).click();
     await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
     await first
       .getByRole('combobox', { name: 'Post comment', exact: true })
       .fill('Page-wide discussion.');
     await first.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await first.getByRole('button', { name: text.allComments, exact: true }).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(2);
     await first.reload();
     await comments(first);

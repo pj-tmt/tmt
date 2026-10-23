@@ -24,7 +24,9 @@ async function open(page: Page, name: string) {
   await (await pageAction(page.locator('#ask-page-fixture'), name)).click();
 }
 async function close(page: Page, name: string) {
-  await page.getByRole('button', { name: `Close ${name}`, exact: true }).click();
+  // Comments reads Discussion while one thread is open in it.
+  const label = name === 'Comments' ? /^Close (Comments|Discussion)$/ : `Close ${name}`;
+  await page.getByRole('button', { name: label, exact: typeof label === 'string' }).click();
 }
 async function revealVisible(history: Locator, record: Locator) {
   const bounds = await history.boundingBox();
@@ -137,6 +139,10 @@ for (const destination of ['Chat', 'Thread'] as const) {
         if (destination === 'Chat') await open(page, 'Chat');
         else {
           await open(page, 'Comments');
+          // Comments reopens on the thread it had selected; otherwise the news is in Resolved.
+          await expect(page.locator('.tmt-ui-drawer[data-panel="comments"][open]')).toBeVisible();
+          if (await page.getByRole('button', { name: 'All comments', exact: true }).isVisible())
+            return;
           await page.getByRole('tab', { name: /Resolved/ }).click();
           await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
         }

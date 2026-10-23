@@ -498,7 +498,7 @@ test('anchored dialog: a failed reply survives closing the thread as the compose
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   await page.getByTestId('annotation-row').first().click();
   // The thread's composer remounts, so the row's draft comes back in it.
-  const reopened = page.getByRole('dialog', { name: 'Comments' });
+  const reopened = page.getByRole('dialog', { name: /^(Comments|Discussion)$/ });
   const composer = reopened.getByRole('combobox', { name: 'Message', exact: true });
   await expect(composer).toHaveText('Keep this unsent reply.', { useInnerText: true });
   await expect(echo(page)).toHaveCount(0);
@@ -513,7 +513,7 @@ test('comments: a reply that fails after Comments closed mid-send still holds it
   const fixtureRoot = page.locator('#ask-page-fixture');
   await (await pageAction(fixtureRoot, 'Comments')).click();
   await page.getByTestId('annotation-row').first().click();
-  const panel = page.getByRole('dialog', { name: 'Comments' });
+  const panel = page.getByRole('dialog', { name: /^(Comments|Discussion)$/ });
   const input = panel.getByRole('combobox', { name: 'Message', exact: true });
   await input.pressSequentially('Closed while sending.');
   await page_('holdReply');
@@ -521,7 +521,7 @@ test('comments: a reply that fails after Comments closed mid-send still holds it
   await input.press('Enter');
   await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
   // Closing the thread itself waits for the send; closing Comments hides it mid-send.
-  await page.getByRole('button', { name: 'Close Comments', exact: true }).click();
+  await page.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
   await expect(panel).toHaveCount(0);
   await page_('releaseReply');
   await (await pageAction(fixtureRoot, 'Comments')).click();

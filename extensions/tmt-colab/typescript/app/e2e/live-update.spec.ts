@@ -278,7 +278,7 @@ for (const width of [1440, 390]) {
       expect((await run(page, 'proof')).sends).toHaveLength(1);
 
       // A different page is the reset boundary, including drafts kept after close.
-      await page.getByRole('button', { name: 'Close Comments', exact: true }).click();
+      await page.getByRole('button', { name: /^Close (Comments|Discussion)$/ }).click();
       await change(page, source);
       await select(page);
       await input.fill('@Agent 1 This belongs to the previous page only.');
@@ -503,9 +503,10 @@ for (const width of [1440, 390]) {
       await page.getByRole('tab', { name: text.threadResolved, exact: true }).click();
       await page.getByTestId('annotation-row').click();
       const details = page.getByTestId('comment-thread');
-      await expect(details).toContainText(text.threadResolved);
+      const state = page.getByTestId('discussion-state');
+      await expect(state).toContainText(text.threadResolved);
       await details.getByRole('button', { name: text.threadReopen, exact: true }).click();
-      await expect(details).toContainText(text.threadOpen);
+      await expect(state).toHaveText(text.discussionOpen);
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });
   }

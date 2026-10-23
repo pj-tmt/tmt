@@ -3559,8 +3559,10 @@ answer` is a new comment and an ordinary single-comment Ask; the batch is untouc
 
 The Comments overlay lists every annotation and page-level thread, with a quote
 snippet, participants, display time and open/resolved status. Selecting a row scrolls
-the window to its anchor and expands that thread inside the overlay; a margin marker
-reopens the same thread in its anchored window. Page-owned per-thread drafts also
+the window to its anchor and opens that thread's Discussion view in the overlay, in place
+of the list (the drawer reads Discussion with the thread's position, `n / N`, and `All
+comments` returns to the list); the selected thread stays selected while Comments is closed
+and reopened. A margin marker reopens the same thread in its anchored window. Page-owned per-thread drafts also
 survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
 Shared Chat, Source, Agents, Files, Comments and Export drawers leave an 8 px

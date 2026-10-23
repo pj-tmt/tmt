@@ -59,7 +59,7 @@ for (const detached of [false, true]) {
     await page.getByRole('menuitem', { name: 'Choose release · Agent 1' }).click();
     await expect(page.getByRole('menu')).toHaveCount(0);
     const target = detached
-      ? page.getByRole('dialog', { name: 'Comments', exact: true })
+      ? page.getByRole('dialog', { name: /^(Comments|Discussion)$/ })
       : page.locator('[data-inline-proposal]');
     await expect(target).toBeVisible();
     if (!detached)

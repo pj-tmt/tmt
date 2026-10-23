@@ -118,10 +118,19 @@ test('a message arriving in the Comments panel stays reachable and does not move
 
 const lineHeight = (node: Locator) =>
   node.evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
-/** The composer's bottom edge sits on the scroller's bottom edge (within a pixel). */
+/** The composer's bottom edge sits on the scroller's bottom edge (within a pixel), or, at the end
+ * of the scroll, on the top of the Resolve footer that follows it. */
 const pinned = async (composer: Locator, scroller: Locator) => {
-  const [bar, box] = await Promise.all([composer.boundingBox(), scroller.boundingBox()]);
-  return !!bar && !!box && Math.abs(bar.y + bar.height - (box.y + box.height)) <= 1;
+  const footer = scroller.locator('.discussion-footer');
+  const [bar, box, below] = await Promise.all([
+    composer.boundingBox(),
+    scroller.boundingBox(),
+    footer.boundingBox(),
+  ]);
+  if (!bar || !box) return false;
+  const edge = Math.abs(bar.y + bar.height - (box.y + box.height)) <= 1;
+  const onFooter = !!below && Math.abs(bar.y + bar.height - below.y) <= 1;
+  return edge || onFooter;
 };
 
 for (const width of [1440, 390])
@@ -147,10 +156,10 @@ for (const width of [1440, 390])
         'tmt-ui-drawer-body',
       ]);
 
-      // At rest the input shows two lines and the footer reads as one line.
+      // At rest the reply field shows four lines (the website's) and the note shares one row with Reply.
       const line = await lineHeight(field);
       const rest = (await field.boundingBox())!.height;
-      expect(Math.abs(rest - 2 * line)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rest - 4 * line)).toBeLessThanOrEqual(1);
       const note = composer.locator('.annotation-anchor-note');
       const hint = composer.locator('.annotation-hint');
       await expect(note).toHaveText('Attached to this sentence');
@@ -179,7 +188,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`comments-composer-${width}-${theme}.png`) });
     });
 
-test('the on-screen keyboard shrinks the Comments message area, not the composer', async ({
+test('the on-screen keyboard shrinks the Comments message area and the reply field, not the composer bar', async ({
   page,
 }) => {
   const { panel, scroller } = await openLongThread(page, 390, 'light');
@@ -192,7 +201,9 @@ test('the on-screen keyboard shrinks the Comments message area, not the composer
   await expect(field).toBeFocused();
   await expect.poll(() => pinned(composer, scroller)).toBe(true);
   const [bar, box] = await Promise.all([composer.boundingBox(), scroller.boundingBox()]);
-  expect(Math.abs(bar!.height - resting)).toBeLessThanOrEqual(1);
+  // The four-line reply field gives way to the compact two-line field in a short viewport.
+  const line = await lineHeight(field);
+  expect(Math.abs(resting - bar!.height - 2 * line)).toBeLessThanOrEqual(1);
   // The composer is fully on screen and messages keep room above it.
   expect(box!.height - bar!.height).toBeGreaterThan(100);
   // The last message stays reachable above the pinned composer.

@@ -274,6 +274,8 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
       .getByRole('combobox', { name: 'Post comment', exact: true })
       .fill('Ordinary page comment');
     await first.getByRole('button', { name: 'Post comment', exact: true }).click();
+    // The new thread opens in its Discussion view; All comments returns to the list.
+    await first.getByRole('button', { name: 'All comments', exact: true }).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(1);
     await first.reload();
     await openChat(first);

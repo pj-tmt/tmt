@@ -1449,6 +1449,14 @@ function OpenPage({
       )
     : undefined;
   const numbers = useMemo(() => threadNumbers(view.threads ?? []), [view.threads]);
+  // The Comments drawer shows one thread's Discussion view while a thread of this page is selected.
+  const discussedThread =
+    panel === 'comments' &&
+    activeThread !== null &&
+    (view.threads ?? []).some(
+      (thread) =>
+        !isChatThread(thread) && `${thread.ref.writer}:${thread.threadId}` === activeThread,
+    );
   const openThreads = discussionPending ? undefined : openThreadCount(view.threads ?? []);
   const fileCount = view.attachments?.length ?? 0;
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
@@ -2195,7 +2203,12 @@ function OpenPage({
         notice={endedNotice}
         focusFallback={environment.focusFallback}
         open={panel === 'comments'}
-        title={text.comments}
+        title={discussedThread ? text.discussion : text.comments}
+        caption={
+          discussedThread && numbers.get(activeThread!) !== undefined
+            ? text.discussionPosition(numbers.get(activeThread!)!, numbers.size)
+            : undefined
+        }
         panel="comments"
         onDismiss={() => close()}
       >
@@ -2236,6 +2249,10 @@ function OpenPage({
             asks={view.asks ?? []}
             active={activeThread}
             select={openThread}
+            showInPage={(ref) => {
+              close();
+              renderer.current?.scrollAnchor(`${ref.writer}:${ref.id}`);
+            }}
             presentations={view.threadPresentations}
             onStatusChange={
               statusCoordinator

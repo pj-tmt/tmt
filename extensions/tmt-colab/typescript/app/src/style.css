@@ -1573,6 +1573,155 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .comments-panel .annotation-list-item:first-child .annotation-row {
   padding-top: 10px;
 }
+/* The Discussion view: the status line, the thread's title and passage, the footer. */
+.discussion-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+.discussion-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-muted);
+}
+.discussion-state svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.discussion-state[data-state='resolved'] {
+  color: var(--tmt-ui-color-accent);
+}
+.discussion-state[data-state='needs'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.discussion-title {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 550;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.discussion-quote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px 10px;
+  border-left: 2px solid var(--tmt-ui-color-accent);
+  background: color-mix(in srgb, var(--tmt-ui-color-accent) 6%, var(--tmt-ui-surface-sheet));
+}
+.discussion-quote > q {
+  flex: 1;
+  min-width: 0;
+  quotes: none;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+/* In the drawer the thread is the page sheet itself, not a card: turns run full width, a rule
+   between them, and the time ends the byline. */
+.comment-thread[data-layout='discussion'] {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+.comment-thread[data-layout='discussion'] .conversation-turn {
+  width: 100%;
+  margin: 0;
+  padding: var(--conversation-gap) 0;
+  border-bottom: 1px solid var(--c-rule);
+}
+.comment-thread[data-layout='discussion'] .conversation-time-separator {
+  display: none;
+}
+.comment-thread[data-layout='discussion'] .conversation-composer {
+  background: var(--tmt-ui-surface-sheet);
+}
+/* The position (n / N) ends the drawer heading, next to Close, as on the website. */
+.tmt-ui-drawer[data-panel='comments'] .tmt-ui-drawer-heading {
+  flex: 1;
+  justify-content: space-between;
+}
+/* The reply composer is a visible field: the shared field fill and edge around the input. */
+.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field,
+.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-surface[data-accessory] {
+  background: var(--tmt-ui-surface-field);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+}
+.comment-thread[data-layout='discussion']
+  .annotation-compose
+  .rich-input-surface[data-accessory]
+  .rich-input-field {
+  background: transparent;
+  border: 0;
+}
+.comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
+  padding: var(--tmt-ui-host-field-padding);
+}
+/* The reply area is the website's: a four-line field flush with the content column, and one row
+   under it with the note at the start and Reply at the end. */
+.annotation-note-line {
+  display: contents;
+}
+.comment-thread[data-layout='discussion'] .conversation-composer {
+  padding-inline: 0;
+}
+/* A short viewport (the on-screen keyboard, a landscape phone) keeps the compact two-line field,
+   so the messages keep their room. */
+@media (min-height: 561px) {
+  .comment-thread[data-layout='discussion'] .annotation-compose .rich-input-field {
+    min-height: 4lh;
+  }
+}
+.comment-thread[data-layout='discussion'] .annotation-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+.comment-thread[data-layout='discussion'] .annotation-compose > * {
+  grid-column: 1 / -1;
+}
+.comment-thread[data-layout='discussion'] .annotation-compose > .annotation-note-line {
+  display: block;
+  grid-column: 1;
+  grid-row: 2;
+}
+.comment-thread[data-layout='discussion']
+  .annotation-compose
+  > .annotation-status-row:not([data-creator-toggle]) {
+  grid-column: 2;
+  grid-row: 2;
+}
+.comment-thread[data-layout='discussion']
+  .annotation-compose
+  .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible),
+.comment-thread[data-layout='discussion']
+  .annotation-compose
+  .rich-input-field:not(.rich-input-surface .rich-input-field):focus-visible {
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-focus);
+}
+.discussion-footer .tmt-ui-action {
+  text-decoration: none;
+}
+.discussion-footer .tmt-ui-action svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.discussion-footer {
+  display: flex;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-rule);
+}
+.comments-panel[data-view='discussion'] .conversation-main .comment-byline time {
+  margin-inline-start: auto;
+}
 .comments-empty {
   padding: 40px 10px;
   text-align: center;
