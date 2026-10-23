@@ -127,7 +127,12 @@ impl Session {
         let mut times = base
             .map(|reply| vec![time(Some(reply))])
             .unwrap_or_default();
-        for entry in &self.outgoing {
+        let places = self.answer_places();
+        for (index, entry) in self.outgoing.iter().enumerate() {
+            // A stacked body belongs to its block's first send: one block, one time.
+            if !places[index].header() {
+                continue;
+            }
             if entry.lead_in.is_some() {
                 times.push(time(entry.lead_in.as_ref()));
             }
@@ -299,15 +304,6 @@ impl Session {
             reader,
         } = &self.transcript_context;
         let sends: Vec<_> = self.restored_sends().collect();
-        let places = super::answer_order::place(
-            &sends
-                .iter()
-                .map(|send| super::answer_order::Probe {
-                    at_ms: send.at_ms,
-                    capture: send.capture.as_ref(),
-                })
-                .collect::<Vec<_>>(),
-        );
         if self.finals.is_empty()
             && sends.is_empty()
             && (!enabled
@@ -430,32 +426,91 @@ impl Session {
             index
         };
         let captured_outputs = self.captured_outputs(items);
+        let order = crate::board::recent_responses::merge(&times, items);
+        // Sends that follow each other in the transcript, with no final, pane output or exchange
+        // between them, may form one message block.
+        let mut places = vec![super::answer_order::Place::default(); sends.len()];
+        let mut run: Vec<usize> = Vec::new();
+        let group = |run: &mut Vec<usize>, places: &mut Vec<super::answer_order::Place>| {
+            let placed = super::answer_order::place(
+                &run.iter()
+                    .map(|index| super::answer_order::Probe {
+                        at_ms: sends[*index].at_ms,
+                        capture: sends[*index].capture.as_ref(),
+                        direct: sends[*index].capture.is_some(),
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            for (member, mut place) in run.iter().zip(placed) {
+                place.answers = place.answers.iter().map(|answer| run[*answer]).collect();
+                places[*member] = place;
+            }
+            run.clear();
+        };
+        for source in &order {
+            match source {
+                Source::Pane(index) if captured_outputs.contains(index) => {}
+                Source::Exchange(block) => match messages[*block].1 {
+                    super::history::Block::Sent(index) => run.push(index),
+                    _ => group(&mut run, &mut places),
+                },
+                Source::Pane(_) => group(&mut run, &mut places),
+            }
+        }
+        group(&mut run, &mut places);
         let mut first = true;
-        for source in crate::board::recent_responses::merge(&times, items) {
+        let mut previous: Option<&str> = None;
+        for source in order {
             if matches!(source, Source::Pane(index) if captured_outputs.contains(&index)) {
                 continue;
             }
-            if !first {
+            // A stacked body follows the previous message of its block without a blank line.
+            let stacked = matches!(
+                source,
+                Source::Exchange(block) if matches!(
+                    messages[block].1,
+                    super::history::Block::Sent(index)
+                        if matches!(
+                            places[index].role,
+                            super::answer_order::Role::Member | super::answer_order::Role::Last
+                        )
+                )
+            );
+            let current = match source {
+                Source::Exchange(block) => match messages[block].1 {
+                    super::history::Block::Sent(index) => Some(sends[index].text.as_str()),
+                    _ => None,
+                },
+                Source::Pane(_) => None,
+            };
+            let spaced = stacked
+                && matches!((previous, current),
+                    (Some(previous), Some(current)) if super::answer_order::spaced(previous, current));
+            if !first && (!stacked || spaced) {
                 append(Line::default(), vec![], None);
             }
+            previous = current;
             first = false;
             match source {
                 Source::Exchange(block) => {
                     if let super::history::Block::Sent(index) = messages[block].1 {
                         let send = sends[index];
-                        let header = append(
-                            super::super::exchange_view::header(
-                                super::super::exchange_view::Sender::You(reader),
-                                name,
-                                sent_ages.get(index).map_or("—", String::as_str),
-                                false,
-                                width,
-                                look,
-                            ),
-                            vec![],
-                            None,
-                        );
-                        header_anchors.insert(header, format!("sent request {}", send.request));
+                        let place = &places[index];
+                        if place.header() {
+                            let header = append(
+                                super::super::exchange_view::header(
+                                    super::super::exchange_view::Sender::You(reader),
+                                    name,
+                                    sent_ages.get(index).map_or("—", String::as_str),
+                                    false,
+                                    width,
+                                    look,
+                                ),
+                                vec![],
+                                None,
+                            );
+                            header_anchors.insert(header, format!("sent request {}", send.request));
+                        }
                         let body = markdown::render_conversation_with_members(
                             &sanitize(&send.text),
                             width.saturating_sub(3).max(1),
@@ -471,25 +526,36 @@ impl Session {
                             }));
                             append(super::super::exchange_view::body(line, look), vec![], None);
                         }
-                        let place = &places[index];
-                        if let Some(text) = &send.message_state_label {
-                            let text = if place.answered_below {
-                                super::answer_order::answered_below(text)
-                            } else {
-                                text.clone()
-                            };
+                        // The block's one status line sits under its last body.
+                        let label = if place.role == super::answer_order::Role::Last {
+                            let first = (0..=index)
+                                .rev()
+                                .find(|member| {
+                                    places[*member].role == super::answer_order::Role::First
+                                })
+                                .unwrap_or(index);
+                            let labels = sends[first..=index]
+                                .iter()
+                                .filter_map(|member| member.message_state_label.as_deref())
+                                .collect::<Vec<_>>();
+                            (!labels.is_empty())
+                                .then(|| super::answer_order::block_status(labels.into_iter()))
+                        } else {
+                            send.message_state_label.clone()
+                        };
+                        if place.status()
+                            && let Some(text) = &label
+                        {
                             for line in markdown::wrap_styled(
-                                super::super::exchange_view::feedback_content(&text, look),
+                                super::super::exchange_view::feedback_content(text, look),
                                 width.saturating_sub(3).max(1),
                             ) {
                                 append(super::super::exchange_view::body(line, look), vec![], None);
                             }
                         }
-                        // The group's answer follows its last send; the first send's own answer is
-                        // painted there, not under itself.
+                        // A lone send keeps its own answer; a block's answer follows its last send.
                         let own = send.capture.as_ref().filter(|capture| {
-                            !place.hoisted
-                                && !place.mate
+                            place.role == super::answer_order::Role::Single
                                 && (send.message_state_label.is_none()
                                     || !matches!(
                                         capture,

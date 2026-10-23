@@ -1699,6 +1699,25 @@ var browserUiClasses = Object.freeze({
 	cardMeta: "tmt-ui-card-meta",
 	meter: "tmt-ui-meter",
 	meterFill: "tmt-ui-meter-fill",
+	glyph: "tmt-ui-glyph",
+	pageHead: "tmt-ui-page-head",
+	pageTitle: "tmt-ui-page-title",
+	pageSubtitle: "tmt-ui-page-subtitle",
+	stats: "tmt-ui-stats",
+	stat: "tmt-ui-stat",
+	statValue: "tmt-ui-stat-value",
+	statNumber: "tmt-ui-stat-number",
+	statCaption: "tmt-ui-stat-caption",
+	banner: "tmt-ui-banner",
+	bannerHead: "tmt-ui-banner-head",
+	bannerRow: "tmt-ui-banner-row",
+	facts: "tmt-ui-facts",
+	tableScroll: "tmt-ui-table-scroll",
+	tableGroup: "tmt-ui-table-group",
+	tableGroupToggle: "tmt-ui-table-group-toggle",
+	tableGroupCount: "tmt-ui-table-group-count",
+	tableSelect: "tmt-ui-table-select",
+	tableCompactMeta: "tmt-ui-table-compact-meta",
 	notifications: "tmt-ui-notifications",
 	notification: "tmt-ui-notification",
 	notificationStatus: "tmt-ui-notification-status",
@@ -1742,6 +1761,7 @@ var browserUiClasses = Object.freeze({
 	field: "tmt-ui-field",
 	fieldLabel: "tmt-ui-field-label",
 	fieldControl: "tmt-ui-field-control",
+	searchField: "tmt-ui-search-field",
 	fieldDescription: "tmt-ui-field-description",
 	fieldError: "tmt-ui-field-error",
 	action: "tmt-ui-action",
@@ -1774,6 +1794,7 @@ var browserUiClasses = Object.freeze({
 	tab: "tmt-ui-tab",
 	tabMark: "tmt-ui-tab-mark",
 	tabLabel: "tmt-ui-tab-label",
+	tabCount: "tmt-ui-tab-count",
 	tabsStatus: "tmt-ui-tabs-status",
 	tabPanel: "tmt-ui-tab-panel",
 	section: "tmt-ui-section",
@@ -1800,13 +1821,13 @@ var busyDots = [
 ];
 /** The radius of each busy-mark dot on the 16x16 viewBox. */
 var busyDotRadius = 1.6;
-var SVG$2 = "http://www.w3.org/2000/svg";
+var SVG$3 = "http://www.w3.org/2000/svg";
 /** The busy mark's SVG (its dots in currentColor), as `BusyMark` renders it. */
 function busySvg(doc) {
-	const svg = doc.createElementNS(SVG$2, "svg");
+	const svg = doc.createElementNS(SVG$3, "svg");
 	svg.setAttribute("viewBox", "0 0 16 16");
 	for (const [cx, cy] of busyDots) {
-		const dot = doc.createElementNS(SVG$2, "circle");
+		const dot = doc.createElementNS(SVG$3, "circle");
 		dot.setAttribute("class", browserUiClasses.busyDot);
 		dot.setAttribute("cx", String(cx));
 		dot.setAttribute("cy", String(cy));
@@ -2615,6 +2636,13 @@ var shellIconNodes = {
 		["path", { d: "M4 5h16" }],
 		["path", { d: "M4 12h16" }],
 		["path", { d: "M4 19h16" }]
+	],
+	"chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
+	"chevron-right": [["path", { d: "m9 18 6-6-6-6" }]],
+	"triangle-alert": [
+		["path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" }],
+		["path", { d: "M12 9v4" }],
+		["path", { d: "M12 17h.01" }]
 	]
 };
 var moduleIcons = [
@@ -2807,7 +2835,7 @@ function shellRail(answer, place, host) {
 	};
 }
 var RAIL_KEY = "tmt.shell.rail";
-var SVG$1 = "http://www.w3.org/2000/svg";
+var SVG$2 = "http://www.w3.org/2000/svg";
 function railCollapsed() {
 	try {
 		return localStorage.getItem(RAIL_KEY) === "collapsed";
@@ -2821,12 +2849,12 @@ function rememberRail(collapsed) {
 	} catch {}
 }
 function icon(document, name) {
-	const svg = document.createElementNS(SVG$1, "svg");
+	const svg = document.createElementNS(SVG$2, "svg");
 	svg.setAttribute("class", "tmt-ui-shell-icon");
 	svg.setAttribute("viewBox", "0 0 24 24");
 	svg.setAttribute("aria-hidden", "true");
 	for (const [tag, attributes] of shellIconNodes[name]) {
-		const node = document.createElementNS(SVG$1, tag);
+		const node = document.createElementNS(SVG$2, tag);
 		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
 		svg.append(node);
 	}
@@ -3466,9 +3494,9 @@ function round(value) {
 * DOM helpers the leaf's chart painters share. No style attributes in markup: every look comes from a
 * `tmt-ui-chart-*` class, so a chart works under a strict style policy.
 */
-var SVG = "http://www.w3.org/2000/svg";
+var SVG$1 = "http://www.w3.org/2000/svg";
 function svgEl(name, attrs = {}, className) {
-	const node = document.createElementNS(SVG, name);
+	const node = document.createElementNS(SVG$1, name);
 	for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
 	if (className) node.setAttribute("class", className);
 	return node;
@@ -4572,7 +4600,7 @@ var REFRESH_MS$1 = 6e4;
 var SERIES_KEPT = 5;
 /** The neutral palette step of the folded `Other` layer (`tmt-ui-chart-s7`). */
 var OTHER_STEP = 7;
-function el(name, className, text) {
+function el$1(name, className, text) {
 	const node = document.createElement(name);
 	if (className) node.className = className;
 	if (text !== void 0) node.textContent = text;
@@ -4580,42 +4608,42 @@ function el(name, className, text) {
 }
 /** A flat sheet with a sentence-case title and an optional right-hand slot in its head. */
 function card(id, title, body, options = {}) {
-	const node = el("section", options.className ? `${browserUiClasses.card} digest-card ${options.className}` : `${browserUiClasses.card} digest-card`);
+	const node = el$1("section", options.className ? `${browserUiClasses.card} digest-card ${options.className}` : `${browserUiClasses.card} digest-card`);
 	node.id = id;
 	node.setAttribute("aria-labelledby", `${id}-title`);
-	const heading = el("h2", browserUiClasses.cardTitle, title);
+	const heading = el$1("h2", browserUiClasses.cardTitle, title);
 	heading.id = `${id}-title`;
-	const head = el("div", browserUiClasses.cardHead);
+	const head = el$1("div", browserUiClasses.cardHead);
 	head.append(heading);
 	if (options.actions) head.append(options.actions);
 	node.append(head, ...body);
 	return node;
 }
 function row$2(className, ...cards) {
-	const node = el("div", `digest-row ${className}`);
+	const node = el$1("div", `digest-row ${className}`);
 	node.append(...cards);
 	return node;
 }
 function table(head, rows) {
-	const node = el("table", browserUiClasses.table);
+	const node = el$1("table", browserUiClasses.table);
 	node.dataset.numeric = "";
-	const header = el("tr");
+	const header = el$1("tr");
 	for (const text of head) {
-		const cell = el("th", void 0, text);
+		const cell = el$1("th", void 0, text);
 		cell.scope = "col";
 		header.append(cell);
 	}
-	const thead = el("thead");
+	const thead = el$1("thead");
 	thead.append(header);
 	node.append(thead);
-	const body = el("tbody");
+	const body = el$1("tbody");
 	for (const [first, ...rest] of rows) {
-		const line = el("tr");
-		const name = el("th");
+		const line = el$1("tr");
+		const name = el$1("th");
 		name.scope = "row";
 		name.append(first);
 		line.append(name, ...rest.map((value) => {
-			const cell = el("td");
+			const cell = el$1("td");
 			cell.append(value);
 			return cell;
 		}));
@@ -4626,12 +4654,12 @@ function table(head, rows) {
 }
 /** The leaf's boxed tabs as a two-way choice for one panel; `aria-selected` marks the active one. */
 function tabChoice(label, controls, options, initial, change) {
-	const header = el("div", browserUiClasses.tabsHeader);
-	const list = el("div", browserUiClasses.tabList);
+	const header = el$1("div", browserUiClasses.tabsHeader);
+	const list = el$1("div", browserUiClasses.tabList);
 	list.setAttribute("role", "tablist");
 	list.setAttribute("aria-label", label);
 	const buttons = options.map((option) => {
-		const button = el("button", browserUiClasses.tab, option.text);
+		const button = el$1("button", browserUiClasses.tab, option.text);
 		button.type = "button";
 		button.setAttribute("role", "tab");
 		button.setAttribute("aria-controls", controls);
@@ -4656,13 +4684,13 @@ function tabChoice(label, controls, options, initial, change) {
 * are bare (`data-bare` on the group); `series` adds a dot in that chart series' colour, `hero` sets
 * the value at the page's first-read size. A tile without a tone draws no dot. */
 function tile(label, value, options = {}) {
-	const node = el("div", browserUiClasses.statusTile);
-	const term = el("dt", browserUiClasses.statusTileLabel, label);
-	const figure = el("dd", browserUiClasses.statusTileValue);
+	const node = el$1("div", browserUiClasses.statusTile);
+	const term = el$1("dt", browserUiClasses.statusTileLabel, label);
+	const figure = el$1("dd", browserUiClasses.statusTileValue);
 	figure.dataset.numeric = value === "0" ? "zero" : "count";
 	if (options.hero) figure.dataset.size = "hero";
 	if (options.series !== void 0) {
-		const dot = el("span", `${browserUiClasses.statusTileDot} tmt-ui-chart-s${options.series}`);
+		const dot = el$1("span", `${browserUiClasses.statusTileDot} tmt-ui-chart-s${options.series}`);
 		dot.setAttribute("aria-hidden", "true");
 		figure.append(dot);
 	}
@@ -4672,49 +4700,49 @@ function tile(label, value, options = {}) {
 }
 /** A passive label for a state that is not an action: the leaf's chip without a remove control. */
 function passiveChip(text) {
-	const node = el("span", browserUiClasses.chip);
-	node.append(el("span", browserUiClasses.chipLabel, text));
+	const node = el$1("span", browserUiClasses.chip);
+	node.append(el$1("span", browserUiClasses.chipLabel, text));
 	return node;
 }
 /** A group of bare tiles for use inside a card. */
 function bareTiles(...tiles) {
-	const group = el("dl", browserUiClasses.statusTiles);
+	const group = el$1("dl", browserUiClasses.statusTiles);
 	group.dataset.bare = "";
 	group.append(...tiles);
 	return group;
 }
 function providerCard(view, nowMs) {
 	const resets = view.stale ? "stale" : resetsIn(view.resetsAtMs, nowMs);
-	const meter = el("div", browserUiClasses.meter);
+	const meter = el$1("div", browserUiClasses.meter);
 	meter.setAttribute("role", "img");
 	meter.setAttribute("aria-label", `${view.leftPercent}% of the weekly allowance left`);
-	const fill = el("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${view.style}`);
+	const fill = el$1("div", `${browserUiClasses.meterFill} tmt-ui-chart-s${view.style}`);
 	fill.style.setProperty("--tmt-ui-meter-fill", String(Math.max(0, Math.min(100, view.leftPercent))));
 	meter.append(fill);
-	const figure = el("div", "digest-provider-figure");
+	const figure = el$1("div", "digest-provider-figure");
 	figure.append(bareTiles(tile("Allowance left", `${view.leftPercent}%`, {
 		hero: true,
 		series: view.style
 	})), meter);
-	const history = view.chart ? createSeriesChart(view.chart) : el("p", "usage-note", "The weekly history is not served yet; this shows the latest window.");
+	const history = view.chart ? createSeriesChart(view.chart) : el$1("p", "usage-note", "The weekly history is not served yet; this shows the latest window.");
 	const stats = bareTiles(tile("Elapsed", view.elapsedPercent === null ? "—" : `${Math.round(view.elapsedPercent)}%`), tile("Pace", view.paceDeltaPoints === null ? "—" : `${view.paceDeltaPoints > 0 ? "+" : ""}${view.paceDeltaPoints.toFixed(1)} pts`), tile("Resets in", resets));
-	const body = el("div", "digest-provider-body");
+	const body = el$1("div", "digest-provider-body");
 	body.append(figure, history);
 	return card(`digest-provider-${view.line || "account"}`, view.provider, [body, stats], {
-		actions: el("span", browserUiClasses.cardMeta, `Resets in ${resets}`),
+		actions: el$1("span", browserUiClasses.cardMeta, `Resets in ${resets}`),
 		className: "digest-provider"
 	});
 }
 function allowanceRow(doc) {
 	const views = providers(doc);
-	const node = views.length ? row$2("digest-row-providers", ...views.map((view) => providerCard(view, doc.observedAtMs))) : row$2("digest-row-providers", card("digest-provider-none", "Allowance", [el("p", "usage-note", "No weekly window has been observed yet.")]));
+	const node = views.length ? row$2("digest-row-providers", ...views.map((view) => providerCard(view, doc.observedAtMs))) : row$2("digest-row-providers", card("digest-provider-none", "Allowance", [el$1("p", "usage-note", "No weekly window has been observed yet.")]));
 	node.id = "digest-allowance";
 	return node;
 }
 function tokensCard(doc, scale) {
 	const data = tokenSeries(doc);
-	const body = el("div", "digest-card-body");
-	const host = el("div");
+	const body = el$1("div", "digest-card-body");
+	const host = el$1("div");
 	const draw = () => {
 		host.replaceChildren(createSeriesChart({
 			title: scale.share ? "Share of tokens by seat" : "Tokens by seat",
@@ -4726,7 +4754,7 @@ function tokensCard(doc, scale) {
 	};
 	draw();
 	body.append(host);
-	if (data.partial) body.append(el("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
+	if (data.partial) body.append(el$1("p", "usage-note", "Some buckets are incomplete: they are lower bounds, not errors."));
 	host.id = "digest-tokens-chart";
 	const control = tabChoice("Scale", host.id, [{
 		value: "absolute",
@@ -4742,9 +4770,9 @@ function tokensCard(doc, scale) {
 }
 /** A seat's name on one line, the full name on hover, `*` after a partial one. */
 function seatLabel(name, partial) {
-	const node = el("span", "digest-seat", name);
+	const node = el$1("span", "digest-seat", name);
 	node.title = partial ? `${name} (partial)` : name;
-	if (partial) node.append(el("span", "digest-partial", "*"));
+	if (partial) node.append(el$1("span", "digest-partial", "*"));
 	return node;
 }
 function rankingCard(doc) {
@@ -4753,13 +4781,13 @@ function rankingCard(doc) {
 	const hue = new Map(topLayers(tokenSeries(doc).layers, SERIES_KEPT).filter((layer) => layer.key !== "other").map((layer, at) => [layer.key, at]));
 	const largest = Math.max(1, ...rows.map((entry) => entry.tokens));
 	const bar = (id, tokens) => {
-		const node = el("span", `digest-bar tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
+		const node = el$1("span", `digest-bar tmt-ui-chart-s${hue.get(id) ?? OTHER_STEP}`);
 		node.style.setProperty("--digest-bar", String(Math.round(tokens / largest * 100)));
 		node.setAttribute("aria-hidden", "true");
 		return node;
 	};
-	if (!rows.length) return card("digest-ranking", `Last ${doc.since} by seat`, [el("p", "usage-note", "No seat has token observations in this range.")]);
-	const host = el("div", "digest-ranking-table");
+	if (!rows.length) return card("digest-ranking", `Last ${doc.since} by seat`, [el$1("p", "usage-note", "No seat has token observations in this range.")]);
+	const host = el$1("div", "digest-ranking-table");
 	host.id = "digest-ranking-rows";
 	const draw = (all) => {
 		const lines = (all ? rows : view.top).map((entry) => [
@@ -4783,9 +4811,9 @@ function rankingCard(doc) {
 	};
 	draw(false);
 	const body = [host];
-	if (view.partial) body.push(el("p", "usage-note", "* Partial: some of this range has no data for the seat."));
+	if (view.partial) body.push(el$1("p", "usage-note", "* Partial: some of this range has no data for the seat."));
 	if (view.other) {
-		const toggle = el("button", browserUiClasses.action);
+		const toggle = el$1("button", browserUiClasses.action);
 		toggle.dataset.variant = "text";
 		toggle.type = "button";
 		toggle.setAttribute("aria-controls", host.id);
@@ -4827,7 +4855,7 @@ function activityCard(doc) {
 		slotRange: range,
 		ends: hourly ? ["24 h ago", "now"] : [`${view.starts.length} days ago`, "today"],
 		legend: false
-	}), el("p", "usage-note", "Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet.")], { actions: stripsLegend() });
+	}), el$1("p", "usage-note", "Token flow only. Board row state and age, pane evidence and what each seat waits on are not in the usage read yet.")], { actions: stripsLegend() });
 }
 function exchangeCard(doc) {
 	const flow = exchange(doc);
@@ -4836,7 +4864,7 @@ function exchangeCard(doc) {
 		participants: flow.participants,
 		value: flow.value,
 		sum: true
-	}) : el("p", "usage-note", "Message traffic is not available in this read.")]);
+	}) : el$1("p", "usage-note", "Message traffic is not available in this read.")]);
 }
 /** The sources the usage read does not carry yet, one line each, with the method below. */
 function coverageCard() {
@@ -4846,23 +4874,23 @@ function coverageCard() {
 		["Cost per merged PR", "merged pull requests joined to the allowance points burned in the same window"],
 		["Machine", "load, free disk and the biggest worktrees with their owners"]
 	];
-	const list = el("dl", "digest-gaps");
+	const list = el$1("dl", "digest-gaps");
 	for (const [term, source] of gaps) {
-		const line = el("div", "digest-gap");
-		const status = el("dd");
+		const line = el$1("div", "digest-gap");
+		const status = el$1("dd");
 		status.append(passiveChip("Not connected"));
-		line.append(el("dt", void 0, term), status, el("dd", "digest-gap-source", source));
+		line.append(el$1("dt", void 0, term), status, el$1("dd", "digest-gap-source", source));
 		list.append(line);
 	}
-	const method = el("details", browserUiClasses.disclosure);
+	const method = el$1("details", browserUiClasses.disclosure);
 	method.dataset.divided = "";
 	method.id = "digest-method";
-	method.append(el("summary", void 0, "Method & caveats"), ...[
+	method.append(el$1("summary", void 0, "Method & caveats"), ...[
 		"Tokens are input plus output as Core reports them; cached input is part of input and is not counted again.",
 		"An incomplete bucket is a lower bound. A seat with no evidence for part of the range is marked partial, never shown as zero.",
 		"Allowance windows are the account percent as the provider reports it, in whole percent; usage on other machines is not seen.",
 		"Message counts include talk and reply only."
-	].map((text) => el("p", "usage-note", text)));
+	].map((text) => el$1("p", "usage-note", text)));
 	return card("digest-missing", "Data coverage", [list, method]);
 }
 /** What a report shows, without the read's own clock: a refresh that changed nothing repaints nothing. */
@@ -4888,7 +4916,7 @@ function digestPage(source = digestSource, signal) {
 	let good;
 	const scale = { share: false };
 	const buttons = USAGE_RANGES.map((range) => {
-		const button = el("button", browserUiClasses.tab, range);
+		const button = el$1("button", browserUiClasses.tab, range);
 		button.type = "button";
 		button.setAttribute("role", "tab");
 		button.setAttribute("aria-controls", "usage-panel");
@@ -5016,6 +5044,22 @@ function moduleLoad(rail, entry, here, fallback) {
 		link,
 		entry: target.href
 	} : { link };
+}
+//#endregion
+//#region ../../../../design/browser-ui/src/glyph.ts
+var SVG = "http://www.w3.org/2000/svg";
+/** A line icon from the shared icon nodes, for a framework-free page: it takes the text colour. */
+function createIcon(name, doc = document) {
+	const svg = doc.createElementNS(SVG, "svg");
+	svg.setAttribute("class", browserUiClasses.glyph);
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attributes] of shellIconNodes[name]) {
+		const node = doc.createElementNS(SVG, tag);
+		for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+		svg.append(node);
+	}
+	return svg;
 }
 //#endregion
 //#region src/ops-source.ts
@@ -5211,76 +5255,385 @@ function sentence(text) {
 	notAvailable(node, text);
 	return node;
 }
-/** The board by urgency, so what needs the person shows before any row. Idle is the normal
-* state and has no tile; a tile at 0 stays, muted, so the row keeps its shape. */
-function summary(board) {
-	const tiles = [
-		[
-			"Needs you",
-			"waiting",
-			["needs-you"]
-		],
-		[
-			"Blocked",
-			"blocked",
-			["blocked"]
-		],
-		[
-			"Offline",
-			"muted",
-			["offline"]
-		],
-		[
-			"Working",
-			"working",
-			["working"]
-		]
-	];
-	const node = document.createElement("dl");
-	node.className = browserUiClasses.statusTiles;
-	for (const [label, tone, states] of tiles) {
-		const count = board.agents.filter((agent) => states.includes(agent.state)).length;
-		const tile = document.createElement("div");
-		tile.className = browserUiClasses.statusTile;
-		tile.dataset.tone = count === 0 ? "muted" : tone;
-		const term = document.createElement("dt");
-		term.className = browserUiClasses.statusTileLabel;
-		term.textContent = label;
-		const value = document.createElement("dd");
-		value.className = browserUiClasses.statusTileValue;
-		value.dataset.numeric = count === 0 ? "zero" : "count";
-		const dot = document.createElement("span");
-		dot.className = browserUiClasses.statusTileDot;
-		dot.setAttribute("aria-hidden", "true");
-		value.append(dot, String(count));
-		tile.append(term, value);
-		node.append(tile);
+function el(tag, className, text) {
+	const node = document.createElement(tag);
+	if (className) node.className = className;
+	if (text !== void 0) node.textContent = text;
+	return node;
+}
+var FILTERS = [
+	{
+		id: "all",
+		label: "All",
+		states: []
+	},
+	{
+		id: "needs-you",
+		label: "Needs you",
+		states: ["needs-you"]
+	},
+	{
+		id: "working",
+		label: "Working",
+		states: ["working"]
+	},
+	{
+		id: "idle",
+		label: "Idle",
+		states: ["idle", "idle-alert"]
+	},
+	{
+		id: "blocked",
+		label: "Blocked",
+		states: ["blocked"]
+	},
+	{
+		id: "offline",
+		label: "Offline",
+		states: ["offline"]
+	},
+	{
+		id: "unknown",
+		label: "Unknown",
+		states: ["unknown"]
 	}
+];
+var keyOf = (agent) => `${agent.squad}/${agent.name}`;
+/** A state's mark, in its own colour. */
+function mark(shape, tone) {
+	const node = el("span", browserUiClasses.stateMark);
+	node.dataset.shape = shape;
+	if (tone) node.dataset.tone = tone === "neutral" ? "muted" : tone;
+	node.setAttribute("aria-hidden", "true");
 	return node;
 }
-function heading$1(text) {
-	const node = document.createElement("h2");
-	node.className = browserUiClasses.sectionHeading;
-	node.textContent = text;
-	return node;
+/** A state as a chip: the mark and its word on the state's soft surface. */
+function stateChip(state, text) {
+	const info = AGENT_STATES[state];
+	const chip = el("span", browserUiClasses.chip);
+	chip.dataset.tone = info.tone;
+	chip.append(mark(info.mark), el("span", browserUiClasses.chipLabel, text ?? info.word));
+	return chip;
 }
-/** The section's content; agents group under their squad, the lead first. */
+var STATS = [
+	{
+		label: "working",
+		caption: "Actively running",
+		tone: "working",
+		shape: "dot",
+		states: ["working"]
+	},
+	{
+		label: "needs you",
+		caption: "Requires attention",
+		tone: "waiting",
+		shape: "diamond",
+		states: ["needs-you"]
+	},
+	{
+		label: "blocked",
+		caption: "Cannot continue",
+		tone: "blocked",
+		shape: "cross",
+		states: ["blocked"]
+	},
+	{
+		label: "idle",
+		caption: "Waiting for work",
+		tone: "muted",
+		shape: "dashed",
+		states: ["idle", "idle-alert"]
+	},
+	{
+		label: "offline",
+		caption: "Not running",
+		tone: "muted",
+		shape: "ring",
+		states: ["offline"]
+	},
+	{
+		label: "unknown",
+		caption: "Status unavailable",
+		tone: "muted",
+		shape: "unknown",
+		states: ["unknown"]
+	}
+];
+/** One strip of counts: all agents, then each state (idle alert counts as idle). */
+function statsStrip(agents) {
+	const strip = el("div", browserUiClasses.stats);
+	strip.setAttribute("role", "group");
+	strip.setAttribute("aria-label", "Agents by state");
+	const cell = (lead, count, label, caption, tone) => {
+		const node = el("div", browserUiClasses.stat);
+		if (tone) node.dataset.tone = tone;
+		const text = el("div");
+		const value = el("p", browserUiClasses.statValue);
+		value.append(el("span", browserUiClasses.statNumber, String(count)), ` ${label}`);
+		text.append(value, el("p", browserUiClasses.statCaption, caption));
+		node.append(lead, text);
+		return node;
+	};
+	strip.append(cell(createIcon("users"), agents.length, agents.length === 1 ? "agent" : "agents", "Total in workspace"), ...STATS.map((stat) => cell(mark(stat.shape), agents.filter((agent) => stat.states.includes(agent.state)).length, stat.label, stat.caption, stat.tone)));
+	return strip;
+}
+/** The agents by squad in the order the table draws them: squads as the board lists them (then any
+* squad only an agent names), each lead first. */
+function bySquad(board) {
+	return [...board.squads.map((squad) => squad.name), ...board.agents.map((agent) => agent.squad)].filter((name, at, all) => all.indexOf(name) === at).map((name) => ({
+		name,
+		agents: board.agents.filter((agent) => agent.squad === name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"))
+	})).filter((group) => group.agents.length);
+}
+/** The agents page: the counts, what needs the person, the agents by squad and the chosen one. */
+function agentsView(state) {
+	let board;
+	const page = el("div", "ops-agents-page");
+	const head = el("header", browserUiClasses.pageHead);
+	head.append(el("h2", browserUiClasses.pageTitle, "Your team, in sync."), el("p", browserUiClasses.pageSubtitle, "A clear view of every squad and agent."));
+	const stats = el("div");
+	const banner = el("div");
+	const grid = el("div", "ops-grid");
+	const card = el("section", browserUiClasses.card);
+	card.dataset.flush = "";
+	card.setAttribute("aria-labelledby", "ops-agents-title");
+	const cardHead = el("div", browserUiClasses.cardHead);
+	const title = el("h3", browserUiClasses.cardTitle, "Agents");
+	title.id = "ops-agents-title";
+	const tools = el("div", "ops-agents-tools");
+	const tabs = el("div", browserUiClasses.tabs);
+	const tabsHeader = el("div", browserUiClasses.tabsHeader);
+	const tabList = el("div", browserUiClasses.tabList);
+	tabList.setAttribute("role", "tablist");
+	tabList.setAttribute("aria-label", "Show agents by state");
+	const tabButtons = FILTERS.map((filter) => {
+		const tab = el("button", browserUiClasses.tab, filter.label);
+		tab.type = "button";
+		tab.id = `ops-filter-${filter.id}`;
+		tab.setAttribute("role", "tab");
+		tab.setAttribute("aria-controls", "ops-agents-panel");
+		tab.addEventListener("click", () => choose(filter.id));
+		tab.addEventListener("keydown", (event) => {
+			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+			if (!step) return;
+			event.preventDefault();
+			const next = FILTERS[(FILTERS.findIndex((item) => item.id === state.filter) + step + FILTERS.length) % FILTERS.length];
+			choose(next.id);
+			document.getElementById(`ops-filter-${next.id}`)?.focus();
+		});
+		return tab;
+	});
+	tabList.append(...tabButtons);
+	tabsHeader.append(tabList);
+	tabs.append(tabsHeader);
+	const search = el("input", browserUiClasses.fieldControl);
+	search.type = "search";
+	search.placeholder = "Filter agents";
+	search.setAttribute("aria-label", "Filter agents");
+	search.value = state.query;
+	search.addEventListener("input", () => {
+		state.query = search.value;
+		renderTable();
+	});
+	const searchField = el("div", browserUiClasses.searchField);
+	searchField.append(createIcon("search"), search);
+	tools.append(tabs, searchField);
+	cardHead.append(title, tools);
+	const scroll = el("div", browserUiClasses.tableScroll);
+	scroll.id = "ops-agents-panel";
+	scroll.setAttribute("role", "tabpanel");
+	const detail = el("aside", browserUiClasses.card);
+	detail.id = "ops-detail";
+	detail.classList.add("ops-detail");
+	detail.setAttribute("aria-label", "Selected agent");
+	card.append(cardHead, scroll);
+	grid.append(card, detail);
+	const foot = el("p", "ops-foot", "Read-only · Refreshes while visible");
+	page.append(head, stats, banner, grid, foot);
+	function choose(filter) {
+		state.filter = filter;
+		renderTable();
+	}
+	function select(agent) {
+		state.selected = keyOf(agent);
+		renderTable();
+		renderDetail();
+	}
+	const matches = (agent) => {
+		const filter = FILTERS.find((item) => item.id === state.filter);
+		if (filter.states.length && !filter.states.includes(agent.state)) return false;
+		const query = state.query.trim().toLowerCase();
+		if (!query) return true;
+		return [
+			agent.name,
+			agent.squad,
+			agent.task,
+			agent.next,
+			agent.model,
+			agent.stateText
+		].filter(Boolean).some((value) => value.toLowerCase().includes(query));
+	};
+	function renderBanner() {
+		const waiting = (board?.agents ?? []).filter((agent) => agent.state === "needs-you");
+		banner.replaceChildren();
+		if (!waiting.length) return;
+		const band = el("section", browserUiClasses.banner);
+		band.dataset.tone = "waiting";
+		band.setAttribute("aria-label", "Needs your attention");
+		const bandHead = el("div", browserUiClasses.bannerHead);
+		const viewAll = el("button", browserUiClasses.action);
+		viewAll.type = "button";
+		viewAll.dataset.variant = "text";
+		viewAll.append(el("span", browserUiClasses.actionLabel, "View all"), createIcon("chevron-right"));
+		viewAll.addEventListener("click", () => choose("needs-you"));
+		bandHead.append(createIcon("triangle-alert"), el("span", void 0, `${waiting.length} ${waiting.length === 1 ? "agent needs" : "agents need"} your attention`), viewAll);
+		band.append(bandHead);
+		for (const agent of waiting) {
+			const row = el("button", browserUiClasses.bannerRow);
+			row.type = "button";
+			row.addEventListener("click", () => {
+				state.selected = keyOf(agent);
+				renderTable();
+				renderDetail();
+			});
+			const word = el("span");
+			word.append(mark("diamond"), AGENT_STATES["needs-you"].word);
+			row.append(mark("diamond", "waiting"), el("span", void 0, agent.name), word, el("span", void 0, agent.pending ?? agent.task ?? ""), el("span", void 0, agent.next ?? ""), createIcon("chevron-right"));
+			band.append(row);
+		}
+		banner.append(band);
+	}
+	function renderTable() {
+		for (const [index, filter] of FILTERS.entries()) {
+			const on = filter.id === state.filter;
+			tabButtons[index].setAttribute("aria-selected", String(on));
+			tabButtons[index].tabIndex = on ? 0 : -1;
+		}
+		scroll.setAttribute("aria-labelledby", `ops-filter-${state.filter}`);
+		if (!board) return;
+		const table = el("table", browserUiClasses.table);
+		table.dataset.roomy = "";
+		const headRow = el("tr");
+		for (const text of [
+			"Agent",
+			"Status",
+			"Current work",
+			"Model",
+			"Waiting on you"
+		]) {
+			const cell = el("th");
+			cell.scope = "col";
+			if (text === "Model" || text === "Waiting on you") cell.dataset.compactHide = "";
+			if (text === "Waiting on you") cell.append(el("span", browserUiClasses.visuallyHidden, text));
+			else cell.textContent = text;
+			headRow.append(cell);
+		}
+		const thead = el("thead");
+		thead.append(headRow);
+		table.append(thead);
+		let shown = 0;
+		for (const { name, agents: all } of bySquad(board)) {
+			const agents = all.filter(matches);
+			if (!agents.length) continue;
+			shown += agents.length;
+			const open = !state.collapsed.has(name);
+			const body = el("tbody");
+			const groupRow = el("tr", browserUiClasses.tableGroup);
+			const group = el("th");
+			group.colSpan = 5;
+			group.scope = "colgroup";
+			const toggle = el("button", browserUiClasses.tableGroupToggle);
+			toggle.type = "button";
+			toggle.setAttribute("aria-expanded", String(open));
+			toggle.append(createIcon("chevron-down"), document.createTextNode(name), el("span", browserUiClasses.tableGroupCount, `· ${agents.length} ${agents.length === 1 ? "agent" : "agents"}`));
+			toggle.addEventListener("click", () => {
+				if (state.collapsed.has(name)) state.collapsed.delete(name);
+				else state.collapsed.add(name);
+				renderTable();
+			});
+			group.append(toggle);
+			groupRow.append(group);
+			body.append(groupRow);
+			if (open) for (const agent of agents) {
+				const info = AGENT_STATES[agent.state];
+				const row = el("tr");
+				if (keyOf(agent) === state.selected) row.dataset.selected = "";
+				const who = el("td");
+				const pick = el("button", browserUiClasses.tableSelect);
+				pick.type = "button";
+				pick.setAttribute("aria-pressed", String(keyOf(agent) === state.selected));
+				pick.append(mark(info.mark, info.tone), document.createTextNode(agent.name));
+				pick.addEventListener("click", () => select(agent));
+				who.append(pick);
+				const status = el("td");
+				status.append(stateChip(agent.state));
+				const work = el("td", void 0, agent.task || "—");
+				work.append(el("span", browserUiClasses.tableCompactMeta, [agent.model, agent.waitingOnYou > 0 ? `${agent.waitingOnYou} waiting on you` : ""].filter(Boolean).join(" · ")));
+				const model = el("td", void 0, agent.model || "—");
+				model.dataset.compactHide = "";
+				const waiting = el("td");
+				waiting.dataset.compactHide = "";
+				if (agent.waitingOnYou > 0) {
+					const count = el("span", browserUiClasses.chip);
+					count.dataset.tone = "waiting";
+					count.title = `${agent.waitingOnYou} waiting on you`;
+					count.append(el("span", browserUiClasses.chipLabel, String(agent.waitingOnYou)));
+					waiting.append(count);
+				}
+				row.append(who, status, work, model, waiting);
+				body.append(row);
+			}
+			table.append(body);
+		}
+		scroll.replaceChildren(shown ? table : el("p", "ops-empty", board.agents.length ? "No agents match." : "No agents yet."));
+	}
+	function renderDetail() {
+		const agent = board?.agents.find((item) => keyOf(item) === state.selected);
+		if (!agent) {
+			detail.replaceChildren(el("h3", browserUiClasses.cardTitle, "Agent"), el("p", "ops-empty", "No agents yet."), el("p", "ops-detail-note", "Observation only, no agent controls"));
+			return;
+		}
+		const info = AGENT_STATES[agent.state];
+		const headline = el("div", browserUiClasses.cardHead);
+		const name = el("h3", browserUiClasses.cardTitle);
+		name.append(mark(info.mark, info.tone), " ", agent.name);
+		headline.append(name);
+		const facts = el("dl", browserUiClasses.facts);
+		const fact = (term, value) => {
+			const dd = el("dd");
+			dd.append(value);
+			facts.append(el("dt", void 0, term), dd);
+		};
+		fact("Name", agent.name);
+		fact("Squad", agent.squad);
+		fact("Role", agent.role === "lead" ? "Lead" : "Member");
+		fact("Model", agent.model || "—");
+		fact("State", stateChip(agent.state, agent.stateText || void 0));
+		const block = (term, value) => {
+			const part = el("div", "ops-detail-block");
+			part.append(el("p", "ops-detail-label", term), el("p", void 0, value));
+			return part;
+		};
+		detail.replaceChildren(headline, facts, block("Task", agent.task || "—"), block("Next step", agent.next || "—"), ...agent.pending ? [block("Waiting on you", agent.pending)] : [], el("p", "ops-detail-note", "Observation only, no agent controls"));
+	}
+	return {
+		node: page,
+		update(next) {
+			board = next;
+			if (!next.agents.some((agent) => keyOf(agent) === state.selected)) {
+				const rows = bySquad(next).flatMap((group) => group.agents);
+				const first = rows.find((agent) => agent.state === "needs-you") ?? rows[0];
+				state.selected = first && keyOf(first);
+			}
+			stats.replaceChildren(statsStrip(next.agents));
+			renderBanner();
+			renderTable();
+			renderDetail();
+		}
+	};
+}
+/** The content of the sections other than agents. */
 function opsSection(board, section) {
-	if (section === "agents") return [summary(board), ...board.squads.flatMap((squad) => {
-		const agents = board.agents.filter((agent) => agent.squad === squad.name).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
-		if (!agents.length) return [];
-		return [heading$1(squad.lead ? `${squad.name} · lead ${squad.lead}` : squad.name), list(agents.map((agent) => {
-			const state = AGENT_STATES[agent.state];
-			const detail = [
-				agent.stateText && agent.stateText !== state.word ? agent.stateText : "",
-				agent.pending ? `Waiting on you: ${agent.pending}` : "",
-				agent.waitingOnYou > 0 ? `${agent.waitingOnYou} waiting` : "",
-				agent.task ?? "",
-				agent.next ? `next ${agent.next}` : ""
-			].filter(Boolean);
-			return row$1(state.mark, state.tone, agent.name, detail.join(" · "), agent.model ?? "", state.word);
-		}))];
-	})];
 	if (section === "squads") return [list(board.squads.map((squad) => {
 		const count = board.agents.filter((agent) => agent.squad === squad.name).length;
 		return row$1("dot", "neutral", squad.name, `${squad.lead ? `lead ${squad.lead}` : ""}${squad.idleAlertMinutes ? `${squad.lead ? " · " : ""}idle alert ${squad.idleAlertMinutes}m` : ""}`, `${count} agent${count === 1 ? "" : "s"}`);
@@ -5300,6 +5653,11 @@ function opsPage(shell, source = opsSource) {
 	const href = (id) => `${location.pathname}#${id}`;
 	const current = () => SECTIONS$1.find((section) => `#${section.id}` === location.hash)?.id ?? "agents";
 	let board;
+	const agents = agentsView({
+		filter: "all",
+		query: "",
+		collapsed: /* @__PURE__ */ new Set()
+	});
 	const paint = () => {
 		const section = current();
 		shell.setMenu({
@@ -5317,7 +5675,11 @@ function opsPage(shell, source = opsSource) {
 			}] }]
 		});
 		if (title) title.textContent = SECTIONS$1.find((item) => item.id === section).label;
-		main.replaceChildren(...board ? opsSection(board, section) : [pageLoading()]);
+		if (!board) main.replaceChildren(pageLoading());
+		else if (section === "agents") {
+			if (agents.node.parentElement !== main) main.replaceChildren(agents.node);
+			agents.update(board);
+		} else main.replaceChildren(...opsSection(board, section));
 	};
 	window.addEventListener("hashchange", paint, { signal: shell.signal });
 	paint();

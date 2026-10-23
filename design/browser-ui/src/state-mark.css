@@ -1,6 +1,7 @@
 /* A state mark drawn in one 12px box, so every mark has the same footprint and visual weight
    whatever font a glyph would fall back to. It takes its colour from the text around it; the state
-   word beside it carries the meaning. */
+   word beside it carries the meaning; `data-tone` sets that colour where the text around it is not
+   the state's. */
 .tmt-ui-state-mark {
   flex: none;
   box-sizing: border-box;
@@ -59,4 +60,17 @@
     36% 50%,
     0 14%
   );
+}
+
+.tmt-ui-state-mark[data-tone='working'] {
+  color: var(--tmt-ui-color-working);
+}
+.tmt-ui-state-mark[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.tmt-ui-state-mark[data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+}
+.tmt-ui-state-mark[data-tone='muted'] {
+  color: var(--tmt-ui-color-secondary);
 }

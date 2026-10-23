@@ -1,5 +1,6 @@
 //! Re-exec fixtures keep group ownership independent of Cargo/nextest.
 use super::*;
+use crate::tests::{Fixture, START_BUDGET, ready};
 use nix::{
     errno::Errno,
     sys::{
@@ -21,19 +22,25 @@ fn inherited_group_keeps_capture_bounds_and_leaves_cleanup_to_caller() {
         "--nocapture".into(),
     ];
     // The outer default invocation owns this helper group, including on panic.
+    // Twice the inner budget lets a failing inner call return its own assertion.
     let output = invoke(
         Request {
             program: Path::new("/usr/bin/env"),
             args: &args,
             input: b"",
-            deadline: Instant::now() + Duration::from_secs(10),
+            deadline: Instant::now() + 2 * START_BUDGET,
             max_stream_bytes: 16384,
             launch: Default::default(),
         },
         None,
     )
     .unwrap();
-    assert!(output.status.success(), "{output:?}");
+    assert!(
+        output.status.success(),
+        "{:?}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(String::from_utf8_lossy(&output.stdout).contains("caller group survived"));
 }
 
@@ -54,7 +61,7 @@ fn inherited_group_child() {
         eprintln!("inherited fixture assertion: {info}");
         let _ = nix::sys::signal::killpg(nix::unistd::getpid(), Signal::SIGKILL);
     }));
-    let fixture = crate::tests::Fixture::new(":");
+    let fixture = Fixture::new(":");
     let call = |script: &str, timeout: Duration, limit, stop| {
         invoke(
             Request {
@@ -71,13 +78,7 @@ fn inherited_group_child() {
             stop,
         )
     };
-    let output = call(
-        "printf raw; printf err >&2",
-        Duration::from_secs(5),
-        64,
-        None,
-    )
-    .unwrap();
+    let output = call("printf raw; printf err >&2", START_BUDGET, 64, None).unwrap();
     assert!(output.status.success());
     assert_eq!(output.stdout, b"raw");
     assert_eq!(output.stderr, b"err");
@@ -93,7 +94,7 @@ fn inherited_group_child() {
                 "--nocapture".into(),
             ],
             input: b"",
-            deadline: Instant::now() + Duration::from_secs(5),
+            deadline: Instant::now() + START_BUDGET,
             max_stream_bytes: 1024,
             launch: LaunchOptions {
                 process_group: ProcessGroup::InheritCaller,
@@ -112,25 +113,39 @@ fn inherited_group_child() {
         .parse()
         .unwrap();
     assert_eq!(group, getpgrp().as_raw(), "no setpgid in inherited mode");
-    for (body, kind) in [
-        ("exec sleep 30", FailureKind::Deadline),
-        ("exec >/dev/null 2>&1; exec sleep 30", FailureKind::Deadline),
+    // A limit case has the start budget, so only its limit can end it; the
+    // child sleeps far longer than any deadline, so a return proves no wait.
+    let deadline = Duration::from_millis(300);
+    for (row, (body, timeout, kind)) in [
+        ("exec sleep 300", deadline, FailureKind::Deadline),
         (
-            "printf 123456789; exec sleep 30",
+            "exec >/dev/null 2>&1; exec sleep 300",
+            deadline,
+            FailureKind::Deadline,
+        ),
+        (
+            "printf 123456789; exec sleep 300",
+            START_BUDGET,
             FailureKind::OutputLimit(Stream::Stdout),
         ),
         (
-            "printf 123456789 >&2; exec sleep 30",
+            "printf 123456789 >&2; exec sleep 300",
+            START_BUDGET,
             FailureKind::OutputLimit(Stream::Stderr),
         ),
-    ] {
-        let pid_path = fixture.0.join("pid");
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let pid_path = fixture.0.join(format!("pid-{row}"));
         let script = format!("echo $$ > '{}'; {body}", pid_path.display());
         let started = Instant::now();
-        let error = call(&script, Duration::from_millis(300), 8, None).unwrap_err();
+        let error = call(&script, timeout, 8, None).unwrap_err();
         assert_eq!(error.kind, kind);
         assert!(matches!(error.cleanup, Cleanup::CallerOwned));
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < timeout + Duration::from_secs(2));
+        // A caller-owned child can still be starting after a Deadline return.
+        ready(&pid_path);
         let pid = Pid::from_raw(
             fs::read_to_string(&pid_path)
                 .unwrap()

@@ -12,6 +12,12 @@ use std::{
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
+/// Deadline for a case that must end another way: success, an output limit or
+/// interruption. Only process start can use it, so a loaded host cannot turn the
+/// expected result into `Deadline` (#4422). 30 s matches real-process success
+/// budgets in tmt-adapters host/external/tests.rs.
+pub(crate) const START_BUDGET: Duration = Duration::from_secs(30);
+
 pub(crate) struct Fixture(pub(crate) PathBuf);
 impl Fixture {
     pub(crate) fn new(script: &str) -> Self {
@@ -64,8 +70,8 @@ impl Drop for Fixture {
     }
 }
 
-fn ready(path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+pub(crate) fn ready(path: &Path) {
+    let deadline = Instant::now() + START_BUDGET;
     while !fs::read_to_string(path).is_ok_and(|value| !value.trim().is_empty()) {
         assert!(
             Instant::now() < deadline,
@@ -97,7 +103,7 @@ fn bytes_literal_arguments_and_completed_status_are_returned() {
     let fixture = Fixture::new("printf '%s\\n' \"$@\" > args; cat; printf err >&2");
     let args = ["--literal".into(), "space and 'quote'".into()];
     let output = fixture
-        .call(&args, b"\0raw\xff", Duration::from_secs(5), 64, None)
+        .call(&args, b"\0raw\xff", START_BUDGET, 64, None)
         .unwrap();
     assert!(output.status.success());
     assert_eq!(output.stdout, b"\0raw\xff");
@@ -107,14 +113,14 @@ fn bytes_literal_arguments_and_completed_status_are_returned() {
         "--literal\nspace and 'quote'\n"
     );
     let output = Fixture::new("printf arbitrary; printf diagnostic >&2; exit 7")
-        .call(&[], b"", Duration::from_secs(5), 64, None)
+        .call(&[], b"", START_BUDGET, 64, None)
         .unwrap();
     assert_eq!(output.status.code, Some(7));
     assert!(!output.status.success());
     assert_eq!(output.stdout, b"arbitrary");
     assert_eq!(output.stderr, b"diagnostic");
     let output = Fixture::new("kill -TERM $$")
-        .call(&[], b"", Duration::from_secs(5), 64, None)
+        .call(&[], b"", START_BUDGET, 64, None)
         .unwrap();
     assert_eq!(output.status.signal, Some(15));
     assert!(!output.status.success());
@@ -123,7 +129,7 @@ fn bytes_literal_arguments_and_completed_status_are_returned() {
 #[test]
 fn each_stream_has_its_own_exact_bound_including_zero() {
     let output = Fixture::new("printf 1234; printf 5678 >&2")
-        .call(&[], b"", Duration::from_secs(5), 4, None)
+        .call(&[], b"", START_BUDGET, 4, None)
         .unwrap();
     assert_eq!(output.stdout, b"1234");
     assert_eq!(output.stderr, b"5678");
@@ -132,22 +138,20 @@ fn each_stream_has_its_own_exact_bound_including_zero() {
         ("printf 12345 >&2", Stream::Stderr),
         ("yes >&2", Stream::Stderr),
     ] {
-        let started = Instant::now();
         let error = Fixture::new(script)
-            .call(&[], b"", Duration::from_secs(5), 4, None)
+            .call(&[], b"", START_BUDGET, 4, None)
             .unwrap_err();
         assert_eq!(error.kind, FailureKind::OutputLimit(stream));
         assert!(matches!(error.cleanup, Cleanup::Confirmed));
-        assert!(started.elapsed() < Duration::from_secs(3));
     }
     assert!(
         Fixture::new(":")
-            .call(&[], b"", Duration::from_secs(5), 0, None)
+            .call(&[], b"", START_BUDGET, 0, None)
             .is_ok()
     );
     assert_eq!(
         Fixture::new("printf x")
-            .call(&[], b"", Duration::from_secs(5), 0, None)
+            .call(&[], b"", START_BUDGET, 0, None)
             .unwrap_err()
             .kind,
         FailureKind::OutputLimit(Stream::Stdout)
@@ -161,9 +165,8 @@ fn stdin_and_both_output_pipes_make_progress_under_pressure() {
     // Quiet/loaded maxima: 13.7/16.7 ms; ~20 ms at 1 ms pulses with 12 CPU workers.
     // subprocess 1.2.1 retains write/read progress across TimedOut; no livelock found.
     // One 5 s Deadline miss under heavy full-workspace load remains unexplained.
-    // 30 s matches real-process success budgets in tmt-adapters host/external/tests.rs.
     let output = fixture
-        .call(&[], &input, Duration::from_secs(30), 512 * 1024, None)
+        .call(&[], &input, START_BUDGET, 512 * 1024, None)
         .unwrap();
     assert_eq!(&output.stdout[..256 * 1024], vec![0; 256 * 1024]);
     assert_eq!(&output.stdout[256 * 1024..], input);
@@ -172,7 +175,8 @@ fn stdin_and_both_output_pipes_make_progress_under_pressure() {
 
 #[test]
 fn blocked_input_and_closed_output_do_not_escape_the_deadline() {
-    // Allow the same startup budget as other real-process fixtures under parallel load.
+    // These cases must end by Deadline with a started child, so they keep 5 s:
+    // a longer deadline only moves the start bound and slows every run.
     let input = vec![b'x'; 1024 * 1024];
     for (script, input) in [
         ("echo $$ > pid; exec sleep 30", input.as_slice()),
@@ -212,7 +216,7 @@ fn cancellation_prevents_start_or_kills_a_ready_owned_group() {
             stop.store(true, Ordering::Relaxed);
         });
         let error = fixture
-            .call(&[], b"", Duration::from_secs(5), 64, Some(&stop))
+            .call(&[], b"", START_BUDGET, 64, Some(&stop))
             .unwrap_err();
         assert_eq!(error.kind, FailureKind::Interrupted);
         assert!(matches!(error.cleanup, Cleanup::Confirmed));
@@ -402,7 +406,7 @@ fn environment_policy_child() {
                 program: Path::new("/usr/bin/env"),
                 args: &[],
                 input: b"",
-                deadline: Instant::now() + Duration::from_secs(5),
+                deadline: Instant::now() + START_BUDGET,
                 max_stream_bytes: 4096,
                 launch: LaunchOptions {
                     environment,
@@ -480,7 +484,7 @@ fn explicit_child_directory_does_not_change_the_parent_or_default() {
                 program: Path::new("/bin/pwd"),
                 args: &[],
                 input: &[],
-                deadline: Instant::now() + Duration::from_secs(5),
+                deadline: Instant::now() + START_BUDGET,
                 max_stream_bytes: 4096,
                 launch: LaunchOptions {
                     current_dir: current_dir.clone(),
@@ -533,7 +537,7 @@ fn explicit_child_directory_preserves_failed_child_cleanup() {
             program: Path::new("/bin/sh"),
             args: &["-c".into(), "echo $$ > pid; exec yes".into()],
             input: &[],
-            deadline: Instant::now() + Duration::from_secs(5),
+            deadline: Instant::now() + START_BUDGET,
             max_stream_bytes: 64,
             launch: LaunchOptions {
                 current_dir: Some(fixture.0.clone()),

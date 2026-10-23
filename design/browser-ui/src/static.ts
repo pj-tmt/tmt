@@ -31,6 +31,25 @@ export const browserUiClasses = Object.freeze({
   cardMeta: 'tmt-ui-card-meta',
   meter: 'tmt-ui-meter',
   meterFill: 'tmt-ui-meter-fill',
+  glyph: 'tmt-ui-glyph',
+  pageHead: 'tmt-ui-page-head',
+  pageTitle: 'tmt-ui-page-title',
+  pageSubtitle: 'tmt-ui-page-subtitle',
+  stats: 'tmt-ui-stats',
+  stat: 'tmt-ui-stat',
+  statValue: 'tmt-ui-stat-value',
+  statNumber: 'tmt-ui-stat-number',
+  statCaption: 'tmt-ui-stat-caption',
+  banner: 'tmt-ui-banner',
+  bannerHead: 'tmt-ui-banner-head',
+  bannerRow: 'tmt-ui-banner-row',
+  facts: 'tmt-ui-facts',
+  tableScroll: 'tmt-ui-table-scroll',
+  tableGroup: 'tmt-ui-table-group',
+  tableGroupToggle: 'tmt-ui-table-group-toggle',
+  tableGroupCount: 'tmt-ui-table-group-count',
+  tableSelect: 'tmt-ui-table-select',
+  tableCompactMeta: 'tmt-ui-table-compact-meta',
 
   notifications: 'tmt-ui-notifications',
   notification: 'tmt-ui-notification',
@@ -75,6 +94,7 @@ export const browserUiClasses = Object.freeze({
   field: 'tmt-ui-field',
   fieldLabel: 'tmt-ui-field-label',
   fieldControl: 'tmt-ui-field-control',
+  searchField: 'tmt-ui-search-field',
   fieldDescription: 'tmt-ui-field-description',
   fieldError: 'tmt-ui-field-error',
   action: 'tmt-ui-action',
@@ -107,6 +127,7 @@ export const browserUiClasses = Object.freeze({
   tab: 'tmt-ui-tab',
   tabMark: 'tmt-ui-tab-mark',
   tabLabel: 'tmt-ui-tab-label',
+  tabCount: 'tmt-ui-tab-count',
   tabsStatus: 'tmt-ui-tabs-status',
   tabPanel: 'tmt-ui-tab-panel',
   section: 'tmt-ui-section',
@@ -139,6 +160,8 @@ export interface BrowserTab {
   tabId: string;
   panelId: string;
   label: string;
+  /** A small muted number after the label (`99+` above 99), such as how many pages a state holds. */
+  count?: number;
   state?: { mark: string; word: string; tone: BrowserNoticeTone };
 }
 export type BrowserTabSelectReason = 'keyboard' | 'activation';

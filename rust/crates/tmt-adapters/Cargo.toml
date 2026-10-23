@@ -20,6 +20,7 @@ ureq.workspace = true
 tmt-core.workspace = true
 tmt-extension-state.workspace = true
 tmt-driver-protocol.workspace = true
+tmt-pty-protocol.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 base64.workspace = true

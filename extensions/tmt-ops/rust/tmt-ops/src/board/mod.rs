@@ -8,6 +8,7 @@ mod buttons;
 mod changes;
 mod checklist;
 mod chip_group;
+mod command_line;
 mod composer;
 mod conversation;
 mod cronboard;

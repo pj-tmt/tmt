@@ -55,7 +55,7 @@ for (const width of [1440, 390])
     // Nothing unverified reads as verified: no "(0)", no "✓ Nothing waits".
     await expect(page.getByRole('button', { name: 'Discussion', exact: true })).toBeVisible();
     const needsYou = page.locator(
-      '#ask-page-fixture [aria-label*="Needs you"], #ask-page-fixture [aria-label*="Nothing waits"]',
+      '#ask-page-fixture [aria-label*="Needs you"]:not([role="tab"]), #ask-page-fixture [aria-label*="Nothing waits"]',
     );
     await expect(needsYou).toHaveCount(0);
     await expect(page.locator('#ask-page-fixture').getByText('Nothing waits')).toHaveCount(0);

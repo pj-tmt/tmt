@@ -62,6 +62,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Provider-local synchronous WebSocket framing; no core/TLS/async use.
             "tungstenite",
             "tmt-driver-protocol",
+            // The built-in host's supervisor and client frames (#4605).
+            "tmt-pty-protocol",
             "serde",
             "ureq",
             "semver",
@@ -128,6 +130,10 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // A host's pane-ID and target syntax, defined once for core and the
         // driver protocol; it depends on nothing.
         "tmt-host-grammar" => &[],
+        // The frames a built-in-host supervisor and its terminals exchange: a
+        // leaf with no effects, so the adapters and any terminal client share
+        // one stream without depending on each other.
+        "tmt-pty-protocol" => &[],
         "tmt-sys" => &["libc"],
         // Squad is a public-interface consumer: it reaches TMT only through
         // commands and `tmt api`. Reviewed neutral leaves carry no core behavior.

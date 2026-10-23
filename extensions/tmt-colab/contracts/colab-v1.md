@@ -1323,8 +1323,10 @@ not. Resolved cards and rows use the ordinary resolved-thread mark, never the
 Open mark. Opening the resolved row discloses retained history without
 reopening the proposal or changing the pending count. This explicit opening
 acknowledges a locally unseen resolution; rendering or filtering does not.
-Comments mixes proposals with ordinary annotations and offers a Proposals only
-filter. Filtering never changes status, sends a request or changes the header
+Comments mixes proposals with ordinary annotations in one list with the views
+Open, Needs you, Resolved and, only when the page has a proposal, Proposals. The
+open thread stays listed in every view. Needs you holds undecided proposals and
+threads with news the person has not seen. Changing the view never changes status, sends a request or changes the header
 count. The one header pending count is computed by `openThreadCount`: unresolved
 proposals without a final decision plus unresolved ordinary annotations. Approved
 or declined proposals are not pending even before resolution; proposal-linked
@@ -3059,12 +3061,16 @@ text bounds. Optional legacy `data-label` retains its 24-code-point/control
 validation; labels no longer create tabs. A lone question is an internal group of
 one. The page markup check owns complete admission rules and ID-holder ordering.
 
-All question forms render compact lines without tabs. Each line is a trusted
-button with the admitted plain-text title, state word and chevron: waiting uses
-`◆` and `Needs you`; answered uses `✓` and `Answered: <short answer>` with
-one-line ellipsis. Only the mark carries the state colour; title, state text and
-chevron remain neutral. Two or more adjacent questions have one muted
-`Questions from <agent> · N of M waiting` header; a question placed alone has none.
+All question forms render as one band per placement, without tabs: the page sheet
+between two 1px rules, with no side rule and no radius. Each question's line is a
+trusted button with a `?` glyph in a disc, an eyebrow `Q&A · <agent>` over the
+admitted plain-text title, the state at the right and a chevron (up when open,
+down when closed): waiting is `◆` and `Needs your answer` in the waiting colour;
+answered is a check and `Answered` in the secondary colour, with the recorded
+answer under the title (two lines at most). The glyph, eyebrow, title and chevron
+remain neutral. Two or more adjacent questions share one band with one muted
+`Questions from <agent> · N of M waiting` heading and no per-line eyebrow, their
+lines separated by the same rule; a question placed alone has the band above.
 Needs you counts the logical group once across every placement. Existing
 `data-form="chip"` markup remains admitted under its existing attribute checks,
 but uses the same compact lines instead of a tabbed panel.
@@ -3072,8 +3078,12 @@ but uses the same compact lines instead of a tabbed panel.
 Every question starts closed except an explicit Needs-you or notification arrival,
 which opens the target, scrolls it into view and focuses its first control.
 Open/closed state belongs to the viewer, never the page or answer records. Opening
-reveals the existing parent-owned answer controls under a 1px left rule, without
-a card frame. Answered questions are read-only until the existing Change answer
+reveals the existing parent-owned answer controls under the line, in the heading's
+column: a kind line (`Single choice · Other available`), an instruction (`Choose one
+answer, or write your own.`) and the choices in one wrapped row. The `Other` field
+(`Your other answer`) is drawn under the row once Other is picked. A rule, then a
+`Goes to` row carries the recipient chips and the add control, and `Send answer` /
+`Send answers` is the group's one primary action at the end of that row. Answered questions are read-only until the existing Change answer
 action is admitted. Answering closes the question and focuses the next waiting
 question in the same group, or its own line when none remains. There is no
 Dismissed state or dismissal action in this slice; closing a row acknowledges

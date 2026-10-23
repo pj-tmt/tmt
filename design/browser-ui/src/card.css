@@ -27,3 +27,12 @@
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-header-action-size);
 }
+/* A card whose content runs edge to edge, such as a table: the head keeps its own padding. */
+.tmt-ui-card[data-flush] {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.tmt-ui-card[data-flush] > .tmt-ui-card-head {
+  padding: var(--tmt-ui-space-l) var(--tmt-ui-space-xl);
+}

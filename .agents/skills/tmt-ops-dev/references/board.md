@@ -87,10 +87,16 @@ from the current snapshot and does not invalidate it. Its bounded
 `resume --show -- UUID` read runs on the ordered action lane (that command already
 emits JSON and rejects `--json`). A remembered full-driver session is described as
 checked on launch, never promised resumable. Missing, stale, basic or failed evidence
-stays unavailable. Host / Session drops whole before other Agents tracks.
+stays unavailable. Core's nullable `session.unbound` is part of the frozen evidence:
+only explicit true paints `! unbound` and the explanation; missing activity, missing
+fields and null do not infer it. Flat/tree rows share that projection. The unbound
+dialog previews the exact UUID command and offers only **Copy command**, with the muted hint
+**Run it in the agent's pane**; no foreground handoff is available for that observation.
+Only the unbound dialog uses intrinsic height; the surface retains its position count.
+Existing memory/read guards still apply. Host / Session drops whole before other Agents tracks.
 Resume/Move review freezes the UUID and observed session. A changed selection or
 observation invalidates it; confirmation requires fully painted review text and choices.
-Copy uses the exact shell-quoted foreground argv without leaving the board. A confirmed
+The shared `board/command_line.rs` helper quotes only shell-sensitive words for display and copy. Session resolves a matching first `tmt` on PATH on its read worker; otherwise it retains the selected executable path. Copy uses that exact displayed foreground argv without leaving the board. A confirmed
 handoff refuses named drafts or pending effects; the board restores its terminal and
 stops workers before execing the public CLI with inherited stdio in this pane. Core
 alone revalidates and owns launch/move/refusal; no detached Run or new pane is used.

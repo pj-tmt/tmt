@@ -16,7 +16,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 [Shell](../gui-style.md#shell) model (`shellRail`, `describedMenu`, `shellCount`), its reader
 `loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
 (`src/shell-icons.ts`, ISC, `src/LICENSE.lucide`); `@tmt/browser-ui/chart` exports the framework-free chart painters and their pure models ([Charts](../gui-style.md#charts)); `@tmt/browser-ui/react`
-exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot, and `useShellTools`, the bar's search and chip slots), `BrowserHeader` (`inShell` draws no brand and keeps the product in its accessible name), `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
+exports `BrandMark`, `BrandLockup`, `BrowserShell` (with `useShellBar`, the header slot, and `useShellTools`, the bar's search and chip slots), `BrowserHeader` (`inShell` draws no brand and keeps the product in its accessible name; `titleVisible={false}` draws no heading, for a page whose hero is its heading, and keeps `<product> · <title>` as the landmark's name), `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
 `BrowserToggle`, `BrowserCheckbox`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
@@ -293,9 +293,15 @@ The strip is a segmented control: a 1px rule and the control radius around the t
 selected tab on the selection fill with strong text in the neutral text role. State marks retain
 their own roles. `variant="flush"` (default `boxed`) drops the frame and the panel padding for
 views of a list that sits on the page: the strip keeps its rule underneath and the selected tab
-carries a straight 2px accent underline instead of the fill.
+carries a straight 2px accent underline instead of the fill. `variant="flat"` drops the strip's
+frame altogether: every tab is its own pill with a transparent 1px edge, and the selected one takes
+the selection fill and the neutral rule edge with strong text, for a row of states that sits on a
+page's header; its opt-in `wrap` (`data-wrap` on the root for static hosts) wraps the strip into
+rows instead of scrolling sideways, with the arrow-key order staying the DOM order, and scroll stays
+the default. A tab's optional `count` (`99+` above 99) is a small muted number after its label,
+drawn in every variant; the accessible name carries it as `Label, 6` before any state word.
 No product state, routing or persistence belongs to Tabs.
-Static hosts use `tabs`, `tabsHeader`, `tabList`, `tab`, `tabMark`, `tabLabel`,
+Static hosts use `tabs`, `tabsHeader`, `tabList`, `tab`, `tabMark`, `tabLabel`, `tabCount`,
 `tabsStatus`, `tabPanel` classes and supply the same IDs, roles, selected state,
 roving tab stop, native activation, panel visibility and disposable resize behavior.
 
@@ -548,7 +554,8 @@ state, a React component.
   large in the display face (about 24px, `data-numeric`), muted at `0`, so a row of tiles keeps its
   shape. Static hosts set `data-numeric` (`count` or `zero`) on the value.
 - **State mark.** `tmt-ui-state-mark` is a mark drawn in one 12px box, chosen by `data-shape`
-  (`dot`, `ring`, `dashed`, `clock`, `diamond`, `cross`, `unknown`), in the colour of the text around it. Every
+  (`dot`, `ring`, `dashed`, `clock`, `diamond`, `cross`, `unknown`), in the colour of the text around it
+  (`data-tone` of `working`, `waiting`, `blocked` or `muted` sets it where that text is not the state's). Every
   mark has the same footprint whatever font a glyph would fall back to; the state word beside it
   carries the meaning, so the mark is `aria-hidden`.
 - **Bare status tiles.** `data-bare` on `tmt-ui-status-tiles` drops each tile's border, fill and
@@ -560,6 +567,33 @@ state, a React component.
 - **Meter.** `tmt-ui-meter` is a read-only measure; its fill's width is `--tmt-ui-meter-fill`
   (0-100) and its colour comes from a chart series class (`tmt-ui-chart-sN`). Give it `role="img"`
   and a label that states the value.
+- **Glyph.** `createIcon(name)` (from `@tmt/browser-ui/glyph`, outside the static graph because it reads the
+  shell's icon data) returns a `tmt-ui-glyph`: a line icon from the shell's icon set,
+  drawn in the colour of its text and hidden from assistive tech.
+- **Page head.** `tmt-ui-page-head` holds a `tmt-ui-page-title` (the display face, the page's
+  first read) over a `tmt-ui-page-subtitle`. Static only.
+- **Stats strip.** `tmt-ui-stats` is one bordered strip of `tmt-ui-stat` cells: a mark or glyph, a
+  `tmt-ui-stat-value` (a `tmt-ui-stat-number` in the display face, then its word) and a
+  `tmt-ui-stat-caption`. A cell's `data-tone` (`working`, `waiting`, `blocked`, `muted`) colours its
+  mark. Cells grow to fill their row, so a wrapped strip has no empty cell.
+- **Banner.** `tmt-ui-banner` (`data-tone='waiting'` for what needs the reader) is a tinted band: a
+  `tmt-ui-banner-head` (glyph, title, one quiet action) over one `tmt-ui-banner-row` button per item
+  (mark, name, state word, detail, note, chevron). Under the compact width a row keeps the mark, name
+  and state, with the detail on a second line. Static only.
+- **Search field.** `tmt-ui-search-field` wraps a `tmt-ui-field-control` (`type=search`) with a
+  magnifier glyph at its start. Static only.
+- **Facts.** `tmt-ui-facts` is a description list of short terms over values, for the properties of
+  one selected thing. Static only.
+- **Grouped, selectable table.** Inside a `tmt-ui-table-scroll` (the table scrolls there, never the
+  page), `data-roomy` on the table gives it a minimum width and roomy cells; `tmt-ui-table-group`
+  rows hold a `tmt-ui-table-group-toggle` button (`aria-expanded`, the chevron turns) and a
+  `tmt-ui-table-group-count`; `data-selected` on a row draws a tint and a full rounded frame in the selection tone (a roomy table
+  keeps separate borders so its cells can round the frame's corners); `tmt-ui-table-select` is the button
+  in a row's first cell that selects it (`aria-pressed`). A card with `data-flush` runs the table
+  edge to edge. Under the compact width a roomy table has no minimum width: a `data-compact-hide`
+  header or cell is dropped and a `tmt-ui-table-compact-meta` line under the row's main cell
+  carries its facts, so the table never scrolls sideways. A state chip is a `tmt-ui-chip` with `data-tone` (`working`, `waiting`, `blocked`,
+  `review`, or none for neutral): a mark and its word on the state's soft surface.
 - **Passive chip.** A `tmt-ui-chip` whose label is its only child carries no remove control and is
   padded the same on both sides: a label for a state that is not an action.
 

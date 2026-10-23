@@ -44,3 +44,22 @@
 .tmt-ui-field-error {
   color: var(--tmt-ui-color-blocked);
 }
+
+/* A text field with a magnifier at its start, for filtering a list in place. */
+.tmt-ui-search-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.tmt-ui-search-field > .tmt-ui-glyph {
+  position: absolute;
+  inset-inline-start: var(--tmt-ui-space-m);
+  width: 1rem;
+  height: 1rem;
+  color: var(--tmt-ui-color-secondary);
+  pointer-events: none;
+}
+.tmt-ui-search-field > .tmt-ui-field-control {
+  width: 100%;
+  padding-inline-start: calc(var(--tmt-ui-space-m) * 2 + 1rem);
+}

@@ -1,5 +1,10 @@
 //! Core-owned, audited system-call boundary. No application policy lives here.
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod terminal;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub use terminal::{peer_uid, set_window_size, spawn_on_terminal};
+
 #[cfg(target_os = "macos")]
 use std::mem::{size_of, zeroed};
 

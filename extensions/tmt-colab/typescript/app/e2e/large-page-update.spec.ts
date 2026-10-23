@@ -64,8 +64,10 @@ test('a reply on a large page updates its thread and leaves the document alone',
   await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(120);
   await (await pageAction(page, 'Comments')).click();
   const drawer = page.locator('.tmt-ui-drawer[open]');
-  await drawer.getByRole('button', { name: /^8 Paragraph 7 has its own unique sentence/ }).click();
-  await expect(drawer.getByText('Comment on paragraph 7.')).toBeVisible();
+  await drawer.getByRole('button', { name: /^8 Comment on paragraph 7\./ }).click();
+  await expect(
+    drawer.getByTestId('comment-thread').getByText('Comment on paragraph 7.'),
+  ).toBeVisible();
   // Let the opening work settle, then count only what the reply causes.
   const before = await quiet(page);
   await run(page, 'largePageReply', 7);

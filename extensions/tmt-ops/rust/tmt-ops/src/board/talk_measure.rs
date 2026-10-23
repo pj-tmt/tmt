@@ -25,7 +25,7 @@ const OPTIONS: [(&str, &str, RightTab); 2] = [
 /// Narrow rules keep the whole title and show no control.
 pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rect {
     let look = app.look();
-    let key = keycap::key(app, crate::action::OpsUiAction::TalkMeasure, "t");
+    let key = keycap::key(app, crate::action::OpsUiAction::TalkMeasure, "M");
     let cap = key.as_deref().map(|key| keycap::span(key, false, look));
     let cap_width = cap.as_ref().map_or(0, Span::width);
     let chips = OPTIONS
@@ -33,7 +33,7 @@ pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rec
         .map(|(_, label, _)| label.width() + 3)
         .sum::<usize>();
     let width = (cap_width + chips) as u16;
-    // The control leads the rule, right after the divider: `┬─ t  Talk  Measure ── worker ──`.
+    // The control leads the rule, right after the divider: `┬─ M  Talk  Measure ── worker ──`.
     // Keep room for a short title after it.
     if rule.height == 0 || rule.width < width + LEAD + 14 {
         return rule;

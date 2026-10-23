@@ -85,12 +85,18 @@ impl Inventory {
                     id.to_owned(),
                     Agent {
                         parameters: serde_json::Value::Object(
-                            ["runningDriver", "driverSupport", "resume", "location"]
-                                .into_iter()
-                                .filter_map(|key| {
-                                    row.get(key).map(|value| (key.to_owned(), value.clone()))
-                                })
-                                .collect(),
+                            [
+                                "runningDriver",
+                                "driverSupport",
+                                "resume",
+                                "location",
+                                "session",
+                            ]
+                            .into_iter()
+                            .filter_map(|key| {
+                                row.get(key).map(|value| (key.to_owned(), value.clone()))
+                            })
+                            .collect(),
                         ),
                         name: name.into(),
                         canonical: row["canonicalName"].as_str().unwrap_or("").into(),

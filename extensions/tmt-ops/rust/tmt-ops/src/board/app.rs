@@ -299,7 +299,7 @@ pub enum Choice {
         anchor: ratatui::layout::Rect,
     },
     AgentsFilter(super::workspace::AgentsFilter),
-    /// A click on a Talk/Measure chip selects that pane; the `t` key toggles.
+    /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),

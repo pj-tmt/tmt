@@ -384,8 +384,89 @@ body:not(:has(.tmt-ui-shell)) {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.ops-section .tmt-ui-status-tiles {
-  margin-bottom: 24px;
+/* The agents page: the table and the selected agent side by side, stacked when narrow. */
+.tmt-page.ops {
+  width: min(100% - 64px, 87.5rem);
+}
+@media (max-width: 760px) {
+  .tmt-page.ops {
+    width: min(100% - 32px, 87.5rem);
+  }
+}
+.ops-agents-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.ops-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 17.375rem;
+  gap: 16px;
+  align-items: stretch;
+}
+.ops-agents-tools {
+  display: flex;
+  flex: 1 1 32rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+/* The tabs are a size container: they take a width of their own. */
+.ops-agents-tools .tmt-ui-tabs {
+  flex: 0 1 32rem;
+}
+.ops-agents-tools .tmt-ui-search-field {
+  width: 11rem;
+}
+.ops-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+.ops-detail > .tmt-ui-card-head,
+.ops-detail > .tmt-ui-facts {
+  padding-bottom: 16px;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule-soft);
+}
+.ops-detail-label {
+  margin: 0 0 4px;
+  color: var(--tmt-ui-color-secondary);
+}
+.ops-detail-block p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ops-detail-note {
+  margin: auto 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-empty,
+.ops-foot {
+  margin: 0;
+  padding: 16px;
+  color: var(--tmt-ui-color-secondary);
+}
+.ops-foot {
+  padding: 0;
+}
+@media (max-width: 1050px) {
+  .ops-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .ops-detail {
+    display: none;
+  }
+  .ops-agents-tools .tmt-ui-tabs,
+  .ops-agents-tools .tmt-ui-search-field {
+    flex: 1 1 100%;
+    width: 100%;
+  }
 }
 /* The state marks share one box; the column keeps every name on one edge. */
 .ops-section .tmt-ui-list-leading {

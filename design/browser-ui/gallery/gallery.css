@@ -219,6 +219,9 @@
   gap: var(--tmt-ui-space-m);
   min-width: 0;
 }
+.gallery-narrow {
+  max-width: 280px;
+}
 .gallery-panel {
   margin: 0;
   padding: var(--tmt-ui-space-m);

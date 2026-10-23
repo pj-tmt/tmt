@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { pageAction } from '../test/page-actions.js';
 import { capturePath } from './captures.js';
+import { expectAnswered } from './question-line.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -357,7 +358,7 @@ test('a group inside a section closes it only when every question is answered', 
   await group.locator('.question-line').first().click();
   await active.getByLabel('Your answer', { exact: true }).fill('First answer.');
   await group.getByRole('button', { name: /^Send/ }).press('Enter');
-  await expect(group.locator('.question-line').first()).toContainText('Answered: First answer.');
+  await expectAnswered(group.locator('.question-line').first(), 'First answer.');
   await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
   // One of two answered: the section stays open and nothing was resolved.
   await expect(card).toHaveAttribute('data-review-state', 'waiting');

@@ -262,7 +262,8 @@ export const fieldsKeepSoftEdge = [
  * - `borders`: a control drawn by its border (an unchecked checkbox, a radio, a toggle's
  *   indicator) keeps that border at 3:1 or more. Fields are skipped by name (`fieldsKeepSoftEdge`).
  * - `fields`: a text field or select trigger fills differently from its surface and carries a
- *   visible label (a field) or a visible value (a select), so the soft edge is not the only cue.
+ *   visible label (a field), a visible value (a select) or a visible placeholder (a search field),
+ *   so the soft edge is not the only cue.
  */
 export function controlBoundaries(page: Page, scope: string) {
   return page.evaluate(
@@ -352,8 +353,12 @@ export function controlBoundaries(page: Page, scope: string) {
         const named = [...labels, ...labelledBy].some(
           (label) => visible(label) && label.textContent!.trim() !== '',
         );
-        // A select trigger shows its value (and the chevron the CSS draws) instead of a label.
-        const shownValue = element.matches('button') && element.textContent!.trim() !== '';
+        // A select trigger shows its value (and the chevron the CSS draws) instead of a label; a
+        // search field shows its placeholder beside the magnifier the CSS draws.
+        const shownValue =
+          (element.matches('button') && element.textContent!.trim() !== '') ||
+          (element.matches('input[type="search"]') &&
+            (element as HTMLInputElement).placeholder.trim() !== '');
         if (!named && !shownValue) fields.unlabelled.add(name(element));
       }
       return {

@@ -2616,6 +2616,7 @@ dependencies = [
  "tmt-core",
  "tmt-driver-protocol",
  "tmt-extension-state",
+ "tmt-pty-protocol",
  "tmt-sys",
  "tmt-test-support",
  "toml_edit",
@@ -2830,6 +2831,10 @@ dependencies = [
  "toml_edit",
  "unicode-width",
 ]
+
+[[package]]
+name = "tmt-pty-protocol"
+version = "5.0.0-dev"
 
 [[package]]
 name = "tmt-release-tool"
