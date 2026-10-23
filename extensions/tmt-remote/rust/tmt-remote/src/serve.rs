@@ -537,6 +537,14 @@ fn foreground_with_native(
         }
         fence(stop)?;
         let machine = store.machine()?;
+        let cloud_keys = Arc::new(tmt_remote::cloud_keys::CloudKeys::new(
+            layout.clone(),
+            machine.id.clone(),
+            machine_key.clone(),
+        ));
+        if let Err(error) = cloud_keys.maintain((system_clock())()) {
+            object_warning(&format!("Cloud encryption unavailable: {}", error.code));
+        }
         let requested = port;
         let remembered = store.remembered_port()?;
         let selected = requested.or(remembered).unwrap_or(0);
@@ -643,19 +651,22 @@ fn foreground_with_native(
         if let Some(reactivation) = &reactivation {
             mounts = mounts.with_activation(reactivation.clone());
         }
-        let site = Arc::new(Site {
-            routes,
-            mounts: Arc::new(mounts),
-            pages: Some(
-                Pages::new(
-                    &door.origin,
-                    machine.id.clone(),
-                    window_id.clone(),
-                    &machine.route_prefix,
-                )
-                .with_pairing(pairing),
-            ),
-        });
+        let site = Arc::new(
+            Site::new(
+                routes,
+                Arc::new(mounts),
+                Some(
+                    Pages::new(
+                        &door.origin,
+                        machine.id.clone(),
+                        window_id.clone(),
+                        &machine.route_prefix,
+                    )
+                    .with_pairing(pairing),
+                ),
+            )
+            .with_cloud_keys(cloud_keys),
+        );
         fence(stop)?;
         let events = devices.start_events(Arc::clone(&site.mounts))?;
         fence(stop)?;

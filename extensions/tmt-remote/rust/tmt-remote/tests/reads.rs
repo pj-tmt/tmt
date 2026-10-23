@@ -114,16 +114,16 @@ impl Fixture {
         if serve_reads {
             mounts = mounts.with_reads(Reads::new(root.join("tmt"), Arc::clone(&stop)));
         }
-        let site = Arc::new(Site {
+        let site = Arc::new(Site::new(
             routes,
-            mounts: Arc::new(mounts),
-            pages: Some(Pages::new(
+            Arc::new(mounts),
+            Some(Pages::new(
                 &origin,
                 "machine".into(),
                 "window".into(),
                 &prefix,
             )),
-        });
+        ));
         let flag = Arc::clone(&stop);
         let thread = thread::spawn(move || door.run(&flag, site as Arc<dyn Handler>).unwrap());
         Self {

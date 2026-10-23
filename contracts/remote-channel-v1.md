@@ -2,7 +2,8 @@
 
 **Implementation status:** the local door and its signed agent operations are shipped; Colab page
 sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
-through Firestore or Cloudflare, including their operation encryption profile, remain proposals.
+through Firestore or Cloudflare remain proposals. The native cloud encryption library and automatic
+key renewal are implemented; they enable no transport or agent access by themselves.
 Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
 This document owns host-driver authentication, local device identity/grants, wire values, operations,
 the extension channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
@@ -64,8 +65,8 @@ The current [anonymous bootstrap](#hosted-anonymous-bootstrap) and Rules remain 
 **Shipped local driver.** The door, threat model, pairing, device grants and signed-message
 rules in this section belong only to this driver; they are not a Firebase authentication layer.
 The common byte primitives may be reused by other codecs without importing local device trust.
-References to cloud operation encryption point to the retained, superseded proposals below,
-not a requirement on shipped Firestore page sharing. No protocol field or local safety gate changes.
+The native [cloud encryption library](#end-to-end-operation-encryption) is separate from this driver
+and is not a requirement on shipped Firestore page sharing. No protocol field or local safety gate changes.
 
 The door address is `http://127.0.0.1:<port>/`. Remote operations live under `/r/<16 lowercase
 base32>/`, a stable per-machine prefix that is not a credential; extensions live under its
@@ -386,6 +387,7 @@ when the grant has none; a session also ends when remote stops. Opening a sessio
 never asks the owner to pair again. The client verifies the paired machine key before trusting it.
 Each open adds an independent session for the device, bound to the same grant and revision;
 opening never widens scope. The local per-device session limit defaults to off/unlimited.
+Unlimited sessions remain bounded by the 60 s unattached expiry, 12 h idle expiry, signed rate-limited opens and the listener.
 `tmt remote settings sessions-per-device <n>|off` sets a positive limit or disables it. An
 absent `sessionsPerDevice` key in Remote's `settings.json` means unlimited; explicit null (`off`) means
 unlimited. Both plain settings and JSON show the limit and its source (`default` or
@@ -2200,8 +2202,9 @@ an origin is `established` or `closed`.
 
 Message framing, authentication and admission are scoped to their host driver. The `local` door and extension
 stores are implemented, as are Firestore extension declarations, deployment and sealed-document
-sync for Colab page sharing. The cloud **agent operation** bindings, admission service, operation
-encryption and conformance profile below remain **proposals, not implemented**. Their specification
+sync for Colab page sharing. The cloud **agent operation** bindings, admission service and runtime
+conformance below remain **proposals, not implemented**. The native encryption library and its
+automatic key lifecycle are implemented independently of a transport. Their specification
 never enables agent access; the [historical conformance material](#proposal-cloud-conformance) is retained
 under the [superseded-authentication note](#superseded-cloud-authentication-proposal), not a shipped Firestore gate.
 Cloudflare remains proposed. Extension/page authority never substitutes for a local paired operation grant.
@@ -2214,8 +2217,8 @@ Cloudflare remains proposed. Extension/page authority never substitutes for a lo
 
 ### Superseded cloud authentication proposal
 
-The shared cloud admission, Firestore admission service, Cloudflare device proof, operation
-encryption and cloud-conformance sections below retain historical proposal material. Their
+The shared cloud admission, Firestore admission service, Cloudflare device proof and cloud-conformance
+sections below retain historical proposal material. Native operation encryption is specified separately. Their
 paired-device projection, custom-token challenge and stacked envelope checks are superseded
 by [one gate per host driver](#host-driver-authentication), not shipped Firestore authentication.
 Do not implement them as an extra gate. Retained bounds, integrity, uncertainty and no-effect
@@ -2364,9 +2367,13 @@ Relay objects and blob bindings are separate per declared extension namespace. T
 awareness before relay effects; an unavailable hook refuses. A shared-page user cannot reach the
 operation object through relay credentials, a namespace alias or a Worker fragment.
 
-### Proposal: end-to-end operation encryption
+### End-to-end operation encryption
 
-**Authentication superseded:** see the [historical proposal status](#superseded-cloud-authentication-proposal).
+**Implemented library and key lifecycle:** native machine-to-machine descriptor sign/verify,
+request seal/open and request-bound responses. Transport, Firestore agent operations, invite/join,
+Core dispatch and browser interoperability remain proposals.
+Browser enrollment remains deferred to its existing proposal.
+Edge admission remains deferred; never add another Firestore authentication gate.
 
 The fixed carrier profile is `cloud-hpke-v1`, using
 [RFC 9180](https://www.rfc-editor.org/rfc/rfc9180.html) base mode: DHKEM(P-256, HKDF-SHA256)
@@ -2382,17 +2389,31 @@ UUID, revision is positive and validity times are JSON integers with notBeforeMs
 PublicKey is the RFC 9180 uncompressed 65-byte P-256 point, strictly validated and encoded using
 the existing base64url rules. The machine signs LP(`tmt-cloud-key-v1`) followed by LP of each
 preceding descriptor value in field order, using decimal integers and the raw public-key bytes.
-The device verifies that signature with the machine key pinned by
-[pairing](#pairing), machine/profile/time agreement and a nondecreasing persisted revision before
+The sending machine verifies that signature with the receiving machine UUID and stable Ed25519
+authentication key pinned by the proposed cross-person pairing ceremony, machine/profile/time
+agreement and a nondecreasing persisted revision before
 using the encryption key. Equal revisions must have identical descriptor bytes. A backend cannot
 replace the trust root or authorize a key downgrade.
 
-The machine durably publishes a new key/revision before accepting traffic for it and refuses
-retired key IDs. It retains old decryption material only for bounded already-adopted recovery,
-never to accept expired new traffic. Lost or compromised authentication keys require pairing
-again; an authenticated encryption-key rotation does not create another device identity or grant.
+The machine atomically persists a new key/revision before advertising it and refuses retired key
+IDs for new carriers. Keys are valid for 30 days and renew automatically 7 days before expiry,
+on serve start and the existing door maintenance callback, without a new worker or timer. Previous
+unexpired keys remain usable through their signed expiry; expired keys never admit new traffic.
+An owner offline past expiry renews before cloud traffic on its next serve start. A sender given an
+expired descriptor receives retryable `REMOTE_CLOUD_DESCRIPTOR_EXPIRED`; neither side needs a user
+step. Failed renewal preserves the prior admitted state and fails cloud crypto closed at expiry,
+without changing the authentication key or local grants. The private version-1 keyring and exact
+nine-field descriptor remain readable across upgrades; the compatibility fixture is frozen pre-change
+v1 bytes, not evidence of a prior release. A future unsupported version refuses with
+`REMOTE_CLOUD_UPGRADE_REQUIRED`, without resetting trust or suggesting re-pairing. Lost or
+compromised authentication keys require pairing again; an authenticated encryption-key rotation does not create another device identity or grant.
 Withholding a newer descriptor can cause refusal, never a bypass. This static recipient-key
 profile makes no forward-secrecy claim after recipient-key compromise.
+
+The native sender signs with its stable Ed25519 authentication key registered as the receiver's
+peer/client ID, never a browser key or Firebase uid; `origin` is `cli`. The recipient machine is
+bound by the signed envelope. The signed intent carries the target agent UUID; the common
+admission/Core seam owns its authorization. This codec grants nothing and adds no replay ledger.
 
 A request/control carrier is exactly `{version,profile,keyId,header,enc,ciphertext,signature}`.
 Version/profile are 1/`cloud-hpke-v1`. Header contains exactly the enclosed envelope's fields
@@ -2404,13 +2425,12 @@ complete signed envelope JSON, retaining the decoded payload bytes without reser
 
 Define `B = LP("tmt-cloud-carrier-v1") || LP("1") || LP("cloud-hpke-v1") || LP(keyId) || LP(H)`.
 HPKE info is B; request AAD is `B || LP(raw enc)`. Use a fresh encapsulation/context for each
-new carrier and exactly one HPKE Seal at sequence zero. The device additionally signs
+new carrier and exactly one HPKE Seal at sequence zero. The sending machine additionally signs
 `B || LP(raw enc) || LP(decimal ciphertext byte length) || LP(SHA-256(raw ciphertext))` with its
-existing Ed25519 key. This outer proof lets the edge authenticate before decryption; the machine
-checks it independently and requires every decrypted header field to match. Both the carrier and
-the inner signature must pass. Cloud encryption covers controls, reads, sends, results and check
-captures, not just message text; the unpaired enrollment form remains the
-[pairing](#pairing) protocol, never an operation.
+existing Ed25519 key. This outer proof authenticates the native peer before decryption; the receiving machine
+checks it and requires every decrypted header field to match. Both the carrier and
+the inner signature must pass. The codec accepts signed controls, reads, sends, results and check
+captures; no driver enables cloud operations here. No unpaired enrollment form is an operation.
 
 A response carrier has the same fields plus `requestDigest`, the base64url SHA-256 of the
 request's outer signature input; it echoes that request's keyId and enc. Its header describes the
@@ -2423,13 +2443,16 @@ covers that AAD followed by LP(decimal ciphertext byte length) and LP(SHA-256(ra
 The client verifies the pinned machine signature, request binding, AEAD and enclosed signed
 response before interpreting any state.
 
-Each context produces exactly one response ciphertext, frozen before publication. Identical
-transport retransmission returns only those frozen bytes; a changed response, recovered receipt or
+The library exposes consuming response contexts: each produces exactly one response ciphertext,
+frozen before publication by the future transport owner. The following are deferred transport
+requirements, not shipped runtime behavior. Before reopening an adopted carrier, its journal owner
+must return the frozen response rather than construct another sealer for changed plaintext; consuming
+contexts do not provide a persistent replay ledger. Identical transport retransmission returns only those frozen bytes; a changed response, recovered receipt or
 later notification uses a fresh request/control context. A lost context requires fresh signed
 session/ID-based recovery, never reuse of a key/nonce with new plaintext. Asynchronous state arrives
 inside responses to fresh subscribe controls; log entries keep their machine signatures.
 Clients retain context secrets only for the bounded in-flight request and discard them on
-completion or abandoned observation. The machine freezes the encrypted response durably before
+completion or abandoned observation. The future transport must freeze the encrypted response durably before
 publishing it and never regenerates different bytes under that context after a crash. Transport
 recovery expires within the existing journal retention/capacity; expired ciphertext is unavailable,
 not permission to resend. Core final retention and journal ownership are unchanged.

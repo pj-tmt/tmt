@@ -35,14 +35,18 @@ pub struct SignedMessage {
 }
 impl SignedMessage {
     pub fn decode(bytes: &[u8], payload_limit: usize) -> Option<Self> {
+        let message = Self::decode_any(bytes, payload_limit)?;
+        matches!(message.wire.kind.as_str(), "request" | "control").then_some(message)
+    }
+    /// Shared signed-envelope parser; callers still own direction and signature checks.
+    pub(crate) fn decode_any(bytes: &[u8], payload_limit: usize) -> Option<Self> {
         if bytes.len() > 4 * payload_limit.div_ceil(3) + crate::limits::METADATA_BYTES {
             return None;
         }
         let wire: MessageWire = serde_json::from_slice(bytes).ok()?;
         if wire.version != 1
             || wire.profile != "local-v1"
-            || !wire.correlation_id.is_null()
-            || !matches!(wire.kind.as_str(), "request" | "control")
+            || !(wire.correlation_id.is_null() || wire.correlation_id.is_string())
             || wire.payload.len() > 4 * payload_limit.div_ceil(3)
         {
             return None;
@@ -66,7 +70,7 @@ impl SignedMessage {
         Envelope {
             kind: &self.wire.kind,
             id: &self.wire.id,
-            correlation_id: None,
+            correlation_id: self.wire.correlation_id.as_str(),
             machine_id: &self.wire.machine_id,
             window_id: &self.wire.window_id,
             client_id: &self.wire.client_id,

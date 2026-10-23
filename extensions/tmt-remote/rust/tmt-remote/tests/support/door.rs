@@ -153,15 +153,15 @@ impl Harness {
             },
         )
         .unwrap();
-        let site = Arc::new(Site {
+        let site = Arc::new(Site::new(
             routes,
-            mounts: Arc::new(Mounts::new(
+            Arc::new(Mounts::new(
                 root.clone(),
                 &origin,
                 &machine.route_prefix,
                 Arc::clone(&sessions) as _,
             )),
-            pages: Some(
+            Some(
                 Pages::new(
                     &origin,
                     machine.id.clone(),
@@ -170,7 +170,7 @@ impl Harness {
                 )
                 .with_pairing(Arc::clone(&pairing)),
             ),
-        });
+        ));
         let flag = Arc::clone(&stop);
         let door = thread::spawn(move || door.run(&flag, site as Arc<dyn Handler>).unwrap());
         Self {

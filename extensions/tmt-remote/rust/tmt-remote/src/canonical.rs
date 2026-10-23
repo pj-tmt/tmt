@@ -91,6 +91,12 @@ pub struct Envelope<'a> {
 }
 /// Fixed version 1 / local-v1; no algorithm or profile negotiation.
 pub fn envelope(value: &Envelope<'_>) -> Result<Vec<u8>> {
+    let mut input = envelope_header(value)?;
+    lp(&mut input, &Sha256::digest(value.payload))?;
+    Ok(input)
+}
+/// Shared header admission/framing through operation; the payload digest is not included.
+pub fn envelope_header(value: &Envelope<'_>) -> Result<Vec<u8>> {
     require(matches!(value.kind, "request" | "response" | "control"))?;
     for id in [value.id, value.machine_id, value.window_id, value.client_id] {
         uuid(id)?;
@@ -123,7 +129,6 @@ pub fn envelope(value: &Envelope<'_>) -> Result<Vec<u8>> {
     require(value.timestamp_ms <= 9_007_199_254_740_991 && !value.operation.is_empty())?;
     origin(value.origin)?;
     let timestamp = value.timestamp_ms.to_string();
-    let digest = Sha256::digest(value.payload);
     framed(&[
         b"tmt-message-v1",
         b"1",
@@ -139,7 +144,6 @@ pub fn envelope(value: &Envelope<'_>) -> Result<Vec<u8>> {
         timestamp.as_bytes(),
         value.origin.as_bytes(),
         value.operation.as_bytes(),
-        &digest,
     ])
 }
 

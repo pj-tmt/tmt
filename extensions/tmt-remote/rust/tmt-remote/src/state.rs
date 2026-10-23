@@ -8,8 +8,9 @@ use std::{fs::File, ops::Deref, path::Path};
 use tmt_extension_state::Error as StateError;
 
 /// Private file names; anything else is refused.
-const FILES: [&str; 12] = [
+const FILES: [&str; 13] = [
     "machine.key",
+    "cloud-keys.json",
     "key.lock",
     "serve.lock",
     "remote.db",
@@ -246,6 +247,7 @@ impl Serving {
     }
 }
 /// The machine's long-term Ed25519 key, a software file with no hardware claim.
+#[derive(Clone)]
 pub struct MachineKey {
     key: SigningKey,
 }

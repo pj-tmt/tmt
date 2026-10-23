@@ -105,11 +105,7 @@ impl Live {
         if let Some(hook) = hook {
             mounts = mounts.with_activation(hook);
         }
-        let site = Arc::new(Site {
-            routes,
-            mounts: Arc::new(mounts),
-            pages: None,
-        });
+        let site = Arc::new(Site::new(routes, Arc::new(mounts), None));
         let stop = Arc::new(AtomicBool::new(false));
         let (flag, served) = (Arc::clone(&stop), Arc::clone(&site));
         let door = thread::spawn(move || door.run(&flag, served as Arc<dyn Handler>).unwrap());
