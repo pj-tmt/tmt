@@ -411,9 +411,10 @@ impl Session {
             lines.push(line);
             index
         };
+        let captured_outputs = self.captured_outputs(items);
         let mut first = true;
         for source in crate::board::recent_responses::merge(&times, items) {
-            if matches!(source, Source::Pane(index) if self.captures_output(&items[index])) {
+            if matches!(source, Source::Pane(index) if captured_outputs.contains(&index)) {
                 continue;
             }
             if !first {
