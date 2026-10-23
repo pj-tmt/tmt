@@ -118,6 +118,20 @@ test('the Comments list is the website list: views, rows and an empty state per 
   await expect(row.locator('.annotation-row-quote')).toHaveText('Exact selected text');
   await expect(row.getByTestId('thread-row-status')).toHaveText('1 comment');
   await expect(row.locator('time')).toHaveCount(0);
+  // The website's list: a 1px rule closes the view strip and the row, which has 18px of vertical
+  // padding after the first row's tighter top; the quote and meta are the caption size, the
+  // title the body size; the selected view tab carries the selection tint.
+  await expect(panel.locator('.tmt-ui-tabs-header')).toHaveCSS('border-bottom-width', '1px');
+  await expect(row).toHaveCSS('border-bottom-width', '1px');
+  await expect(row).toHaveCSS('padding-bottom', '18px');
+  await expect(row.locator('.annotation-row-quote')).toHaveCSS('font-size', '11px');
+  await expect(row.getByTestId('thread-row-status')).toHaveCSS('font-size', '11px');
+  await expect(row.locator('strong')).toHaveCSS('font-size', '14px');
+  expect(
+    await views
+      .getByRole('tab', { name: 'Open', exact: true })
+      .evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).not.toBe('rgba(0, 0, 0, 0)');
   // The other views are empty here, and say so.
   await views.getByRole('tab', { name: 'Needs you', exact: true }).click();
   await expect(panel.getByTestId('annotation-row')).toHaveCount(0);

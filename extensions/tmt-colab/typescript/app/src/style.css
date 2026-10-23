@@ -864,6 +864,18 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   color: var(--c-muted);
   font-size: 12px;
 }
+/* The row's quote and meta are the caption size, as on the website (11px, with a 9px meta below our
+   readable minimum); the title keeps the body size, the smallest body token there is. */
+.annotation-row-quote,
+.annotation-row small {
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-host-field-line-height);
+}
+/* The filter strip is closed by a rule, as the website's is, before the list begins. */
+.comments-panel .tmt-ui-tabs-header {
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--c-rule);
+}
 /* Where comments and chat will be until the page's threads are verified: quiet, in the drawer body. */
 .discussion-pending {
   margin: 0;
@@ -2211,10 +2223,12 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .chat-panel .comment-header-end {
   flex: 0 0 34px;
 }
+/* A drawer's plain buttons take no fill or edge, except where the control owns its look: the list
+   row's rule and the view tab's selection tint (the only tabs in a drawer are Comments'). */
 .tmt-ui-drawer
-  button:not(.tmt-ui-action):not([data-testid='ask-send']):not(.tmt-ui-menu-item):not(
-    .tmt-ui-menu-trigger
-  ) {
+  button:not(.tmt-ui-action):not(.annotation-row):not(.tmt-ui-tab):not(
+    [data-testid='ask-send']
+  ):not(.tmt-ui-menu-item):not(.tmt-ui-menu-trigger) {
   background: transparent;
   border: 0;
   box-shadow: none;

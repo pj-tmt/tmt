@@ -721,9 +721,12 @@ proposing agent and Approve / Decline / Follow up / Resolve actions. Approve is
 the emphasized decision; Resolve is muted. Follow up opens a composer inside
 the card. Resolved proposals fold to a plain one-line row with a resolved mark,
 retained-history disclosure and Reopen. Comments lists the page's threads in
-views `Open`, `Needs you` and `Resolved` (and `Proposals` when the page has one)
-as rows of number, title, quoted passage and `N comments · state`, with an
-empty state per view; its header count combines unresolved ordinary threads and undecided unresolved
+views `Open`, `Needs you` and `Resolved` (and `Proposals` when the page has one),
+a 1px rule under the view strip, as rows of number, title, quoted passage and
+`N comments · state`, each closed by a 1px rule with 18px of vertical padding; the title keeps the
+body size and the quote and meta take the caption size; the selected view tab uses the shared
+selection tint. Each view has an
+empty state; its header count combines unresolved ordinary threads and undecided unresolved
 proposals. Selecting a row opens that thread's Discussion view in the drawer: a status line
 (`Needs you`, `Open discussion` or `Resolved by X`) with `All comments`, the title, the quoted
 passage with its number and a `Show in the page` arrow, the turns, the reply composer and a footer
