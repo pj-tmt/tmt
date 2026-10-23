@@ -58,6 +58,7 @@ pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
                     disposition: Disposition::Sent,
                     passthrough: false,
                     message_state_label: None,
+                    can_send_now: false,
                     fallback: None,
                     warning: None,
                 }),
@@ -147,6 +148,7 @@ fn chat_fixture(scene: &str, look: Look, now_ms: u64) -> App {
                     }
                     .into(),
                 ),
+                can_send_now: false,
                 fallback: fallback.then(|| "There is no live pane.".into()),
                 warning: None,
             }),

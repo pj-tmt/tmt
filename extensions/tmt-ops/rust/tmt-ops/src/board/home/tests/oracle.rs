@@ -341,6 +341,9 @@ fn capture_frame(
     captured["selectionState"] = json!(format!("{:?}", app.workspace_selection_state()));
     captured["focus"] = json!(format!("{:?}", app.focused_pane()));
     captured["input"] = json!(format!("{:?}", app.input_band.get()));
+    if state.starts_with("bindings-") {
+        captured["bindingGeometry"] = app.settings.as_ref().unwrap().captured_binding_geometry();
+    }
     captured
 }
 
@@ -440,6 +443,34 @@ fn captures() -> Value {
                         51,
                         &mut styles,
                     ));
+                }
+            }
+        }
+        // All-key Settings and inert parameter previews use the actual board owner.
+        for (look_name, look) in looks() {
+            for state in [
+                "bindings-list",
+                "bindings-punctuation",
+                "bindings-preview",
+                "bindings-unavailable",
+                "bindings-masked",
+                "bindings-j-preset",
+                "bindings-inventory-scrolled",
+            ] {
+                for width in [160, 100, 80, 60] {
+                    for height in [36, 8] {
+                        let app = crate::board::settings::tests::host_action::capture_case(
+                            state, look, width, height,
+                        );
+                        frames.push(capture_frame(
+                            &app,
+                            state,
+                            look_name,
+                            width,
+                            height,
+                            &mut styles,
+                        ));
+                    }
                 }
             }
         }
@@ -677,6 +708,27 @@ fn captures() -> Value {
                         40,
                         &mut styles,
                     ));
+                }
+            }
+        }
+        // One loading mark or a retained conversation plus its refresh status,
+        // then a single complete publication through the real selected owner.
+        for (look_name, look) in looks() {
+            for scene in crate::board::conversation::tests::refresh::SCENES {
+                for width in [160, 100, 80, 60] {
+                    for height in [36, 8] {
+                        let app = crate::board::conversation::tests::refresh::capture_case(
+                            scene, look, width, height,
+                        );
+                        frames.push(capture_frame(
+                            &app,
+                            scene,
+                            look_name,
+                            width,
+                            height,
+                            &mut styles,
+                        ));
+                    }
                 }
             }
         }

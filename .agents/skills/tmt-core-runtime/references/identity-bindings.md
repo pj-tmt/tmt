@@ -218,10 +218,29 @@ delivery. They install and launch nothing.
     verified binding, and the host's runtime PID, attribute it, not pane ancestry.
   - Known limit: a continuation that a Claude daemon hosts is not recorded for the pane. To
     record that work, run it as a managed foreground `tmt run`.
-- A resume launch marks the exact session pending before the child starts. At exit the session
-  goes stale only if it is still pending, the exit was non-zero and not 128+n, and the TMT
+- A resume launch marks the exact session pending before the child starts. Exit settlement
+  requires the original binding ID, launch owner, child incarnation and provider session;
+  a superseded wrapper cannot clear or stale a newer launch. Within that fence the session
+  goes stale only if still pending, the exit was non-zero and not 128+n, and the TMT
   SessionStart hook was installed at launch; otherwise only the mark clears. `resume` never
-  falls back to a fresh start.
+  falls back to a fresh start. Ordinary resume checks the original recorded agent before
+  binding reconciliation: live or stopped evidence names the old pane and explicit
+  `--move` command; unknown evidence refuses with a check-the-old-pane next step.
+  Only conclusive exit or a different native process incarnation permits continuing.
+  Fresh launches keep their existing degraded-evidence policy.
+- Explicit `resume <name> --move` preflights the exact session and caller destination before
+  stopping anything. The lifecycle driver proves the captured process is its private main
+  agent under the old pane; a pane process, nested agent or shared Codex server refuses.
+  The process adapter rechecks PID/start immediately before one TERM, with three seconds
+  for exit confirmation and no force or signal retry. Request under binding coordination,
+  release the writer while waiting, and leave binding/preferences unchanged on stop failure.
+  After exit, re-read final hook state and fence binding, owner, session and launch choices.
+  Pure `binding::move_identity` admits a concurrent Ended settlement only for that same
+  attachment, process/session key and launch owner; all other captured fields and preferences
+  remain fenced. It shares `bind_selected`, preserving identity lifetime and preferences;
+  host publication failures remain partial. A post-stop refusal states that the old agent
+  stopped and offers ordinary resume in the caller pane. Existing foreground resume owns
+  the new child. It does not roll back a delivered signal or silently start fresh.
 - Observation writes compare the complete expected observation inside the binding transaction,
   so a late update for a superseded conversation cannot win. Admission needs fresh live
   evidence; inconclusive admission keeps the previous observation, known-ended included. Clear
@@ -489,7 +508,7 @@ or X acknowledgment. There is no Digest timer, polling worker or settings instal
 ## Foreground launch
 
 - `run_command/run.rs` owns the bound launch and completion, `run_command/resume.rs` command
-  selection and resume marks. A first operand that is a registered bare runtime executable
+  selection and resume marks, and `run_command/move_session.rs` explicit stop/move coordination. A first operand that is a registered bare runtime executable
   selects an auto-named launch only if no active identity holds that token; a collision refuses
   with explicit alternatives. A failed spawn retires only its exact new temporary automatic
   binding.

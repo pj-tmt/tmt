@@ -122,12 +122,28 @@ impl Global {
     }
 }
 
+/// Digest's own liveness record: when its last admitted tick began, null before the first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Tick {
+    pub last_at_ms: Option<u64>,
+}
+
+impl Tick {
+    fn parse(value: &Value) -> Option<Self> {
+        Some(Self {
+            last_at_ms: nullable(value, "lastAtMs")?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Status {
     pub observed_at_ms: u64,
     pub members: BTreeMap<String, Member>,
     /// Absent for older producers and for any shape this version does not know.
     pub global: Option<Global>,
+    /// Absent for older producers; a present but malformed record makes the status unavailable.
+    pub tick: Option<Tick>,
     /// Absent for older producers and for any shape this version does not know.
     pub pricing: Option<Pricing>,
 }
@@ -149,10 +165,15 @@ impl Status {
             }
             members.insert(id.to_owned(), Member::parse(row)?);
         }
+        let tick = match document.get("tick") {
+            Some(tick) => Some(Tick::parse(tick)?),
+            None => None,
+        };
         Some(Self {
             observed_at_ms,
             members,
             global: document.get("global").and_then(Global::parse),
+            tick,
             pricing: document.get("pricing").and_then(Pricing::parse),
         })
     }

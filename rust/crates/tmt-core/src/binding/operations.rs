@@ -1,6 +1,9 @@
 use super::observation::{named_entry, observe, reconcile};
 use super::*;
-use crate::identity::{self, IdentityError, Lifetime};
+use crate::{
+    endpoint::ProcessIncarnation,
+    identity::{self, IdentityError, Lifetime},
+};
 
 fn deadline<R, O: BindingEndpoint>(endpoint: &O) -> Result<(), BindingError<R, O::Error>> {
     if endpoint.budget_available() {
@@ -129,7 +132,101 @@ fn bind_with_origin<R: BindingRepository, O: BindingEndpoint>(
     bound.map_err(|error| abandon_creation(repository, &created, error))
 }
 
-// Both ordinary and guarded add use this binding/publication owner.
+/// Move an exact captured identity after the adapter proved its runtime gone.
+/// Unlike unbind, this never retires a temporary identity or clears preferences.
+/// Native stop authority remains with the caller, not a stored PID or marker.
+pub fn move_identity<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    expected: &BindingEntry,
+    preferences: &session::SessionPreferences,
+    ended: &ProcessIncarnation,
+    target: &BindingTargetEvidence,
+) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
+    repository.with_binding_transaction(|records| {
+        endpoint.begin_coordination();
+        let current = records
+            .entry_by_id(&expected.identity.id)?
+            .filter(|current| {
+                if current == expected {
+                    return true;
+                }
+                // The stopped launch's wrapper may settle after the caller's
+                // post-stop snapshot. Admit only its exact Ended observation;
+                // every identity, attachment, key and owner field stays fenced.
+                let mut settled = expected.clone();
+                let Some(binding) = settled.binding.as_mut() else {
+                    return false;
+                };
+                let Some(key) = binding
+                    .session
+                    .key
+                    .as_ref()
+                    .filter(|key| &key.incarnation == ended)
+                else {
+                    return false;
+                };
+                let Some(owner) = binding.session.launch_owner.clone() else {
+                    return false;
+                };
+                let Some(next) = binding.session.record_launched_exit(key.clone(), owner) else {
+                    return false;
+                };
+                binding.session = next;
+                current == &settled
+            })
+            .ok_or(BindingError::Unverified)?;
+        if records.session_preferences(&expected.identity.id)? != *preferences {
+            return Err(BindingError::Unverified);
+        }
+        let old = current.binding.as_ref().ok_or(BindingError::Unverified)?;
+        if old.session.key.as_ref().map(|key| &key.incarnation) != Some(ended)
+            || (old.server.host == target.server.host
+                && old.server.socket_path == target.server.socket_path
+                && old.pane_id == target.pane_id)
+        {
+            return Err(BindingError::Unverified);
+        }
+        // Refuse an occupied or changed destination before clearing anything.
+        let snapshot = endpoint
+            .current_snapshot(std::slice::from_ref(&target.pane_id))
+            .map_err(BindingError::Endpoint)?;
+        target_pane(&snapshot, &target.pane_id, Some(target))?;
+        if records
+            .entry_by_pane(
+                snapshot.server.host,
+                &target.pane_id,
+                &snapshot.server.server_id,
+            )?
+            .is_some()
+        {
+            return Err(BindingError::PaneAlreadyBound);
+        }
+        let probe = observe(endpoint, &current).map_err(BindingError::Endpoint)?;
+        let evidence = evaluate_binding(&current, &probe);
+        deadline(endpoint)?;
+        // Host publication cannot be rolled back with SQL. Any error after
+        // this boundary is partial and never grants automatic replay.
+        (|| {
+            clear_observed(endpoint, &current, &evidence)?;
+            records.detach_binding(&old.id)?;
+            bind_selected(
+                records,
+                endpoint,
+                &target.pane_id,
+                Some(target),
+                BindingEntry {
+                    identity: current.identity.clone(),
+                    binding: None,
+                },
+                false,
+            )
+        })()
+        .map_err(|error| BindingError::Partial(Box::new(error)))
+    })
+}
+
+// Ordinary, guarded and moved bindings use this binding/publication owner.
 fn bind_selected<R, O: BindingEndpoint>(
     records: &mut dyn BindingRecords<Error = R>,
     endpoint: &mut O,

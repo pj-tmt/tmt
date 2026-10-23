@@ -10,11 +10,81 @@ use tmt_adapters::{
 };
 use tmt_core::{
     binding::{
-        BindingRepository,
+        Binding, BindingRepository,
         session::{RememberedSession, SessionPreferences},
     },
     driver::ActionResult,
+    endpoint::ProcessIncarnation,
 };
+
+/// Capture the original attachment before binding reconciliation can discard its
+/// process key, then release the writer before probing it. Binding and final
+/// launch admission recheck current evidence after this read-only preflight.
+pub(super) fn preflight_attached(storage: &mut Storage, identity_id: &str) -> Result<(), Failure> {
+    preflight_attached_with(storage, identity_id, |expected| {
+        tmt_adapters::process::runtime::observe_runtime_process(
+            &tmt_adapters::process::UnixCommandRunner,
+            expected.pid(),
+            std::time::Instant::now() + std::time::Duration::from_secs(3),
+        )
+        .unwrap_or(tmt_adapters::process::runtime::ProcessObservation::Unknown)
+    })
+}
+
+fn preflight_attached_with(
+    storage: &mut Storage,
+    identity_id: &str,
+    observe: impl FnOnce(&ProcessIncarnation) -> tmt_adapters::process::runtime::ProcessObservation,
+) -> Result<(), Failure> {
+    let captured = storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            let Some(entry) = records.entry_by_id(identity_id)? else {
+                return Ok(Err(Failure::new(
+                    "RUNTIME_CONFLICT",
+                    "The identity changed before resume. No new agent was launched; check the old pane and retry.",
+                    5,
+                )));
+            };
+            let preferences = records.session_preferences(identity_id)?;
+            let Some(binding) = entry.binding else { return Ok(Ok(None)); };
+            let Some(session) = preferences.remembered else { return Ok(Ok(None)); };
+            let Some(key) = binding.session.key.filter(|key| {
+                key.provider_session.as_ref() == Some(&session.provider_session)
+            }) else { return Ok(Ok(None)); };
+            Ok(Ok(Some((entry.identity.name, binding.pane_id, key.incarnation))))
+        })
+        .map_err(storage_failure)??;
+    let Some((name, pane, expected)) = captured else {
+        return Ok(());
+    };
+    check_process(&name, &pane, &expected, &observe(&expected))
+}
+
+pub(super) fn check_process(
+    name: &str,
+    pane: &str,
+    expected: &ProcessIncarnation,
+    observation: &tmt_adapters::process::runtime::ProcessObservation,
+) -> Result<(), Failure> {
+    use tmt_adapters::process::runtime::ProcessObservation;
+    if observation.matches(expected) == tmt_core::binding::session::RuntimeLiveness::Gone {
+        return Ok(());
+    }
+    let reason = match observation {
+        ProcessObservation::Live(_) | ProcessObservation::Stopped(_) => {
+            format!("The recorded agent is still attached to pane {pane} (possibly suspended).")
+        }
+        _ => format!("TMT cannot confirm that the recorded agent in pane {pane} has ended."),
+    };
+    Err(Failure::new(
+        "RUNTIME_CONFLICT",
+        format!(
+            "{reason} No new agent was launched. Check the old pane and exit the agent, or move it with: tmt resume --move -- {}",
+            crate::output::shell_word(name)
+        ),
+        5,
+    ))
+}
 
 fn resume_failure(code: &'static str, message: String, name: &str) -> Failure {
     Failure::new(
@@ -128,18 +198,49 @@ pub(super) fn failure_is_trustworthy(status: u32, hooks_installed: bool) -> bool
 /// when the failure is trustworthy: a non-zero exit that no signal caused
 /// (128 + n), with the provider's TMT start hook installed at launch, so a
 /// start would have been observed. The child's status stays authoritative.
+pub(super) struct ResumeExit<'a> {
+    pub binding: &'a Binding,
+    pub owner: Option<&'a ProcessIncarnation>,
+    pub child: Option<&'a ProcessIncarnation>,
+}
+
 pub(super) fn settle_resume(
     paths: &ConfigPaths,
     name: &str,
-    identity_id: &str,
+    exited: ResumeExit<'_>,
     session: &RememberedSession,
     status: u32,
     hooks_installed: bool,
 ) {
+    let (Some(owner), Some(child)) = (exited.owner, exited.child) else {
+        return;
+    };
+    let identity_id = &exited.binding.identity_id;
     let trustworthy = failure_is_trustworthy(status, hooks_installed);
     let settled = Storage::open(&paths.database).and_then(|mut storage| {
         let stale = storage.with_binding_transaction::<_, StorageError>(|records| {
+            let ours = records
+                .entry_by_id(identity_id)?
+                .and_then(|entry| entry.binding)
+                .is_some_and(|current| {
+                    current.id == exited.binding.id
+                        && current.session.launch_owner.as_ref() == Some(owner)
+                        && current.session.key.as_ref().is_some_and(|key| {
+                            key.incarnation == *child
+                                && key.provider_session.as_ref() == Some(&session.provider_session)
+                        })
+                });
+            if !ours {
+                return Ok(false);
+            }
             let mut preferences = records.session_preferences(identity_id)?;
+            if preferences.remembered.as_ref().is_none_or(|current| {
+                current.harness != session.harness
+                    || current.mode != session.mode
+                    || current.provider_session != session.provider_session
+            }) {
+                return Ok(false);
+            }
             let before = preferences.clone();
             let stale = preferences.settle_resume(
                 &session.provider_session,
@@ -174,6 +275,11 @@ pub(super) fn settle_resume(
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
+        "{reason} No new agent was launched. Check the old pane and exit the agent, or move it with: tmt resume --move -- {}",
+        &[""],
+        &[("{}", "worker")],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         "Specify a command, e.g. tmt run opus claude; no usable harness is remembered.",
         &[";"],
         &[],
@@ -194,3 +300,197 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
 ];
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+    use tmt_core::{
+        binding::session::{
+            BindingSessionState, HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeLiveness,
+            RuntimeMode, SessionTransition,
+        },
+        endpoint::{PaneObservation, ServerEvidence},
+        identity::{Lifetime, create_or_resolve},
+    };
+
+    #[test]
+    fn exact_resume_requires_conclusive_process_exit() {
+        use tmt_adapters::process::runtime::ProcessObservation;
+        let expected = ProcessIncarnation::new(20, "old-start").unwrap();
+        let reused = ProcessIncarnation::new(20, "new-start").unwrap();
+        for observation in [
+            ProcessObservation::Live(expected.clone()),
+            ProcessObservation::Stopped(expected.clone()),
+            ProcessObservation::Unknown,
+        ] {
+            let error = check_process("worker's seat", "%12", &expected, &observation).unwrap_err();
+            assert_eq!(error.code, "RUNTIME_CONFLICT");
+            assert_eq!(error.status, 5);
+            assert!(error.message.contains("%12"));
+            assert!(error.message.contains("Check the old pane"));
+            assert!(error.message.contains("No new agent was launched"));
+            assert!(error.message.contains(&format!(
+                "tmt resume --move -- {}",
+                crate::output::shell_word("worker's seat")
+            )));
+        }
+        for observation in [
+            ProcessObservation::Gone,
+            ProcessObservation::Live(reused.clone()),
+            ProcessObservation::Stopped(reused),
+        ] {
+            assert!(check_process("worker", "%12", &expected, &observation).is_ok());
+        }
+    }
+
+    #[test]
+    fn late_resume_exit_cannot_settle_a_replaced_binding_or_launch() {
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        for case in [
+            "unchanged",
+            "moved",
+            "owner",
+            "child",
+            "driver",
+            "unknown-child",
+        ] {
+            let directory = Directory(
+                std::env::temp_dir().join(format!("tmt-resume-exit-{}-{case}", std::process::id())),
+            );
+            std::fs::create_dir(&directory.0).unwrap();
+            let paths = ConfigPaths {
+                global_dir: directory.0.clone(),
+                global_config: directory.0.join("config.json"),
+                local_config: directory.0.join("local.json"),
+                database: directory.0.join("state.db"),
+            };
+            let mut storage = Storage::open(&paths.database).unwrap();
+            let identity = create_or_resolve(&mut storage, "Worker", Lifetime::Saved)
+                .unwrap()
+                .identity;
+            let server = ServerEvidence {
+                host: tmt_core::host::HostKind::Tmux,
+                server_id: "123e4567-e89b-42d3-a456-426614174000".into(),
+                socket_path: "/tmp/test.sock".into(),
+                server_pid: 10,
+                server_start_time: "server".into(),
+            };
+            let mut pane = PaneObservation {
+                agent_name: None,
+                id: "%1".into(),
+                target: None,
+                cwd: None,
+                command: "agent".into(),
+                pane_pid: 11,
+                pane_incarnation: None,
+                suggested_name: None,
+                marker: None,
+                location: None,
+            };
+            let owner = ProcessIncarnation::new(20, "owner").unwrap();
+            let child = ProcessIncarnation::new(21, "child").unwrap();
+            let session = ProviderSessionId::new("s-1").unwrap();
+            let state = BindingSessionState::default()
+                .admit_launched(
+                    ObservedSessionKey {
+                        incarnation: child.clone(),
+                        provider_session: Some(session.clone()),
+                    },
+                    owner.clone(),
+                    SessionTransition::Resumed,
+                    RuntimeLiveness::Alive,
+                    RuntimeLiveness::Alive,
+                )
+                .unwrap();
+            let mut preferences = SessionPreferences::default();
+            preferences.remember(
+                HarnessId::new("claude").unwrap(),
+                RuntimeMode::new("default").unwrap(),
+                session,
+            );
+            preferences
+                .remembered
+                .as_mut()
+                .unwrap()
+                .resume_pending_at_ms = Some(200);
+            let original = storage
+                .with_binding_transaction::<_, StorageError>(|records| {
+                    let mut binding = records.insert_binding(&identity, &server, &pane)?;
+                    records.set_session_state(&binding.id, &binding.session, &state)?;
+                    records.set_session_preferences(&identity.id, &preferences)?;
+                    binding.session = state.clone();
+                    Ok(binding)
+                })
+                .unwrap();
+            let remembered = preferences.remembered.clone().unwrap();
+            if case == "unchanged" {
+                let refusal = preflight_attached_with(&mut storage, &identity.id, |expected| {
+                    // An independent zero-wait hook writer must be admitted while
+                    // the process probe is in flight, without retry or delay.
+                    let writer = rusqlite::Connection::open(&paths.database).unwrap();
+                    writer.busy_timeout(std::time::Duration::ZERO).unwrap();
+                    writer.execute_batch("BEGIN IMMEDIATE; COMMIT;").unwrap();
+                    tmt_adapters::process::runtime::ProcessObservation::Live(expected.clone())
+                })
+                .unwrap_err();
+                assert_eq!(refusal.code, "RUNTIME_CONFLICT");
+            }
+            storage
+                .with_binding_transaction::<_, StorageError>(|records| {
+                    let mut changed = state.clone();
+                    let mut binding = original.clone();
+                    match case {
+                        "moved" => {
+                            records.detach_binding(&original.id)?;
+                            pane.id = "%2".into();
+                            binding = records.insert_binding(&identity, &server, &pane)?;
+                        }
+                        "owner" => {
+                            changed.launch_owner =
+                                Some(ProcessIncarnation::new(30, "other-owner").unwrap());
+                        }
+                        "child" => {
+                            changed.key.as_mut().unwrap().incarnation =
+                                ProcessIncarnation::new(31, "other-child").unwrap();
+                        }
+                        "driver" => {
+                            preferences.remembered.as_mut().unwrap().harness =
+                                HarnessId::new("codex").unwrap();
+                            records.set_session_preferences(&identity.id, &preferences)?;
+                        }
+                        _ => (),
+                    }
+                    records.set_session_state(&binding.id, &binding.session, &changed)
+                })
+                .unwrap();
+            storage.close().unwrap();
+            settle_resume(
+                &paths,
+                "Worker",
+                ResumeExit {
+                    binding: &original,
+                    owner: Some(&owner),
+                    child: (case != "unknown-child").then_some(&child),
+                },
+                &remembered,
+                7,
+                true,
+            );
+            let stored = Storage::context_by_identity(&paths.database, &identity.id, 0)
+                .unwrap()
+                .unwrap();
+            let actual = stored.preferences.remembered.unwrap();
+            if case == "unchanged" {
+                assert!(actual.resume_pending_at_ms.is_none());
+                assert!(actual.stale_at_ms.is_some());
+            } else {
+                assert_eq!(actual, preferences.remembered.unwrap(), "{case}");
+            }
+        }
+    }
+}

@@ -193,9 +193,7 @@ test('an agent sees the files of a Chat message in its request and reads them by
       const requestId = agent.received()[0].requestId as string;
       const exchange = panel.getByTestId('ask-entry');
       await expect(exchange).toHaveAttribute('data-ledger-state', 'accepted');
-      await expect(exchange.getByTestId('ask-state')).toHaveText(
-        `✓ sent · ${agent.name}'s activity is not reported`,
-      );
+      await expect(exchange.getByTestId('ask-state')).toHaveText('✓ Delivered');
       fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');
       const reply = `ask-reply:${sha(Buffer.from(request)).slice(0, 16)}`;
       await expect(exchange.getByTestId('ask-reply')).toHaveText(reply);

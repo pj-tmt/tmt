@@ -412,31 +412,57 @@ impl Action {
             .collect()
     }
 
+    pub fn argv_parameters(
+        &self,
+        parameters: crate::template::Parameters<'_>,
+    ) -> Result<Vec<String>, String> {
+        self.args
+            .iter()
+            .map(|arg| arg.argument_parameters(parameters))
+            .collect()
+    }
+
     pub fn needs_board_pane(&self) -> bool {
         self.args.iter().any(|arg| arg.uses_field("board_pane"))
     }
 }
 
+const NAMED: &[&str] = &[
+    "up",
+    "down",
+    "left",
+    "right",
+    "enter",
+    "backspace",
+    "tab",
+    "backtab",
+    "space",
+    "delete",
+    "home",
+    "end",
+    "pageup",
+    "pagedown",
+    "click",
+    "double-click",
+];
+
+/// Complete inventory of the existing event vocabulary, filtered by its admission owner.
+pub fn binding_events() -> Vec<String> {
+    let mut events = std::collections::BTreeSet::new();
+    events.extend(NAMED.iter().map(|name| (*name).to_owned()));
+    events.extend((b'!'..=b'~').map(|byte| char::from(byte).to_string()));
+    events.extend((1..=12).map(|n| format!("f{n}")));
+    events.extend((b'a'..=b'z').map(|byte| format!("ctrl-{}", char::from(byte))));
+    events.extend((b'!'..=b'~').map(|byte| format!("alt-{}", char::from(byte))));
+    events.extend(NAMED.iter().map(|name| format!("alt-{name}")));
+    events
+        .into_iter()
+        .filter(|event| valid_event(event))
+        .collect()
+}
+
 /// Key and mouse events a binding may name. Ctrl-C always quits.
 pub fn valid_event(event: &str) -> bool {
-    const NAMED: &[&str] = &[
-        "up",
-        "down",
-        "left",
-        "right",
-        "enter",
-        "backspace",
-        "tab",
-        "backtab",
-        "space",
-        "delete",
-        "home",
-        "end",
-        "pageup",
-        "pagedown",
-        "click",
-        "double-click",
-    ];
     let mut chars = event.chars();
     let single = matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_graphic());
     let function = event

@@ -226,6 +226,18 @@ impl App {
             money: self.tok_money(),
         }
     }
+    /// What a click on an Agents header control chooses.
+    pub(in crate::board) fn control_choice(
+        &self,
+        control: crate::board::header_sort::Control,
+    ) -> Choice {
+        use crate::board::header_sort::Control;
+        match control {
+            Control::Sort(header) => Choice::SortBy(header),
+            Control::Unit => Choice::TokUnit,
+            Control::Window => Choice::TokRange(self.tok_range().next()),
+        }
+    }
     /// A click on a painted TOK figure switches every figure between tokens and
     /// money. It writes the shared unit preference and skips percent, which a
     /// token count cannot be.
@@ -668,14 +680,29 @@ impl App {
             self.workspace_scope(),
             host,
         );
-        if self.shell.tab == OpsTab::Digest
-            && self.focused() == Pane::Rows
-            && self.workspace_binding_sources().is_some_and(|sources| {
-                sources
-                    .get("e")
-                    .is_none_or(|source| source == "workspace default")
-            })
-        {
+        if let Some(sources) = self.workspace_binding_sources() {
+            for (event, action) in self.workspace_factory_actions() {
+                let source = sources.get(&event);
+                if source.is_some_and(|source| source == "workspace default")
+                    || (event == "e" && source.is_none())
+                {
+                    keys.insert(event, action);
+                }
+            }
+        }
+        keys
+    }
+
+    /// Context-dependent factory choices have one owner for dispatch and Settings.
+    pub(super) fn workspace_factory_bindings(&self) -> Bindings {
+        let mut keys = crate::config::workspace_defaults(self.workspace_scope());
+        keys.extend(self.workspace_factory_actions());
+        keys
+    }
+
+    fn workspace_factory_actions(&self) -> Bindings {
+        let mut keys = Bindings::new();
+        if self.shell.tab == OpsTab::Digest && self.focused() == Pane::Rows {
             keys.insert(
                 "e".into(),
                 Action::parse("monitor-details").expect("Digest details action"),
@@ -684,29 +711,17 @@ impl App {
         if self.shell.tab == OpsTab::Agents
             && !self.flat_agents()
             && let Some(target) = self.workspace_message_target()
-            && let Some(sources) = self.workspace_binding_sources()
         {
-            // Factory actions follow the selected recipient in either pane.
-            // Provenance keeps every authored key, including Reader overrides.
-            if sources
-                .get("enter")
-                .is_some_and(|source| source == "workspace default")
-            {
-                let pending = self
-                    .workspace_snapshot()
-                    .and_then(|snapshot| snapshot.rows.get(&target))
-                    .is_some_and(crate::attention::waits_on_you);
-                keys.insert(
-                    "enter".into(),
-                    crate::action::Action::parse(if pending { "reply" } else { "talk" })
-                        .expect("factory message action"),
-                );
-            }
-            if sources
-                .get("j")
-                .is_some_and(|source| source == "workspace default")
-                && let Some(action) = self.workspace_factory_j(Some(&target))
-            {
+            let pending = self
+                .workspace_snapshot()
+                .and_then(|snapshot| snapshot.rows.get(&target))
+                .is_some_and(crate::attention::waits_on_you);
+            keys.insert(
+                "enter".into(),
+                Action::parse(if pending { "reply" } else { "talk" })
+                    .expect("factory message action"),
+            );
+            if let Some(action) = self.workspace_factory_j(Some(&target)) {
                 keys.insert("j".into(), action);
             }
         }
@@ -1499,7 +1514,7 @@ impl App {
 
         entries.push(MenuEntry {
             key: String::new(),
-            label: "Host action (j)".into(),
+            label: "Bindings · j presets".into(),
             choice: Choice::HostAction,
         });
         for (label, action) in [

@@ -120,8 +120,8 @@ it('a one-provider sample has only the OpenAI weekly window and history', () => 
 });
 
 it('exchange counts talk and reply only, ranks by traffic and keeps a known none at zero', () => {
-  const view = exchange(day, 4)!;
-  expect(view.participants).toHaveLength(4);
+  const view = exchange(day)!;
+  expect(view.participants).toHaveLength(day.usage.seats.length);
   const [a, b] = view.participants;
   const total = (id: string) =>
     view.participants.reduce(
@@ -137,10 +137,18 @@ it('exchange counts talk and reply only, ranks by traffic and keeps a known none
       (pair) => pair.sender.id === lead && pair.recipient.id === core && pair.kind !== 'ack',
     )
     .reduce((sum, pair) => sum + pair.count, 0);
-  const all = exchange(day, 6)!;
+  const all = exchange(day)!;
   expect(all.value(lead, core)).toBe(counted);
   expect(all.value(lead, core)).toBeLessThan(99);
   expect(exchange({ ...day, exchange: null })).toBeNull();
+});
+
+it('exchange retains every seat instead of silently keeping only the busiest eight', () => {
+  const document = mockDocument('24h', { seats: 24 });
+  const view = exchange(document)!;
+  expect(view.participants.map((person) => person.id).sort()).toEqual(
+    document.usage.seats.map((seat) => seat.id).sort(),
+  );
 });
 
 it('activity is hourly for 24 hours and daily for 7d and 30d, ending at the newest bucket', () => {

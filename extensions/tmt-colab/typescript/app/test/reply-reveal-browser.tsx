@@ -70,7 +70,7 @@ function Fixture() {
     },
   });
   return (
-    <ReplyNotificationContext value={notifications.context}>
+    <ReplyNotificationContext value={{ ...notifications.context, headerBottom: () => 0 }}>
       <BrowserNotifications
         pageKey={pageKey}
         events={notifications.events}

@@ -45,6 +45,12 @@ fn valid_pane_id(value: &str) -> bool {
 }
 
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(1);
+/// The one command that checks supplied `TMUX`/`TMUX_PANE` for a command that cannot do without
+/// the caller's pane (#4260). A loaded machine, or a wrapper in front of tmux, can take longer
+/// than [`OPERATION_TIMEOUT`] to answer; waiting is better than a wrong "no pane". Keep
+/// [`CALLER_BUDGET_MESSAGE`] in step.
+pub(crate) const REQUIRED_CALLER_TIMEOUT: Duration = Duration::from_secs(5);
+const CALLER_BUDGET_MESSAGE: &str = "tmux did not answer within 5 s while checking the caller pane";
 const OPERATION_MAX_OUTPUT: usize = 1024 * 1024;
 const SERVER_ID_OPTION: &str = "@tmt.server-id";
 const AGENT_METADATA_OPTION: &str = "@tmt.agent";
@@ -91,6 +97,24 @@ impl TmuxError {
             message,
             cause: Some(cause),
         }
+    }
+
+    /// The command that checks a supplied caller pane ran out of its budget. The pane was neither
+    /// found nor ruled out.
+    fn caller_budget(cause: CommandError) -> Self {
+        Self {
+            kind: TmuxFailure::Command,
+            message: CALLER_BUDGET_MESSAGE,
+            cause: Some(cause),
+        }
+    }
+
+    /// The command ran out of its deadline, as opposed to tmux reporting failure, or a spawn or
+    /// I/O failure.
+    pub fn timed_out(&self) -> bool {
+        self.cause
+            .as_ref()
+            .is_some_and(|cause| cause.kind == CommandFailure::Timeout)
     }
 
     pub fn cleanup_failed(&self) -> bool {
@@ -315,11 +339,36 @@ impl<R: CommandRunner> Tmux<R> {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
+    /// The caller's pane as best-effort evidence: anything that cannot be observed within the
+    /// one second budget counts as no pane.
     pub fn caller_pane(
         &self,
         environment: &CallerEnvironment,
     ) -> Result<Option<String>, TmuxError> {
-        optional_observation(caller::resolve(self, environment))
+        optional_observation(caller::resolve(self, environment, OPERATION_TIMEOUT))
+    }
+
+    /// The caller's pane for a command that cannot do without it (`name`, `whoami`, `unbind`,
+    /// `ls --here`). Supplied `TMUX` and `TMUX_PANE` are a claim about this very pane, so the one
+    /// command that checks them waits [`REQUIRED_CALLER_TIMEOUT`], and running out of time is
+    /// reported as that rather than as "no pane". Evidence that was read and does not match, and
+    /// discovery without supplied evidence, stay absence, as for [`Tmux::caller_pane`].
+    pub fn caller_pane_required(
+        &self,
+        environment: &CallerEnvironment,
+    ) -> Result<Option<String>, TmuxError> {
+        let claimed = caller::claims_pane(environment);
+        let budget = if claimed {
+            REQUIRED_CALLER_TIMEOUT
+        } else {
+            OPERATION_TIMEOUT
+        };
+        match caller::resolve(self, environment, budget) {
+            Err(error) if claimed && error.timed_out() && !error.cleanup_failed() => Err(
+                TmuxError::caller_budget(error.cause.expect("a timeout has its command cause")),
+            ),
+            result => optional_observation(result),
+        }
     }
 
     /// The caller's tmux pane shell pid for a nested caller that locates it

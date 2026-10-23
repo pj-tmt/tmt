@@ -5092,8 +5092,8 @@ describe('large board responsiveness', () => {
           pointer(0, location.x + 12, 'm');
           await vi.waitFor(
             () => {
-              expect(readFileSync(copied, 'utf8')).toBe('first styled');
-              expect(screen()).toContain('Copied 12 characters');
+              expect(readFileSync(copied, 'utf8')).toBe('first **styled**');
+              expect(screen()).toContain('Copied 16 characters');
             },
             { timeout: 10_000, interval: 50 }
           );
@@ -5110,8 +5110,8 @@ describe('large board responsiveness', () => {
             () =>
               expect(screen()).toContain(
                 theme === 'NO_COLOR'
-                  ? '[Quote worker: first styled x]'
-                  : 'Quote · worker: first styled ×'
+                  ? '[Quote worker: first **styled** x]'
+                  : 'Quote · worker: first **styled** ×'
               ),
             {
               timeout: 10_000,
@@ -5127,13 +5127,13 @@ describe('large board responsiveness', () => {
           // The quote is an Editor fold on the preceding line. Moving to it
           // keeps the caret in the Editor and Ctrl-P previews its full source.
           tmux(['send-keys', '-t', pane, 'Home', 'Up', 'End', 'C-p']);
-          await vi.waitFor(() => expect(screen()).toContain('Quote · 12 chars · 1 line'), {
+          await vi.waitFor(() => expect(screen()).toContain('Quote · 16 chars · 1 line'), {
             timeout: 10_000,
             interval: 50,
           });
           capture('inline-quote-preview');
           tmux(['send-keys', '-t', pane, 'Escape']);
-          await vi.waitFor(() => expect(screen()).not.toContain('Quote · 12 chars · 1 line'), {
+          await vi.waitFor(() => expect(screen()).not.toContain('Quote · 16 chars · 1 line'), {
             timeout: 10_000,
             interval: 50,
           });
@@ -5176,7 +5176,7 @@ describe('large board responsiveness', () => {
           });
           capture('sent');
           expect(JSON.parse(delivered.stdout).prompt.message).toBe(
-            '[product · worker]\n> "first styled"\ntyped comment'
+            '[product · worker]\n> "first **styled**"\ntyped comment'
           );
           expect(
             JSON.parse((await runCli(sandbox, ['result', request, '--json'])).stdout).response
@@ -6046,6 +6046,105 @@ describe('large board responsiveness', () => {
           timeout: 10_000,
           interval: 25,
         });
+      }
+    });
+  }, 120_000);
+});
+
+// #4135: Ctrl-S is XOFF on a cooked terminal. The board's raw mode clears IXON, so the key reaches it:
+// this drives the real board in a private tmux server and presses the Send now chip's key.
+describe('send now chip', () => {
+  it('is offered for a message Core says can go now, and Ctrl-S reaches the raw-mode board', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const scratch = startPrivateTmux(sandbox, 'sendnow');
+      sandbox.env.TERM = 'xterm-256color';
+      await identity(sandbox, 'Ben');
+      await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      // worker has no live pane, so Core reports the message as not sent and sendable now.
+      const sent = await runCli(sandbox, [
+        'talk',
+        'worker',
+        'a message with nowhere to go yet',
+        '--identity',
+        'Ben',
+        '--room',
+        'squad-product',
+        '--detach',
+        '--json',
+      ]);
+      expect(sent.status).toBe(0);
+      const { tmux } = scratch;
+      tmux([
+        'new-session',
+        '-d',
+        '-s',
+        'sendnow',
+        '-c',
+        sandbox.root,
+        '-x',
+        '160',
+        '-y',
+        '36',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      const pane = tmux(['display-message', '-p', '#{pane_id}']);
+      const boardPid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
+      const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+      const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      try {
+        tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `exec env -u NO_COLOR ${shellQuote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
+        ]);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        await vi.waitFor(() => expect(screen()).toContain('SQUAD / AGENT'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+        tmux(['send-keys', '-t', pane, 'Right']);
+        await vi.waitFor(() => expect(screen()).toMatch(/^[ \t]+▾ product[ \t]+/m), {
+          timeout: 10_000,
+          interval: 50,
+        });
+        tmux(['send-keys', '-t', pane, 'End']);
+        await vi.waitFor(() => expect(screen()).toContain('Send now · worker'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+        // The board owns the pane's terminal: flow control is off, so Ctrl-S is a key, not XOFF.
+        const tty = tmux(['display-message', '-p', '-t', pane, '#{pane_tty}']);
+        const flags = spawnSync('stty', ['-a', process.platform === 'darwin' ? '-f' : '-F', tty], {
+          encoding: 'utf8',
+        });
+        expect(flags.status, flags.stderr).toBe(0);
+        expect(flags.stdout).toMatch(/-ixon\b/);
+        tmux(['send-keys', '-t', pane, 'C-s']);
+        // Core's own sentence, not a local one: nothing can be typed into a pane that is not there.
+        await vi.waitFor(() => expect(screen()).toContain('Could not send now'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+      } finally {
+        try {
+          scratch.run(['send-keys', '-t', pane, 'C-c']);
+          await vi.waitFor(() => expect(() => process.kill(boardPid, 0)).toThrow(), {
+            timeout: 10_000,
+            interval: 25,
+          });
+        } finally {
+          scratch.stop();
+          await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+            timeout: 10_000,
+            interval: 25,
+          });
+        }
       }
     });
   }, 120_000);

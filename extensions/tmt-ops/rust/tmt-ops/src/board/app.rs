@@ -13,7 +13,7 @@ use crate::{
 use ratatui::crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
@@ -163,6 +163,7 @@ pub enum Request {
     PreparedRun {
         action: Action,
         row: Value,
+        ops: Value,
     },
     Talk {
         me: String,
@@ -183,6 +184,13 @@ pub enum Request {
         to: String,
         row: String,
         text: String,
+    },
+    /// Take one of the person's own held or waiting messages out of the recipient's Digest hold
+    /// and type it now; Core decides whether it may.
+    SendNow {
+        me: String,
+        request: String,
+        to: String,
     },
     Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
@@ -215,6 +223,7 @@ impl Request {
             Self::DigestSwitch(_) => "Switching Digest…",
             Self::Copy { .. } => "Copying…",
             Self::Talk { .. } | Self::Chat { .. } | Self::Annotate { .. } => "Sending…",
+            Self::SendNow { .. } => "Sending now…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
@@ -231,6 +240,7 @@ impl Request {
             Self::Talk { .. }
                 | Self::Chat { .. }
                 | Self::Annotate { .. }
+                | Self::SendNow { .. }
                 | Self::WorkspacePreferences { .. }
                 | Self::WorkspaceOperation(_)
                 | Self::Cron(_)
@@ -316,6 +326,8 @@ pub enum Choice {
     SavingsUnit,
     /// A click on a painted TOK figure of the Agents list: tokens or list-price money.
     TokMoney,
+    /// A click on the unit word of the Agents TOK header: the same switch as the figures.
+    TokUnit,
     ClearSearch,
     Panels,
     Checklist,
@@ -665,6 +677,7 @@ pub(super) struct WorkspaceStartup {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) selected_request: super::refresh::SelectedRequest,
     pub(super) buttons: super::buttons::State,
     pub(super) pane_resize: super::pane_resize::State,
     /// Injected by the renderer, never inferred from NO_COLOR or stored preferences.
@@ -722,7 +735,7 @@ pub struct App {
     pub(super) excluded_counters: Vec<String>,
     pub(super) meter_hover: Option<Option<usize>>,
     /// The Agents column header under the pointer.
-    pub(super) header_hover: Option<super::header_sort::Header>,
+    pub(super) header_hover: Option<super::header_sort::Control>,
     squad_keys: Vec<String>,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
@@ -926,6 +939,7 @@ impl App {
 
     pub fn new(squad: Option<String>) -> Self {
         Self {
+            selected_request: Default::default(),
             cron_glyphs: super::overview::cron_counts::GlyphSet::from_ascii(false),
             current: squad,
             local_zone: Some(jiff::tz::TimeZone::system()),
@@ -1838,14 +1852,69 @@ impl App {
         Effect::Load(next)
     }
 
+    /// Project one selected occurrence from held public observations, never from a first membership.
+    pub(super) fn parameter_observations(&self, row: &Value) -> Value {
+        self.parameter_observations_for(row, self.workspace.selected.as_ref())
+    }
+
+    fn parameter_observations_for(
+        &self,
+        row: &Value,
+        target: Option<&super::workspace::OpsTarget>,
+    ) -> Value {
+        use super::overview::cron_counts::CronCountScope;
+        use super::workspace::OpsTarget;
+        let mut ops = row["id"]
+            .as_str()
+            .and_then(|id| self.references.agents.get(id))
+            .map(|agent| agent.parameters.clone())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        let room = match target {
+            Some(OpsTarget::Squad(room)) => Some(room.as_str()),
+            Some(OpsTarget::Member { room_id, .. }) => room_id.as_deref(),
+            _ => None,
+        };
+        if let Some(room) = room {
+            ops["squad"] = json!({"roomId":room});
+            if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
+                snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| squad.room_id == room)
+            }) {
+                ops["squad"]["name"] = json!(squad.name);
+            }
+        }
+        let scope = match target {
+            Some(OpsTarget::Squad(room)) => Some(CronCountScope::Room(room)),
+            Some(OpsTarget::Member { .. }) => row["id"]
+                .as_str()
+                .map(|id| CronCountScope::Owner { id, room }),
+            Some(OpsTarget::Pool | OpsTarget::DigestAll) => Some(CronCountScope::All),
+            _ => None,
+        };
+        if let Some(count) = scope.and_then(|scope| self.cron.counts.count(scope)) {
+            ops["timers"] = json!({"active":count.active, "total":count.total});
+        }
+        ops
+    }
+
     pub(super) fn host_action_selection(&self) -> super::settings::host_action::Selection {
-        let recipient = self.workspace_message_target();
+        let recipient = self
+            .workspace_message_target()
+            .and_then(|target| self.workspace_snapshot()?.rows.get(&target).cloned());
+        let ops = self.parameter_observations(
+            recipient
+                .as_ref()
+                .or_else(|| self.selected_row())
+                .unwrap_or(&Value::Null),
+        );
         super::settings::host_action::Selection {
             row: self.selected_row().cloned(),
-            recipient: recipient
-                .as_ref()
-                .and_then(|target| self.workspace_snapshot()?.rows.get(target).cloned()),
-            default_action: self.workspace_factory_j(recipient.as_ref()),
+            recipient,
+            factory_bindings: self.workspace_factory_bindings(),
             squad: self
                 .workspace
                 .selected
@@ -1854,6 +1923,7 @@ impl App {
                 .filter(|name| !name.is_empty()),
             scope: self.workspace_scope(),
             invoker_tmux: self.invoker_tmux,
+            ops,
         }
     }
 
@@ -2285,6 +2355,7 @@ impl App {
         }
         // UI actions dispatch before resolving a row. A member action uses the
         // same verified occurrence as paint, including an observed squad lead.
+        let parameter_target = member.or(self.workspace.selected.as_ref()).cloned();
         let target = member.cloned().or_else(|| self.workspace_message_target());
         let member = target.as_ref();
         if self.workspace_snapshot().is_some()
@@ -2355,6 +2426,12 @@ impl App {
                 return self.say(reason);
             }
         }
+        let ops = self.parameter_observations_for(&row, parameter_target.as_ref());
+        let parameters = crate::template::Parameters {
+            row: &row,
+            ops: Some(&ops),
+            board_pane: None,
+        };
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
             Verb::Talk | Verb::Annotate | Verb::Reply | Verb::UpdateStatus => {
@@ -2386,20 +2463,25 @@ impl App {
                 }),
                 _ => Err("Swap needs a visible agent and a direction.".into()),
             },
-            Verb::Open => effects::resolve_open(action, &row).map(|link| Request::Open {
-                link,
-                opener: view.opener.clone(),
-            }),
-            Verb::Copy => action.args[0].fill(&row).map(|text| Request::Copy {
-                text,
-                program: view.clipboard.clone(),
-                feedback: CopyFeedback::Destination,
-            }),
+            Verb::Open => {
+                effects::resolve_open_parameters(action, parameters).map(|link| Request::Open {
+                    link,
+                    opener: view.opener.clone(),
+                })
+            }
+            Verb::Copy => action.args[0]
+                .fill_parameters(parameters)
+                .map(|text| Request::Copy {
+                    text,
+                    program: view.clipboard.clone(),
+                    feedback: CopyFeedback::Destination,
+                }),
             Verb::Run if action.needs_board_pane() => Ok(Request::PreparedRun {
                 action: action.clone(),
                 row,
+                ops,
             }),
-            Verb::Run => action.argv(&row).map(Request::Run),
+            Verb::Run => action.argv_parameters(parameters).map(Request::Run),
             _ => unreachable!("handled above"),
         };
         match request {
@@ -2921,7 +3003,7 @@ impl App {
                 self.open_exchange_pair(&sender, &recipient)
             }
             Choice::SavingsUnit => self.cycle_savings_unit(),
-            Choice::TokMoney => self.toggle_tok_money(),
+            Choice::TokMoney | Choice::TokUnit => self.toggle_tok_money(),
             Choice::ClearSearch => {
                 super::search_field::clear(&mut self.search, &mut self.searching);
                 self.clamp();
@@ -3730,6 +3812,17 @@ impl App {
                 | super::shell::OpsInputOwner::Search
                 | super::shell::OpsInputOwner::Completion
         );
+        // The painted Send now chip's key. It does nothing while no chip is painted. In the
+        // message editor it is the chip's key, as no binding is active while typing; elsewhere an
+        // authored binding on the same key wins, so it never swallows a chord others could read.
+        if key.modifiers == KeyModifiers::CONTROL
+            && key.code == KeyCode::Char('s')
+            && self.conversation.borrow().send_now_hit.is_some()
+            && (owner == super::shell::OpsInputOwner::Composer
+                || !typing && !self.bindings().contains_key("ctrl-s"))
+        {
+            return self.send_now_press();
+        }
         if !typing
             && (self.modal_open() || self.usage_chart.borrow().focused())
             && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
@@ -4031,7 +4124,9 @@ impl App {
                 .iter()
                 .find(|(area, _)| area.contains((event.column, event.row).into()))
                 .and_then(|(_, choice)| match choice {
-                    Choice::SortBy(header) => Some(*header),
+                    Choice::SortBy(header) => Some(super::header_sort::Control::Sort(*header)),
+                    Choice::TokUnit => Some(super::header_sort::Control::Unit),
+                    Choice::TokRange(_) => Some(super::header_sort::Control::Window),
                     _ => None,
                 })
         };
@@ -4266,6 +4361,7 @@ impl App {
                     choice,
                     Choice::SavingsUnit
                         | Choice::TokMoney
+                        | Choice::TokUnit
                         | Choice::ClearSearch
                         | Choice::TokRange(_)
                 ) || matches!(&choice, Choice::Action(action) if matches!(action.verb,
@@ -4324,6 +4420,17 @@ impl App {
             }
         }
 
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && self
+                .conversation
+                .borrow()
+                .send_now_hit
+                .as_ref()
+                .is_some_and(|hit| hit.area.contains((event.column, event.row).into()))
+        {
+            return self.send_now_press();
+        }
         if event.kind == MouseEventKind::Down(MouseButton::Left) && !self.loading() {
             let control = self
                 .conversation
@@ -4460,12 +4567,8 @@ impl App {
                 .pane_screen_read()
                 .map(|(key, round)| super::refresh::SelectedRead::PaneScreen(key, round));
         }
-        // Before bodies: a final found here is read like any other.
-        if let Some(key) = self.finals_read() {
-            return Some(super::refresh::SelectedRead::Finals(key));
-        }
-        if let Some(key) = self.sent_read() {
-            return Some(super::refresh::SelectedRead::Sent(key));
+        if let Some(plan) = self.conversation_read() {
+            return Some(super::refresh::SelectedRead::Conversation(plan));
         }
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));

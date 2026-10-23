@@ -223,7 +223,7 @@ a working directory, active pane or sole identity.
 - `tmt-core::names` owns canonical names; hosts own pane-target syntax.
   `identity` owns lifetime/create/promote; `identity_metadata`/`identity_status`
   own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
-  `binding` owns evidence, retirement, binds and UUID/name-CAS rename.
+  `binding` owns evidence, retirement, binds/moves and CAS rename.
   [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences; guarded `add` uses `binding`.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on
@@ -414,6 +414,7 @@ own module/drawing boundaries and verification.
   No Ops data enters `config.json` or Core's database.
 - **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
+  `board::selected_conversation` publishes one bounded refresh per selection on the selected worker lane; the [acquisition guide](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker) owns its lifecycle.
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
   The quiet cache lane owns retained per-name view state, kept apart from shared Config preferences: [View-state ownership](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity).
   The shell replaces tab/factory/switcher navigation and HOME cursors.

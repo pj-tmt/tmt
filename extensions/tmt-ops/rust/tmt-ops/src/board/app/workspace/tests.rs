@@ -126,7 +126,7 @@ pub(in crate::board) fn board() -> App {
 }
 
 /// Acquire effective tables through Config, as the refresh worker does.
-fn configured_member(text: &str, row: serde_json::Value) -> App {
+pub(in crate::board) fn configured_member(text: &str, row: serde_json::Value) -> App {
     let mut app = board();
     let target = app.workspace.selected.clone().unwrap();
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -2860,8 +2860,8 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             })
         }
         "agents-header-hover" => {
-            app.header_hover = Some(crate::board::header_sort::Header::Overview(
-                crate::config::OverviewColumn::Squad,
+            app.header_hover = Some(crate::board::header_sort::Control::Sort(
+                crate::board::header_sort::Header::Overview(crate::config::OverviewColumn::Squad),
             ))
         }
         "member-links" | "member-links-menu" => {
@@ -3203,6 +3203,7 @@ mod member_rename;
 mod membership_context;
 mod navigation;
 mod talk_measure;
+mod tok_header;
 mod tok_money;
 mod tok_window_chip;
 
@@ -3432,8 +3433,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_) | Choice::RightTab(_) | Choice::TokRange(_) | Choice::TokMoney | Choice::SortBy(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
-        "Agents paints filter/search/estimate controls, the TOK window and figures, column sorts, Talk/Measure and the global Snapshots action"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_) | Choice::RightTab(_) | Choice::TokRange(_) | Choice::TokMoney | Choice::TokUnit | Choice::SortBy(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
+        "Agents paints filter/search/estimate controls, the TOK unit, window and figures, column sorts, Talk/Measure and the global Snapshots action"
     );
 }
 

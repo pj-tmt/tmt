@@ -173,19 +173,52 @@ impl Anchored {
             .collect()
     }
 
-    pub(super) fn selected(&self) -> Option<String> {
+    /// What each selected line displays inside the selection, with the byte range of that
+    /// text in the line's painted row.
+    fn parts(&self) -> Vec<(String, Range<usize>)> {
         let (first, last) = self.lines();
-        let parts: Vec<_> = (first..=last)
+        (first..=last)
             .map(|line| {
                 let row = self.rows.get(&line).map_or("", String::as_str);
                 let (from, to) = self.columns(line);
-                row[glyphs(row, self.width, from, to).1].to_owned()
+                let range = glyphs(row, self.width, from, to).1;
+                (row[range.clone()].to_owned(), range)
             })
-            .collect();
+            .collect()
+    }
+
+    pub(super) fn selected(&self) -> Option<String> {
+        let parts: Vec<_> = self.parts().into_iter().map(|(text, _)| text).collect();
         parts
             .iter()
             .any(|part| !part.is_empty())
             .then(|| parts.join("\n"))
+    }
+
+    /// The selection as the source its messages were written as; lines that carry no
+    /// source (headers, status rows) keep what they display.
+    pub(super) fn source(&self, map: &super::super::copy::Map) -> Option<String> {
+        let parts = self.parts();
+        let (first, last) = self.lines();
+        let shown: Vec<String> = parts.iter().map(|(text, _)| text.clone()).collect();
+        shown.iter().any(|part| !part.is_empty()).then(|| {
+            super::super::copy::passage(
+                map,
+                &super::super::copy::Selected {
+                    first,
+                    last,
+                    shown: &shown,
+                    start: super::super::copy::End {
+                        row: self.rows.get(&first).map_or("", String::as_str),
+                        at: parts.first().map_or(0, |(_, range)| range.start),
+                    },
+                    end: super::super::copy::End {
+                        row: self.rows.get(&last).map_or("", String::as_str),
+                        at: parts.last().map_or(0, |(_, range)| range.end),
+                    },
+                },
+            )
+        })
     }
 
     /// Record the text a frame displays for a selected line.

@@ -147,6 +147,11 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(text) = &switch {
         parts.push(text.clone());
     }
+    // Before the savings caption: a stopped tick matters more than a metric that gets omitted first.
+    let notice = model::tick_notice(&app.labels);
+    if let Some(text) = &notice {
+        parts.push(text.clone());
+    }
     if app.loading() {
         parts.insert(1, "Loading workspace…".into());
     }
@@ -189,6 +194,7 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
     }
     // Omit complete trailing metrics, never half an amount.
     let mut text = String::new();
+    let mut spans: Vec<Span> = Vec::new();
     for part in parts {
         let candidate = if text.is_empty() {
             part.clone()
@@ -217,12 +223,21 @@ fn summary(frame: &mut Frame, app: &App, area: Rect) {
                 area.right().saturating_sub(x),
             );
         }
+        if !spans.is_empty() {
+            spans.push(Span::styled(" · ", app.look().role(Role::Text)));
+        }
+        let role = if notice.as_ref() == Some(&part) {
+            Role::Waiting
+        } else {
+            Role::Text
+        };
+        spans.push(Span::styled(part, app.look().role(role)));
         text = candidate;
     }
     strip::paint_left(
         frame.buffer_mut(),
         Rect { height: 1, ..area },
-        Line::styled(text, app.look().role(Role::Text)),
+        Line::from(spans),
     );
     let chip = format!("Range {} ▾", app.tok_range().argument());
     let width = unicode_width::UnicodeWidthStr::width(chip.as_str()) as u16;

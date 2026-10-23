@@ -2360,14 +2360,18 @@ then reads the state again, and the line moves on from that read, not from the r
 
 What a press came to replaces Core's wording while the message stays in the state it was made in,
 and goes when the state changes. `sent` and `already` add nothing (the re-read state, such as
-"Delivered", is the answer). A refusal reads "Could not send now: <reason>" with one sentence per
-Core code (`SEND_NOW_UNREACHABLE`, `DELIVERY_AWAITING_APPROVAL`, `DELIVERY_CHANNEL_UNAVAILABLE`,
-`SEND_NOW_NOT_AVAILABLE`, `SEND_NOW_CLOSED`, `SEND_NOW_NOT_APPLICABLE`, `SEND_NOW_NOT_ALLOWED`,
-`SEND_NOW_UNCONFIRMED`, `REMOTE_SCOPE_DENIED`), a code Colab does not know reads "Could not send
-now. It stays batched." and a code is never drawn alone; the action becomes "Try again" while Core
-still says the message may be sent. "It may have been sent, delivery unconfirmed, do not resend"
-(Core's `unconfirmed`) offers no action, only Check again. "Your machine did not answer. Nothing
-was sent." (Remote could not ask or answer) offers "Try again". The ticking countdown and the
+"Delivered", is the answer). A refusal is drawn with Core's own sentence for its code, the
+`reasonText` Remote carries with `reason` ([Send now](../../../contracts/remote-channel-v1.md#send-now),
+[Core's table](../../../contracts/request-response-v1.md#send-now)), as plain text exactly as given:
+Colab keeps no table of Core's codes, never draws a code alone, and accepts the sentence only as one
+line of at most 256 bytes that comes with its code. Where Core has no sentence Colab writes one: a
+device that did not send the message (`REMOTE_SCOPE_DENIED`, a refusal Remote itself makes) reads
+"Could not send now: only the browser that sent it can send it early", and any other refusal reads
+"Could not send now. It stays batched." The action becomes "Try again" while Core still says the
+message may be sent. Core's `unconfirmed` reads with its sentence when it carries one
+(`DELIVERY_UNCERTAIN`), else "It may have been sent, delivery unconfirmed, do not resend", and offers
+no action, only Check again. "Your machine did not answer. Nothing was sent." (Remote could not ask
+or answer) offers "Try again". The ticking countdown and the
 agent's elapsed time are hidden from the status live region, so a screen reader announces a
 change of the state and not every second of it.
 

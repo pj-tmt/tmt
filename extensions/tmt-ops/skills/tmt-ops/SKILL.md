@@ -320,7 +320,8 @@ A sum of percents needs one shared interval and a sum of costs one price table;
 otherwise it reads `— (intervals differ)` or `— (prices differ)`. The `savings-unit`
 action has no default key: bind one under `[bind]` and its hint appears beside a
 painted estimate, or choose `Savings unit` from the Actions menu.
-The Agents TOK figures follow the same unit. Click a TOK figure to switch every figure
+The Agents TOK figures follow the same unit. Click the `TOK` (or `≈$`) word of the column
+heading, or any TOK figure, to switch every figure
 between tokens and the list price of the input tokens behind them (`≈$0.42`, `≈$12.3`,
 `≈$123`, `≈$1.2k`; the heading reads `≈$ 1d`). The click skips percent, a squad sums its
 members, and a figure is `—` until the usage report covers all of them completely, never a
@@ -398,7 +399,9 @@ The shared `workspace.tok_range` is `1h` (default), `3h`, `6h`, `1d` or `7d`;
 Workspace settings selects it, and clicking the window word of an Agents `TOK 1h`
 heading, clicking the Digest Range control or an explicit `cycle-tok-range`
 binding (unbound by default) cycles the same setting 1h, 3h, 6h, 1d, 7d, 1h. The
-window word is its own hit area, apart from the TOK word. Agents TOK headings
+window word is its own hit area, apart from the unit word, which switches tokens and cost,
+and from the flat list's sort mark before it; each lights up alone under the pointer, and a
+hovered unit word shows the unit a click switches to. Agents TOK headings
 and values follow it. Chart Time per bar/Range controls keep their independent viewport.
 `all` sums the admitted visible identities and never sends a message or changes a
 member's mode. Real members keep UUID selection as usage sorting changes.
@@ -528,13 +531,39 @@ Default `j` jumps through the observed tmux binding only from a tmux invoker; He
 focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
 The header names the target and effective action; custom bindings retain their
 actual argv. `j` is not tree navigation.
-Comma Settings → **Host action (j)** offers Focus agent, directional Swap beside
-board, or Custom command. A swap keeps the board focused and exchanges the
+Comma Settings → **Bindings · j presets** lists every admitted key, including unassigned
+keys, its effective command and winning global/host/section source. Enter edits the
+command; Tab chooses a write scope. A masked lower-scope edit names the binding
+that still wins. Save publishes through Config; Esc keeps the file unchanged;
+`r` removes only the selected authored override and reveals inheritance. The `j`
+presets offer Focus agent, directional Swap beside board, or Custom command. A swap keeps the board focused and exchanges the
 neighbour into the selected agent's old slot; select the displaced agent to
 reverse it. An agent already beside the board stays put. Swap refuses unsupported
 hosts and missing neighbours. Custom commands pass `{pane}` and the verified
 `{board_pane}` as single argv values without a shell; `{{` and `}}` quote literal
 braces. Explicit bindings retain their meaning in the list and conversation.
+
+Run, Open and Copy templates accept public row scalar paths such as
+`{row:/pane/id}` and `{row:/fields/pr_link}`. Paths use JSON Pointer escaping:
+`~1` for `/`, `~0` for `~`; an explicit array index selects one scalar.
+Strings stay strings; numbers and booleans become one literal value (`0` and
+`false` are valid). Objects, arrays, null, missing and failed fields refuse with
+the parameter name. Receipts, request bodies and replies are never parameters.
+Existing shorthand and custom field names keep their meanings.
+
+The editor and Help show the same held parameter inventory, including type,
+source and availability. Page keys or the mouse wheel scroll the preview without
+changing the command; opening another command starts at its preview. `{ops:/runningDriver}`, `{ops:/driverSupport}` and
+`{ops:/resume/observedModel/model}` preserve the documented public Core
+observations; they do not prove a live runtime or current model. Selected-occurrence
+`{ops:/squad/name}`, `{ops:/squad/roomId}` and
+`{ops:/timers/active}` / `{ops:/timers/total}` use held Ops projections; an
+unread timer snapshot is unavailable, never zero. The preview is an opening
+sample and executes nothing. A valid command may save with an unavailable-preview
+warning; execution resolves the current admitted row and held observations and
+refuses a missing value. The UUID remains the target; Core revalidates effects.
+Every filled Run argument stays one argv element with no shell expansion, and
+`{board_pane}` remains separate caller evidence, never an agent field.
 
 `ctrl-r` refreshes without discarding entered text. `/` searches. `?` help and the
 footer use the same effective binding table as dispatch: defaults, global `[bind]`,
@@ -544,7 +573,7 @@ when space is short; help remains available.
 Menus, completion and editors own their keys and consume close without replay.
 Their Esc back action cannot be rebound. At the base list, Esc clears an active
 launch scope through the effective `clear-scope` binding; otherwise it stays put.
-An explicit base-list `esc` binding overrides that default.
+Esc and Ctrl-C cannot be authored as bindings.
 Default `q` quits the board body, closes or backs out of an overlay, and types in
 an editor; Ctrl-C quits globally. In Member and conversation focus, default `v`
 opens the full response reader; compatible explicit bindings still win.

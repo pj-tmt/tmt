@@ -546,8 +546,16 @@ local element/pseudo-element resets inside islands; they cannot affect host or
 legacy styles. The island wrapper is a namespace, so place utilities on its
 children. Animation/interpolation of registered custom properties is not
 qualified here. Source policy rejects raw colors, stock color palettes,
-nonprefixed literal classes, rounded, shadow and ring utilities. Focus uses
-`outline` and the token-backed focus width/color, rather than a box-shadow ring.
+nonprefixed literal classes, stock rounded, shadow and ring utilities. A radius is
+one of the named token utilities (`rounded-control`, `rounded-small`,
+`rounded-surface`, `rounded-pill`, from `browser.metric.radius*`); the one shadow
+is `shadow-overlay` (`browser.shadow.overlay`) and belongs on floating layers only
+(dialog, drawer, menu, popover, tooltip, autocomplete list), never on a resting
+surface. Layer enter and exit use token-backed `animate-[tmt-foundation-…]`
+utilities over the generated `tmt-foundation-*` keyframes, which are the one
+global registration the output may carry; durations are the `browser.motion` tokens
+(0ms under `prefers-reduced-motion`). Focus uses `outline` and the token-backed
+focus width/color, rather than a box-shadow ring.
 
 The sole theme source is `design/tokens/tokens.json`: semantic shadcn color names
 alias existing `browser.color`/`browser.surface` roles. `layer-boundary`, generic
@@ -559,7 +567,8 @@ boundary; Tooltip retains stock background/text/arrow with the same thin frame.
 and invalid state roles retain their own colors; light frames do not weaken
 focus or state indicators. Focus width, rule width and radius alias current metrics. New spacing and layer/tooltip z-order
 live only in `browser.ui`, which the old static generator does not enumerate.
-There is no second palette. UI surfaces remain square and shadow-free. Later
+There is no second palette. Resting UI surfaces stay shadow-free; only a floating
+layer takes `shadow-overlay`. Later
 components must use these roles for actual styles, not merely expose unused
 variables. Token/CSS changes require UX and affected shared-head acceptance.
 

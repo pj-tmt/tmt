@@ -68,6 +68,21 @@ an interrupted report. The private execution verdict, raw JSON, traces and gener
 uploaded. Weight provenance lives in `acceptance/shard-weights.json`; its balance is a model until
 an actual hosted run measures the new split.
 
+The one synthetic detached-eviction/refused-tab soak case additionally emits a separate
+`colab-soak-failure-N` artifact only on failure, retained for seven days. It contains at most
+16 KiB: a fixed assertion ID/sentence, allowlisted owner-source error codes/messages,
+owned child exit/signal and socket/door liveness, up to 40 timestamped error/exit records,
+and up to 128 closed Playwright API spans from the last 30 seconds. The reporter never
+retains test-authored step titles, action arguments, network payloads, DOM, URLs or raw
+trace archives. Unknown text becomes unrecognized; truncation is explicit. Only exact
+owned-world regular log files are read, from at most their last 64 KiB, without following
+symlinks. The public report reconstructs every field independently and keeps this artifact
+separate from the unchanged outcome-only results directory. The vocabulary extractor reads
+explicit owner files and named static literals; source drift fails tests instead of widening
+what can be published. World and collector share one lazily loaded vocabulary; a load failure
+disables this optional evidence without changing the scenario outcome. This evidence observes
+failure and never retries an operation.
+
 An own-publication timeout may also retain its closed diagnostic: record root/kind, own stream
 ID, submitted/admitted sequence numbers and whether a leader receipt arrived. A replayed receipt
 may have no retained submitted sequence. The failure hook reads only this typed parent attribute
@@ -175,7 +190,7 @@ old reference is stale, and subsequent reads leave the single swap unchanged.
 checks its served asset hashes and CSP, and injects a labelled context-read refusal
 without sending or reopening. By default it compares every served asset with the app's
 current `dist` build. For a relocated frozen binary run, set `COLAB_STATUS_ASSET_MANIFEST`
-to an independently retained build report containing all eleven `distAssets` paths and SHA256
+to an independently retained build report containing all current `distAssets` paths and SHA256
 digests, including `THIRD-PARTY-NOTICES.txt`; optional
 `COLAB_STATUS_NATIVE_CAPTURE_DIR` saves 1440/390 light/dark originals. Its injected
 refusal does not diagnose an existing browser's session failure.

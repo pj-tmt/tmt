@@ -3,7 +3,7 @@
 use super::{ConversationKey, Session};
 use crate::{
     board::{
-        app::{App, Input, Request},
+        app::{App, Effect, Input, Request},
         row_detail::{Reply, Target},
     },
     core::SquadError,
@@ -239,6 +239,35 @@ impl Session {
                 .iter()
                 .any(|entry| entry.request() == Some(send.request.as_str()))
         })
+    }
+
+    /// The request a send-now applies to: the newest own message, and only when Core's state for it
+    /// says so. A message the history has not listed yet is the newest, and nothing is offered
+    /// while a send is still running, so an older held message is never acted on by mistake.
+    pub(super) fn send_now_request(&self) -> Option<&str> {
+        if self.outgoing.iter().any(Entry::pending) {
+            return None;
+        }
+        let unlisted = self
+            .outgoing
+            .iter()
+            .rev()
+            .find_map(|entry| match &entry.outcome {
+                Some(Ok(accepted))
+                    if !self
+                        .sent
+                        .iter()
+                        .any(|send| send.request == accepted.request) =>
+                {
+                    Some(accepted)
+                }
+                _ => None,
+            });
+        if let Some(accepted) = unlisted {
+            return accepted.can_send_now.then_some(accepted.request.as_str());
+        }
+        let newest = self.sent.iter().max_by_key(|send| send.at_ms)?;
+        newest.can_send_now.then_some(newest.request.as_str())
     }
 
     pub(super) fn local_finals(&self) -> impl Iterator<Item = &Reply> {
@@ -840,6 +869,35 @@ impl App {
         } else {
             None
         }
+    }
+
+    /// Press the painted Send now chip, by click or key. One request per press: the chip is
+    /// disabled until Core answers, and nothing is retried.
+    pub(in crate::board) fn send_now_press(&mut self) -> Effect {
+        let Some(hit) = self.conversation.borrow().send_now_hit.clone() else {
+            return Effect::None;
+        };
+        let Some(me) = self.view.as_ref().and_then(|view| view.me.clone()) else {
+            return Effect::None;
+        };
+        let mut state = self.conversation.borrow_mut();
+        state.send_now_pending = Some(hit.request.clone());
+        state.send_now_hit = None;
+        Effect::Act(Request::SendNow {
+            me,
+            request: hit.request,
+            to: hit.to,
+        })
+    }
+
+    /// Core answered: the notice is its own sentence, whether it sent the message or refused.
+    pub(in crate::board) fn finished_send_now(&mut self, done: super::SendNowDone) {
+        let mut state = self.conversation.borrow_mut();
+        if state.send_now_pending.as_deref() == Some(done.request.as_str()) {
+            state.send_now_pending = None;
+        }
+        drop(state);
+        self.finished(done.outcome);
     }
 
     pub(in crate::board) fn finished_send(&mut self, completed: Completed) {

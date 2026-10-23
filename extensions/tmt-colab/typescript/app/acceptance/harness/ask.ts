@@ -17,15 +17,23 @@ export function run(
   callerPane?: string,
 ): string {
   try {
-    return execFileSync(binary, args, {
+    const output = execFileSync(binary, args, {
       env: world.env(callerPane),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
       input,
       stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
+    world.recordSoakInvocation(binary, 0, null, output);
+    return output;
   } catch (error) {
-    const failed = error as { stdout?: string; stderr?: string };
+    const failed = error as { stdout?: string; stderr?: string; status?: number; signal?: string };
+    world.recordSoakInvocation(
+      binary,
+      failed.status ?? null,
+      failed.signal ?? null,
+      failed.stdout ?? '',
+    );
     throw new Error(`${binary} ${args.join(' ')} failed: ${failed.stdout}${failed.stderr}`, {
       cause: error,
     });

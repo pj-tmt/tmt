@@ -28,6 +28,7 @@
   --tmt-ui-rule-width: 1px;
   --tmt-ui-radius: 0;
   --tmt-ui-notice-border-width: 1px;
+  --tmt-ui-card-padding: 16px;
   --tmt-ui-notice-padding: clamp(24px, 5vw, 44px);
   --tmt-ui-notice-heading-line-height: 1.15;
   --tmt-ui-notice-heading-gap: 16px;
@@ -56,8 +57,15 @@
   --tmt-ui-rail-width: 220px;
   --tmt-ui-rail-collapsed-width: 56px;
   --tmt-ui-module-menu-width: 230px;
-  --tmt-ui-rail-motion: 160ms ease-out;
   --tmt-ui-spin-duration: 0.9s;
+  --tmt-ui-radius-s: 6px;
+  --tmt-ui-radius-l: 12px;
+  --tmt-ui-radius-pill: 999px;
+  --tmt-ui-motion-fast: 120ms;
+  --tmt-ui-motion-base: 180ms;
+  --tmt-ui-motion-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --tmt-ui-motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --tmt-ui-motion-scale: 0.96;
   --tmt-ui-color-text: #343434;
   --tmt-ui-color-secondary: #626262;
   --tmt-ui-color-selected-text: #202020;
@@ -92,6 +100,7 @@
   --tmt-ui-surface-annotation-action: #262626;
   --tmt-ui-surface-mention-agent: #ececeb;
   --tmt-ui-surface-mention-person: #e4eff6;
+  --tmt-ui-shadow-overlay: 0 18px 60px #1b3d2c1c;
   --tmt-ui-brand-mark-aurora-cyan: #00d2f5;
   --tmt-ui-brand-mark-aurora-green: #4fe3a8;
   --tmt-ui-brand-mark-aurora-gold: #f2f27a;
@@ -142,6 +151,7 @@
     --tmt-ui-surface-annotation-action: #626262;
     --tmt-ui-surface-mention-agent: #343434;
     --tmt-ui-surface-mention-person: #203947;
+    --tmt-ui-shadow-overlay: 0 18px 60px #02080e50;
     --tmt-ui-brand-mark-aurora-cyan: #1ce0ff;
     --tmt-ui-brand-mark-aurora-green: #62f0b6;
     --tmt-ui-brand-mark-aurora-gold: #f8f68a;
@@ -192,6 +202,7 @@
   --tmt-ui-surface-annotation-action: #262626;
   --tmt-ui-surface-mention-agent: #ececeb;
   --tmt-ui-surface-mention-person: #e4eff6;
+  --tmt-ui-shadow-overlay: 0 18px 60px #1b3d2c1c;
   --tmt-ui-brand-mark-aurora-cyan: #00d2f5;
   --tmt-ui-brand-mark-aurora-green: #4fe3a8;
   --tmt-ui-brand-mark-aurora-gold: #f2f27a;
@@ -241,6 +252,7 @@
   --tmt-ui-surface-annotation-action: #626262;
   --tmt-ui-surface-mention-agent: #343434;
   --tmt-ui-surface-mention-person: #203947;
+  --tmt-ui-shadow-overlay: 0 18px 60px #02080e50;
   --tmt-ui-brand-mark-aurora-cyan: #1ce0ff;
   --tmt-ui-brand-mark-aurora-green: #62f0b6;
   --tmt-ui-brand-mark-aurora-gold: #f8f68a;
@@ -254,6 +266,12 @@
   --tmt-ui-brand-mark-mono-end: #c8c8c8;
   --tmt-ui-brand-mark-tile: #0e1116;
   --tmt-ui-brand-mark-tile-edge: #ffffff2e;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --tmt-ui-motion-fast: 0ms;
+    --tmt-ui-motion-base: 0ms;
+  }
 }
 @media (max-width: 479px) {
   :root {
@@ -606,7 +624,7 @@ svg.tmt-ui-mark {
   flex-direction: column;
   width: var(--tmt-ui-rail-width);
   background: var(--tmt-ui-surface-sheet);
-  transition: width var(--tmt-ui-rail-motion);
+  transition: width var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail {
   width: var(--tmt-ui-rail-collapsed-width);
@@ -741,7 +759,7 @@ svg.tmt-ui-mark {
 /* Collapsed: icons only (labels hide once the slide ends); labels show as tooltips and counts
    become corner badges. */
 .tmt-ui-rail-label {
-  transition: visibility var(--tmt-ui-rail-motion);
+  transition: visibility var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-label {
   visibility: hidden;
@@ -767,11 +785,6 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-shell[data-menu='none'] .tmt-ui-module-menu {
   display: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .tmt-ui-shell {
-    --tmt-ui-rail-motion: 0s;
-  }
 }
 .tmt-ui-module-menu-group {
   min-height: var(--tmt-ui-space-s);
@@ -2524,6 +2537,18 @@ svg.tmt-ui-mark {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+.tmt-ui-chart-matrix-viewport {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+.tmt-ui-chart-matrix-edge {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: var(--tmt-ui-space-xs);
+  background: var(--tmt-ui-color-edge);
+  pointer-events: none;
+}
 .tmt-ui-chart-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -2533,13 +2558,17 @@ svg.tmt-ui-mark {
   outline-offset: calc(var(--tmt-ui-focus-width) * -1);
 }
 .tmt-ui-chart-matrix {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   font: var(--tmt-ui-header-action-size) / 1.4 var(--tmt-ui-font-mono);
 }
 .tmt-ui-chart-matrix th,
 .tmt-ui-chart-cell {
   padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-chart-matrix-corner,
 .tmt-ui-chart-matrix-column,
@@ -2550,6 +2579,9 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-chart-matrix-corner,
 .tmt-ui-chart-matrix-row {
+  position: sticky;
+  left: 0;
+  z-index: 1;
   text-align: left;
 }
 .tmt-ui-chart-matrix-column {

@@ -382,33 +382,51 @@ fn send_now_reports_what_core_did_and_never_a_guess() {
     fs::write(core.root.join("final"), r#"{"status":"not_submitted"}"#).unwrap();
     core.message_state(&message_state(false));
     let mut sequence = 1;
-    for (answer, state, reason) in [
-        ("ok|sent", "sent", None),
-        ("ok|already", "already", None),
+    // (Core's answer, the state, Core's code, Core's own sentence that travels with it.)
+    for (answer, state, reason, text) in [
+        ("ok|sent", "sent", None, None),
+        ("ok|already", "already", None, None),
         (
-            "err|SEND_NOW_NOT_AVAILABLE",
+            "err|SEND_NOW_NOT_AVAILABLE|Could not send now: waiting for delivery",
             "refused",
             Some("SEND_NOW_NOT_AVAILABLE"),
+            Some("Could not send now: waiting for delivery"),
         ),
         (
-            "err|DELIVERY_AWAITING_APPROVAL",
+            "err|DELIVERY_AWAITING_APPROVAL|Could not send now: the agent is waiting for approval on its machine",
             "refused",
             Some("DELIVERY_AWAITING_APPROVAL"),
+            Some("Could not send now: the agent is waiting for approval on its machine"),
         ),
         (
-            "err|DELIVERY_UNCERTAIN",
+            "err|DELIVERY_UNCERTAIN|It may have been sent. Delivery is not confirmed, so do not send it again.",
             "unconfirmed",
             Some("DELIVERY_UNCERTAIN"),
+            Some("It may have been sent. Delivery is not confirmed, so do not send it again."),
         ),
-        // Core answered with some other error: it typed nothing.
+        // A sentence that is not one plain bounded line is dropped; the code stays.
         (
-            "err|API_UNAVAILABLE",
+            "err|SEND_NOW_CLOSED|two\nlines",
+            "refused",
+            Some("SEND_NOW_CLOSED"),
+            None,
+        ),
+        // Core answered with some other error: it typed nothing, and its words are not ours to forward.
+        (
+            "err|API_UNAVAILABLE|boom",
             "unavailable",
             Some("API_UNAVAILABLE"),
+            None,
         ),
         // The call itself failed on this side (here an unreadable answer; a timeout or an
-        // interruption takes the same path): the outcome is unknown, never `unavailable`.
-        ("raw|broken", "unconfirmed", Some("REMOTE_CORE_UNAVAILABLE")),
+        // interruption takes the same path): the outcome is unknown, never `unavailable`, and
+        // Remote's own failure text is not Core's.
+        (
+            "raw|broken",
+            "unconfirmed",
+            Some("REMOTE_CORE_UNAVAILABLE"),
+            None,
+        ),
     ] {
         core.send_now_answers(answer);
         sequence += 1;
@@ -428,6 +446,11 @@ fn send_now_reports_what_core_did_and_never_a_guess() {
             reason,
             "{answer}"
         );
+        assert_eq!(
+            reply.get("reasonText").and_then(Value::as_str),
+            text,
+            "{answer}"
+        );
         // The person asks, Core types, then the fresh state is read back; nothing else is called.
         assert_eq!(
             core.operations_since(before),
@@ -436,6 +459,19 @@ fn send_now_reports_what_core_did_and_never_a_guess() {
         );
         assert_eq!(reply["messageState"]["state"], "sent", "{answer}");
     }
+    // A sentence over the bound is dropped too.
+    core.send_now_answers(&format!("err|SEND_NOW_CLOSED|{}", "x".repeat(257)));
+    sequence += 1;
+    let reply = ask(
+        &owner,
+        &operations,
+        &session,
+        sequence,
+        "requests.sendNow",
+        &request,
+    );
+    assert_eq!(reply["reason"], "SEND_NOW_CLOSED", "{reply}");
+    assert!(reply.get("reasonText").is_none(), "{reply}");
     let asked = core
         .calls()
         .into_iter()
