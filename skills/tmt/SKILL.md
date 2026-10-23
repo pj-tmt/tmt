@@ -107,22 +107,16 @@ Successful submission also does not guarantee exactly-once agent processing.
 its user, so nothing was sent and the request stays queued. Retry after it
 continues; never type into its pane to get around it.
 
-`talk` waits for the complete durable reply by default. It never treats terminal
-markers, idle output, a summary, or process exit as completion. A cooperating
-recipient must invoke `tmt reply`; otherwise there is no final result yet.
-`check` captures diagnostics and may deliver a due Digest checklist at verified idle.
-It does not retrieve a correlated result.
+A cooperating recipient must invoke `tmt reply`; otherwise there is no final result
+yet. `check` captures diagnostics and does not retrieve a correlated result.
 Its positional count or `--lines` accepts integers from 0 through 2147483647;
 zero captures the visible pane. Invalid counts are rejected, not clamped.
 Invalid configured capture counts also fail before target lookup or capture.
 
 Live `talk` can cause external input in another agent's host pane. Only use
 it when the user has requested that communication or the surrounding task
-clearly authorizes it; do not infer permission for unrelated changes. Use
-`--timeout <time>` to bound the default wait, `--detach` to return a request ID
-after sending, and `--delay <seconds>` to delay sending.
-Avoid sending secrets or credentials to another pane. For a requested send
-delay, use `--delay` rather than introducing a separate shell sleep.
+clearly authorizes it; do not infer permission for unrelated changes. For a
+requested send delay, use `--delay` rather than a separate shell sleep.
 
 ### JSON results and failures
 
@@ -174,18 +168,9 @@ through `dispatch.create` with `mode: "passthrough"`, and `canPassthrough` on
 `identities.status` says whether a recipient can take it.
 
 Without hook/runtime evidence, a verified pane retains plain delivery but agent
-readiness is unverified. Tmux cannot identify provider approval prompts. Never
-bypass a driver's denial or pending approval by manually pasting the request.
+readiness is unverified. Tmux cannot identify provider approval prompts.
 Stored wait/polling mode settings are inert; `config rm mode` removes
 only the explicit local obsolete key, without migrating other settings.
-
-```bash
-tmt talk reviewer "Review this patch" --timeout 300 --json
-tmt talk reviewer "Run the agreed tests" --detach --json
-tmt talk reviewer "Review this patch" --identity coordinator --json
-tmt result <request-id> --json
-tmt check reviewer 200  # capture; may deliver a due Digest checklist
-```
 
 Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
@@ -293,7 +278,6 @@ The observer clock starts immediately before send, after pre-send delay and
 preparation. Transport/Enter time counts; synchronous transport cannot be
 cancelled mid-operation. A response read at or crossing the deadline is not
 accepted by that observer; it may still be retrieved with result afterward.
-Do not resend simply because a caller timed out or was interrupted.
 
 Craft clear, specific requests. After receiving a durable response, summarize
 the result for the user without treating submission alone as task success.
@@ -301,15 +285,9 @@ the result for the user without treating submission alone as task success.
 ### Durable replies and results
 
 Native talk supplies a compact `v2_` receipt; use it unchanged.
-When TMT supplies an exact receipt, submit the complete result through the
-durable reply commands:
-
-```bash
-tmt reply <request-id> --receipt <receipt> --message 'Review complete.'
-tmt reply <request-id> --receipt <receipt> --file response.md
-tmt reply <request-id> --receipt <receipt> --stdin < response.md
-tmt result <request-id> --json
-```
+When TMT supplies an exact receipt, submit the complete result with
+`tmt reply <request-id> --receipt <receipt>` and read a final with
+`tmt result <request-id> --json` (`tmt reply --help` shows the input options).
 
 Use `--message` for short replies, including an explicit empty string. Quote
 the body for your shell; use `--message='-leading text'` for a leading hyphen.
@@ -370,13 +348,8 @@ echoed in acknowledgements.
 
 When you were given a receipt, use `tmt reply` with it. When you were not, for
 example the user asks you to answer a request someone sent your identity, list
-and answer by name:
-
-```bash
-tmt inbox --json
-tmt answer reviewer 'Yes, ship it.' --json
-tmt answer reviewer --file answer.md --request <request-id> --json
-```
+with `tmt inbox --json` and answer by name with `tmt answer <from> <text>`
+(`tmt answer --help`):
 
 `inbox` lists requests still waiting on you for a final, oldest first; reading
 never acknowledges. `answer <from>` answers the one request `<from>` is waiting on
@@ -392,13 +365,6 @@ your own identity; answering as someone else is attribution misuse.
 Use X to recover requests originated by your durable identity, including after
 timeout, detach, pane loss or process restart. Outside a verified bound pane,
 select an existing identity explicitly. This is local attribution, not authentication.
-
-```bash
-tmt x --identity coordinator --json
-tmt x show <request-id> --identity coordinator --json
-tmt x ack <request-id> --revision <revision> --identity coordinator --json
-tmt x ackall --identity coordinator --json
-```
 
 `tmt x flow --since 24h --json` reads content-free counts and UTF-8 byte totals
 for the whole local team in UTC 30-minute buckets, without `--identity`. The
@@ -432,16 +398,9 @@ Unknown, anonymous, wrong-originator and metadata-expired X records return
 Reads and acknowledgments never renew retention. This is not an offline recipient
 queue, memory search or remote access for these originator-facing forms.
 
-Recipient requests use a separate participant attention scope. The focused
-installed `tmt-inbox` skill owns the complete processing loop:
-
-```bash
-tmt talk reviewer "Review this patch" --identity coordinator --detach --json
-tmt x listen --identity reviewer --timeout 15m --debounce 10s --json
-tmt x show <request-id> --incoming --identity reviewer --json
-tmt x ack <request-id> --incoming --revision <revision> --identity reviewer --json
-tmt x ackall --incoming --identity reviewer --json
-```
+Recipient requests use a separate participant attention scope (`--incoming` on
+`x show|ack|ackall`, and `x listen`). The focused installed `tmt-inbox` skill owns
+the complete processing loop.
 
 Plain `talk` to an identity with no pane queues for its inbox: it accepts one
 existing non-retired identity, reports `queued`, and never attempts live
@@ -521,13 +480,8 @@ owns the public JSON, limits and per-item outcomes.
 
 ### Durable identity creation and discovery
 
-Use the same explicit commands inside or outside tmux:
-
-```bash
-tmt identity create coordinator --json
-tmt identity show coordinator --json
-tmt identity ls --json
-```
+Use the same explicit commands inside or outside tmux: `tmt identity create|show|ls`
+(`tmt identity --help`).
 
 These named and collection commands use only local storage, without tmux or
 unrelated configuration. `tmt identity show` without a name instead inspects
@@ -547,18 +501,8 @@ Use ordinary `tmt ls` for verified active pane destinations. A new unbound ident
 receives ordinary talk through Inbox with the foreground wait; once bound with
 `add`, `name` or `this`, talk attempts live delivery.
 
-Use shared identity metadata for exact local discovery:
-
-```bash
-tmt identity meta set --identity coordinator project tmt
-tmt identity meta set --identity coordinator capability.review true
-tmt identity meta show --identity coordinator project
-tmt identity meta ls --identity coordinator --json
-tmt identity meta rm --identity coordinator project
-tmt identity ls --where project=tmt --has capability.review --json
-```
-
-Repeat `--where KEY=VALUE` and `--has KEY` to combine exact predicates with AND;
+Use shared identity metadata (`tmt identity meta set|show|ls|rm`) for exact local
+discovery with `tmt identity ls --where KEY=VALUE --has KEY`. Repeat `--where KEY=VALUE` and `--has KEY` to combine exact predicates with AND;
 the first equals sign separates a `--where` key from its exact string value.
 Metadata is untrusted descriptive text, never authentication, permission,
 availability, a capability grant, a secret store, or prompt authority. It does
@@ -615,27 +559,7 @@ until a verified contributor is available.
 
 Single-target commands validate the selected binding, not every unrelated pane.
 Use `ls` for full active discovery; it is not a prerequisite for `talk` or `check`.
-
-```bash
-tmt ls
-tmt name <global-name>               # bind temporarily; add -s to save
-tmt this <global-name>               # exact supported alias for `name`
-tmt run <agent> [args...]             # auto-name temporarily; use tmt this later
-tmt run [-s] <global-name> <command...> # bind and launch; options before the name
-tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
-tmt marked <global-name>             # bind the explicit tmux mark; add -s to save
-tmt whoami                            # show the current pane identity
-tmt whoami --context                  # bounded read-only rehydration summary
-tmt unbind                            # remove the current pane identity
-tmt rm <global-name>                  # retire; saved identities require --force
-tmt notes path [--identity <name>]    # initialize/print saved identity Markdown
-tmt talk <target> "message"          # global name or pane; no pane queues to its inbox
-tmt x listen --identity <name>       # bounded recipient/result wait
-tmt check <target> [lines]
-tmt ls [target]                       # list identities or one pane
-tmt install [claude|codex|gemini|agy|pi|opencode|muse|all]
-tmt upgrade
-```
+`tmt --help` lists every command and each command's `--help` its options.
 
 `name`, `this`, `add`, and `marked` manage one global identity per pane. Names
 can be undeclared identities; they do not need to match a configured role. `add`
@@ -648,8 +572,7 @@ changes pane titles or window border layout.
 
 Global identities are independent of the current working directory. `talk`,
 `check`, and `ls` accept either a global name or a direct pane target. The
-name `all` is an ordinary identity; it is not a special destination. Use
-`tmt add <pane-target> <global-name>`.
+name `all` is an ordinary identity; it is not a special destination.
 
 Names are unique across servers sharing the same local TMT database.
 `talk` and `check` by name select the recorded recipient host and server, then
@@ -670,7 +593,7 @@ to repair it. Direct pane targeting remains separate from identity discovery.
 
 `unbind` retires a temporary
 identity but retains a saved identity/profile offline. There is no `migrate`
-command. Do not delete old user files as a migration workaround.
+command.
 
 ## Rooms and identity context
 
@@ -678,20 +601,8 @@ command. Do not delete old user files as a migration workaround.
 
 Rooms group the same global identities; one identity may join several rooms.
 They are communication scopes, not access controls or separate identities.
-These local commands do not need a live pane:
-
-```sh
-tmt room create "Design"
-tmt room ls --json
-tmt room join Design --identity Alice
-tmt room show Design --json
-tmt ls --room Design --json
-tmt talk Alice "Review only this change" --room Design --detach
-tmt room send Design "Review this change" --identity Alice --json
-tmt room broadcast Design "Review starts now" --identity Alice --json
-tmt x listen --room Design --identity Alice
-tmt room leave Design --identity Alice
-```
+The `tmt room` commands (`tmt room --help`) do not need a live pane. `tmt ls`, `tmt talk`
+and `tmt x listen` take `--room` to scope themselves to one room.
 
 Use the room UUID when display names are ambiguous. Join/leave can omit
 `--identity` only from a verified bound pane. Repeating a join/leave is harmless;
@@ -716,13 +627,7 @@ Normal pane delivery, timeout and detach rules still apply.
 
 ### Self-reported activity and mood
 
-```bash
-tmt identity status set "Reviewing the renderer" --mood focused --for 60m --identity coordinator
-tmt identity status show --identity coordinator --json
-tmt identity status rm --identity coordinator
-```
-
-Use this for a short activity, not proof of availability or request completion.
+`tmt identity status set|show|rm` (`tmt identity status --help`). Use this for a short activity, not proof of availability or request completion.
 Saved and active temporary identities are eligible; it does not save a temporary
 identity. Omit `--identity` only from a verified bound pane. Activity is 1–160
 UTF-8 bytes; optional mood is 1–32 bytes, both nonblank and without controls.
@@ -734,13 +639,8 @@ current work. Clear is idempotent and does not cancel requests or change presenc
 
 ### Saved identity notes
 
-Use one owner-local Markdown file for deliberate context that should survive
-pane loss or offline work:
-
-```bash
-tmt notes path --identity coordinator
-tmt notes path --identity coordinator --json
-```
+Use one owner-local Markdown file, found with `tmt notes path`, for deliberate
+context that should survive pane loss or offline work.
 
 Inside a verified pane bound to a saved identity, `--identity` may be omitted.
 Outside tmux, explicitly select an existing saved identity. Temporary identities
@@ -774,15 +674,9 @@ same OS user's local filesystem, not authentication or cross-agent isolation.
 
 ### Role profiles
 
-Roles are stored profiles, not automatically injected instructions. Select an
-existing durable identity explicitly when working outside tmux:
-
-```bash
-tmt role show --identity reviewer --json
-tmt role set "Review correctness before style." --identity reviewer --json
-tmt role set --file role.md --identity reviewer --json
-tmt role rm --identity reviewer --json
-```
+Roles are stored profiles, not automatically injected instructions
+(`tmt role show|set|rm`, `tmt role --help`). Select an existing durable identity
+explicitly with `--identity` when working outside tmux.
 
 Choose inline content or `--file`, not both. Omit `--identity` only when the
 caller has a verified live tmux identity; otherwise use explicit selection.
@@ -795,14 +689,8 @@ when text should be injected into messages; role edits never change it.
 ### Identity preambles
 
 Preambles are separate from role profiles and belong to existing durable global
-identities. These commands work without tmux, even when the identity is unbound:
-
-```bash
-tmt preamble show                    # list stored preambles
-tmt preamble show reviewer
-tmt preamble set reviewer "Review correctness before style."
-tmt preamble rm reviewer
-```
+identities. `tmt preamble show|set|rm` (`tmt preamble --help`) works without tmux,
+even when the identity is unbound.
 
 Names are explicit; omitting the name lists preambles, not the caller's data.
 Unknown identities fail with `NAME_NOT_FOUND`; create the intended identity
@@ -849,9 +737,7 @@ Resume still needs the hook-recorded session; naming preserves it but never gues
 one. Save to keep resume coordinates across pane loss. Naming an enrolled launch
 neither restarts its channel nor enables paste fallback.
 
-Paste delivery is the default. Message channels are experimental and require
-`tmt config set experimental.channel true --global` before `--channel` is accepted.
-With the setting off (the default), explicit `--channel` refuses; flagless resume
+With `experimental.channel` off (the default), explicit `--channel` refuses; flagless resume
 uses paste without changing the remembered channel choice. Re-enabling the setting
 restores that choice. `--no-channel` remains accepted and remembers plain delivery.
 A still-running channel session must end before another launch for that identity;
@@ -900,9 +786,8 @@ lists saved names. `tmt resume <name>` (alias `tmt run --resume <name>`) resumes
 hook-recorded session in the current pane. It replays the associated executable,
 last observed model and launch effort. `--model` and `--effort` before the name
 explicitly override those values; present allowed environment keys override stored
-ones, even when empty. `tmt resume --show <name>` displays the preset without
-launching; `tmt resume --forget-launch <name>` clears it while retaining the session.
-Without an associated preset, resume reports that it uses the registered driver.
+ones, even when empty. `--show` displays the preset without launching and
+`--forget-launch` clears it while retaining the session. Without an associated preset, resume reports that it uses the registered driver.
 Ordinary resume never starts fresh: when nothing is remembered or the driver cannot resume it,
 it fails and says
 `Start fresh with: tmt run <name>`. Starting fresh is the user's call. A resume
@@ -945,14 +830,10 @@ child whose launch owner is lost is Unknown and is not a verified input target.
 Do not treat successful spawn, runtime presence or an Ended observation as a
 durable task reply.
 
-`tmt completion` checks startup-file configuration for `$SHELL`; an explicit
-`bash`, `zsh` or `fish` overrides detection. The guide shows the exact file and
-line to add manually, with zsh placement after completion initialization
-(`compinit` or your shell framework), and warns about duplicate lines. This is
-textual configured-state evidence, not a check of functions loaded in the parent
-shell. `--json` reports the shell, installed state, file and line. Completion never
-edits startup files. Public `completion` always guides or checks, even when piped.
-Only `__completion-script bash|zsh|fish` emits the script used by the setup line.
+`tmt completion` (see `tmt completion --help` for the startup files and zsh
+placement) warns about duplicate lines and is textual configured-state evidence.
+`--json` reports the shell, installed state, file and line. Public `completion`
+always guides or checks, even when piped, and never edits startup files.
 Top-level terminal help offers a tip when the detected shell is not configured;
 piped help and inspection errors suppress the tip.
 Completion offers saved-first identity candidates and command-owned completion
@@ -988,11 +869,9 @@ Consented `tmt setup` includes the Stop hook by default, exposing `resume.usage`
 (context size) and optional `resume.consumption` in ls/identity JSON. It also keeps
 bounded final-response history locally for [`responses.recent`](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#recent-agent-responses):
 these are the agent's last final answers for display, not delivered replies.
-`--no-usage` stops new collection and preserves the choice; `--usage` enables it
-again. Responses already kept stop appearing when they expire; later collection
+Responses already kept stop appearing when they expire; later collection
 removes them. With `--no-usage` nothing new is collected, so expired responses stay
-on disk until collection runs again. Inspect without changes using
-`tmt setup [provider] --status`. Consumption reports cumulative
+on disk until collection runs again. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input. Foreground `tmt run`/`resume` observes accepted
 completed-request evidence every five seconds during a turn. Listing never reads
@@ -1020,8 +899,7 @@ each key is CLI-editable locally/globally or global-file-only. The three
 `defaults.timeout`, `defaults.pollInterval` and `defaults.captureLines` keys
 are global-file-only and cannot be changed by `config set` or `config rm`.
 `config set` supports `preambleMode`, `preambleEvery`, and
-`pasteEnterDelayMs`; add `--global` for the global file, otherwise it writes
-a local override. Numeric writes require decimal digits only: no suffixes,
+`pasteEnterDelayMs`; without `--global` it writes a local override. Numeric writes require decimal digits only: no suffixes,
 fractions, signs, or whitespace. Zero disables preamble injection or removes
 the paste-to-Enter delay. Preamble frequency is bounded to a safe integer;
 paste delay is at most 2147483647 milliseconds.
@@ -1123,11 +1001,8 @@ normal `tmt run --resume` checks. See the
 
 ### Command option scope
 
-Options apply only to commands that use them. `--timeout`, `--delay`,
-`--detach`, and `--no-preamble` belong to talk/send; `--lines` belongs to
-check/read; `--force` belongs to talk/send, install and rm. Unrelated options
-and the unsupported `--config` path override fail with `USAGE_ERROR` before
-execution. Use `tmt <command> --help` (or `-h`) for its options, including nested
+Options apply only to commands that use them. Unrelated options and the
+unsupported `--config` path override fail with `USAGE_ERROR` before execution. Use `tmt <command> --help` (or `-h`) for its options, including nested
 commands such as `tmt identity status show --help`. `tmt help identity status show`
 is equivalent. Help needs no identity, required operands, running service or
 storage access; omit `--json` when requesting it.
@@ -1168,7 +1043,7 @@ that a running conversation has refreshed its instructions.
 
 `tmt learn --skill` prints the exact bundled universal skill; plain `tmt learn`
 shows the guide. Both are text-only. Install default integrations with
-`tmt install [claude|codex|gemini|agy|pi|opencode|muse|all]`, or choose a skills root explicitly:
+`tmt install [AGENT]`, or choose a skills root explicitly:
 
 ```bash
 tmt install --dir ./my-skills
@@ -1220,13 +1095,11 @@ Publication across providers is not all-or-nothing; a warning retains completed
 skill targets. Custom target intents are recorded in `skill-installations.json`
 for future refresh at those published names. Missing integrations stay missing.
 Native passive reminders cover known defaults only during interactive human
-commands; JSON and piped automation do not perform that scan. Neither installation
-nor a reminder reloads an active conversation.
+commands; JSON and piped automation do not perform that scan.
 
 For a managed native installation, `tmt upgrade` (alias `tmt update`) retains the
-receipt's channel. `--channel stable|alpha` selects a channel, `--to <version>`
-pins an exact version, and `--unpin` resumes channel updates; do not combine
-`--to` and `--unpin`. Downgrades are rejected. An ordinary pinned invocation is
+receipt's channel (`--channel`, `--to` and `--unpin` are in `tmt upgrade --help`);
+do not combine `--to` and `--unpin`. Downgrades are rejected. An ordinary pinned invocation is
 a no-network no-op. Package-manager or unmanaged binaries refuse native updates;
 use their original manager, not an overwrite workaround.
 
