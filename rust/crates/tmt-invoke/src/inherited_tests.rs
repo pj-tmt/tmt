@@ -22,19 +22,25 @@ fn inherited_group_keeps_capture_bounds_and_leaves_cleanup_to_caller() {
         "--nocapture".into(),
     ];
     // The outer default invocation owns this helper group, including on panic.
+    // Twice the inner budget lets a failing inner call return its own assertion.
     let output = invoke(
         Request {
             program: Path::new("/usr/bin/env"),
             args: &args,
             input: b"",
-            deadline: Instant::now() + START_BUDGET,
+            deadline: Instant::now() + 2 * START_BUDGET,
             max_stream_bytes: 16384,
             launch: Default::default(),
         },
         None,
     )
     .unwrap();
-    assert!(output.status.success(), "{output:?}");
+    assert!(
+        output.status.success(),
+        "{:?}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(String::from_utf8_lossy(&output.stdout).contains("caller group survived"));
 }
 

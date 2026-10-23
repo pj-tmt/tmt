@@ -175,7 +175,8 @@ fn stdin_and_both_output_pipes_make_progress_under_pressure() {
 
 #[test]
 fn blocked_input_and_closed_output_do_not_escape_the_deadline() {
-    // Allow the same startup budget as other real-process fixtures under parallel load.
+    // These cases must end by Deadline with a started child, so they keep 5 s:
+    // a longer deadline only moves the start bound and slows every run.
     let input = vec![b'x'; 1024 * 1024];
     for (script, input) in [
         ("echo $$ > pid; exec sleep 30", input.as_slice()),
