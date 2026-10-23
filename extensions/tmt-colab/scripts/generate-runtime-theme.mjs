@@ -84,6 +84,8 @@ export function buildTheme(tokens) {
     // One frame, as in the app: the ring and outline utilities default to the focus colour, and a
     // focused control draws a single outline of the token width with no offset.
     block('@layer base', [
+      'html {\n    background-color: var(--tmt-surface-paper);\n  }',
+      ':where(pre) {\n    max-width: 100%;\n    overflow-x: auto;\n  }',
       '*,\n  ::before,\n  ::after {\n    --tw-ring-color: var(--color-focus);\n    outline-color: var(--color-focus);\n  }',
       `:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {\n    outline: ${focusWidth} solid var(--color-focus);\n    outline-offset: 0;\n  }`,
     ]),

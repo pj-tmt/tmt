@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 // The bundled page runtime (#1693) with its generated theme, built the way the app builds it and
 // run under the renderer frame's CSP: the classes a page writes must resolve to the design tokens
@@ -45,7 +45,80 @@ const role = (group: 'color' | 'surface', key: string, mode: 'light' | 'dark') =
   rgb(tokens.browser[group][key][mode]);
 const none = 'rgba(0, 0, 0, 0)';
 
+const command = "tmt ops sq set gui-4 'task=release checklist'";
+async function shortPage(page: Page, mode: 'light' | 'dark', authorBase = '') {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setContent(
+    `<!doctype html><html data-theme="${mode}"><head>` +
+      `<meta http-equiv="Content-Security-Policy" content="${policy}">` +
+      `<style type="text/tailwindcss">${authorBase}${theme}</style>` +
+      `<script>${runtime.replaceAll('</script', '<\\/script')}</script>` +
+      `</head><body><div id="app"></div><script>
+        const { createRoot, html } = tmt;
+        function App() {
+          return html\`<section class="bg-paper text-text p-4 font-sans">
+            <label>Filter <input class="border border-edge" aria-label="Filter" /></label>
+            <ul>\${['Build', 'Review', 'Deploy', 'Release'].map((name) => html\`<li>\${name}</li>\`)}</ul>
+            <button class="border border-edge px-2">Open</button>
+            <pre class="border border-edge bg-code p-4 text-sm"><code>${command}</code></pre>
+          </section>\`;
+        }
+        createRoot(document.getElementById('app')).render(html\`<\${App} />\`);
+      </script></body></html>`,
+  );
+  // Wait for both the React content and Tailwind's first compiled paint.
+  await expect(page.locator('section')).toHaveCSS(
+    'background-color',
+    role('surface', 'paper', mode),
+  );
+}
+
 for (const mode of ['light', 'dark'] as const) {
+  test(`a short runtime page paints the ${mode} paper canvas below its content at 390px`, async ({
+    page,
+  }) => {
+    await shortPage(page, mode);
+    const below = await page.evaluate(() => ({
+      contentBottom: document.querySelector('section')!.getBoundingClientRect().bottom,
+      viewport: innerHeight,
+      tag: document.elementFromPoint(8, innerHeight - 8)?.tagName,
+      background: getComputedStyle(document.documentElement).backgroundColor,
+    }));
+    expect(below.contentBottom).toBeLessThan(below.viewport);
+    expect(below.tag).toBe('HTML');
+    expect(below.background).toBe(role('surface', 'paper', mode));
+  });
+
+  test(`a long runtime code line scrolls inside its ${mode} pre at 390px`, async ({ page }) => {
+    await shortPage(page, mode);
+    const pre = page.locator('pre');
+    await expect(pre).toHaveCSS('overflow-x', 'auto');
+    await expect(pre).toHaveText(command);
+    const bounds = await pre.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+      return {
+        client: element.clientWidth,
+        width: element.scrollWidth,
+        left: element.scrollLeft,
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: innerWidth,
+      };
+    });
+    expect(bounds.width).toBeGreaterThan(bounds.client);
+    expect(bounds.left).toBeGreaterThan(0);
+    expect(bounds.left + bounds.client).toBe(bounds.width);
+    expect(bounds.documentWidth).toBe(bounds.viewportWidth);
+  });
+
+  test(`an author's earlier pre base style wins over the ${mode} runtime default`, async ({
+    page,
+  }) => {
+    // Same base layer, earlier source order: the runtime's :where(pre) must have zero specificity.
+    await shortPage(page, mode, '@layer base { pre { max-width: 17rem; overflow-x: scroll; } }');
+    await expect(page.locator('pre')).toHaveCSS('max-width', '272px');
+    await expect(page.locator('pre')).toHaveCSS('overflow-x', 'scroll');
+  });
+
   test(`the runtime theme resolves page classes to the ${mode} design tokens`, async ({ page }) => {
     const problems: string[] = [];
     page.on('pageerror', (error) => problems.push(String(error)));
