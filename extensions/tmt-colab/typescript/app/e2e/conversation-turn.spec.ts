@@ -880,6 +880,8 @@ for (const [width, theme] of [
   test(`Chat polish keeps identity, day boundaries and controls at ${width} ${theme}`, async ({
     page,
   }) => {
+    // Keep five-minute-old fixture messages on Today, including CI runs near midnight.
+    await page.clock.setFixedTime(new Date(2026, 9, 23, 12));
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ colorScheme: theme });
     await page.addInitScript((theme) => {
