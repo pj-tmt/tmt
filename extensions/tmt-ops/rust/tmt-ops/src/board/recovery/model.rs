@@ -120,6 +120,8 @@ pub(super) struct SessionResult {
     pub name: String,
     pub action: String,
     pub native: Option<String>,
+    /// The live session's name when it is not the recorded one.
+    pub restored_as: Option<String>,
     pub retained_bootstrap: Option<String>,
 }
 #[derive(Clone, Debug)]
@@ -218,7 +220,7 @@ impl Preview {
             || self
                 .sessions
                 .iter()
-                .any(|p| !matches!(p.action.as_str(), "create" | "skip_existing" | "unknown"))
+                .any(|p| !matches!(p.action.as_str(), "create" | "name_in_use" | "unknown"))
             || self.panes.iter().any(|p| {
                 !matches!(
                     p.action.as_str(),
@@ -248,10 +250,10 @@ impl Preview {
     pub fn counts(&self) -> String {
         let count = |action| self.sessions.iter().filter(|s| s.action == action).count();
         format!(
-            "{} sessions · {} create · {} skip existing · {} unknown · {} windows · {} panes",
+            "{} sessions · {} create · {} name in use · {} unknown · {} windows · {} panes",
             self.snapshot.sessions.len(),
             count("create"),
-            count("skip_existing"),
+            count("name_in_use"),
             count("unknown"),
             self.snapshot.windows.len(),
             self.snapshot.panes.len()
@@ -382,13 +384,24 @@ document!(PanePlan {
     action: "action",
     identity: "identity"
 });
-document!(SessionResult {
-    recorded: "recorded",
-    name: "name",
-    action: "action",
-    native: "native",
-    retained_bootstrap: "retainedBootstrap"
-});
+impl Decode for SessionResult {
+    fn decode(v: &serde_json::Value) -> Result<Self, SquadError> {
+        let field = |key| v.get(key).ok_or_else(invalid);
+        Ok(Self {
+            recorded: Decode::decode(field("recorded")?)?,
+            name: Decode::decode(field("name")?)?,
+            action: Decode::decode(field("action")?)?,
+            native: Decode::decode(field("native")?)?,
+            // Absent from an older tmt, which only ever restored under the recorded name.
+            restored_as: v
+                .get("restoredAs")
+                .map(Decode::decode)
+                .transpose()?
+                .flatten(),
+            retained_bootstrap: Decode::decode(field("retainedBootstrap")?)?,
+        })
+    }
+}
 document!(Mapping {
     recorded: "recorded",
     native: "native"

@@ -6,7 +6,10 @@ use crate::binding::session::RememberedSession;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkspaceSessionAction {
     Create,
-    SkipExisting,
+    /// A live session already has the name. The restore decides from the live session itself:
+    /// it adds the saved windows to the server's fresh default session, restores beside any
+    /// other session in use, and skips a session this snapshot's restore made earlier.
+    NameInUse,
     Unknown,
 }
 
@@ -14,7 +17,7 @@ impl WorkspaceSessionAction {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Create => "create",
-            Self::SkipExisting => "skip_existing",
+            Self::NameInUse => "name_in_use",
             Self::Unknown => "unknown",
         }
     }
@@ -71,9 +74,7 @@ pub fn restore_plan<'a>(
         .iter()
         .map(|session| {
             let action = match current_sessions {
-                Some(names) if names.contains(&session.name) => {
-                    WorkspaceSessionAction::SkipExisting
-                }
+                Some(names) if names.contains(&session.name) => WorkspaceSessionAction::NameInUse,
                 Some(_) => WorkspaceSessionAction::Create,
                 None => WorkspaceSessionAction::Unknown,
             };
@@ -318,7 +319,7 @@ mod tests {
         assert_eq!(
             plan.sessions,
             [
-                ("$1", WorkspaceSessionAction::SkipExisting),
+                ("$1", WorkspaceSessionAction::NameInUse),
                 ("$2", WorkspaceSessionAction::Create)
             ]
         );

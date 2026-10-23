@@ -398,7 +398,7 @@ stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage
         expect(result.code, result.stderr + result.stdout).toBe(0);
         expect(result.json!.snapshot).toEqual(synthetic);
         expect(result.json!.sessions).toEqual([
-          ...original.sessions.map((session) => ({ session: session.id, action: 'skip_existing' })),
+          ...original.sessions.map((session) => ({ session: session.id, action: 'name_in_use' })),
           { session: '$999999', action: 'create' },
         ]);
         expect(result.json!.panes.find((pane) => pane.pane === fixture.pane)).toMatchObject({
@@ -488,7 +488,7 @@ stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage
         });
         expect(preview.code, preview.stderr + preview.stdout).toBe(0);
         expect(preview.json!.sessions).toEqual(
-          snapshot.sessions.map((value) => ({ session: value.id, action: 'skip_existing' }))
+          snapshot.sessions.map((value) => ({ session: value.id, action: 'name_in_use' }))
         );
         expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
         expect(durable()).toEqual(before);

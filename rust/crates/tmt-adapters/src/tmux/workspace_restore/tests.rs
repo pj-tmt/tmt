@@ -144,6 +144,7 @@ fn restore(tmux: &Tmux<Runner>) -> Restore<'_, Runner> {
         }),
         windows: HashMap::new(),
         panes: HashMap::new(),
+        cwd: HashMap::new(),
         outcome: LayoutRestore::default(),
         revival_panes: &[],
     }
@@ -288,16 +289,18 @@ fn successful_link_is_required_before_bootstrap_removal_and_failed_link_retains_
         name: "workspace".into(),
         action: "partial".into(),
         native: None,
+        restored_as: None,
         retained_bootstrap: None,
     };
     assert!(
         owner
             .session(
                 &plan,
-                &saved.sessions[0],
+                "workspace",
                 None,
                 Some(1),
                 &links,
+                "1/$1",
                 &mut record
             )
             .is_err()
@@ -525,4 +528,126 @@ fn owned_window_layout_detection_is_fenced_and_precedes_application() {
             assert_eq!(calls.len(), 7);
         }
     }
+}
+
+fn live_row(
+    name: &str,
+    session: u64,
+    window: u64,
+    pane: u64,
+    agent: &str,
+    command: &str,
+    marker: &str,
+) -> String {
+    let control = u8::from(name.chars().any(char::is_control));
+    format!(
+        "{control}{SEP}{name}{SEP}${session}{SEP}{window}{SEP}%{pane}{SEP}{agent}{SEP}{command}{SEP}{marker}\n"
+    )
+}
+
+#[test]
+fn live_sessions_are_told_apart_by_what_is_in_them() {
+    let tmux = Tmux::new(Runner::default());
+    let owner = restore(&tmux);
+    let rows = [
+        // The server's fresh default: one window, one pane, nothing bound.
+        live_row("0", 0, 4, 0, "", "", ""),
+        // One pane, but an agent lives there.
+        live_row("agent", 1, 0, 1, "alice", "", ""),
+        // Two panes in one window.
+        live_row("split", 2, 0, 2, "", "", ""),
+        live_row("split", 2, 0, 3, "", "", ""),
+        // Made by a restore, whose marker is recorded under a new name.
+        live_row("work-restored", 3, 0, 4, "", "", "7/$1"),
+        // A name no saved session can share.
+        live_row("bad\nname", 4, 0, 5, "", "", ""),
+    ]
+    .concat();
+    tmux.runner.scripted.push_output(rows.into_bytes(), vec![]);
+    let live = owner.inspect_live().unwrap();
+    assert_eq!(
+        live.sessions,
+        vec![
+            LiveSession::Fresh {
+                name: "0".into(),
+                window_index: 4,
+            },
+            LiveSession::InUse("agent".into()),
+            LiveSession::InUse("split".into()),
+            LiveSession::Restored {
+                name: "work-restored".into(),
+                marker: "7/$1".into(),
+            },
+        ]
+    );
+    assert_eq!(live.fresh["0"], ("$0".to_owned(), "%0".to_owned()));
+}
+
+#[test]
+fn a_shapeless_session_list_is_refused_with_its_cause() {
+    let tmux = Tmux::new(Runner::default());
+    let owner = restore(&tmux);
+    tmux.runner
+        .scripted
+        .push_output(b"not\x1ffields\n".to_vec(), vec![]);
+    let error = owner.inspect_live().err().unwrap();
+    assert!(error.to_string().contains("unexpected"), "{error}");
+}
+
+#[test]
+fn a_missing_directory_falls_back_to_the_nearest_existing_parent() {
+    let directory = crate::test_support::TestDirectory::new();
+    let existing = directory.path.join("here");
+    std::fs::create_dir(&existing).unwrap();
+    let gone = existing.join("gone").join("deeper");
+    let gone = gone.to_str().unwrap();
+    assert_eq!(nearest_directory(gone), existing.to_str().unwrap());
+    // Nothing above exists but the root: home is next, then `/`.
+    let tmux = Tmux::new(Runner::default());
+    let mut owner = restore(&tmux);
+    owner.choose_cwd("%1", existing.to_str().unwrap());
+    owner.choose_cwd("%2", gone);
+    assert_eq!(owner.outcome.fallbacks.len(), 1);
+    assert_eq!(owner.outcome.fallbacks[0].pane, "%2");
+    assert_eq!(owner.outcome.fallbacks[0].wanted, gone);
+    assert_eq!(owner.outcome.fallbacks[0].used, existing.to_str().unwrap());
+    assert!(!nearest_directory("/no/such/place").is_empty());
+}
+
+#[test]
+fn a_directory_reached_through_a_link_is_the_same_directory() {
+    let directory = crate::test_support::TestDirectory::new();
+    let real = directory.path.join("real");
+    std::fs::create_dir(&real).unwrap();
+    let link = directory.path.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    assert!(same_directory(
+        link.to_str().unwrap(),
+        real.to_str().unwrap()
+    ));
+    assert!(!same_directory(
+        directory.path.to_str().unwrap(),
+        real.to_str().unwrap()
+    ));
+}
+
+#[test]
+fn a_failed_session_says_how_to_clear_what_it_left() {
+    let mut record = RestoredSession {
+        recorded: "$1".into(),
+        name: "work".into(),
+        action: "partial".into(),
+        native: None,
+        restored_as: None,
+        retained_bootstrap: None,
+    };
+    assert_eq!(partial_note(&record, false), "");
+    record.native = Some("$4".into());
+    assert!(partial_note(&record, false).contains("tmux kill-session -t work"));
+    record.restored_as = Some("work-restored".into());
+    assert!(partial_note(&record, false).contains("tmux kill-session -t work-restored"));
+    // A merge never advises removing the user's own session.
+    let merged = partial_note(&record, true);
+    assert!(!merged.contains("kill-session"), "{merged}");
+    assert!(merged.contains("work-restored"), "{merged}");
 }

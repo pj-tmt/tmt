@@ -591,6 +591,8 @@ fn full_restore_retains_live_skip_needs_you_and_uncertain_startup_per_item() {
         .as_array_mut()
         .unwrap()
         .push(json!({"recorded":"$2","name":"existing","action":"skip_existing","native":"$8","retainedBootstrap":null}));
+    // A session added to the fresh default one carries the live name; an older tmt omits it.
+    value["sessions"].as_array_mut().unwrap().push(json!({"recorded":"$3","name":"fresh","action":"merged","native":"$0","restoredAs":"fresh","retainedBootstrap":null}));
     value["revival"] = json!([
         {"recorded":"%1","native":"%7","name":"moved","status":"skipped","message":"skipped (already live elsewhere)"},
         {"recorded":"%2","native":null,"name":"renamed","status":"needs_you","message":"needs you (identity name changed; resume it explicitly)"},
@@ -618,6 +620,11 @@ fn full_restore_retains_live_skip_needs_you_and_uncertain_startup_per_item() {
         lines
             .iter()
             .any(|s| s.contains("Not applied · session existing"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|s| s.contains("Applied · session fresh") && s.contains("restored as fresh"))
     );
     assert!(
         lines

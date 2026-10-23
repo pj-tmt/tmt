@@ -466,7 +466,9 @@ impl Controller {
 }
 fn status(value: &str) -> String {
     match value {
-        "created" | "started" | "relaunched" => format!("{} Applied", Mark::Done.symbol()),
+        "created" | "merged" | "started" | "relaunched" => {
+            format!("{} Applied", Mark::Done.symbol())
+        }
         "skip_existing" | "skipped" | "shell" => {
             format!("{} Not applied", Mark::Offline.symbol())
         }
@@ -575,7 +577,7 @@ pub(super) fn results(r: &Restore) -> Vec<String> {
     let mut notes = vec![];
     for s in &r.sessions {
         notes.push(format!(
-            "{} · session {} ({}) · {}{}",
+            "{} · session {} ({}) · {}{}{}",
             status(&s.action),
             safe(&s.name),
             safe(&s.recorded),
@@ -583,6 +585,12 @@ pub(super) fn results(r: &Restore) -> Vec<String> {
                 .as_deref()
                 .map(safe)
                 .unwrap_or_else(|| "no native ID".into()),
+            s.restored_as
+                .as_deref()
+                .map_or(String::new(), |name| format!(
+                    " · restored as {}",
+                    safe(name)
+                )),
             s.retained_bootstrap
                 .as_ref()
                 .map_or(String::new(), |id| format!(
@@ -633,7 +641,7 @@ pub(super) fn results(r: &Restore) -> Vec<String> {
 fn session_action(action: &str) -> &'static str {
     match action {
         "create" => "Create session",
-        "skip_existing" => "Skip existing session",
+        "name_in_use" => "Name in use: restore adds to or beside it",
         _ => "Unknown live state",
     }
 }
