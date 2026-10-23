@@ -95,8 +95,8 @@ for (const width of [1440, 390])
       // The connection words stay in the document for assistive technology; nothing shows.
       await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
       await expect(bar.locator('.page-attention')).toHaveCount(0);
-      // Discussion, Agents and More at every width.
-      await expect(bar.locator('.page-header-actions button')).toHaveCount(3);
+      // Discussion and More at every width; Agent status is a writer-only More entry.
+      await expect(bar.locator('.page-header-actions button')).toHaveCount(2);
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await expect(
         page.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
@@ -199,8 +199,8 @@ for (const width of [1440, 390])
     });
     await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
     const actions = page.getByRole('navigation', { name: 'Page actions' });
-    // The same three entries at every width; Files, Source and Export live in More (#4116).
-    const names = [/^Discussion \(0\)$/, /^Agents$/, /^More$/];
+    // The same two entries at every width; Agent status, Files, Source and Export live in More.
+    const names = [/^Discussion \(0\)$/, /^More$/];
     for (const name of names) {
       const button = actions.getByRole('button', { name });
       await expect(button).toBeInViewport();
@@ -409,13 +409,17 @@ test('one-row fitting retains full labels, stable content and compact action aut
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
     await expect(heading).toBeVisible();
     const actions = header.getByRole('navigation', { name: 'Page actions' });
-    await expect(actions.getByRole('button')).toHaveCount(3);
+    await expect(actions.getByRole('button')).toHaveCount(2);
     const more = actions.getByRole('button', { name: 'More', exact: true });
     await more.press('ArrowDown');
     // Share… waits on page management and a page that holds no file shows no Files entry; the first
-    // enabled entry is Source, then Export page.
+    // enabled entry is Agent status, then Source and Export page.
     await expect(actions.getByRole('menuitem', { name: /^Share…/ })).toBeDisabled();
     await expect(actions.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
+    await expect(
+      actions.getByRole('menuitem', { name: 'Agent status', exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     await expect(actions.getByRole('menuitem', { name: 'Source', exact: true })).toBeFocused();
     await expect(actions.getByRole('menuitem', { name: 'Export page', exact: true })).toBeEnabled();
     await page.keyboard.press('ArrowDown');
