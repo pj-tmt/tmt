@@ -169,13 +169,8 @@
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail {
   width: var(--tmt-ui-rail-collapsed-width);
-}
-.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-item {
-  padding-inline: calc(
-    (var(--tmt-ui-rail-collapsed-width) - 2 * var(--tmt-ui-rail-padding-inline) -
-        var(--tmt-ui-rail-icon-size)) /
-      2
-  );
+  /* Keep the expanded icon column; reserve the narrow rail's remaining space on its right. */
+  padding-right: 0;
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-shell-brand {
   padding-inline: 0;
@@ -262,6 +257,7 @@
 }
 .tmt-ui-rail-items:not(.tmt-ui-rail-bottom) {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   flex: 1 1 auto;
   align-content: start;
   gap: 2px;
@@ -409,7 +405,8 @@
   /* A compact numeral at the icon's top-right corner, offset past the glyph so the icon stays whole. */
   position: absolute;
   top: -2px;
-  left: calc(50% + 9px);
+  left: auto;
+  right: 0;
   box-sizing: border-box;
   min-width: 16px;
   height: 16px;

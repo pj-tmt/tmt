@@ -740,13 +740,7 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail {
   width: var(--tmt-ui-rail-collapsed-width);
-}
-.tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-item {
-  padding-inline: calc(
-    (var(--tmt-ui-rail-collapsed-width) - 2 * var(--tmt-ui-rail-padding-inline) -
-        var(--tmt-ui-rail-icon-size)) /
-      2
-  );
+  padding-right: 0;
 }
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-shell-brand {
   padding-inline: 0;
@@ -830,6 +824,7 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-rail-items:not(.tmt-ui-rail-bottom) {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   flex: 1 1 auto;
   align-content: start;
   gap: 2px;
@@ -966,7 +961,8 @@ svg.tmt-ui-mark {
 .tmt-ui-shell[data-rail='collapsed'] .tmt-ui-rail-item .tmt-ui-shell-count {
   position: absolute;
   top: -2px;
-  left: calc(50% + 9px);
+  left: auto;
+  right: 0;
   box-sizing: border-box;
   min-width: 16px;
   height: 16px;
@@ -1808,6 +1804,7 @@ svg.tmt-ui-mark {
   user-select: none;
 }
 .tmt-ui-avatar[data-size='s'] {
+  font-size: 10px;
   width: 24px;
   height: 24px;
 }

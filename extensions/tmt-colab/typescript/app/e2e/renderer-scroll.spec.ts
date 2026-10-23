@@ -1,3 +1,4 @@
+import { headerHeight } from './tokens.js';
 import { expect, test, type Page } from '@playwright/test';
 
 async function mount(page: Page, source: string, reader: boolean, readerOnly = false) {
@@ -73,7 +74,9 @@ for (const reader of [false, true]) {
     const targetTop = await child
       .locator('#target')
       .evaluate((node) => node.getBoundingClientRect().top);
-    expect(Math.abs((await frame.boundingBox())!.y + targetTop - 56)).toBeLessThan(2);
+    expect(Math.abs((await frame.boundingBox())!.y + targetTop - headerHeight(1440))).toBeLessThan(
+      2,
+    );
     await child.locator('#grow').evaluate((node: HTMLElement) => {
       node.style.height = '0px';
     });
@@ -104,7 +107,7 @@ for (const reader of [false, true]) {
     const frame = page.locator('iframe');
     await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
     await expect(frame).toHaveAttribute('scrolling', 'auto');
-    expect((await frame.boundingBox())!.height).toBe(844);
+    expect((await frame.boundingBox())!.height).toBe(900 - headerHeight(1440));
     await page
       .frameLocator('iframe')
       .locator('html')
@@ -116,16 +119,19 @@ for (const reader of [false, true]) {
         .evaluate((node) => node.ownerDocument.defaultView!.scrollY),
     ).toBeGreaterThan(0);
     await page.setViewportSize({ width: 390, height: 700 });
-    await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS('height', '48px');
+    await expect(page.locator('.tmt-ui-header:visible')).toHaveCSS(
+      'height',
+      `${headerHeight(390)}px`,
+    );
     // The frame fills the viewport below the header. In the TMT shell the header is the shell's bar
     // (plus the module menu) and the frame fills the shell's main area; the reader has no shell,
-    // so its fixed header's 48px sit above the frame.
+    // so its fixed header's token height sits above the frame.
     await expect
       .poll(async () => {
         const box = (await frame.boundingBox())!;
         const shellMain = page.locator('.tmt-ui-shell-main');
         const main = (await shellMain.count()) ? await shellMain.boundingBox() : null;
-        return [box.y + box.height, box.y - (main?.y ?? 48)];
+        return [box.y + box.height, box.y - (main?.y ?? headerHeight(390))];
       })
       .toEqual([700, 0]);
     await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');

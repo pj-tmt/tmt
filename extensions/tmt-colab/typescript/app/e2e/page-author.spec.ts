@@ -1,3 +1,4 @@
+import { headerHeight } from './tokens.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
@@ -40,7 +41,7 @@ for (const width of [1440, 390])
         width <= 900 ? 'toBeHidden' : 'toBeVisible'
       ]();
       await expect(header.locator('.tmt-ui-caption b')).toHaveCount(0);
-      await expect(header).toHaveCSS('height', width === 390 ? '48px' : '56px');
+      await expect(header).toHaveCSS('height', `${headerHeight(width)}px`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await info(page, false);
       const attribution = page.locator(

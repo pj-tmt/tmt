@@ -212,6 +212,36 @@ for (const width of [1586, 390])
           return label.getBoundingClientRect().x - parent.getBoundingClientRect().x;
         });
         expect(indent).toBeCloseTo(8, 1);
+        const icon = page.locator('.tmt-ui-rail-item').first().locator('svg');
+        const expandedX = (await icon.boundingBox())!.x;
+        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+        await expect(page.locator('.tmt-ui-rail')).toHaveCSS('width', '56px');
+        await expect.poll(async () => (await icon.boundingBox())!.x).toBe(expandedX);
+        const railBox = (await page.locator('.tmt-ui-rail').boundingBox())!;
+        const iconBox = (await icon.boundingBox())!;
+        expect(iconBox.x + iconBox.width).toBeLessThan(railBox.x + railBox.width);
+        const badgeInset = await page
+          .locator('.tmt-ui-rail-item .tmt-ui-shell-count')
+          .first()
+          .evaluate((badge) => {
+            const list = badge.closest('ul')!.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(badge);
+            const glyph = range.getBoundingClientRect();
+            return { left: glyph.left - list.left, right: list.right - glyph.right };
+          });
+        expect(badgeInset.left).toBeGreaterThanOrEqual(3);
+        expect(badgeInset.right).toBeGreaterThanOrEqual(3);
       }
       expect(fontRequests).toEqual([]);
     });
+
+test('small avatar initials retain an inset with platform fallback fonts', async ({ page }) => {
+  await page.goto('/#avatar');
+  for (const family of ['Arial, sans-serif', 'Verdana, sans-serif']) {
+    await page.locator('.tmt-ui-avatar').evaluateAll((nodes, font) => {
+      for (const node of nodes) (node as HTMLElement).style.fontFamily = font;
+    }, family);
+    expect(await textAtSurfaceEdge(page, '#avatar')).toEqual([]);
+  }
+});
