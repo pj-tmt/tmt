@@ -94,6 +94,18 @@ const light = (offset: number, opacity: number) =>
   `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
 const box = 'filterUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"';
 
+/**
+ * A paint-server id prefix that no element of the document uses yet: `base`, then `base-1`,
+ * `base-2`. Marks that share a prefix resolve `url(#…)` to the first paint server in the document,
+ * which can sit in a hidden subtree and paint nothing. `taken` asks the live document, so marks
+ * drawn by separate bundles do not collide either.
+ */
+export function freshMarkId(base: string, taken: (prefix: string) => boolean): string {
+  let id = base;
+  for (let count = 1; taken(id); count++) id = `${base}-${count}`;
+  return id;
+}
+
 /** The mark's children; `id` prefixes its paint servers, unique per document. */
 export function brandMarkInner(small: boolean, id: string): string {
   const shape = small ? SMALL : FULL;
