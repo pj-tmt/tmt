@@ -20,6 +20,7 @@ use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 mod edit;
 mod idle_alert;
+mod launch;
 mod rename;
 mod settings;
 mod sourced;

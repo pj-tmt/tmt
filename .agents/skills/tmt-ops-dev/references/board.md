@@ -80,6 +80,16 @@ square shared modal. Incidental frame cells remain Dim; receiving focus and
 selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
 are owned by the verification reference.
 
+`board/new_member` owns the `n` form on Agents rows and the launch-template
+editor reached from Settings. Held public inventory supplies defaults; the ordered
+lane loads Core's published host templates and Config, saves explicit per-host
+overrides, and executes one frozen argv only after review. UI input/paint never
+reads Core or locks Config. A template exit is not creation evidence: a new bound
+UUID must be publicly observed before the membership service joins the frozen room.
+Join failure still reports/selects the created Pool member with a repair command;
+uncertainty keeps the draft without retry, retirement or window closure. The shared
+`launch` owner validates/fills whole slots, leaving other script braces opaque.
+
 `board/member_session` owns the selected member's public host/session projection and
 Session dialog. It reuses the global identity inventory and typed activity. The target
 and resume-relevant observations fence a held confirmation; activity is read live

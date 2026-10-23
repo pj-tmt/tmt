@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { writeExecutable } from '../support/executable-fixture.mjs';
+import { assertPrivateSocket } from '../support/private-tmux.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -299,6 +301,119 @@ renameSync(output+'.tmp',output);
       expect(hostPaneSlots(fixture)).toEqual(before);
       expect(clientPlace(fixture)).toBe(caller);
       await closeHostActionBoard(fixture, panes.board);
+    });
+  });
+
+  it('creates one saved member through the public host template and joins the frozen squad', async () => {
+    await withE2EFixture(async (fixture) => {
+      installSquad(fixture);
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+      expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+      const before = durableState(fixture);
+      const socket = assertPrivateSocket(fixture.socketPath, fixture.socketRoot);
+      const shellWord = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
+      // The published script invokes tmux by name. Only this board inherits
+      // the scenario shim; every invocation is pinned to its asserted -S.
+      const shim = path.join(fixture.root, 'launch-bin');
+      fs.mkdirSync(shim);
+      writeExecutable(
+        path.join(shim, 'tmux'),
+        `#!/bin/sh\nunset TMUX TMUX_PANE\nexec ${shellWord(fixture.tmuxPath)} -S ${shellWord(socket)} "$@"\n`
+      );
+      const log = path.join(fixture.root, 'new-member-input');
+      writeExecutable(
+        path.join(shim, 'ops-new-peer'),
+        `#!/bin/sh\nprintf 'NEW_MEMBER_READY\\n'\nwhile IFS= read -r line; do printf '%s\\n' "$line" >> ${shellWord(log)}; printf 'NEW_MEMBER_REPLY:%s\\n' "$line"; done\n`
+      );
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('new-member-board');
+      fixture.tmux(['resize-window', '-t', shell.pane, '-x', '150', '-y', '43']);
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-l',
+        '-t',
+        shell.pane,
+        `PATH=${shellWord(shim)}:$PATH tmt ops ui; echo NEW_MEMBER_BOARD_EXIT=$?`,
+      ]);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Down', 'n']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('New member') && screen.includes('agent name'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'new-worker']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
+      fixture.tmux(['send-keys', '-l', '-t', shell.pane, path.join(shim, 'ops-new-peer')]);
+      // Model remains provider-default, Squad remains product, Host/session
+      // remain tmux/product, and Saved remains selected.
+      fixture.tmux(['send-keys', '-t', shell.pane, ...Array(7).fill('Tab')]);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('Will run') &&
+          screen.includes('new-worker') &&
+          screen.includes('ops-new-peer'),
+        shell.pane
+      );
+      expect(durableState(fixture)).toEqual(before);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('Create member') && screen.includes('Host launch argv'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
+      await fixture.waitForCapture((screen) => {
+        const position = screen.match(/Read · \d+–(\d+) of (\d+)/);
+        return !position || position[1] === position[2];
+      }, shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('Created new-worker in product.'),
+        shell.pane
+      );
+      const created = durableIdentity(fixture, 'new-worker');
+      expect(created.lifetime).toBe('saved');
+      expect(before.identities.some((row) => row.id === created.id)).toBe(false);
+      expect(
+        durableState(fixture).identities.filter((row) => row.name === 'new-worker')
+      ).toHaveLength(1);
+      const listing = expectJsonResult(await fixture.runJsonCli(['ls'])) as {
+        identities: Array<{
+          id: string;
+          pane?: string;
+          target?: string;
+          location?: { host: string; session?: string };
+        }>;
+      };
+      const row = listing.identities.find((entry) => entry.id === created.id)!;
+      expect(row.location).toMatchObject({ host: 'tmux', session: 'product' });
+      const member = fixture
+        .tmux(['list-panes', '-a', '-F', '#{pane_id}|#{session_name}'])
+        .trim()
+        .split('\n')
+        .find((line) => line.endsWith('|product'))!
+        .split('|')[0]!;
+      expect(fixture.tmux(['show-options', '-p', '-v', '-t', member, '@tmt.opened']).trim()).toBe(
+        '1'
+      );
+      await fixture.waitForCapture((screen) => screen.includes('NEW_MEMBER_READY'), member);
+      fixture.tmux(['send-keys', '-l', '-t', member, 'causal-new-member-4582']);
+      fixture.tmux(['send-keys', '-t', member, 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('NEW_MEMBER_REPLY:causal-new-member-4582'),
+        member
+      );
+      expect(fs.readFileSync(log, 'utf8')).toBe('causal-new-member-4582\n');
+      const squad = expectJsonResult(await squadCli(fixture, ['ls', '--squad', 'product'])) as {
+        members: Array<{ id: string }>;
+      };
+      expect(squad.members.some((entry) => entry.id === created.id)).toBe(true);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', 'q']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('NEW_MEMBER_BOARD_EXIT=0'),
+        shell.pane
+      );
     });
   });
 

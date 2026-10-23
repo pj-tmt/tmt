@@ -459,25 +459,15 @@ impl Draft {
         .into()
     }
 }
-/// Display/copy only: each word is literal, never passed to a shell by Ops.
-fn shell_word(word: &str) -> String {
-    if !word.is_empty()
-        && word
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&byte))
-    {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', "'\\''"))
-    }
-}
 fn command_line(words: &[&str]) -> String {
-    words
-        .iter()
-        .map(|word| shell_word(word))
-        .collect::<Vec<_>>()
-        .join(" ")
+    crate::launch::line(
+        &words
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect::<Vec<_>>(),
+    )
 }
+
 fn room(app: &App, id: &str) -> Option<RoomTarget> {
     let snapshot = app.workspace_snapshot()?;
     snapshot.roster.squads.iter().find(|squad| {
